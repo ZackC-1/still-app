@@ -25,12 +25,18 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `gecko.id` | `still@chartash.com` — permanent identifier, not a contact mailbox |
 | `gecko.strict_min_version` | `140.0` |
 | `gecko.data_collection_permissions` | `required: ["authenticationInfo"]` |
-| `gecko_android` | Omitted; desktop-only support |
+| `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; V3 builds only |
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
-there is no purchase requirement. Do not add Android compatibility or change the stable identifier
-as metadata housekeeping.
+there is no purchase requirement. Do not lower the Android floor or change the stable identifier
+as metadata housekeeping. When uploading the first version with `gecko_android`, confirm AMO lists
+it as compatible with Firefox for Android.
+
+`gecko_android` is added only when the build runs the V3 interface: an unconfigured build, or a
+configured build with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` (the same rule as the runtime's
+`atomicLocal`). A configured 2.x build is never listed for Android; check the built
+`manifest.json` before upload.
 
 ## Complete source reproduction
 
@@ -60,9 +66,10 @@ record source/package hashes together; ZIP timestamp differences are not payload
 Use [current listing copy](store-listing-copy.md#firefox-add-ons),
 [public contacts](public-contact-addresses.md) and the
 [current screenshot order/captions](screenshots/store-ready/README.md#firefox-add-ons-amo).
-Set no payment required. Describe desktop Firefox plus optional free sync with separate desktop
-Chrome and Safari installations on Mac/iPhone/iPad. Mobile support means Safari websites, not
-Firefox mobile or native social apps.
+Set no payment required. Describe desktop Firefox and Firefox on Android plus optional free sync
+with separate desktop Chrome and Safari installations on Mac/iPhone/iPad. State mobile support as
+"Works in Safari on iPhone and iPad, and in Firefox on Android." Native social apps are not
+supported.
 
 Disclose optional account authentication/settings and actual website access consistently with the
 manifest and [privacy policy](https://stillapp.fit/privacy/). Do not claim free users make no

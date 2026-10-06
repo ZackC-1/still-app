@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     App,
@@ -9,6 +10,10 @@
     type CommittedPopupToggle,
     type LegacyPopupAuthority,
   } from "@still/core/ui";
+  import {
+    popupPresentationLoader,
+    type RuntimePlatform,
+  } from "../../lib/runtime-platform.js";
 
   interface Props {
     controller: UiController;
@@ -20,6 +25,8 @@
      * purchase spine — the paywall then renders its explanatory state with no live buttons. */
     onRestore?: () => void;
     surfaceGuidance: SurfaceGuidance;
+    /** The browser's own platform answer (lib/runtime-platform.ts). Absent means desktop. */
+    platform?: Promise<RuntimePlatform>;
   }
   let {
     controller,
@@ -29,15 +36,26 @@
     onCommittedPopupToggle,
     onRestore,
     surfaceGuidance,
+    platform = Promise.resolve("desktop"),
   }: Props = $props();
 
   // Keep V3 global styles out of shared default/native/options build graphs.
-  // The sync invitation wrapper loads only where V3 shows it; the inline build-time check can only
-  // narrow to legacy, so configured store-style builds keep the plain loader byte for byte.
+  // The sync invitation wrapper loads only where V3 shows it, and Firefox for Android (V3 builds
+  // only, like its listing) gets the phone presentation, chosen by the browser's platform answer and
+  // never by width; the build flag keeps that presentation out of the Chromium bundle. The inline
+  // build-time check can only narrow to legacy, so configured store-style builds keep the plain
+  // loader byte for byte.
   const loadDesktop =
     !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
-      ? () => import("./InvitedDesktopPopup.svelte")
+      ? untrack(() =>
+          popupPresentationLoader(browser === "Firefox", platform, {
+            desktop: () => import("./InvitedDesktopPopup.svelte"),
+            firefoxAndroid: import.meta.env.FIREFOX
+              ? () => import("./FirefoxAndroidPopup.svelte")
+              : () => import("./InvitedDesktopPopup.svelte"),
+          }),
+        )
       : () => import("../../../core/src/ui/v3/DesktopPopup.svelte");
 
   function openOptions(): void {

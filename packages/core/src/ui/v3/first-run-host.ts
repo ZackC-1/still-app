@@ -51,6 +51,9 @@ export interface FirstRunHostObservations {
   } | null;
   /** Chrome's own pinned report, or null where the browser cannot tell (Firefox, older Chrome). */
   readonly pinned: boolean | null;
+  /** False only where the browser itself reports a platform with no toolbar to pin Still to
+   * (Firefox for Android). The pin step is then left out, not reworded. Absent means true. */
+  readonly toolbar?: boolean;
   /** The account the background session reports, or null when signed out or unknown. */
   readonly account: { readonly userId: string; readonly email: string | null } | null;
   /** The existing optional sign-in, when this build has one and nobody is signed in. */
@@ -90,11 +93,15 @@ export function firstRunHostProps(host: FirstRunHostObservations): FirstRunHostP
       verified && siteAccess !== "granted"
         ? { verified: true, text: FIRST_RUN_SETUP_DESCRIPTION }
         : undefined,
-    pin: {
-      pinned: browser === "chrome" && host.pinned === true,
-      verified: browser === "chrome" && host.pinned !== null,
-      guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE[browser] },
-    },
+    ...(host.toolbar === false
+      ? {}
+      : {
+          pin: {
+            pinned: browser === "chrome" && host.pinned === true,
+            verified: browser === "chrome" && host.pinned !== null,
+            guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE[browser] },
+          },
+        }),
     sync: signedIn
       ? { account: { address, confirmed: true } }
       : { onSignIn: host.account === null ? host.onSignIn : undefined },

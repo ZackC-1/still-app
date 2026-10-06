@@ -511,6 +511,13 @@ const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
   facebook: FACEBOOK_EXTRAS.routes,
 });
 
+/** Still Pro features a packaged content handler implements, per service (never rule data). */
+const PACKAGED_EXTRAS_HANDLERS: Readonly<Partial<Record<ServiceId, readonly BenefitId[]>>> = Object.freeze({
+  youtube: YOUTUBE_EXTRAS.handlers ?? [],
+  instagram: INSTAGRAM_EXTRAS.handlers ?? [],
+  facebook: FACEBOOK_EXTRAS.handlers ?? [],
+});
+
 /**
  * Test-only seam: a format-2 session over synthetic extras routes, for the dormancy and loop
  * tests. No shipped module imports it (a static test checks), so bundlers drop it and a shipped
@@ -564,7 +571,10 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
     }
     css.set(id as ServiceId, rules);
     const routeOnly = (extrasRoutes[id as ServiceId] ?? []).map(route => route.feature).filter(feature => !plan.has(feature));
-    candidates.set(id as ServiceId, [...new Set([...plan.keys(), ...routeOnly])]);
+    // Features a packaged content handler implements: candidates like route-only features, so
+    // effectiveFeatures() reports them under the same gate; they own no CSS or route.
+    const handlerOnly = PACKAGED_EXTRAS_HANDLERS[id as ServiceId] ?? [];
+    candidates.set(id as ServiceId, [...new Set([...plan.keys(), ...routeOnly, ...handlerOnly])]);
   }
   const defaultAccess = initialAccessSnapshot();
   let stopped = false, serviceResolutions = 0, rootWrites = 0;

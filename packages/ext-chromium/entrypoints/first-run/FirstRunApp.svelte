@@ -32,6 +32,7 @@
     permissions,
     origins,
     action,
+    toolbar = true,
     onOpenSettings,
     onOpenPrivacy,
   }: {
@@ -45,6 +46,8 @@
     origins: readonly string[];
     /** Chrome's action API for the pinned report; Firefox passes nothing. */
     action?: PinApi;
+    /** False in Firefox for Android (the browser's own platform answer): no toolbar, no pin step. */
+    toolbar?: boolean;
     onOpenSettings?: () => void;
     onOpenPrivacy?: () => void;
   } = $props();
@@ -105,6 +108,7 @@
       requestSiteAccess,
       choices,
       pinned,
+      toolbar,
       account: c.userId ? { userId: c.userId, email: c.accountEmail } : null,
       onSignIn: c.canSignIn ? () => c.openSignIn() : undefined,
       onOpenSettings,

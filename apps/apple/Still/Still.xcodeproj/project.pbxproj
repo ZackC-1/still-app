@@ -16,6 +16,8 @@
 		14DE45952FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE45942FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		14DE459F2FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE459E2FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
+		C3A1B2C3D4E5F60718293A02 /* RatingPromptPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A1B2C3D4E5F60718293A01 /* RatingPromptPresenter.swift */; };
+		C3A1B2C3D4E5F60718293A03 /* RatingPromptPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A1B2C3D4E5F60718293A01 /* RatingPromptPresenter.swift */; };
 		14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
 		14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
 		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
@@ -23,6 +25,8 @@
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
 		3A6F2C9D8E1B4A7C5D0E9F22 /* AppStoreRestoreCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A6F2C9D8E1B4A7C5D0E9F21 /* AppStoreRestoreCheck.swift */; };
+		5A0C0A110000000000000003 /* QAHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C0A110000000000000001 /* QAHooks.swift */; };
+		5A0C0A110000000000000004 /* QAHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C0A110000000000000001 /* QAHooks.swift */; };
 		55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 3592688C450F87C68035FDE2 /* RevenueCat */; };
 		61EC96E55C1AFB022252F377 /* SignInWithApple.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */; };
 		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
@@ -94,6 +98,7 @@
 /* Begin PBXFileReference section */
 		0A6C60BC10977A15EE498382 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		14DE456E2FEC760A0056BB36 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		C3A1B2C3D4E5F60718293A01 /* RatingPromptPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingPromptPresenter.swift; sourceTree = "<group>"; };
 		14DE456F2FEC760B0056BB36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
 		14DE45762FEC760B0056BB36 /* Still.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Still.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -115,6 +120,7 @@
 		513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInWithApple.swift; sourceTree = "<group>"; };
 		5C0E5101000000000000A001 /* Still.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Still.storekit; sourceTree = "<group>"; };
 		67CDB89E135D61905E659535 /* PurchaseManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
+		5A0C0A110000000000000001 /* QAHooks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAHooks.swift; sourceTree = "<group>"; };
 		3A6F2C9D8E1B4A7C5D0E9F21 /* AppStoreRestoreCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppStoreRestoreCheck.swift; sourceTree = "<group>"; };
 		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
 		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
@@ -190,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				14DE456E2FEC760A0056BB36 /* ViewController.swift */,
+				C3A1B2C3D4E5F60718293A01 /* RatingPromptPresenter.swift */,
 				14DE456F2FEC760B0056BB36 /* Assets.xcassets */,
 				D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */,
 				14DE45682FEC760A0056BB36 /* Resources */,
@@ -197,6 +204,7 @@
 				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
 				FEA91D3A64E66EDB46B044CD /* Purchases */,
 				E413FDE090B14BC4E0986A46 /* Auth */,
+				5A0C0A110000000000000002 /* QA */,
 				27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */,
 			);
 			path = "Shared (App)";
@@ -294,6 +302,14 @@
 				513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */,
 			);
 			path = Auth;
+			sourceTree = "<group>";
+		};
+		5A0C0A110000000000000002 /* QA */ = {
+			isa = PBXGroup;
+			children = (
+				5A0C0A110000000000000001 /* QAHooks.swift */,
+			);
+			path = QA;
 			sourceTree = "<group>";
 		};
 		FEA91D3A64E66EDB46B044CD /* Purchases */ = {
@@ -508,7 +524,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\" \"${REPO}/packages/app-webview/dist/.env-state\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
 		};
 		363E50207F4EF8662ACF74FC /* Copy Still Web UI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -527,7 +543,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' --exclude='.env-state' \"${SRC}/\" \"${DEST}/\"\n";
 		};
 		7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -546,7 +562,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' --exclude='.env-state' \"${SRC}/\" \"${DEST}/\"\n";
 		};
 		DC102694116D440915AA842D /* Copy Safari Web Extension Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -565,7 +581,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\" \"${REPO}/packages/app-webview/dist/.env-state\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -575,6 +591,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */,
+				C3A1B2C3D4E5F60718293A02 /* RatingPromptPresenter.swift in Sources */,
 				14DE457A2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
 				14DE457C2FEC760B0056BB36 /* SceneDelegate.swift in Sources */,
 				A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */,
@@ -582,6 +599,7 @@
 				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
 				529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */,
 				3A6F2C9D8E1B4A7C5D0E9F22 /* AppStoreRestoreCheck.swift in Sources */,
+				5A0C0A110000000000000003 /* QAHooks.swift in Sources */,
 				6E9A1E93A1E73116294C0B9C /* SignInWithApple.swift in Sources */,
 				EF90A77143253D4C0DD9BB99 /* WebBridgeRouter.swift in Sources */,
 			);
@@ -592,12 +610,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */,
+				C3A1B2C3D4E5F60718293A03 /* RatingPromptPresenter.swift in Sources */,
 				14DE458B2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
 				AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */,
 				F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */,
 				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
 				CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */,
 				3A6F2C9D8E1B4A7C5D0E9F23 /* AppStoreRestoreCheck.swift in Sources */,
+				5A0C0A110000000000000004 /* QAHooks.swift in Sources */,
 				61EC96E55C1AFB022252F377 /* SignInWithApple.swift in Sources */,
 				E6B292C152FDCFC6E068A81D /* WebBridgeRouter.swift in Sources */,
 			);

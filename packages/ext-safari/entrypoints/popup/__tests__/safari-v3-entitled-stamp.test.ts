@@ -26,7 +26,7 @@ vi.mock("svelte", async (importOriginal) => {
   };
 });
 
-const ENV = { atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined };
+const ENV = { atomicSettingsFlag: "true", modernSyncFlag: undefined, supabaseUrl: undefined, supabaseAnonKey: undefined };
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const text = () => document.body.textContent ?? "";
 const EXTENSION_PAGE = "safari-web-extension://still/page.html";
