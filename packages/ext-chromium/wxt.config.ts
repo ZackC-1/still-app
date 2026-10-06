@@ -50,6 +50,18 @@ export function firefoxSettingsFor(env: ManifestBuildEnv) {
     : firefoxBrowserSpecificSettings;
 }
 
+/** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
+export const FIREFOX_2X_DESCRIPTION =
+  "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
+/** The V3 Firefox summary, with the owner-approved Firefox on Android wording. */
+export const FIREFOX_V3_DESCRIPTION =
+  "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.";
+
+/** The Firefox summary follows the same rule as `gecko_android`: Android is named only where listed. */
+export function firefoxDescriptionFor(env: ManifestBuildEnv): string {
+  return runsV3Interface(env) ? FIREFOX_V3_DESCRIPTION : FIREFOX_2X_DESCRIPTION;
+}
+
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
 // Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
 // (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
@@ -70,7 +82,7 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
     name: "Still: Remove Shorts & Reels, Stop Scrolling",
     description: isFirefox
-      ? "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android."
+      ? firefoxDescriptionFor(env)
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
     permissions: [
       "storage",

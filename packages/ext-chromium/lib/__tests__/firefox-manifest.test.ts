@@ -58,6 +58,18 @@ describe("Firefox manifest compatibility", () => {
     );
   });
 
+  it("names Firefox on Android in the summary only for builds listed for Android", () => {
+    // The 2.x store summary, byte-for-byte as it shipped before Firefox for Android.
+    const shipped2x =
+      "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
+    expect(stillManifest("firefox", CONFIGURED_2X).description).toBe(shipped2x);
+    expect(stillManifest("firefox", CONFIGURED_2X).description).not.toContain("Android");
+    for (const env of [UNCONFIGURED, CONFIGURED_V3])
+      expect(stillManifest("firefox", env).description).toBe(
+        "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.",
+      );
+  });
+
   it("decides V3 exactly as the runtime and the TikTok blocked-page gate do", () => {
     for (const env of [
       UNCONFIGURED,
@@ -137,6 +149,7 @@ describe("Firefox manifest compatibility", () => {
     // over 132; AMO shows at most 250 characters of summary.
     for (const browser of ["chrome", "firefox"]) expect(stillManifest(browser).name.length).toBeLessThanOrEqual(45);
     expect(stillManifest("chrome").description.length).toBeLessThanOrEqual(132);
-    expect(stillManifest("firefox").description.length).toBeLessThanOrEqual(250);
+    for (const env of [UNCONFIGURED, CONFIGURED_2X, CONFIGURED_V3])
+      expect(stillManifest("firefox", env).description.length).toBeLessThanOrEqual(250);
   });
 });
