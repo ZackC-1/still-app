@@ -26,7 +26,8 @@
 export const ANON_INDEX_LIMIT = 255;
 export const ANALYTICS_EPOCH = 0;
 
-const encoder = new TextEncoder();
+// Marked pure so bundles that import the analytics barrel without deriving anything drop it.
+const encoder = /* @__PURE__ */ new TextEncoder();
 const ORIGIN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function originBytes(origin: string): Uint8Array {
