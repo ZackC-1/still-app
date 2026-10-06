@@ -5,7 +5,7 @@ import {
   type SignedRuleSet,
   type SignedRuleSetV2,
 } from "@still/shared-types";
-import { initialAccessSnapshot } from "../entitlement/access-policy.js";
+import { initialAccessSnapshot, packagedAccessContext } from "../entitlement/access-policy.js";
 import { createEnginePageSession } from "../rules/engine.js";
 import type { ReadableArea } from "../rules/index.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../rules/packaged.js";
@@ -162,6 +162,11 @@ export interface EarlyFormat2CoreRedirectDeps {
   readonly cache: SettingsCache;
   readonly classify: (url: URL) => string | null;
   readonly redirectDedupe: RedirectDedupe;
+  /**
+   * This host's packaged access context (as createShippingContentEntry's early Shorts path uses):
+   * the snapshot and capabilities the early decision evaluates with. Absent, the host-less default.
+   */
+  readonly accessContext?: ReturnType<typeof packagedAccessContext>;
 }
 
 /**
@@ -178,7 +183,11 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<typeof session.evaluate>;
   try {
-    decision = session.evaluate(deps.cache.current(), url, { access: initialAccessSnapshot() });
+    const context = deps.accessContext ?? packagedAccessContext();
+    decision = session.evaluate(deps.cache.current(), url, {
+      access: initialAccessSnapshot(context),
+      capabilities: context.supported,
+    });
   } finally {
     session.stop?.();
   }
@@ -359,6 +368,7 @@ export function createModernShippingContentEntry(
               cache,
               classify,
               redirectDedupe,
+              accessContext: packagedAccessContext(deps.host, deps.platform),
             });
           if (!isShortsHref(href)) return "declined";
           // Unchanged legacy behaviour: the seed engine's own early Shorts redirect.

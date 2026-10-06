@@ -30,6 +30,8 @@ vi.mock("../../entitlement/access-policy.js", async (importOriginal) => {
 
 const { createExtensionContentEntry, createShippingContentEntry } = await import("../extension-entry.js");
 const { createModernShippingContentEntry } = await import("../modern-shipping-entry.js");
+const { createFormat2EntryHost } = await import("./format2-entry-host.js");
+const { PACKAGED_RULE_SET_V2 } = await import("../../rules/packaged.js");
 
 const FREE = ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"];
 const started = new Set<ContentScriptHandle>();
@@ -121,7 +123,8 @@ describe("content entry host capabilities", () => {
   });
 
   // U7-W3: the V3 entry (Firefox and Safari V3 builds) mirrors the shipping entry's lane choice and
-  // must forward the host the same way, including on a Safari page that has the pending cover.
+  // must resolve every access context for its host, including on a Safari page with the pending
+  // cover and in its early core-route redirect.
   it.each([
     ["firefox", false, "https://www.youtube.com/watch?v=x"],
     ["safari", true, "https://www.youtube.com/watch?v=x"],
@@ -134,8 +137,34 @@ describe("content entry host capabilities", () => {
       onScriptCreated: (script) => started.add(script),
     })();
     expect(seen.deps).toHaveLength(1);
-    const call = seen.calls.find((entry) => entry.result === seen.deps[0]!.capabilities);
-    expect(call!.input).toEqual({ paidMode: PAID_TIER_ENABLED, host });
+    const call = seen.calls.find((entry) => entry.result.supported === seen.deps[0]!.capabilities);
+    expect([call!.host, call!.platform]).toEqual([host, undefined]);
     expect([...seen.deps[0]!.capabilities!].sort()).toEqual(FREE);
+    expect(seen.deps[0]!.entitlement!.currentAccessSnapshot()).toEqual(initialAccessSnapshot(call!.result));
   });
+
+  it.each([
+    ["firefox", undefined, "youtube.html", "https://www.youtube.com/shorts/abc", "https://www.youtube.com/watch?v=abc"],
+    ["safari", undefined, "instagram-home.html", "https://www.instagram.com/reels/", "https://www.instagram.com/"],
+    ["firefox", "android", "facebook.html", "https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
+  ] as const)("the V3 entry's early core-route redirect resolves its access for the %s host (platform %s)",
+    async (host, platform, file, href, destination) => {
+      // Saved schema-2 settings, so the page takes the format-2 lane and its early decision.
+      const scripts: ContentScriptHandle[] = [];
+      const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, file, href, scripts);
+      const area = (globalThis as unknown as { chrome: { storage: { local: typeof storage } } }).chrome.storage.local;
+      seen.calls.length = 0;
+      await createModernShippingContentEntry({
+        host, platform, pendingCover: host === "safari", storage: area, prod: false, earlyRedirect: true,
+        win: h.win, doc: document,
+        onScriptCreated: (script) => { started.add(script); scripts.push(script); },
+      })();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(h.replace).toHaveBeenCalledWith(destination);
+      // The early decision, the entitlement seed and the engine: all resolved for this host.
+      expect(seen.calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of seen.calls) expect([call.host, call.platform]).toEqual([host, platform]);
+      document.documentElement.className = "";
+      document.body.innerHTML = "";
+    });
 });
