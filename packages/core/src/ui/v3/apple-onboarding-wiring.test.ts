@@ -571,3 +571,30 @@ describe("entry wiring", () => {
     expect(wiring).not.toMatch(/purposes\s*:/);
   });
 });
+
+// VD-10: D12 is a full-screen layout (content centred, Continue anchored at the bottom).
+// `.ob { min-height: 100% }` needs a parent of definite height, which html > body > #app never is
+// (`min-block-size: 100%` gives body and #app no definite height), so the step sat at the top.
+// The app host supplies the screen height around the step instead.
+describe("D12 fills the web view", () => {
+  it("mounts each step inside the host's full-height viewport", async () => {
+    const app = fakeAppleHost({ presenter: "web" });
+    const { target } = await launch(app.bridge);
+    const step = target.querySelector("main.ob");
+    expect(step).not.toBeNull();
+    expect(step!.parentElement?.classList.contains("onboarding-viewport")).toBe(true);
+  });
+
+  it("gives that viewport the screen height and lets the step grow into it", () => {
+    const host = readFileSync(resolve(APP_WEBVIEW, "AppleOnboardingHost.svelte"), "utf8");
+    const style = host
+      .slice(host.indexOf("<style>"), host.indexOf("</style>"))
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const viewport = /\.onboarding-viewport\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+    expect(viewport).toMatch(/display:\s*flex;/);
+    expect(viewport).toMatch(/flex-direction:\s*column;/);
+    // 100vh first as the fallback, then the dynamic viewport height where WebKit supports it.
+    expect(viewport).toMatch(/min-block-size:\s*100vh;\s*min-block-size:\s*100dvh;/);
+    expect(style).toMatch(/\.onboarding-viewport\s*>\s*:global\(\.ob\)\s*\{\s*flex:\s*1 0 auto;\s*\}/);
+  });
+});

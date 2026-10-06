@@ -7,6 +7,25 @@ import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
 
+/**
+ * Owner decision 41: a locked row opens the Still Pro sheet; only the sheet's own explicit
+ * "Get Still Pro" reaches a purchase or sign-in port. The sheet is closed again with its X.
+ */
+async function requestThroughLock(feature = "Comments") {
+  const row = screen.queryByRole("button", {
+    name: "Still Pro",
+    description: feature,
+  });
+  if (!row) return;
+  await fireEvent.click(row);
+  const sheet = screen.queryByRole("dialog", { name: "Still Pro" });
+  if (!sheet) return;
+  const buy = within(sheet).queryByRole("button", { name: "Get Still Pro" });
+  if (buy) await fireEvent.click(buy);
+  await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog", { name: "Still Pro" })).toBeNull();
+}
+
 describe("controlled D03 extension settings", () => {
   it("invalidates deletion when only the account address changes with the same handler", async () => {
     const { props } = await fixture();
@@ -103,10 +122,7 @@ describe("controlled D03 extension settings", () => {
       const requestBoth = async () => {
         const card = screen.queryByRole("button", { name: "Get Still Pro" });
         if (card) await fireEvent.click(card);
-        const row = screen.queryByRole("button", {
-          name: "Comments. Included in Still Pro. See Still Pro",
-        });
-        if (row) await fireEvent.click(row);
+        await requestThroughLock();
       };
       await requestBoth();
       expect(confirmed ? buy : signIn).toHaveBeenCalledTimes(2);
@@ -881,10 +897,6 @@ describe("controlled D03 extension settings", () => {
     };
     props.sync.account = { address: "fixture@still.test", confirmed: true };
     const view = render(ExtensionSettings, { props });
-    const rowAction = () =>
-      screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
-      });
     const requestBoth = async () => {
       const card = screen.queryByRole("button", { name: "Get Still Pro" });
       if (card) await fireEvent.click(card);
@@ -892,7 +904,13 @@ describe("controlled D03 extension settings", () => {
         name: "Waiting for checkout…",
       });
       if (pending) await fireEvent.click(pending);
-      await fireEvent.click(rowAction());
+      expect(
+        screen.getByRole("button", {
+          name: "Still Pro",
+          description: "Comments",
+        }),
+      ).toBeInTheDocument();
+      await requestThroughLock();
     };
     await requestBoth();
     expect(buy).toHaveBeenCalledTimes(2);

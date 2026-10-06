@@ -6,6 +6,12 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts$/,
+  // Two projects over the same folder. "lane" is the CI-gating scenarios (pnpm test:firefox); "qa" is
+  // the opt-in QA journeys (pnpm test:firefox:qa), which are slower and not part of that job.
+  projects: [
+    { name: "lane", testIgnore: /[\\/]qa-[^\\/]*\.spec\.ts$/ },
+    { name: "qa", testMatch: /[\\/]qa-[^\\/]*\.spec\.ts$/ },
+  ],
   fullyParallel: false,
   workers: 1,
   retries: 0,

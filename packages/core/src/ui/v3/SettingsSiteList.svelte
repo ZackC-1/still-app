@@ -121,7 +121,6 @@
                     if (!commandsDisabled) onFeatureChange(row.id, next);
                   }}
                   onLock={onProAction}
-                  lockLabel={`${label}. Included in Still Pro. See Still Pro`}
                 />
               {/each}
             </div>
