@@ -314,6 +314,9 @@ interface Confirmation {
   readonly options: ConfirmOptions;
   /** `holds` when this was asked: a hold that came later is never released by it. */
   readonly holds: number;
+  /** What waited under the hold was already dropped (or kept for its owner) and attributed, and only
+   * releasing the stored hold is still owed: a retry must not drop again what was recorded since. */
+  readonly releaseOwed?: boolean;
 }
 
 export interface ConfirmOptions {
@@ -528,7 +531,7 @@ export class AnalyticsClient {
   /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
   private async establish(retrying = false): Promise<void> {
     if (!this.pending) return;
-    const { account, options, holds } = this.pending;
+    const { account, options, holds, releaseOwed } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
     // Letting go to nobody after someone was signed in here, with no hold: what waits was recorded
     // with no hold (a restart whose session could not be read yet), possibly that person's use. An
@@ -556,9 +559,16 @@ export class AnalyticsClient {
     // other identity drops it first.
     const owner =
       account !== null && options.accountId !== undefined ? await this.holdTagOf(options.accountId) : null;
-    if (!(await this.dropHeld(owner))) return;
+    if (!releaseOwed && !(await this.dropHeld(owner))) return;
     if (!(await this.attributeWaiting())) return;
-    if (holds === this.holds) await this.releaseHold();
+    // The stored hold must be gone before this counts as confirmed: a hold left in storage would drop
+    // use recorded later (after a restart, as if it were the held account's). When storage refuses
+    // the release, the ask stays pending (nothing is confirmed or sent) and the next flush retries
+    // only the release; what waits meanwhile is attributed then, never dropped.
+    if (holds === this.holds && !(await this.releaseHold())) {
+      if (this.pending) this.pending = { ...this.pending, releaseOwed: true };
+      return;
+    }
     this.pending = null;
     this.confirmed = true;
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
@@ -676,12 +686,16 @@ export class AnalyticsClient {
     return false;
   }
 
-  /** A confirmation succeeded: what waited was attributed to it, so nothing is held any more. */
-  private async releaseHold(): Promise<void> {
+  /** A confirmation succeeded: what waited was attributed to it, so nothing is held any more. True
+   * only when storage reads back with no hold. */
+  private async releaseHold(): Promise<boolean> {
     this.heldAccount = null;
     this.heldTag = null;
     const state = await this.read();
-    if (state && state.heldFor !== null) await this.write({ ...state, heldFor: null });
+    if (!state) return false;
+    if (state.heldFor === null) return true;
+    await this.write({ ...state, heldFor: null });
+    return (await this.read())?.heldFor === null;
   }
 
   /**
