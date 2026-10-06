@@ -75,11 +75,13 @@ async function installBrowser(atomic = true) {
     ) => void
   >();
   const origin = "chrome-extension://synthetic/";
+  // U3-W3: change events can be withheld so recovery cannot depend on their delivery.
+  let changeEvents = true;
   const set = async (items: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(items)) {
       const oldValue = store[key];
       store[key] = structuredClone(value);
-      for (const listener of [...listeners])
+      if (changeEvents) for (const listener of [...listeners])
         listener(
           { [key]: { oldValue, newValue: structuredClone(value) } },
           "local",
@@ -129,6 +131,25 @@ async function installBrowser(atomic = true) {
         checkoutPending: null,
       });
     if (message.action === "getSyncStatus") return Promise.resolve(null);
+    if (lostReply && message.kind === "still:settings-intent") {
+      // The worker is terminated before it replies: Chrome rejects the page's call, and the
+      // reply below is never delivered. "after-write" lets the real router commit first.
+      const plan = lostReply;
+      lostReply = null;
+      return (async () => {
+        if (plan.when === "after-write") {
+          const persisted = new Promise<void>((resolve) => {
+            afterWrite = resolve;
+          });
+          router(message, { id: "synthetic", url: origin + "popup.html" }, () => {});
+          await persisted;
+          await plan.between?.();
+        }
+        throw new Error(
+          "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received",
+        );
+      })();
+    }
     return new Promise<unknown>((resolve) => {
       router(message, { id: "synthetic", url: origin + "popup.html" }, resolve);
     });
@@ -165,7 +186,17 @@ async function installBrowser(atomic = true) {
     tabs: { create: async () => ({ id: 1 }) },
   });
   const authority = new ChromeStorageAdapter({ authority: true });
-  let commit = (intent: SettingsIntent) => authority.commitIntent(intent);
+  let lostReply: {
+    when: "before-write" | "after-write";
+    between?: () => Promise<void>;
+  } | null = null;
+  let afterWrite: (() => void) | null = null;
+  let commit = async (intent: SettingsIntent) => {
+    const record = await authority.commitIntent(intent);
+    afterWrite?.();
+    afterWrite = null;
+    return record;
+  };
   const router = createSettingsIntentRouter(
     (intent) => commit(intent),
     "synthetic",
@@ -183,6 +214,12 @@ async function installBrowser(atomic = true) {
     openOptionsPage,
     port(next: typeof commit) {
       commit = next;
+    },
+    loseNextIntentReply(plan: NonNullable<typeof lostReply>) {
+      lostReply = plan;
+    },
+    withholdChangeEvents() {
+      changeEvents = false;
     },
   };
 }
@@ -587,5 +624,113 @@ describe("actual Chromium popup mount", () => {
       expect((await f.authority.get())!.settings.globalOn).toBe(false),
     );
     expect(controller.usageSharing).toBe(false);
+  });
+});
+
+// U3-W3: the background worker is terminated between a deliberate choice and its reply. Change
+// events are withheld, so the screen must recover by reading the stored record, not by luck.
+describe("Chromium popup when the worker dies before replying", () => {
+  type Saved = {
+    settings: { globalOn: boolean };
+    atomic: {
+      sequence: number;
+      pending: { operations: { value: boolean; localStep: number }[] }[];
+    };
+  };
+  async function mountMain(tag: string) {
+    const f = await installBrowser();
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
+    document.body.innerHTML = '<div id="app"></div>';
+    const main = `../main.js?${tag}`;
+    await import(/* @vite-ignore */ main);
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
+    );
+    const saved = () => f.store["still:settings"] as Saved;
+    return {
+      f,
+      saved,
+      before: structuredClone(saved()),
+      checked: () =>
+        screen.getByRole("switch", { name: "Still" }).getAttribute("aria-checked"),
+      intents: () =>
+        f.messages.filter((message) => message.kind === "still:settings-intent"),
+      reported: () =>
+        f.messages.filter(
+          (message) =>
+            message.action === "track" &&
+            ["global_toggled", "service_toggled"].includes(String(message.name)),
+        ),
+    };
+  }
+
+  it("after the durable write: shows the saved choice from storage, reports nothing and never resends", async () => {
+    const m = await mountMain("lost-after-write");
+    m.f.withholdChangeEvents();
+    m.f.loseNextIntentReply({ when: "after-write" });
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
+    await waitFor(() => expect(m.checked()).toBe("false"));
+    expect(m.saved().settings.globalOn).toBe(false);
+    expect(m.saved().atomic.sequence).toBe(m.before.atomic.sequence + 1);
+    expect(m.saved().atomic.pending).toHaveLength(1);
+    expect(m.intents()).toHaveLength(1);
+    expect(m.reported()).toEqual([]);
+    // Settings stay usable: the next deliberate choice commits and is reported once.
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
+    await waitFor(() => expect(m.reported()).toHaveLength(1));
+    expect(m.checked()).toBe("true");
+    expect(m.saved().atomic.pending).toHaveLength(2);
+    expect(m.intents()).toHaveLength(2);
+  });
+
+  it("before the write: nothing is saved, nothing is claimed, and the switch works again", async () => {
+    const m = await mountMain("lost-before-write");
+    m.f.withholdChangeEvents();
+    m.f.loseNextIntentReply({ when: "before-write" });
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
+    await waitFor(() => expect(m.intents()).toHaveLength(1));
+    for (let i = 0; i < 5; i += 1) await flush();
+    expect(m.saved()).toEqual(m.before);
+    expect(m.checked()).toBe("true");
+    expect(m.reported()).toEqual([]);
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
+    await waitFor(() => expect(m.reported()).toHaveLength(1));
+    expect(m.saved().settings.globalOn).toBe(false);
+    expect(m.checked()).toBe("false");
+    expect(m.intents()).toHaveLength(2);
+  });
+
+  it("a newer choice saved before recovery is shown and kept; the lost choice is not replayed", async () => {
+    const m = await mountMain("lost-then-newer");
+    const service = (name: string) =>
+      screen.getByRole("switch", { name }).getAttribute("aria-checked");
+    expect(service("Still on Instagram")).toBe("true");
+    expect(service("Still on YouTube")).toBe("true");
+    m.f.withholdChangeEvents();
+    m.f.loseNextIntentReply({
+      when: "after-write",
+      // Another extension page saves a different field after the lost Instagram Off was saved.
+      between: async () => {
+        await m.f.authority.commitIntent({ path: "services.youtube", value: false, updatedAt: 500 });
+      },
+    });
+    await fireEvent.click(screen.getByRole("switch", { name: "Still on Instagram" }));
+    // Change events are withheld: only the recovery read can show either saved choice.
+    await waitFor(() => expect(service("Still on YouTube")).toBe("false"));
+    expect(service("Still on Instagram")).toBe("false");
+    const saved = m.f.store["still:settings"] as {
+      settings: { services: { instagram: boolean; youtube: boolean } };
+      atomic: { sequence: number; pending: { operations: { path: string; value: boolean }[] }[] };
+    };
+    expect(saved.settings.services).toMatchObject({ instagram: false, youtube: false });
+    expect(saved.atomic.sequence).toBe(m.before.atomic.sequence + 2);
+    expect(saved.atomic.pending.map((p) => p.operations[0])).toEqual([
+      expect.objectContaining({ path: "services.instagram", value: false }),
+      expect.objectContaining({ path: "services.youtube", value: false }),
+    ]);
+    expect(m.intents()).toHaveLength(1);
+    expect(m.reported()).toEqual([]);
   });
 });

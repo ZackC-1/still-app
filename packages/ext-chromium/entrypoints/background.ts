@@ -30,6 +30,12 @@ import {
 } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
+import {
+  chromeInvitationLedgerPort,
+  createInvitationHost,
+  declaredHostsGranted,
+  readAccountState,
+} from "../lib/invitation-background.js";
 import seed from "@still/core/seed";
 import { PAID_TIER_ENABLED, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
 import {
@@ -143,6 +149,24 @@ export default defineBackground(() => {
     : cache.hydrate();
   const spine = createSessionSpine(cache, entitlements, order, settingsRuntime);
   const session = spine?.session ?? null;
+  // Sync invitation ledger (U13-P2): every ledger transaction runs in this worker's serialized
+  // queue; popup and options only send messages. The inline build-time check can only narrow to
+  // legacy, so a configured store-style build drops this whole block and stays byte-identical.
+  if (
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+  ) {
+    const client = spine?.client;
+    const invitations = createInvitationHost({
+      port: chromeInvitationLedgerPort(order, chrome.storage.local),
+      setupFinished: () => declaredHostsGranted(chrome.permissions, chrome.runtime.getManifest()),
+      account: async () => (client ? readAccountState(client.auth) : "signed-out"),
+      signInAvailable: spine !== null,
+      now: Date.now,
+      newInstallationId: () => crypto.randomUUID(),
+    });
+    chrome.runtime.onMessage.addListener(invitations.listener(chrome.runtime.id, chrome.runtime.getURL("")));
+  }
   if (spine) {
     const accessAuth = new SupabaseAuthPort(spine.client);
     verifiedAccessSession = async () => (await accessAuth.currentSettingsSession()) ?? undefined;
@@ -175,10 +199,12 @@ export default defineBackground(() => {
     chrome.runtime.id,
     chrome.runtime.getURL(""),
   );
-  // Admission belongs only to this process's actual install event. A duplicate callback cannot
-  // replenish an exhausted budget, and a wake/update never inherits a persisted retry grant.
+  // Admission belongs only to this process's actual install or update event. A duplicate callback
+  // cannot replenish an exhausted budget, and a wake never inherits a persisted retry grant.
   let installAdmissionConsumed = false;
-  const initializeInstalledSettings = async (): Promise<void> => {
+  const initializeInstalledSettings = async (
+    initialize: () => Promise<unknown>,
+  ): Promise<void> => {
     const rereadInstalledSettings = async (): Promise<void> => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const outcome = await cache.rereadAuthority();
@@ -192,7 +218,7 @@ export default defineBackground(() => {
     let failure: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        await settingsAuthority.initializeFreshAtomic();
+        await initialize();
       } catch (error) {
         if (error instanceof SettingsStorageRecovery) throw error;
         failure = error;
@@ -217,8 +243,9 @@ export default defineBackground(() => {
           break;
         }
         if (!absent) throw failure;
-        // Parsed absence is not admission: the next SAMEwriter initializer checks all raw keys
-        // and observed history again. No new write is attempted while readback is ambiguous.
+        // Parsed absence is not admission: the next same-writer initializer re-checks absence
+        // (and, for an install, all raw keys and observed history) inside the writer queue. No
+        // new write is attempted while readback is ambiguous.
         continue;
       }
       // hydrate() is memoized. A failed readiness read must never repeat fresh persistence.
@@ -228,9 +255,17 @@ export default defineBackground(() => {
     throw failure;
   };
   chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === "install" && settingsRuntime.atomicLocal && !installAdmissionConsumed) {
+    // Owner decision 28: when nothing is saved yet, the first launch saves defaults. A new install
+    // saves the fresh defaults; an update from a 2.x that never saved a setting saves the defaults
+    // it was already using (unknown ownership, so an account still wins on sign-in). Neither ever
+    // replaces a retained record, and configured legacy builds keep today's behaviour.
+    if ((details.reason === "install" || details.reason === "update") && settingsRuntime.atomicLocal && !installAdmissionConsumed) {
       installAdmissionConsumed = true;
-      void initializeInstalledSettings().catch(heldInitialization);
+      void initializeInstalledSettings(
+        details.reason === "install"
+          ? () => settingsAuthority.initializeFreshAtomic()
+          : () => settingsAuthority.initializeUntouchedUpgradeAtomic(),
+      ).catch(heldInitialization);
     }
     analytics.onInstalled(details);
     // D14: a brand-new install opens the first-run page, after (never instead of) install-time

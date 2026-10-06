@@ -107,10 +107,13 @@ type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: 
  * its own entries together with the code that implements them; no feature is listed here before
  * its implementation ships. Listing a feature never activates it: see accessCapabilities.
  */
+// Instagram's four (rules/instagram-extras.ts) are compiled hide rules and content-script routes,
+// which every host's shared format-2 content engine runs the same way.
+const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"]);
 export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProFeatureId[]>> = Object.freeze({
-  chromium: Object.freeze([]),
-  firefox: Object.freeze([]),
-  safari: Object.freeze([]),
+  chromium: Object.freeze([...INSTAGRAM_PRO]),
+  firefox: Object.freeze([...INSTAGRAM_PRO]),
+  safari: Object.freeze([...INSTAGRAM_PRO]),
 });
 
 export interface AccessCapabilityInput {

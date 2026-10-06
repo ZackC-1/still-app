@@ -1,0 +1,6 @@
+{
+  "$comment": "The single source of truth for what version Still ships. Edit here, then run: node scripts/release/version.mjs sync. 'extension' feeds the Chrome and Firefox packages. 'apple' feeds the Apple apps and the Safari extension. 'appleBuild' is the App Store build number: it only ever goes up and is never reset, even when 'apple' changes. See docs/release/versioning-and-packages.md.",
+  "extension": "2.1.1",
+  "apple": "2.1.0",
+  "appleBuild": 9
+}

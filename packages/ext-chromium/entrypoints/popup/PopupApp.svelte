@@ -39,17 +39,24 @@
     platform = Promise.resolve("desktop"),
   }: Props = $props();
 
-  // Keep V3 global styles out of shared default/native/options build graphs. Firefox for Android
-  // gets the phone presentation, chosen by the browser's platform answer and never by width. The
-  // build flag keeps the phone presentation out of the Chromium bundle entirely.
-  const loadDesktop = untrack(() =>
-    popupPresentationLoader(browser === "Firefox", platform, {
-      desktop: () => import("../../../core/src/ui/v3/DesktopPopup.svelte"),
-      firefoxAndroid: import.meta.env.FIREFOX
-        ? () => import("./FirefoxAndroidPopup.svelte")
-        : () => import("../../../core/src/ui/v3/DesktopPopup.svelte"),
-    }),
-  );
+  // Keep V3 global styles out of shared default/native/options build graphs.
+  // The sync invitation wrapper loads only where V3 shows it, and Firefox for Android (V3 builds
+  // only, like its listing) gets the phone presentation, chosen by the browser's platform answer and
+  // never by width; the build flag keeps that presentation out of the Chromium bundle. The inline
+  // build-time check can only narrow to legacy, so configured store-style builds keep the plain
+  // loader byte for byte.
+  const loadDesktop =
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+      ? untrack(() =>
+          popupPresentationLoader(browser === "Firefox", platform, {
+            desktop: () => import("./InvitedDesktopPopup.svelte"),
+            firefoxAndroid: import.meta.env.FIREFOX
+              ? () => import("./FirefoxAndroidPopup.svelte")
+              : () => import("./InvitedDesktopPopup.svelte"),
+          }),
+        )
+      : () => import("../../../core/src/ui/v3/DesktopPopup.svelte");
 
   function openOptions(): void {
     chrome.runtime.openOptionsPage();

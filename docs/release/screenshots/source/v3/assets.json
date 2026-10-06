@@ -14,7 +14,10 @@
     "parentRadius": 8,
     "parentBackground": "#e9ebf2"
   },
-  "export": { "deviceScaleFactor": 1, "parentRadius": 0 },
+  "export": {
+    "deviceScaleFactor": 1,
+    "parentRadius": 0
+  },
   "frames": [
     {
       "id": "cws-1",
@@ -26,7 +29,10 @@
       "proAccess": "locked",
       "account": null,
       "reference": "d41-d43-d45-store-assets-and-icons/01-chrome-1-1280-800.png",
-      "origin": { "x": 334, "y": 210 }
+      "origin": {
+        "x": 334,
+        "y": 210
+      }
     },
     {
       "id": "cws-2",
@@ -38,7 +44,10 @@
       "proAccess": "purchased",
       "account": null,
       "reference": "d41-d43-d45-store-assets-and-icons/02-chrome-2-1280-800.png",
-      "origin": { "x": 160, "y": 1040 }
+      "origin": {
+        "x": 160,
+        "y": 1040
+      }
     },
     {
       "id": "cws-3",
@@ -48,9 +57,216 @@
       "services": ["youtube", "instagram", "facebook", "tiktok"],
       "open": null,
       "proAccess": "locked",
-      "account": { "address": "sam@example.com", "status": "Settings synced." },
+      "account": {
+        "address": "sam@example.com",
+        "status": "Settings synced."
+      },
       "reference": "d41-d43-d45-store-assets-and-icons/03-chrome-3-1280-800.png",
-      "origin": { "x": 160, "y": 940 }
+      "origin": {
+        "x": 160,
+        "y": 940
+      }
+    },
+    {
+      "id": "amo-1",
+      "scene": 1,
+      "headline": "Do what you came to do.",
+      "body": "Still removes Shorts, Reels and the TikTok website. Free, no account needed.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": null,
+      "reference": "d41-d43-d45-store-assets-and-icons/06-firefox-1-1280-800.png",
+      "origin": {
+        "x": 40,
+        "y": 1064
+      },
+      "browser": "Firefox"
+    },
+    {
+      "id": "amo-2",
+      "scene": 2,
+      "headline": "Choose what stays.",
+      "body": "Turn off comments, related videos, Stories and more with Still Pro. One payment.",
+      "services": ["youtube", "tiktok"],
+      "open": "youtube",
+      "proAccess": "purchased",
+      "account": null,
+      "reference": "d41-d43-d45-store-assets-and-icons/07-firefox-2-1280-800.png",
+      "origin": {
+        "x": 40,
+        "y": 940
+      },
+      "browser": "Firefox"
+    },
+    {
+      "id": "amo-3",
+      "scene": 3,
+      "headline": "Same settings in every browser.",
+      "body": "Free, optional settings sync.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": {
+        "address": "sam@example.com",
+        "status": "Settings synced."
+      },
+      "reference": "d41-d43-d45-store-assets-and-icons/08-firefox-3-1280-800.png",
+      "origin": {
+        "x": 40,
+        "y": 1040
+      },
+      "browser": "Firefox"
+    },
+    {
+      "id": "cws-small",
+      "kind": "tile",
+      "canvas": {
+        "width": 440,
+        "height": 280
+      },
+      "headline": "Still",
+      "body": "Do what you came to do.",
+      "icon": "assets/logos/still-app-icon-1024.png",
+      "reference": "d41-d43-d45-store-assets-and-icons/04-small-promo-tile-440-280.png",
+      "origin": {
+        "x": 160,
+        "y": 1040
+      }
+    },
+    {
+      "id": "cws-marquee",
+      "kind": "tile",
+      "canvas": {
+        "width": 1400,
+        "height": 560
+      },
+      "headline": "Still",
+      "body": "Do what you came to do.",
+      "icon": "assets/logos/still-app-icon-1024.png",
+      "reference": "d41-d43-d45-store-assets-and-icons/05-marquee-1400-560.png",
+      "origin": {
+        "x": 160,
+        "y": 680
+      }
+    },
+    {
+      "id": "ios-1",
+      "kind": "portrait",
+      "canvas": {
+        "width": 1320,
+        "height": 2868
+      },
+      "uiBase": 3,
+      "scene": 1,
+      "headline": "Do what you came to do.",
+      "body": "Still removes Shorts, Reels and the TikTok website in Safari on iPhone, iPad and Mac.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": null,
+      "browser": "Safari",
+      "mobile": true,
+      "reference": "d41-d43-d45-store-assets-and-icons/10-iphone-1-1320-2868.png",
+      "origin": {
+        "x": 40,
+        "y": 1064
+      }
+    },
+    {
+      "id": "ios-2",
+      "kind": "portrait",
+      "canvas": {
+        "width": 1320,
+        "height": 2868
+      },
+      "uiBase": 3,
+      "scene": 2,
+      "headline": "Choose what stays.",
+      "body": "Turn off comments, related videos, Stories and more with Still Pro. One payment.",
+      "services": ["youtube", "tiktok"],
+      "open": "youtube",
+      "proAccess": "purchased",
+      "account": null,
+      "browser": "Safari",
+      "mobile": true,
+      "reference": "d41-d43-d45-store-assets-and-icons/11-iphone-2-1320-2868.png",
+      "origin": {
+        "x": 40,
+        "y": 1974
+      }
+    },
+    {
+      "id": "ios-3",
+      "kind": "portrait",
+      "canvas": {
+        "width": 1320,
+        "height": 2868
+      },
+      "uiBase": 3,
+      "scene": 3,
+      "headline": "Same settings on every device.",
+      "body": "Free, optional settings sync. Works in Safari, not inside the social apps.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": {
+        "address": "sam@example.com",
+        "status": "Settings synced."
+      },
+      "browser": "Safari",
+      "mobile": true,
+      "reference": "d41-d43-d45-store-assets-and-icons/12-iphone-3-1320-2868.png",
+      "origin": {
+        "x": 40,
+        "y": 1974
+      }
+    },
+    {
+      "id": "ipad-1",
+      "kind": "portrait",
+      "canvas": {
+        "width": 2064,
+        "height": 2752
+      },
+      "uiBase": 1.5,
+      "scene": 1,
+      "headline": "Do what you came to do.",
+      "body": "Still removes Shorts, Reels and the TikTok website in Safari on iPhone, iPad and Mac.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": null,
+      "browser": "Safari",
+      "mobile": true,
+      "reference": "d41-d43-d45-store-assets-and-icons/13-ipad-1-2064-2752.png",
+      "origin": {
+        "x": 40,
+        "y": 1974
+      }
+    },
+    {
+      "id": "mac-1",
+      "kind": "landscape",
+      "canvas": {
+        "width": 2880,
+        "height": 1800
+      },
+      "uiBase": 3,
+      "scene": 1,
+      "headline": "Do what you came to do.",
+      "body": "Still removes Shorts, Reels and the TikTok website in Safari on iPhone, iPad and Mac.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": null,
+      "browser": "Safari",
+      "mobile": false,
+      "reference": "d41-d43-d45-store-assets-and-icons/14-mac-1-2880-1800.png",
+      "origin": {
+        "x": 0,
+        "y": 1916
+      }
     }
   ]
 }

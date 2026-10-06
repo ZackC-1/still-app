@@ -56,7 +56,8 @@ WXT's package-only source ZIP is insufficient for this monorepo. Pair the extens
 complete tracked workspace, frozen lockfile, explicit allowlisted public build configuration (from
 2.1 it must include `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`, which are public, or the rebuilt
 add-on will not match the submitted one) and
-its `AMO-REBUILD.mjs` instructions. Never copy an ignored `.env` wholesale. Extract in a clean
+its build instructions. `node scripts/release/package.mjs` produces the Firefox ZIP, the complete
+source ZIP with `AMO-BUILD-INSTRUCTIONS.md`, and their hashes (see [versioning and packages](versioning-and-packages.md)). Never copy an ignored `.env` wholesale. Extract in a clean
 directory, reproduce all packaged files and compare their contents before uploading. Store and
 record source/package hashes together; ZIP timestamp differences are not payload differences.
 

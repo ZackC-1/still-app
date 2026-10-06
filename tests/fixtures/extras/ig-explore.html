@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Instagram Explore and Search (desktop)</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for instagram.explore (CP-077). Invented text and handles only.
+      UNVERIFIED CANDIDATE: recommendation tiles inside the Explore grid (anchors to /p/<code>/ in a
+      grid container with no search query). The Search input, results and nested tag/location
+      pages are never targets (ids "keep-*"). Desktop Search is a panel, not a page.
+    -->
+    <nav id="keep-nav">
+      <a href="/" id="keep-nav-home">Home</a>
+      <a href="/explore/" id="target-nav-explore">Explore</a>
+      <button id="keep-nav-search" aria-label="Search">Search</button>
+    </nav>
+    <section id="keep-search-panel" role="dialog" aria-label="Search">
+      <input id="keep-search-input" type="search" placeholder="Search" aria-label="Search input" />
+      <ul id="keep-search-results">
+        <li><a href="/inventeduser/">inventeduser</a></li>
+        <li><a href="/explore/tags/inventedtag/">#inventedtag</a></li>
+        <li><a href="/explore/locations/900000001/invented-place/">Invented Place</a></li>
+      </ul>
+      <p id="keep-search-empty" hidden>No results found.</p>
+    </section>
+    <main>
+      <div id="target-explore-grid" role="grid">
+        <a href="/p/InvA1/">Invented tile one</a>
+        <a href="/p/InvB2/">Invented tile two</a>
+        <a href="/p/InvC3/">Invented tile three</a>
+      </div>
+      <div id="keep-popular-link"><a href="/popular/">Popular</a></div>
+      <div id="keep-tag-page"><a href="/explore/tags/inventedtag/">#inventedtag page</a></div>
+    </main>
+  </body>
+</html>
