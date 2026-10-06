@@ -107,3 +107,10 @@ export async function proofFromKey(key: Uint8Array): Promise<string> {
 export async function originProof(origin: string): Promise<string> {
   return await proofFromKey(await erasureKey(origin));
 }
+
+/** Which account a client hold belongs to, kept on the device only and never sent: a one-way tag
+ * keyed by the private origin, so the stored state never holds the account id and the tag cannot be
+ * matched to an account by anyone without this device's origin. */
+export async function holdTag(origin: string, account: string): Promise<string> {
+  return toHex(await hmac(originBytes(origin), `still:analytics:hold:${account.toLowerCase()}`));
+}

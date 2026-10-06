@@ -212,15 +212,17 @@ describe("server-side email attach", () => {
     await identify(U1);
     await identify(U1);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
+    // Signed-in use waits with no person at all: neither an account nor the anonymous id.
+    expect(queue().find((e) => e.event === "signed_in")).toMatchObject({ attributeLater: true });
+    expect(queue().find((e) => e.event === "signed_in")!.properties.distinct_id).toBeUndefined();
     await identify(U2);
+    // What waited for U1 never goes to U2: it is dropped when U2 signs in.
+    expect(queue().find((e) => e.event === "signed_in")).toBeUndefined();
     expect(identifyOnServer).not.toHaveBeenCalled();
     for (const account of [U1, U2]) {
       expect(JSON.stringify(queue())).not.toContain(account);
       expect(JSON.stringify(local.data)).not.toContain(account);
     }
-    // Signed-in use waits with no person at all: neither an account nor the anonymous id.
-    expect(queue().find((e) => e.event === "signed_in")).toMatchObject({ attributeLater: true });
-    expect(queue().find((e) => e.event === "signed_in")!.properties.distinct_id).toBeUndefined();
   });
 
   it("never runs while sharing is off", async () => {
@@ -338,6 +340,7 @@ describe("activation milestones and active days", () => {
 
 describe("background starts never say when a site was visited", () => {
   it("events recorded at a start carry only their day and wait for a later send", async () => {
+    // Signed out: the events are attributed at once, so a later (alarm) send has work to do.
     const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
     const requestQuietFlush = vi.fn();
     const local = memory({ [CONSENT_KEY]: TEST_PERMISSION });
@@ -361,7 +364,7 @@ describe("background starts never say when a site was visited", () => {
       RUNTIME_ID,
       ORIGIN,
     );
-    bg.onStart(U1);
+    bg.onStart(null);
     await bg.flushWhenReady();
     bg.onActivity(); // the content script's visit nudge
     await new Promise((r) => setTimeout(r, 20));
@@ -378,6 +381,38 @@ describe("background starts never say when a site was visited", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(requestQuietFlush).toHaveBeenCalled();
   }, 5_000);
+
+  it("a start held for a signed-in account asks for no alarm: nothing could be sent", async () => {
+    // No per-device identity here (owner decision 50): signed-in use waits with no person, so a
+    // timed send would do nothing; it is never scheduled.
+    const requestQuietFlush = vi.fn();
+    const local = memory({ [CONSENT_KEY]: TEST_PERMISSION });
+    const bg = createBackgroundAnalytics(
+      {
+        isFirefox: false,
+        config: { key: "phc_test", host: "https://us.i.posthog.com" },
+        appVersion: "2.1.0",
+        local,
+        shared: null,
+        sharedGraceMs: 0,
+        fetch: vi.fn() as unknown as typeof globalThis.fetch,
+        uuid: (() => {
+          let n = 0;
+          return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+        })(),
+        requestQuietFlush,
+      },
+      RUNTIME_ID,
+      ORIGIN,
+    );
+    bg.onStart(U1);
+    await bg.flushWhenReady();
+    bg.onActivity();
+    await new Promise((r) => setTimeout(r, 20));
+    const queued = (local.data[QUEUE_KEY] as { event: string; attributeLater?: boolean }[]) ?? [];
+    expect(queued.map((e) => [e.event, e.attributeLater])).toEqual([["active", true]]);
+    expect(requestQuietFlush).not.toHaveBeenCalled();
+  });
 });
 
 describe("installs counted after sharing is allowed", () => {

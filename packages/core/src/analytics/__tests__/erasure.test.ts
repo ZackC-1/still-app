@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AnalyticsClient,
   MAX_EVENT_AGE_MS,
+  MAX_QUEUE,
   QUEUE_KEY,
   STATE_KEY,
   type AnalyticsClientDeps,
@@ -364,8 +365,108 @@ describe("per-device subjects through the host", () => {
       await extension.identify(ACCOUNT);
       await extension.client.flush();
       expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", SUBJECT]]);
-      expect((h.store.data[STATE_KEY] as { held?: boolean }).held).toBe(false);
+      expect((h.store.data[STATE_KEY] as { heldFor?: string | null }).heldFor).toBeNull();
       extension.stop();
+    });
+
+    const OTHER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const OTHER_SUBJECT = "6c6c6c6c-6c6c-4c6c-8c6c-6c6c6c6c6c6c";
+
+    it("NEGATIVE CONTROL: what waited for one account is never sent under another account's subject", async () => {
+      const replies: Record<string, unknown> = { [OTHER]: { state: "active", subject: OTHER_SUBJECT } };
+      const h = harness();
+      const extension = createExtensionAnalyticsHost({
+        ...h.deps,
+        permission: async () => readAnalyticsPermission(await h.deps.permission?.()),
+        local: h.store,
+        noticeApplies: false,
+        isTrustedPage: () => true,
+        subjects: { issue: async (_b, _s, account) => replies[account] ?? null, onStopped: async () => {} },
+      });
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      await extension.identify(ACCOUNT); // A: no subject yet
+      await extension.client.track("opened", { where: "popup" }); // A's use, waiting
+      await extension.identify(OTHER); // B signs in and B's subject is confirmed
+      await extension.client.track("active", {});
+      await extension.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["active", OTHER_SUBJECT]]);
+      extension.stop();
+    });
+
+    it("NEGATIVE CONTROL: a confirmation under another account's subject drops the held account's use", async () => {
+      // Directly at the client: held for A, then confirmed as B's subject with no hold for B first.
+      const h = harness();
+      await h.client.confirm(null);
+      await h.client.holdForAccount(ACCOUNT);
+      await h.client.track("opened", { where: "popup" });
+      expect((h.store.data[STATE_KEY] as { heldFor?: string }).heldFor).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(h.store.data)).not.toContain(ACCOUNT); // only a one-way tag is stored
+      await h.client.confirm(OTHER_SUBJECT, { accountId: OTHER });
+      await h.client.track("active", {});
+      await h.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["active", OTHER_SUBJECT]]);
+    });
+
+    it("a hold moved to another account across a restart drops the earlier account's use", async () => {
+      const h = harness();
+      const first = plainHost(h);
+      first.onStart(null);
+      await first.flushWhenReady();
+      await first.identify(ACCOUNT);
+      await first.client.track("opened", { where: "popup" });
+      expect(queued(h)).toHaveLength(1);
+      const later = plainHost(h); // the worker restarted; B is now signed in
+      await later.identify(OTHER);
+      expect(queued(h)).toEqual([]);
+      later.stop();
+      first.stop();
+    });
+
+    it("NEGATIVE CONTROL: a quiet start signed in holds, so a sign-out sends none of that use", async () => {
+      const { h, host: extension, requests } = host(() => ({ state: "active", subject: SUBJECT }));
+      extension.onStart(ACCOUNT); // a background start: never asks the server
+      await extension.flushWhenReady();
+      expect(requests).toEqual([]);
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.reset();
+      await extension.client.track("active", {});
+      await extension.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+      extension.stop();
+    });
+
+    it("a long hold drops waiting use past the age limit as new use arrives", async () => {
+      const h = harness();
+      await h.client.confirm(null);
+      await h.client.holdForAccount(ACCOUNT);
+      await h.client.track("opened", { where: "popup" });
+      h.advance(MAX_EVENT_AGE_MS + 1);
+      await h.client.track("opened", { where: "options" });
+      const waiting = queued(h) as { event: string; attributeLater?: boolean; properties?: { where?: string } }[];
+      expect(waiting.map((e) => [e.properties?.where, e.attributeLater])).toEqual([["options", true]]);
+    });
+
+    it("NEGATIVE CONTROL: held use never pushes signed-out use out of a full queue", async () => {
+      const h = harness();
+      await h.client.confirm(null);
+      await h.client.track("opened", { where: "options" }); // signed out: attributed
+      await h.client.holdForAccount(ACCOUNT);
+      for (let n = 0; n < MAX_QUEUE + 5; n++) await h.client.track("opened", { where: "popup" });
+      const all = queued(h) as { attributeLater?: boolean; properties?: { where?: string } }[];
+      expect(all).toHaveLength(MAX_QUEUE);
+      expect(all.filter((e) => !e.attributeLater).map((e) => e.properties?.where)).toEqual(["options"]);
+    }, 30_000);
+
+    it("a hold waiting for its identity has nothing to flush", async () => {
+      const h = harness();
+      await h.client.confirm(null);
+      await h.client.track("opened", { where: "options" });
+      expect(await h.client.flushWorthwhile()).toBe(true);
+      await h.client.flush();
+      await h.client.holdForAccount(ACCOUNT);
+      await h.client.track("opened", { where: "popup" });
+      expect(await h.client.flushWorthwhile()).toBe(false);
     });
   });
 
@@ -436,9 +537,9 @@ describe("per-device subjects through the host", () => {
       local: h.store,
       noticeApplies: false,
       isTrustedPage: () => true,
-      subjects: { issue: async () => next, onStopped: async () => {} },
+      // The subject arrives, then the next state read (the confirmation's own) fails once.
+      subjects: { issue: async () => ((failStateReads = next ? 1 : 0), next), onStopped: async () => {} },
     });
-    failStateReads = 1;
     await extension.identify(ACCOUNT); // the subject arrives, but its confirmation stays pending
     expect(extension.client.accountConfirmed).toBe(false);
     next = null;

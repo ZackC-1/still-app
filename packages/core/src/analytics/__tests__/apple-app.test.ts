@@ -562,13 +562,19 @@ describe("Apple app server identification recovery", () => {
   it("a launch completes a confirmation that storage refused, without asking the server again", async () => {
     vi.useFakeTimers();
     try {
-      const identifyOnServer = vi.fn(TEST_SUBJECTS.issue);
+      // The state read that fails is the first one after the subject arrives: the confirmation's own
+      // (the hold made before the request has already been recorded).
+      let fail = false;
+      const identifyOnServer = vi.fn(async (...args: Parameters<typeof TEST_SUBJECTS.issue>) => {
+        const reply = await TEST_SUBJECTS.issue(...args);
+        fail = true;
+        return reply;
+      });
       const { app, store } = setup({}, {
         holdAccount: true,
         subjects: { issue: identifyOnServer, onStopped: async () => {} },
       });
       const get = store.get;
-      let fail = true;
       store.get = async (key) => {
         if (key === STATE_KEY && fail) {
           fail = false;

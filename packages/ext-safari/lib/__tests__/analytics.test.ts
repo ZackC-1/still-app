@@ -327,6 +327,7 @@ describe("Safari extension account changes", () => {
     // Recorded while signed in: waiting with no person (owner decision 50, no account-id fallback).
     expect(first.events().map((e) => e.event)).toContain("opened");
     expect(first.events().every((e) => e.attributeLater === true)).toBe(true);
+    const signedInEvents = structuredClone(first.events());
     // Next background start: the app reports no account.
     const later = setup({ signedIn: false }, first.local);
     later.bg.onStart();
@@ -346,9 +347,21 @@ describe("Safari extension account changes", () => {
     expect(later.events().map((e) => e.event)).toEqual(["opened"]);
     const blocked = later.events()[0]!;
     expect(blocked.attributeLater).toBeUndefined();
-    expect(blocked.properties.distinct_id).not.toBe(ACCOUNT);
+    // Intended: signed out, the device reports under its own anonymous id (index 0, the anchor).
+    // The account was never this device's identity here, so nothing needs separating from it, and
+    // owner decision 61 keeps this device's signed-out data under that id (an account-wide deletion
+    // never erases it; only turning sharing off on this device does).
+    expect(blocked.properties.distinct_id).toBe(ANCHOR);
     expect(blocked.properties.signed_in).toBe(false);
     expect(JSON.stringify(later.events())).not.toContain(ACCOUNT);
+    // No event, signed in or out, ever carries the anchor together with the account (or any other
+    // identity): signed-in use had no person at all, and signed-out use only the anchor.
+    for (const event of [...signedInEvents, ...later.events()]) {
+      const properties = JSON.stringify(event.properties);
+      expect(properties).not.toContain(ACCOUNT);
+      expect([undefined, ANCHOR]).toContain(event.properties.distinct_id);
+      if (event.properties.distinct_id === undefined) expect(properties).not.toContain(ANCHOR);
+    }
   });
 
   it("an unreadable account status changes nothing", async () => {
@@ -377,10 +390,12 @@ describe("Safari extension account changes", () => {
     expect(first.events().every((e) => e.attributeLater === true)).toBe(true);
     const state = first.local.data["still:analytics:state"] as {
       userId: string | null;
-      held?: boolean;
+      heldFor?: string | null;
     };
     expect(state.userId).toBeNull(); // the account id is never the person (owner decision 50)
-    expect(state.held).toBe(true);
+    // Held for the account by a one-way tag only: the account id itself is never stored.
+    expect(state.heldFor).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(first.local.data)).not.toContain(ACCOUNT);
   });
 });
 

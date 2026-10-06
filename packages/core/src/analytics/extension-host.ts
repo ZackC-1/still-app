@@ -372,15 +372,16 @@ export function createAccountIdentifier(deps: {
   const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
-    // When the client reports as someone else (another account's subject, or nobody), stop that at
-    // once, even if this account's subject cannot be confirmed yet; likewise a confirmation still
-    // pending for another account. Not when it is unconfirmed for this same account: there is
-    // nothing to stop, and withdrawing would drop this account's own work in progress.
+    // Unless this account's own subject is already confirmed, hold the client for this account
+    // first, before any return below (a quiet start, no permission, a failed request): reporting as
+    // anyone else (another account's subject, or nobody) stops at once, and what is recorded until
+    // the subject is confirmed waits bound to this account, so a sign-out or another account never
+    // receives it. A hold already in force for this same account cancels nothing, so its own work
+    // in progress is kept.
     const before = await client.captureObservation();
     const known = before ? await cachedSubject(account, before.permission.origin) : null;
-    const confirmedElse = client.accountConfirmed && !(known !== null && (await client.signedInAs()) === known);
-    const pendingElse = !client.accountConfirmed && wanted !== null && wanted.account !== account;
-    if (confirmedElse || pendingElse) await client.withdrawConfirmation();
+    const confirmedHere = client.accountConfirmed && known !== null && (await client.signedInAs()) === known;
+    if (!confirmedHere) await client.holdForAccount(account);
     wanted = { account, stamp: client.stamp() };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
@@ -409,10 +410,10 @@ export function createAccountIdentifier(deps: {
       if (deps.subjects) return identifySubject(userId, options);
       // Without per-device subjects there is no identity to report under: never fall back to the
       // account id (owner decision 50). Stop reporting as anyone else (nobody included) at once;
-      // signed-in events wait unattributed, and are dropped if the account is let go of, so they
-      // are never reported under the anonymous id either.
+      // signed-in events wait unattributed, bound to this account, and are dropped if the account
+      // is let go of, so they are never reported under the anonymous id or another account either.
       void options;
-      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount();
+      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId);
     },
     // With per-device subjects the email is set when the subject is issued, so there is no separate
     // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
@@ -502,7 +503,8 @@ export function createExtensionAnalyticsHost(
     }));
   };
   const requestFlushIfNeeded = async (): Promise<void> => {
-    if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
+    // Nothing a flush could do (a hold waiting for its identity sends nothing): no alarm.
+    if (await client.flushWorthwhile()) deps.requestQuietFlush?.();
   };
 
   const sharing = async (): Promise<UsageSharingState | null> => {
