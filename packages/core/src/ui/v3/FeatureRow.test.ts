@@ -32,11 +32,10 @@ async function fixture(state: AccessState) {
     ],
     inactive: false,
     unsupportedText: "Not available in Safari. Your choice is saved.",
-    lockLabel: "Comments. Included in Still Pro. Open the Still app",
     onChange: vi.fn((next: boolean) => {
       pending = cache.setFeature("youtube.comments", next);
     }),
-    onLock: undefined as (() => void) | undefined,
+    onLock: undefined as ((opener: HTMLElement) => void) | undefined,
   };
   return { props, storage, cache, settled: () => pending };
 }
@@ -87,9 +86,7 @@ describe("controlled shared feature access row", () => {
       await settled();
       expect(await storage.get()).toEqual(saved);
       expect(props.onChange).not.toHaveBeenCalled();
-      expect(
-        screen.queryByRole("button", { name: props.lockLabel }),
-      ).toBeNull();
+      expect(screen.queryByRole("button", { name: "Still Pro" })).toBeNull();
       view.unmount();
     },
   );
@@ -133,20 +130,19 @@ describe("controlled shared feature access row", () => {
     view.unmount();
   });
 
-  it("uses only the supplied lock action and label, and holds it when the caller withdraws the port", async () => {
+  it("uses only the supplied lock action, and holds it when the caller withdraws the port", async () => {
     const { props, storage } = await fixture("locked");
     const saved = await storage.get();
     const onLock = vi.fn();
     props.onLock = onLock;
     const view = render(FeatureRow, { props });
-    await fireEvent.click(
-      screen.getByRole("button", { name: props.lockLabel }),
-    );
-    expect(onLock).toHaveBeenCalledOnce();
-    props.lockLabel = "Comments. Included in Still Pro. See Still Pro";
+    const lock = screen.getByRole("button", { name: "Still Pro" });
+    await fireEvent.click(lock);
+    // The host receives the lock itself, so a sheet it opens can return focus to this row.
+    expect(onLock).toHaveBeenCalledExactlyOnceWith(lock);
     props.onLock = undefined;
     await view.rerender(props);
-    const held = screen.getByRole("button", { name: props.lockLabel });
+    const held = screen.getByRole("button", { name: "Still Pro" });
     expect(held).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(held);
     expect(onLock).toHaveBeenCalledOnce();
@@ -183,6 +179,22 @@ describe("controlled shared feature access row", () => {
     expect(
       screen.getByRole("switch", { name: "Comments" }),
     ).not.toHaveAttribute("aria-describedby");
+    view.unmount();
+  });
+});
+
+describe("decision 40: the locked row's screen-reader label", () => {
+  it("is exactly the visible Still Pro with a decorative lock, and the row label describes it", async () => {
+    const { props } = await fixture("locked");
+    const view = render(FeatureRow, { props });
+    const lock = screen.getByRole("button", { name: "Still Pro" });
+    expect(lock).toHaveAccessibleName("Still Pro");
+    expect(lock).not.toHaveAttribute("aria-label");
+    expect(lock).toHaveAccessibleDescription("Comments");
+    expect(lock.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(lock.textContent).toBe("Still Pro");
+    await view.rerender({ ...props, note: "Search stays." });
+    expect(lock).toHaveAccessibleDescription("Comments Search stays.");
     view.unmount();
   });
 });

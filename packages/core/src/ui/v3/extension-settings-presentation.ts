@@ -90,7 +90,10 @@ export type SettingsSiteListProps = Pick<
   | "features"
   | "labels"
   | "commandsDisabled"
-> & { onProAction?: () => void };
+> & {
+  /** A locked row's action while Still Pro is offered; the opener is that row's lock button. */
+  onProAction?: (opener: HTMLElement) => void;
+};
 
 export interface ConfirmationDialogProps {
   open: boolean;
