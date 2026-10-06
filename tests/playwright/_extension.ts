@@ -1,7 +1,8 @@
 import { test as base, chromium, type BrowserContext, type Worker } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 // Loads a built extension into a persistent context (KTD10). `channel: 'chromium'` uses
 // Chromium-for-Testing, which runs MV3 extensions headless. The extension id is derived from the
@@ -15,6 +16,16 @@ const CHROMIUM_EXTENSION = process.env.STILL_CHROMIUM_EXTENSION
   : resolve(HERE, "../../packages/ext-chromium/dist/chrome-mv3");
 const SAFARI_EXTENSION = resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
 const FIXTURE_DIR = resolve(HERE, "../fixtures");
+
+// Chromium writes into an unpacked extension it loads (_metadata/generated_indexed_rulesets), so
+// loading the built folder in place mutates the shipping artifact and races every spec that hashes
+// it. Each worker loads its own disposable copy, made once and removed at worker teardown.
+function disposableCopy(source: string, label: string): { path: string; remove: () => void } {
+  const dir = mkdtempSync(resolve(tmpdir(), `still-pw-${label}-`));
+  const path = resolve(dir, "extension");
+  cpSync(source, path, { recursive: true });
+  return { path, remove: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
+}
 
 export function fixture(name: string): string {
   return readFileSync(resolve(FIXTURE_DIR, name), "utf8");
@@ -91,6 +102,23 @@ async function applyProfile(context: BrowserContext, profile: SettingsProfile): 
     });
   });
   if ((await storedSchema(worker)) !== 1) throw new Error("Could not hold a legacy settings profile");
+  // A format-2 build mirrors schema-2 choices as session redirect rules; wait until the legacy
+  // document has retired them, so a legacy-lane page never meets a format-2 network redirect.
+  const retired = Date.now() + 5_000;
+  while ((await sessionRuleCount(worker)) > 0) {
+    if (Date.now() > retired) throw new Error("Format-2 session rules outlived the legacy settings profile");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** The extension's declarativeNetRequest session rules (0 where the API is absent). */
+async function sessionRuleCount(worker: Worker): Promise<number> {
+  return worker.evaluate(async () => {
+    const dnr = (globalThis as unknown as {
+      chrome: { declarativeNetRequest?: { getSessionRules?: () => Promise<unknown[]> } };
+    }).chrome.declarativeNetRequest;
+    return dnr?.getSessionRules ? (await dnr.getSessionRules()).length : 0;
+  });
 }
 
 export const test = base.extend<{
@@ -99,10 +127,20 @@ export const test = base.extend<{
   safariContext: BrowserContext;
   safariExtensionId: string;
   settingsProfile: SettingsProfile;
-}>({
+}, { chromiumCopy: string; safariCopy: string }>({
+  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
+  chromiumCopy: [async ({}, use) => {
+    const copy = disposableCopy(CHROMIUM_EXTENSION, "chromium");
+    try { await use(copy.path); } finally { copy.remove(); }
+  }, { scope: "worker" }],
+  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
+  safariCopy: [async ({}, use) => {
+    const copy = disposableCopy(SAFARI_EXTENSION, "safari");
+    try { await use(copy.path); } finally { copy.remove(); }
+  }, { scope: "worker" }],
   settingsProfile: ["fresh", { option: true }],
-  context: async ({ settingsProfile }, use) => {
-    const context = await loadExtension(CHROMIUM_EXTENSION);
+  context: async ({ settingsProfile, chromiumCopy }, use) => {
+    const context = await loadExtension(chromiumCopy);
     await applyProfile(context, settingsProfile);
     await use(context);
     await context.close();
@@ -117,9 +155,8 @@ export const test = base.extend<{
   // The engine here is still Blink: this covers the Safari BUILD, not the Safari engine, and it
   // says nothing about how a real Safari popover or iOS sheet hosts the document. Only tests that
   // ask for these fixtures pay the cost of a second browser launch.
-  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
-  safariContext: async ({}, use) => {
-    const context = await loadExtension(SAFARI_EXTENSION);
+  safariContext: async ({ safariCopy }, use) => {
+    const context = await loadExtension(safariCopy);
     await use(context);
     await context.close();
   },

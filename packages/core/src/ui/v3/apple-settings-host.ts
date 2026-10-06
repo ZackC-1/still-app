@@ -24,11 +24,19 @@ import type { CommittedPopupToggle } from "../index.js";
 // from the shared UI index, and the configured Apple bundle must stay byte-identical to the legacy
 // build, which relies on every unused export here being tree-shaken.
 
-export type AppleSettingsMode = "atomic" | "legacy";
+/**
+ * - `atomic-local`: committed settings with D04, no account (the unconfigured developer opt-in).
+ * - `atomic-cloud`: committed settings with D04 and per-field modern sync (U3-W4, configured builds
+ *   with the modern sync flag, the same flag Chrome and Firefox use).
+ * - `legacy`: the shipped settings screen and whole-record sync, unchanged.
+ */
+export type AppleSettingsMode = "atomic-local" | "atomic-cloud" | "legacy";
 
 export interface AppleSettingsModeInput {
-  /** VITE_APPLE_ATOMIC_SETTINGS: the explicit developer opt-in. Only "true" selects D04. */
+  /** VITE_APPLE_ATOMIC_SETTINGS: the unconfigured developer opt-in. Only "true" selects it. */
   readonly atomicSettingsFlag: string | undefined;
+  /** VITE_MODERN_SETTINGS_SYNC_ENABLED: the modern sync flag shared with Chromium. Only "true". */
+  readonly modernSyncFlag: string | undefined;
   readonly supabaseUrl: string | undefined;
   readonly supabaseAnonKey: string | undefined;
   /** The native message port exists at composition time (NativeBridge.available). */
@@ -36,23 +44,27 @@ export interface AppleSettingsModeInput {
 }
 
 /**
- * Committed (atomic) settings with the D04 screen only when a build explicitly opts in
- * (VITE_APPLE_ATOMIC_SETTINGS === "true"), has no Supabase configuration (Apple's own rule: both
- * values non-empty means configured) and runs inside the native host. Missing configuration alone
- * never selects it: converting the App Group record is a one-way change for opted-in developer
- * builds only. Without a native port there is no committed authority, so the legacy screen
- * (unchanged) is kept rather than presenting defaults.
+ * Committed (atomic) settings with the D04 screen only inside the native host (without a port there
+ * is no committed authority, so the unchanged legacy screen is kept rather than presenting
+ * defaults), and only when a build explicitly opts in:
+ *
+ * - configured (Apple's own rule: both Supabase values non-empty) with the modern sync flag
+ *   exactly "true" → `atomic-cloud`;
+ * - not configured with VITE_APPLE_ATOMIC_SETTINGS exactly "true" → `atomic-local`.
+ *
+ * Neither flag selects anything for the other configuration, and missing configuration alone
+ * never selects atomic: converting the App Group record is one-way.
  */
 export function selectAppleSettingsMode(input: AppleSettingsModeInput): AppleSettingsMode {
+  if (input.nativePort !== true) return "legacy";
   const configured = Boolean(input.supabaseUrl && input.supabaseAnonKey);
-  return input.atomicSettingsFlag === "true" && !configured && input.nativePort === true
-    ? "atomic"
-    : "legacy";
+  if (configured) return input.modernSyncFlag === "true" ? "atomic-cloud" : "legacy";
+  return input.atomicSettingsFlag === "true" ? "atomic-local" : "legacy";
 }
 
 /** The one cache's options. Atomic hydration initializes through native with unknown ownership. */
 export function appleSettingsCacheOptions(mode: AppleSettingsMode): SettingsCacheOptions | undefined {
-  return mode === "atomic" ? { atomicOwnership: "unknown" } : undefined;
+  return mode === "legacy" ? undefined : { atomicOwnership: "unknown" };
 }
 
 export interface AppleSettingsAuthorityDeps {

@@ -56,7 +56,7 @@ async function compose() {
   });
   const win: StillBridgeWindow = { webkit: { messageHandlers: { still: { postMessage } } } };
   const adapter = new WKWebViewStorageAdapter(win);
-  const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic"));
+  const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic-local"));
   cache.watch();
   const hydrated = cache.hydrate().catch(() => {});
   const bridge = new NativeBridge(win);
