@@ -1,7 +1,14 @@
-import { assertEquals } from "@std/assert";
-import { handleDeleteUser } from "../delete-user/handler.ts";
+import { assert, assertEquals, assertThrows } from "@std/assert";
+import { type AccountDeps, CAPTURE_DEFERRED_LOG, handleDeleteUser } from "../delete-user/handler.ts";
 import { handleExport } from "../export-user-data/handler.ts";
+import {
+  type AccountErasurePort,
+  type AccountErasureReason,
+  type AccountErasureResult,
+  ErasureStorageUnavailable,
+} from "../_shared/erasure-store.ts";
 import { signHs256 } from "../_shared/jwt.ts";
+import { SupabaseUserStore } from "../_shared/supabase-store.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -107,4 +114,217 @@ Deno.test("export: wrong-audience token → 401", async () => {
     (await handleExport(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store })).status,
     401,
   );
+});
+
+// ── Account deletion records the per-device analytics identities first (U5-W3, migration 0018) ──
+// D1-D7. Fake stores only, no network. The SQL route itself is proven by
+// supabase/tests/analytics_account_erasure_migration_test.ts.
+
+/** One call log shared by the fake erasure store and the fake user store, so order is visible. */
+function accountWorld(over: {
+  capture?: (userId: string) => Promise<AccountErasureResult>;
+  deleteUser?: (userId: string) => Promise<void>;
+} = {}) {
+  const log: string[] = [];
+  const active = new Set<string>([A]); // the account's active per-device identities, as a count stand-in
+  const erasure: AccountErasurePort = {
+    beginAccountErasure(userId: string, reason: AccountErasureReason) {
+      log.push(`beginAccountErasure:${userId}:${reason}`);
+      if (over.capture) return over.capture(userId);
+      const subjects = active.delete(userId) ? 2 : 0;
+      return Promise.resolve({ state: "captured", subjects });
+    },
+    accountErasureStatus: () => Promise.resolve(null),
+  };
+  const store: UserStore = {
+    deleteUser(userId) {
+      log.push(`deleteUser:${userId}`);
+      return over.deleteUser ? over.deleteUser(userId) : Promise.resolve();
+    },
+    getProfile: () => Promise.resolve(null),
+    getEntitlement: () => Promise.resolve(null),
+  };
+  return { log, erasure, store };
+}
+
+/** Capture every console channel while `run` executes (the handler must log fixed categories only). */
+async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; logs: unknown[][] }> {
+  const logs: unknown[][] = [];
+  const channels = ["error", "warn", "log", "info", "debug"] as const;
+  const originals = channels.map((name) => console[name]);
+  for (const name of channels) console[name] = (...args: unknown[]) => void logs.push(args);
+  try {
+    return { result: await run(), logs };
+  } finally {
+    channels.forEach((name, i) => (console[name] = originals[i]!));
+  }
+}
+
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const EMAIL_PATTERN = /[^\s"@]+@[^\s"@]+\.[^\s"@]+/;
+/** Throws when a log line could identify the person. */
+function assertNoIdentifiers(logs: unknown[][]): void {
+  const text = JSON.stringify(logs);
+  assert(!UUID_PATTERN.test(text), "no UUID in the logs");
+  assert(!EMAIL_PATTERN.test(text), "no email in the logs");
+}
+
+/** D1's assertion: the capture strictly before the deletion, for the JWT's subject only. */
+function assertCaptureFirst(log: string[], userId: string): void {
+  assertEquals(log, [`beginAccountErasure:${userId}:account_deleted`, `deleteUser:${userId}`]);
+}
+
+/** D6's assertion: exactly the two fields old clients read. */
+function assertDeleteShape(body: unknown): void {
+  assert(body !== null && typeof body === "object" && !Array.isArray(body));
+  assertEquals(Object.keys(body).sort(), ["analyticsDeleted", "deleted"]);
+}
+
+const deleteDeps = (world: ReturnType<typeof accountWorld>, over: Partial<AccountDeps> = {}): AccountDeps => ({
+  jwtSecret: SECRET,
+  expected: EXPECTED,
+  store: world.store,
+  erasure: world.erasure,
+  ...over,
+});
+
+Deno.test("D1: the identities are recorded before the account is deleted, for the JWT's subject only", async () => {
+  const world = accountWorld();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleDeleteUser(req(jwt, { user_id: B }), deleteDeps(world));
+  assertEquals(res.status, 200);
+  assertCaptureFirst(world.log, A);
+  // NEGATIVE CONTROL: a handler that deletes first fails the same assertion.
+  const reordered = accountWorld();
+  await reordered.store.deleteUser(A);
+  await reordered.erasure.beginAccountErasure(A, "account_deleted");
+  assertThrows(() => assertCaptureFirst(reordered.log, A));
+});
+
+Deno.test("D2: a failing pre-step never blocks the deletion and logs a fixed category only", async () => {
+  const world = accountWorld({ capture: () => Promise.reject(new ErasureStorageUnavailable()) });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const { result: res, logs } = await captureLogs(() => handleDeleteUser(req(jwt), deleteDeps(world)));
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { deleted: true, analyticsDeleted: null });
+  assertCaptureFirst(world.log, A);
+  assertEquals(logs, [[CAPTURE_DEFERRED_LOG, { reason: "storage" }]]);
+  assertNoIdentifiers(logs);
+  // NEGATIVE CONTROL: a log line naming the account is detected by the same scan.
+  assertThrows(() => assertNoIdentifiers([[CAPTURE_DEFERRED_LOG, { reason: "storage", account: A }]]));
+  assertThrows(() => assertNoIdentifiers([["capture failed for person@example.com"]]));
+  // Any other thrown value is the same fixed category, never its message.
+  const odd = accountWorld({ capture: () => Promise.reject(new Error(`driver said ${A}`)) });
+  const second = await captureLogs(() => handleDeleteUser(req(jwt), deleteDeps(odd)));
+  assertEquals(second.result.status, 200);
+  assertEquals(second.logs, [[CAPTURE_DEFERRED_LOG, { reason: "storage" }]]);
+});
+
+Deno.test("D3: a pre-step that never answers is abandoned at the budget; the deletion still runs", async () => {
+  const never = () => new Promise<AccountErasureResult>(() => {});
+  const world = accountWorld({ capture: never });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const outer = (ms: number) =>
+    new Promise<"outer-timeout">((r) => void timers.push(setTimeout(() => r("outer-timeout"), ms)));
+  try {
+    const { result, logs } = await captureLogs(() =>
+      Promise.race([handleDeleteUser(req(jwt), deleteDeps(world, { captureBudgetMs: 20 })), outer(1_000)])
+    );
+    assert(result instanceof Response, "the handler answered within the outer limit");
+    assertEquals(result.status, 200);
+    assertCaptureFirst(world.log, A);
+    assertEquals(logs, [[CAPTURE_DEFERRED_LOG, { reason: "timeout" }]]);
+    // NEGATIVE CONTROL: without the budget the same pre-step never settles within the outer limit.
+    assertEquals(
+      await Promise.race([world.erasure.beginAccountErasure(A, "account_deleted"), outer(100)]),
+      "outer-timeout",
+    );
+  } finally {
+    timers.forEach(clearTimeout);
+  }
+});
+
+Deno.test("D4: without the eraser login, deletion is exactly as before", async () => {
+  for (const erasure of [null, undefined]) {
+    const { store, deleted } = mockStore();
+    const jwt = await mintHs256({ sub: A }, SECRET);
+    const { result: res, logs } = await captureLogs(() =>
+      handleDeleteUser(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store, erasure })
+    );
+    assertEquals(res.status, 200);
+    assertEquals(await res.json(), { deleted: true, analyticsDeleted: null });
+    assertEquals(deleted, [A]);
+    assertEquals(logs, []);
+  }
+});
+
+Deno.test("D5: a GoTrue failure after the pre-step keeps the session; a retry captures nothing new and deletes", async () => {
+  let goTrueDown = true;
+  const world = accountWorld({
+    deleteUser: () => (goTrueDown ? Promise.reject(Object.assign(new Error("down"), { status: 503 })) : Promise.resolve()),
+  });
+  const captured: AccountErasureResult[] = [];
+  const recording: AccountErasurePort = {
+    ...world.erasure,
+    beginAccountErasure: async (userId, reason) => {
+      const result = await world.erasure.beginAccountErasure(userId, reason);
+      captured.push(result);
+      return result;
+    },
+  };
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const first = await captureLogs(() => handleDeleteUser(req(jwt), deleteDeps(world, { erasure: recording })));
+  assertEquals([first.result.status, await first.result.json()], [500, { error: "internal" }]);
+  assertEquals(world.log.filter((c) => c.startsWith("beginAccountErasure")).length, 1);
+  assertNoIdentifiers(first.logs);
+  goTrueDown = false;
+  const retry = await handleDeleteUser(req(jwt), deleteDeps(world, { erasure: recording }));
+  assertEquals(retry.status, 200);
+  assertEquals(captured, [{ state: "captured", subjects: 2 }, { state: "captured", subjects: 0 }]);
+  assertEquals(world.log, [
+    `beginAccountErasure:${A}:account_deleted`,
+    `deleteUser:${A}`,
+    `beginAccountErasure:${A}:account_deleted`,
+    `deleteUser:${A}`,
+  ]);
+});
+
+Deno.test("D6: the response keeps exactly the two fields old clients read", async () => {
+  const world = accountWorld();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const deleteOk = { canIdentify: true, canDelete: true, setPersonEmail: () => Promise.resolve(), deletePerson: () => Promise.resolve() };
+  for (const posthog of [undefined, deleteOk]) {
+    const res = await handleDeleteUser(req(jwt), deleteDeps(world, { posthog }));
+    assertDeleteShape(await res.json());
+  }
+  // NEGATIVE CONTROL: any added field fails the strict-keys assertion.
+  assertThrows(() => assertDeleteShape({ deleted: true, analyticsDeleted: true, subjects: 2 }));
+});
+
+Deno.test("D7: the account store asks GoTrue for a hard delete, so the cascades and the snapshot run", async () => {
+  const requests: { method: string; url: string; body: unknown }[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (input: Request | URL | string, init?: RequestInit) => {
+    const request = new Request(input, init);
+    return request.text().then((text) => {
+      requests.push({ method: request.method, url: request.url, body: text ? JSON.parse(text) : null });
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    });
+  };
+  try {
+    const service = ["synthetic", "service", "role"].join("-");
+    await new SupabaseUserStore("http://127.0.0.1:9", service).deleteUser(A);
+  } finally {
+    globalThis.fetch = original;
+  }
+  const hardDelete = (sent: typeof requests) => {
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0]!.method, "DELETE");
+    assert(sent[0]!.url.endsWith(`/auth/v1/admin/users/${A}`), sent[0]!.url);
+    assertEquals(sent[0]!.body, { should_soft_delete: false });
+  };
+  hardDelete(requests);
+  // NEGATIVE CONTROL: a soft delete (which leaves the row, so nothing cascades) fails it.
+  assertThrows(() => hardDelete([{ ...requests[0]!, body: { should_soft_delete: true } }]));
 });

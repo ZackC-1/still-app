@@ -1,5 +1,7 @@
 import { handleDeleteUser } from "./handler.ts";
 import { authenticatedClaims } from "../_shared/jwt.ts";
+import { PgErasureStore } from "../_shared/erasure-store.ts";
+import { createWriterSql } from "../_shared/pg-store.ts";
 import { HttpPostHog, postHogConfigFromEnv } from "../_shared/posthog.ts";
 import { SupabaseUserStore } from "../_shared/supabase-store.ts";
 
@@ -13,5 +15,11 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : undefined;
 const expected = authenticatedClaims(supabaseUrl || undefined);
 const posthog = new HttpPostHog(postHogConfigFromEnv((name) => Deno.env.get(name)));
+// The analytics eraser login (0017/0018), the same secret analytics-identify issues per-device
+// identities with (function secrets are project-wide). Without it no identity can exist, and the
+// deletion runs exactly as before. It does not depend on ANALYTICS_SUBJECTS_ENABLED: identities
+// issued while that switch was on must still be captured after it is turned off.
+const eraserUrl = Deno.env.get("ANALYTICS_ERASER_DB_URL") ?? "";
+const erasure = eraserUrl ? new PgErasureStore(createWriterSql(eraserUrl)) : null;
 
-Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, expected, store, posthog }));
+Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, expected, store, posthog, erasure }));
