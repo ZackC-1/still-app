@@ -12,6 +12,9 @@ import type {
 //   • A confirm then cancel in one observation: the confirm wins (the page is already pending).
 //   • Every settings click and every failed or cancelled request publishes a fresh observation,
 //     so the screen's per-observation fences never hold a later deliberate action.
+//   • An open attempt that does not finish (a failed, malformed or unanswered request, confirm or
+//     reopen, or a confirmation the background let go) returns to blocked with the failure line
+//     (owner decision 34). Its Try again is the ordinary request, so it always asks again.
 // Nothing here writes settings, chooses a destination, or records analytics.
 
 export type TikTokBlockedHostPhase =
@@ -28,6 +31,8 @@ export interface TikTokBlockedHostState {
   readonly observation: number;
   /** The page's bound blocked-request id, tab id and document id (UI fences only). */
   readonly identity: TikTokBlockedIdentity;
+  /** The last open attempt did not finish; shown only while the page is blocked. */
+  readonly failed?: boolean;
 }
 
 export interface TikTokBlockedHostActions {
@@ -94,6 +99,9 @@ export function tikTokBlockedPresentation(
           },
         }
       : {}),
+    ...(phase === "blocked" && state.failed
+      ? { failure: { ...binding, identity: { ...state.identity }, status: "open-failed" as const } }
+      : {}),
   };
 }
 
@@ -152,7 +160,9 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       void ask(TIKTOK_ROUTE.request).then((reply) => {
         if (state.phase !== "pending") return;
         const status = statusOf(reply);
-        publish(status === "confirming" ? "confirmation" : status === "granted" ? "granted" : "blocked");
+        if (status === "confirming") publish("confirmation");
+        else if (status === "granted") publish("granted");
+        else fail();
       });
     },
     confirmOpen() {
@@ -160,7 +170,9 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       // Any later cancel from the same observation is ignored: this page is now pending.
       publish("pending");
       void ask(TIKTOK_ROUTE.confirm).then((reply) => {
-        if (state.phase === "pending") publish(statusOf(reply) === "granted" ? "granted" : "blocked");
+        if (state.phase !== "pending") return;
+        if (statusOf(reply) === "granted") publish("granted");
+        else fail();
       });
     },
     cancel() {
@@ -174,7 +186,8 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
         .then(() => deps.openSettings())
         .catch(() => {});
       // Same phase, fresh observation: the settings fence never holds the next deliberate action.
-      publish(state.phase);
+      // A failure line already on the page stays; settings opening elsewhere doesn't resolve it.
+      publish(state.phase, undefined, state.failed);
     },
     reload() {
       if (state.phase !== "granted") return;
@@ -183,17 +196,20 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
         if (state.phase !== "pending") return;
         const url = reply && typeof reply === "object" ? (reply as { url?: unknown }).url : undefined;
         if (statusOf(reply) === "open" && typeof url === "string") deps.navigate(url);
-        else publish("blocked");
+        else fail();
       });
     },
   };
 
-  function publish(phase: TikTokBlockedHostPhase, tab?: string): void {
+  const fail = () => publish("blocked", undefined, true);
+
+  function publish(phase: TikTokBlockedHostPhase, tab?: string, failed = false): void {
     if (stopped) return;
     state = {
       phase,
       observation: state.observation + 1,
       identity: tab ? { ...state.identity, tab } : state.identity,
+      ...(failed && phase === "blocked" ? { failed: true } : {}),
     };
     clearInterval(heartbeat);
     heartbeat = undefined;
@@ -201,7 +217,7 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       heartbeat = setInterval(() => {
         void ask(TIKTOK_ROUTE.confirming).then((reply) => {
           // The background let this confirmation go (timeout, restart): close the dialog.
-          if (state.phase === "confirmation" && statusOf(reply) !== "confirming") publish("blocked");
+          if (state.phase === "confirmation" && statusOf(reply) !== "confirming") fail();
         });
       }, deps.heartbeatMs ?? TIKTOK_HEARTBEAT_MS);
     }

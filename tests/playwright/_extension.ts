@@ -1,7 +1,8 @@
 import { test as base, chromium, type BrowserContext, type Worker } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 // Loads a built extension into a persistent context (KTD10). `channel: 'chromium'` uses
 // Chromium-for-Testing, which runs MV3 extensions headless. The extension id is derived from the
@@ -15,6 +16,16 @@ const CHROMIUM_EXTENSION = process.env.STILL_CHROMIUM_EXTENSION
   : resolve(HERE, "../../packages/ext-chromium/dist/chrome-mv3");
 const SAFARI_EXTENSION = resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
 const FIXTURE_DIR = resolve(HERE, "../fixtures");
+
+// Chromium writes into an unpacked extension it loads (_metadata/generated_indexed_rulesets), so
+// loading the built folder in place mutates the shipping artifact and races every spec that hashes
+// it. Each worker loads its own disposable copy, made once and removed at worker teardown.
+function disposableCopy(source: string, label: string): { path: string; remove: () => void } {
+  const dir = mkdtempSync(resolve(tmpdir(), `still-pw-${label}-`));
+  const path = resolve(dir, "extension");
+  cpSync(source, path, { recursive: true });
+  return { path, remove: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
+}
 
 export function fixture(name: string): string {
   return readFileSync(resolve(FIXTURE_DIR, name), "utf8");
@@ -99,10 +110,20 @@ export const test = base.extend<{
   safariContext: BrowserContext;
   safariExtensionId: string;
   settingsProfile: SettingsProfile;
-}>({
+}, { chromiumCopy: string; safariCopy: string }>({
+  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
+  chromiumCopy: [async ({}, use) => {
+    const copy = disposableCopy(CHROMIUM_EXTENSION, "chromium");
+    try { await use(copy.path); } finally { copy.remove(); }
+  }, { scope: "worker" }],
+  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
+  safariCopy: [async ({}, use) => {
+    const copy = disposableCopy(SAFARI_EXTENSION, "safari");
+    try { await use(copy.path); } finally { copy.remove(); }
+  }, { scope: "worker" }],
   settingsProfile: ["fresh", { option: true }],
-  context: async ({ settingsProfile }, use) => {
-    const context = await loadExtension(CHROMIUM_EXTENSION);
+  context: async ({ settingsProfile, chromiumCopy }, use) => {
+    const context = await loadExtension(chromiumCopy);
     await applyProfile(context, settingsProfile);
     await use(context);
     await context.close();
@@ -117,9 +138,8 @@ export const test = base.extend<{
   // The engine here is still Blink: this covers the Safari BUILD, not the Safari engine, and it
   // says nothing about how a real Safari popover or iOS sheet hosts the document. Only tests that
   // ask for these fixtures pay the cost of a second browser launch.
-  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
-  safariContext: async ({}, use) => {
-    const context = await loadExtension(SAFARI_EXTENSION);
+  safariContext: async ({ safariCopy }, use) => {
+    const context = await loadExtension(safariCopy);
     await use(context);
     await context.close();
   },

@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { captureConsole } from "../_shared/test-helpers.ts";
 import {
   runCanary,
   classifyPage,
@@ -134,4 +135,14 @@ Deno.test("notifies once per newly-broken surface (no repeats while still broken
 
 Deno.test("missing notify URL → no-op notifier resolves without crashing", async () => {
   await createNotifier(undefined).notify("hello");
+});
+
+Deno.test("a failed notify logs a fixed reason, never the secret notify URL from the fetch error", async () => {
+  const URL_SECRET = "https://hooks.example/services/T000/B000/secret-path";
+  const failingFetch = (() => Promise.reject(new TypeError(`error sending request for url (${URL_SECRET})`))) as unknown as typeof fetch;
+  const logged = await captureConsole(() => createNotifier(URL_SECRET, failingFetch).notify("hello"));
+  assertEquals(logged, "[canary] failed reason=notify_failed");
+  for (const leak of [URL_SECRET, "hooks.example", "secret-path", "error sending request"]) {
+    assertEquals(logged.includes(leak), false, `log must not contain ${leak}`);
+  }
 });
