@@ -41,6 +41,8 @@ export default defineContentScript({
   runAt: "document_start",
   cssInjectionMode: "manifest",
   main: createShippingContentEntry({
+    // Still Pro extras count only where this host implements them, and only while paid is on.
+    host: import.meta.env.FIREFOX ? "firefox" : "chromium",
     storage: chrome.storage.local,
     prod: import.meta.env.PROD,
     earlyRedirect: import.meta.env.FIREFOX,

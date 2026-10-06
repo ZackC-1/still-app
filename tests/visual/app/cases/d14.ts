@@ -34,7 +34,7 @@ function firstRun({
   browser?: "chrome" | "firefox";
   permission?: "needed" | "pending" | "denied" | "granted";
   pinned?: boolean;
-  consent?: "unasked" | "on" | "off";
+  consent?: "unasked" | "on" | "off" | "none";
   signedIn?: boolean;
 }): () => Rendered {
   const name = browser === "chrome" ? "Chrome" : "Firefox";
@@ -77,16 +77,19 @@ function firstRun({
           : undefined,
         onSignIn: noop,
       },
+      // "none" draws no consent card at all (reference d14-03, redrawn 2026-10-05).
       consent:
-        consent === "unasked"
-          ? {
-              status: "unasked",
-              purposes: REVIEW_PURPOSES,
-              purposesVerified: true,
-              onShare: noop,
-              onDecline: noop,
-            }
-          : { status: "saved", choice: consent },
+        consent === "none"
+          ? undefined
+          : consent === "unasked"
+            ? {
+                status: "unasked",
+                purposes: REVIEW_PURPOSES,
+                purposesVerified: true,
+                onShare: noop,
+                onDecline: noop,
+              }
+            : { status: "saved", choice: consent },
       settings: { verified: true, onOpen: noop },
       privacy: { verified: true, onOpen: noop },
     } satisfies FirstRunProps,
@@ -137,9 +140,15 @@ const cases: VisualCase[] = [
     caption: "Firefox · permission needed",
     theme: "light",
     width: 420,
-    frame: tab(420, 960),
-    render: firstRun({ browser: "firefox", permission: "needed" }),
-    deviations: signedOut,
+    // Redrawn 2026-10-05 (owner decision 58): no browser tab header, no combined consent card, and
+    // the approved sync wording, so there is no deviation left to declare. `r-bare` hides the
+    // simulated tab bar through the package's review.css.
+    frame: { ...tab(420, 960), cls: "r-bare" },
+    render: firstRun({
+      browser: "firefox",
+      permission: "needed",
+      consent: "none",
+    }),
   },
   {
     ...base,

@@ -19,13 +19,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Database at the expected pre-change state: every migration at the commit except the listed ones.
+# Database at the expected pre-change state: every migration at the commit except the listed ones
+# (for an owner-approved operation: every migration at the commit; the operation sets its own
+# starting state, e.g. a writer login and an open connection, inside the replay).
 node scripts/backend/deploy/deploy.mjs workdir --plan "$plan" --dir "$dir" --stage prior
 supabase start --workdir "$dir" \
   --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor \
   >/dev/null
 
-# The exact production code path (dry run, history checks, db push, read-only verification),
+# The exact production code path (dry run, history checks, db push or operation SQL, read-only verification),
 # pointed at the runner's own database as the ordinary non-superuser `postgres` role.
 SUPABASE_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
   node scripts/backend/deploy/deploy.mjs replay --plan "$plan" --dir "$dir"

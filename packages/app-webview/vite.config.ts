@@ -1,8 +1,4 @@
-import {
-  defineConfig,
-  type IndexHtmlTransformContext,
-  type Plugin,
-} from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 // Builds the one shared Svelte UI (packages/core App.svelte) into a SINGLE self-contained index.html
@@ -15,38 +11,52 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 // `crossorigin` attribute) fails to load over file:// in WKWebView and the app never mounts (blank
 // screen). Inlining the one JS chunk + CSS into the HTML removes every sub-resource fetch, so the
 // inlined module executes directly with no network/CORS step.
+//
+// Why generateBundle (order "post") and not transformIndexHtml: Vite rewrites each dynamic
+// `import()` as `__vitePreload(factory, __VITE_PRELOAD__)` and replaces that placeholder only in
+// its own generateBundle step (vite:build-import-analysis), which runs AFTER the HTML transforms.
+// Inlining from transformIndexHtml copied the chunk before that replacement, so a build with a
+// dynamic import (the opted-in Apple V3 screens) shipped a raw `__VITE_PRELOAD__` and threw a
+// ReferenceError in WKWebView. A post-ordered generateBundle sees the final chunk code — the same
+// bytes Vite writes to assets/.
 function inlineBundle(): Plugin {
   return {
     name: "still-inline-bundle",
     enforce: "post",
-    transformIndexHtml: {
+    generateBundle: {
       order: "post",
-      handler(html: string, ctx: IndexHtmlTransformContext) {
-        const bundle = ctx.bundle;
-        if (!bundle) return html;
+      handler(_options, bundle) {
         const fileOf = (url: string) => url.replace(/^\.?\//, "");
+        for (const page of Object.values(bundle)) {
+          if (page.type !== "asset" || !page.fileName.endsWith(".html")) continue;
+          let html =
+            typeof page.source === "string" ? page.source : new TextDecoder().decode(page.source);
 
-        html = html.replace(
-          /<script\b[^>]*\bsrc="([^"]+)"[^>]*><\/script>/g,
-          (match, src: string) => {
-            const chunk = bundle[fileOf(src)];
-            return chunk && chunk.type === "chunk"
-              ? `<script type="module">\n${chunk.code}</script>`
-              : match;
-          },
-        );
+          html = html.replace(
+            /<script\b[^>]*\bsrc="([^"]+)"[^>]*><\/script>/g,
+            (match, src: string) => {
+              const chunk = bundle[fileOf(src)];
+              return chunk && chunk.type === "chunk"
+                ? `<script type="module">\n${chunk.code}</script>`
+                : match;
+            },
+          );
 
-        html = html.replace(
-          /<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"[^>]*>/g,
-          (match, href: string) => {
-            const asset = bundle[fileOf(href)];
-            return asset && asset.type === "asset"
-              ? `<style>\n${asset.source}</style>`
-              : match;
-          },
-        );
+          html = html.replace(
+            /<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"[^>]*>/g,
+            (match, href: string) => {
+              const asset = bundle[fileOf(href)];
+              if (!asset || asset.type !== "asset") return match;
+              const css =
+                typeof asset.source === "string"
+                  ? asset.source
+                  : new TextDecoder().decode(asset.source);
+              return `<style>\n${css}</style>`;
+            },
+          );
 
-        return html;
+          page.source = html;
+        }
       },
     },
   };
@@ -54,7 +64,20 @@ function inlineBundle(): Plugin {
 
 export default defineConfig({
   base: "./",
-  plugins: [svelte(), inlineBundle()],
+  plugins: [
+    svelte({
+      compilerOptions: {
+        // Scope hashes must not depend on the absolute build path. Copied from
+        // packages/ext-chromium/wxt.config.ts (keep the three in sync). vite-plugin-svelte's default
+        // cssHash mixes in the component's normalized filename, and @still/core components resolve
+        // through the pnpm symlink to a path OUTSIDE this package's Vite root, so the default hash
+        // changes with the checkout directory. Hashing the css text alone is deterministic everywhere
+        // (identical css gives identical scoped rules, so collisions are harmless).
+        cssHash: ({ hash, css }) => `svelte-${hash(css ?? "")}`,
+      },
+    }),
+    inlineBundle(),
+  ],
   build: {
     outDir: "dist",
     emptyOutDir: true,

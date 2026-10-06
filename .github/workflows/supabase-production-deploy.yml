@@ -2,13 +2,19 @@ name: Supabase production deploy
 
 # The ONLY path for database changes to reach production (owner decision 9, CP-033).
 # Manual dispatch from main only; never runs on push, pull request or schedule.
-# One run deploys one exact change: a commit on main plus the exact list of pending migrations.
+# One run deploys one exact change: a commit on main plus EITHER the exact list of pending
+# migrations OR one owner-approved operation (pause-settings-sync / resume-settings-sync, see
+# scripts/backend/deploy/operations.mjs), never both. Operations add no migration history.
 #   plan  (no secrets): binds commit + file hashes + expected history into a digest and rehearses
 #                       the change on a throwaway database inside the runner; shows what changes.
+#                       An operation's SQL must also equal the hash pinned in operations.mjs, and
+#                       its rehearsal proves the effect and that no other role or data changed.
 #   apply (environment supabase-production, owner approval required): re-derives the same digest,
-#                       refuses unexpected hosted history, applies only the listed migrations,
-#                       then runs read-only verification queries and fails loudly.
-# No automatic rollback. Failures stop and need a reviewed fix-forward (see deploy.mjs).
+#                       refuses unexpected hosted history, applies only the listed migrations (or
+#                       the one operation), then runs read-only verification queries and fails loudly.
+# No automatic rollback. Failures stop and need a reviewed fix-forward (see deploy.mjs); an
+# operation is safe to repeat and is undone by its counterpart.
+run-name: "Supabase production ${{ inputs.operation }} (${{ inputs.mode }})"
 on:
   workflow_dispatch:
     inputs:
@@ -16,9 +22,19 @@ on:
         description: "Full 40-character commit SHA on main to deploy"
         required: true
         type: string
-      migrations:
-        description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql)"
+      operation:
+        description: "migrations deploys the listed migrations; the others run one owner-approved operation alone (leave migrations empty)"
         required: true
+        default: migrations
+        type: choice
+        options:
+          - migrations
+          - pause-settings-sync
+          - resume-settings-sync
+      migrations:
+        description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql); empty for an operation"
+        required: false
+        default: ""
         type: string
       functions:
         description: "Edge Functions to deploy (not supported yet; leave empty)"
@@ -54,6 +70,7 @@ jobs:
       environment-ready: ${{ steps.protection.outputs.environment-ready }}
     env:
       DEPLOY_SHA: ${{ inputs.commit }}
+      DEPLOY_OPERATION: ${{ inputs.operation }}
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
       DEPLOY_MODE: ${{ inputs.mode }}
@@ -91,6 +108,8 @@ jobs:
         run: |
           test "$(supabase --version)" = '2.119.0'
           psql --version
+      # For an operation the rehearsal also proves its effect (login refused or allowed, open
+      # connection closed) and that every other role, grant, row and migration is unchanged.
       - name: Rehearse the exact change on a throwaway database (no production access)
         run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/deploy-plan.json" "$RUNNER_TEMP/replay"
       - name: Publish the plan
@@ -114,6 +133,7 @@ jobs:
       actions: read
     env:
       DEPLOY_SHA: ${{ inputs.commit }}
+      DEPLOY_OPERATION: ${{ inputs.operation }}
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
       EXPECTED_PLAN_DIGEST: ${{ needs.plan.outputs.plan-digest }}
@@ -150,7 +170,7 @@ jobs:
         run: |
           git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
           node scripts/backend/deploy/deploy.mjs freshness --plan "$RUNNER_TEMP/deploy-plan.json" --main-ref refs/remotes/origin/main
-      - name: Apply exactly the planned migrations, then verify read-only
+      - name: Apply exactly the planned migrations or operation, then verify read-only
         id: apply
         timeout-minutes: 10
         env:

@@ -1,3 +1,4 @@
+import { TIKTOK_ROUTE } from "../../core/src/content/tiktok-blocked-route.js";
 import {
   createTiktokTabAuthority,
   type TiktokTabAuthorityDeps,
@@ -261,4 +262,16 @@ export function createChromeTiktokTabAuthority(
       await authority.stop();
     },
   };
+}
+
+const ROUTE_KINDS = new Set<string>(Object.values(TIKTOK_ROUTE));
+
+/** A message for the TikTok blocked-page route (content script or blocked page), by its kind only. */
+export function isTiktokRouteMessage(message: unknown): boolean {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    !Array.isArray(message) &&
+    ROUTE_KINDS.has(String((message as { kind?: unknown }).kind))
+  );
 }

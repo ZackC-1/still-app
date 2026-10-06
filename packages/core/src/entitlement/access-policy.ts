@@ -110,10 +110,29 @@ type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: 
 // Instagram's four (rules/instagram-extras.ts) are compiled hide rules and content-script routes,
 // which every host's shared format-2 content engine runs the same way.
 const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"]);
+const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat"]);
+// YouTube's packaged content-handler control (no rule data): Chromium and Firefox only.
+const YOUTUBE_HANDLER_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.autoplay"]);
+// Facebook's Stories and Videos and Watch (rules/facebook-extras.ts) run in every host's shared
+// format-2 content engine; Desktop sidebar ads only on the desktop extension hosts (see below).
+const FACEBOOK_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.stories", "facebook.videos"]);
+const FACEBOOK_DESKTOP_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.sponsored"]);
 export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProFeatureId[]>> = Object.freeze({
-  chromium: Object.freeze([...INSTAGRAM_PRO]),
-  firefox: Object.freeze([...INSTAGRAM_PRO]),
-  safari: Object.freeze([...INSTAGRAM_PRO]),
+  // YouTube's four hide controls (rules/youtube-extras.ts) and Autoplay prevention
+  // (content/youtube-autoplay.ts) only on the hosts that pass their host to the content entry and
+  // the access context (ext-chromium builds Chrome and Firefox).
+  chromium: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
+  // "firefox" is one build for desktop Firefox AND Firefox for Android, which gets the sites' mobile
+  // layouts (for YouTube, m.youtube.com). The mobile selectors are unverified candidates, so the
+  // structural evidence (E0) must cover Firefox for Android before paid activation. Autoplay
+  // prevention claims no m.youtube.com behaviour yet (H-075), and Desktop sidebar ads only ever
+  // matches the desktop right column.
+  firefox: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
+  // Safari (macOS and iPhone/iPad share one host) lists no YouTube control: their mobile Safari
+  // layouts are gated on structural evidence that does not exist yet. Desktop sidebar ads stays
+  // off too: one Safari build serves macOS, iOS and iPadOS, and whether iPad's desktop-class
+  // Safari should hide sidebar ads is open owner question Q4.
+  safari: Object.freeze([...INSTAGRAM_PRO, ...FACEBOOK_PRO]),
 });
 
 export interface AccessCapabilityInput {

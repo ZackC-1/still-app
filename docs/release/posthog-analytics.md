@@ -19,8 +19,8 @@ Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
   funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
-  carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos), `store` (ios,
-  macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
+  carries `surface` (chrome, firefox, firefox-android, safari-ios, safari-macos, app-ios,
+  app-macos), `store` (ios, macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
   `where` (popup, options, app).
 - **Identity operations** from the apps and extensions. `$identify` links the install to the

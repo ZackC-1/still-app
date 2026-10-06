@@ -14,8 +14,10 @@ import {
   OrdinaryPolicyCache, type PolicyCacheRead, type PolicyCacheRecord,
 } from "../../core/src/entitlement/product-policy-cache.js";
 
-// Chrome and Firefox client for the remote product policy (U6). DORMANT: nothing imports this
-// module yet, so no build contains it and no person can reach it.
+// Chrome and Firefox client for the remote product policy (U6). Its only consumer is the rating
+// path (U13-P3): lib/rating-invitation.ts, which background.ts loads behind the inline V3 build
+// gate, asks `freshCheck("rating")` once per locally eligible popup opening. Configured 2.x builds
+// do not contain it. Nothing asks it about sales.
 //
 // What it is for. Before a purchase may start or a review prompt may be requested, the background
 // asks the public `product-policy` function one fresh question and evaluates the answer with the
@@ -287,7 +289,7 @@ export function extensionPolicySurface(isFirefox: boolean): ProductPolicySurface
   return isFirefox ? "firefox_desktop" : "chrome_desktop";
 }
 
-/** Background-only wiring over chrome.storage.local. Uncalled until a reviewed change wires it. */
+/** Background-only wiring over chrome.storage.local, used only by the rating route. */
 export function createChromeProductPolicyRuntime(options: Omit<ProductPolicyRuntimeOptions, "area">): ProductPolicyRuntime {
   return createProductPolicyRuntime({ ...options, area: chrome.storage.local });
 }

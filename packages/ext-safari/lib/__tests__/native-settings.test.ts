@@ -12,7 +12,10 @@ const record: StoredSettingsRecord = {
   syncMetadata: null,
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("pushSettingsToApp", () => {
   it("sends a native `set` message carrying the record as a JSON string", async () => {
@@ -37,5 +40,17 @@ describe("pushSettingsToApp", () => {
     const sendNativeMessage = vi.fn(() => Promise.reject(new Error("no native host")));
     vi.stubGlobal("browser", { runtime: { sendNativeMessage } });
     await expect(pushSettingsToApp(record)).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ["the Apple developer opt-in", { VITE_APPLE_ATOMIC_SETTINGS: "true" }],
+    ["configured with modern sync", { VITE_MODERN_SETTINGS_SYNC_ENABLED: "true", VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" }],
+  ])("with %s, never pushes a modern (atomic) record: that is the app's authority, not the extension's", async (_name, env) => {
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+    const sendNativeMessage = vi.fn(() => Promise.resolve({}));
+    vi.stubGlobal("browser", { runtime: { sendNativeMessage } });
+    await pushSettingsToApp({ ...record, atomic: { format: 1, sequence: 3, ownership: "unknown",
+      scope: { accountId: null, generation: 0 }, anchor: null, pending: [], held: {}, paused: null } });
+    expect(sendNativeMessage).not.toHaveBeenCalled();
   });
 });

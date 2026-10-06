@@ -27,12 +27,18 @@ export interface PopupInvitationPort {
  * Reserve, commit, then (and only then) call `show`. Returns whether the card was shown. Any
  * failure before the commit result is known shows nothing; the next ordinary opening releases an
  * abandoned reservation.
+ *
+ * `ready` is the popup's own "would the card be visible now" check (setup, account trouble). It is
+ * asked again after the reservation and immediately before the commit: state that arrived while
+ * the background was deciding (an account status read after a woken worker) must not spend the
+ * card unseen. Not ready means no commit; the next ordinary opening reclaims the reservation.
  */
 export async function presentInvitation(
   port: PopupInvitationPort,
   opening: string,
   show: (reserved: PopupInvitationReservation) => void,
   hold?: "setup" | "error",
+  ready: () => boolean = () => true,
 ): Promise<boolean> {
   let reserved: PopupInvitationReservation | null;
   try {
@@ -41,6 +47,11 @@ export async function presentInvitation(
     return false;
   }
   if (!reserved) return false;
+  try {
+    if (ready() !== true) return false;
+  } catch {
+    return false;
+  }
   let committed: boolean;
   try {
     committed = await port.commit(reserved.reservation);
