@@ -95,12 +95,20 @@ Why it works:
   changes them.
   - The binder and its presentation rules (whole-popup scroll above 1.5×, breaking over-long words
     above 1.5×) live in `text-scale.ts` as an injected `<style>`.
-- **Not every fixed size is a bug.** The desktop popup's "Settings sync" heading is drawn at a fixed
-  17px at every text size in the approved design, so it deliberately ignores `--text-scale`. A
-  Playwright case checks it stays 17px at 2× while the line under it grows.
   - Every Chromium entry calls it behind the inline `atomicLocal` condition over
     `import.meta.env`, which Vite folds away in configured builds.
   - Verify with `node scripts/bundles/identity.mjs`.
+- **Text size adds no size rules of its own; each screen keeps its approved cascade.** The plain
+  desktop popup layout draws "Settings sync" at a fixed 17px at every text size. V3 builds show the
+  popup in its sync-invitation layout, whose approved 150% frame grows that heading (15px × scale).
+  A Playwright case checks the injected rules never target the heading and that it follows the
+  layout in use.
+- **In headless Chromium, keep the page under test in front.** A V3 install opens its first-run
+  tab whenever the background gets to it. If that tab lands on top of the page being checked, Linux
+  headless Chromium draws the page at one or two frames a second while it still reports itself
+  visible. Every `scrollIntoViewIfNeeded` and `toBeInViewport` then waits on frames, and a sweep of
+  ten controls took 30s on CI (it was quick on a Mac). Close the install tab before opening pages,
+  and `bringToFront()` each page you measure.
 - **Hosts bind; components never do.** The visual harness sets `--text-scale` itself, and a binder
   inside a component would fight it.
 - **On macOS, `-apple-system-body` is a fixed 13px.** The Sonoma Text size setting applies only to
