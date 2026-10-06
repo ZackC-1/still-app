@@ -259,7 +259,7 @@ describe("compiled extras route framework", () => {
         if (service === "youtube" && path === "/live_chat") expect(decision, `${service}${path}`).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
         else if (service === "facebook" && (path === "/stories/x/" || path === "/watch/"))
           expect(decision, `${service}${path}`).toEqual({ kind: "redirect", url: "https://www.facebook.com/" });
-        else expect(decision.kind, `${service}${path}`).not.toBe("redirect");
+        else expect(decision, `${service}${path}`).toEqual({ kind: "apply" });
       }
       // Paid off (shipped defaults): no route at all.
       for (const path of ["/live_chat", "/live_chat_replay", "/stories/x/", "/watch/"]) expect(engine.evaluate(ALL_ON, new URL(path, href)).kind).not.toBe("redirect");
