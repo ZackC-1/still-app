@@ -8,6 +8,8 @@ import {
   SAFARI_SETTINGS_LABEL,
   appManagedPopupAccount,
   appManagedSettingsSync,
+  SAFARI_PHONE_MAX_SCREEN_WIDTH,
+  safariPopupFillsSheet,
   safariPopupSurface,
   savedRecordIsAtomic,
   selectSafariV3Build,
@@ -82,6 +84,19 @@ describe("Safari popup surface", () => {
     expect(safariPopupSurface("ios")).toBe("mobile");
     expect(safariPopupSurface(undefined)).toBe("mobile");
     expect(safariPopupSurface("win")).toBe("mobile");
+  });
+
+  it("fills the width only for the iPhone sheet, never a content-sized popover", () => {
+    // iPhone screens (portrait points): SE, 13 mini, 15, 15 Plus, 16 Pro Max.
+    for (const width of [320, 375, 390, 393, 430, 440]) expect(safariPopupFillsSheet("mobile", width)).toBe(true);
+    // iPad screens keep the fixed width: their popover is sized from the content, like the Mac's.
+    for (const width of [744, 768, 820, 1024]) expect(safariPopupFillsSheet("mobile", width)).toBe(false);
+    expect(SAFARI_PHONE_MAX_SCREEN_WIDTH).toBeLessThan(744);
+    // The Mac popover, whatever the screen.
+    expect(safariPopupFillsSheet("desktop", 375)).toBe(false);
+    expect(safariPopupFillsSheet("desktop", 1440)).toBe(false);
+    // Unknown or nonsense screens keep the fixed width.
+    for (const width of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(safariPopupFillsSheet("mobile", width)).toBe(false);
   });
 
   it("passes DesktopPopup its required browser value and the approved Settings label", () => {
