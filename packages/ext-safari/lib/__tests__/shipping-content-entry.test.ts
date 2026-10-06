@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { selectSafariV3Build } from "../safari-v3.js";
 
 // The shipping content script must reach the packaged format-2 rule set only through core's
 // shipping entry, so lane selection and the legacy fallback are the same on every build. The test
@@ -15,7 +16,61 @@ describe("ext-safari shipping content entry", () => {
   });
 
   it("passes no test seam or unadmitted rule data", () => {
-    for (const seam of ["packagedRuleSetV2", "format2Services", "onLane", "bundledRuleSetV2", "format2.json"])
+    for (const seam of ["packagedRuleSetV2", "format2Services", "onLane", "bundledRuleSetV2", "format2.json", "coverTiming"])
       expect(source, seam).not.toContain(seam);
+  });
+});
+
+// U7-W3: V3 builds run the modern entry (early redirect for every core route, plus the pending
+// cover). The choice is an inline build-time condition so default and configured builds fold it
+// away and stay byte-identical; it must be the exact opt-in the popup and settings page use.
+const GATE =
+  '(import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\n' +
+  "        !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||\n" +
+  '      (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&\n' +
+  "        import.meta.env.VITE_SUPABASE_URL &&\n" +
+  "        import.meta.env.VITE_SUPABASE_ANON_KEY)";
+// The popup's own inline opt-in (popup/main.ts): the content entry must use exactly the same rule.
+const popup = readFileSync(resolve(process.cwd(), "entrypoints/popup/main.ts"), "utf8");
+
+describe("ext-safari V3 content entry gate", () => {
+  it("selects the modern entry with the inline V3 opt-in, and only there shows the cover", () => {
+    expect(source).toContain('import { createModernShippingContentEntry } from "@still/core/content/modern-entry";');
+    expect(source).toContain(`if (\n      ${GATE}\n    ) {\n      await createModernShippingContentEntry({`);
+    expect(source).toContain("pendingCover: window.top === window,");
+    // Both branches name the Safari host for the engine's capability set.
+    expect(source.match(/host: "safari",/g)).toHaveLength(2);
+    expect(source.match(/pendingCover/g)).toHaveLength(1);
+    // The default branch is the unchanged legacy construction.
+    expect(source).toContain("      return;\n    }\n    await createShippingContentEntry({");
+  });
+
+  it("is the same rule as the popup's inline opt-in (whitespace aside)", () => {
+    const normalize = (text: string) => text.replace(/\s+/g, " ");
+    expect(normalize(popup)).toContain(normalize(GATE));
+  });
+
+  it.each([
+    ["true", undefined, "", ""],
+    ["true", undefined, "https://x.invalid", ""],
+    ["true", undefined, "", "key"],
+    ["true", undefined, "https://x.invalid", "key"],
+    ["TRUE", undefined, "", ""],
+    ["1", undefined, "", ""],
+    ["false", undefined, "", ""],
+    [undefined, undefined, undefined, undefined],
+    [undefined, "true", "https://x.invalid", "key"],
+    [undefined, "true", "", ""],
+    [undefined, "TRUE", "https://x.invalid", "key"],
+    ["true", "true", "https://x.invalid", "key"],
+    [undefined, "false", "https://x.invalid", "key"],
+  ])("flag %s, modern sync %s, url %s, key %s: the inline gate equals selectSafariV3Build", (flag, modern, url, key) => {
+    const condition = GATE.replaceAll("import.meta.env.", "env.").replaceAll("\n", " ");
+    const inline = new Function("env", `return Boolean(${condition});`) as (env: object) => boolean;
+    const env = {
+      VITE_APPLE_ATOMIC_SETTINGS: flag, VITE_MODERN_SETTINGS_SYNC_ENABLED: modern,
+      VITE_SUPABASE_URL: url, VITE_SUPABASE_ANON_KEY: key,
+    };
+    expect(inline(env)).toBe(selectSafariV3Build({ atomicSettingsFlag: flag, modernSyncFlag: modern, supabaseUrl: url, supabaseAnonKey: key }));
   });
 });

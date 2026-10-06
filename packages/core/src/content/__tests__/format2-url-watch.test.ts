@@ -4,7 +4,9 @@ import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { createContentScript, type ContentScriptHandle } from "../index.js";
-import { createNavigationIntentTracker, URL_WATCH_INTERVAL_MS, type NavigationIntentTracker } from "../redirect.js";
+import { createNavigationIntentTracker, URL_WATCH_INTERVAL_MS, type NavigationIntentTracker, type StillWindow } from "../redirect.js";
+import { createCoreRouteClassifier, createCoveredWindow, createReelContinuationProbe } from "../modern-shipping-entry.js";
+import { createPendingCover, PENDING_COVER_CLASS, type PendingCover } from "../pending-cover.js";
 import { ruleSet } from "../../rules/__tests__/format2-fixtures.js";
 import seed from "../../../rules/seed.json";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../../rules/packaged.js";
@@ -75,7 +77,11 @@ function shippedDefaultsAllPurchased() {
 
 async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker(),
   paid?: { ruleSetV2: SignedRuleSetV2; capabilities: ReadonlySet<BenefitId> | undefined; entitlement: EntitlementCache },
-  overrides: { MutationObserver?: typeof MutationObserver } = {}) {
+  overrides: {
+    MutationObserver?: typeof MutationObserver;
+    /** Optional view of the window the script gets (the Safari V3 entry's covered window). */
+    wrapWin?: (win: StillWindow) => StillWindow;
+  } = {}) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   await writer.initialize("never-linked");
@@ -100,7 +106,7 @@ async function host(href: string, intents: NavigationIntentTracker | null = crea
     // Deliberately no `navigation`: this is the fallback's whole precondition.
   };
   const script = createContentScript({
-    win,
+    win: overrides.wrapWin ? overrides.wrapWin(win) : win,
     doc: document,
     ruleSet: seed as unknown as SignedRuleSet,
     ruleSetV2: paid ? paid.ruleSetV2 : allCores,
@@ -512,5 +518,68 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     h.script.stop();
     expect(h.listeners.get("popstate")?.size ?? 0).toBe(0);
     expect(h.listeners.get("hashchange")?.size ?? 0).toBe(0);
+  });
+});
+
+// U7-W3 x the Instagram extras URL watch: on Safari V3 builds the content script gets the covered
+// window. The watch follows extras too, but only core short-form redirects are ever covered.
+describe("Safari cover on URL-watch redirects (V3-D-052: core only, never extras)", () => {
+  const packaged = admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!;
+  const routes = { destination: createCoreRouteClassifier(packaged), continuationHome: createReelContinuationProbe(packaged) };
+  const covered = () => document.documentElement.classList.contains(PENDING_COVER_CLASS);
+  const covers: PendingCover[] = [];
+  afterEach(() => { for (const cover of covers.splice(0)) cover.stop(); });
+  /** The covered window, observing whether the page was covered at each replacement Still made. */
+  function coveredView(seen: boolean[]) {
+    return (win: StillWindow): StillWindow => {
+      const cover = createPendingCover({ doc: document, win: window });
+      covers.push(cover);
+      const observed: StillWindow = {
+        ...win,
+        location: {
+          get href() { return win.location.href; },
+          replace: (url) => { seen.push(covered()); win.location.replace(url); },
+          assign: (url) => win.location.assign!(url),
+        },
+      };
+      return createCoveredWindow(observed, cover, routes);
+    };
+  }
+
+  it("Explore routed by the watch (extra alone, Reels Off) is never covered", async () => {
+    fake();
+    window.history.replaceState(null, "", "/");
+    const seen: boolean[] = [];
+    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), { wrapWin: coveredView(seen) });
+    await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
+    await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 3 });
+    await h.cache.rereadAuthority?.();
+    h.script.reapply();
+    h.pagePush("/explore/?hl=fr");
+    await tickWatch();
+    expect(h.replace).toHaveBeenCalledWith("https://www.instagram.com/explore/search/?hl=fr");
+    expect(seen).toEqual([false]);
+    expect(covered()).toBe(false);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("with Reels and Explore both on, a move into Reels is covered and a move into Explore is not", async () => {
+    fake();
+    window.history.replaceState(null, "", "/");
+    const seen: boolean[] = [];
+    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), { wrapWin: coveredView(seen) });
+    await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 2 });
+    await h.cache.rereadAuthority?.();
+    h.script.reapply();
+    h.pagePush("/explore/?hl=fr");
+    await tickWatch();
+    h.pagePush("/reels/");
+    await tickWatch();
+    expect(h.replace.mock.calls.map(([url]) => url)).toEqual([
+      "https://www.instagram.com/explore/search/?hl=fr",
+      "https://www.instagram.com/",
+    ]);
+    expect(seen).toEqual([false, true]);
+    window.history.replaceState(null, "", "/");
   });
 });

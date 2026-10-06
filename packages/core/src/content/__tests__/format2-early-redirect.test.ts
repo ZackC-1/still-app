@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type ServiceId } from "@still/shared-types";
 import { createShippingContentEntry, type ShippingContentLane } from "../extension-entry.js";
 import type { ContentScriptHandle } from "../index.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
+import { createModernShippingContentEntry } from "../modern-shipping-entry.js";
 import { PACKAGED_RULE_SET_V2 } from "../../rules/packaged.js";
 
 // Firefox and Safari have no DNR redirect, so a direct /shorts/<id> load is redirected by the
@@ -11,6 +12,12 @@ import { PACKAGED_RULE_SET_V2 } from "../../rules/packaged.js";
 // must too, whichever lane it picks, so the Shorts player window never widens.
 
 const scripts: ContentScriptHandle[] = [];
+// Both shipping entries must keep the same early timing (the V3 entry generalizes the trigger).
+const FACTORIES = [
+  ["shipping entry", createShippingContentEntry],
+  ["modern entry", createModernShippingContentEntry],
+] as const;
+let factory: (typeof FACTORIES)[number][1] = createShippingContentEntry;
 const SHORTS = "https://www.youtube.com/shorts/abc123";
 const WATCH = "https://www.youtube.com/watch?v=abc123";
 const ACTIVE: ReadonlySet<ServiceId> = new Set(["youtube", "instagram", "facebook"]);
@@ -44,7 +51,7 @@ async function rounds(options: { services: ReadonlySet<ServiceId>; legacySetting
   });
   const lanes: ShippingContentLane[] = [];
   const created = vi.fn();
-  const loading = createShippingContentEntry({
+  const loading = factory({
     storage: area,
     prod: false,
     earlyRedirect: options.earlyRedirect ?? true,
@@ -78,7 +85,11 @@ async function rounds(options: { services: ReadonlySet<ServiceId>; legacySetting
   return { h, lanes, created, readsAtCall, roundsUntilRedirect, finish };
 }
 
-describe("early Shorts redirect timing (Firefox/Safari)", () => {
+describe.each(FACTORIES)("%s: early Shorts redirect timing (Firefox/Safari)", (_name, entry) => {
+  beforeEach(() => {
+    factory = entry;
+  });
+
   it("held page: the legacy early redirect starts synchronously, before any extra await", async () => {
     const r = await rounds({ services: new Set() });
     expect(r.readsAtCall).toContain("still:settings"); // started inside the synchronous call
