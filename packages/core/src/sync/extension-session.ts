@@ -12,6 +12,7 @@ import type {
   WebCheckoutPort,
 } from "./ports.js";
 import type { LastSyncedIdentityStore, SyncService } from "./service.js";
+import { createTeardownGeneration } from "./teardown-generation.js";
 
 // The extension-session orchestrator (plan U5) — the Chromium half of the entitlement lane
 // (CONTEXT.md): the background context owns the Supabase session, the authenticated reconcile→
@@ -239,8 +240,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
   /** Bumped by every teardown/identity-purge. A reconcile captures it before its network await and
    * skips the entitlement write if it changed during the await — the airtight guard against a torn
    * sign-out (or a concurrent identity switch) letting a stale `entitled: true` land after the purge
-   * already wrote `entitled: false`. Independent of any auth-js in-memory-session quirk. */
-  let teardownGeneration = 0;
+   * already wrote `entitled: false`. Independent of any auth-js in-memory-session quirk.
+   * The shared teardown-generation kernel owns the counter now. */
+  const generations = createTeardownGeneration();
   // A voluntary exit can wait on the network while SyncService still carries its prior userId.
   // Keep that identity out of display reads until the exit settles (failed deletion can resume).
   let accountStatusTeardowns = 0;
@@ -300,7 +302,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
    * route this is. See PurgeReason.
    */
   const clearUserScopedState = async (reason: PurgeReason): Promise<void> => {
-    teardownGeneration += 1; // invalidate any reconcile write in flight across its network await (F2)
+    generations.bump(); // invalidate any reconcile write in flight across its network await (F2)
     await attempt(() => records.setRecord({ entitled: false, updatedAt: now() }));
     const pending = await readCheckoutPending();
     if (pending?.tabId !== undefined) {
@@ -338,7 +340,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     try {
       const userId = await auth.currentUserId();
       if (userId === null) return "signed-out";
-      const generationAtStart = teardownGeneration;
+      const generationAtStart = generations.capture();
       const call = await backend.reconcileEntitlementChecked();
       if (call === "auth-required") return "auth-required";
       if (call === "unavailable") return "unknown";
@@ -349,7 +351,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       // `entitled: false` and purged this user; writing the reconciled record now would resurrect a
       // stale grant for a signed-out or replaced identity. Bail before the write when the generation
       // moved or the current identity no longer matches the one we reconciled.
-      if (teardownGeneration !== generationAtStart) return "signed-out";
+      if (!generations.isCurrent(generationAtStart)) return "signed-out";
       if ((await auth.currentUserId()) !== userId) return "signed-out";
       await records.setRecord({ entitled, userId, updatedAt: now() });
       // A confirmed purchase ends the checkout-pending lifecycle background-side too — the popup
@@ -370,12 +372,12 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
   return {
     async getSyncStatus(): Promise<AccountSyncStatus | null> {
       if (accountStatusTeardowns > 0) return null;
-      const generation = teardownGeneration;
+      const generation = generations.capture();
       const account = auth.currentAccount
         ? await auth.currentAccount()
         : { id: await auth.currentUserId(), email: null };
       const state = sync.getState();
-      if (accountStatusTeardowns > 0 || generation !== teardownGeneration || !account?.id) return null;
+      if (accountStatusTeardowns > 0 || !generations.isCurrent(generation) || !account?.id) return null;
       if (state.userId !== account.id) throw new Error("Account sync status is not ready");
       return {
         accountId: account.id,
@@ -441,7 +443,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         // The full sign-in flow: the settings mirror and the entitlement reconcile, started
         // together. Having an account is the whole sync gate now, so the mirror no longer waits
         // on, or depends on, the entitlement answer (SyncService.onSignedIn).
-        const generationAtStart = teardownGeneration;
+        const generationAtStart = generations.capture();
         await sync.onSignedIn(userId);
         // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
         // `confirmed` means the reconcile+read round-trip settled the answer (explicit false
@@ -451,7 +453,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         const state = sync.getState();
         if (
           state.confirmed &&
-          teardownGeneration === generationAtStart &&
+          generations.isCurrent(generationAtStart) &&
           (await auth.currentUserId()) === userId
         ) {
           await records.setRecord({ entitled: state.entitled, userId, updatedAt: now() });

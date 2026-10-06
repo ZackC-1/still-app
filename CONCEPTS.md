@@ -102,6 +102,11 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   and one shared voluntary-teardown helper. The ext-chromium background entrypoint is thin
   wiring around it; entitlement reaches Chrome/Firefox through this lane the way the App-Group
   entitlement lane serves Safari.
+- **Teardown generation** (`core/sync/teardown-generation.ts`) — the counter marking which
+  sign-in generation is current. Bumped on every voluntary teardown or identity switch; async
+  work captured before a network wait is discarded when the generation moved. Shared by the
+  Apple session orchestrator and the Extension session orchestrator; each host's own gate
+  conditions stay in its host.
 - **App-Group bridge** — the Swift↔web↔extension seam on Apple: settings lane (`SettingsBridge`,
   sync metadata/epochs and local timestamp ordering) + entitlement lane (`EntitlementBridge`,
   app-written after receipt or server confirmation through `StampPolicy`). Safari reads entitlement;
