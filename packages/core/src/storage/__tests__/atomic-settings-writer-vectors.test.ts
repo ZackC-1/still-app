@@ -198,4 +198,31 @@ describe("shared atomic settings writer vectors", () => {
     expect(final.atomic!.pending.slice(0, 2).map(p => p.originScope)).toEqual([{ accountId: null, generation: 0 }, { accountId: null, generation: 0 }]);
     expect(final.atomic!.pending[2]!.originScope).toBeUndefined();
   });
+
+  it("baseline: a failed first read preserves never-linked choices until the first acknowledgement", () => {
+    const c = byName("baseline/failed-first-read-preserves-never-linked-choices");
+    expect(c.writeIds).toHaveLength(2);
+    const [instagram, global] = c.writeIds as string[];
+    // Two local choices, then account entry with no acknowledgement: intent transfers, no pause.
+    expect(c.steps[1]!.summary).toMatchObject({ pendingCount: 2, newestPending: global, paused: null, held: {} });
+    expect(c.steps[2]!.summary).toMatchObject({ pendingCount: 2, newestPending: global, paused: null, held: {},
+      syncEpoch: c.steps[1]!.summary!.syncEpoch! + 1, sequence: c.steps[1]!.summary!.sequence! + 1 });
+    // Sign-out retirement keeps both unsubmitted choices queued with no pause or overlay.
+    expect(c.steps[3]!.summary).toMatchObject({ pendingCount: 2, newestPending: global, paused: null, held: {},
+      syncEpoch: c.steps[2]!.summary!.syncEpoch! + 1 });
+    // Same-account re-entry transfers them again; the empty account's first acknowledgement
+    // merges the preserved choices and binds the first receipt to the original identities.
+    expect(c.steps[4]!.summary).toMatchObject({ pendingCount: 2, newestPending: global, paused: null, held: {} });
+    expect(c.steps[5]!.summary).toMatchObject({ pendingCount: 2, newestPending: global, paused: null, held: {} });
+    const final = c.steps[5]!.record!;
+    expect(final.settings).toMatchObject({ globalOn: false, services: { instagram: false } });
+    expect(final.syncMetadata).toBeNull();
+    expect(final.atomic!.pending.map(p => p.writeId)).toEqual([instagram, global]);
+    for (const request of final.atomic!.pending) {
+      expect(request.receipt).toMatchObject({ lineage: LINEAGE, revision: 0 });
+      expect(request.originScope).toMatchObject({ accountId: null });
+    }
+    expect(final.atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {},
+      scope: { accountId: A, sessionId: SESSION }, anchor: { lineage: LINEAGE, revision: 0 } });
+  });
 });

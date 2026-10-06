@@ -169,6 +169,61 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
     await h.service.signOut(); h.cache.watch()(); expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(0);
   });
+  it.each(["signOut", "deleteAccount"] as const)("never-linked Off survives a failed first account read, %s and same empty account re-entry", async teardown => {
+    // ADV-1: the first account read fails AFTER scope entry (offline), so no acknowledgement
+    // establishes ownership yet. Signing out and back into the same empty account must keep the
+    // deliberate local choices and seed the account with them, exactly like a successful first
+    // link. A later switch to a different empty account still adopts defaults (eligibility ends
+    // at the first successful acknowledgement).
+    const h = harness("never-linked", true); await h.cache.hydrate();
+    await h.cache.setService("instagram", false); await h.cache.setGlobalOn(false);
+    const original = structuredClone(h.cache.currentRecord().atomic!.pending);
+    expect(original).toHaveLength(2);
+    const serving = h.invoke.getMockImplementation()!;
+    let readsFailed = 0;
+    h.invoke.mockImplementation(async (name: string, options: { body: unknown }) => {
+      const body = options.body as { action?: string };
+      if (body.action === "read" && readsFailed === 0) { readsFailed += 1; throw new Error("offline on first read"); }
+      return serving(name, options);
+    });
+    await h.service.onSignedIn(A); await settle();
+    expect(readsFailed).toBe(1);
+    expect(h.service.getState()).toMatchObject({ userId: A, cloudReachable: false });
+    // Scope was entered but nothing was acknowledged: ownership stays never-linked and the
+    // unsubmitted intent stays queued with local provenance.
+    expect(h.cache.currentRecord().atomic).toMatchObject({ ownership: "never-linked", paused: null, held: {} });
+    expect(h.cache.currentRecord().atomic!.pending).toHaveLength(2);
+    expect(h.cache.current()).toMatchObject({ globalOn: false, services: { instagram: false } });
+    expect(h.requests).toEqual([]);
+    await h.service[teardown](); await settle();
+    // Sign-out retires the entered scope but preserves the demonstrably unsubmitted choices.
+    expect(h.cache.currentRecord().atomic).toMatchObject({ ownership: "never-linked", scope: { accountId: null } });
+    expect(h.cache.currentRecord().atomic!.pending).toHaveLength(2);
+    expect(h.cache.current()).toMatchObject({ globalOn: false, services: { instagram: false } });
+    // Back into the same empty account with a new verified session: the choices survive and seed it.
+    h.switchSession(NEXT_SESSION);
+    await h.service.onSignedIn(A); await drain();
+    expect(h.cache.current()).toMatchObject({ globalOn: false, services: { instagram: false } });
+    expect(h.settings().services.instagram).toBe(false); expect(h.settings().globalOn).toBe(false);
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[0]).toMatchObject({ receipt: { revision: 0 },
+      operations: [{ path: "services.instagram", value: false, baseRevision: 0, localStep: 1 }] });
+    expect(h.requests[1]).toMatchObject({ receipt: { revision: 0 },
+      operations: [{ path: "globalOn", value: false, baseRevision: 0, localStep: 1 }] });
+    expect(h.cache.currentRecord().atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {}, pending: [] });
+    expect(h.service.getState()).toMatchObject({ pendingUpload: false, cloudReachable: true });
+    // Eligibility ended at that acknowledgement: a later switch to another empty account adopts
+    // defaults and sends nothing of the earlier choices.
+    await h.service.signOut();
+    const B_EMPTY = "33333333-3333-3333-3333-333333333333";
+    h.switchAccount(B_EMPTY); h.newEmptyAccount("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    const before = h.requests.length;
+    await h.service.onSignedIn(B_EMPTY); await drain();
+    expect(h.cache.current()).toMatchObject({ globalOn: true, services: { instagram: true } });
+    expect(h.requests).toHaveLength(before);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {}, pending: [] });
+    await h.service.signOut(); h.cache.watch()();
+  });
   it.each(["first-link", "replacement-session", "failed-retirement"] as const)("unconfirmed getUser cannot mutate a %s record", async kind => {
     for (const proof of ["missing", "mismatched", "failed"] as const) {
       const h = harness(); await h.cache.hydrate(); vi.useFakeTimers();

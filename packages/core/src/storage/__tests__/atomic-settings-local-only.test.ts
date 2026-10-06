@@ -21,7 +21,9 @@ describe("retained unknown local-only authority", () => {
     const h = authority(); await h.writer.initialize("unknown");
     await h.writer.commit({ path: "globalOn", value: false, updatedAt: 200 });
     const entered = await h.writer.enterScope(A, SESSION);
-    expect(entered.atomic).toMatchObject({ ownership: "previous-account", pending: [], paused: "ownership-unconfirmed" });
+    // ADV-1: scope entry preserves unknown provenance; only the acknowledgement below may
+    // establish previous-account ownership.
+    expect(entered.atomic).toMatchObject({ ownership: "unknown", pending: [], paused: "ownership-unconfirmed" });
     const clean = authority(); const account = await clean.writer.initialize("unknown");
     const adopted = await h.writer.acknowledge(canonical(account, 1), entered.atomic!.scope);
     expect(adopted.settings.globalOn).toBe(true);
@@ -124,13 +126,15 @@ describe("retained unknown local-only authority", () => {
       expect(await host.binding.setGlobalOn(false)).toEqual({ status: "not-committed" });
       expect(savedBytes()).toBe(bytes); expect(uuid).not.toHaveBeenCalled();
       const entered = await host.writer.enterScope(A, SESSION);
-      expect(entered.atomic).toMatchObject({ ownership: "previous-account", pending: [], paused: "ownership-unconfirmed" });
+      // ADV-1: scope entry preserves unknown provenance; only the acknowledgement below may
+      // establish previous-account ownership.
+      expect(entered.atomic).toMatchObject({ ownership: "unknown", pending: [], paused: "ownership-unconfirmed" });
       const account = await authority().writer.initialize("unknown");
       const adopted = await host.writer.acknowledge({ ...canonical(account, 0), empty: true }, entered.atomic!.scope);
       // VD-15 rule: unknown local choices never reach the new empty account, which wins with its
       // agreed defaults; nothing stays held, so the switches remain usable.
       expect(adopted.atomic!.pending).toEqual([]);
-      expect(adopted.atomic).toMatchObject({ paused: null, held: {} });
+      expect(adopted.atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {} });
       expect(adopted.settings).toMatchObject({ globalOn: true, services: { youtube: true, facebook: true, tiktok: true } });
       expect(uuid).not.toHaveBeenCalled();
     } finally { for (const stop of stops) stop(); }

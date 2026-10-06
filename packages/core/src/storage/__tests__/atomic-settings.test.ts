@@ -262,6 +262,55 @@ describe("existing cache and serialized complete-record authority", () => {
       if (requests[0]) expect(requests[0].operations).toEqual([{ path: "globalOn", value: false, baseRevision: 0, localStep: 1 }]);
     }
   });
+  it("a failed first account read keeps never-linked ownership and intent until the first acknowledgement", async () => {
+    // ADV-1 writer boundary: scope entry alone never establishes previous-account ownership, and
+    // sign-out retirement preserves demonstrably unsubmitted never-linked intent (no anchor, no
+    // canonical metadata, no request receipt, local provenance, matching scope). The first
+    // successful account acknowledgement ends that eligibility; a later account switch retires.
+    const h = authority(); await h.writer.initialize("never-linked");
+    await h.writer.commit({ path: "services.instagram", value: false, updatedAt: 10 });
+    await h.writer.commit({ path: "globalOn", value: false, updatedAt: 11 });
+    const local = structuredClone((await h.storage.get())!.atomic!.pending);
+    expect(local).toHaveLength(2);
+    // Entering the account (whose first read will then fail) transfers intent but not ownership.
+    const entered = await h.writer.enterScope(A, SESSION);
+    expect(entered.atomic).toMatchObject({ ownership: "never-linked", paused: null, held: {} });
+    expect(entered.atomic!.pending.map(p => p.writeId)).toEqual(local.map(p => p.writeId));
+    expect(entered.atomic!.pending[0]).toMatchObject({ originScope: { accountId: null, generation: 0 }, scope: { accountId: A } });
+    // Signing out retires the entered scope yet keeps the unsubmitted choices with local provenance.
+    const retired = await h.writer.enterScope(null);
+    expect(retired.atomic).toMatchObject({ ownership: "never-linked", scope: { accountId: null }, paused: null, held: {} });
+    expect(retired.settings).toMatchObject({ globalOn: false, services: { instagram: false } });
+    expect(retired.atomic!.pending.map(p => p.writeId)).toEqual(local.map(p => p.writeId));
+    for (const request of retired.atomic!.pending) {
+      expect(request.receipt).toBeNull();
+      expect(request.originScope).toMatchObject({ accountId: null });
+      expect(request.scope).toEqual(retired.atomic!.scope);
+    }
+    // Re-entering the same account transfers that intent again; the empty account's first read
+    // merges it, binds the first receipt and establishes previous-account ownership atomically.
+    const reentered = await h.writer.enterScope(A, SESSION);
+    expect(reentered.atomic).toMatchObject({ ownership: "never-linked", paused: null });
+    const clean = authority(); const defaults = await clean.writer.initialize("unknown");
+    const acknowledged = await h.writer.acknowledge({ ...canonical(defaults, 0), empty: true }, reentered.atomic!.scope);
+    expect(acknowledged.settings).toMatchObject({ globalOn: false, services: { instagram: false } });
+    expect(acknowledged.atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {}, anchor: { revision: 0 } });
+    expect(acknowledged.atomic!.pending.map(p => p.writeId)).toEqual(local.map(p => p.writeId));
+    for (const request of acknowledged.atomic!.pending) {
+      expect(request.receipt).toMatchObject({ lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0 });
+      expect(pendingSettingsRequest(request, acknowledged.atomic!)).toMatchObject({ receipt: { revision: 0 } });
+    }
+    // A later switch to another account retires everything and adopts that account: no earlier
+    // account's choices follow, and untouched defaults gain no synthetic edit stamp.
+    const switched = await h.writer.enterScope(B);
+    expect(switched.atomic).toMatchObject({ ownership: "previous-account", pending: [], paused: "ownership-unconfirmed" });
+    const other = await clean.writer.initialize("unknown");
+    const adopted = await h.writer.acknowledge({ ...canonical(other, 0), empty: true,
+      lineage: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      receipt: { version: 1, lineage: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", revision: 0, mac: "A".repeat(43) } }, switched.atomic!.scope);
+    expect(adopted.settings).toMatchObject({ globalOn: true, services: { instagram: true } });
+    expect(adopted.atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {}, pending: [] });
+  });
   it("Safari content read timeout keeps local Off choices and fences a late broker reply", async () => {
     const h = authority(); await h.writer.initialize("unknown");
     const saved = await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });

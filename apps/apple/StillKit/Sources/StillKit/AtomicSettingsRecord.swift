@@ -236,10 +236,31 @@ public enum AtomicSettingsRecord {
       guard case .number(let generation) = priorScope["generation"], generation < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
       var nextScope: [String: SettingsJSONValue] = ["accountId": action["accountId"]!, "generation": .number(generation + 1)]
       if let session = action["sessionId"] { nextScope["sessionId"] = session }
+      // Ownership is established by the first successful account acknowledgement, never by scope
+      // entry: a first account read that then fails must leave never-linked provenance (and its
+      // unsubmitted intent) intact across sign-out and re-entry, without leaking into any account.
       if state["ownership"] == .string("never-linked"), priorScope["accountId"] == .null, action["accountId"] != .null {
         pending = pending.map { value in
           var entry = value.object ?? [:]
           entry["originScope"] = entry["scope"]
+          entry["scope"] = .object(nextScope)
+          return .object(entry)
+        }
+      } else if state["ownership"] == .string("never-linked"), state["anchor"] == .null, root["syncMetadata"] == .null {
+        // A never-linked record no acknowledgement has reached yet keeps demonstrably unsubmitted
+        // operations across retirement: no anchor, no canonical metadata, no request receipt,
+        // local provenance and the scope being retired. Values, ranks and write identities are
+        // preserved under the scope-generation fence with the original local provenance, so the
+        // next acknowledgement can still merge and bind them. A journal that could already have
+        // been submitted is never reused.
+        pending = pending.compactMap { value in
+          guard var entry = value.object, entry["receipt"] == .null,
+            let scope = entry["scope"]?.object, sameScope(scope, priorScope) else { return nil }
+          if let origin = entry["originScope"]?.object {
+            guard origin["accountId"] == .null else { return nil }
+          } else {
+            guard scope["accountId"] == .null else { return nil }
+          }
           entry["scope"] = .object(nextScope)
           return .object(entry)
         }
@@ -255,7 +276,6 @@ public enum AtomicSettingsRecord {
         state["paused"] = .null
       }
       state["pending"] = .array(pending)
-      if priorScope["accountId"] != .null || action["accountId"] != .null { state["ownership"] = .string("previous-account") }
       let oldEpoch: Double
       if case .number(let value) = root["syncEpoch"] { oldEpoch = value } else { oldEpoch = 0 }
       guard oldEpoch < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
@@ -328,6 +348,10 @@ public enum AtomicSettingsRecord {
       }
       state["pending"] = .array(retained)
       state["anchor"] = .object(anchor)
+      // A successful account acknowledgement is what makes this a previous-account record. Scope
+      // entry alone never does: receipt and canonical-settings validation passed above, so failed
+      // validation and stale-scope replies cannot acquire ownership.
+      if priorScope["accountId"] != .null { state["ownership"] = .string("previous-account") }
       resolvePause(&state, held: state["held"]!.object!)
       settings["pauses"] = .array([]) // The TypeScript writer's legacy projection on every write.
       root["settings"] = .object(settings)

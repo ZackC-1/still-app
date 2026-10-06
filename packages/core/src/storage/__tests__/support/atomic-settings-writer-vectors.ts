@@ -236,6 +236,10 @@ async function sources(): Promise<CaseSource[]> {
       about: "A never-linked first link into an empty account carries the local choices as bound requests.",
       steps: [commit("globalOn", false, 10), commit("services.instagram", false, 11), scope(A, SESSION),
         current => ack(emptyAccount(baseline), pendingAt(current)), commit("sites.youtube.shorts", false, 12)] },
+    { name: "baseline/failed-first-read-preserves-never-linked-choices", rule: "baseline", initial: freshRecord,
+      about: "ADV-1: local choices, account scope entry with no acknowledgement (a first read that fails), sign-out retirement, same-account re-entry, then the empty account's first acknowledgement merges the preserved choices, binds the first receipt and establishes previous-account ownership.",
+      steps: [commit("globalOn", false, 10), commit("services.instagram", false, 11), scope(A, SESSION), scope(null),
+        scope(A, SESSION), current => ack(emptyAccount(baseline), pendingAt(current))] },
   ];
 }
 
