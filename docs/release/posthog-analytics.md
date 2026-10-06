@@ -251,16 +251,21 @@ needs a key with the Sales and Finance roles.
 ## Per-device identities and device deletion (V3, not switched on)
 
 Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
-"delete what this device shared". None of it is switched on, and nothing in this section applies
-until the owner approves each step.
+"delete what this device shared". Migration 0018 and the matching `delete-user` change make account
+deletion record those identities for deletion before the account is deleted. None of it is switched
+on, and nothing in this section applies until the owner approves each step.
 
 **Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
 `ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
-switch it on. Do not set it until both of these are deployed and checked:
+switch it on. Do not set it until all three of these are done:
 
-1. The account-deletion change that records the analytics deletion before the account is deleted.
+1. Migration 0018 and the new `delete-user` are deployed and verified. Account deletion then first
+   records every per-device identity of the account for deletion, and only then deletes the account.
 2. Migration 0017's step that, when an account is deleted, keeps a record of that account's
-   per-device identities so they are still deleted from PostHog afterwards.
+   per-device identities so they are still deleted from PostHog afterwards, is deployed and its
+   check passes (the trigger is present and always enabled, and its body is unchanged).
+3. The rehearsal of a deletion through GoTrue itself is green: the "Supabase settings rehearsal"
+   run that deletes accounts through GoTrue's admin endpoint and the real `delete-user` handler.
 
 Until then no per-device identity is ever created, so an account deletion cannot leave one behind.
 
@@ -273,12 +278,23 @@ without per-device identities reports nothing at all for signed-in people (their
 never sent). So switching analytics on in a new build and connecting per-device identities must
 ship together, in the same release.
 
-**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
-refuses to list them together. Then the owner sets the database login and the function secrets
+**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
+own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.
+`delete-user` is safe to deploy before or after 0018: before it, its new first step simply fails
+and the 0017 trigger still records everything. Then the owner sets the database login and the function secrets
 (`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
 random value of at least 32 characters that keeps the "new account" event from being counted twice;
 without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
 schedule yet.
+
+**Account deletion and the `ANALYTICS CAPTURE DEFERRED` log line.** Once the eraser login is set,
+`delete-user` first asks the database to record the account's per-device identities for deletion,
+and waits at most 2.5 seconds. If that step fails or runs out of time, the account is still deleted,
+and the function logs `ANALYTICS CAPTURE DEFERRED` with a reason of `storage` or `timeout` (never an
+id or email). Nothing is lost when this happens: the 0017 trigger records the same identities inside
+the deletion itself. If the line appears more than occasionally, check the eraser login
+(`ANALYTICS_ERASER_DB_URL`) and the database connection pooler. A deletion records an identity twice
+when both steps run; that is expected, and PostHog deletion is safe to repeat.
 
 **When a device shows "deleted".** PostHog deletes a person quickly but deletes that person's events
 later, in a batch (on weekends for PostHog Cloud). A device is therefore shown "Your shared data has
