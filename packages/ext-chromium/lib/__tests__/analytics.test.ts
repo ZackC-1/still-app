@@ -247,6 +247,15 @@ describe("background analytics (Firefox for Android)", () => {
     expect(sent.join("\n")).toContain("firefox-android");
   });
 
+  it("an unknown platform answer (none in time) is counted as desktop Firefox", async () => {
+    const { send, queue } = setup({ isFirefox: true, granted: true, platform: Promise.resolve("unknown") });
+    await send(TRACK, PAGE);
+    expect(queue().find((e) => e.event === "signed_in")?.properties).toMatchObject({
+      surface: "firefox",
+      device: "desktop",
+    });
+  });
+
   it("a failed platform answer falls back to desktop Firefox, as before", async () => {
     const { send, queue } = setup({ isFirefox: true, granted: true, platform: Promise.reject(new Error("no")) });
     await send(TRACK, PAGE);

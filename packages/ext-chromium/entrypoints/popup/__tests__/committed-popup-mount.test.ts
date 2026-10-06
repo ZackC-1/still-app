@@ -28,6 +28,7 @@ import {
   ANALYTICS_MESSAGE_KIND,
 } from "../../../lib/analytics.js";
 import PopupApp from "../PopupApp.svelte";
+import type { RuntimePlatform } from "../../../lib/runtime-platform.js";
 
 const mounted = vi.hoisted(() => ({
   instances: [] as Record<string, unknown>[],
@@ -437,7 +438,7 @@ describe("actual Chromium popup mount", () => {
       document.querySelector('.still-ui.app[style*="max-inline-size"]');
     async function mountPopup(
       browser: "Chrome" | "Firefox",
-      platform: Promise<"android" | "desktop">,
+      platform: Promise<RuntimePlatform>,
     ) {
       await installBrowser();
       let binding!: CommittedPopupBinding;
@@ -480,6 +481,12 @@ describe("actual Chromium popup mount", () => {
       cleanup();
       vi.stubEnv("FIREFOX", "");
       await mountPopup("Chrome", Promise.resolve("android"));
+      expect(desktopRoot()).not.toBeNull();
+    });
+
+    it("Firefox with no platform answer in time (unknown) keeps the desktop popup", async () => {
+      vi.stubEnv("FIREFOX", "true");
+      await mountPopup("Firefox", Promise.resolve("unknown"));
       expect(desktopRoot()).not.toBeNull();
     });
   });
