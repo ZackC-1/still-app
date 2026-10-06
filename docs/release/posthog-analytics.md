@@ -291,7 +291,9 @@ schedule yet.
 `delete-user` first asks the database to record the account's per-device identities for deletion,
 and waits at most 2.5 seconds. If that step fails or runs out of time, the account is still deleted,
 and the function logs `ANALYTICS CAPTURE DEFERRED` with a reason of `storage` or `timeout` (never an
-id or email). Nothing is lost when this happens: the 0017 trigger records the same identities inside
+id or email). A reason of `config`, logged when the function starts, means the eraser login value
+itself is malformed (for example an unencoded `%` in its password); deletion still works, without
+this first step, until the value is corrected. Nothing is lost when this happens: the 0017 trigger records the same identities inside
 the deletion itself. If the line appears more than occasionally, check the eraser login
 (`ANALYTICS_ERASER_DB_URL`) and the database connection pooler. A deletion records an identity twice
 when both steps run; that is expected, and PostHog deletion is safe to repeat.
