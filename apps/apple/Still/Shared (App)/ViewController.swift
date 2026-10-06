@@ -60,6 +60,14 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         // publication is deferred at most one deadline, never indefinitely; the extension treats
         // the unpublished (null) id as a strict no-op in the meantime. `ensure` is idempotent: an
         // ordinary relaunch returns the existing id, never a fresh one (issue #63).
+        //
+        // First saved settings (owner decision 28): capture, BEFORE the marker can be published,
+        // whether this launch is a new install (no marker) or an install that never saved a setting
+        // (marker present). The settings lane uses it only when the web view's initialize finds no
+        // record at all under the App Group lock, and only an atomic-mode web build sends that
+        // initialize, so default builds are unchanged. A saved record is never replaced.
+        settingsExecutor.prepareFirstRecord(
+            InstallGeneration.current(InstallGeneration.appGroupDefaults()) == nil ? .newInstall : .untouchedUpgrade)
         Task { @MainActor in
             await self.router.refreshReceiptStamp()
             InstallGeneration.ensure(InstallGeneration.appGroupDefaults())
@@ -81,6 +89,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         // web `await postMessage(...)` resolves with the resolved settings JSON.
         self.webView.configuration.userContentController.addScriptMessageHandler(
             self, contentWorld: .page, name: "still")
+
+#if DEBUG
+        // Simulator QA lane only (QA/QAHooks.swift); inert unless a STILL_QA_* launch key is set.
+        QAHooks.prepare(webView: self.webView)
+#endif
 
         if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {
             self.bundledIndexURL = indexURL

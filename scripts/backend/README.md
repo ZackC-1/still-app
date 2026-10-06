@@ -275,6 +275,27 @@ reports those changes; that is expected and not a regression.
    `0` (and `show statement_timeout;` returns `2s`). If either differs, stop: the private anchor key
    could reach database logs.
 
+### Pausing and resuming new settings sync (owner-approved operations)
+
+`sync-settings` reaches the database only as `still_settings_writer`. The protected
+`Supabase production deploy` workflow therefore offers two operations next to its migration mode
+(`deploy/operations.mjs`):
+
+- `pause-settings-sync`: `alter role still_settings_writer nologin;`, then closes that role's open
+  connections (`pg_terminate_backend`, waiting up to 5 seconds each). Apps keep every setting on the
+  device and retry; blocking is unaffected; nothing is deleted.
+- `resume-settings-sync`: `alter role still_settings_writer login;` (the password is untouched).
+
+Each runs alone (never with a migration or function), from `main`, with the same plan, owner
+approval and closing record as a migration. The SQL bytes must equal the hash pinned in
+`operations.mjs`, and every statement must name only the writer. The plan job rehearses it on a
+throwaway database: the writer's sign-in is refused (pause) or allowed (resume), its open
+connection is closed, `still_entitlement_writer`, `still_policy_reader` and `still_policy_admin`
+still sign in, and no other role fact, grant, row or migration changes. After the apply, read-only
+checks confirm the end state (for a pause, again after 30 seconds) and that only the writer's login
+changed among all roles. Repeating an operation whose end state already holds reports "already
+paused" or "already resumed" and writes nothing. Neither adds migration history.
+
 Per-field write identities retain their original JSON for 30 days within the settings domain.
 Database admission allows at most 120 new identities in a rolling minute, 4,096 retained
 identities and 4 MiB of retained request JSON per account. Exact retained retries bypass

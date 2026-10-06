@@ -25,6 +25,10 @@ export default defineContentScript({
   cssInjectionMode: "manifest",
   async main(ctx) {
     await createShippingContentEntry({
+      // Named for clarity: Safari implements only the extras every host implements (Instagram's
+      // today), so this is the same set the engine uses without a host (and, while paid is off,
+      // exactly the free features).
+      host: "safari",
       storage: browser.storage.local,
       prod: import.meta.env.PROD,
       earlyRedirect: true,

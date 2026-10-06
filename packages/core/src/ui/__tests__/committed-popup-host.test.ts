@@ -15,6 +15,7 @@ import {
 } from "../../storage/index.js";
 import App from "../App.svelte";
 import { STRINGS } from "../strings.js";
+import { FIRST_READ_BOUND_MS } from "../v3/popup-view-binding.svelte.js";
 import type { UiAnalytics } from "../controller.svelte.js";
 import {
   flush,
@@ -455,15 +456,88 @@ describe("actual desktop presentation on the maintained authority", () => {
 });
 
 describe("maintained App committed popup host", () => {
+  type Local = { get: (key: string) => Promise<Record<string, unknown>> };
+  function holdSettingsRead(behaviour: "gate" | "fail" | "hang") {
+    const local = (globalThis as unknown as { chrome: { storage: { local: Local } } }).chrome.storage.local;
+    const real = local.get;
+    const g = gate();
+    // Only the settings slot: entitlement and other reads keep answering normally.
+    local.get = (key) =>
+      key !== "still:settings"
+        ? real(key)
+        : behaviour === "fail"
+        ? Promise.reject(new Error("synthetic storage failure"))
+        : behaviour === "hang"
+          ? new Promise(() => {})
+          : g.promise.then(() => real(key));
+    return g;
+  }
+  const unavailable = () => screen.queryByText("Settings are unavailable.");
+
+  it("a slow first read shows checking, never unavailable, then the saved choices", async () => {
+    const f = await browser();
+    const saved = JSON.stringify(f.store["still:settings"]);
+    const read = holdSettingsRead("gate");
+    const state = capture();
+    mount(state);
+    for (let i = 0; i < 5; i++) await flush();
+    expect(state.binding.current().commandAvailability).toBe("unavailable");
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(unavailable()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
+    read.open();
+    await waitFor(() => expect(globalSwitch().disabled).toBe(false));
+    expect(unavailable()).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(f.set).not.toHaveBeenCalled();
+    expect(JSON.stringify(f.store["still:settings"])).toBe(saved);
+  });
+
+  it("a first read that fails still shows unavailable and Try again", async () => {
+    const f = await browser();
+    holdSettingsRead("fail");
+    const state = capture();
+    mount(state);
+    await waitFor(() => expect(unavailable()).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(f.set).not.toHaveBeenCalled();
+  });
+
+  it("a first read that never answers turns unavailable after the bound, not before", async () => {
+    const f = await browser();
+    holdSettingsRead("hang");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const state = capture();
+      mount(state);
+      await tick();
+      vi.advanceTimersByTime(FIRST_READ_BOUND_MS - 1);
+      await tick();
+      expect(unavailable()).toBeNull();
+      expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+      vi.advanceTimersByTime(1);
+      await tick();
+      expect(unavailable()).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+      expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+      expect(f.set).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows no fabricated switches before modern hydration, then mounts account-free saved controls", async () => {
     const f = await browser();
     const state = capture();
     mount(state);
     expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
     expect(document.querySelectorAll("[data-service]")).toHaveLength(0);
-    expect(screen.getByRole("status").textContent).toBe(
-      "Settings are unavailable.",
-    );
+    // Startup defaults are not an answer: checking, never "unavailable", until the read lands.
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(
       screen.getByRole("link", { name: STRINGS.account.privacyPolicy }),
     ).toBeTruthy();
