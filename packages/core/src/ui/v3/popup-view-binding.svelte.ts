@@ -5,6 +5,16 @@ import type {
   DesktopPopupCommandOutcome,
 } from "./desktop-popup-binding.js";
 
+/**
+ * How long a view waits for a settings read (the first read, an invalidation reread, or a Try
+ * again reread) before calling the settings unavailable. A read that fails sooner says so sooner.
+ */
+export const SETTINGS_READ_BOUND_MS = 8_000;
+
+// The cache's hold while it rereads after an external storage change (SettingsCache.watch). The
+// accepted choices it holds are still the last good ones; only the confirmation is outstanding.
+const AUTHORITY_READ_PENDING = "authority-read-pending";
+
 /** One App-owned observation and command lifetime; the binding remains the authority. */
 export function createPopupViewBinding(
   getBinding: () => CommittedPopupBinding | undefined,
@@ -14,6 +24,12 @@ export function createPopupViewBinding(
   let popupState = $state.raw<DesktopPopupBindingState | null>(null);
   let popupLifetime = 0;
   let popupCommandTicket = 0;
+  // Until the first settings read answers (or the bound passes), an unavailable state is the
+  // cache's startup defaults, not a failure: the view says "checking", never "unavailable".
+  let reading = $state(true);
+  // While an invalidation reread is in flight (within the bound), the held state shows the last
+  // good choices read-only, not "unavailable". Commands stay held: the binding is not ready.
+  let rereading = $state(false);
   let settingsRecovery = $state.raw<{
     binding: CommittedPopupBinding;
     lifetime: number;
@@ -23,12 +39,42 @@ export function createPopupViewBinding(
     if (!binding) return;
     popupLifetime += 1;
     observedBinding = binding;
-    popupState = binding.current();
+    const initial = binding.current();
+    popupState = initial;
     settingsRecovery = null;
+    let live = true;
+    const answered = () => {
+      if (live) reading = false;
+    };
+    // One bound per continuous pending period; a new period (after any other state) starts afresh.
+    let rereadBound: ReturnType<typeof setTimeout> | null = null;
+    const observeReread = (state: DesktopPopupBindingState) => {
+      if (state.reason === AUTHORITY_READ_PENDING) {
+        if (rereadBound !== null) return;
+        rereading = true;
+        rereadBound = setTimeout(() => {
+          if (live) rereading = false;
+        }, SETTINGS_READ_BOUND_MS);
+        return;
+      }
+      if (rereadBound !== null) clearTimeout(rereadBound);
+      rereadBound = null;
+      rereading = false;
+    };
+    // Read the local value, never popupState: this effect must not track its own publications.
+    reading = !binding.hasSettled() && initial.commandAvailability !== "ready";
+    const bound = setTimeout(answered, SETTINGS_READ_BOUND_MS);
+    void binding.settled.then(answered);
     const unsubscribe = binding.subscribe((state) => {
       popupState = state;
+      observeReread(state);
+      if (state.commandAvailability === "ready") answered();
     });
     return () => {
+      live = false;
+      clearTimeout(bound);
+      if (rereadBound !== null) clearTimeout(rereadBound);
+      rereading = false;
       popupLifetime += 1;
       settingsRecovery = null;
       unsubscribe();
@@ -54,6 +100,8 @@ export function createPopupViewBinding(
   const settingsUnavailable = $derived(
     Boolean(getBinding()) &&
       observedBinding === getBinding() &&
+      !reading &&
+      !rereading &&
       popupState?.commandAvailability === "unavailable" &&
       getBinding()?.current().reason !== "stopped",
   );
@@ -68,15 +116,21 @@ export function createPopupViewBinding(
       return;
     const flight = { binding, lifetime: popupLifetime };
     settingsRecovery = flight;
+    const release = () => {
+      clearTimeout(bound);
+      if (settingsRecovery === flight && isCurrent(binding, flight.lifetime))
+        settingsRecovery = null;
+    };
+    // A reread that never answers (Chrome and Firefox storage reads have no deadline) must not
+    // leave Try again disabled: after the bound the view is unavailable with Try again enabled.
+    // A later press joins the cache's single in-flight reread, never a second write or intent.
+    const bound = setTimeout(release, SETTINGS_READ_BOUND_MS);
     void binding
       .rereadAuthority()
       .catch(() => {
         /* The current cache retains the authoritative hold; never replay an intent. */
       })
-      .finally(() => {
-        if (settingsRecovery === flight && isCurrent(binding, flight.lifetime))
-          settingsRecovery = null;
-      });
+      .finally(release);
   }
   function currentPopup(binding: CommittedPopupBinding) {
     if (binding !== getBinding() || binding !== observedBinding) return null;
@@ -154,6 +208,14 @@ export function createPopupViewBinding(
     },
     get settingsUnavailable() {
       return settingsUnavailable;
+    },
+    /** True while the first read, or an invalidation reread, is pending within the bound. */
+    get reading() {
+      return (
+        Boolean(getBinding()) &&
+        observedBinding === getBinding() &&
+        (reading || rereading)
+      );
     },
     get recovering() {
       return Boolean(settingsRecovery);

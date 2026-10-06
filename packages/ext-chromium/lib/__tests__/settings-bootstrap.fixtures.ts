@@ -68,13 +68,23 @@ const KEY = "still:settings";
 type DnrUpdate = (
   options: chrome.declarativeNetRequest.UpdateRulesetOptions,
 ) => Promise<void>;
+/** Additive browser doubles: session-rule DNR calls, and env overrides for configured lanes. */
+interface StartExtras {
+  readonly sessionRules?: {
+    getSessionRules(): Promise<readonly { readonly id: number }[]>;
+    updateSessionRules(options: { removeRuleIds: number[]; addRules: unknown[] }): Promise<void>;
+  };
+  readonly env?: Readonly<Record<string, string>>;
+}
 async function start(
   initial: Record<string, unknown> = {},
   updateEnabledRulesets?: DnrUpdate,
   // "false" with stubbed Supabase config gives a configured legacy (atomicLocal false) build.
   modernSyncFlag = "true",
+  extras: StartExtras = {},
 ) {
   vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", modernSyncFlag);
+  for (const [name, value] of Object.entries(extras.env ?? {})) vi.stubEnv(name, value);
   vi.resetModules();
   const store = structuredClone(initial);
   const installed: Array<(details: chrome.runtime.InstalledDetails) => void> =
@@ -200,7 +210,7 @@ async function start(
     },
     runtime,
     ...(updateEnabledRulesets
-      ? { declarativeNetRequest: { updateEnabledRulesets } }
+      ? { declarativeNetRequest: { updateEnabledRulesets, ...extras.sessionRules } }
       : {}),
   } as unknown as typeof chrome;
   vi.stubGlobal("chrome", boundary.browser);

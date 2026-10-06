@@ -19,6 +19,49 @@ export const firefoxBrowserSpecificSettings = {
   },
 };
 
+// Lists the same add-on for Firefox for Android (AMO offers it on desktop only without this key).
+// 142 is the first Android release with the built-in data-collection consent screen, the same
+// reason the desktop floor is 140, so nobody on Android can sign in without seeing that consent.
+// Mozilla reads data_collection_permissions from `gecko` for both, so it is not repeated here.
+export const firefoxAndroidSettings = {
+  strict_min_version: "142.0",
+};
+
+/** The packaged build inputs this config reads (process.env, which WXT fills from the .env files). */
+export type ManifestBuildEnv = Readonly<Record<string, string | undefined>>;
+
+/**
+ * Whether this build runs the V3 interface: unconfigured builds, or configured builds that opted
+ * into modern sync. The same release rule as lib/modern-settings-runtime.ts `atomicLocal` and
+ * entrypoints/tiktok-blocked/gate.ts (lib/__tests__/firefox-manifest.test.ts pins all three).
+ * Firefox for Android ships only with V3 (its phone popup and Android first-run are V3 screens),
+ * so a configured 2.x store build is never listed for Android.
+ */
+export function runsV3Interface(env: ManifestBuildEnv): boolean {
+  const configured =
+    (env.VITE_SUPABASE_URL ?? "").trim().length > 0 && (env.VITE_SUPABASE_ANON_KEY ?? "").trim().length > 0;
+  return !configured || env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true";
+}
+
+/** `gecko` always; `gecko_android` only for a V3 build. */
+export function firefoxSettingsFor(env: ManifestBuildEnv) {
+  return runsV3Interface(env)
+    ? { ...firefoxBrowserSpecificSettings, gecko_android: firefoxAndroidSettings }
+    : firefoxBrowserSpecificSettings;
+}
+
+/** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
+export const FIREFOX_2X_DESCRIPTION =
+  "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
+/** The V3 Firefox summary, with the owner-approved Firefox on Android wording. */
+export const FIREFOX_V3_DESCRIPTION =
+  "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.";
+
+/** The Firefox summary follows the same rule as `gecko_android`: Android is named only where listed. */
+export function firefoxDescriptionFor(env: ManifestBuildEnv): string {
+  return runsV3Interface(env) ? FIREFOX_V3_DESCRIPTION : FIREFOX_2X_DESCRIPTION;
+}
+
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
 // Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
 // (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
@@ -31,7 +74,7 @@ export const firefoxBrowserSpecificSettings = {
 //   • Firefox: does NOT reliably support DNR regexSubstitution redirects (same constraint as Safari),
 //     so the Firefox build OMITS DNR and relies solely on the document_start content-script redirect,
 //     which is browser-agnostic. The background's DNR wiring no-ops when the API is absent.
-export function stillManifest(browser: string) {
+export function stillManifest(browser: string, env: ManifestBuildEnv = process.env) {
   const isFirefox = browser === "firefox";
   return {
     // Store-search copy (docs/release/store-listing-copy.md): the stores read the listing's name and
@@ -39,7 +82,7 @@ export function stillManifest(browser: string) {
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
     name: "Still: Remove Shorts & Reels, Stop Scrolling",
     description: isFirefox
-      ? "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox."
+      ? firefoxDescriptionFor(env)
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
     permissions: [
       "storage",
@@ -64,9 +107,8 @@ export function stillManifest(browser: string) {
     // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
     ...(isFirefox
       ? {
-          // Deliberately omit gecko_android for launch. AMO therefore lists this build for desktop
-          // Firefox only, matching the product promise that mobile support is Safari-only.
-          browser_specific_settings: firefoxBrowserSpecificSettings,
+          // `gecko` for desktop Firefox; `gecko_android` for Firefox for Android on V3 builds only.
+          browser_specific_settings: firefoxSettingsFor(env),
         }
       : {
           declarative_net_request: {

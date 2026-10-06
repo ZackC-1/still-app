@@ -11,7 +11,7 @@ import {
   type AnalyticsPermission,
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
-import { createAccountIdentifier } from "./extension-host.js";
+import { createAccountIdentifier, type SubjectDeps } from "./extension-host.js";
 import type { AnalyticsKeyValue } from "./identity.js";
 import type { AnalyticsContextReply } from "../native/bridge.js";
 import type { UiAnalytics } from "../ui/controller.svelte.js";
@@ -39,6 +39,9 @@ export interface AppAnalyticsDeps {
   readonly store: AnalyticsKeyValue;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  /** Per-device identities (U5-W2, extension-host.ts SubjectDeps). Absent: the account id is
+   * confirmed, as before. */
+  readonly subjects?: SubjectDeps;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -149,11 +152,14 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         local: deps.store,
         consent: async () => consent,
         identifyOnServer: deps.identifyOnServer,
+        subjects: deps.subjects,
       });
       currentReady = {
         client,
         context,
-        identify: (userId: string) => client.identify(userId), // confirms the account (client.ts rule 3)
+        // Confirms the account (client.ts rule 3) under this device's issued subject once the server
+        // has issued it. Without per-device subjects nothing is confirmed: never the account id.
+        identify: (userId: string) => accounts.identify(userId),
         attach: (observation) => accounts.attach(observation),
       };
       return currentReady;
@@ -258,7 +264,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     identify: (userId) =>
       withReady(async (r) => {
         await r.identify(userId); // a completed sign-in confirms the account
-        void r.attach();
+        // With per-device subjects the identify was the server request; a failure is retried at
+        // the next ordinary use, not again in the same turn.
+        if (!deps.subjects) void r.attach();
       }),
     // Resolves once the account is let go of (deletion waits for it).
     reset: (options) =>
@@ -374,7 +382,8 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       if (!r) return;
       await r.identify(userId); // a live session confirms the account
       // The server attach is separate from the account check: its network time never delays it.
-      void r.attach();
+      // With per-device subjects the identify was the server request (see ui.identify).
+      if (!deps.subjects) void r.attach();
     },
     async accountAbsent() {
       const r = await ready();

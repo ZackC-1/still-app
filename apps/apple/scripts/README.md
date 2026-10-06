@@ -9,6 +9,7 @@ supported websites in Safari, not native social apps.
 | `build.sh [ios-sim\|ios-device\|macos]` | Rebuilds the webview and Safari bundles, then builds the chosen app. Device/macOS commands allow provisioning updates; obtain approval before an external provisioning change. |
 | `test.sh` | Runs real StillKit tests and workspace checks. It does not certify physical devices. |
 | `archive.sh` | Rebuilds web resources, archives iOS and exports an App Store IPA with an ASC API key. It permits provisioning updates; `UPLOAD=1` additionally uploads. Both external actions require explicit approval. |
+| `release-env-guard.sh`, `release-env-state.mjs`, `modern-sync-shipped` | Sourced by `archive.sh` before any build, and run by the Xcode extension-resources phase on Release builds. Refuses to archive when the web and Safari-extension builds disagree about cloud-sync configuration, the modern settings-sync flag or the Apple atomic flag. The state helper uses the real Vite and WXT env loaders and prints state tokens only, never a value. `modern-sync-shipped` says `not-shipped` today; the owner-approved change that ships the flag sets it to `shipped`, after which every archive must keep the flag. Tested by `release-env-guard.test.mjs` (part of `pnpm test:release`, no Xcode). |
 | `ExportOptions.plist` | Existing App Store export configuration. |
 
 Use [current release status](../../../docs/release/history/2026-09-14-release-status.md) for submitted
@@ -39,6 +40,13 @@ xcodebuild archive -project apps/apple/Still/Still.xcodeproj \
   -scheme 'Still (macOS)' -configuration Release -destination 'generic/platform=macOS' \
   -archivePath /private/tmp/still-macos-2.0.0.xcarchive
 ```
+
+On a Release build the "Copy Safari Web Extension Resources" run-script phase first runs
+`scripts/release-env-guard.sh` (the same release-build env guard as `archive.sh`), so these raw
+commands refuse to build when the web and Safari-extension builds disagree about cloud-sync
+configuration, exactly like the script. It checks both packages' production environments with the
+real Vite and WXT loaders and never prints a value; it covers the extension build the phase runs,
+and the prebuilt web bundle is checked through `packages/app-webview/dist/.env-state`, a token-only stamp (never a value) that `pnpm --filter @still/app-webview build` writes. A missing or differing stamp refuses; rebuild the web bundle. Node must be on PATH.
 
 These commands do not request provisioning updates or upload. Use unique archive/DerivedData
 paths for each candidate. Missing signing profiles/certificates are a gate to resolve against the

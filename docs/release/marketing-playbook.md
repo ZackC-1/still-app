@@ -31,7 +31,8 @@ Homepage and guide sources live directly under `docs/`; the live site deploys fr
 ## Assets and publication
 
 Capture the exact 2.0 candidate for every store. Show the real free UI, the enable/permission steps,
-all four services, optional sync, and the Safari-only mobile boundary. Use the current
+all four services, optional sync, and the mobile boundary (Safari on iPhone and iPad, Firefox on
+Android; never native apps). Use the current
 [functional screenshot manifest](screenshots/store-ready/README.md); paid-era assets were removed
 or retained only as explicitly labeled history. Preserve owner-approved Apple screenshots already
 submitted. Regenerating captions alone does not make an old app screenshot current.

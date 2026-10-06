@@ -64,8 +64,17 @@ policy_test() {
 }
 psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/product_policy_migration_seed.sql
 policy_test pre-upgrade
-supabase migration up --local >/dev/null
+migrate_up_to 0016
 policy_test upgrade
+# Then 0017, which re-creates the limiter sync-settings calls, so the probes below run against it.
+erasure_test() {
+  STILL_U5W2_ERASURE_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_U5W2_ERASURE_TEST_MODE="$1" \
+    deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/analytics_erasure_migration_test.ts
+}
+psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/analytics_erasure_migration_seed.sql
+erasure_test pre-upgrade
+supabase migration up --local >/dev/null
+erasure_test upgrade
 # The lifecycle and served probes run on that upgraded database. The synthetic superuser only
 # prefills rows, holds blocking locks and probes owner drift; it never applies the migration.
 docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
