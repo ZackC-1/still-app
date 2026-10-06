@@ -22,6 +22,13 @@ import {
 } from "../lib/session-messages.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
+import {
+  afterPlatformAnswer,
+  gatedDocumentVerification,
+  runtimePlatformAnswerFor,
+  tabAllowancePlatformGate,
+  type PlatformAnswer,
+} from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { createNavigationDnrSync, type NavigationDnrApi } from "../lib/navigation-dnr.js";
 import { FORMAT2_SHIPPING_SERVICES } from "../../core/src/content/extension-entry.js";
@@ -39,7 +46,11 @@ import {
   withTimeout,
   TIKTOK_WAIT_MS,
 } from "../../core/src/content/tiktok-blocked-route.js";
-import { createChromeTiktokTabAuthority, type TiktokTabBrowser } from "../lib/tiktok-tab-authority.js";
+import {
+  createChromeTiktokTabAuthority,
+  isTiktokRouteMessage,
+  type TiktokTabBrowser,
+} from "../lib/tiktok-tab-authority.js";
 import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
@@ -77,6 +88,11 @@ const SETTINGS_KEY = "still:settings";
 const TIKTOK_BLOCKED_PAGE = "tiktok-blocked.html";
 
 export default defineBackground(() => {
+  // The browser's own platform answer (Firefox for Android vs desktop); asked once, never awaited
+  // here. The Chromium build never asks. Analytics uses the bounded answer ("unknown" counts as
+  // desktop there); the TikTok gate also follows a late answer.
+  const platformAnswer = runtimePlatformAnswerFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
+  const platform = platformAnswer.bounded;
   const settingsRuntime = modernSettingsRuntime(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -245,6 +261,8 @@ export default defineBackground(() => {
   const analytics = createBackgroundAnalytics(
     {
       isFirefox: Boolean(import.meta.env.FIREFOX),
+      // Firefox for Android reports its own existing surface; asked here, never awaited here.
+      platform,
       config: {
         key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
         host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
@@ -392,7 +410,7 @@ export default defineBackground(() => {
     VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",
     VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
   });
-  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);
+  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platformAnswer);
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit
@@ -448,7 +466,16 @@ export default defineBackground(() => {
 function wireTiktokBlockedPage(
   settingsAuthority: ChromeStorageAdapter,
   entitlements: ChromeEntitlementAdapter,
+  platform: PlatformAnswer,
 ): void {
+  // Firefox for Android never offers the one-tab allowance (owner ruling); the route then reports
+  // it unavailable, exactly as on a browser that cannot re-prove the blocked page document. It fails
+  // closed: Firefox opens it only on an explicit desktop answer, even one that arrives late.
+  const platformGate = tabAllowancePlatformGate(
+    Boolean(import.meta.env.FIREFOX),
+    platform.bounded,
+    platform.eventual,
+  );
   // The packaged seed is the rule set every Chromium/Firefox content script evaluates for TikTok
   // today (TikTok is held on the legacy lane), so the background decides "blocked" with the same
   // rules. The owner's type names the format-2 set it is planned to receive; its engine session
@@ -486,7 +513,9 @@ function wireTiktokBlockedPage(
       const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
       return { settings: record.settings, options: { pro } };
     },
-    canVerifyDocuments: typeof getContexts === "function",
+    get canVerifyDocuments() {
+      return gatedDocumentVerification(typeof getContexts === "function", platformGate);
+    },
     replaceHistory: Boolean(import.meta.env.FIREFOX),
     createAuthority: (hooks) =>
       createChromeTiktokTabAuthority({
@@ -513,7 +542,11 @@ function wireTiktokBlockedPage(
       }),
     randomId: () => crypto.randomUUID(),
   });
-  chrome.runtime.onMessage.addListener(route.listener);
+  // TikTok route messages wait for the platform answer (bounded to one second), so a desktop
+  // Firefox page asking during that window is never told "unavailable" for good.
+  chrome.runtime.onMessage.addListener(
+    afterPlatformAnswer(route.listener, platformGate, isTiktokRouteMessage),
+  );
 }
 
 /**
