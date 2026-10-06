@@ -73,8 +73,20 @@ erasure_test() {
 }
 psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/analytics_erasure_migration_seed.sql
 erasure_test pre-upgrade
-supabase migration up --local >/dev/null
+migrate_up_to 0017
 erasure_test upgrade
+# Then 0018, the account-deletion pre-step. GoTrue runs in this rehearsal, so the deletion also goes
+# through GoTrue's admin endpoint and the real delete-user handler (the service-role key is the
+# disposable stack's own, read from the CLI and never printed).
+account_erasure_test() {
+  STILL_U5W3_ERASURE_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_U5W3_ERASURE_TEST_MODE="$1" \
+  STILL_U5W3_AUTH_URL='http://127.0.0.1:54321' STILL_U5W3_AUTH_SERVICE_KEY="$(supabase status -o json | jq -er '.SERVICE_ROLE_KEY')" \
+    deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54321,127.0.0.1:54322 supabase/tests/analytics_account_erasure_migration_test.ts
+}
+psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/analytics_account_erasure_migration_seed.sql
+account_erasure_test pre-upgrade
+migrate_up_to 0018
+account_erasure_test upgrade
 # The lifecycle and served probes run on that upgraded database. The synthetic superuser only
 # prefills rows, holds blocking locks and probes owner drift; it never applies the migration.
 docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'

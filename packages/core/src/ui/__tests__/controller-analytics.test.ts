@@ -93,6 +93,19 @@ describe("UiController analytics", () => {
     expect(del.calls).toEqual([["$reset-forget"], ["account_deleted", {}]]);
   });
 
+  it("names the deleted account when it forgets it for analytics; a sign-out names nobody", async () => {
+    const resets: unknown[] = [];
+    const analytics = { track: () => {}, identify: () => {}, reset: (options?: unknown) => void resets.push(options) };
+    const b = makeController({ auth: codeAuth({ deleteAccount: vi.fn(() => Promise.resolve()) }), analytics });
+    b.c.userId = "u1";
+    await b.c.confirmDeleteAccount();
+    const a = makeController({ auth: codeAuth(), analytics });
+    a.c.userId = "u2";
+    await a.c.signOut();
+    expect(resets[0]).toEqual({ forgetAccount: true, account: "u1" });
+    expect(resets.slice(1).every((r) => !(r as { account?: unknown } | undefined)?.account)).toBe(true);
+  });
+
   it("forgets the account for analytics before the server deletes it, and waits for that", async () => {
     const order: string[] = [];
     let release!: () => void;
