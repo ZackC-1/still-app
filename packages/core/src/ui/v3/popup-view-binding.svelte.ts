@@ -5,6 +5,9 @@ import type {
   DesktopPopupCommandOutcome,
 } from "./desktop-popup-binding.js";
 
+/** How long a view waits for the first settings read before calling it unavailable. */
+export const FIRST_READ_BOUND_MS = 8_000;
+
 /** One App-owned observation and command lifetime; the binding remains the authority. */
 export function createPopupViewBinding(
   getBinding: () => CommittedPopupBinding | undefined,
@@ -14,6 +17,9 @@ export function createPopupViewBinding(
   let popupState = $state.raw<DesktopPopupBindingState | null>(null);
   let popupLifetime = 0;
   let popupCommandTicket = 0;
+  // Until the first settings read answers (or the bound passes), an unavailable state is the
+  // cache's startup defaults, not a failure: the view says "checking", never "unavailable".
+  let reading = $state(true);
   let settingsRecovery = $state.raw<{
     binding: CommittedPopupBinding;
     lifetime: number;
@@ -23,12 +29,24 @@ export function createPopupViewBinding(
     if (!binding) return;
     popupLifetime += 1;
     observedBinding = binding;
-    popupState = binding.current();
+    const initial = binding.current();
+    popupState = initial;
     settingsRecovery = null;
+    let live = true;
+    const answered = () => {
+      if (live) reading = false;
+    };
+    // Read the local value, never popupState: this effect must not track its own publications.
+    reading = !binding.hasSettled() && initial.commandAvailability !== "ready";
+    const bound = setTimeout(answered, FIRST_READ_BOUND_MS);
+    void binding.settled.then(answered);
     const unsubscribe = binding.subscribe((state) => {
       popupState = state;
+      if (state.commandAvailability === "ready") answered();
     });
     return () => {
+      live = false;
+      clearTimeout(bound);
       popupLifetime += 1;
       settingsRecovery = null;
       unsubscribe();
@@ -54,6 +72,7 @@ export function createPopupViewBinding(
   const settingsUnavailable = $derived(
     Boolean(getBinding()) &&
       observedBinding === getBinding() &&
+      !reading &&
       popupState?.commandAvailability === "unavailable" &&
       getBinding()?.current().reason !== "stopped",
   );
@@ -154,6 +173,12 @@ export function createPopupViewBinding(
     },
     get settingsUnavailable() {
       return settingsUnavailable;
+    },
+    /** True until the first settings read answers or the bound passes. */
+    get reading() {
+      return (
+        Boolean(getBinding()) && observedBinding === getBinding() && reading
+      );
     },
     get recovering() {
       return Boolean(settingsRecovery);
