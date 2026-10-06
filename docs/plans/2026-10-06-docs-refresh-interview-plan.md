@@ -1,6 +1,6 @@
 ---
 title: "Canonical docs refresh: interview program + unified update plan"
-status: draft
+status: final
 date: 2026-10-06
 owner: "tbd"
 branch: "tbd"
@@ -8,7 +8,9 @@ branch: "tbd"
 
 # Canonical docs refresh: interview program + unified update plan
 
-> Status: **Draft** — produced for owner approval. No rewrites, deletions, or pushes happen until approved.
+> Status: **Final** — accepted by the owner and fully executed: interview script built, per-release
+> history curated, canonical files refreshed to the V3 direction, stale plans archived (nothing
+> deleted), and landed on `main` via PR #347 with all required checks green.
 
 ## Goal
 
