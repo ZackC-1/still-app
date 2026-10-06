@@ -26,31 +26,55 @@ const signedIn = {
 };
 
 describe("Safari V3 build gate (mirrors the Apple app's D04 gate)", () => {
+  const URL = "https://still-audit.invalid", KEY = "public-audit-placeholder";
   it.each([
-    ["true", undefined, undefined, true],
-    ["true", "", "", true],
-    ["true", "https://still-audit.invalid", undefined, true],
-    ["true", undefined, "public-audit-placeholder", true],
-    // Configured builds stay legacy even with the flag.
-    ["true", "https://still-audit.invalid", "public-audit-placeholder", false],
-    [undefined, undefined, undefined, false],
-    ["", undefined, undefined, false],
-    ["1", undefined, undefined, false],
-    ["TRUE", undefined, undefined, false],
-    ["false", undefined, undefined, false],
-  ] as const)("flag=%s url=%s key=%s -> %s", (atomicSettingsFlag, supabaseUrl, supabaseAnonKey, v3) => {
-    expect(selectSafariV3Build({ atomicSettingsFlag, supabaseUrl, supabaseAnonKey })).toBe(v3);
+    // Unconfigured: the developer opt-in (the app's atomic-local mode), unchanged.
+    ["true", undefined, undefined, undefined, true],
+    ["true", undefined, "", "", true],
+    ["true", undefined, URL, undefined, true],
+    ["true", undefined, undefined, KEY, true],
+    ["true", "true", undefined, undefined, true],
+    [undefined, undefined, undefined, undefined, false],
+    ["", undefined, undefined, undefined, false],
+    ["1", undefined, undefined, undefined, false],
+    ["TRUE", undefined, undefined, undefined, false],
+    ["false", undefined, undefined, undefined, false],
+    // The modern flag alone never selects V3 without configuration.
+    [undefined, "true", undefined, undefined, false],
+    [undefined, "true", URL, undefined, false],
+    // Configured: only the modern sync flag exactly "true" (the app's atomic-cloud mode).
+    [undefined, "true", URL, KEY, true],
+    ["true", "true", URL, KEY, true],
+    [undefined, undefined, URL, KEY, false],
+    [undefined, "", URL, KEY, false],
+    [undefined, "TRUE", URL, KEY, false],
+    [undefined, "1", URL, KEY, false],
+    [undefined, "false", URL, KEY, false],
+    // The developer flag never selects anything for a configured build.
+    ["true", undefined, URL, KEY, false],
+  ] as const)("atomic=%s modern=%s url=%s key=%s -> %s", (atomicSettingsFlag, modernSyncFlag, supabaseUrl, supabaseAnonKey, v3) => {
+    expect(selectSafariV3Build({ atomicSettingsFlag, modernSyncFlag, supabaseUrl, supabaseAnonKey })).toBe(v3);
   });
 
-  it.each(["popup", "options"])("%s entry: inline build-time pre-filter, one dynamic import, unchanged legacy branch", (page) => {
+  it.each(["popup", "options"])("%s entry: inline build-time pre-filter on both opt-ins, one dynamic import, unchanged legacy branch", (page) => {
     const main = readFileSync(resolve(import.meta.dirname, `../../entrypoints/${page}/main.ts`), "utf8");
+    // The pre-filter can only narrow: each branch needs its flag's exact "true" plus the matching
+    // configuration, the same expression as the Apple app's entry (app-webview main.ts).
     expect(main).toMatch(
-      /if \(\s*import\.meta\.env\.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\s*!\(import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\s*\)/,
+      /if \(\s*\(import\.meta\.env\.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\s*!\(import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\) \|\|\s*\(import\.meta\.env\.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&\s*import\.meta\.env\.VITE_SUPABASE_URL &&\s*import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\s*\)/,
     );
+    expect(main).toContain("modernSyncFlag: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,");
     expect(main).toContain('import("./v3.js")');
     expect(main).not.toMatch(/^import[^;]*(v3|SafariV3)/m);
     if (page === "popup") expect(main).toMatch(/\nelse init\(\);\n?$/);
     else expect(main).toMatch(/\} else mount\(OptionsApp, \{ target: document\.getElementById\("app"\)! \}\);\n?$/);
+  });
+
+  it("the popup, settings page and background read the flags through the same pre-filter", () => {
+    const read = (file: string) => readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8");
+    const normalized = (text: string) => text.replace(/\s+/g, " ");
+    const gate = '(import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" && !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) || (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)';
+    for (const file of ["popup/main.ts", "options/main.ts", "background.ts"]) expect(normalized(read(file))).toContain(gate);
   });
 });
 
@@ -102,6 +126,38 @@ describe("Safari popup surface", () => {
   it("passes DesktopPopup its required browser value and the approved Settings label", () => {
     expect(SAFARI_DESKTOP_POPUP_BROWSER).toBe("Chrome");
     expect(SAFARI_SETTINGS_LABEL).toBe("Still settings");
+  });
+});
+
+describe("the app-owned account reaches every V3 Safari screen (U12-W4 risk 6)", () => {
+  // core App.svelte's V3 branches (committed popup binding, settings host) build account actions
+  // without consulting accountManagedByApp. Safari must never reach them: its V3 screens are the
+  // separate app-managed hosts, and its legacy wrappers pass none of the props that enable them.
+  it("the Safari legacy wrappers never hand App.svelte a V3 presentation", () => {
+    for (const file of ["popup/PopupApp.svelte", "options/OptionsApp.svelte"]) {
+      const source = readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8");
+      const app = source.match(/<App\b[^>]*\/>/g) ?? [];
+      expect(app, file).toHaveLength(1);
+      // The props that enable App.svelte's V3 branches, by their real names in App.svelte.
+      for (const prop of ["committedPopupBinding", "popupPresentation", "settingsPresentation"])
+        expect(app[0], `${file}: ${prop}`).not.toContain(prop);
+    }
+    // Both legacy controllers are app-managed (the popup's is built in its entry), and neither asks
+    // the controller factory for the committed binding that would feed those branches.
+    for (const file of ["popup/main.ts", "options/OptionsApp.svelte"]) {
+      const source = readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8");
+      expect(source, file).toContain("accountManagedByApp: true");
+      expect(source, file).not.toContain("onCommittedPopupBinding");
+    }
+    // The pinned names are the real App.svelte props and factory option, so a rename breaks this.
+    const app = readFileSync(resolve(import.meta.dirname, "../../../core/src/ui/App.svelte"), "utf8");
+    for (const prop of ["committedPopupBinding", "popupPresentation", "settingsPresentation"]) expect(app).toMatch(new RegExp(`\\b${prop}\\?:`));
+    expect(readFileSync(resolve(import.meta.dirname, "../../../core/src/ui/extension-setup.ts"), "utf8")).toContain("readonly onCommittedPopupBinding?:");
+    // The V3 composition marks the account app-owned, and the V3 hosts render it read-only.
+    const runtime = readFileSync(resolve(import.meta.dirname, "../safari-v3-runtime.ts"), "utf8");
+    expect(runtime).toContain("controller.accountManagedByApp = true;");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8")).toContain("appManagedPopupAccount(c, STRINGS.sync)");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync)");
   });
 });
 
