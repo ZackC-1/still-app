@@ -29,13 +29,22 @@ enum OnboardingPresenter {
   /// Who presents onboarding on this launch. Read once (a static let is initialised lazily and
   /// exactly once), so the router and this presenter can never disagree within a launch.
   static let selected: OnboardingPresenterChoice = OnboardingGate.presenter(
-    fromInfoValue: Bundle.main.object(forInfoDictionaryKey: OnboardingGate.presenterInfoKey),
+    fromInfoValue: infoValue,
     webUIIndexHTML: {
       // The same file ViewController loads. Read only when the Info.plist asks for the web flow.
       guard let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI")
       else { return nil }
       return try? String(contentsOf: url, encoding: .utf8)
     })
+
+  /// The Info.plist value. A DEBUG simulator QA run may stand in for it (QA/QAHooks.swift); the
+  /// D12-marker check above still applies to whatever value is used.
+  private static var infoValue: Any? {
+    #if DEBUG
+    if let qa = QAHooks.presenterInfoValue { return qa }
+    #endif
+    return Bundle.main.object(forInfoDictionaryKey: OnboardingGate.presenterInfoKey)
+  }
 
   @MainActor
   static func presentIfNeeded(from host: PlatformViewController) {
