@@ -514,6 +514,64 @@ test("the real 0017 verification and row-count invariant pass the read-only lint
   }
 });
 
+test("0018 revokes on every private routine 0017's check pins, so 0017 and 0018 never deploy together", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const migration = async (file) => ({
+    file,
+    text: await read(`supabase/migrations/${file}`),
+    verificationText: await read(`scripts/backend/deploy/verify/${file}`),
+  });
+  const m16 = await migration("0016_product_policy.sql");
+  const m17 = await migration("0017_analytics_erasure.sql");
+  const m18 = await migration("0018_analytics_account_erasure.sql");
+  const changed = routinesChanged(m18.text);
+  assert.ok(changed.has("private.*"));
+  assert.ok(changed.has("private.analytics_begin_account_erasure"));
+  assert.ok(changed.has("private.analytics_account_erasure_status"));
+  // 0018 never re-creates 0017's snapshot function: the account-deletion safety net stays as proven.
+  assert.ok(!changed.has("private.analytics_snapshot_deleted_subject"));
+  assert.doesNotMatch(m18.text, /function\s+private\.analytics_snapshot_deleted_subject/);
+  assert.throws(
+    () => assertIndependentVerifications([m17, m18]),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /0018_analytics_account_erasure\.sql changes/.test(error.message) &&
+      /private\.analytics_snapshot_deleted_subject/.test(error.message) &&
+      /deploy 0017_analytics_erasure\.sql alone/.test(error.message),
+  );
+  assert.throws(
+    () => assertIndependentVerifications([m16, m18]),
+    (error) => error instanceof Refusal && error.category === "verification-overlap",
+  );
+  // NEGATIVE CONTROL: without its schema-wide revoke, the planner would not see the overlap.
+  const unguarded = {
+    ...m18,
+    text: m18.text.replace(
+      "revoke all on all functions in schema private from public, anon, authenticated, service_role;",
+      "",
+    ),
+  };
+  assert.notEqual(unguarded.text, m18.text);
+  assert.doesNotThrow(() => assertIndependentVerifications([m17, unguarded]));
+  // Once 0017 is deployed and verified, 0018 plans on its own.
+  assert.doesNotThrow(() => assertIndependentVerifications([m18]));
+});
+
+test("the real 0018 verification and row-count invariant pass the read-only lint", async () => {
+  for (const name of [
+    "0018_analytics_account_erasure.sql",
+    "0018_analytics_account_erasure.invariant.sql",
+  ]) {
+    const text = await readFile(
+      new URL(`./verify/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.equal(lintVerificationSql(text), true, name);
+  }
+});
+
 test("the real 0016 verification and row-count invariant pass the read-only lint", async () => {
   for (const name of [
     "0016_product_policy.sql",

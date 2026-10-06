@@ -381,6 +381,62 @@ test("0017 post-apply verification pins the migration's exact routine bodies", a
   assert.doesNotMatch(migration, /search_path = ''/);
 });
 
+test("0018 post-apply verification pins the new routes' bodies and re-pins 0017's", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const source = (file) => readFile(join(root, "supabase/migrations", file), "utf8");
+  const sources = {
+    "0018": await source("0018_analytics_account_erasure.sql"),
+    "0017": await source("0017_analytics_erasure.sql"),
+  };
+  const verification = await readFile(
+    join(root, "scripts/backend/deploy/verify/0018_analytics_account_erasure.sql"),
+    "utf8",
+  );
+  function body(migration, name) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    assert(start >= 0, `${name} defined`);
+    assert.equal(
+      migration.indexOf(`create or replace function ${name}(`, start + 1),
+      -1,
+      `${name} defined once`,
+    );
+    const open = migration.indexOf("$$", start);
+    const close = migration.indexOf("$$", open + 2);
+    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+  }
+  const pinned = new Map(
+    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g)]
+      .map((m) => [m[1], m[2]]),
+  );
+  const added = ["private.analytics_account_erasure_status", "private.analytics_begin_account_erasure"];
+  assert.deepEqual([...pinned.keys()].sort(), [
+    ...added,
+    "private.analytics_begin_device_erasure",
+    "private.analytics_claim_erasure_work",
+    "private.analytics_erasure_status",
+    "private.analytics_issue_subject",
+    "private.analytics_record_erasure_outcome",
+    "private.analytics_snapshot_deleted_subject",
+    "private.analytics_subject_active",
+    "public.consume_rate_limit",
+  ]);
+  for (const [name, digest] of pinned) {
+    if (added.includes(name)) assert.equal(body(sources["0018"], name), digest, name);
+    else if (name !== "public.consume_rate_limit") assert.equal(body(sources["0017"], name), digest, name);
+  }
+  // The snapshot function is re-pinned at exactly 0017's value, which 0017's own check pins too.
+  const v17 = await readFile(join(root, "scripts/backend/deploy/verify/0017_analytics_erasure.sql"), "utf8");
+  assert.equal(pinned.get("private.analytics_snapshot_deleted_subject"), "5bbbec70399c1ac78f1eb39255c418c2");
+  assert.match(v17, /'private\.analytics_snapshot_deleted_subject\(\)', true, null::text\[\], '5bbbec70399c1ac78f1eb39255c418c2'/);
+  assert.match(sources["0018"], /'5bbbec70399c1ac78f1eb39255c418c2'/, "the self-check re-pins it too");
+  for (const name of added) {
+    const start = sources["0018"].indexOf(`create or replace function ${name}(`);
+    const header = sources["0018"].slice(start, sources["0018"].indexOf("$$", start));
+    assert.match(header, /security definer set search_path = pg_catalog, pg_temp\s/, name);
+  }
+  assert.doesNotMatch(sources["0018"], /search_path = ''/);
+});
+
 test("0017 keeps 0015's limiter body and adds only three bucket names", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const limiter = async (file) => {
