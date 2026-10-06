@@ -17,6 +17,7 @@ of concise session context for Codex and Claude Code under [one project protocol
 | Planned work | `docs/plans/` | Active until completed or superseded. |
 | Cross-agent resumption state | `docs/handoffs/` | Temporary; removed or archived after integration. |
 | Release truth | `docs/release/` | Operational and time-sensitive. |
+| Per-release record | `docs/release/history/` (v1, v2, v3, …) | Plans, build plans, screenshots, release files by version. |
 | Searchable session context | Mem0 under the [Still protocol](MEMORY.md) | Dated summaries and pointers; verify before acting. |
 | Raw session transcripts | Harness-specific home directories | Local evidence, not authoritative project memory. |
 

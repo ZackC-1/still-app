@@ -2,7 +2,7 @@
 
 Status: product-direction source of truth  
 Owner: Cadmus Labs  
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-06 (V3 commercial direction incorporated; 2.x remains the shipped release)
 
 This document gives every human and coding agent the same product direction. It explains what Still
 is trying to achieve and which promises must survive implementation details, store constraints, and
@@ -23,8 +23,9 @@ Still is:
 
 - A focused short-form-video remover for supported websites.
 - Calm infrastructure that makes distracting surfaces feel absent.
-- Free in version 2.0: YouTube Shorts, Instagram and Facebook Reels removal, and TikTok website blocking.
+- Free core in every release: YouTube Shorts, Instagram and Facebook Reels removal, and TikTok website blocking.
 - Usable without an account, with optional free sign-in for cross-device settings sync.
+- Still Pro (V3 direction): twelve optional extras behind a one-time $9.99 lifetime purchase. Free core never requires it.
 - Privacy-conscious by design, with narrow host access and no browsing-history collection.
 
 Still is not:
@@ -59,12 +60,17 @@ negative reviews.
 |---|---|---|
 | Free blocking | Removes YouTube Shorts and Instagram/Facebook Reels; blocks the TikTok website. | None. Settings can remain local. |
 | Free settings sync | Carries Still settings across supported browsers and devices. | Optional email sign-in on the devices to sync. |
+| Still Pro (V3) | Twelve optional extras (Related videos, end-of-video suggestions, autoplay prevention, comments hiding, live chat hiding, Explore, Stories/Highlights, suggested accounts, Threads links, Facebook Stories/Videos/sidebar ads), fresh installs Off. | Purchase required; one qualifying purchase covers supported surfaces via the approved Restore flow. |
 
-Still 2.0 is free to grow adoption. This is the current release model, not a promise of permanent
-pricing. Both paid-tier flags remain disabled. Retain RevenueCat identity, historical entitlements,
-and purchase infrastructure so a separately approved future pricing change remains possible.
-The immutable entitlement identifier remains `still_sync`; it is not a blocking or sync requirement
-in 2.0. Do not enable paid behavior as part of release preparation.
+Still 2.x shipped free to grow adoption, with both paid-tier flags disabled. The V3 direction,
+approved in [D514](docs/release/history/v3/README.md), activates paid behavior deliberately:
+a $9.99 US-base one-time lifetime Pro offer with a seven-day voluntary web refund window
+(Apple purchases follow Apple's refund process). This replaces the standing "do not enable paid
+behavior" guard for V3 preparation only; 2.x artifacts in review or in the stores keep their
+free behavior and must not gain paywalls through documentation or tooling commits.
+The immutable entitlement identifier remains `still_sync`; it is not a blocking or sync
+requirement. Preserve old product IDs and historical mappings; verified legacy payments map
+to frozen Pro and zero/free-era use maps to frozen released-free protection.
 
 ## Supported-surface truth
 
@@ -74,6 +80,7 @@ in 2.0. Do not enable paid behavior as part of release preparation.
 | Firefox on desktop | Free WebExtension blocking and optional free settings sync. |
 | Safari on iPhone and iPad | Safari Web Extension inside the Still container app. |
 | Safari on Mac | Safari Web Extension inside the Still macOS app. |
+| Firefox on Android (V3, evidence-gated) | Free WebExtension blocking on websites, from V3 builds only. |
 | Native social-video apps | Not supported. Still cannot remove video inside the native YouTube, Instagram, Facebook, or TikTok apps. |
 
 Any new surface must earn its way into this table through implementation, verification, privacy
@@ -87,7 +94,7 @@ review, store approval, and updated messaging.
 - **Remove the invitation, preserve the site.** Regular YouTube, Instagram, and Facebook content
   should remain useful; the TikTok website is blocked.
 - **Quiet, not gamified.** No attention dashboards, celebratory streaks, guilt, or pressure.
-- **Free for growth.** Still 2.0 has no purchase requirement. Do not promise permanent pricing.
+- **Free core, paid extras.** Blocking and sync never require a purchase or account. Still Pro extras are optional and clearly sold, never gating the free outcome. Do not promise permanent pricing.
 - **Disclose at the decision point.** Mobile Safari and native-app limitations belong near download
   calls to action, not only in legal copy.
 - **Private by construction.** Still never records the pages, videos or searches people view. Product
@@ -100,6 +107,7 @@ review, store approval, and updated messaging.
 2. Immediate proof: Shorts and Reels disappear, and the TikTok website is blocked, all for free.
 3. No barrier: blocking needs no purchase or account.
 4. Continuity: optional free sign-in syncs settings across supported surfaces.
+5. Optional depth (V3): Still Pro adds twelve extras for a one-time payment; the free outcome above never requires it.
 5. Boundary: on mobile, Still works in Safari websites and not inside native social apps.
 
 Canonical store copy and asset instructions live in
@@ -122,7 +130,9 @@ The current behavior specification is [`docs/PRODUCT.md`](docs/PRODUCT.md).
 The original v1 specification is historical and does not override the free release.
 The current runtime map is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Accepted architectural
 decisions live in [`docs/adr/`](docs/adr/), and implementation learnings live in
-[`docs/solutions/`](docs/solutions/).
+[`docs/solutions/`](docs/solutions/). Per-release records (plans, build plans,
+screenshots, release files by version) live in [`docs/release/history/`](docs/release/history/);
+the [V3 record](docs/release/history/v3/README.md) carries the approved Pro direction.
 
 ## Launch posture
 

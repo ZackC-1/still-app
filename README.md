@@ -37,7 +37,8 @@ Load unpacked development builds from:
 - Firefox: `packages/ext-chromium/dist/firefox-mv3/manifest.json`
 
 Build output is generated and ignored by Git. Do not load the source directory as an extension.
-Cloud auth and sync require local environment configuration; purchase flows are dormant. Blocking and most
+Cloud auth and sync require local environment configuration; purchase flows are dormant in 2.x builds
+(V3 activates them deliberately). Blocking and most
 tests work without production credentials. Copy the relevant package-level `.env.example` file and
 use local or development values only.
 
@@ -49,7 +50,7 @@ Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.m
 |---|---|
 | Browser extensions | Shared WebExtension code for Chromium and Firefox builds, with a data-driven content script for blocking short-form surfaces. |
 | Safari extension | The same blocking core packaged as a Safari Web Extension. |
-| Apple app | iOS and macOS host app for the Safari extension and native bridge, with dormant StoreKit 2 purchase infrastructure. |
+| Apple app | iOS and macOS host app for the Safari extension and native bridge, with StoreKit 2 purchase infrastructure (dormant in 2.x; activated by V3). |
 | Supabase backend | Auth, settings sync, entitlement reconciliation, signed rule-set hosting, export, deletion, and selector canary functions. |
 
 ## Product model
@@ -58,9 +59,12 @@ Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.m
 |---|---|
 | Free blocking | YouTube Shorts and Instagram/Facebook Reels removal; TikTok website blocking. No account or purchase required. |
 | Optional free settings sync | Sign in with the same email on supported devices to sync your Still settings. |
+| Still Pro (V3 direction) | Twelve optional extras, Off on fresh installs, for a one-time $9.99 lifetime payment. Never required for blocking or sync. |
 
 On iPhone and iPad, Still works on websites opened in Safari, not inside native social-media apps.
-Still 2.0 is free; retained purchase infrastructure is disabled for this release.
+Shipped 2.x is free; purchase infrastructure is disabled in those builds. The approved V3 direction
+adds the optional Pro tier above — see [STRATEGY.md](STRATEGY.md) and the
+[V3 release record](docs/release/history/v3/README.md).
 
 Still does not collect browsing history. Host permissions are limited to `youtube.com`, `instagram.com`, `facebook.com`, and `tiktok.com`; the extension never requests `<all_urls>`.
 
@@ -95,7 +99,9 @@ docs/
 
 The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.
 
-For current behavior and reconciliation rules, use [the 2.0.0 specification](docs/PRODUCT.md).
+For shipped behavior and reconciliation rules, use [the product specification](docs/PRODUCT.md);
+per-release plans, build plans, screenshots, and release files live in
+[docs/release/history/](docs/release/history/).
 For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 

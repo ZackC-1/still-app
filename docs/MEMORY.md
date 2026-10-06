@@ -135,3 +135,8 @@ final save after a crash or forced termination. Save intermediate handoffs durin
 References: [shared repository brain](SHARED-BRAIN.md),
 [Mem0 MCP](https://docs.mem0.ai/platform/mem0-mcp),
 [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp).
+
+Mem0 dependence, verified October 6, 2026: the Still application does not use Mem0; it is
+developer-tooling memory for Codex and Claude Code only. Repository documents remain
+authoritative — Mem0 holds dated pointers, and the per-release record lives in
+[release/history/](release/history/), not in memory.

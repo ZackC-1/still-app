@@ -13,7 +13,7 @@ The [initial connection checklist](archive/pre-2.0-reference-refresh/docs/CONNEC
 | Supabase | Email-code auth, optional free settings sync, signed rule hosting, account export/deletion, retained entitlements and security counters | Public client URL/key; private function/database credentials remain server-side. |
 | Resend | Supabase custom SMTP for six-digit sign-in emails | Verified `stillapp.fit` sending domain and domain-scoped SMTP key; actual values stay private. |
 | Namecheap / Google Workspace | Domain DNS and public contact delivery to the owner's work inbox | Public aliases in [contact guide](release/public-contact-addresses.md); forwarding and sending are separate. |
-| RevenueCat / Apple | Retained purchase identities, receipts, entitlements and webhook | Existing app/product IDs; paid access flags remain false. |
+| RevenueCat / Apple | Retained purchase identities, receipts, entitlements and webhook | Existing app/product IDs; paid access flags remain false in shipped 2.x (V3 activates Still Pro deliberately — see the [V3 release record](release/history/v3/README.md)). |
 | App Store Connect | Separate iOS/macOS submissions carrying Safari extensions | Existing app, signing identities and private reviewer access. |
 | Chrome Web Store / Firefox AMO | Desktop extension distribution | Existing listings; Firefox requires complete reproducible sources paired to the uploaded artifact. |
 | PostHog | Product analytics under [ADR 0004](adr/0004-first-party-usage-analytics.md): events from every surface, account email attached server-side, deletion with the account | Public project key per build; server-only personal key for deletion. See the [analytics runbook](release/posthog-analytics.md). |

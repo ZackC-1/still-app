@@ -93,6 +93,7 @@ repository evidence or capture raw chat transcripts.
 - `docs/plans/` records bounded implementation intent and verification scenarios.
 - `docs/handoffs/` records temporary state when work must move between agents or sessions.
 - `docs/release/` records operational store and deployment truth.
+- `docs/release/history/` records per-release plans, build plans, screenshots, and release files by version (v1, v2, v3, …).
 
 Before creating a solution document, check for overlap. Update an existing document when it covers
 the same problem, root cause, and solution. Never put speculation, current status, secrets, or a raw
@@ -109,7 +110,7 @@ with the code that proves it whenever practical.
 - Use `docs/handoffs/` only when another agent or future session must resume unfinished work.
 - A handoff must name the branch, commit, dirty files, completed work, remaining work, verification,
   and blockers. Use [`docs/handoffs/_template.md`](docs/handoffs/_template.md).
-- Delete or archive a handoff after its work is merged or superseded. Promote reusable lessons into
+- Archive (do not delete) a handoff after its work is merged or superseded. Promote reusable lessons into
   `docs/solutions/`; do not let handoffs become a second permanent knowledge store.
 
 ## Multi-agent Git safety
@@ -126,12 +127,14 @@ with the code that proves it whenever practical.
 
 ## Product truths that must remain consistent
 
-- Still 2.0 removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
+- Still removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
   for free on supported web surfaces without an account.
 - Sign-in is optional and enables free cross-device settings sync. It must never gate blocking.
-- The current goal is adoption growth. Do not promise permanent free pricing or reintroduce a
-  purchase requirement. Both paid-tier flags remain disabled; preserve RevenueCat identity,
-  historical entitlements, and dormant purchase infrastructure for a separately approved future change.
+- The current goal is adoption growth. Do not promise permanent free pricing. Free blocking and
+  sync must never gain a purchase requirement; the V3 Still Pro tier (twelve optional extras,
+  $9.99 one-time lifetime, approved in D514) is the only separately approved purchase, and it
+  must never gate the free outcome. Both paid-tier flags remain disabled in shipped 2.x builds;
+  preserve RevenueCat identity, historical entitlements, and purchase infrastructure.
 - Mobile support means websites opened in Safari on iPhone and iPad; from the V3 release (V3 builds
   only), also in Firefox on Android. Still does not block short-form video inside native YouTube,
   Instagram, Facebook, or TikTok apps.

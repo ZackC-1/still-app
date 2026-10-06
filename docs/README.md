@@ -26,6 +26,9 @@ repository map.
 Chrome, Firefox, RevenueCat, future Google Play work and mobile validation. Use
 [release/VALIDATION.md](release/VALIDATION.md) and the linked dated release record to distinguish
 passed, skipped and outstanding checks. Verify live portal state before an external action.
+Per-release folders ([history/v1/](release/history/v1/), [v2/](release/history/v2/),
+[v3/](release/history/v3/)) hold each release's plans, build plans, screenshots, and release
+files by version.
 
 [app-store-submission.md](app-store-submission.md) is a compatibility summary pointing at the
 current Apple runbook and listing copy. Canonical store screenshots and capture instructions live
