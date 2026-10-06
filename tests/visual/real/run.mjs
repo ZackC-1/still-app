@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cases } from "./cases.mjs";
-import { compare, cropReferenceTop, pngSize, referenceChrome } from "./gate.mjs";
+import { compare, cropReferenceTop, pngSize, referenceChrome, signInCompiledIn } from "./gate.mjs";
 import { Blocked, recipes } from "./recipes.mjs";
 import { caseProblems } from "./validate-frames.mjs";
 import { CHROMIUM_EXTENSION, extensionIdOf, launchExtension, waitForCommittedSettings } from "../../qa/shared/launch.mjs";
@@ -61,6 +61,7 @@ if (existsSync(FRAME_MAP)) {
   }
 }
 
+const SIGN_IN = signInCompiledIn(CHROMIUM_EXTENSION);
 const PACKAGE_COMPARE = { pkg: PKG, compareScript: COMPARE };
 
 /** Capture one case; the page is screenshotted at exactly the reference's CSS size and 2x. */
@@ -76,7 +77,7 @@ async function capture(c, file, { perturb = 0 } = {}) {
   try {
     const id = await extensionIdOf(context);
     await waitForCommittedSettings(context);
-    const page = await recipes[c.recipe]({ context, id, size });
+    const page = await recipes[c.recipe]({ context, id, size, signIn: SIGN_IN });
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     const fontLoaded = await page.evaluate(() => document.fonts.check('16px "InterVariable"'));

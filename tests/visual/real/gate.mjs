@@ -3,13 +3,12 @@
 // pixels (0.5%, unrounded). No masks, no cropping of differing pixels, no threshold changes.
 // This mirrors compare() in tests/visual/run.mjs; keep the two identical.
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
 
 export function pngSize(file) {
   const bytes = readFileSync(file);
@@ -71,4 +70,16 @@ export function cropReferenceTop(pkg, reference, out, topCssPx, scale = 2) {
   source.data.copy(cropped.data, 0, rows * source.width * 4);
   writeFileSync(out, PNG.sync.write(cropped));
   return out;
+}
+
+/**
+ * Whether a built extension has sign-in compiled in (a Supabase URL and anon key were supplied at
+ * build time). The lane input STILL_VISUAL_SIGN_IN=1 or 0 overrides the build scan. The scan looks
+ * for a literal anon key where an unconfigured build has `anonKey:void 0`.
+ */
+export function signInCompiledIn(extensionDir, env = process.env) {
+  if (env.STILL_VISUAL_SIGN_IN === "1") return true;
+  if (env.STILL_VISUAL_SIGN_IN === "0") return false;
+  const background = join(extensionDir, "background.js");
+  return existsSync(background) && /anonKey:\s*[`"'][^`"']+[`"']/.test(readFileSync(background, "utf8"));
 }

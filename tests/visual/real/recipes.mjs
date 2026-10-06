@@ -91,14 +91,15 @@ export const recipes = {
     await settle(page, 300);
     return page;
   },
-  // d03-14: real keyboard focus on Sign in. Sign in is only usable when the build has sign-in
-  // compiled in (the configured lane); on the unconfigured build it is disabled and the frame is
-  // reported BLOCKED.
-  "options-focus-sign-in": async ({ context, id, size }) => {
+  // d03-14: real keyboard focus on Sign in. The frame needs a build with sign-in compiled in
+  // (the lane tells the recipe: `signIn`). Without it the frame is BLOCKED; with it, a Sign in
+  // that is disabled or unreachable is a FAIL, never a BLOCKED.
+  "options-focus-sign-in": async ({ context, id, size, signIn }) => {
+    if (!signIn) throw new Blocked("needs a build with sign-in compiled in (no Supabase URL and key in this build)");
     const page = await openExtensionPage(context, id, "options", size);
     await settle(page);
     if (await page.getByRole("button", { name: "Sign in", exact: true }).isDisabled())
-      throw new Blocked("needs a build with sign-in enabled (the Sign in button is disabled in this build)");
+      throw new Error("Sign in is disabled although this build has sign-in compiled in");
     await tabTo(page, () => document.activeElement?.textContent?.trim() === "Sign in", "Sign in");
     await page.mouse.move(0, 0);
     await settle(page, 300);

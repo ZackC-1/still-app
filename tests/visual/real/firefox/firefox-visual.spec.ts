@@ -62,8 +62,10 @@ type Row = {
   reference?: string;
   impl?: string;
 };
-const record = (row: Row) =>
+const record = (row: Row) => {
+  mkdirSync(join(OUT, "rows"), { recursive: true });
   writeFileSync(join(OUT, "rows", `${row.id}.json`), JSON.stringify(row));
+};
 
 const setSwitch = async (firefox: StillFirefox, label: string, on: boolean) => {
   const popup = await firefox.openExtensionPage("popup.html");
@@ -190,6 +192,7 @@ async function capture(
       const shot = await chrome.snapshotPopup();
       png = shot.png;
     }
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, png);
     return pngSize(png);
   } finally {
@@ -244,11 +247,13 @@ for (const c of cases) {
       });
       test.skip(true, c.reason);
     }
+    mkdirSync(join(OUT, "impl"), { recursive: true });
     const original = join(REFERENCES, c.reference);
     const { top } = referenceChrome(c.id, FRAME_MAP);
     const reference = top
       ? cropReferenceTop(PKG, original, join(OUT, "impl", `${c.id}.reference.png`), top)
       : original;
+    mkdirSync(join(OUT, "impl"), { recursive: true });
     const impl = join(OUT, "impl", `${c.id}.png`);
     const diff = join(OUT, "diff", `${c.id}.png`);
     const got = await capture(c, impl);
