@@ -102,6 +102,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
   const modern = deps.ruleSetV2 !== undefined;
   const pageSession = createEnginePageSession(deps.ruleSetV2 ?? ruleSet);
+  // Only for a script built without an entitlement cache (the shipping entry always supplies one,
+  // seeded for its host). Host-less is right here: no Still Pro state in this snapshot is ever
+  // effective ("unsupported" or, paid on, "verification_required"), so the host cannot change
+  // what applies; the host-aware `capabilities` above decide what each host may run.
   const fallbackAccess = initialAccessSnapshot();
   const teardowns: Array<() => void> = [];
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
@@ -496,6 +500,8 @@ export interface EarlyFormat2ShortsRedirectDeps {
   readonly cache: SettingsCache;
   /** The same synchronous committed access snapshot the format-2 content script reads. */
   readonly access: () => BenefitAccessSnapshot;
+  /** The host's packaged capabilities (as for createContentScript); absent, the engine's host-less default. */
+  readonly capabilities?: ReadonlySet<BenefitId>;
   readonly redirectPort?: RedirectPort;
   /** Pass the SAME cell to createContentScript so early + reapply never double-replace. */
   readonly redirectDedupe?: RedirectDedupe;
@@ -515,7 +521,7 @@ export async function earlyFormat2ShortsRedirect(deps: EarlyFormat2ShortsRedirec
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<EnginePageSession["evaluate"]>;
   try {
-    decision = session.evaluate(deps.cache.current(), url, { access: deps.access() });
+    decision = session.evaluate(deps.cache.current(), url, { access: deps.access(), capabilities: deps.capabilities });
   } finally {
     session.stop?.();
   }

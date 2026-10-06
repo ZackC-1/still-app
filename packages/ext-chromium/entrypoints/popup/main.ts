@@ -53,6 +53,7 @@ function init(): void {
         }
       : undefined,
     openedWhere: "popup",
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   mount(PopupApp, {
     target: document.getElementById("app")!,

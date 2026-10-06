@@ -42,6 +42,7 @@ function init(): void {
           legacy = authority;
         }
       : undefined,
+    accessHost: isFirefox ? "firefox" : "chromium",
   });
   mount(FirstRunApp, {
     target: document.getElementById("app")!,

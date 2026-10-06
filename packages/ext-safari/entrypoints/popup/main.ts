@@ -22,6 +22,7 @@ function init(): void {
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
     analytics: createSafariPageAnalytics(),
     openedWhere: "popup",
+    accessHost: "safari",
   });
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
