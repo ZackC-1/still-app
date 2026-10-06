@@ -5,6 +5,7 @@ import { Bidi, EXTENSION_UUID, type Json } from "../firefox/_bidi.js";
 import { StillFirefox, Tab, fixture } from "../firefox/_session.js";
 import {
   ARTIFACTS,
+  FirefoxNotResponding,
   type NativeNode,
   nativeNodes,
   resetDisplay,
@@ -195,6 +196,7 @@ async function dismissOnboarding(): Promise<string[]> {
         n.packageName.startsWith("org.mozilla.") && labels.test(n.text.trim()),
       );
     } catch (error) {
+      if (error instanceof FirefoxNotResponding) throw error; // a Firefox hang fails the run
       tapped.push(`could not read the native screen: ${String(error)}`);
     }
     if (!node) break;

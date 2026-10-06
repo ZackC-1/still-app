@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { notRespondingDialog } from "./_system-dialog.js";
 import { join } from "node:path";
 
 // The small slice of adb this spike needs: shell commands, screenshots, and "tap the native button
@@ -44,20 +45,34 @@ export interface NativeNode {
   readonly center: { readonly x: number; readonly y: number };
 }
 
+/** Firefox itself is "not responding": the run must fail, never dismiss it. */
+export class FirefoxNotResponding extends Error {}
+
 /**
  * The native view tree (uiautomator). Saved as an artifact so a failed match can be read later.
- * A busy emulator sometimes shows Android's own "<app> isn't responding" dialog over everything
- * (seen once with the Pixel Launcher); it belongs to no Firefox or Still screen, so it is answered
- * "Wait" and the tree is read again (at most three times). Each dismissal keeps its own dump.
+ * Android's own "<app> isn't responding" dialog (_system-dialog.ts) is handled first. When it
+ * names Firefox, Firefox has hung and this throws FirefoxNotResponding. For any other app (a busy
+ * emulator once showed it for the Pixel Launcher) it is answered "Wait", logged to
+ * system-dialogs.txt, and the tree is read again, at most three times. Each dialog keeps its dump.
  */
 export function nativeNodes(name: string): NativeNode[] {
-  for (let attempt = 0; ; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     const nodes = readNativeNodes(name);
-    const systemDialog = nodes.some((n) => n.packageName === "android" && /isn.t responding$/.test(n.text));
-    const wait = systemDialog ? nodes.find((n) => n.packageName === "android" && n.text === "Wait") : undefined;
-    if (!wait || attempt >= 3) return nodes;
-    writeFileSync(join(ARTIFACTS, `${name}-system-dialog-${attempt}.xml`), readFileSync(join(ARTIFACTS, `${name}.xml`)));
-    shell(`input tap ${wait.center.x} ${wait.center.y}`);
+    const dialog = notRespondingDialog(nodes);
+    if (!dialog) return nodes;
+    const dump = join(ARTIFACTS, `${name}-system-dialog-${attempt}.xml`);
+    writeFileSync(dump, readFileSync(join(ARTIFACTS, `${name}.xml`)));
+    if (dialog.firefox)
+      throw new FirefoxNotResponding(
+        `Android shows "${dialog.app} isn't responding" over the screen, so Firefox itself hung; see ${dump}`,
+      );
+    if (!dialog.wait || attempt > 3) return nodes;
+    console.warn(`[spike] Android dialog "${dialog.app} isn't responding" (attempt ${attempt}); answering Wait`);
+    appendFileSync(
+      join(ARTIFACTS, "system-dialogs.txt"),
+      `${name}\tattempt ${attempt}\t${dialog.app} isn't responding\tanswered Wait\t${dump}\n`,
+    );
+    shell(`input tap ${dialog.wait.center.x} ${dialog.wait.center.y}`);
     shell("sleep 2");
   }
 }
