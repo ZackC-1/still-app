@@ -164,13 +164,14 @@ create unique index if not exists analytics_erasure_jobs_open
   on private.analytics_erasure_jobs(scope, scope_key) where completed_at is null;
 -- "if not exists" keeps any index that already has a claim index's name, whatever its shape, so a
 -- same-named index in another shape (an earlier draft, a hand edit) is dropped here and rebuilt
--- below. The shape tests are the self-check's; a correct index is left untouched.
+-- below. The shape tests are the self-check's; a correct index is left untouched. Names are
+-- resolved with to_regclass: a ::regclass literal fails on a fresh database where none exists.
 do $$
 begin
   if pg_catalog.to_regclass('private.analytics_erasure_jobs_due') is not null and not exists (
        select 1 from pg_catalog.pg_index i
-       where i.indexrelid = 'private.analytics_erasure_jobs_due'::pg_catalog.regclass
-         and i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
+       where i.indexrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs_due')
+         and i.indrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs') and i.indexprs is null
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
          and (i.indoption[0] & 1) = 1 and (i.indoption[1] & 1) = 0 and (i.indoption[2] & 1) = 0
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
@@ -181,8 +182,8 @@ begin
   end if;
   if pg_catalog.to_regclass('private.analytics_erasure_jobs_backlog') is not null and not exists (
        select 1 from pg_catalog.pg_index i
-       where i.indexrelid = 'private.analytics_erasure_jobs_backlog'::pg_catalog.regclass
-         and i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
+       where i.indexrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs_backlog')
+         and i.indrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs') and i.indexprs is null
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
