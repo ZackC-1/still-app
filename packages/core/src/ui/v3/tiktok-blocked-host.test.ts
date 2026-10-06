@@ -10,6 +10,7 @@ import {
   type TikTokBlockedHostPhase,
 } from "./tiktok-blocked-host.js";
 import {
+  tikTokOpenFailed,
   tikTokPortReady,
   tikTokReloadConfirmed,
   tikTokSupported,
@@ -242,5 +243,153 @@ describe("TikTokBlocked rendered from the host", () => {
     await settle();
     expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
     expect(h.openSettings).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Owner decision 34: a failed "Open TikTok this time" shows exactly "Couldn't open TikTok." with a
+// Try again action. Try again is the ordinary fenced request: it can only reopen the confirmation.
+const FAILED_LINE = "Couldn't open TikTok.";
+
+async function failedHarness(kind: string, reply: unknown) {
+  const h = harness({
+    [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 },
+    [TIKTOK_ROUTE.request]: { status: "confirming" },
+    [TIKTOK_ROUTE.confirm]: { status: "granted" },
+    [kind]: reply,
+  });
+  await h.host.start();
+  h.host.actions.requestConfirmation();
+  await settle();
+  if (h.host.state().phase === "confirmation") {
+    h.host.actions.confirmOpen();
+    await settle();
+  }
+  return h;
+}
+
+describe("decision 34: the TikTok open failure line", () => {
+  it.each([
+    ["a failed request", TIKTOK_ROUTE.request, { status: "failed" }],
+    ["an unexpected request reply", TIKTOK_ROUTE.request, { status: "cancelled" }],
+    ["a request that throws", TIKTOK_ROUTE.request, () => Promise.reject(new Error("worker gone"))],
+    ["a failed confirm", TIKTOK_ROUTE.confirm, { status: "failed" }],
+    ["a malformed confirm", TIKTOK_ROUTE.confirm, { status: "granted?" }],
+    ["a confirm that throws", TIKTOK_ROUTE.confirm, () => Promise.reject(new Error("worker gone"))],
+  ])("%s returns to blocked with the failure line and grants nothing", async (_name, kind, reply) => {
+    const h = await failedHarness(kind, reply);
+    const p = h.host.current();
+    expect(p.state).toBe("blocked");
+    expect(tikTokOpenFailed(p)).toBe(true);
+    expect(tikTokPortReady(p, p.requestConfirmation)).toBe(true);
+    expect(tikTokReloadConfirmed(p)).toBe(false);
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["request", TIKTOK_ROUTE.request],
+    ["confirm", TIKTOK_ROUTE.confirm],
+  ])("a %s the background never answers ends in the failure line, never stuck pending", async (_name, kind) => {
+    vi.useFakeTimers();
+    const h = harness({
+      [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 },
+      [TIKTOK_ROUTE.request]: { status: "confirming" },
+      [kind]: () => new Promise(() => {}),
+    });
+    await h.host.start();
+    h.host.actions.requestConfirmation();
+    await vi.advanceTimersByTimeAsync(kind === TIKTOK_ROUTE.request ? 15_000 : 0);
+    if (kind === TIKTOK_ROUTE.confirm) {
+      expect(h.host.state().phase).toBe("confirmation");
+      h.host.actions.confirmOpen();
+      await vi.advanceTimersByTimeAsync(15_000);
+    }
+    expect(h.host.state().phase).toBe("blocked");
+    expect(tikTokOpenFailed(h.host.current())).toBe(true);
+    h.host.stop();
+  });
+
+  it("a reopen without a destination and a confirmation the background let go both show the line", async () => {
+    const reopen = harness({ [TIKTOK_ROUTE.screen]: { status: "granted", tab: 7 }, [TIKTOK_ROUTE.open]: { status: "failed" } });
+    await reopen.host.start();
+    reopen.host.actions.reload();
+    await settle();
+    expect(tikTokOpenFailed(reopen.host.current())).toBe(true);
+    expect(reopen.navigate).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    const dropped = harness({
+      [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 },
+      [TIKTOK_ROUTE.request]: { status: "confirming" },
+      [TIKTOK_ROUTE.confirming]: { status: "idle" },
+    });
+    await dropped.host.start();
+    dropped.host.actions.requestConfirmation();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(dropped.host.state().phase).toBe("blocked");
+    expect(tikTokOpenFailed(dropped.host.current())).toBe(true);
+    dropped.host.stop();
+  });
+
+  it("is absent on a fresh page and after Keep it closed; settings keeps it; a new attempt clears it", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 }, [TIKTOK_ROUTE.request]: { status: "confirming" } });
+    await h.host.start();
+    expect(tikTokOpenFailed(h.host.current())).toBe(false);
+    h.host.actions.requestConfirmation();
+    await settle();
+    h.host.actions.cancel();
+    expect(tikTokOpenFailed(h.host.current())).toBe(false);
+    for (const phase of ["loading", "confirmation", "pending", "granted", "unavailable"] as const)
+      expect(tikTokOpenFailed(tikTokBlockedPresentation({ phase, observation: 1, identity, failed: true }, noop)), phase).toBe(false);
+
+    h.answers.set(TIKTOK_ROUTE.request, { status: "failed" });
+    h.host.actions.requestConfirmation();
+    await settle();
+    expect(tikTokOpenFailed(h.host.current())).toBe(true);
+    h.host.actions.settings();
+    expect(tikTokOpenFailed(h.host.current())).toBe(true);
+    h.answers.set(TIKTOK_ROUTE.request, { status: "confirming" });
+    h.host.actions.requestConfirmation();
+    expect(h.host.state().phase).toBe("pending");
+    expect(tikTokOpenFailed(h.host.current())).toBe(false);
+  });
+
+  it("Try again only asks again: it reopens the confirmation and grants nothing until the person confirms", async () => {
+    const h = await failedHarness(TIKTOK_ROUTE.confirm, { status: "failed" });
+    h.answers.set(TIKTOK_ROUTE.confirm, { status: "granted" });
+    h.answers.set(TIKTOK_ROUTE.open, { status: "open", url: "https://www.tiktok.com/@fixture" });
+    const view = render(TikTokBlocked, { presentation: h.host.current() });
+    h.host.subscribe((presentation) => void view.rerender({ presentation }));
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(FAILED_LINE);
+    expect(alert).toHaveAttribute("data-tone", "failed");
+    const before = h.sent.length;
+    const retry = within(alert).getByRole("button", { name: "Try again" });
+    // Single flight: a double activation, plus the page's own open button, sends one request.
+    await fireEvent.click(retry);
+    await fireEvent.click(retry);
+    await fireEvent.click(document.querySelector<HTMLElement>(".blocked-actions button.secondary")!);
+    await settle();
+    await tick();
+    expect(h.sent.slice(before)).toEqual([TIKTOK_ROUTE.request]);
+    expect(h.host.state().phase).toBe("confirmation");
+    expect(screen.queryByText(FAILED_LINE)).toBeNull();
+    expect(screen.queryByText("Reload this page to open TikTok.")).toBeNull();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Open TikTok in this tab?");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Open TikTok this time" }));
+    await settle();
+    await tick();
+    expect(h.sent.slice(before)).toEqual([TIKTOK_ROUTE.request, TIKTOK_ROUTE.confirm]);
+    expect(screen.getByText("Reload this page to open TikTok.")).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("renders no failure line on the ordinary blocked page", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 } });
+    await h.host.start();
+    render(TikTokBlocked, { presentation: h.host.current() });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(FAILED_LINE)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });
