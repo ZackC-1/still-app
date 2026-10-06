@@ -139,8 +139,9 @@ export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProF
 /**
  * The device class a host build is running on, when its caller knows it. One "firefox" build runs
  * on desktop Firefox AND Firefox for Android, so the host alone cannot say whether a desktop-only
- * control has anything to act on. The values match ext-chromium's runtime-platform answer
- * ("android" | "desktop" | "unknown"), so a caller can pass that answer straight through.
+ * control has anything to act on. No caller passes it yet: once Firefox for Android's platform
+ * answer (the browser's own runtime platform report) is wired into the Firefox build, that answer
+ * ("android" | "desktop" | "unknown") is passed here unchanged.
  */
 export type AccessPlatform = "android" | "desktop" | "unknown";
 

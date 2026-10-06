@@ -64,7 +64,8 @@ export interface ExtensionContentEntryDeps {
    */
   readonly host?: AccessHost;
   /**
-   * The runtime platform, when the entrypoint knows it (ext-chromium's runtime-platform answer).
+   * The runtime platform. No entrypoint passes it yet; it comes from Firefox for Android's
+   * platform answer once that is wired into the Firefox build.
    * Omitted keeps the host's whole list; "android" or "unknown" drops the desktop-only controls
    * (access-policy.ts DESKTOP_ONLY_PRO). Paid off it changes nothing.
    */

@@ -532,9 +532,11 @@ export function createFormat2PageSessionForTest(ruleSet: SignedRuleSetV2, extras
  * is shared by every host and cannot know which one loaded it, so this is deliberately the
  * host-less set (only Still Pro features EVERY host implements). That is the safe direction: a
  * caller that forgot its host under-claims (an extra stays inert), never over-claims a control
- * its build lacks. Every shipped caller that knows its host passes `capabilities` (and `access`)
- * from packagedAccessContext(host): the content entry, its early Shorts redirect and the content
- * script's fallback snapshot. The same reasoning covers `defaultAccess` below.
+ * its build lacks. Every shipped caller that knows its host passes `capabilities` from
+ * packagedAccessContext(host): the content entry and its early Shorts redirect (which also passes
+ * that host's access snapshot). The content script's own fallback snapshot (content/index.ts)
+ * deliberately stays host-less, because no Still Pro state in it is ever effective. The same
+ * reasoning covers `defaultAccess` below.
  */
 const PACKAGED_CAPABILITIES = accessCapabilities({ paidMode: PAID_TIER_ENABLED });
 
