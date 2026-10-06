@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FEATURE_REGISTRY } from "@still/shared-types";
+  import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import type { ExtensionSettingsProps } from "./extension-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
@@ -11,6 +11,7 @@
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
+  import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
   import "./design/styles.css";
   let {
     settings,
@@ -26,6 +27,7 @@
     sync,
     pro,
     restore,
+    onRestore,
     link,
     sharing,
     privacyActions,
@@ -98,6 +100,15 @@
       pro.state !== "failed" &&
       pro.state !== "success",
   );
+  // Free period only (owner decisions 62 and 73): the compiled paid flag is off and no paid
+  // producer is supplied. Inert while a Restore is held, as the Apple app's link is.
+  let freeRestoreShown = $derived(
+    !PAID_TIER_ENABLED && !pro && Boolean(onRestore),
+  );
+  let freeRestoreReady = $derived(freeRestoreShown && !restoreHeld);
+  function requestFreeRestore() {
+    if (freeRestoreReady) onRestore?.();
+  }
   // Owner decision 41: a locked row opens the offer in a sheet; only its own Buy starts anything.
   let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
   let paywallShown = $derived(
@@ -130,9 +141,51 @@
     )
       target.handler();
   }
+  // "Delete shared data on all devices": confirmed first, and only for the account it was asked for
+  // (the same guard as Delete account: a sign-out or another account closes the confirmation).
+  let sharedTarget = $state<{
+    identity?: string;
+    revision?: number;
+    handler: () => void;
+  } | null>(null);
+  let sharedTargetCurrent = $derived(
+    sharedTarget !== null &&
+      sharedTarget.identity === sync.account?.identity &&
+      sharedTarget.revision === sync.account?.revision &&
+      sharedTarget.handler === sync.account?.sharedData?.onDelete,
+  );
+  $effect(() => {
+    if (sharedTarget && !sharedTargetCurrent) sharedTarget = null;
+  });
+  $effect(() => () => {
+    sharedTarget = null;
+  });
+  function openSharedDelete() {
+    const account = sync.account;
+    if (account?.sharedData?.onDelete) {
+      deleteTarget = null;
+      sharedTarget = {
+        identity: account.identity,
+        revision: account.revision,
+        handler: account.sharedData.onDelete,
+      };
+    }
+  }
+  function confirmSharedDelete() {
+    const target = sharedTarget;
+    sharedTarget = null;
+    if (
+      target &&
+      target.identity === sync.account?.identity &&
+      target.revision === sync.account?.revision &&
+      target.handler === sync.account?.sharedData?.onDelete
+    )
+      target.handler();
+  }
   function openDelete() {
     const account = sync.account;
     if (account?.onDeleteAccount) {
+      sharedTarget = null;
       deleteTarget = {
         address: account.address,
         identity: account.identity,
@@ -201,6 +254,14 @@
           onDeleteAccount: sync.account.onDeleteAccount
             ? openDelete
             : undefined,
+          sharedData: sync.account.sharedData
+            ? {
+                ...sync.account.sharedData,
+                onDelete: sync.account.sharedData.onDelete
+                  ? openSharedDelete
+                  : undefined,
+              }
+            : undefined,
         }
       : undefined}
   />
@@ -214,6 +275,18 @@
       {accessVerify}
       {restoreHeld}
     />
+  {/if}
+  {#if freeRestoreShown}
+    <!-- Free period: the Still Pro card's slot holds only its plain Restore link, so past
+      purchasers can check their account; no offer, Buy or price. -->
+    <section class="card card-stack">
+      <button
+        type="button"
+        class="link"
+        disabled={!freeRestoreReady}
+        onclick={requestFreeRestore}>Restore purchase</button
+      >
+    </section>
   {/if}
   {#if restore}<RestoreStatusCard {...restore} />{/if}
   {#if link}<AccountLinkCard {...link} />{/if}
@@ -273,6 +346,17 @@
     onConfirm={deleteConfirmation}
     onCancel={() => {
       deleteTarget = null;
+    }}
+  />
+  <ConfirmationDialog
+    open={sharedTargetCurrent}
+    title={SHARED_DATA_COPY.confirmTitle}
+    body={SHARED_DATA_COPY.confirmBody}
+    confirmLabel={SHARED_DATA_COPY.confirm}
+    cancelLabel={SHARED_DATA_COPY.cancel}
+    onConfirm={sharedTargetCurrent ? confirmSharedDelete : undefined}
+    onCancel={() => {
+      sharedTarget = null;
     }}
   />
 </div>

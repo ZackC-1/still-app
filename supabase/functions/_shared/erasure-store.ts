@@ -252,8 +252,14 @@ function jobRef(value: unknown): ErasureJobRef {
 export type DeviceErasureState = "none" | "requested" | "verifying" | "deleted";
 
 export function deviceErasureState(ref: ErasureJobRef | null): DeviceErasureState {
-  if (!ref) return "none";
-  switch (ref.stage) {
+  return stageErasureState(ref?.stage ?? null);
+}
+
+/** The same mapping from a bare stage: the account-wide status reports the least advanced stage
+ * among the account's jobs (0018), or null when there is none. */
+export function stageErasureState(stage: ErasureStage | null): DeviceErasureState {
+  if (!stage) return "none";
+  switch (stage) {
     case "stop_recorded":
       return "requested";
     case "provider_delete_accepted":
