@@ -14,7 +14,6 @@
     note,
     onChange,
     onLock,
-    lockLabel,
   }: {
     id: FeatureId;
     label: string;
@@ -26,8 +25,11 @@
     unsupportedText: string;
     note?: string;
     onChange: (next: boolean) => void;
-    onLock?: () => void;
-    lockLabel: string;
+    /**
+     * The locked row's action, given the lock button so a sheet it opens can return focus to it.
+     * Hosts supply it only while Still Pro is really offered (owner decision 41).
+     */
+    onLock?: (opener: HTMLElement) => void;
   } = $props();
   let state = $derived<AccessState>(dormant ? "locked" : accessState);
   let lockAction = $derived(dormant ? undefined : onLock);
@@ -73,12 +75,19 @@
         .join(" ") || undefined}
     />
   {:else if state === "locked"}
+    <!-- Owner decision 40: the accessible name is exactly the visible "Still Pro" (the lock glyph
+      is decorative). The row's own label, and its note when there is one, describe the button, so
+      a screen reader still says which feature this is: "Still Pro, button, Comments". -->
     <button
       type="button"
       class="lock-pro"
-      aria-label={lockLabel}
+      aria-describedby={[`${key}-l`, visibleNote ? `${key}-s` : undefined]
+        .filter(Boolean)
+        .join(" ")}
       aria-disabled={!lockAction || undefined}
-      onclick={lockAction}
+      onclick={lockAction
+        ? (event) => lockAction?.(event.currentTarget as HTMLElement)
+        : undefined}
       ><Glyph name="lock" size={14} /><span>Still Pro</span></button
     >
   {/if}
