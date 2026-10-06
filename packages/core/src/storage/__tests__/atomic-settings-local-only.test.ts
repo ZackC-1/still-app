@@ -127,8 +127,11 @@ describe("retained unknown local-only authority", () => {
       expect(entered.atomic).toMatchObject({ ownership: "previous-account", pending: [], paused: "ownership-unconfirmed" });
       const account = await authority().writer.initialize("unknown");
       const adopted = await host.writer.acknowledge({ ...canonical(account, 0), empty: true }, entered.atomic!.scope);
+      // VD-15 rule: unknown local choices never reach the new empty account, which wins with its
+      // agreed defaults; nothing stays held, so the switches remain usable.
       expect(adopted.atomic!.pending).toEqual([]);
-      expect(adopted.atomic!.held).toMatchObject({ globalOn: false, "services.youtube": false, "sites.youtube.shorts": false });
+      expect(adopted.atomic).toMatchObject({ paused: null, held: {} });
+      expect(adopted.settings).toMatchObject({ globalOn: true, services: { youtube: true, facebook: true, tiktok: true } });
       expect(uuid).not.toHaveBeenCalled();
     } finally { for (const stop of stops) stop(); }
   }, SOAK_BUDGET_MS);
