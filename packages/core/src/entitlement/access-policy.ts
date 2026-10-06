@@ -126,7 +126,8 @@ export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProF
   // layouts (for YouTube, m.youtube.com). The mobile selectors are unverified candidates, so the
   // structural evidence (E0) must cover Firefox for Android before paid activation. Autoplay
   // prevention claims no m.youtube.com behaviour yet (H-075), and Desktop sidebar ads only ever
-  // matches the desktop right column.
+  // matches the desktop right column: both are DESKTOP_ONLY_PRO, which a caller that passes the
+  // runtime platform ("android" or "unknown") never receives.
   firefox: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
   // Safari (macOS and iPhone/iPad share one host) lists no YouTube control: their mobile Safari
   // layouts are gated on structural evidence that does not exist yet. Desktop sidebar ads stays
@@ -135,10 +136,33 @@ export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProF
   safari: Object.freeze([...INSTAGRAM_PRO, ...FACEBOOK_PRO]),
 });
 
+/**
+ * The device class a host build is running on, when its caller knows it. One "firefox" build runs
+ * on desktop Firefox AND Firefox for Android, so the host alone cannot say whether a desktop-only
+ * control has anything to act on. No caller passes it yet: once Firefox for Android's platform
+ * answer (the browser's own runtime platform report) is wired into the Firefox build, that answer
+ * ("android" | "desktop" | "unknown") is passed here unchanged.
+ */
+export type AccessPlatform = "android" | "desktop" | "unknown";
+
+/**
+ * Still Pro features that act only on a site's DESKTOP layout. On any other platform they would be
+ * a control that does nothing, so they are never a capability there:
+ * - youtube.autoplay: the content handler claims no m.youtube.com behaviour (H-075);
+ * - facebook.sponsored: it only ever matches the desktop right column, which phones do not have.
+ */
+const DESKTOP_ONLY_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.autoplay", "facebook.sponsored"]);
+
 export interface AccessCapabilityInput {
   readonly paidMode: boolean;
   /** Absent when the caller does not know its host: only features implemented on EVERY host count. */
   readonly host?: AccessHost;
+  /**
+   * Absent keeps the long-standing behaviour (the host's whole list). "android" drops the
+   * desktop-only controls. "unknown" drops them too: a platform the browser could not name may be
+   * a phone, and a paid control that silently does nothing is worse than one held back.
+   */
+  readonly platform?: AccessPlatform;
 }
 
 /**
@@ -165,13 +189,21 @@ export function accessCapabilitiesForTest(input: AccessCapabilityInput,
 function capabilitiesFrom(input: AccessCapabilityInput, table: Readonly<Record<AccessHost, readonly BenefitId[]>>): ReadonlySet<BenefitId> {
   const free: BenefitId[] = [...FEATURE_REGISTRY.filter(feature => feature.tier === "free").map(feature => feature.id), "tiktok.all"];
   if (!input.paidMode) return new Set(free);
+  const desktopOnly = input.platform !== undefined && input.platform !== "desktop";
   const pro = FEATURE_REGISTRY.filter(feature => feature.tier === "pro").map(feature => feature.id)
-    .filter(id => input.host ? table[input.host].includes(id) : ACCESS_HOSTS.every(host => table[host].includes(id)));
+    .filter(id => input.host ? table[input.host].includes(id) : ACCESS_HOSTS.every(host => table[host].includes(id)))
+    .filter(id => !(desktopOnly && (DESKTOP_ONLY_PRO as readonly BenefitId[]).includes(id)));
   return new Set([...free, ...pro]);
 }
 
-export function packagedAccessContext(host?: AccessHost): TrustedAccessContext {
-  return { paidMode: PAID_TIER_ENABLED, supported: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }),
+/**
+ * The packaged access context. Every caller that knows its host passes it (each background, each
+ * content entry, each popup/options page). Without a host only the features EVERY host implements
+ * count, which is the safe direction: a host-less caller can never claim a control its build does
+ * not have, only under-claim one until the host-aware background snapshot arrives.
+ */
+export function packagedAccessContext(host?: AccessHost, platform?: AccessPlatform): TrustedAccessContext {
+  return { paidMode: PAID_TIER_ENABLED, supported: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host, platform }),
     localRights: new Set(), evidenceStatus: "unknown" };
 }
 

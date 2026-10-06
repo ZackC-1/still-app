@@ -11,6 +11,7 @@
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
+  import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
   import "./design/styles.css";
   let {
     settings,
@@ -140,9 +141,51 @@
     )
       target.handler();
   }
+  // "Delete shared data on all devices": confirmed first, and only for the account it was asked for
+  // (the same guard as Delete account: a sign-out or another account closes the confirmation).
+  let sharedTarget = $state<{
+    identity?: string;
+    revision?: number;
+    handler: () => void;
+  } | null>(null);
+  let sharedTargetCurrent = $derived(
+    sharedTarget !== null &&
+      sharedTarget.identity === sync.account?.identity &&
+      sharedTarget.revision === sync.account?.revision &&
+      sharedTarget.handler === sync.account?.sharedData?.onDelete,
+  );
+  $effect(() => {
+    if (sharedTarget && !sharedTargetCurrent) sharedTarget = null;
+  });
+  $effect(() => () => {
+    sharedTarget = null;
+  });
+  function openSharedDelete() {
+    const account = sync.account;
+    if (account?.sharedData?.onDelete) {
+      deleteTarget = null;
+      sharedTarget = {
+        identity: account.identity,
+        revision: account.revision,
+        handler: account.sharedData.onDelete,
+      };
+    }
+  }
+  function confirmSharedDelete() {
+    const target = sharedTarget;
+    sharedTarget = null;
+    if (
+      target &&
+      target.identity === sync.account?.identity &&
+      target.revision === sync.account?.revision &&
+      target.handler === sync.account?.sharedData?.onDelete
+    )
+      target.handler();
+  }
   function openDelete() {
     const account = sync.account;
     if (account?.onDeleteAccount) {
+      sharedTarget = null;
       deleteTarget = {
         address: account.address,
         identity: account.identity,
@@ -210,6 +253,14 @@
           ...sync.account,
           onDeleteAccount: sync.account.onDeleteAccount
             ? openDelete
+            : undefined,
+          sharedData: sync.account.sharedData
+            ? {
+                ...sync.account.sharedData,
+                onDelete: sync.account.sharedData.onDelete
+                  ? openSharedDelete
+                  : undefined,
+              }
             : undefined,
         }
       : undefined}
@@ -295,6 +346,17 @@
     onConfirm={deleteConfirmation}
     onCancel={() => {
       deleteTarget = null;
+    }}
+  />
+  <ConfirmationDialog
+    open={sharedTargetCurrent}
+    title={SHARED_DATA_COPY.confirmTitle}
+    body={SHARED_DATA_COPY.confirmBody}
+    confirmLabel={SHARED_DATA_COPY.confirm}
+    cancelLabel={SHARED_DATA_COPY.cancel}
+    onConfirm={sharedTargetCurrent ? confirmSharedDelete : undefined}
+    onCancel={() => {
+      sharedTarget = null;
     }}
   />
 </div>

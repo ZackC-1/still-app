@@ -265,6 +265,8 @@ export function installNavigationHooks(
 export interface UrlChangeWatch {
   /** Re-evaluate whether to run; call after anything that may change `active`. */
   sync(active: boolean): void;
+  /** Reads the address now (as a poll tick would), while the watch is wanted. */
+  check(): void;
   stop(): void;
   /** Test/diagnostic: whether the interval is currently scheduled. */
   running(): boolean;
@@ -338,6 +340,9 @@ export function createUrlChangeWatch(input: {
       wanted = false;
       apply();
       doc.removeEventListener("visibilitychange", onVisibility);
+    },
+    check() {
+      if (listening) report(false);
     },
     running: () => timer !== null,
   };

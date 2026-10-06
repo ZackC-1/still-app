@@ -2,7 +2,13 @@ import { watchAccountStatus, type AccountStatusSnapshot } from "./account-status
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
 import type { StoredSettingsRecord } from "../storage/index.js";
-import { EntitlementCache, ChromeEntitlementAdapter } from "../entitlement/index.js";
+import {
+  EntitlementCache,
+  ChromeEntitlementAdapter,
+  packagedAccessContext,
+  type AccessHost,
+  type AccessPlatform,
+} from "../entitlement/index.js";
 import type { ExtensionSessionState } from "../sync/extension-session.js";
 import {
   UiController,
@@ -70,6 +76,15 @@ export interface ExtensionUiOptions {
   readonly analytics?: UiAnalytics;
   /** Which page this controller drives, reported once as `opened`. */
   readonly openedWhere?: "popup" | "options";
+  /**
+   * The extension host this page belongs to. The access snapshot the page shows until the
+   * background answers is resolved for this host, so a Still Pro extra the build implements is
+   * never shown as "Not available in this browser" by a host-less default. Paid off, every host
+   * resolves to exactly the free features. Omitted: only features every host implements count.
+   */
+  readonly accessHost?: AccessHost;
+  /** The runtime platform when the page knows it; see packagedAccessContext. */
+  readonly accessPlatform?: AccessPlatform;
 }
 
 export function createExtensionUiController(
@@ -108,7 +123,9 @@ export function createExtensionUiController(
   controller.retrySync = purchase?.retrySync;
   if (purchase) controller.paywallPrice = purchase.displayPrice;
 
-  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
+  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), {
+    access: packagedAccessContext(options?.accessHost, options?.accessPlatform),
+  });
   entitlement.subscribe((entitled) => {
     controller.entitled = entitled;
   });

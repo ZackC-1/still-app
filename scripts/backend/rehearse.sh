@@ -37,7 +37,7 @@ SQL
 bootstrap_fixture
 export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 # One environment permission for every database test: driver PG* defaults plus each test's inputs.
-db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,STILL_U5W2_ERASURE_TEST_DATABASE_URL,STILL_U5W2_ERASURE_TEST_MODE,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,STILL_U5W2_ERASURE_TEST_DATABASE_URL,STILL_U5W2_ERASURE_TEST_MODE,STILL_U5W3_ERASURE_TEST_DATABASE_URL,STILL_U5W3_ERASURE_TEST_MODE,STILL_U5W3_AUTH_URL,STILL_U5W3_AUTH_SERVICE_KEY,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
 deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
 supabase db reset --local --no-seed >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
@@ -128,19 +128,34 @@ u6_policy_test clean
 supabase test db supabase/tests/rls_test.sql
 # Migration 0017 on its own: upgrade from 0016 with realistic rows (its verification first reports
 # the missing objects and the rows are fingerprinted, then the CLI applies 0017 as the ordinary
-# postgres role), then a clean head. 0016's check enumerates schema private's grants exactly, so it
-# runs above at 0016, never at a head that holds 0017. The routes run through the real handlers as
-# the eraser role, with a fake PostHog.
+# postgres role), then a clean database at exactly 0017. 0016's check enumerates schema private's
+# grants exactly, so it runs above at 0016, never at a head that holds 0017; likewise 0017's check
+# enumerates what the eraser may execute, so it never runs at a head that holds 0018. The routes run
+# through the real handlers as the eraser role, with a fake PostHog.
 u5w2_erasure_test() {
   STILL_U5W2_ERASURE_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U5W2_ERASURE_TEST_MODE="$1" \
     deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/analytics_erasure_migration_test.ts
 }
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/analytics_erasure_migration_seed.sql
 u5w2_erasure_test pre-upgrade
-supabase migration up --local >/dev/null
+migrate_up_to 0017
 u5w2_erasure_test upgrade
-supabase db reset --local --no-seed >/dev/null
+supabase db reset --local --no-seed --version 0017 >/dev/null
 u5w2_erasure_test clean
+# Migration 0018 on its own: upgrade from 0017 holding erasure rows at every stage (its verification
+# first reports the missing objects and every row, erasure rows included, is fingerprinted), then a
+# clean head. The account pre-step runs as the eraser role, and accounts are deleted as GoTrue's own
+# database role. GoTrue itself is not started here: its HTTP path runs in rehearse-settings.sh.
+u5w3_erasure_test() {
+  STILL_U5W3_ERASURE_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U5W3_ERASURE_TEST_MODE="$1" \
+    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/analytics_account_erasure_migration_test.ts
+}
+psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/analytics_account_erasure_migration_seed.sql
+u5w3_erasure_test pre-upgrade
+migrate_up_to 0018
+u5w3_erasure_test upgrade
+supabase db reset --local --no-seed >/dev/null
+u5w3_erasure_test clean
 # The pgTAP suite again at the head, after the policy routes have been exercised.
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

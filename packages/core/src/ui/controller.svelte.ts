@@ -216,9 +216,10 @@ export interface UiAnalytics {
   /** Attribute this install to the signed-in account. */
   identify(userId: string): void;
   /** Stop attributing to the account. `forgetAccount` (deletion) also drops events still waiting
-   * under it, so nothing recreates the analytics person the server is about to delete. May resolve
+   * under it, so nothing recreates the analytics person the server is about to delete, and forgets
+   * this device's cached analytics identity for `account` (the account being deleted). May resolve
    * once that is done, so deletion can wait for it (bounded; see confirmDeleteAccount). */
-  reset(options?: { readonly forgetAccount?: boolean }): Promise<void> | void;
+  reset(options?: { readonly forgetAccount?: boolean; readonly account?: string }): Promise<void> | void;
   /** This device's "Share usage data" state, or null when the build has no analytics (the switch
    * then does not render). */
   sharing?(): Promise<UsageSharingState | null>;
@@ -227,6 +228,34 @@ export interface UiAnalytics {
   setSharing?(enabled: boolean): Promise<boolean>;
   /** Remember that the one-time notice was seen. */
   acknowledgeNotice?(): void;
+  /** Account-wide "Delete shared data on all devices" (U5-W3 packet B). Every call resolves null
+   * when the build does not offer it (per-device identities not wired): the action then stays
+   * hidden. */
+  accountErasure?: UiAccountErasure;
+}
+
+/** What the settings page shows for the account-wide deletion. */
+export interface UiAccountErasureView {
+  /** The approved withdrawal line to show, or "none". */
+  readonly withdrawal: "none" | "requested" | "verifying" | "deleted" | "failed";
+  /** This device was stopped by a deletion asked on another device (shown once). */
+  readonly stoppedElsewhere: boolean;
+}
+
+export interface UiAccountErasure {
+  state(account: string): Promise<UiAccountErasureView | null>;
+  /** Stop sharing on this device first (never a device erasure, owner decision 61), then send the
+   * request with this account's session. Null when nothing was sent because sharing could not be
+   * confirmed off here, or the action is not offered. Called synchronously from the confirming tap. */
+  start(account: string): Promise<UiAccountErasureView | null>;
+  retry(account: string): Promise<UiAccountErasureView | null>;
+  /** The done line or the other-device line has been shown. */
+  acknowledge(account: string): Promise<void> | void;
+}
+
+/** The account-wide deletion as the settings page renders it, for the account it belongs to. */
+export interface SharedDataErasure extends UiAccountErasureView {
+  readonly account: string;
 }
 
 export interface UsageSharingState {
@@ -325,6 +354,10 @@ export class UiController {
   usageSharing = $state<boolean | null>(null);
   /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
   usageNoticeVisible = $state(false);
+  /** Account-wide "Delete shared data on all devices"; null hides it (not offered, or signed out). */
+  sharedData = $state.raw<SharedDataErasure | null>(null);
+  /** A deletion request (or its retry) is on its way: the action waits. */
+  sharedDataSending = $state(false);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -1354,6 +1387,8 @@ export class UiController {
     // to show its outcome to, and the next session must be able to start its own.
     this.deleteFlow = "idle";
     this.deleteError = null;
+    this.sharedData = null;
+    this.sharedDataSending = false;
     this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
@@ -1407,7 +1442,7 @@ export class UiController {
     this.deleteError = null;
     // Forget the account for analytics before the server deletes it, and wait for that: an event
     // still queued under the account must never be sent after the deletion and recreate the person.
-    await this.forgetAnalyticsAccount();
+    await this.forgetAnalyticsAccount(deletingUserId);
     if (this.accountRevision !== revision || this.userId !== deletingUserId) {
       // Someone else signed in (or out) while analytics let go: never delete an account the person
       // did not confirm. The new account identifies itself.
@@ -1432,6 +1467,78 @@ export class UiController {
     }
   }
 
+  // ── Account-wide "Delete shared data on all devices" (owner decisions 60, 61, 74) ────────────
+
+  /** Read the action's state for the signed-in account. Hidden (null) when signed out or when the
+   * build does not offer it. */
+  async loadSharedData(): Promise<void> {
+    const account = this.userId;
+    const service = this.analytics?.accountErasure;
+    if (!account || !service) {
+      this.sharedData = null;
+      return;
+    }
+    const revision = this.accountRevision;
+    let view: UiAccountErasureView | null;
+    try {
+      view = await service.state(account);
+    } catch {
+      view = null;
+    }
+    if (this.userId !== account || this.accountRevision !== revision) return;
+    this.showSharedData(account, view);
+  }
+
+  /** The person confirmed. A signed-in session is enough (no fresh code, D60). The local stop
+   * happens first, in the host, so on failure "Sharing stays off on this device" is true. */
+  confirmDeleteSharedData(): Promise<void> {
+    // No await before start(): a host that must change consent itself needs the tap's gesture.
+    return this.sendSharedData((service, account) => service.start(account), true);
+  }
+
+  /** "Try again" after the request could not be sent. */
+  retryDeleteSharedData(): Promise<void> {
+    return this.sendSharedData((service, account) => service.retry(account), false);
+  }
+
+  private async sendSharedData(
+    call: (service: UiAccountErasure, account: string) => Promise<UiAccountErasureView | null>,
+    stopsSharing: boolean,
+  ): Promise<void> {
+    const account = this.userId;
+    const service = this.analytics?.accountErasure;
+    if (!account || !service || this.sharedData?.account !== account || this.sharedDataSending) return;
+    const revision = this.accountRevision;
+    this.sharedDataSending = true;
+    let view: UiAccountErasureView | null;
+    try {
+      view = await call(service, account);
+    } catch {
+      view = null;
+    }
+    this.sharedDataSending = false;
+    // Signed out or another account meanwhile: this outcome is no longer this page's to show.
+    if (this.userId !== account || this.accountRevision !== revision) return;
+    // Sharing on this device has changed: show the switch as it now is.
+    if (stopsSharing) void this.loadUsageSharing();
+    // Null: nothing was sent (sharing could not be confirmed off here). Show what the host holds,
+    // never a line it did not report.
+    if (view === null) {
+      await this.loadSharedData();
+      return;
+    }
+    this.showSharedData(account, view);
+  }
+
+  private showSharedData(account: string, view: UiAccountErasureView | null): void {
+    this.sharedData = view ? { account, ...view } : null;
+    // The done line and the other-device line are shown once: this page keeps them, later ones
+    // do not repeat them.
+    if (view && (view.withdrawal === "deleted" || view.stoppedElsewhere)) {
+      this.analyticsCall((a) => void a.accountErasure?.acknowledge(account));
+    }
+  }
+
   // ── Analytics (fire and forget) ──────────────────────────────────────────────────────────────
 
   private track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void {
@@ -1440,10 +1547,10 @@ export class UiController {
 
   /** Forget the account for analytics (deletion), waiting at most ANALYTICS_FORGET_LIMIT_MS: a
    * slow or broken analytics host never holds up deleting the account. */
-  private async forgetAnalyticsAccount(): Promise<void> {
+  private async forgetAnalyticsAccount(account: string | null): Promise<void> {
     if (!this.analytics) return;
     try {
-      const done = this.analytics.reset({ forgetAccount: true });
+      const done = this.analytics.reset({ forgetAccount: true, ...(account ? { account } : {}) });
       await Promise.race([
         Promise.resolve(done).catch(() => undefined),
         new Promise((resolve) => setTimeout(resolve, ANALYTICS_FORGET_LIMIT_MS)),
