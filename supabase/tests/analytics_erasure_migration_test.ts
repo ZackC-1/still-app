@@ -338,6 +338,23 @@ Deno.test({
             "erasure_backlog_index",
           ],
           [
+            // Same order but NULLS LAST on the descending column: the claim index's full sort
+            // options must match (DESC NULLS FIRST, then ASC NULLS LAST), not only its direction.
+            "drop index private.analytics_erasure_jobs_due; create index analytics_erasure_jobs_due on private.analytics_erasure_jobs(priority desc nulls last, next_attempt_at, job_id) where next_attempt_at is not null",
+            [
+              "create index if not exists analytics_erasure_jobs_due\n  on private.analytics_erasure_jobs(priority desc, next_attempt_at, job_id) where next_attempt_at is not null;",
+            ],
+            "erasure_claim_index",
+          ],
+          [
+            // Ascending but NULLS FIRST: never kept either.
+            "drop index private.analytics_erasure_jobs_backlog; create index analytics_erasure_jobs_backlog on private.analytics_erasure_jobs(next_attempt_at nulls first, job_id) where priority = 0",
+            [
+              "create index if not exists analytics_erasure_jobs_backlog\n  on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0;",
+            ],
+            "erasure_backlog_index",
+          ],
+          [
             // The backlog scan reads the oldest first: a descending index is never kept.
             "drop index private.analytics_erasure_jobs_backlog; create index analytics_erasure_jobs_backlog on private.analytics_erasure_jobs(next_attempt_at desc, job_id) where priority = 0",
             [

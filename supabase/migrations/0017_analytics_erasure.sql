@@ -176,7 +176,7 @@ begin
          and i.indrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs') and i.indexprs is null
          and i.indisvalid and i.indisready and am.amname = 'btree'
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
-         and (i.indoption[0] & 1) = 1 and (i.indoption[1] & 1) = 0 and (i.indoption[2] & 1) = 0
+         and i.indoption[0] = 3 and i.indoption[1] = 0 and i.indoption[2] = 0
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
@@ -191,7 +191,7 @@ begin
          and i.indrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs') and i.indexprs is null
          and i.indisvalid and i.indisready and am.amname = 'btree'
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
-         and (i.indoption[0] & 1) = 0 and (i.indoption[1] & 1) = 0
+         and i.indoption[0] = 0 and i.indoption[1] = 0
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
@@ -835,7 +835,7 @@ begin
        where i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
          and i.indisvalid and i.indisready and am.amname = 'btree'
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
-         and (i.indoption[0] & 1) = 1 and (i.indoption[1] & 1) = 0 and (i.indoption[2] & 1) = 0
+         and i.indoption[0] = 3 and i.indoption[1] = 0 and i.indoption[2] = 0
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
@@ -849,7 +849,7 @@ begin
        where i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
          and i.indisvalid and i.indisready and am.amname = 'btree'
          and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
-         and (i.indoption[0] & 1) = 0 and (i.indoption[1] & 1) = 0
+         and i.indoption[0] = 0 and i.indoption[1] = 0
          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)

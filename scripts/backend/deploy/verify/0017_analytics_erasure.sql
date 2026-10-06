@@ -260,7 +260,7 @@ issues(issue) as (
                     where i.indrelid = x.oid and i.indexprs is null
                       and p.indisvalid and p.indisready and am.amname = 'btree'
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
-                      and (p.indoption[0] & 1) = 1 and (p.indoption[1] & 1) = 0 and (p.indoption[2] & 1) = 0
+                      and p.indoption[0] = 3 and p.indoption[1] = 0 and p.indoption[2] = 0
                       and i.cols = array['priority', 'next_attempt_at', 'job_id'])
   union all
   select 'erasure_backlog_index'
@@ -272,7 +272,7 @@ issues(issue) as (
                     where i.indrelid = x.oid and i.indexprs is null
                       and p.indisvalid and p.indisready and am.amname = 'btree'
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
-                      and (p.indoption[0] & 1) = 0 and (p.indoption[1] & 1) = 0
+                      and p.indoption[0] = 0 and p.indoption[1] = 0
                       and i.cols = array['next_attempt_at', 'job_id'])
   union all
   select 'subject_no_account_cascade'
