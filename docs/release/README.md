@@ -45,7 +45,7 @@ once a version ships.
 | Track | Reference |
 |---|---|
 | Apple iOS/macOS + Safari | [Apple runbook](01-apple-app-store.md): submitted build provenance, free reviewer flow, legacy IAP presentation and manual release. |
-| Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. |
+| Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. Owner-approved, keyless upload and submission: [Chrome release workflow](chrome-publish-workflow.md). |
 | Firefox desktop | [Firefox runbook](03-firefox-amo.md): complete reproducible sources, consent declaration and publication boundary. |
 | Mobile Safari | [Mobile validation](06-mobile-blocking-validation.md): expected behavior and exact evidence boundaries. |
 | RevenueCat | [Retained infrastructure](04-revenuecat.md): identity/receipt/webhook continuity; paid gates remain disabled. |
