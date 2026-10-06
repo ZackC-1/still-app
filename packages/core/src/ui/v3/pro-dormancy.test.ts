@@ -60,8 +60,12 @@ async function savedCache() {
   return { storage, cache };
 }
 
+/** Decision 40: every lock is named exactly "Still Pro"; its row's label describes it. */
+const describedBy = (feature: string) =>
+  new RegExp(`^${feature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`);
+
 /** Opens each section and taps every Pro row's lock; returns the number of locks tapped. */
-async function tapEveryLock(suffix: string, expected: readonly FeatureId[]) {
+async function tapEveryLock(expected: readonly FeatureId[]) {
   let tapped = 0;
   for (const service of SERVICES.filter((id) =>
     PRO.some((row) => row.service === id && expected.includes(row.id)),
@@ -84,8 +88,9 @@ async function tapEveryLock(suffix: string, expected: readonly FeatureId[]) {
       ).toBeNull();
       expect(within(rowElement).getByText("Still Pro"), row.id).toBeVisible();
       const lock = within(rowElement).getByRole("button", {
-        name: `${row.name}. Included in Still Pro. ${suffix}`,
+        name: "Still Pro",
       });
+      expect(lock, row.id).toHaveAccessibleDescription(describedBy(row.name));
       expect(lock, row.id).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(lock);
       tapped++;
@@ -144,12 +149,10 @@ describe("decision 24: dormant Still Pro rows", () => {
         unsupportedText: "Not available in this browser. Your choice is saved.",
         onChange,
         onLock,
-        lockLabel: "Comments. Included in Still Pro. See Still Pro",
       },
     });
-    const lock = screen.getByRole("button", {
-      name: "Comments. Included in Still Pro. See Still Pro",
-    });
+    const lock = screen.getByRole("button", { name: "Still Pro" });
+    expect(lock).toHaveAccessibleDescription("Comments");
     expect(lock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(lock);
     expect(onLock).not.toHaveBeenCalled();
@@ -174,7 +177,6 @@ describe("decision 24: dormant Still Pro rows", () => {
       let tapped = 0;
       for (const service of SERVICES) {
         tapped += await tapEveryLock(
-          "See Still Pro",
           PRO.filter((row) => row.service === service).map((row) => row.id),
         );
       }
@@ -209,12 +211,7 @@ describe("decision 24: dormant Still Pro rows", () => {
       const mobile = PRO.filter((row) => row.id !== "facebook.sponsored").map(
         (row) => row.id,
       );
-      expect(
-        await tapEveryLock(
-          host === "safari" ? "Open the Still app" : "See Still Pro",
-          mobile,
-        ),
-      ).toBe(11);
+      expect(await tapEveryLock(mobile)).toBe(11);
       expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
       expect(props.onSeePro).not.toHaveBeenCalled();
       expect(props.onPurchase).not.toHaveBeenCalled();
@@ -240,12 +237,7 @@ describe("decision 24: dormant Still Pro rows", () => {
     props.sync.account = { address: "fixture@still.test", confirmed: true };
     const saved = await storage.get();
     const view = render(ExtensionSettings, { props });
-    expect(
-      await tapEveryLock(
-        "See Still Pro",
-        PRO.map((row) => row.id),
-      ),
-    ).toBe(12);
+    expect(await tapEveryLock(PRO.map((row) => row.id))).toBe(12);
     expect(buy).not.toHaveBeenCalled();
     expect(signIn).not.toHaveBeenCalled();
     expect(props.onFeatureChange).not.toHaveBeenCalled();
@@ -275,7 +267,7 @@ describe("decision 24: dormant Still Pro rows", () => {
       const rows = PRO.filter(
         (row) => platform === "mac" || row.id !== "facebook.sponsored",
       ).map((row) => row.id);
-      expect(await tapEveryLock("See Still Pro", rows)).toBe(rows.length);
+      expect(await tapEveryLock(rows)).toBe(rows.length);
       expect(onRestore).not.toHaveBeenCalled();
       expect(
         screen.getByRole("button", { name: "Restore purchase" }),
@@ -312,7 +304,8 @@ describe("decision 24: dormant Still Pro rows", () => {
       );
     for (const row of PRO) {
       const lock = screen.getByRole("button", {
-        name: `${row.name}. Included in Still Pro. See Still Pro`,
+        name: "Still Pro",
+        description: describedBy(row.name),
       });
       expect(lock).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(lock);
@@ -323,7 +316,8 @@ describe("decision 24: dormant Still Pro rows", () => {
 
   it("the same components still render a paid-world locked row as an offer port (the gate is dormancy, not the design)", async () => {
     // Control: an injected paid-world snapshot (some Pro feature `locked`) is not dormant, so a
-    // supplied purchase port stays reachable exactly as before decision 24.
+    // supplied purchase port stays reachable: the lock opens the paywall sheet (decision 41) and
+    // its explicit Purchase button is the only way to the port.
     const { props } = await desktopFixture();
     props.access = {
       ...props.access,
@@ -341,8 +335,14 @@ describe("decision 24: dormant Still Pro rows", () => {
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
+        name: "Still Pro",
+        description: "Comments",
       }),
+    );
+    const sheet = screen.getByRole("dialog", { name: "Still Pro" });
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(
+      within(sheet).getByRole("button", { name: "Purchase Still Pro" }),
     );
     expect(props.onPurchase).toHaveBeenCalledOnce();
     view.unmount();
