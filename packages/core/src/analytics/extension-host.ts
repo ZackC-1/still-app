@@ -11,7 +11,9 @@ import {
   type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
-import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
+import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
+import { ANON_INDEX_LIMIT, originProof } from "./derive.js";
+import type { ErasureService } from "./erasure.js";
 import type {
   UiAnalytics,
   UsageSharingState,
@@ -42,6 +44,9 @@ export const NOTICE_KEY = "still:analytics:notice-seen";
 export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 /** Legacy storage key retained for migration/tests. Its pre-consent history is never replayed. */
 export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
+/** This device's issued per-account subjects (U5-W2): which PostHog identity each account uses here. */
+export const SUBJECTS_KEY = "still:analytics:subjects";
+export const SUBJECTS_LIMIT = 8;
 
 const QUIET: TrackOptions = { quiet: true };
 type Observation = ReturnType<AnalyticsClient["captureObservation"]>;
@@ -82,6 +87,10 @@ export interface ExtensionAnalyticsHostDeps {
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  /** Per-device identities (U5-W2); see SubjectDeps. Absent: the account id is confirmed, as before. */
+  readonly subjects?: SubjectDeps;
+  /** Device erasure (U5-W2): records the stop when sharing is switched off here, and submits it. */
+  readonly erasure?: ErasureService;
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
@@ -146,12 +155,62 @@ export interface AccountIdentifier {
   ): Promise<void>;
 }
 
+/** The server's answer to a per-device identity request (analytics-identify with an origin proof). */
+export type SubjectReply = { readonly state: "active"; readonly subject: string } | { readonly state: "stopped" };
+
+/**
+ * Per-device identities (owner decision 50). With these, a signed-in device reports under its own
+ * server-issued subject instead of the account id, so stopping on one device can delete only that
+ * device's history. The request carries only the origin proof, a one-way hash of the private
+ * origin; the origin itself never leaves the device.
+ */
+export interface SubjectDeps {
+  /** POST {originProof} to analytics-identify with `account`'s own session (a host must refuse if
+   * its session is for another account); resolve the JSON reply. */
+  readonly issue: (body: { readonly originProof: string }, signal: AbortSignal, account: string) => Promise<unknown>;
+  /** The server stopped this device (it was erased): end the permission in force here.
+   * Owner decision 61: an account-wide deletion erases account data only. A host must never wire
+   * this, or any account-wide deletion, to the device "stop sharing" erasure (`ErasureService`):
+   * this device's signed-out (anonymous) data stays until sharing is turned off on this device. */
+  readonly onStopped: () => Promise<void>;
+}
+
+interface StoredSubject {
+  readonly account: string;
+  readonly origin: string;
+  readonly subject: string;
+}
+
+function readSubjects(value: unknown): StoredSubject[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (v): v is StoredSubject =>
+          !!v &&
+          typeof v === "object" &&
+          isAnalyticsId((v as StoredSubject).account) &&
+          isAnalyticsId((v as StoredSubject).origin) &&
+          isAnalyticsId((v as StoredSubject).subject),
+      )
+    : [];
+}
+
+function subjectReply(value: unknown, account: string): SubjectReply | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state === "stopped") return { state: "stopped" };
+  if (v.state === "active" && isAnalyticsId(v.subject) && v.subject.toLowerCase() !== account.toLowerCase()) {
+    return { state: "active", subject: v.subject.toLowerCase() };
+  }
+  return null;
+}
+
 /** Shared by the extension host and the Apple app. */
 export function createAccountIdentifier(deps: {
   readonly client: AnalyticsClient;
   readonly local: AnalyticsKeyValue;
   readonly consent: () => Promise<boolean>;
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  readonly subjects?: SubjectDeps;
 }): AccountIdentifier {
   const { client } = deps;
   const consented = () => deps.consent().catch(() => false);
@@ -245,12 +304,141 @@ export function createAccountIdentifier(deps: {
     inflight.set(userId, attempt);
     return attempt;
   };
+  // ── Per-device subjects ──
+  const subjectRequests = new Map<string, Promise<string | "stopped" | null>>();
+  const cachedSubject = async (account: string, origin: string): Promise<string | null> => {
+    const stored = readSubjects(await deps.local.get(SUBJECTS_KEY).catch(() => null));
+    return stored.find((s) => s.account === account && s.origin === origin)?.subject ?? null;
+  };
+  const rememberSubject = async (entry: StoredSubject): Promise<boolean> => {
+    try {
+      const stored = readSubjects(await deps.local.get(SUBJECTS_KEY)).filter(
+        (s) => !(s.account === entry.account && s.origin === entry.origin),
+      );
+      await deps.local.set(SUBJECTS_KEY, [...stored, entry].slice(-SUBJECTS_LIMIT));
+      return (await cachedSubject(entry.account, entry.origin)) === entry.subject;
+    } catch {
+      return false;
+    }
+  };
+  /** One bounded, cancellable request per (account, origin). Never from a background start. */
+  const requestSubject = (
+    account: string,
+    observation: NonNullable<Awaited<ReturnType<AnalyticsClient["captureObservation"]>>>,
+  ): Promise<string | "stopped" | null> => {
+    const origin = observation.permission.origin;
+    const key = `${account}:${origin}`;
+    const existing = subjectRequests.get(key);
+    if (existing) return existing;
+    const attempt = (async (): Promise<string | "stopped" | null> => {
+      const controller = new AbortController();
+      const scope = client.cancellationSignal();
+      const abort = () => controller.abort();
+      scope.addEventListener("abort", abort, { once: true });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        if (scope.aborted || !(await client.observationCurrent(observation))) return null;
+        const proof = await originProof(origin);
+        const reply = subjectReply(
+          await Promise.race([
+            deps.subjects!.issue({ originProof: proof }, controller.signal, account),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error("timeout"));
+              }, SERVER_ATTACH_LIMIT_MS);
+              controller.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+            }),
+          ]),
+          account,
+        );
+        if (!reply || !(await client.observationCurrent(observation))) return null;
+        if (reply.state === "stopped") return "stopped";
+        return (await rememberSubject({ account, origin, subject: reply.subject })) ? reply.subject : null;
+      } catch {
+        return null; // retried at the next Still screen
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        scope.removeEventListener("abort", abort);
+      }
+    })().finally(() => subjectRequests.delete(key));
+    subjectRequests.set(key, attempt);
+    return attempt;
+  };
+  /** The last account a host asked for, and the client state it was asked under. A later Still
+   * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
+   * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
+  let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
+  const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
+    if (!isAnalyticsId(asked) || !client.enabled) return;
+    const account = asked.toLowerCase();
+    // Unless this account's own subject is already confirmed, hold the client for this account
+    // first, before any return below (a quiet start, no permission, a failed request): reporting as
+    // anyone else (another account's subject, or nobody) stops at once, and what is recorded until
+    // the subject is confirmed waits bound to this account, so a sign-out or another account never
+    // receives it. A hold already in force for this same account cancels nothing, so its own work
+    // in progress is kept.
+    //
+    // Fences. `ask` is reserved before any wait: anything asked after it (a sign-out, a deletion,
+    // another account or identify, a stale start's read overtaken by a reset) supersedes this call,
+    // which then holds nothing, requests nothing and confirms nothing; the later ask decides. `fence`
+    // is the client's stamp taken synchronously as the hold is asked (after its own withdrawal), so a
+    // cancellation (sharing off, a forget) also makes this call's request and confirmation stale,
+    // even while the hold is still waiting its turn on the chain.
+    const ask = client.reserveAccountAsk();
+    const current = () => client.isLatestAsk(ask) && client.isCurrent(fence);
+    const before = await client.captureObservation();
+    const known = before ? await cachedSubject(account, before.permission.origin) : null;
+    const confirmedHere =
+      before !== null && client.accountConfirmed && known !== null && (await client.signedInAs()) === known;
+    if (!client.isLatestAsk(ask)) return;
+    const holding = confirmedHere ? null : client.holdForAccount(account, ask);
+    const fence = confirmedHere ? before.stamp : client.stamp();
+    await holding;
+    if (!current()) return;
+    wanted = { account, stamp: fence };
+    // Who reports here is decided under the permission in force; without one nothing is attributed.
+    const observation = await client.captureObservation();
+    if (!observation || !current()) return;
+    let subject = await cachedSubject(account, observation.permission.origin);
+    if (!subject) {
+      // A background start never calls the server (its timing would mark a site visit): events
+      // wait unattributed until an ordinary Still screen obtains the subject.
+      if (options.quiet) return;
+      if (!current()) return;
+      const issued = await requestSubject(account, observation);
+      if (issued === "stopped") {
+        // Ends sharing here only. Never a device erasure: an account-wide deletion must not erase
+        // this device's signed-out data (owner decision 61, account data only).
+        if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
+        return;
+      }
+      if (!issued) return;
+      subject = issued;
+    }
+    if (!(await client.observationCurrent(observation)) || !current()) return;
+    await client.confirm(subject, { quiet: options.quiet, accountId: account });
+  };
+
   return {
     async identify(userId, options = {}) {
-      await client.identify(userId, options);
-      if (!options.quiet) await attach();
+      if (deps.subjects) return identifySubject(userId, options);
+      // Without per-device subjects there is no identity to report under: never fall back to the
+      // account id (owner decision 50). Stop reporting as anyone else (nobody included) at once;
+      // signed-in events wait unattributed, bound to this account, and are dropped if the account
+      // is let go of, so they are never reported under the anonymous id or another account either.
+      void options;
+      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId);
     },
-    attach,
+    // With per-device subjects the email is set when the subject is issued, so there is no separate
+    // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
+    attach: deps.subjects
+      ? async () => {
+          const asked = wanted;
+          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp)) return;
+          await identifySubject(asked.account, {});
+        }
+      : attach,
   };
 }
 
@@ -298,6 +486,7 @@ export function createExtensionAnalyticsHost(
     local: deps.local,
     consent: deps.consent,
     identifyOnServer: deps.identifyOnServer,
+    subjects: deps.subjects,
   });
   const identify = (userId: string, options?: TrackOptions) =>
     accounts.identify(userId, options);
@@ -333,7 +522,8 @@ export function createExtensionAnalyticsHost(
     }));
   };
   const requestFlushIfNeeded = async (): Promise<void> => {
-    if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
+    // Nothing a flush could do (a hold waiting for its identity sends nothing): no alarm.
+    if (await client.flushWorthwhile()) deps.requestQuietFlush?.();
   };
 
   const sharing = async (): Promise<UsageSharingState | null> => {
@@ -369,6 +559,8 @@ export function createExtensionAnalyticsHost(
         // A Still screen is an ordinary moment: finish a server email attach that a background
         // start deferred, or that failed earlier. It never changes the account (see attach).
         await accounts.attach(captured);
+        // Also the moment to send or follow up a device erasure (never a background start).
+        void deps.erasure?.kick();
         return true;
       }
       case "identify":
@@ -381,11 +573,23 @@ export function createExtensionAnalyticsHost(
       case "sharing":
         return sharing();
       case "setSharing": {
+        // The permission that is ending, read before anything changes (device erasure needs its origin).
+        const ending =
+          !request.enabled && deps.erasure ? await deps.permission?.().catch(() => null) : null;
         client.permissionChanged();
         if (request.enabled && !deps.commitPermission) return false;
         if (deps.commitPermission) await deps.commitPermission(request.enabled);
         else await deps.storeConsent?.(false);
         if (!request.enabled) await client.clearQueue();
+        // Only after the local stop: record the durable erasure obligation, then try to send it.
+        // This is the person turning sharing off on this device, and only that: an account-wide
+        // deletion must never reach this path (owner decision 61, account data only).
+        if (ending?.state === "granted" && deps.erasure) {
+          // An index that cannot be read is never taken as 0: erase every index the origin could
+          // have used (ids it never used match no person, which is harmless).
+          const index = await client.erasureIndex(ending.origin);
+          if (await deps.erasure.record(ending, index ?? ANON_INDEX_LIMIT)) void deps.erasure.kick();
+        }
         if (request.enabled && (await client.canReport())) {
           await client.track("analytics_choice_made", { choice: "share" });
           return true;

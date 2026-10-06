@@ -26,6 +26,7 @@ import {
   type AnalyticsPermission,
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
+import { ANON_INDEX_LIMIT, deriveAnonymousId, holdTag } from "./derive.js";
 
 // Still's own PostHog client. It exists instead of posthog-js for three reasons:
 //
@@ -62,6 +63,9 @@ export const BATCH_SIZE = 50;
 export const FLUSH_DELAY_MS = 1_500;
 /** Longest one request may take; a stuck network must never hold the queue. */
 export const REQUEST_TIMEOUT_MS = 30_000;
+/** Late-arrival fence: an event older than this when its send comes is dropped, never sent. An
+ * offline device must not deliver history after a deletion could have run (U5-W2). */
+export const MAX_EVENT_AGE_MS = 30 * 86_400_000;
 
 export interface AnalyticsConfig {
   /** PostHog project API key (public by design: it can only send events). */
@@ -132,10 +136,16 @@ interface ClientState {
   readonly identifiedAs: string | null;
   /** Marker → local calendar day it last fired, for once-a-day events; `once:` markers → "done". */
   readonly daily: Readonly<Record<string, string>>;
-  /** The anonymous id after a sign-out. The install's anchor was merged into the account that
-   * signed out, so reusing it would keep attributing this device to that person; a fresh id per
-   * sign-out, as posthog-js does, separates them. */
+  /** The anonymous id after a sign-out: a new id per sign-out, so the device is never attributed
+   * to the person who signed out. Derived from the permission origin at `anonIndex` (derive.ts), so
+   * the device can always name every anonymous id it used when it asks for erasure. */
   readonly anonId: string | null;
+  /** Index of `anonId` under the current permission origin: 0 at Share, +1 per sign-out. Null when
+   * unknown (missing or corrupt in storage): never guessed as 0. */
+  readonly anonIndex: number | null;
+  /** The account behind the confirmed provider identity, when the host named it. Never sent: a
+   * queued event whose person is this account id is refused at send. */
+  readonly accountRef: string | null;
   /** Accounts that were forgotten (deleted) whose waiting events have not yet verifiably been
    * dropped. Recorded before the drop, in the state store, because the queue lives in a different
    * store (IndexedDB in the extensions) that can refuse a write on its own; nothing is sent while
@@ -145,6 +155,12 @@ interface ClientState {
   readonly stopPending: boolean;
   readonly accountGeneration: number;
   readonly stoppedOrigin: string | null;
+  /** An account is signed in but no identity was confirmed for it (`holdForAccount`): what waits
+   * unattributed was recorded while it was signed in, and belongs to that account. The value is
+   * the account's hold tag (derive.ts `holdTag`, a one-way tag keyed by the private origin; never
+   * the account id), or HELD_UNKNOWN when the owner cannot be named. Kept here as well as in memory
+   * so that a restart cannot let those events go to nobody or to another account (`dropHeld`). */
+  readonly heldFor: string | null;
 }
 
 const EMPTY_STATE: ClientState = {
@@ -152,12 +168,23 @@ const EMPTY_STATE: ClientState = {
   identifiedAs: null,
   daily: {},
   anonId: null,
+  anonIndex: null,
+  accountRef: null,
   forgotten: [],
   permission: null,
   stopPending: false,
   accountGeneration: 0,
   stoppedOrigin: null,
+  heldFor: null,
 };
+
+/** A hold whose account cannot be named: whatever waits under it is dropped at the next confirmation. */
+const HELD_UNKNOWN = "unknown";
+
+function parseHeldFor(v: Record<string, unknown>): string | null {
+  if (typeof v.heldFor === "string") return /^[0-9a-f]{64}$/.test(v.heldFor) ? v.heldFor : HELD_UNKNOWN;
+  return v.held === true ? HELD_UNKNOWN : null;
+}
 
 function parseState(value: unknown): ClientState {
   if (typeof value !== "object" || value === null) return EMPTY_STATE;
@@ -167,15 +194,49 @@ function parseState(value: unknown): ClientState {
     identifiedAs: typeof v.identifiedAs === "string" ? v.identifiedAs : null,
     daily: typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
     anonId: typeof v.anonId === "string" ? v.anonId : null,
+    anonIndex:
+      Number.isSafeInteger(v.anonIndex) && (v.anonIndex as number) >= 0 && (v.anonIndex as number) <= ANON_INDEX_LIMIT
+        ? (v.anonIndex as number)
+        : null,
+    accountRef: isAnalyticsId(v.accountRef) ? v.accountRef : null,
     forgotten: Array.isArray(v.forgotten) ? v.forgotten.filter((id): id is string => typeof id === "string") : [],
     permission: readAnalyticsPermission(v.permission),
     stopPending: v.stopPending === true,
     stoppedOrigin: isAnalyticsId(v.stoppedOrigin) ? v.stoppedOrigin : null,
+    heldFor: parseHeldFor(v),
     accountGeneration:
       Number.isSafeInteger(v.accountGeneration) && (v.accountGeneration as number) >= 0
         ? (v.accountGeneration as number)
         : 0,
   };
+}
+
+/** Waiting (unattributed) events past the send-time age limit can never be sent: a long hold drops
+ * them as new ones arrive instead of letting them fill the queue. */
+function withoutStaleWaiting(queue: readonly QueuedEvent[], now: number): QueuedEvent[] {
+  const oldest = now - MAX_EVENT_AGE_MS;
+  return queue.filter((e) => !(e.attributeLater && Date.parse(e.timestamp) < oldest));
+}
+
+/**
+ * The queue with `next` appended, within MAX_QUEUE. Eviction order: the oldest waiting
+ * (unattributed) events go first, `next` included if it is the only one waiting, and only then the
+ * oldest attributed events. Use that is already attributed (for example signed-out use from before
+ * a sign-in) is never pushed out by events held for an account that may never get an identity.
+ */
+function bounded(queue: readonly QueuedEvent[], next: QueuedEvent): QueuedEvent[] {
+  const all = [...queue, next];
+  let excess = all.length - MAX_QUEUE;
+  if (excess <= 0) return all;
+  const evicted = new Set<QueuedEvent>();
+  for (const e of all) {
+    if (excess === 0) break;
+    if (e.attributeLater) {
+      evicted.add(e);
+      excess -= 1;
+    }
+  }
+  return all.filter((e) => !evicted.has(e)).slice(-MAX_QUEUE);
 }
 
 function parseQueue(value: unknown): QueuedEvent[] {
@@ -251,6 +312,8 @@ export type ConfirmedAccount = string | null;
 interface Confirmation {
   readonly account: ConfirmedAccount;
   readonly options: ConfirmOptions;
+  /** `holds` when this was asked: a hold that came later is never released by it. */
+  readonly holds: number;
 }
 
 export interface ConfirmOptions {
@@ -260,6 +323,9 @@ export interface ConfirmOptions {
   readonly forget?: boolean;
   /** A background start: do not send now (see TrackOptions.quiet). */
   readonly quiet?: boolean;
+  /** The account UUID behind a confirmed per-device subject (U5-W2). Never sent: a confirmation
+   * whose identity equals it is refused, and so is any queued event attributed to it. */
+  readonly accountId?: string;
 }
 
 export class AnalyticsClient {
@@ -281,6 +347,16 @@ export class AnalyticsClient {
   private pending: Confirmation | null = null;
   /** A newer account answer cannot replace a forget that has not reached durable state yet. */
   private forgetPending = false;
+  /** The account the client is held for, in memory only (never stored: storage keeps its tag), so a
+   * repeated sign-in to the same account can be told apart without waiting for storage. */
+  private heldAccount: string | null = null;
+  /** In-memory twin of `ClientState.heldFor`, for when storage refuses to record it. */
+  private heldTag: string | null = null;
+  /** Counts holds, so a confirmation asked before a hold, but run after it, cannot release it. */
+  private holds = 0;
+  /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
+   * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
+  private asks = 0;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an account change could not be saved: reporting stops for the life of this client
@@ -383,6 +459,15 @@ export class AnalyticsClient {
     );
   }
 
+  /** Whether a flush now could do anything: while confirmed, send an attributed event; while
+   * unconfirmed, retry a confirmation that storage refused. Unconfirmed with nothing asked (a hold
+   * waiting for its identity) a flush does nothing, so a host need not schedule one. */
+  flushWorthwhile(): Promise<boolean> {
+    return this.run(async () =>
+      this.confirmed ? (await this.readQueue()).some((e) => !e.attributeLater) : this.pending !== null,
+    );
+  }
+
   /** How many events are waiting (a host deciding whether a later flush is needed). */
   queuedCount(): Promise<number> {
     return this.run(async () => (await this.readQueue()).length);
@@ -408,7 +493,24 @@ export class AnalyticsClient {
   ): Promise<void> {
     if (!this.configured || (account !== null && !isAnalyticsId(account)))
       return Promise.resolve();
+    // A per-device subject is never the account id (owner decision 50).
+    if (
+      account !== null &&
+      options.accountId !== undefined &&
+      (!isAnalyticsId(options.accountId) || account.toLowerCase() === options.accountId.toLowerCase())
+    )
+      return Promise.resolve();
+    // Defence in depth: while held for one account, no other account's subject is confirmed.
+    if (
+      account !== null &&
+      options.accountId !== undefined &&
+      this.heldAccount !== null &&
+      this.heldAccount !== options.accountId.toLowerCase()
+    )
+      return Promise.resolve();
+    this.asks += 1;
     if (options.forget) this.cancel();
+    const holds = this.holds;
     if (account !== this.lastAsked) {
       this.cancel();
       this.generation += 1;
@@ -417,7 +519,7 @@ export class AnalyticsClient {
     this.confirmed = false;
     return this.run(async () => {
       this.confirmed = false;
-      this.pending = { account, options };
+      this.pending = { account, options, holds };
       this.forgetPending ||= options.forget === true;
       await this.establish();
     });
@@ -426,8 +528,21 @@ export class AnalyticsClient {
   /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
   private async establish(retrying = false): Promise<void> {
     if (!this.pending) return;
-    const { account, options } = this.pending;
+    const { account, options, holds } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
+    // Letting go to nobody after someone was signed in here, with no hold: what waits was recorded
+    // with no hold (a restart whose session could not be read yet), possibly that person's use. An
+    // unnamed hold is stored first, before anything is installed, so the drop below is owed on this
+    // run, on a retry after a refused drop, and after a restart in between, and is never given a
+    // fresh anonymous id. When storage refuses the hold, the ask stays pending (fail closed).
+    if (account === null) {
+      const state = await this.read();
+      if (!state) return;
+      if (state.userId !== null && this.heldNow(state) === null) {
+        await this.write({ ...state, heldFor: HELD_UNKNOWN });
+        if ((await this.read())?.heldFor !== HELD_UNKNOWN) return;
+      }
+    }
     if (this.forgetPending) {
       // Persist the old account's drop before installing any newer account. Once recorded, the
       // existing durable `forgotten` list owns recovery, including after a restart.
@@ -437,10 +552,161 @@ export class AnalyticsClient {
     if (!(await this.installAccount(account, options))) return;
     await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
     if (!(await this.allowed())) return;
+    // What waited under a hold goes only to that account's own identity: letting go (nobody) or any
+    // other identity drops it first.
+    const owner =
+      account !== null && options.accountId !== undefined ? await this.holdTagOf(options.accountId) : null;
+    if (!(await this.dropHeld(owner))) return;
     if (!(await this.attributeWaiting())) return;
+    if (holds === this.holds) await this.releaseHold();
     this.pending = null;
     this.confirmed = true;
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
+  }
+
+  /**
+   * `account` is signed in and no identity is confirmed for it yet (or ever, without per-device
+   * subjects). Stop reporting as anyone else and bind what is recorded from now on to this account. Those events wait unattributed; they go only to this account's own
+   * identity when one is confirmed (`confirm` with `accountId`), and are dropped if the client is
+   * let go of (a sign-out or a deletion) or confirmed as anyone else, so signed-in use is never
+   * reported under the anonymous id or another account. Moving the hold to another account drops
+   * what waited for the earlier one.
+   *
+   * Withdrawing (cancel: the request in flight is abandoned and every earlier observation goes
+   * stale) happens whenever the client is confirmed, has a confirmation asked, or is held for
+   * another account: an earlier account's subject reply arriving late, or a page event observed
+   * under the earlier hold, can then never land under this one. Nothing is cancelled when the
+   * client is already held for this same account with nothing asked (its work in progress is kept),
+   * nor when it is unconfirmed, unheld and has nothing asked (a fresh start: no request can be in
+   * flight, since any request follows a hold).
+   */
+  holdForAccount(account: string, ask?: number): Promise<void> {
+    if (!isAnalyticsId(account)) return Promise.resolve();
+    // A hold made for a reserved ask is that ask; one superseded by a later ask holds nothing.
+    if (ask !== undefined ? ask !== this.asks : ((this.asks += 1), false)) return Promise.resolve();
+    const key = account.toLowerCase();
+    if (!this.confirmed && this.lastAsked === undefined && this.heldAccount === key) return Promise.resolve();
+    const withdrawn =
+      this.confirmed || this.lastAsked !== undefined || (this.heldAccount !== null && this.heldAccount !== key);
+    const prior = this.heldAccount !== null ? (this.heldTag ?? HELD_UNKNOWN) : null;
+    if (withdrawn) {
+      this.cancel();
+      this.generation += 1;
+      this.lastAsked = undefined;
+      this.confirmed = false;
+    }
+    this.heldAccount = key;
+    this.heldTag = null; // until recorded below: an unnamed hold drops everything waiting
+    this.holds += 1;
+    return this.run(async () => {
+      if (withdrawn) {
+        this.confirmed = false;
+        this.pending = null;
+      }
+      await this.recordHold(key, prior);
+    });
+  }
+
+  /**
+   * A host's identify reserves its ask at once, before any wait. Anything asked later (a sign-out,
+   * a deletion, another account, another identify) supersedes it: `isLatestAsk` turns false, and
+   * a hold made for it holds nothing. Reserving changes nothing else.
+   */
+  reserveAccountAsk(): number {
+    this.asks += 1;
+    return this.asks;
+  }
+
+  isLatestAsk(ask: number): boolean {
+    return ask === this.asks;
+  }
+
+  /** The hold tag of `account` under the permission in force, or null when there is none. */
+  private async holdTagOf(account: string): Promise<string | null> {
+    // The device's permission record as stored (a pure read): the tag must not depend on whether
+    // this process has loaded the permission yet. A new permission has a new origin, so a hold made
+    // under an earlier one never matches (its events are dropped, as a new grant drops the queue).
+    const origin = (await this.readAuthority()).raw?.origin ?? this.permission?.origin;
+    if (!origin || !isAnalyticsId(account)) return null;
+    try {
+      return await holdTag(origin, account);
+    } catch {
+      return null;
+    }
+  }
+
+  /** The hold in force: in memory first (storage may have refused it), then the stored one. */
+  private heldNow(state: ClientState): string | null {
+    if (this.heldAccount !== null) return this.heldTag ?? HELD_UNKNOWN;
+    return state.heldFor;
+  }
+
+  private async recordHold(account: string, prior: string | null): Promise<void> {
+    let tag = (await this.holdTagOf(account)) ?? HELD_UNKNOWN;
+    const state = await this.read();
+    // With no hold anywhere but a stored identity (a restart whose session could not be read yet),
+    // what waits may be that earlier identity's use: an unnamed previous hold, dropped below.
+    const previous = prior ?? (state ? (state.heldFor ?? (state.userId !== null ? HELD_UNKNOWN : null)) : HELD_UNKNOWN);
+    // What waited for another account (before a restart, or under an unnamed hold) is never carried
+    // over to this one. If it cannot be verifiably dropped, the hold stays unnamed, so the next
+    // confirmation drops it instead.
+    if (previous !== null && previous !== tag && !(await this.dropWaiting())) tag = HELD_UNKNOWN;
+    if (this.heldAccount === account) this.heldTag = tag;
+    // Best effort: when storage refuses, the in-memory hold still covers this process.
+    if (state && state.heldFor !== tag) await this.write({ ...state, heldFor: tag });
+  }
+
+  /**
+   * Before a waiting (unattributed) event is queued under this process's hold: the hold must be in
+   * storage, not only in memory, or a restart would find the event waiting with no hold and a
+   * sign-out would give it to the anonymous id. Fails closed: when the hold cannot be stored after
+   * one retry, the event is not queued.
+   */
+  private async heldRecorded(state: ClientState): Promise<boolean> {
+    if (this.heldAccount === null) return true;
+    const wanted = this.heldTag ?? HELD_UNKNOWN;
+    if (state.heldFor === wanted) return true;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = await this.read();
+      if (!current) return false;
+      if (current.heldFor === wanted) return true;
+      await this.write({ ...current, heldFor: wanted });
+      if ((await this.read())?.heldFor === wanted) return true;
+    }
+    return false;
+  }
+
+  /** A confirmation succeeded: what waited was attributed to it, so nothing is held any more. */
+  private async releaseHold(): Promise<void> {
+    this.heldAccount = null;
+    this.heldTag = null;
+    const state = await this.read();
+    if (state && state.heldFor !== null) await this.write({ ...state, heldFor: null });
+  }
+
+  /**
+   * Before attributing under a hold: unless `owner` is the held account's own tag, drop every
+   * waiting unattributed event, verified. They were recorded while that account was signed in with
+   * no identity confirmed, so neither nobody nor another account can own them; for a deletion they
+   * are the deleted account's use. False when the queue or state cannot be read or the drop cannot
+   * be verified: nothing is attributed or sent, and the confirmation is retried.
+   */
+  private async dropHeld(owner: string | null): Promise<boolean> {
+    const state = await this.read();
+    if (!state) return false;
+    const held = this.heldNow(state);
+    if (held === null || (owner !== null && held === owner)) return true;
+    return await this.dropWaiting();
+  }
+
+  /** Drop every waiting unattributed event and verify none remains. */
+  private async dropWaiting(): Promise<boolean> {
+    const queue = await this.loadQueue();
+    if (queue === null) return false;
+    if (queue.some((e) => e.attributeLater) && !(await this.writeQueue(queue.filter((e) => !e.attributeLater))))
+      return false;
+    const remaining = await this.loadQueue();
+    return remaining !== null && !remaining.some((e) => e.attributeLater);
   }
 
   /** A sign-in: shorthand for `confirm(userId)`. */
@@ -457,6 +723,26 @@ export class AnalyticsClient {
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {
     return this.run(async () => (await this.read())?.userId ?? null);
+  }
+
+  /** For the device-erasure service only, never the envelope: the last anonymous id index used
+   * under `origin`, or null when it is not known: the state is unreadable, belongs to another
+   * origin, has no valid index, or its anonymous id is not the one derived at that index. The caller
+   * then erases every index (it never guesses 0). */
+  erasureIndex(origin: string): Promise<number | null> {
+    return this.run(async () => {
+      const state = await this.read();
+      if (!state || state.anonIndex === null) return null;
+      if (state.permission?.origin !== origin && state.stoppedOrigin !== origin) return null;
+      if (state.anonId !== null) {
+        try {
+          if (state.anonId.toLowerCase() !== (await deriveAnonymousId(origin, state.anonIndex))) return null;
+        } catch {
+          return null;
+        }
+      }
+      return state.anonIndex;
+    });
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
@@ -646,12 +932,14 @@ export class AnalyticsClient {
       return false;
     }
     if (account !== null) {
-      if (state.userId === account) return true;
+      const accountRef = options.accountId?.toLowerCase() ?? null;
+      if (state.userId === account && state.accountRef === accountRef) return true;
       const saved = await this.saveAccount({
         ...state,
         userId: account,
+        accountRef,
         identifiedAs: null,
-        accountGeneration: state.accountGeneration + 1,
+        accountGeneration: state.userId === account ? state.accountGeneration : state.accountGeneration + 1,
       });
       if (!saved) this.blocked = true;
       return saved;
@@ -659,11 +947,31 @@ export class AnalyticsClient {
     if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
     const forgotten =
       options.forget && !state.forgotten.includes(state.userId) ? [...state.forgotten, state.userId] : state.forgotten;
+    // The next derived anonymous id under this permission's origin. Past the last index the
+    // device stops reporting rather than reuse or invent an id it could not later erase.
+    // An unknown index cannot be continued without risking a reused or unerasable id: the sign-out is
+    // recorded with no anonymous id and an unknown index, and nothing is sent signed out until a
+    // fresh permission starts again at index 0 (see post).
+    const anonIndex = state.permission ? (state.anonIndex === null ? null : state.anonIndex + 1) : 0;
+    if (anonIndex !== null && anonIndex > ANON_INDEX_LIMIT) {
+      this.blocked = true;
+      if (options.forget) await this.dropEventsOf(new Set(forgotten));
+      return false;
+    }
+    let anonId: string | null;
+    try {
+      anonId = state.permission && anonIndex !== null ? await deriveAnonymousId(state.permission.origin, anonIndex) : null;
+    } catch {
+      this.blocked = true;
+      return false;
+    }
     const saved = await this.saveAccount({
       ...state,
       userId: null,
+      accountRef: null,
       identifiedAs: null,
-      anonId: this.deps.uuid(),
+      anonId,
+      anonIndex,
       forgotten,
       accountGeneration: state.accountGeneration + 1,
     });
@@ -699,8 +1007,10 @@ export class AnalyticsClient {
     return (
       !!stored &&
       stored.userId === next.userId &&
+      stored.accountRef === next.accountRef &&
       stored.accountGeneration === next.accountGeneration &&
       stored.anonId === next.anonId &&
+      stored.anonIndex === next.anonIndex &&
       stored.stoppedOrigin === next.stoppedOrigin &&
       JSON.stringify(stored.forgotten) === JSON.stringify(next.forgotten)
     );
@@ -860,6 +1170,7 @@ export class AnalyticsClient {
           identifiedAs: null,
           daily: {},
           anonId: permission.provider.anonymousId,
+          anonIndex: 0,
         }))
       )
         return false;
@@ -1013,15 +1324,18 @@ export class AnalyticsClient {
     if (!permission) return false;
     const state = await this.read();
     if (!state) return false;
+    if (event.attributeLater && !(await this.heldRecorded(state))) return false;
     const queue = await this.loadQueue();
     if (
       queue === null ||
       !this.isCurrent(stamp) ||
       !(await this.allowed(permission)) ||
-      !(await this.writeQueue([
-        ...queue,
-        { ...event, permission, accountGeneration: state.accountGeneration },
-      ]))
+      !(await this.writeQueue(
+        bounded(
+          event.attributeLater ? withoutStaleWaiting(queue, this.deps.now()) : queue,
+          { ...event, permission, accountGeneration: state.accountGeneration },
+        ),
+      ))
     )
       return false;
     if (
@@ -1145,6 +1459,7 @@ export class AnalyticsClient {
       return "retry";
     const state = await this.read();
     if (!state || epoch !== this.epoch) return "retry";
+    const oldest = this.deps.now() - MAX_EVENT_AGE_MS;
     const outbound = batch.flatMap((event) => {
       if (!samePermission(event.permission ?? null, permission) || !isAppClientEvent(event.event)) return [];
       const props = event.properties;
@@ -1173,7 +1488,10 @@ export class AnalyticsClient {
           event.timestamp,
         ) ||
         !Number.isFinite(Date.parse(event.timestamp)) ||
+        Date.parse(event.timestamp) < oldest ||
+        (state.userId === null && state.anonIndex === null) ||
         !isAnalyticsId(props.distinct_id) ||
+        (state.accountRef !== null && String(props.distinct_id).toLowerCase() === state.accountRef) ||
         !isAnalyticsId(props.$device_id) ||
         props.$device_id !== permission.provider.deviceId ||
         props.distinct_id !== (state.userId ?? state.anonId ?? permission.provider.anonymousId) ||
