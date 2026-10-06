@@ -159,6 +159,50 @@ test.describe("format-2 build", () => {
     await expect(page).toHaveURL("https://www.instagram.com/reel/C0dE_1/");
   });
 
+  test("the real switch saves Off only after every rule is gone; a page opened that moment is left alone", async ({ context, extensionId }) => {
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options.html`);
+    const control = options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true });
+    await expect(control).toHaveAttribute("aria-checked", "true");
+    // The first moment any context can read the saved Off (a storage listener, as every page's
+    // settings cache has) the rules must already be gone. Saving first and removing after would
+    // leave a window in which a page that read Off was still redirected.
+    await options.evaluate(() => {
+      const probe = globalThis as unknown as {
+        rulesWhenOffSaved: number | "pending" | null;
+        chrome: {
+          storage: { onChanged: { addListener(fn: (changes: Record<string, { newValue?: unknown }>, area: string) => void): void } };
+          declarativeNetRequest: { getSessionRules(): Promise<unknown[]> };
+        };
+      };
+      probe.rulesWhenOffSaved = null;
+      probe.chrome.storage.onChanged.addListener((changes, area) => {
+        const saved = changes["still:settings"]?.newValue as { settings?: { globalOn?: unknown } } | undefined;
+        if (area !== "local" || saved?.settings?.globalOn !== false || probe.rulesWhenOffSaved !== null) return;
+        probe.rulesWhenOffSaved = "pending";
+        void probe.chrome.declarativeNetRequest.getSessionRules().then((rules) => { probe.rulesWhenOffSaved = rules.length; });
+      });
+    });
+    const page = await context.newPage();
+    const seen = await watch(page, "facebook");
+    await control.click();
+    await expect(control).toHaveAttribute("aria-checked", "false");
+    // No polling and no settle time: the switch showing Off is the promise that nothing redirects.
+    await page.goto("https://www.facebook.com/watch/reels/");
+    await expect(page.locator("#page")).toBeVisible();
+    await expect(page).toHaveURL("https://www.facebook.com/watch/reels/");
+    expect(seen.requested).toEqual(["https://www.facebook.com/watch/reels/"]);
+    await expect
+      .poll(() => options.evaluate(() => (globalThis as unknown as { rulesWhenOffSaved: unknown }).rulesWhenOffSaved))
+      .toBe(0);
+
+    // On is the safe direction: other pages may read the saved On a moment before its rules are
+    // added, and the content script redirects in the meantime, so the rules follow by polling.
+    await control.click();
+    await expect(control).toHaveAttribute("aria-checked", "true");
+    await expect.poll(async () => (await dnrState(context)).domains).toEqual(["facebook.com", "instagram.com", "youtube.com"]);
+  });
+
   test("the master switch Off removes every rule; the static ruleset stays off", async ({ context, extensionId }) => {
     await commit(context, extensionId, "globalOn", false);
     expect(await dnrState(context)).toEqual({ domains: [], staticOn: false });

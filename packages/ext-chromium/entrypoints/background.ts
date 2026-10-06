@@ -100,10 +100,13 @@ export default defineBackground(() => {
           shippingServices: FORMAT2_SHIPPING_SERVICES,
         })
       : null;
-  // A settings change made through the router replies only after the navigation rules match it,
-  // so nothing an extension page sees as saved is still redirected (or left unredirected). A rule
-  // failure never fails the saved change: the content script stays the authority. (Like the
-  // cache, heldInitialization is declared below and only reached once a reply is pending.)
+  // A settings change made through the router replies only after the navigation rules match it. An
+  // Off is safe even earlier (see commitSettingsIntent: its rules are gone before it is saved), so
+  // no page that can read a saved Off is still redirected. An On can be read from storage a moment
+  // before its rules are added; the content script redirects meanwhile, so that gap only delays
+  // the network-layer copy. A rule failure never fails the saved change: the content script stays
+  // the authority. (Like the cache, heldInitialization is declared below and only reached once a
+  // reply is pending.)
   const afterSettingsWrite = <T>(value: T): Promise<T> | T =>
     navigationDnr
       ? navigationDnr.sync().then(() => value, (error: unknown) => {
