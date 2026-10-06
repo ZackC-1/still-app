@@ -1,5 +1,5 @@
 import { type AuthDeps, withAuthenticatedUser } from "../_shared/auth.ts";
-import type { PostHogPort } from "../_shared/posthog.ts";
+import { deletionFailureReason, type PostHogPort } from "../_shared/posthog.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -18,14 +18,16 @@ export function handleDeleteUser(req: Request, deps: AccountDeps): Promise<Respo
     await deps.store.deleteUser(userId); // idempotent
     // The account is gone whatever happens next, so a PostHog outage must not report the deletion
     // as failed (the person could not retry it: their session is already invalid). It is logged
-    // loudly instead, for the manual follow-up the operations guide describes.
+    // loudly instead, for the follow-up the operations guide describes.
     let analyticsDeleted = deps.posthog?.canDelete ? true : null;
     if (deps.posthog?.canDelete) {
       try {
         await deps.posthog.deletePerson(userId);
       } catch (error) {
         analyticsDeleted = false;
-        console.error(`ANALYTICS DELETION FAILED for account ${userId}; delete this person in PostHog`, error);
+        // A fixed reason code only: never the account id, email or the raw error, which can echo
+        // request details. The operations guide finds the affected person without the log naming it.
+        console.error("ANALYTICS DELETION FAILED", { reason: deletionFailureReason(error) });
       }
     }
     return jsonResponse(200, { deleted: true, analyticsDeleted });

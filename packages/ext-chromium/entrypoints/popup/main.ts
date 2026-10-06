@@ -16,6 +16,9 @@ import { createPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
 import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
+import { observeDirectControls } from "../../../core/src/ui/v3/direct-control-observer.js";
+import { invitationPort, reportDirectControl } from "../../lib/invitation-client.js";
+import { configurePopupInvitationHost } from "../../lib/invitation-popup-host.js";
 
 // Build the controller — with the purchase-spine injection when this build carries Supabase config
 // (plan U6; message-closures over the background-owned session) — then mount the shared UI. No
@@ -45,7 +48,13 @@ function init(): void {
     analytics,
     onCommittedPopupBinding: settingsRuntime.atomicLocal
       ? (binding) => {
-          committedPopupBinding = binding;
+          // Direct changes made here count toward the sync invitation (U13-P2). The inline
+          // build-time check can only narrow to legacy and keeps configured builds byte-identical.
+          committedPopupBinding =
+            !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+            import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+              ? observeDirectControls(binding, reportDirectControl)
+              : binding;
         }
       : undefined,
     onLegacyPopupAuthority: !settingsRuntime.atomicLocal
@@ -63,6 +72,18 @@ function init(): void {
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
   )
     bindTextScale(document, "browser", { compactPopup: true });
+  if (
+    (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&
+    settingsRuntime.atomicLocal
+  )
+    configurePopupInvitationHost({
+      controller,
+      port: invitationPort,
+      opening: crypto.randomUUID(),
+      surface: import.meta.env.FIREFOX ? "firefox" : "chrome",
+      started: false,
+    });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {

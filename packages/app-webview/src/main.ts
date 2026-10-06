@@ -36,27 +36,34 @@ import {
 // (StoreKit/RevenueCat) keyed to the Supabase UUID (KTD5); the UI gates on the Supabase
 // entitlement surfaced through SyncService.
 
-// D04 settings (committed atomic authority) is an explicit developer opt-in: only a build with
-// VITE_APPLE_ATOMIC_SETTINGS=true and no Supabase configuration can select it, and the tested core
-// rule then also requires the native port. The inline build-time check can only narrow to the
-// legacy screen: Vite inlines these env values, so every default build (configured or not) folds
-// this to "legacy" and drops the D04 module and its global stylesheet from the single-file bundle.
+// D04 settings (committed atomic authority) needs an explicit build opt-in, and the tested core rule
+// then also requires the native port:
+//   - atomic-cloud: Supabase configured and VITE_MODERN_SETTINGS_SYNC_ENABLED=true (the modern sync
+//     flag Chrome and Firefox share), with per-field modern sync;
+//   - atomic-local: no Supabase configuration and VITE_APPLE_ATOMIC_SETTINGS=true (developer builds).
+// The inline build-time check can only narrow to the legacy screen: Vite inlines these env values,
+// so every default build (configured or not, with any other flag value) folds this to "legacy" and
+// drops the D04 module, its global stylesheet and the modern backend option from the bundle.
 const appleSettingsMode: AppleSettingsMode =
-  import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
-  !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  (import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+  (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+    import.meta.env.VITE_SUPABASE_URL &&
+    import.meta.env.VITE_SUPABASE_ANON_KEY)
     ? selectAppleSettingsMode({
         atomicSettingsFlag: import.meta.env.VITE_APPLE_ATOMIC_SETTINGS,
+        modernSyncFlag: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
         supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
         supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         nativePort: new NativeBridge().available,
       })
     : "legacy";
 
-// The ONE settings cache and writer. Atomic mode initializes the App Group record through native
-// with unknown ownership (a one-way conversion, accepted for opted-in developer builds only); the
-// legacy screen keeps exactly the construction it always had.
+// The ONE settings cache and writer. Atomic modes initialize the App Group record through native
+// with unknown ownership (a one-way conversion); the legacy screen keeps exactly the construction
+// it always had.
 const appleSettingsAdapter =
-  appleSettingsMode === "atomic" ? new WKWebViewStorageAdapter() : undefined;
+  appleSettingsMode !== "legacy" ? new WKWebViewStorageAdapter() : undefined;
 const cache = appleSettingsAdapter
   ? new SettingsCache(appleSettingsAdapter, appleSettingsCacheOptions(appleSettingsMode))
   : new SettingsCache(new WKWebViewStorageAdapter());
@@ -107,7 +114,12 @@ if (supabaseUrl && supabaseAnonKey) {
     undefined,
     reviewEmail ? { email: reviewEmail } : undefined,
   );
-  const backend = new SupabaseBackendPort(supabase);
+  // atomic-cloud syncs the committed record per field through the modern sync function; every
+  // other configured build keeps exactly the legacy whole-record construction.
+  const backend =
+    appleSettingsMode === "atomic-cloud"
+      ? new SupabaseBackendPort(supabase, { modernSettings: true })
+      : new SupabaseBackendPort(supabase);
 
   // Cross-identity guard (AE5) — parity with the extension: a persisted last-synced Apple identity
   // so a Sign in with Apple that switches Apple IDs (→ a different Supabase UUID) never seeds or

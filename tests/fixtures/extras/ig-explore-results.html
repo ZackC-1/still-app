@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Instagram keyword and hashtag results</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for instagram.explore (CP-077): a deliberate keyword or hashtag
+      RESULTS page (/explore/search/keyword/?q=...), where tag pages land per V3-D-045. It has the
+      same shape as the no-query search entry (a search form, then a grid of /p/ and /reel/ tiles),
+      so a structural Explore hide that ignores the address would wrongly hide these results.
+      UNVERIFIED CANDIDATE structure; nothing here is ever a target. Invented text and handles only.
+    -->
+    <nav id="keep-tabbar">
+      <a href="/" id="keep-tab-home">Home</a>
+      <a href="/explore/" id="keep-tab-search-explore" aria-label="Search and Explore">Search and Explore</a>
+    </nav>
+    <main>
+      <form id="keep-results-search"><input id="keep-results-search-input" type="search" value="#inventedtag" /></form>
+      <div id="keep-results-grid">
+        <a href="/p/InvR1/">Invented result one</a>
+        <a href="/reel/InvR2/">Invented result two</a>
+        <a href="/p/InvR3/">Invented result three</a>
+      </div>
+    </main>
+  </body>
+</html>

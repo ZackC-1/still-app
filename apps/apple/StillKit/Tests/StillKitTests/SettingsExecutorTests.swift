@@ -307,4 +307,22 @@ final class SettingsExecutorTests: XCTestCase {
     await Task.yield()
     XCTAssertNil(weakObserver.value)
   }
+
+  /// Owner decision 28: one launch fact per process. A second window's controller (macOS) runs
+  /// after this launch published its install marker and reports an untouched upgrade; the launch's
+  /// own new-install answer must still decide the first record.
+  @MainActor
+  func testFirstRecordFactIsFirstWriteWinsForTheProcess() async throws {
+    let dir = try directory()
+    let executor = SettingsExecutor(makeBridge: { SettingsBridge(store: SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)), notifyChanged: {}) })
+    executor.prepareFirstRecord(.newInstall)
+    executor.prepareFirstRecord(.untouchedUpgrade)
+    let command = Data("{\"action\":\"initialize\",\"ownership\":\"unknown\"}".utf8)
+    let replied = expectation(description: "initialize replied")
+    var reply = ""
+    executor.submit(.atomic(command)) { json in reply = json; replied.fulfill() }
+    await fulfillment(of: [replied], timeout: 5)
+    XCTAssertEqual(try AtomicSettingsBacking(directory: dir).transaction { $0 }, try AtomicSettingsRecord.firstRecord(.newInstall))
+    XCTAssertEqual(try object(reply)["atomic"].flatMap { ($0 as? [String: Any])?["ownership"] as? String }, "never-linked")
+  }
 }

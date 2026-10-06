@@ -27,6 +27,29 @@ import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 type SuppliedProducerProps = AppleSettingsProps &
   Required<Pick<AppleSettingsProps, "pro" | "sharing">>;
 
+
+/** Decision 40: every lock is named "Still Pro"; the row's own label describes it. */
+const PRO_LOCK = { name: "Still Pro", description: "Comments" } as const;
+
+/**
+ * Owner decision 41: a locked row opens the Still Pro sheet; only the sheet's own explicit
+ * "Get Still Pro" reaches the native purchase. The sheet is closed again with its X.
+ */
+async function requestThroughLock(feature = "Comments") {
+  const row = screen.queryByRole("button", {
+    name: "Still Pro",
+    description: feature,
+  });
+  if (!row) return;
+  await fireEvent.click(row);
+  const sheet = screen.queryByRole("dialog", { name: "Still Pro" });
+  if (!sheet) return;
+  const buy = within(sheet).queryByRole("button", { name: "Get Still Pro" });
+  if (buy) await fireEvent.click(buy);
+  await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog", { name: "Still Pro" })).toBeNull();
+}
+
 async function fixture(state: AccessState = "purchased") {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
   const writer = new AtomicSettingsWriter(storage);
@@ -204,11 +227,7 @@ describe("controlled D04 Apple settings", () => {
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
-    await fireEvent.click(
-      screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
-      }),
-    );
+    await requestThroughLock();
     expect(buy).toHaveBeenCalledTimes(2);
     expect(props.sync.onSignIn).not.toHaveBeenCalled();
     expect(screen.queryByText("fixture verified localized offer")).toBeNull();
@@ -222,11 +241,7 @@ describe("controlled D04 Apple settings", () => {
     const pending = screen.getByRole("button", { name: "Waiting for Apple…" });
     expect(pending).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(pending);
-    await fireEvent.click(
-      screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
-      }),
-    );
+    await requestThroughLock();
     expect(buy).toHaveBeenCalledTimes(2);
     props.pro = { ...props.pro, ownership: "owned", state: "idle" };
     await view.rerender(props);
@@ -256,9 +271,7 @@ describe("controlled D04 Apple settings", () => {
       expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
-      const lock = screen.queryByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
-      });
+      const lock = screen.queryByRole("button", PRO_LOCK);
       if (lock) {
         expect(lock).toHaveAttribute("aria-disabled", "true");
         await fireEvent.click(lock);
@@ -1181,11 +1194,15 @@ it("requires explicit account/session tokens only for the typed deletion-enabled
   expect(remove).not.toHaveBeenCalled();
 });
 
-const PRO_LOCK = "Comments. Included in Still Pro. See Still Pro";
-
 /** Present controls report "disabled" only through aria-disabled="true". */
-function rowControl(role: "button" | "switch", name: string) {
-  const control = screen.queryByRole(role, { name });
+function rowControl(
+  role: "button" | "switch",
+  query: string | { name: string; description: string },
+) {
+  const control = screen.queryByRole(
+    role,
+    typeof query === "string" ? { name: query } : query,
+  );
   if (control === null) return "absent";
   return control.getAttribute("aria-disabled") === "true"
     ? "disabled"
@@ -1257,9 +1274,10 @@ describe("D04 optional paid and combined-consent producers", () => {
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
-    const lock = screen.getByRole("button", { name: PRO_LOCK });
+    const lock = screen.getByRole("button", PRO_LOCK);
     expect(lock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(lock);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     expect(props.onFeatureChange).not.toHaveBeenCalled();
@@ -1473,7 +1491,8 @@ describe("D04 native offer card follows the supplied Pro access states", () => {
     );
     expect(rowControl("switch", "Comments")).toBe("disabled");
     const lock = screen.getByRole("button", {
-      name: "Related videos. Included in Still Pro. See Still Pro",
+      name: "Still Pro",
+      description: "Related videos",
     });
     expect(lock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(lock);
@@ -1563,9 +1582,10 @@ describe("D04 native purchase entry requires a non-blank offer price", () => {
       await fireEvent.click(
         screen.getByRole("button", { name: "YouTube Blocker" }),
       );
-      const lock = screen.getByRole("button", { name: PRO_LOCK });
+      const lock = screen.getByRole("button", PRO_LOCK);
       expect(lock).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(lock);
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(buy).not.toHaveBeenCalled();
       view.unmount();
     },
@@ -1591,7 +1611,7 @@ describe("D04 native purchase entry requires a non-blank offer price", () => {
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
-    await fireEvent.click(screen.getByRole("button", { name: PRO_LOCK }));
+    await requestThroughLock();
     expect(buy).toHaveBeenCalledTimes(2);
     view.unmount();
   });
