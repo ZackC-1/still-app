@@ -1569,7 +1569,12 @@
     "local-backend"
    ],
    "twin": null,
-   "v1Case": "d03-01"
+   "v1Case": "d03-01",
+   "referenceChrome": {
+    "topCssPx": 37,
+    "pageOffsetCssPx": 5,
+    "note": "Chrome tab strip drawn over the top of the reference (title pill and divider; divider is rows 72-73 of the 2x PNG, content area starts at row 74). Here the page is laid out only 5 CSS px lower than the product draws it (measured on the first blue row of the hero toggle: 106 px in the reference, 96 px in the capture), so the strip hides the product's own top padding. The T1 runner drops the top 37 CSS px of the reference and compares it with the capture clipped from 37 - 5 = 32 CSS px, so the strip is not compared and the page lines up. Verified (2026-10-05, DSF 2, builds with and without sign-in, light d03-01 and dark d03-14): the product's skipped top band (capture rows 0-63, 32 CSS px) has 0 non-background rows in the capture on both builds, and the reference rows 74-105 that line up with capture rows 64-95 (just below the strip) have 0 non-background rows; the first content row is the hero at capture row 96 against reference row 106. Nothing but page background and padding is skipped. If the product's top padding ever changes, re-measure this offset."
+   }
   },
   {
    "id": "d03-02",
@@ -1940,7 +1945,12 @@
    },
    "blockedBy": [],
    "twin": null,
-   "v1Case": "d03-14"
+   "v1Case": "d03-14",
+   "referenceChrome": {
+    "topCssPx": 37,
+    "pageOffsetCssPx": 5,
+    "note": "Chrome tab strip drawn over the top of the reference (title pill and divider; divider is rows 72-73 of the 2x PNG, content area starts at row 74). Here the page is laid out only 5 CSS px lower than the product draws it (measured on the first blue row of the hero toggle: 106 px in the reference, 96 px in the capture), so the strip hides the product's own top padding. The T1 runner drops the top 37 CSS px of the reference and compares it with the capture clipped from 37 - 5 = 32 CSS px, so the strip is not compared and the page lines up. Verified (2026-10-05, DSF 2, builds with and without sign-in, light d03-01 and dark d03-14): the product's skipped top band (capture rows 0-63, 32 CSS px) has 0 non-background rows in the capture on both builds, and the reference rows 74-105 that line up with capture rows 64-95 (just below the strip) have 0 non-background rows; the first content row is the hero at capture row 96 against reference row 106. Nothing but page background and padding is skipped. If the product's top padding ever changes, re-measure this offset."
+   }
   },
   {
    "id": "d04-01",
@@ -2549,7 +2559,12 @@
    },
    "blockedBy": [],
    "twin": null,
-   "v1Case": "d14-01"
+   "v1Case": "d14-01",
+   "referenceChrome": {
+    "topCssPx": 37,
+    "pageOffsetCssPx": 37,
+    "note": "Chrome tab strip drawn above the page in the reference (title pill and divider; divider is rows 72-73 of the 2x PNG, content starts at row 74). The page is laid out 37 CSS px lower than the product draws it. The T1 runner drops the top 37 CSS px of the reference and captures the page at the remaining height, so the strip is not compared."
+   }
   },
   {
    "id": "d14-02",
