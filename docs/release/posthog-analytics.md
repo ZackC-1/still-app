@@ -46,7 +46,9 @@ send nothing.
 3. In project settings, turn on **Discard client IP data**. Every event also carries
    `$geoip_disable`, so no location is derived; the Apple privacy manifests declare no location, and
    the privacy policy says so. Country-level download numbers come from the stores' own reports.
-4. Create a personal API key with only the **person: write** scope, for deletion.
+4. Create a personal API key with only the **person: write** scope, for deletion, and scope it
+   to this one project only (not the whole organization), so a wrong project id is refused rather
+   than answered with "no person".
 
 ## Server (Supabase function secrets)
 
@@ -66,9 +68,46 @@ unauthenticated POST to each returns 401. Either function skips its PostHog step
 settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
-and the function logs `ANALYTICS DELETION FAILED for account <uuid>`. Check the `delete-user` logs
-weekly while monitoring is manual, and delete any logged person in PostHog (Persons → search the
-id → Delete person, with events).
+and the function logs `ANALYTICS DELETION FAILED` with a fixed reason code (`http_5xx`, `http_4xx`,
+`http_other`, `network`, `deletion_errors`, `not_queued`, `events_not_queued` or `unknown`). The log never names
+the account. An account that never shared usage has no PostHog person: PostHog answers with
+`persons_found: 0`, which counts as done, and the function logs the fixed line
+`analytics deletion: no person`.
+
+When a failure appears, match it to the account by time, not by searching PostHog for ids:
+
+1. Note the time of the `ANALYTICS DELETION FAILED` line.
+2. In the Supabase Auth audit log, find the nearest account-deletion entry at or before the time of
+   that line. (Deleting an account can be retried, so the failure line can come later than the
+   deletion entry.) The entry gives the deleted account's id. (Check the first time that the hosted
+   project records these entries.)
+3. In PostHog, open Persons and search for exactly that id. If a person is found by that id, delete
+   it, with events. The id itself is the test: account ids are never reused, and an id taken from an
+   account-deletion entry can never be someone's live anonymous id. The person may or may not carry
+   the `email` property. A person re-created by late events after the deletion, or one whose email
+   was never attached, has none, so a missing email is not a reason to keep it. An email that matches
+   is only extra confirmation.
+
+> **Warning.** Anonymous analytics ids are random UUIDs too, and most people never sign in. Never
+> decide that a person belongs to a deleted account because its id is missing from the accounts
+> table: that would delete live, anonymous usage, including ids that current accounts still use.
+> Only an exact id taken from an account-deletion entry is a candidate.
+
+A person can also reappear shortly after a successful deletion: events already on their way when the
+account was deleted (an offline device, or PostHog's own ingestion delay) can arrive afterwards. The
+weekly check below covers that case with the same steps.
+
+**Wrong project.** `persons_found: 0` is also what PostHog returns for a wrong `POSTHOG_PROJECT_ID`
+or environment when the personal key can reach that other project. To make that mistake loud, the
+personal API key must be scoped to the single project that receives Still's events (step 4 above),
+so a wrong id is refused (`http_4xx`). A run of `analytics deletion: no person` lines on every
+deletion is the other sign to look for.
+
+**One-time check after setting or changing the PostHog secrets (owner).** Send one test event with
+a fresh, made-up distinct id to the project with the project key, wait a few minutes for it to be
+ingested, then bulk-delete that distinct id with the personal key and project id the function uses.
+The answer must show `persons_found: 1`. If it shows `0`, the function is pointed at the wrong
+project or environment; fix the secrets before relying on account deletion.
 
 **Existing accounts.** Accounts created before 2.1 get their email attached the next time a 2.1
 surface identifies them. A one-time backfill (list auth users, set each email on its person) needs
@@ -168,14 +207,18 @@ different surfaces, so label every insight with the definition it uses.
 - `installed` by store against App Store Connect units and the Chrome/AMO dashboards.
 - Persons whose distinct id is an account UUID but have no email (a stuck identify).
 - The `code_failed` reason mix: a jump in `network` means the backend.
-- The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
-  a Persons search for the deleted account id: a device that was offline during the deletion can
+- The `delete-user` logs for `ANALYTICS DELETION FAILED` and `analytics deletion: no person`, and,
+  for every account-deletion entry in the Auth audit log from the past week, the three steps under
+  "Deletion follow-up" (search for the exact id from the audit entry and delete any person found by
+  it, with or without an email; never infer a deleted account from an id missing from the accounts
+  table): a device that was offline during the deletion can
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
   queued in between. A forget also cannot survive process termination before storage accepts any
   record of it: the next process drops the account's queued events only if it learns that nobody is
   signed in, and can still send them if a different account is established first. Neither window is
-  bounded by the client; this search is the remedy. Delete any such person.
+  bounded by the client, and PostHog's ingestion delay adds to it; this check is the remedy. Delete any
+  such person.
 - PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an

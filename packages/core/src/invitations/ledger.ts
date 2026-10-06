@@ -53,7 +53,7 @@ export interface InvitationLedger {
 }
 
 /** Fixed packaged rules. The contract forbids remote threshold or cap overrides. */
-export const INVITATION_RULES = Object.freeze({
+export const INVITATION_RULES = /* @__PURE__ */ Object.freeze({
   /** Rating needs at least seven days of UTC elapsed age: exactly 604,800,000 ms. */
   ratingMinimumAgeMs: 604_800_000,
   ratingDistinctDays: 3,
@@ -75,9 +75,9 @@ export interface InvitationOwnerParameters {
   /** Owner question 4. Proposed default: site and feature toggles; global pause is not counted. */
   readonly countedControls: readonly InvitationControl[];
 }
-export const PROPOSED_INVITATION_PARAMETERS: InvitationOwnerParameters = Object.freeze({
+export const PROPOSED_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
   spaceRatingFromInvitations: false,
-  countedControls: Object.freeze(["site", "feature"] as const),
+  countedControls: /* @__PURE__ */ Object.freeze(["site", "feature"] as const),
 });
 
 const KEYS = [
