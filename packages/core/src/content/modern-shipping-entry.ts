@@ -1,6 +1,8 @@
 import seed from "../../rules/seed.json";
 import {
   SERVICE_IDS,
+  type BenefitAccessSnapshot,
+  type BenefitId,
   type ServiceId,
   type SignedRuleSet,
   type SignedRuleSetV2,
@@ -162,11 +164,10 @@ export interface EarlyFormat2CoreRedirectDeps {
   readonly cache: SettingsCache;
   readonly classify: (url: URL) => string | null;
   readonly redirectDedupe: RedirectDedupe;
-  /**
-   * This host's packaged access context (as createShippingContentEntry's early Shorts path uses):
-   * the snapshot and capabilities the early decision evaluates with. Absent, the host-less default.
-   */
-  readonly accessContext?: ReturnType<typeof packagedAccessContext>;
+  /** The access snapshot for this host (as earlyFormat2ShortsRedirect takes it). */
+  readonly access: () => BenefitAccessSnapshot;
+  /** The host's packaged capabilities; absent, the engine's host-less default. */
+  readonly capabilities?: ReadonlySet<BenefitId>;
 }
 
 /**
@@ -183,11 +184,7 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<typeof session.evaluate>;
   try {
-    const context = deps.accessContext ?? packagedAccessContext();
-    decision = session.evaluate(deps.cache.current(), url, {
-      access: initialAccessSnapshot(context),
-      capabilities: context.supported,
-    });
+    decision = session.evaluate(deps.cache.current(), url, { access: deps.access(), capabilities: deps.capabilities });
   } finally {
     session.stop?.();
   }
@@ -358,6 +355,7 @@ export function createModernShippingContentEntry(
     });
 
     if (ownsEarly) {
+      const early = packagedAccessContext(deps.host, deps.platform);
       const cache = new SettingsCache(new ChromeStorageAdapter());
       void Promise.all([lane, cache.hydrate()])
         .then(([chosen]): Promise<EarlyCoreOutcome> | EarlyCoreOutcome => {
@@ -367,8 +365,10 @@ export function createModernShippingContentEntry(
               ruleSet: packaged()!,
               cache,
               classify,
+              // Same shape as the shipping entry's early Shorts call: this host's packaged context.
+              access: () => initialAccessSnapshot(early),
+              capabilities: early.supported,
               redirectDedupe,
-              accessContext: packagedAccessContext(deps.host, deps.platform),
             });
           if (!isShortsHref(href)) return "declined";
           // Unchanged legacy behaviour: the seed engine's own early Shorts redirect.
