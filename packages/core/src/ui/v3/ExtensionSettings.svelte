@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FEATURE_REGISTRY } from "@still/shared-types";
+  import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import type { ExtensionSettingsProps } from "./extension-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
@@ -26,6 +26,7 @@
     sync,
     pro,
     restore,
+    onRestore,
     link,
     sharing,
     privacyActions,
@@ -98,6 +99,15 @@
       pro.state !== "failed" &&
       pro.state !== "success",
   );
+  // Free period only (owner decisions 62 and 73): the compiled paid flag is off and no paid
+  // producer is supplied. Inert while a Restore is held, as the Apple app's link is.
+  let freeRestoreShown = $derived(
+    !PAID_TIER_ENABLED && !pro && Boolean(onRestore),
+  );
+  let freeRestoreReady = $derived(freeRestoreShown && !restoreHeld);
+  function requestFreeRestore() {
+    if (freeRestoreReady) onRestore?.();
+  }
   // Owner decision 41: a locked row opens the offer in a sheet; only its own Buy starts anything.
   let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
   let paywallShown = $derived(
@@ -214,6 +224,18 @@
       {accessVerify}
       {restoreHeld}
     />
+  {/if}
+  {#if freeRestoreShown}
+    <!-- Free period: the Still Pro card's slot holds only its plain Restore link, so past
+      purchasers can check their account; no offer, Buy or price. -->
+    <section class="card card-stack">
+      <button
+        type="button"
+        class="link"
+        disabled={!freeRestoreReady}
+        onclick={requestFreeRestore}>Restore purchase</button
+      >
+    </section>
   {/if}
   {#if restore}<RestoreStatusCard {...restore} />{/if}
   {#if link}<AccountLinkCard {...link} />{/if}

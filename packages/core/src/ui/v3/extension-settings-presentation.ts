@@ -130,6 +130,12 @@ export interface ExtensionSettingsProps extends Pick<
     | "restoreHeld"
   >;
   restore?: RestoreStatusCardProps;
+  /**
+   * Free-period Restore (owner decisions 62 and 73): a plain "Restore purchase" link, shown only
+   * while the compiled paid flag is off and no paid producer is supplied. It only asks whether the
+   * account already owns Still Pro; it never offers Buy, a price or checkout.
+   */
+  onRestore?: () => void;
   link?: AccountLinkCardProps;
   sharing?: SharingCardProps;
   /** Existing real privacy actions when no genuine combined-consent producer is supplied. */
