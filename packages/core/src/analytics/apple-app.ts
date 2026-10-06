@@ -75,6 +75,8 @@ interface Ready {
   /** Confirm and identify the account (fast, local), then run the server attach on its own. */
   readonly identify: (userId: string) => Promise<void>;
   readonly attach: (observation?: AnalyticsObservation) => Promise<void>;
+  /** After a deletion: forget this device's cached per-device subject for the account. */
+  readonly forgetSubjects: (reportingAs: string | null, account?: string) => Promise<void>;
 }
 
 interface Observed extends Ready {
@@ -161,6 +163,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         // has issued it. Without per-device subjects nothing is confirmed: never the account id.
         identify: (userId: string) => accounts.identify(userId),
         attach: (observation) => accounts.attach(observation),
+        forgetSubjects: (reportingAs: string | null, account?: string) => accounts.forgetSubjects(reportingAs, account),
       };
       return currentReady;
     })().then((r) => {
@@ -268,10 +271,16 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         // the next ordinary use, not again in the same turn.
         if (!deps.subjects) void r.attach();
       }),
-    // Resolves once the account is let go of (deletion waits for it).
+    // Resolves once the account is let go of (deletion waits for it). A deletion also forgets this
+    // device's cached per-device subject for the account.
     reset: (options) =>
       ready()
-        .then((r) => r?.client.reset(options))
+        .then(async (r) => {
+          if (!r) return;
+          const reportingAs = options?.forgetAccount && deps.subjects ? r.client.signedInAs() : null;
+          await r.client.reset(options);
+          if (options?.forgetAccount && deps.subjects) await r.forgetSubjects(await reportingAs, options.account);
+        })
         .catch(() => undefined),
     async sharing() {
       const r = await ready();

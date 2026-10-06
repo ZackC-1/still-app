@@ -140,7 +140,7 @@ type PageRequest =
       readonly props?: unknown;
     }
   | { readonly action: "identify"; readonly userId: string }
-  | { readonly action: "reset"; readonly forgetAccount: boolean }
+  | { readonly action: "reset"; readonly forgetAccount: boolean; readonly account?: string }
   | { readonly action: "sharing" }
   | { readonly action: "setSharing"; readonly enabled: boolean }
   | { readonly action: "acknowledgeNotice" };
@@ -150,9 +150,10 @@ export interface AccountIdentifier {
    * `ask`: an account ask the caller reserved earlier (`client.reserveAccountAsk`), for an identify
    * whose account was read after a wait; anything asked since supersedes it. */
   identify(userId: string, options?: TrackOptions, ask?: number): Promise<void>;
-  /** An account deletion here: forget this device's cached per-device subjects for the account the
-   * host last asked for, and for the one being reported as, so no deleted account's mapping stays. */
-  forgetSubjects(reportingAs: string | null): Promise<void>;
+  /** An account deletion (or a start that finds nobody signed in): forget this device's cached
+   * per-device subjects for `account` when named, for the account the host last asked for, and for
+   * the one being reported as, so no deleted account's mapping stays. */
+  forgetSubjects(reportingAs: string | null, account?: string): Promise<void>;
   /**
    * The server email attach for whichever account the client reports as right now, once per
    * account while sharing is on. It never changes the account itself (a stale read must not restore
@@ -331,6 +332,17 @@ export function createAccountIdentifier(deps: {
       return false;
     }
   };
+  const forgetEntry = async (entry: StoredSubject): Promise<void> => {
+    try {
+      const stored = readSubjects(await deps.local.get(SUBJECTS_KEY));
+      const kept = stored.filter(
+        (s) => !(s.account === entry.account && s.origin === entry.origin && s.subject === entry.subject),
+      );
+      if (kept.length !== stored.length) await deps.local.set(SUBJECTS_KEY, kept);
+    } catch {
+      /* best effort: the entry is local, bounded and never sent */
+    }
+  };
   /** One bounded, cancellable request per (account, origin). Never from a background start. */
   const requestSubject = (
     account: string,
@@ -364,7 +376,15 @@ export function createAccountIdentifier(deps: {
         );
         if (!reply || !(await client.observationCurrent(observation))) return null;
         if (reply.state === "stopped") return "stopped";
-        return (await rememberSubject({ account, origin, subject: reply.subject })) ? reply.subject : null;
+        const entry = { account, origin, subject: reply.subject };
+        const remembered = await rememberSubject(entry);
+        // A forget (a deletion) or any other cancellation that landed while the write was in flight
+        // must not leave the mapping behind: remove it again and confirm nothing.
+        if (scope.aborted) {
+          await forgetEntry(entry);
+          return null;
+        }
+        return remembered ? reply.subject : null;
       } catch {
         return null; // retried at the next Still screen
       } finally {
@@ -449,13 +469,15 @@ export function createAccountIdentifier(deps: {
       void options;
       if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId, ask);
     },
-    async forgetSubjects(reportingAs) {
-      const asked = wanted?.account ?? null;
+    async forgetSubjects(reportingAs, account) {
+      const named = [wanted?.account, account?.toLowerCase()].filter((a): a is string => !!a);
       wanted = null;
       try {
         const stored = readSubjects(await deps.local.get(SUBJECTS_KEY));
         const accounts = new Set(
-          stored.filter((s) => s.account === asked || (reportingAs !== null && s.subject === reportingAs)).map((s) => s.account),
+          stored
+            .filter((s) => named.includes(s.account) || (reportingAs !== null && s.subject === reportingAs))
+            .map((s) => s.account),
         );
         if (accounts.size === 0) return;
         await deps.local.set(SUBJECTS_KEY, stored.filter((s) => !accounts.has(s.account)));
@@ -601,7 +623,7 @@ export function createExtensionAnalyticsHost(
         const reportingAs = request.forgetAccount ? client.signedInAs() : null;
         await client.reset({ forgetAccount: request.forgetAccount });
         // A deletion also forgets which per-device subject the account used here.
-        if (request.forgetAccount && deps.subjects) await accounts.forgetSubjects(await reportingAs);
+        if (request.forgetAccount && deps.subjects) await accounts.forgetSubjects(await reportingAs, request.account);
         return true;
       }
       case "sharing":
@@ -702,21 +724,26 @@ export function createExtensionAnalyticsHost(
       if (stopped) return;
       // Reserved before the read settles: anything asked meanwhile (a sign-out, a deletion, another
       // account) supersedes this start, whose read may already be stale.
-      const ask = client.reserveAccountAsk();
+      // An unknown account (undefined) asks nothing, so it never supersedes a screen's identify.
+      const ask = read === undefined ? null : client.reserveAccountAsk();
       void (async () => {
         // A value already known is acted on at once, as before (no extra turn of the event loop).
         const userId =
           read !== null && typeof read === "object" && typeof (read as PromiseLike<unknown>).then === "function"
             ? await Promise.resolve(read).catch(() => undefined)
             : (read as string | null | undefined);
-        if (stopped || !client.isLatestAsk(ask)) {
+        if (stopped || (ask !== null && !client.isLatestAsk(ask))) {
           // Superseded: the later ask decides the account. Nothing about it changes here.
         } else if (userId) {
-          await identify(userId, QUIET, ask);
+          await identify(userId, QUIET, ask ?? undefined);
         } else if (userId === null) {
           // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
           // it: if it was deleted, sending them would recreate the person the server just removed.
+          const reportingAs = deps.subjects ? client.signedInAs() : null;
           await client.confirm(null, { forget: true, quiet: true });
+          // Its cached per-device subject too (harmless if it was only a sign-out: the server
+          // answers the same subject when that account signs in here again).
+          if (deps.subjects) await accounts.forgetSubjects(await reportingAs);
         }
         // undefined: the account could not be read. It stays unconfirmed.
         await requestFlushIfNeeded();
@@ -813,7 +840,11 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
         ? { action: "setSharing", enabled: m.enabled }
         : null;
     case "reset":
-      return { action: "reset", forgetAccount: m.forgetAccount === true };
+      return {
+        action: "reset",
+        forgetAccount: m.forgetAccount === true,
+        ...(isAnalyticsId(m.account) ? { account: m.account.toLowerCase() } : {}),
+      };
     case "sharing":
     case "acknowledgeNotice":
       return { action: m.action };
@@ -854,6 +885,7 @@ export function createPageAnalytics(
       send({
         action: "reset",
         forgetAccount: options?.forgetAccount === true,
+        ...(options?.forgetAccount === true && options.account ? { account: options.account } : {}),
       }).then(
         () => undefined,
         () => undefined,

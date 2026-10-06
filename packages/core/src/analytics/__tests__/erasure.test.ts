@@ -21,6 +21,7 @@ import { createErasureService, ERASURE_LEDGER_KEY, ERASURE_LEDGER_LIMIT, type Er
 import {
   ANALYTICS_MESSAGE_KIND,
   createExtensionAnalyticsHost,
+  createPageAnalytics,
   SUBJECTS_KEY,
   type SubjectDeps,
 } from "../extension-host.js";
@@ -644,9 +645,13 @@ describe("per-device subjects through the host", () => {
     });
 
     // ── Hard gate F3: a background start's session read is fenced from the moment it starts ──
-    const reset = (extension: ReturnType<typeof perAccountHost>["extension"], forgetAccount = false) =>
+    const reset = (extension: ReturnType<typeof perAccountHost>["extension"], forgetAccount = false, account?: string) =>
       new Promise((resolve) => {
-        extension.listener({ kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount }, PAGE_SENDER, resolve);
+        extension.listener(
+          { kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount, ...(account ? { account } : {}) },
+          PAGE_SENDER,
+          resolve,
+        );
       });
 
     it("F3: a start whose session read lands after a sign-out never re-confirms the signed-out account", async () => {
@@ -828,6 +833,100 @@ describe("per-device subjects through the host", () => {
       await third.track("active", {});
       await third.flush();
       expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+    });
+
+    // ── Review P3-2: a start that knows nothing asks nothing ──
+    it("P3-2: a start whose account is unknown never supersedes a screen's in-flight identify", async () => {
+      const a = deferred();
+      const { extension, asked } = perAccountHost(() => a.promise);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const screen = extension.identify(ACCOUNT); // a Still screen: its subject request is in flight
+      await vi.waitFor(() => expect(asked).toEqual([ACCOUNT]));
+      extension.onStart(undefined); // Safari settles its start gate this way after its own confirmation
+      a.resolve({ state: "active", subject: SUBJECT });
+      await screen;
+      expect(extension.client.accountConfirmed).toBe(true);
+      expect(await extension.client.signedInAs()).toBe(SUBJECT);
+      extension.stop();
+    });
+
+    // ── Review P3-3: a deleted account's cached subject never stays on the device ──
+    const SUBJECT_ENTRY = { account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT };
+    const OTHER_ENTRY = { account: OTHER, origin: TEST_PERMISSION.origin, subject: OTHER_SUBJECT };
+
+    it("P3-3a: a subject write still in flight when the account is deleted is removed again", async () => {
+      const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      let writing!: () => void;
+      const written = new Promise<void>((r) => (writing = r));
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const set = h.store.set;
+      let gated = true;
+      h.store.set = async (key: string, value: unknown) => {
+        if (key === SUBJECTS_KEY && gated) {
+          gated = false;
+          writing();
+          await gate; // the subject's write is slow
+        }
+        return set(key, value);
+      };
+      const identifying = extension.identify(ACCOUNT);
+      await written;
+      await reset(extension, true, ACCOUNT); // the deletion lands while the write is in flight
+      release();
+      await identifying;
+      expect(h.store.data[SUBJECTS_KEY]).toEqual([]);
+      expect(await extension.client.signedInAs()).toBeNull();
+      extension.stop();
+    });
+
+    it("P3-3b: the deletion message names the account, so its subject is forgotten even after a restart", async () => {
+      for (const named of [true, false]) {
+        const { h, extension } = perAccountHost(() => null);
+        extension.onStart(null); // a restarted background: nothing asked, nobody reported as
+        await extension.flushWhenReady();
+        h.store.data[SUBJECTS_KEY] = [OTHER_ENTRY, SUBJECT_ENTRY];
+        await reset(extension, true, named ? ACCOUNT : undefined);
+        // NEGATIVE CONTROL: without the account in the message the restarted host cannot name it.
+        expect(h.store.data[SUBJECTS_KEY]).toEqual(named ? [OTHER_ENTRY] : [OTHER_ENTRY, SUBJECT_ENTRY]);
+        extension.stop();
+      }
+    });
+
+    it("P3-3b: a start that finds nobody signed in forgets the subject it was reporting as", async () => {
+      for (const start of [null, undefined] as const) {
+        const first = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+        await first.extension.identify(ACCOUNT);
+        first.h.store.data[SUBJECTS_KEY] = [OTHER_ENTRY, SUBJECT_ENTRY];
+        first.extension.stop();
+        const restarted = createExtensionAnalyticsHost({
+          ...first.h.deps,
+          permission: async () => readAnalyticsPermission(await first.h.deps.permission?.()),
+          local: first.h.store,
+          noticeApplies: false,
+          isTrustedPage: () => true,
+          subjects: { issue: async () => null, onStopped: async () => {} },
+        });
+        restarted.onStart(start);
+        await restarted.flushWhenReady();
+        // NEGATIVE CONTROL: an unreadable session (undefined) changes nothing, the mapping included.
+        expect(first.h.store.data[SUBJECTS_KEY]).toEqual(start === null ? [OTHER_ENTRY] : [OTHER_ENTRY, SUBJECT_ENTRY]);
+        restarted.stop();
+      }
+    });
+
+    it("P3-3b: a page's deletion reset carries the account id; a sign-out does not", async () => {
+      const sent: Record<string, unknown>[] = [];
+      const page = createPageAnalytics({ send: async (m) => (sent.push(m), true) });
+      await page.reset({ forgetAccount: true, account: ACCOUNT });
+      await page.reset({ account: ACCOUNT });
+      await page.reset();
+      expect(sent).toEqual([
+        { action: "reset", forgetAccount: true, account: ACCOUNT },
+        { action: "reset", forgetAccount: false },
+        { action: "reset", forgetAccount: false },
+      ]);
     });
 
     // ── Hard gate F2: the stored hold must read back released before the ask counts as confirmed ──
@@ -1202,6 +1301,41 @@ describe("Off on one device through the extension host", () => {
 });
 
 describe("per-device subjects through the Apple app", () => {
+  it("P3-3c: an account deletion forgets the account's cached subject; a sign-out keeps it", async () => {
+    const { createAppAnalytics } = await import("../apple-app.js");
+    for (const forgetAccount of [true, false]) {
+      const store = memory();
+      const app = createAppAnalytics({
+        ...TEST_PRIVACY,
+        config: { key: "test", host: "https://us.i.posthog.com" },
+        store,
+        subjects: { issue: async () => ({ state: "active", subject: SUBJECT }), onStopped: async () => {} },
+        fetch: (async () => new Response("{}")) as typeof fetch,
+        bridge: {
+          analyticsContext: async () => ({
+            ...ID,
+            platform: "macos",
+            device: "desktop",
+            appVersion: "3.0.0",
+            previousVersion: null,
+            consent: true,
+            noticeSeen: true,
+            extensionEnabled: true,
+          }),
+          setAnalyticsConsent: async () => false,
+          acknowledgeAnalyticsNotice: async () => {},
+        },
+      });
+      await app.identifyAccount(ACCOUNT);
+      const entry = { account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT };
+      expect(store.data[SUBJECTS_KEY]).toEqual([entry]);
+      await app.ui.reset(forgetAccount ? { forgetAccount: true, account: ACCOUNT } : {});
+      // NEGATIVE CONTROL: an ordinary sign-out keeps the mapping (signing in again reuses it).
+      expect(store.data[SUBJECTS_KEY]).toEqual(forgetAccount ? [] : [entry]);
+    }
+  });
+
+
   it("a signed-in Apple session reports under the issued subject, never the account id", async () => {
     const { createAppAnalytics } = await import("../apple-app.js");
     const store = memory();
