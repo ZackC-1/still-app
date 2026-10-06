@@ -1,5 +1,6 @@
 import { type AuthDeps, withAuthenticatedUser } from "../_shared/auth.ts";
-import type { AccountErasurePort } from "../_shared/erasure-store.ts";
+import { type AccountErasurePort, PgErasureStore } from "../_shared/erasure-store.ts";
+import { createWriterSql } from "../_shared/pg-store.ts";
 import { deletionFailureReason, type PostHogPort } from "../_shared/posthog.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import type { UserStore } from "../_shared/user-store.ts";
@@ -33,6 +34,26 @@ export interface AccountDeps extends AuthDeps {
 }
 
 /**
+ * The eraser store from ANALYTICS_ERASER_DB_URL, or null. Never throws: a malformed URL (the driver
+ * rejects some synchronously) must not stop delete-user from starting, or every account deletion
+ * would fail. It is logged as a fixed category, and deletion then runs without the pre-step (0017's
+ * trigger still records every identity inside the deletion).
+ */
+export function eraserFromUrl(
+  raw: string | undefined,
+  connect: (url: string) => AccountErasurePort = (url) => new PgErasureStore(createWriterSql(url)),
+): AccountErasurePort | null {
+  const url = (raw ?? "").trim();
+  if (!url) return null;
+  try {
+    return connect(url);
+  } catch {
+    console.error(CAPTURE_DEFERRED_LOG, { reason: "config" });
+    return null;
+  }
+}
+
+/**
  * Record the account's per-device analytics identities for deletion before the account goes.
  * Never throws and never waits past `budgetMs`: an analytics side path must not block an account
  * deletion. A failure or a timeout is logged as a fixed category only.
@@ -43,7 +64,8 @@ export async function captureBeforeDelete(
   budgetMs: number,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const attempt = erasure.beginAccountErasure(userId, "account_deleted");
+  // Started inside a promise chain, so even a synchronous throw only rejects this attempt.
+  const attempt = Promise.resolve().then(() => erasure.beginAccountErasure(userId, "account_deleted"));
   // A late failure after the budget ran out must not surface as an unhandled rejection.
   attempt.catch(() => {});
   try {

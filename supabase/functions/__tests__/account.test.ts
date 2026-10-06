@@ -1,12 +1,14 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { type AccountDeps, CAPTURE_DEFERRED_LOG, handleDeleteUser } from "../delete-user/handler.ts";
+import { type AccountDeps, CAPTURE_DEFERRED_LOG, eraserFromUrl, handleDeleteUser } from "../delete-user/handler.ts";
 import { handleExport } from "../export-user-data/handler.ts";
 import {
   type AccountErasurePort,
   type AccountErasureReason,
   type AccountErasureResult,
   ErasureStorageUnavailable,
+  PgErasureStore,
 } from "../_shared/erasure-store.ts";
+import { createWriterSql } from "../_shared/pg-store.ts";
 import { signHs256 } from "../_shared/jwt.ts";
 import { SupabaseUserStore } from "../_shared/supabase-store.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
@@ -327,4 +329,54 @@ Deno.test("D7: the account store asks GoTrue for a hard delete, so the cascades 
   hardDelete(requests);
   // NEGATIVE CONTROL: a soft delete (which leaves the row, so nothing cascades) fails it.
   assertThrows(() => hardDelete([{ ...requests[0]!, body: { should_soft_delete: true } }]));
+});
+
+// ── A malformed eraser login never stops account deletion (review P2-1) ──
+const MALFORMED_ERASER_URLS = [
+  "garbage",
+  ["postgres://u:pa", "%ss@h/db"].join(""), // an unencoded % in the password
+  "postgres://u:p@[::1/db", // a broken IPv6 address
+];
+
+Deno.test("D9: a malformed eraser URL disables the pre-step, logs a fixed category, and deletion still works", async () => {
+  for (const url of MALFORMED_ERASER_URLS) {
+    const { result: erasure, logs } = await captureLogs(() => Promise.resolve(eraserFromUrl(url)));
+    assertEquals(erasure, null, url);
+    assertEquals(logs, [[CAPTURE_DEFERRED_LOG, { reason: "config" }]], url);
+    assertNoIdentifiers(logs);
+    const { store, deleted } = mockStore();
+    const jwt = await mintHs256({ sub: A }, SECRET);
+    const res = await handleDeleteUser(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store, erasure });
+    assertEquals([res.status, deleted], [200, [A]], url);
+    // NEGATIVE CONTROL: the unguarded construction throws (at module top level it would stop the
+    // function from serving any deletion).
+    assertThrows(() => new PgErasureStore(createWriterSql(url)), Error, undefined, url);
+  }
+  // Unset, empty or whitespace: no pre-step, and nothing to log.
+  for (const url of [undefined, "", " ", "\n\t "]) {
+    const { result, logs } = await captureLogs(() => Promise.resolve(eraserFromUrl(url)));
+    assertEquals([result, logs], [null, []], JSON.stringify(url));
+  }
+  // A well-formed URL builds the store (the driver connects lazily, so nothing is opened here).
+  const built: string[] = [];
+  const fake: AccountErasurePort = accountWorld().erasure;
+  assertEquals(eraserFromUrl("  postgresql://still_analytics_eraser:x@127.0.0.1:1/postgres  ", (u) => (built.push(u), fake)), fake);
+  assertEquals(built, ["postgresql://still_analytics_eraser:x@127.0.0.1:1/postgres"]);
+});
+
+Deno.test("D10: a pre-step that throws synchronously never rejects the deletion", async () => {
+  const world = accountWorld();
+  const throwing: AccountErasurePort = {
+    ...world.erasure,
+    beginAccountErasure: () => {
+      throw new ErasureStorageUnavailable();
+    },
+  };
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const { result: res, logs } = await captureLogs(() => handleDeleteUser(req(jwt), deleteDeps(world, { erasure: throwing })));
+  assertEquals([res.status, await res.json()], [200, { deleted: true, analyticsDeleted: null }]);
+  assertEquals(world.log, [`deleteUser:${A}`]);
+  assertEquals(logs, [[CAPTURE_DEFERRED_LOG, { reason: "storage" }]]);
+  // NEGATIVE CONTROL: called directly, the same store throws before any promise exists.
+  assertThrows(() => throwing.beginAccountErasure(A, "account_deleted"), ErasureStorageUnavailable);
 });
