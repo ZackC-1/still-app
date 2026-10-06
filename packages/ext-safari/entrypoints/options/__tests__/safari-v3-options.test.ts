@@ -119,7 +119,7 @@ describe("Safari V3 settings page", () => {
     const { mode } = await open("atomic", true, CLOUD_ENV);
     expect(mode).toBe("v3");
     await waitFor(() => expect(screen.getByText("person@example.invalid")).toBeTruthy());
-    for (const name of ["Sign out", "Delete account", "Sign in", "Retry sync"]) expect(screen.queryByRole("button", { name })).toBeNull();
+    for (const name of ["Sign out", "Delete account", "Sign in", "Retry sync", "Try again"]) expect(screen.queryByRole("button", { name })).toBeNull();
   });
 
   it("a configured build without the modern sync flag keeps the legacy settings page and never loads V3", async () => {
