@@ -816,6 +816,70 @@ Deno.test({
         await admin`delete from private.analytics_erasure_jobs where scope = 'account_deleted'`;
       });
 
+      await t.step("a deletion by GoTrue's own role snapshots every subject of the account", async () => {
+        // Real account deletions run in GoTrue as supabase_auth_admin, never as postgres. The cascade's
+        // AFTER DELETE trigger then fires as that role, which holds nothing in schema private.
+        const deleted = "b6b6b6b6-0000-4000-8000-000000000066";
+        const control = "b6b6b6b6-0000-4000-8000-000000000067";
+        await admin`insert into auth.users (id, email) values
+          (${deleted}, 'u5w2-gotrue@example.invalid'), (${control}, 'u5w2-gotrue-control@example.invalid')`;
+        const issued: string[] = [];
+        for (const n of [400, 401]) {
+          const reply = await store.issueSubject(deleted, await proof(deviceKey(n)));
+          assert(reply.state === "active");
+          issued.push(reply.subject);
+        }
+        const controlReply = await store.issueSubject(control, await proof(deviceKey(402)));
+        assert(controlReply.state === "active");
+        const auth = connect("supabase_auth_admin", gatewayPassword);
+        try {
+          assertEquals((await auth`select current_user::text as role`)[0].role, "supabase_auth_admin");
+          assertEquals(
+            (await auth`select pg_catalog.has_schema_privilege('private', 'USAGE') as usage`)[0].usage,
+            false,
+            "GoTrue's role reaches nothing in private by itself",
+          );
+          await auth`delete from auth.users where id = ${deleted}::uuid`;
+          assertEquals((await admin`select pg_catalog.count(*)::int as n from private.analytics_subjects
+            where user_id = ${deleted}::uuid`)[0].n, 0);
+          const snapshot = await admin`select j.scope, j.stage, j.priority, pg_catalog.octet_length(j.scope_key) as len,
+              pg_catalog.encode(j.scope_key, 'hex') as key, t.distinct_id::text as id, t.kind
+            from private.analytics_erasure_jobs j join private.analytics_erasure_targets t on t.job_id = j.job_id
+            where j.scope = 'account_deleted' order by t.distinct_id`;
+          assertEquals(
+            snapshot.map((r) => [r.scope, r.stage, r.priority, r.len, r.id, r.kind]),
+            [...issued].sort().map((id) => ["account_deleted", "stop_recorded", 2, 32, id, "subject"]),
+          );
+          // One job per subject, each under its own random key: none shared, none derivable from the account.
+          assertEquals(new Set(snapshot.map((r) => r.key)).size, issued.length);
+          const derived = (await admin`select pg_catalog.encode(extensions.digest(pg_catalog.convert_to(${deleted}::text, 'UTF8'), 'sha256'), 'hex') as k`)[0].k;
+          assert(!snapshot.some((r) => r.key === derived));
+          // NEGATIVE CONTROL: the snapshot relies on running as its owner. As the invoker (GoTrue's
+          // role) it cannot write the job, and the whole deletion fails rather than lose a subject.
+          const routine = "private.analytics_snapshot_deleted_subject()";
+          const catalogBefore = await catalogState(admin);
+          await admin.unsafe(`alter function ${routine} security invoker`);
+          try {
+            const refused = await rejection(() => auth`delete from auth.users where id = ${control}::uuid`);
+            assertEquals(refused.code, "42501", refused.message);
+            assertEquals((await admin`select pg_catalog.count(*)::int as n from auth.users where id = ${control}::uuid`)[0].n, 1);
+          } finally {
+            await admin.unsafe(`alter function ${routine} security definer`);
+          }
+          // Restored exactly: every routine's definer flag, settings, grants and body as before.
+          assertEquals(await catalogState(admin), catalogBefore);
+          // Restored: the same role now deletes the control account and its subject is snapshotted.
+          await auth`delete from auth.users where id = ${control}::uuid`;
+          const after = await admin`select t.distinct_id::text as id from private.analytics_erasure_jobs j
+            join private.analytics_erasure_targets t on t.job_id = j.job_id where j.scope = 'account_deleted'`;
+          assert(after.some((r) => r.id === controlReply.subject));
+        } finally {
+          await auth.end();
+          await admin`delete from auth.users where id in (${deleted}::uuid, ${control}::uuid)`;
+          await admin`delete from private.analytics_erasure_jobs where scope = 'account_deleted'`;
+        }
+      });
+
       await t.step("the real handlers run through the eraser's store end to end", async () => {
         const deleted: string[][] = [];
         const posthog: PostHogErasurePort = {

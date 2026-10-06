@@ -168,7 +168,10 @@ export interface SubjectDeps {
   /** POST {originProof} to analytics-identify with `account`'s own session (a host must refuse if
    * its session is for another account); resolve the JSON reply. */
   readonly issue: (body: { readonly originProof: string }, signal: AbortSignal, account: string) => Promise<unknown>;
-  /** The server stopped this device (it was erased): end the permission in force here. */
+  /** The server stopped this device (it was erased): end the permission in force here.
+   * Owner decision 61: an account-wide deletion erases account data only. A host must never wire
+   * this, or any account-wide deletion, to the device "stop sharing" erasure (`ErasureService`):
+   * this device's signed-out (anonymous) data stays until sharing is turned off on this device. */
   readonly onStopped: () => Promise<void>;
 }
 
@@ -389,6 +392,8 @@ export function createAccountIdentifier(deps: {
       if (options.quiet) return;
       const issued = await requestSubject(account, observation);
       if (issued === "stopped") {
+        // Ends sharing here only. Never a device erasure: an account-wide deletion must not erase
+        // this device's signed-out data (owner decision 61, account data only).
         if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
         return;
       }
@@ -556,6 +561,8 @@ export function createExtensionAnalyticsHost(
         else await deps.storeConsent?.(false);
         if (!request.enabled) await client.clearQueue();
         // Only after the local stop: record the durable erasure obligation, then try to send it.
+        // This is the person turning sharing off on this device, and only that: an account-wide
+        // deletion must never reach this path (owner decision 61, account data only).
         if (ending?.state === "granted" && deps.erasure) {
           // An index that cannot be read is never taken as 0: erase every index the origin could
           // have used (ids it never used match no person, which is harmless).
