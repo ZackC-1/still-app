@@ -67,3 +67,29 @@ test("when start could not tear itself down, smoke reports the owner token and d
   assert.equal(report.ownerToken, "tok-9");
   assert.equal(stopped, 0);
 });
+
+test("the smoke runs a settings sync round trip, checks Realtime, deletes the account, then stops", async () => {
+  const calls = [];
+  const status = { apiUrl: "http://127.0.0.1:54321", mailpitUrl: "http://127.0.0.1:54324", anonKey: "a", serviceRoleKey: "s", token: "mine-1" };
+  let globalOn = true;
+  const report = await smoke({ mirror: "/private/tmp/still-qa-x" }, {
+    log: quiet,
+    start: () => status,
+    stop: () => {},
+    clearInbox: async () => {},
+    createUser: async () => "id",
+    requestCode: async () => {},
+    waitForCode: async () => "123456",
+    verifyCode: async () => "access-token",
+    adminCode: async () => "654321",
+    realtimeAnswers: async () => true,
+    invokeFunction: async ({ name, body, accessToken }) => {
+      calls.push([name, body.action ?? (body.operations ? "write" : "-"), accessToken]);
+      if (name === "delete-user") return { status: 200, data: { deleted: true } };
+      if (body.operations) { globalOn = body.operations[0].value; return { status: 200, data: { status: "ready", settings: { globalOn } } }; }
+      return { status: 200, data: { status: "ready", lineage: "l", receipt: "r", settingsVersion: 3, settings: { globalOn } } };
+    },
+  });
+  assert.deepEqual(calls.map(([name, action]) => `${name}:${action}`), ["sync-settings:read", "sync-settings:write", "sync-settings:read", "delete-user:-"]);
+  for (const key of ["syncRead", "syncWrite", "syncReadBack", "realtime", "deleted", "stopped"]) assert.equal(report[key], true, key);
+});

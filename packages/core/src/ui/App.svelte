@@ -194,7 +194,7 @@
       status: !c.cloudReachable
         ? {
             tone: "failed",
-            text: STRINGS.sync.unreachable,
+            text: STRINGS.sync.failed,
             retry: c.retrySync ? runSyncRetry : undefined,
           }
         : c.pendingUpload
@@ -309,9 +309,9 @@
         status: !controller.cloudReachable
           ? {
               tone: "failed",
-              text: STRINGS.sync.unreachable,
+              text: STRINGS.sync.failed,
               actionLabel: controller.retrySync
-                ? STRINGS.sync.retry
+                ? STRINGS.sync.tryAgain
                 : undefined,
               onAction: operations.onRetry,
             }
