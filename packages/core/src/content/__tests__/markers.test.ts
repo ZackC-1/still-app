@@ -3,6 +3,7 @@ import type { SignedRuleSetV2 } from "@still/shared-types";
 import type { MarkerAdapter } from "../../rules/extras.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../../rules/packaged.js";
 import { PACKAGED_MARKERS, SHORTS_CHIP_MARKER, admittedMarkers, createMarkerHook } from "../markers.js";
+import { INSTAGRAM_EXTRAS } from "../../rules/instagram-extras.js";
 import type { ContentScriptHandle } from "../index.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
 
@@ -67,14 +68,15 @@ describe("marker hook", () => {
   });
 
   it("admits only adapters whose exact rule selector a same-feature hide surface carries", () => {
-    expect(admittedMarkers(packaged)).toEqual([SHORTS_CHIP_MARKER]);
+    // The free Shorts chip, then each shipped Still Pro marker (Instagram's search-entry mark).
+    expect(admittedMarkers(packaged)).toEqual([SHORTS_CHIP_MARKER, ...INSTAGRAM_EXTRAS.markers]);
     expect(admittedMarkers(packaged, [synthetic])).toEqual([]);
     const withSynthetic = structuredClone(packaged) as SignedRuleSetV2 & { services: { youtube: { surfaces: unknown[] } } };
     withSynthetic.services.youtube.surfaces.push({ id: "synthetic", feature: "youtube.related", action: "hide", selectors: [synthetic.ruleSelector] });
     expect(admittedMarkers(withSynthetic, [synthetic])).toEqual([]); // wrong feature
     withSynthetic.services.youtube.surfaces.push({ id: "synthetic-2", feature: "youtube.comments", action: "hide", selectors: [synthetic.ruleSelector] });
     expect(admittedMarkers(withSynthetic, [synthetic])).toEqual([synthetic]);
-    expect(PACKAGED_MARKERS).toEqual([SHORTS_CHIP_MARKER]);
+    expect(PACKAGED_MARKERS).toEqual([SHORTS_CHIP_MARKER, ...INSTAGRAM_EXTRAS.markers]);
   });
 });
 

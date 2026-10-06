@@ -161,6 +161,79 @@ test("an update does not open the first-run page", async () => {
   }
 });
 
+// Owner decision 28: an update that finds nothing saved (a 2.x upgrader who never changed a
+// setting) saves the defaults that person was already using, in builds that use the V3 settings
+// record. Configured 2.x builds keep today's behaviour and save nothing. The saved record is removed
+// between the install and the update to stand in for a 2.x profile, which never saved one.
+test("an update with nothing saved saves the defaults only in V3 settings builds", async () => {
+  test.setTimeout(120_000);
+  const work = mkdtempSync(join(tmpdir(), "still-upgrade-first-record-"));
+  const extension = join(work, "extension");
+  cpSync(CHROMIUM_EXTENSION, extension, { recursive: true });
+  let browser: Awaited<ReturnType<typeof launchWithExtensionLoader>> | undefined;
+  type Saved = { settings?: { schemaVersion?: number; globalOn?: boolean }; atomic?: { ownership?: string } } | null;
+  const readSaved = (page: Page) =>
+    page.evaluate(async () => ((await chrome.storage.local.get("still:settings"))["still:settings"] ?? null) as unknown);
+  try {
+    browser = await launchWithExtensionLoader(join(work, "profile"));
+    const { context } = browser;
+    const { id } = await browser.load(extension);
+    const probe = await context.newPage();
+    await expect
+      .poll(
+        async () => {
+          await probe.goto(`chrome-extension://${id}/options.html`).catch(() => null);
+          return probe.evaluate(() => chrome.runtime.id).catch(() => null);
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(id);
+    if (!syncConfigured)
+      await expect
+        .poll(async () => ((await readSaved(probe)) as Saved)?.atomic?.ownership ?? null, { timeout: 15_000 })
+        .toBe("never-linked");
+    await probe.evaluate(() => chrome.storage.local.remove("still:settings"));
+    expect(await readSaved(probe)).toBeNull();
+    // The update closes the extension's own pages, so read through a new page afterwards.
+    await probe.close();
+
+    const manifestPath = join(extension, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version: string };
+    const updatedVersion = manifest.version.replace(/\d+$/, (n) => String(Number(n) + 1));
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: updatedVersion }));
+    expect((await browser.load(extension)).id).toBe(id);
+    const reader = await context.newPage();
+    await expect
+      .poll(
+        async () => {
+          await reader.goto(`chrome-extension://${id}/options.html`).catch(() => null);
+          return reader.evaluate(() => chrome.runtime.getManifest().version).catch(() => null);
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(updatedVersion);
+
+    if (syncConfigured) {
+      await new Promise((resolveQuiet) => setTimeout(resolveQuiet, 3_000));
+      expect(await readSaved(reader)).toBeNull();
+    } else {
+      await expect
+        .poll(async () => {
+          const saved = (await readSaved(reader)) as Saved;
+          return saved ? { schema: saved.settings?.schemaVersion, on: saved.settings?.globalOn, owner: saved.atomic?.ownership } : null;
+        }, { timeout: 15_000 })
+        .toEqual({ schema: 2, on: true, owner: "unknown" });
+    }
+  } finally {
+    await browser?.close();
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (error) {
+      console.warn(`could not remove ${work}: ${String(error)}`);
+    }
+  }
+});
+
 test("blocking works on a fresh install without ever looking at the first-run page", async ({ context }) => {
   if (!syncConfigured) await (await firstRunPage(context)).close();
   const page = await context.newPage();

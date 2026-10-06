@@ -22,6 +22,7 @@ import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 import type { AtomicSettingsState } from "../atomic-settings.js";
 import { A, B, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
+import { VECTORS_FILE, digest, type ParityVectors } from "./support/atomic-settings-writer-vectors.js";
 
 describe("fresh initialization in the existing writer transaction", () => {
   it("waits for prior history persistence and denies fresh provenance without writes", async () => {
@@ -41,6 +42,36 @@ describe("fresh initialization in the existing writer transaction", () => {
     const check = vi.fn(async () => false);
     await expect(writer.initializeFresh(check)).rejects.toThrow("fresh-provenance-conflict"); expect(check).not.toHaveBeenCalled();
     expect(await writer.serializeLocalMutation(async () => "next-operation")).toBe("next-operation");
+  });
+});
+
+describe("untouched 2.x upgrade first record (owner decision 28)", () => {
+  const legacyDefaults = (): StoredSettingsRecord => ({ settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 });
+  it("saves the existing unknown conversion of the 2.x defaults exactly once, even when called concurrently", async () => {
+    const storage = new InMemoryStorageAdapter(); const set = vi.spyOn(storage, "set");
+    const writer = new AtomicSettingsWriter(storage);
+    const [first, second] = await Promise.all([writer.initializeUntouchedUpgrade(), writer.initializeUntouchedUpgrade()]);
+    expect(await writer.initializeUntouchedUpgrade()).toEqual(first);
+    expect(second).toEqual(first); expect(set).toHaveBeenCalledTimes(1);
+    const converted = await new AtomicSettingsWriter(new InMemoryStorageAdapter(legacyDefaults())).initialize("unknown");
+    expect(await storage.get()).toEqual(converted);
+    expect(first.atomic).toEqual({ format: 1, sequence: 0, ownership: "unknown", scope: { accountId: null, generation: 0 },
+      anchor: null, pending: [], held: {}, paused: null });
+    expect(permitsUnknownLocalEdit(first)).toBe(true);
+  });
+  it.each([
+    ["legacy Off", { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 7 }, syncMetadata: null }],
+    ["atomic", null],
+  ] as const)("never replaces a retained %s record", async (_name, legacy) => {
+    const retained = legacy ?? await new AtomicSettingsWriter(new InMemoryStorageAdapter(legacyDefaults())).initialize("never-linked");
+    const storage = new InMemoryStorageAdapter(structuredClone(retained) as StoredSettingsRecord); const set = vi.spyOn(storage, "set");
+    expect(await new AtomicSettingsWriter(storage).initializeUntouchedUpgrade()).toEqual(retained);
+    expect(set).not.toHaveBeenCalled(); expect(await storage.get()).toEqual(retained);
+  });
+  it("holds an unreadable record without writing", async () => {
+    const set = vi.fn(async (_record: StoredSettingsRecord) => undefined);
+    const writer = new AtomicSettingsWriter({ get: async () => { throw new Error("unreadable"); }, set, subscribe: () => () => {} });
+    await expect(writer.initializeUntouchedUpgrade()).rejects.toThrow("unreadable"); expect(set).not.toHaveBeenCalled();
   });
 });
 
@@ -271,8 +302,8 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       "-module-cache-path", join(temporary, "modules"), "-o", binary]);
   }, 60_000);
   afterAll(async () => { if (temporary) await rm(temporary, { recursive: true, force: true }); });
-  function host(directory: string, pause = false) {
-    const child = spawn(binary, [directory, ...(pause ? ["pause"] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+  function host(directory: string, pause: boolean | "lost-reply" = false) {
+    const child = spawn(binary, [directory, ...(pause === true ? ["pause"] : pause ? [pause] : [])], { stdio: ["pipe", "pipe", "pipe"] });
     const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
     const lines = createInterface({ input: child.stdout });
     lines.on("line", value => queue.shift()?.resolve(value));
@@ -728,6 +759,65 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     } finally { await first.close(); if (interrupted) await interrupted.close(); }
   });
 
+  // U3-W3 lost acknowledgement: the "lost-reply" host stops after its App Group transaction has
+  // returned and before the bridge builds its reply; SIGKILL then ends it with no reply written.
+  it.each(["unknown", "never-linked"])("killed after the App Group write but before replying (%s): one durable choice, identical retry changes nothing", async ownership => {
+    const directory = join(temporary, "lost-reply-" + ownership); const reader = host(directory); let dying: ReturnType<typeof host> | null = null;
+    try {
+      const seeded = parseStoredSettingsRecord(await reader.post("seed:" + ownership))!;
+      dying = host(directory, "lost-reply");
+      expect(await dying.post({ kind: "settingsIntent", path: "globalOn", value: false, updatedAt: 10 })).toBe("committed-unreplied");
+      await dying.close();
+      const durable = (await reader.adapter.get())!;
+      expect(durable.settings.globalOn).toBe(false);
+      expect(durable.atomic!.sequence).toBe(seeded.atomic!.sequence + 1);
+      expect(durable.atomic!.pending).toHaveLength(ownership === "never-linked" ? 1 : 0);
+      // A duplicate delivery of the same intent finds the saved choice: no second step or request.
+      const retry = JSON.parse(await reader.post({ kind: "settingsIntent", path: "globalOn", value: false, updatedAt: 10 })) as { changed: boolean; status: string };
+      expect(retry).toMatchObject({ changed: false, status: "committed" });
+      expect(await reader.adapter.get()).toEqual(durable);
+      expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
+    } finally { await reader.close(); if (dying) await dying.close(); }
+  });
+  it("a Safari page whose native host died before replying holds, re-reads the saved choice and never resends", async () => {
+    const directory = join(temporary, "lost-reply-page"); const reader = host(directory); const dying: ReturnType<typeof host>[] = [];
+    const sent: { kind: string }[] = []; let projection: unknown;
+    try {
+      await reader.post("seed:never-linked");
+      vi.stubGlobal("location", { protocol: "safari-web-extension:" });
+      vi.stubGlobal("chrome", { runtime: { getURL: () => "safari-web-extension://still/", sendMessage: vi.fn(),
+        sendNativeMessage: async (_app: string, message: { kind: string }) => {
+          sent.push(message);
+          if (message.kind !== "settingsIntent") return { settings: await reader.post(message) };
+          const killed = host(directory, "lost-reply"); dying.push(killed);
+          expect(await killed.post(message)).toBe("committed-unreplied");
+          await killed.close();
+          throw new Error("native host exited before replying");
+        } },
+        storage: { local: { get: async (key: string) => projection === undefined ? {} : { [key]: projection },
+          set: async (values: Record<string, unknown>) => { projection = values["still:settings"]; } },
+        onChanged: { addListener: () => {}, removeListener: () => {} } } });
+      const cache = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 }); await cache.hydrate();
+      const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {},
+        observeBenefits: async () => initialAccessSnapshot() });
+      await access.refreshAccess();
+      const binding = createDesktopPopupBinding(cache, access);
+      try {
+        expect(binding.current()).toMatchObject({ commandAvailability: "ready", settings: { globalOn: true } });
+        // Never "committed": the screen cannot report a save whose reply it did not receive.
+        expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "native-authority-unavailable" });
+        expect(binding.current()).toMatchObject({ commandAvailability: "unavailable", reason: "native-authority-unavailable" });
+        expect(await binding.rereadAuthority()).toEqual({ status: "ready" });
+        expect(binding.current()).toMatchObject({ commandAvailability: "ready", settings: { globalOn: false } });
+        expect(sent.filter(message => message.kind === "settingsIntent")).toHaveLength(1);
+        expect((await reader.adapter.get())!.atomic!.pending).toHaveLength(1);
+      } finally { binding.stop(); }
+    } finally {
+      vi.unstubAllGlobals(); await reader.close();
+      for (const killed of dying) await killed.close();
+    }
+  });
+
   // U3 parity: the same scenario runs through the reviewed TS writer and the compiled StillKit host
   // from identical stored bytes, and both must reach the same records (or both refuse, writing nothing).
   describe("TS and compiled StillKit unknown account-free parity", () => {
@@ -868,6 +958,73 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         expect((await storage.get())!.atomic).toMatchObject({ paused: null, held: {}, pending: legacy.atomic!.pending });
       } finally { await native.close(); }
     });
+  });
+
+  // U3-W4 P1: the shared writer vectors (generated from the TS writer) replayed through the real
+  // compiled App Group store, file lock and bridge. Native request identities are random, so each
+  // newly allocated one maps to the reference identity allocated at the same point.
+  it("every shared writer vector step reaches the reference record through the compiled StillKit bridge", async () => {
+    const vectors = JSON.parse(await readFile(resolve(import.meta.dirname, "../../../../..", VECTORS_FILE), "utf8")) as ParityVectors;
+    const failures: string[] = []; let replayed = 0;
+    for (const [n, vector] of vectors.cases.entries()) {
+      const native = host(join(temporary, `vector-${n}`));
+      try {
+        if (vector.initial) expect(await native.post("replace:" + JSON.stringify(vector.initial))).toBe("replaced");
+        const known = new Set(vector.initial?.atomic?.pending.map(p => p.writeId) ?? []); const mapped = new Map<string, string>();
+        for (const [i, step] of vector.steps.entries()) {
+          const label = `${vector.rule} | ${vector.name} | step ${i}`;
+          const before = await native.post({ kind: "get" });
+          let refused: boolean; let changed: boolean | undefined;
+          if (step.command.kind === "commit") {
+            const { path, value, updatedAt } = step.command;
+            const reply = await native.post({ kind: "settingsIntent", path, value, updatedAt });
+            refused = reply === ""; if (!refused) changed = (JSON.parse(reply) as { changed: boolean }).changed;
+          } else {
+            refused = await native.post({ kind: "settingsAtomic", command: JSON.stringify(step.command.command) }) === "{\"status\":\"unavailable\"}";
+          }
+          const raw = await native.post({ kind: "get" });
+          const record = raw === "" ? null : JSON.parse(raw) as StoredSettingsRecord;
+          for (const pending of record?.atomic?.pending ?? []) {
+            if (!known.has(pending.writeId) && !mapped.has(pending.writeId)) mapped.set(pending.writeId, vector.writeIds[mapped.size] ?? "unallocated");
+            (pending as { writeId: string }).writeId = mapped.get(pending.writeId) ?? pending.writeId;
+          }
+          if (refused !== (step.outcome === "refused")) failures.push(`${label}: native ${refused ? "refused" : "applied"}, reference ${step.outcome}`);
+          if (refused && raw !== before) failures.push(`${label}: native refusal wrote`);
+          if (step.changed !== undefined && changed !== step.changed) failures.push(`${label}: changed ${String(changed)}, reference ${String(step.changed)}`);
+          if (digest(record) !== step.digest) { failures.push(`${label}: stored record differs from the reference writer`); break; }
+          replayed++;
+        }
+        if (mapped.size !== vector.writeIds.length) failures.push(`${vector.rule} | ${vector.name}: ${mapped.size} identities allocated, reference ${vector.writeIds.length}`);
+      } finally { await native.close(); }
+    }
+    expect(failures).toEqual([]);
+    expect(replayed).toBe(vectors.cases.reduce((n, c) => n + c.steps.length, 0));
+  }, 120_000);
+
+  // A held `sites.*` choice is not in the native StillSettings projection (peekRecord overlays core
+  // fields only, and no native consumer reads sites). Every sites consumer is a TS SettingsCache over
+  // the raw record: the app WebView through the bridge, and Safari pages/content scripts through
+  // the browser.storage.local projection. Both must show the held choice, never the stored value.
+  it("held sites.* choices on a native record reach the app WebView and the Safari projection", async () => {
+    const fresh = await new AtomicSettingsWriter(new InMemoryStorageAdapter(null)).initializeFresh(async () => true);
+    const native = host(join(temporary, "held-sites"));
+    try {
+      await native.post("replace:" + JSON.stringify(fresh));
+      await native.adapter.enterScope(A, SESSION);
+      const held = await native.adapter.commitIntent({ path: "sites.youtube.shorts", value: false, updatedAt: 10 });
+      expect(held.atomic).toMatchObject({ paused: "awaiting-anchor", held: { "sites.youtube.shorts": false }, pending: [] });
+      expect((held.settings as unknown as SettingsV2).sites["youtube.shorts"]).toBe(true);
+      const app = new SettingsCache(native.adapter); await app.hydrate();
+      expect((app.current() as unknown as SettingsV2).sites["youtube.shorts"]).toBe(false);
+      const projection = (await native.adapter.get())!;
+      vi.stubGlobal("chrome", { storage: { local: { get: async (key: string) => ({ [key]: projection }), set: async () => {} },
+        onChanged: { addListener() {}, removeListener() {} } } });
+      try {
+        const page = new SettingsCache(new ChromeStorageAdapter()); await page.hydrate();
+        expect((page.current() as unknown as SettingsV2).sites["youtube.shorts"]).toBe(false);
+        expect((page.current() as unknown as SettingsV2).sites["instagram.reels"]).toBe(true);
+      } finally { vi.unstubAllGlobals(); }
+    } finally { await native.close(); }
   });
 });
 

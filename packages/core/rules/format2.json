@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.1",
+  "version": "3.0.2",
   "services": {
     "youtube": {
       "matches": [
@@ -61,6 +61,64 @@
             "article:has(a[href^=\"/reels/\"]:not([href^=\"/reels/audio/\"]) video)",
             "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)"
           ]
+        },
+        {
+          "id": "instagram-explore-recommendations",
+          "feature": "instagram.explore",
+          "action": "hide",
+          "selectors": [
+            "[data-still-instagram-search-entry] form:has(input[type=\"search\"]) ~ div:has(> a[href^=\"/p/\"], > a[href^=\"/reel/\"])"
+          ]
+        },
+        {
+          "id": "instagram-stories-highlights",
+          "feature": "instagram.stories",
+          "action": "hide",
+          "selectors": [
+            "[role=\"menu\"][aria-label=\"Stories\"]",
+            ":is(ul, [role=\"list\"]):has(> a[href^=\"/stories/highlights/\"], > li > a[href^=\"/stories/highlights/\"])"
+          ]
+        },
+        {
+          "id": "instagram-suggested-accounts",
+          "feature": "instagram.suggested",
+          "action": "hide",
+          "selectors": [
+            "aside:has(> a[href=\"/explore/people/\"])",
+            "[role=\"list\"][aria-label=\"Suggested accounts\"]",
+            "[role=\"region\"][aria-label=\"Similar accounts\"]"
+          ]
+        },
+        {
+          "id": "instagram-threads-links",
+          "feature": "instagram.threads",
+          "action": "hide",
+          "selectors": [
+            "a[href^=\"https://threads.com/\" i]",
+            "a[href^=\"https://threads.com?\" i]",
+            "a[href=\"https://threads.com\" i]",
+            "a[href^=\"http://threads.com/\" i]",
+            "a[href^=\"http://threads.com?\" i]",
+            "a[href=\"http://threads.com\" i]",
+            "a[href^=\"https://www.threads.com/\" i]",
+            "a[href^=\"https://www.threads.com?\" i]",
+            "a[href=\"https://www.threads.com\" i]",
+            "a[href^=\"http://www.threads.com/\" i]",
+            "a[href^=\"http://www.threads.com?\" i]",
+            "a[href=\"http://www.threads.com\" i]",
+            "a[href^=\"https://threads.net/\" i]",
+            "a[href^=\"https://threads.net?\" i]",
+            "a[href=\"https://threads.net\" i]",
+            "a[href^=\"http://threads.net/\" i]",
+            "a[href^=\"http://threads.net?\" i]",
+            "a[href=\"http://threads.net\" i]",
+            "a[href^=\"https://www.threads.net/\" i]",
+            "a[href^=\"https://www.threads.net?\" i]",
+            "a[href=\"https://www.threads.net\" i]",
+            "a[href^=\"http://www.threads.net/\" i]",
+            "a[href^=\"http://www.threads.net?\" i]",
+            "a[href=\"http://www.threads.net\" i]"
+          ]
         }
       ]
     },
@@ -102,6 +160,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "49371aebbffc95c366eaba351e819dd7bb3943b86f86e5fae803c1073a05fc5e4b0f9116d7ba7ec92fcd62f06b16c6326d8864b6b49295c8f6690aae0eb28203"
+    "value": "4548051b8185372272f7ae1481886d20f8207cafb46c6acdff5f2241610491570daf0d5a35f7d353c2a2985f0e9fcbd8467fc7bf96fed1b4aa7d74651313b50e"
   }
 }

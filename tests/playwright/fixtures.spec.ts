@@ -48,8 +48,22 @@ async function setEntitled(context: BrowserContext, extensionId: string, entitle
 // swallow every fixture here. This check is the only place that shape is caught.
 test("fixtures stay hand written", () => {
   const MAX_FIXTURE_BYTES = 64 * 1024;
+  // The only sub-directory allowed is the synthetic extras set. Its files get exactly the same
+  // checks as the top-level ones; any other directory is still how a saved page stores its parts.
+  const SYNTHETIC_DIRECTORIES = new Set(["extras"]);
   const entries = readdirSync(FIXTURE_DIR, { withFileTypes: true });
   expect(entries.length, "no fixtures found, so this test is guarding nothing").toBeGreaterThan(0);
+
+  const check = (dir: string, entry: { name: string; isFile(): boolean }, label: string) => {
+    expect(entry.isFile(), `${label} is a directory, which is how a saved page stores its parts`).toBe(true);
+    const bytes = statSync(join(dir, entry.name)).size;
+    expect(bytes, `${label} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
+      MAX_FIXTURE_BYTES,
+    );
+    expect(entry.name, `${label} is not lower-case and hyphenated, which is what a browser save looks like`).toMatch(
+      /^[a-z0-9-]+\.html$/,
+    );
+  };
 
   for (const entry of entries) {
     // Finder writes .DS_Store into any directory it opens. It is ignored repository-wide, it can
@@ -57,14 +71,16 @@ test("fixtures stay hand written", () => {
     // people to expect a red from this check for a reason that is never a leak.
     if (entry.name === ".DS_Store") continue;
 
-    expect(entry.isFile(), `${entry.name} is a directory, which is how a saved page stores its parts`).toBe(true);
-    const bytes = statSync(join(FIXTURE_DIR, entry.name)).size;
-    expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
-      MAX_FIXTURE_BYTES,
-    );
-    expect(entry.name, `${entry.name} is not lower-case and hyphenated, which is what a browser save looks like`).toMatch(
-      /^[a-z0-9-]+\.html$/,
-    );
+    if (entry.isDirectory() && SYNTHETIC_DIRECTORIES.has(entry.name)) {
+      const nested = readdirSync(join(FIXTURE_DIR, entry.name), { withFileTypes: true });
+      expect(nested.length, `${entry.name}/ is empty, so it is guarding nothing`).toBeGreaterThan(0);
+      for (const child of nested) {
+        if (child.name === ".DS_Store") continue;
+        check(join(FIXTURE_DIR, entry.name), child, `${entry.name}/${child.name}`);
+      }
+      continue;
+    }
+    check(FIXTURE_DIR, entry, entry.name);
   }
 });
 
