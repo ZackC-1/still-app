@@ -593,8 +593,13 @@ describe("actual options sync and auth operations", () => {
     state.controller.cloudReachable = false;
     await options(state);
     const before = await f.authority.get();
+    // Owner decision 71: the exact approved wording, spelled out so a strings edit cannot drift it.
+    expect(
+      screen.getByText("Sync didn't finish. Your settings are saved on this device."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.sync.retry }),
+      screen.getByRole("button", { name: STRINGS.sync.tryAgain }),
     );
     expect(p.retrySync).toHaveBeenCalledOnce();
     try {
@@ -606,7 +611,7 @@ describe("actual options sync and auth operations", () => {
       await flush();
       expect(state.controller.cloudReachable).toBe(true);
       expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
-      expect(screen.queryByText(STRINGS.sync.unreachable)).toBeNull();
+      expect(screen.queryByText(STRINGS.sync.failed)).toBeNull();
       expect(await f.authority.get()).toEqual(before);
       expect(f.sendMessage).not.toHaveBeenCalled();
     } finally {
@@ -648,7 +653,7 @@ describe("options current deletion through sync status refreshes", () => {
       expect(
         screen.getByText(
           field === "cloudReachable"
-            ? STRINGS.sync.unreachable
+            ? STRINGS.sync.failed
             : field === "pendingUpload"
               ? STRINGS.sync.syncing
               : STRINGS.sync.synced,

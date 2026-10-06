@@ -57,3 +57,22 @@ export async function createUser({ apiUrl, serviceRoleKey, email, fetchImpl = fe
   const body = await json(response, "create user");
   return body.id;
 }
+
+/** Call one Edge Function as a signed-in user. Returns `{ status, data }`; the token never leaves memory. */
+export async function invokeFunction({ apiUrl, anonKey, accessToken, name, body, fetchImpl = fetch }) {
+  const response = await fetchImpl(`${base(apiUrl)}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey, authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* a non-JSON body is reported by status only */ }
+  return { status: response.status, data };
+}
+
+/** Whether the Realtime service answers behind the gateway (any HTTP answer below 500 on its route). */
+export async function realtimeAnswers({ apiUrl, anonKey, fetchImpl = fetch }) {
+  const response = await fetchImpl(`${base(apiUrl)}/realtime/v1/api/ping`, { headers: { apikey: anonKey } });
+  return response.status < 500;
+}
