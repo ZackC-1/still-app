@@ -96,7 +96,14 @@ export function textScaleRules(options: TextScaleOptions): string {
   // Above 1.5× a single long word can be wider than a 320px column (at 2×, "recommendations" in
   // "Explore recommendations" overflows the settings page by 4px). Let such a word break rather
   // than run off the edge. Nothing changes at 1.5× or below, so the approved frames are untouched.
+  //
+  // The screen's base size follows the text size from the first paint. A host's own loading lines
+  // ("Checking sync…", "Settings are unavailable.") sit in the shared shell, whose older stylesheet
+  // fixes `.still-ui` at 16px until the V3 stylesheet arrives with the same rule scaled; without
+  // this they flash at the normal size first. `:where()` adds no weight, so the V3 stylesheet (and
+  // anything more specific) still decides once it loads. At 1× this is the same 16px.
   const rules: string[] = [
+    `:where(html[${TEXT_SCALE_ATTRIBUTE}]) .still-ui{font-size:calc(16px * var(--text-scale, 1))}`,
     `html[${TEXT_SCALE_ATTRIBUTE}="large"] .still-ui{overflow-wrap:anywhere}`,
   ];
   if (options.compactPopup) {

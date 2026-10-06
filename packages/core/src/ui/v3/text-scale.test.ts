@@ -74,9 +74,12 @@ describe("isMacNavigator", () => {
 });
 
 describe("textScaleRules", () => {
-  it("always lets an over-long word break above 1.5×, and adds nothing else unless asked", () => {
+  it("always scales the screen's base size and lets an over-long word break above 1.5×, nothing else unless asked", () => {
     expect(textScaleRules({})).toBe(
-      `html[${TEXT_SCALE_ATTRIBUTE}="large"] .still-ui{overflow-wrap:anywhere}`,
+      [
+        `:where(html[${TEXT_SCALE_ATTRIBUTE}]) .still-ui{font-size:calc(16px * var(--text-scale, 1))}`,
+        `html[${TEXT_SCALE_ATTRIBUTE}="large"] .still-ui{overflow-wrap:anywhere}`,
+      ].join("\n"),
     );
   });
 

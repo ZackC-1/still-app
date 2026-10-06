@@ -48,6 +48,18 @@ describe("text size binding sites", () => {
     for (const path of CHROMIUM_ENTRIES.slice(1)) expect(read(path)).not.toContain("compactPopup");
   });
 
+  it("the popup binds before it mounts, so every popup layout follows it, Firefox for Android's too", () => {
+    // PopupApp picks the layout after mount: the desktop popup with its sync invitation and rating
+    // cards, or (in the Firefox build on Android) the phone popup. All of them render inside the
+    // document bound here, and the phone popup's root is a compact popup like the desktop one.
+    const main = read("ext-chromium/entrypoints/popup/main.ts");
+    expect(main.indexOf("bindTextScale(document")).toBeGreaterThan(-1);
+    expect(main.indexOf("bindTextScale(document")).toBeLessThan(main.indexOf("mount(PopupApp"));
+    expect(read("ext-chromium/entrypoints/popup/PopupApp.svelte")).toContain('import("./FirefoxAndroidPopup.svelte")');
+    expect(read("ext-chromium/entrypoints/popup/FirefoxAndroidPopup.svelte")).toContain("<MobilePopup ");
+    expect(read("core/src/ui/v3/MobilePopup.svelte")).toContain('data-density="compact"');
+  });
+
   it.each(APPLE_HOSTS)("%s binds once, from Apple's system text size", (path) => {
     const source = read(path);
     expect(calls(source)).toBe(1);

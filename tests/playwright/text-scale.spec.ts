@@ -175,6 +175,41 @@ async function sweepEverySection(page: Page, where: string): Promise<number> {
   return locked;
 }
 
+/** Holds (or fails) the page's own reads of the settings slot, so its loading or unavailable state
+ * stays on screen (the same seam as popup-loading.spec.ts). */
+async function holdSettingsRead(page: Page, mode: "hold" | "fail"): Promise<void> {
+  await page.addInitScript((mode) => {
+    const area = (
+      globalThis as unknown as {
+        chrome: { storage: { local: { get: (...a: unknown[]) => Promise<unknown> } } };
+      }
+    ).chrome.storage.local;
+    const get = area.get.bind(area);
+    const touchesSettings = (keys: unknown) =>
+      keys === "still:settings" ||
+      (Array.isArray(keys) && keys.includes("still:settings")) ||
+      (keys !== null && typeof keys === "object" && !Array.isArray(keys) && "still:settings" in keys);
+    // Record the size the loading or unavailable line has the moment it first appears.
+    const seen = window as unknown as { stillFirstStatusSize?: number };
+    new MutationObserver(() => {
+      if (seen.stillFirstStatusSize !== undefined) return;
+      const line = [...document.querySelectorAll("[role=status]")].find((element) =>
+        /Checking sync…|Settings are unavailable\./.test(element.textContent ?? ""),
+      );
+      if (line) seen.stillFirstStatusSize = parseFloat(getComputedStyle(line).fontSize);
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+    area.get = (...args: unknown[]) => {
+      if (!touchesSettings(args[0])) return get(...args);
+      if (mode === "fail") return Promise.reject(new Error("synthetic storage failure"));
+      return new Promise(() => {}); // never answers: the page stays in its first read
+    };
+  }, mode);
+}
+
+/** The computed font size of an element, in CSS pixels. */
+const fontSizeOf = (locator: ReturnType<Page["locator"]>): Promise<number> =>
+  locator.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+
 test.describe("Chrome Font size reaches the V3 screens", () => {
   test.skip(configured, V3_ONLY);
 
@@ -311,6 +346,100 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     }
   });
 
+  test("the loading and unavailable lines follow the text size too", async () => {
+    // Until the first settings read answers the popup and settings page say "Checking sync…"; a
+    // read that fails says "Settings are unavailable." with Try again. Both follow the text size.
+    for (const [fontSize, scale] of [
+      [16, 1],
+      [32, 2],
+    ] as const) {
+      const browser = await launchWithFontSize(fontSize);
+      try {
+        for (const [path, width, height] of [
+          ["popup.html", 380, 600],
+          ["options.html", 432, 900],
+        ] as const) {
+          for (const mode of ["hold", "fail"] as const) {
+            const page = await browser.context.newPage();
+            await page.setViewportSize({ width, height });
+            await holdSettingsRead(page, mode);
+            await page.goto(`chrome-extension://${browser.id}/${path}`);
+            await page.bringToFront();
+            const where = `${path}, ${mode === "hold" ? "checking" : "unavailable"}, ${fontSize}px`;
+            const line = page.getByRole("status").filter({
+              hasText: mode === "hold" ? "Checking sync…" : "Settings are unavailable.",
+            });
+            await expect(line, where).toBeVisible({ timeout: 10_000 });
+            await expect.poll(() => textScale(page), { message: where }).toBe(String(scale));
+            // Already at the right size the moment it appears: never a flash at the normal size.
+            const first = await page.evaluate(
+              () => (window as unknown as { stillFirstStatusSize?: number }).stillFirstStatusSize,
+            );
+            expect(first, `${where}: size when it first appeared`).toBeCloseTo(16 * scale, 1);
+            expect(await fontSizeOf(line), where).toBeCloseTo(16 * scale, 1);
+            if (mode === "fail") {
+              const retry = page.getByRole("button", { name: "Try again" });
+              await expect(retry, where).toBeVisible();
+              await expectNoSidewaysOverflow(page);
+              await retry.scrollIntoViewIfNeeded();
+              await expect(retry, where).toBeInViewport();
+            }
+            await page.close();
+          }
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  });
+
+  test("at 2× the rating card and everything under it stay reachable, and nothing reaches sideways", async () => {
+    // The card needs a week-old install and a fresh owner allowance from the network, so the
+    // background's two answers are given here instead: it reserved a rating card for this opening,
+    // and the reservation committed. Everything the popup draws is the real card.
+    const browser = await launchWithFontSize(32);
+    try {
+      const page = await browser.context.newPage();
+      await page.setViewportSize({ width: 380, height: 600 });
+      await page.addInitScript(() => {
+        const runtime = (
+          globalThis as unknown as {
+            chrome: { runtime: { sendMessage: (message: unknown, ...rest: unknown[]) => Promise<unknown> } };
+          }
+        ).chrome.runtime;
+        const send = runtime.sendMessage.bind(runtime);
+        runtime.sendMessage = (message: unknown, ...rest: unknown[]) => {
+          const ask = message as { kind?: string; op?: string } | null;
+          if (ask?.kind !== "still:invitation") return send(message, ...rest);
+          if (ask.op === "present")
+            return Promise.resolve({
+              status: "present",
+              card: { installation: "text-scale-check", reservation: { kind: "rating", generation: 1 } },
+            });
+          if (ask.op === "commit") return Promise.resolve({ status: "commit", committed: true });
+          return send(message, ...rest);
+        };
+      });
+      await page.goto(`chrome-extension://${browser.id}/popup.html`);
+      await page.bringToFront();
+      await expect.poll(() => textScale(page)).toBe("2");
+      const card = page.getByRole("region", { name: "Rate Still" });
+      await expect(card).toBeVisible();
+      const app = page.locator('.app[data-density="compact"]');
+      expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
+      expect(await app.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(600);
+      await expectNoSidewaysOverflow(page);
+      await expectEveryControlReachable(page);
+      for (const name of ["Rate Still", "Not now"]) {
+        const button = card.getByRole("button", { name });
+        await button.scrollIntoViewIfNeeded();
+        await expect(button).toBeInViewport({ ratio: 0.99 }); // sub-pixel rounding
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
   test("a minimum font size does not skew the scale", async () => {
     // Chromium includes its minimum font size in computed sizes. With probes at the normal size,
     // a 20px minimum raised the 16px reference to 20px and a 24px default read as 1.2×.
@@ -365,6 +494,24 @@ test.describe("the sync invitation card at large text (V3 build with sign-in)", 
         await switches.nth(index).click();
         await expect(switches.nth(index)).toHaveAttribute("aria-checked", "false");
       }
+      // The background counts each change; close only once it has earned the card (as
+      // sync-invitation.spec.ts does), or the last report can be lost with the page.
+      const [worker] = browser.context.serviceWorkers();
+      await expect
+        .poll(() =>
+          worker!.evaluate(async () => {
+            const local = (
+              globalThis as unknown as {
+                chrome: { storage: { local: { get(key: string): Promise<Record<string, unknown>> } } };
+              }
+            ).chrome.storage.local;
+            const ledger = (await local.get("still:invitationLedger"))["still:invitationLedger"] as
+              | { sync?: string }
+              | undefined;
+            return ledger?.sync;
+          }),
+        )
+        .toBe("earned");
       await first.close();
       const popup = await openPage(browser, "popup.html", 380, 600);
       await expect.poll(() => textScale(popup)).toBe("2");
