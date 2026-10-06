@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { SettingsV2 } from "@still/shared-types";
 import { A, LINEAGE, SESSION } from "./atomic-settings-test-fixtures.js";
 import { digest, formatVectors, generateVectors, VECTORS_FILE, type ParityCase, type ParityRule, type ParityVectors } from "./support/atomic-settings-writer-vectors.js";
 
@@ -63,7 +64,7 @@ describe("shared atomic settings writer vectors", () => {
       let previous = c.initial!.settings.updatedAt; const seen = new Set(c.initial!.atomic?.pending.map(p => p.writeId) ?? []);
       for (const [i, step] of c.steps.entries()) {
         const newest = step.summary!.newestPending; const fresh = newest !== null && !seen.has(newest);
-        const unknownLocal = c.name.includes("ownership-hold") && i === 0;
+        const unknownLocal = c.name.includes("ownership-pause") && i === 0;
         if (step.command.kind === "commit" && !fresh && !unknownLocal) expect(step.summary!.updatedAt, `${c.name} step ${i}`).toBe(previous);
         if (fresh) expect(step.summary!.updatedAt, `${c.name} step ${i}`).toBe(step.command.kind === "commit" ? step.command.updatedAt : previous);
         previous = step.summary!.updatedAt; if (newest) seen.add(newest);
@@ -72,6 +73,31 @@ describe("shared atomic settings writer vectors", () => {
     const holds = byName("queued-updatedAt/ordering-hold-and-unchanged-keep-the-stamp");
     expect(holds.steps.map(s => s.summary!.paused)).toEqual(["ordering-hold", null, null, null]);
     expect(byName("queued-updatedAt/pending-limit-keeps-the-stamp").steps[64]!.summary).toMatchObject({ paused: "pending-limit" });
+  });
+
+  it("VD-15 ownership: an empty account seeds defaults, and every stored ownership hold has a way out", () => {
+    const last = (c: ParityCase) => c.steps.at(-1)!.record!;
+    const seeded = byName("baseline/previous-account-into-empty-account-seeds-defaults");
+    expect(seeded.steps[4]!.summary).toMatchObject({ paused: null, held: {}, pendingCount: 0 });
+    const b = last(seeded) as unknown as { settings: SettingsV2; atomic: { ownership: string; pending: { receipt: { lineage: string }; operations: { path: string }[] }[] } };
+    expect(b.settings).toMatchObject({ globalOn: true, services: { youtube: false, instagram: true, facebook: true, tiktok: true } });
+    expect(b.atomic.ownership).toBe("previous-account");
+    expect(b.atomic.pending).toHaveLength(1);
+    expect(b.atomic.pending[0]!.receipt.lineage).not.toBe(LINEAGE);
+    expect(b.atomic.pending[0]!.operations.map(o => o.path)).toEqual(["services.youtube"]);
+    const aba = last(byName("baseline/a-b-a-returns-to-the-account"));
+    expect(aba.atomic).toMatchObject({ paused: null, held: {}, pending: [] });
+    expect(aba.settings).toMatchObject({ services: { youtube: true, instagram: false } });
+    for (const name of ["baseline/stored-ownership-hold-resolves-on-the-next-read", "baseline/sign-out-releases-an-ownership-hold",
+      "baseline/wake-releases-a-signed-out-ownership-hold"]) {
+      const c = byName(name);
+      expect(c.initial!.atomic).toMatchObject({ paused: "ownership-hold", held: { "services.instagram": false } });
+      expect(c.steps.at(-2)!.summary, name).toMatchObject({ paused: null, held: {} });
+      expect(c.steps.at(-1)!.changed, name).toBe(true); // the switch commits again
+      expect(last(c).settings.services.instagram, name).toBe(false);
+    }
+    const wake = byName("baseline/wake-releases-a-signed-out-ownership-hold");
+    expect(wake.steps[1]!.digest).toBe(wake.steps[0]!.digest);
   });
 
   it("pauses-projection: every write stores the empty retired pauses list", () => {

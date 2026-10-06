@@ -173,7 +173,7 @@ export class AtomicSettingsWriter {
     return this.transaction(async () => {
       const current = await this.adapter.get();
       if (!current) throw new SettingsStorageRecovery("missing-provenance");
-      if (current.atomic) return current;
+      if (current.atomic) return this.releaseSignedOutOwnershipPause(current);
       return this.convertLegacy(current, ownership);
     });
   }
@@ -191,6 +191,19 @@ export class AtomicSettingsWriter {
       if (current) return current;
       return this.convertLegacy({ settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 }, "unknown");
     });
+  }
+  /**
+   * An ownership pause outside any account protects nothing. Sign-out now releases it, but an
+   * earlier build could leave a signed-out record paused, with every switch unavailable; a wake
+   * releases exactly that shape. Settings, ownership, scope and the journal stay as saved.
+   */
+  private async releaseSignedOutOwnershipPause(current: StoredSettingsRecord): Promise<StoredSettingsRecord> {
+    const state = readAtomicSettingsState(current.atomic);
+    if (!state || state.scope.accountId !== null || state.sequence === Number.MAX_SAFE_INTEGER ||
+      state.paused !== "ownership-unconfirmed" && state.paused !== "ownership-hold") return current;
+    const next: StoredSettingsRecord = { ...current, atomic: { ...state, sequence: state.sequence + 1, held: {}, paused: null } };
+    await this.adapter.set(structuredClone(next));
+    return next;
   }
   private async convertLegacy(current: StoredSettingsRecord, ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
     const settings = requireModernSettings(current);
@@ -288,14 +301,19 @@ export class AtomicSettingsWriter {
         if (sessionId === state.scope.sessionId) return current;
       }
       if (state.scope.generation === Number.MAX_SAFE_INTEGER || state.sequence === Number.MAX_SAFE_INTEGER || current.syncEpoch === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("epoch-saturated");
+      // Signing out releases an ownership pause back to local-only control. Such a pause exists
+      // only to keep one account's state apart from another's, so without an account it protects
+      // nothing; the saved settings (what blocking already enforces) stay as they are.
+      const releasesOwnership = accountId === null && (state.paused === "ownership-unconfirmed" || state.paused === "ownership-hold");
       const next = { ...current, syncEpoch: (current.syncEpoch ?? 0) + 1, atomic: { ...state, sequence: state.sequence + 1,
+        ...(releasesOwnership ? { held: {} } : {}),
         ownership: state.scope.accountId !== null || accountId !== null ? "previous-account" as const : state.ownership,
         scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) }, anchor: null,
         // Retire ineligible operations at this complete-record boundary. Settings/held choices
         // and the previous-account marker survive; only proven pristine first-link transfers intent.
         pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
           ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) } }))
-          : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
+          : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : releasesOwnership ? null : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -338,20 +356,20 @@ export class AtomicSettingsWriter {
       }));
       const bound = pending.map(p => sameSettingsScope(p.scope, captured) && p.receipt === null && p.originScope?.accountId === null
         ? { ...p, receipt } : p);
-      const held = { ...state.held };
+      let held: AtomicSettingsState["held"] = { ...state.held };
       let paused = state.paused;
-      if (paused === "ownership-unconfirmed") {
-        // Empty-account defaults are account authority, not permission to discard unowned local
-        // choices or rebase their immutable operations into this account.
-        if (envelope.empty) for (const path of SETTINGS_FIELDS) {
-          const local = held[path] ?? settingsFieldValue(original, path);
-          if (local !== settingsFieldValue(settings, path)) held[path] = local;
-          else delete held[path];
-        }
-        else for (const path of SETTINGS_FIELDS) delete held[path];
-        paused = Object.keys(held).length > 0 ? "ownership-hold" : null;
-      } else if (["awaiting-anchor", "pending-limit", "ownership-hold", "ordering-hold"].includes(paused ?? "")) {
-        for (const path of SETTINGS_FIELDS) if (held[path] === settingsFieldValue(settings, path)) delete held[path];
+      if (paused === "ownership-unconfirmed" || paused === "ownership-hold") {
+        // Previous, other or unknown local ownership: the account wins, and a definitively empty
+        // account wins with the agreed defaults it was just read as. The earlier owner's choices
+        // were retired from the queue at the scope change, so nothing of theirs is uploaded, and
+        // nothing stays held over this account's state. A stored ownership-hold (written by an
+        // earlier build that kept such choices held) resolves the same way on its next read.
+        held = {};
+        paused = null;
+      } else if (["awaiting-anchor", "pending-limit", "ordering-hold"].includes(paused ?? "")) {
+        const remaining = { ...held };
+        for (const path of SETTINGS_FIELDS) if (remaining[path] === settingsFieldValue(settings, path)) delete remaining[path];
+        held = remaining;
         paused = resolvedPause({ ...state, anchor: receipt }, held);
       }
       const next: StoredSettingsRecord = { ...current, settings: projection(settings), syncMetadata: envelope.serverUpdatedAt === null ? null : {

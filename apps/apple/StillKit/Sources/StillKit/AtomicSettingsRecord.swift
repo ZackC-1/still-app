@@ -64,10 +64,12 @@ public enum AtomicSettingsRecord {
     guard ["never-linked", "previous-account", "unknown"].contains(ownership), let raw else { throw Failure.unreadable }
     var root = try decode(raw)
     if let state = root["atomic"]?.object {
-      // A later wake leaves an initialized record alone. The one exception is the retired
-      // pending-limit pause that earlier StillKit builds persisted on unknown local-only records;
-      // clearing it keeps every saved value and held choice exactly and only re-admits edits.
-      guard var state = recoveredLegacyPendingLimit(state, settings: root["settings"]?.object) else { return raw }
+      // A later wake leaves an initialized record alone. The exceptions are the retired
+      // pending-limit pause that earlier StillKit builds persisted on unknown local-only records
+      // (clearing it keeps every saved value and held choice exactly and only re-admits edits), and,
+      // as in AtomicSettingsWriter.initialize, an ownership pause left on a signed-out record.
+      guard var state = recoveredLegacyPendingLimit(state, settings: root["settings"]?.object)
+        ?? releasedSignedOutOwnershipPause(state) else { return raw }
       guard case .number(let sequence) = state["sequence"] else { return raw }
       state["sequence"] = .number(sequence + 1)
       root["atomic"] = .object(state)
@@ -186,6 +188,18 @@ public enum AtomicSettingsRecord {
     return state
   }
 
+  /// Mirrors AtomicSettingsWriter.releaseSignedOutOwnershipPause: an ownership pause outside any
+  /// account protects nothing, so a wake clears it and its held overlay. Nil for every other shape.
+  private static func releasedSignedOutOwnershipPause(_ state: [String: SettingsJSONValue]) -> [String: SettingsJSONValue]? {
+    guard validState(state), state["scope"]?.object?["accountId"] == .null,
+      case .number(let sequence) = state["sequence"], sequence < SettingsV2Migration.maxRevision,
+      state["paused"] == .string("ownership-unconfirmed") || state["paused"] == .string("ownership-hold") else { return nil }
+    var state = state
+    state["held"] = .object([:])
+    state["paused"] = .null
+    return state
+  }
+
   /// Internal host commands operate on the same locked complete record. Receipt syntax is not
   /// authentication: the web backend adapter supplies it only after its authenticated own-row read.
   public static func command(_ raw: Data?, command: Data) throws -> Data {
@@ -234,6 +248,11 @@ public enum AtomicSettingsRecord {
       state["anchor"] = .null
       if action["accountId"] != .null, state["ownership"] != .string("never-linked") {
         state["paused"] = .string("ownership-unconfirmed")
+      } else if action["accountId"] == .null, state["paused"] == .string("ownership-unconfirmed") || state["paused"] == .string("ownership-hold") {
+        // Mirrors AtomicSettingsWriter.enterScope: sign-out releases an ownership pause back to
+        // local-only control; the saved settings stay as they are.
+        state["held"] = .object([:])
+        state["paused"] = .null
       }
       state["pending"] = .array(pending)
       if priorScope["accountId"] != .null || action["accountId"] != .null { state["ownership"] = .string("previous-account") }
@@ -294,19 +313,13 @@ public enum AtomicSettingsRecord {
         }
       }
       settings["clocks"] = .object(clocks)
-      if state["paused"] == .string("ownership-unconfirmed") {
-        var held = state["held"]!.object!
-        if empty {
-          for path in PackagedFeatureRegistry.settingsFields {
-            guard let originalValue = field(original, path), let canonicalValue = field(settings, path) else { throw Failure.unreadable }
-            let local = held[path] ?? .bool(originalValue)
-            if local != .bool(canonicalValue) { held[path] = local }
-            else { held.removeValue(forKey: path) }
-          }
-        } else { held.removeAll() }
-        state["held"] = .object(held)
-        state["paused"] = held.isEmpty ? .null : .string("ownership-hold")
-      } else if case .string(let pause) = state["paused"], ["awaiting-anchor", "pending-limit", "ownership-hold", "ordering-hold"].contains(pause) {
+      if state["paused"] == .string("ownership-unconfirmed") || state["paused"] == .string("ownership-hold") {
+        // Mirrors AtomicSettingsWriter.acknowledge: previous, other or unknown local ownership lets
+        // the account win, and a definitively empty account wins with its agreed defaults. Nothing
+        // of the earlier owner's is uploaded or left held; a stored ownership-hold resolves too.
+        state["held"] = .object([:])
+        state["paused"] = .null
+      } else if case .string(let pause) = state["paused"], ["awaiting-anchor", "pending-limit", "ordering-hold"].contains(pause) {
         var held = state["held"]!.object!
         for path in PackagedFeatureRegistry.settingsFields {
           if let value = field(settings, path), held[path] == .bool(value) { held.removeValue(forKey: path) }

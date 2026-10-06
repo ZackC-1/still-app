@@ -93,8 +93,16 @@
     legacyPopupAuthority ? legacyView.recovering : popupView.recovering,
   );
   function recoverSettings(): void {
-    if (legacyPopupAuthority) legacyView.recoverSettings();
-    else popupView.recoverSettings();
+    if (legacyPopupAuthority) {
+      legacyView.recoverSettings();
+      return;
+    }
+    // An ownership pause clears only through this account's own settings read, never a local
+    // reread, so Try again also asks sync to read the account again (it shares any read in flight).
+    const reason = committedPopupBinding?.current().reason;
+    if (c.userId && (reason === "ownership-hold" || reason === "ownership-unconfirmed"))
+      runSyncRetry();
+    popupView.recoverSettings();
   }
   let desktopPresentation = $derived(
     committedPopupBinding ? popupPresentation : undefined,
@@ -271,7 +279,29 @@
                 void controller.confirmDeleteAccount();
             }
           : undefined,
+      // "Delete shared data on all devices": only while the build offers it (controller.sharedData
+      // is null otherwise) and no request is on its way.
+      onDeleteSharedData:
+        identity && !controller.sharedDataSending
+          ? () => {
+              if (current() && !controller.sharedDataSending)
+                void controller.confirmDeleteSharedData();
+            }
+          : undefined,
+      onRetrySharedData:
+        identity && !controller.sharedDataSending
+          ? () => {
+              if (current() && !controller.sharedDataSending)
+                void controller.retryDeleteSharedData();
+            }
+          : undefined,
     };
+  });
+  // The account-wide deletion's state, read for each signed-in account the settings page shows.
+  $effect(() => {
+    if (!settingsHost) return;
+    void c.userId;
+    void c.loadSharedData();
   });
   let optionsSync = $derived.by((): ExtensionSettingsProps["sync"] => {
     const controller = c;
@@ -300,6 +330,15 @@
               : { tone: "pending", text: STRINGS.sync.checking },
         onSignOut: operations.onSignOut,
         onDeleteAccount: operations.onDeleteAccount,
+        sharedData:
+          controller.sharedData && controller.sharedData.account === identity
+            ? {
+                withdrawal: controller.sharedData.withdrawal,
+                stoppedElsewhere: controller.sharedData.stoppedElsewhere,
+                onDelete: operations.onDeleteSharedData,
+                onRetry: operations.onRetrySharedData,
+              }
+            : undefined,
       },
     };
   });

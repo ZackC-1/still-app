@@ -123,12 +123,30 @@ describe("existing cache and serialized complete-record authority", () => {
     await cache.setGlobalOn(false); const first = await cache.enterAtomicScope(A);
     const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
     await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
-    expect(cache.current().globalOn).toBe(false);
+    // VD-15 rule: an unknown owner entering an empty account adopts its agreed defaults.
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
     await cache.enterAtomicScope(null);
     const replacement = await cache.enterAtomicScope(account);
     await cache.acknowledgeAtomic(canonical(baseline, 1), replacement);
     expect(cache.current().globalOn).toBe(true);
     expect(cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+  });
+  it("a wake releases an ownership pause an earlier build left on a signed-out record, and only that shape", async () => {
+    const h = authority(); const linked = await h.writer.initialize("unknown");
+    const entered = await h.writer.enterScope(A, SESSION);
+    const signedIn = { ...entered, atomic: { ...entered.atomic!, paused: "ownership-hold", held: { "services.instagram": false } } };
+    await h.storage.set(signedIn);
+    expect(await h.writer.initialize("unknown")).toEqual(signedIn); // an account read resolves this one
+    const signedOut = { ...linked, atomic: { ...linked.atomic!, ownership: "previous-account" as const, sequence: 7,
+      paused: "ownership-hold", held: { "services.instagram": false } } };
+    await h.storage.set(signedOut);
+    const released = await h.writer.initialize("unknown");
+    expect(released.atomic).toMatchObject({ paused: null, held: {}, sequence: 8, ownership: "previous-account", scope: { accountId: null } });
+    expect(released.settings).toEqual(signedOut.settings);
+    const write = vi.spyOn(h.storage, "set");
+    expect(await h.writer.initialize("unknown")).toEqual(released);
+    expect(write).not.toHaveBeenCalled();
   });
   it("an undelivered old A generation retires without replay after A-null-B-null-A", async () => {
     const h = authority(); await h.writer.initialize("unknown");
@@ -265,16 +283,17 @@ describe("existing cache and serialized complete-record authority", () => {
       expect(vi.getTimerCount()).toBe(0);
     } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
-  it("a local action during empty-account adoption keeps earlier unknown-owner choices held", async () => {
+  it("empty-account adoption by an unknown owner seeds the agreed defaults, even after a local action during the read", async () => {
     const h = authority(); await h.writer.initialize("unknown");
     const cache = new SettingsCache(h.port, { now: () => 10 }); await cache.hydrate();
     await cache.setGlobalOn(false); const pending: never[] = [];
     const scope = await cache.enterAtomicScope(A); await cache.setService("youtube", false);
     const clean = authority(); const defaults = await clean.writer.initialize("unknown");
     await cache.acknowledgeAtomic({ ...canonical(defaults, 0), empty: true }, scope);
-    expect(cache.current()).toMatchObject({ globalOn: false, services: { youtube: false } });
-    expect((await h.storage.get())!.atomic).toMatchObject({ pending, paused: "ownership-hold",
-      held: { globalOn: false, "services.youtube": false } });
+    expect(cache.current()).toMatchObject({ globalOn: true, services: { youtube: true } });
+    const saved = (await h.storage.get())!;
+    expect(saved.atomic).toMatchObject({ pending, paused: null, held: {}, ownership: "previous-account" });
+    expect(saved.settings).toMatchObject({ globalOn: true, services: DEFAULT_SETTINGS.services });
   });
   it("writer rejects reused operation identity before mutation", async () => {
     const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
@@ -561,7 +580,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       const cache = new SettingsCache(native.adapter, { now: () => 10 }); await cache.hydrate();
       await cache.setGlobalOn(false); const first = await cache.enterAtomicScope(A);
       await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
-      expect(cache.current().globalOn).toBe(false);
+      expect(cache.current().globalOn).toBe(true); // an unknown owner adopts the empty account's defaults
       await cache.enterAtomicScope(null);
       const sameA = await cache.enterAtomicScope(A); await cache.acknowledgeAtomic(canonical(baseline, 1), sameA);
       expect(cache.current().globalOn).toBe(true); expect(cache.currentRecord().atomic!.held).toEqual({});
@@ -695,7 +714,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     }
     expect(listeners.size).toBe(0);
   });
-  it("compiled native unknown/previous ownership preserves all-Off holds on empty account", async () => {
+  it("compiled native unknown/previous ownership adopts empty-account defaults; never-linked seeds its choices", async () => {
     for (const owner of ["unknown", "previous-account", "never-linked"] as const) {
       const native = host(join(temporary, `native-adoption-${owner}`));
       try {
@@ -704,25 +723,24 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         await cache.setGlobalOn(false);
         for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await cache.setService(id, false);
         const scope = await cache.enterAtomicScope(A);
-        // A new local choice while first account read is outstanding cannot erase the hold provenance.
+        // A local choice while the first account read is outstanding is not a seed either.
         if (owner !== "never-linked") await cache.setGlobalOn(true);
         const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
         await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, scope);
-        expect(cache.current().globalOn).toBe(owner !== "never-linked");
-        expect(Object.values(cache.current().services).every(on => !on)).toBe(true);
+        const seeded = owner === "never-linked";
+        expect(cache.current().globalOn).toBe(!seeded);
+        expect(Object.values(cache.current().services).every(on => on === !seeded)).toBe(true);
         const saved = (await native.adapter.get())!;
-        if (owner !== "never-linked") {
-          expect(saved.atomic).toMatchObject({ paused: "ownership-hold", held: { "services.youtube": false } });
-          expect(saved.atomic!.held.globalOn).toBeUndefined();
-          expect(saved.settings.globalOn).toBe(true);
-          expect(saved.atomic!.pending).toEqual([]);
-          expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, saved.atomic!)).filter(Boolean)).toEqual([]);
+        if (!seeded) {
+          // VD-15: the account wins with its agreed defaults; nothing held, nothing to upload.
+          expect(saved.atomic).toMatchObject({ paused: null, held: {}, pending: [] });
+          expect(saved.settings).toMatchObject({ globalOn: true, services: DEFAULT_SETTINGS.services });
         } else {
           expect(saved.atomic!.held).toEqual({});
           expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, saved.atomic!)).filter(Boolean)).toHaveLength(5);
         }
         const reopened = new SettingsCache(native.adapter); await reopened.hydrate();
-        expect(reopened.current().globalOn).toBe(owner !== "never-linked");
+        expect(reopened.current().globalOn).toBe(!seeded);
       } finally { await native.close(); }
     }
   });

@@ -963,3 +963,81 @@ describe("controlled D03 extension settings", () => {
     view.unmount();
   });
 });
+
+describe("free-period Restore purchase link (owner decisions 62 and 73)", () => {
+  async function freeProps() {
+    const { props } = await fixture("locked");
+    const { pro: _pro, ...free } = props;
+    return free as typeof props;
+  }
+
+  it("is absent unless the host supplies a Restore port", async () => {
+    const props = await freeProps();
+    const view = render(ExtensionSettings, { props });
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    view.unmount();
+  });
+
+  it("adds nothing whenever a paid producer is supplied, even with a Restore port", async () => {
+    // The paid card keeps its own Restore control; the free-period link must not be added to it.
+    const { props } = await fixture("locked");
+    const count = () => screen.queryAllByRole("button", { name: "Restore purchase" }).length;
+    const without = render(ExtensionSettings, { props });
+    const paidCardOnly = count();
+    without.unmount();
+    const onRestore = vi.fn();
+    const view = render(ExtensionSettings, { props: { ...props, onRestore } });
+    expect(count()).toBe(paidCardOnly);
+    for (const button of screen.queryAllByRole("button", { name: "Restore purchase" }))
+      await fireEvent.click(button);
+    expect(onRestore).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("asks once per tap and is held while a check is checking or failed", async () => {
+    const props = await freeProps();
+    const onRestore = vi.fn();
+    const view = render(ExtensionSettings, { props: { ...props, onRestore } });
+    const link = () => screen.getByRole("button", { name: "Restore purchase" });
+    await fireEvent.click(link());
+    expect(onRestore).toHaveBeenCalledOnce();
+    for (const state of ["checking", "failed"] as const) {
+      await view.rerender({ ...props, onRestore, restore: { state } });
+      expect(link()).toBeDisabled();
+      await fireEvent.click(link());
+      expect(onRestore).toHaveBeenCalledOnce();
+    }
+    for (const state of ["restored", "nothing"] as const) {
+      await view.rerender({ ...props, onRestore, restore: { state } });
+      expect(link()).toBeEnabled();
+    }
+    view.unmount();
+  });
+
+  it.each([
+    ["restored", ["Still Pro is restored on this device."]],
+    [
+      "nothing",
+      [
+        "No Still Pro purchase was found for this account.",
+        "Bought it with another account or Apple ID? Sign in with that one and try again.",
+      ],
+    ],
+    [
+      "failed",
+      [
+        "We couldn't finish checking. Nothing changed.",
+        "Your free controls and saved choices are unaffected.",
+      ],
+    ],
+    ["checking", ["Checking for Still Pro purchases…"]],
+  ] as const)("shows the existing %s wording beside the link", async (state, lines) => {
+    const props = await freeProps();
+    const view = render(ExtensionSettings, {
+      props: { ...props, onRestore: vi.fn(), restore: { state } },
+    });
+    for (const line of lines) expect(screen.getByText(line)).toBeVisible();
+    expect(document.body.textContent ?? "").not.toMatch(/Get Still Pro|Buy|\$|€|£/);
+    view.unmount();
+  });
+});

@@ -87,6 +87,10 @@ const scope = (accountId: string | null, sessionId?: string) => atomic({ action:
 const ack = (envelope: CanonicalSettingsEnvelope, captured: SettingsScope) => atomic({ action: "acknowledge", envelope, scope: captured });
 const emptyAccount = (baseline: StoredSettingsRecord): CanonicalSettingsEnvelope =>
   ({ ...canonical(baseline, 0), empty: true, serverUpdatedAt: null });
+const OTHER_LINEAGE = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+/** An account other than A: its own lineage, so nothing can be confused with A's receipt. */
+const otherAccount = (envelope: CanonicalSettingsEnvelope): CanonicalSettingsEnvelope =>
+  ({ ...envelope, lineage: OTHER_LINEAGE, receipt: { ...envelope.receipt, lineage: OTHER_LINEAGE } });
 /** A step is either a fixed command or one derived from the reference record at that point. */
 type StepSource = ParityCommand | ((current: StoredSettingsRecord | null, history: readonly (StoredSettingsRecord | null)[]) => ParityCommand);
 interface CaseSource { name: string; rule: ParityRule; about: string; initial: StoredSettingsRecord | null; steps: StepSource[] }
@@ -123,6 +127,11 @@ async function sources(): Promise<CaseSource[]> {
   const sequenceBound: StoredSettingsRecord = { ...linked, atomic: { ...linked.atomic!, sequence: Number.MAX_SAFE_INTEGER } };
   const generationBound: StoredSettingsRecord = { ...linked, atomic: { ...linked.atomic!, scope: { ...linkedScope, generation: Number.MAX_SAFE_INTEGER } } };
   const pendingAt = (current: StoredSettingsRecord | null) => current!.atomic!.scope;
+  // What an earlier build saved after VD-15: old choices held over the new account's defaults.
+  const stuck: StoredSettingsRecord = { ...linked, atomic: { ...linked.atomic!, sequence: linked.atomic!.sequence + 1,
+    ownership: "previous-account", paused: "ownership-hold", held: { "services.instagram": false } } };
+  const stuckSignedOut: StoredSettingsRecord = { ...stuck, atomic: { ...stuck.atomic!, anchor: null,
+    scope: { accountId: null, generation: linkedScope.generation + 1 } } };
 
   return [
     { name: "compaction/never-linked-journal-stays-bounded", rule: "compaction", initial: freshRecord,
@@ -149,8 +158,8 @@ async function sources(): Promise<CaseSource[]> {
       about: "A first-linked record without an anchor holds new choices (awaiting-anchor) without restamping, then acknowledgement clears them.",
       steps: [scope(A, SESSION), commit("globalOn", false, 500), commit("sites.youtube.shorts", false, 501),
         current => ack(canonical(baseline, 1), pendingAt(current)), commit("globalOn", false, 700)] },
-    { name: "queued-updatedAt/ownership-hold-keeps-the-stamp", rule: "queued-updatedAt", initial: baseline,
-      about: "An unconfirmed previous-ownership record holds choices without restamping; an empty account keeps differing local choices held.",
+    { name: "queued-updatedAt/ownership-pause-keeps-the-stamp", rule: "queued-updatedAt", initial: baseline,
+      about: "An unconfirmed previous-ownership record holds choices without restamping; an empty account then wins with its agreed defaults and nothing stays held.",
       steps: [commit("globalOn", false, 400), scope(A, SESSION), commit("services.youtube", false, 500),
         current => ack(emptyAccount(baseline), pendingAt(current)), commit("services.youtube", true, 600), commit("globalOn", true, 700)] },
     { name: "queued-updatedAt/pending-limit-keeps-the-stamp", rule: "queued-updatedAt", initial: linked,
@@ -204,6 +213,25 @@ async function sources(): Promise<CaseSource[]> {
         current => ack({ ...canonical(baseline, 3), lineage: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
           receipt: { version: 1, lineage: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", revision: 3, mac: "A".repeat(43) } }, pendingAt(current)),
         commit("services.facebook", false, 12), scope(null)] },
+    { name: "baseline/previous-account-into-empty-account-seeds-defaults", rule: "baseline", initial: linked,
+      about: "VD-15: A's choice, sign-out, a signed-out choice, then a new empty account B: B wins with its agreed defaults, nothing earlier is queued or held, and B's own next choice is bound to B's receipt.",
+      steps: [commit("services.instagram", false, 10), scope(null), commit("services.facebook", false, 11), scope(B, SESSION),
+        current => ack(otherAccount(emptyAccount(baseline)), pendingAt(current)), commit("services.youtube", false, 12)] },
+    { name: "baseline/a-b-a-returns-to-the-account", rule: "baseline", initial: linked,
+      about: "A to empty B to A: each account wins on entry; A's row is adopted on return and B's queued choice never follows into A.",
+      steps: [commit("services.instagram", false, 10), scope(null), scope(B, SESSION),
+        current => ack(otherAccount(emptyAccount(baseline)), pendingAt(current)), commit("services.youtube", false, 12),
+        scope(null), scope(A, SESSION), current => ack(canonical(withSettings(baseline, { ...v2(baseline), services: { ...v2(baseline).services, instagram: false },
+          clocks: { ...v2(baseline).clocks, "services.instagram": { baseRevision: 1, localStep: 1 } } }), 2), pendingAt(current))] },
+    { name: "baseline/stored-ownership-hold-resolves-on-the-next-read", rule: "baseline", initial: stuck,
+      about: "A stored ownership-hold (earlier build) resolves on the account's next read: the account wins, the overlay is gone, commands commit.",
+      steps: [ack(canonical(linked, 1), linkedScope), commit("services.instagram", false, 20)] },
+    { name: "baseline/sign-out-releases-an-ownership-hold", rule: "baseline", initial: stuck,
+      about: "Sign-out releases an ownership hold back to local-only control: saved settings stay, the overlay and pause go.",
+      steps: [scope(null), commit("services.instagram", false, 20)] },
+    { name: "baseline/wake-releases-a-signed-out-ownership-hold", rule: "baseline", initial: stuckSignedOut,
+      about: "A signed-out record an earlier build left paused is released by the next wake's initialize; a second wake writes nothing.",
+      steps: [atomic({ action: "initialize", ownership: "unknown" }), atomic({ action: "initialize", ownership: "unknown" }), commit("services.instagram", false, 20)] },
     { name: "baseline/never-linked-empty-account-first-link", rule: "baseline", initial: freshRecord,
       about: "A never-linked first link into an empty account carries the local choices as bound requests.",
       steps: [commit("globalOn", false, 10), commit("services.instagram", false, 11), scope(A, SESSION),

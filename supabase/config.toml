@@ -403,7 +403,9 @@ verify_jwt = true
 # verify_jwt=false is deliberate: device erasure must work without an account (stopping sharing never
 # needs a signup). A device sends its erasure key (a one-way HMAC of its private consent handle) and
 # the database derives every target from it; a request names no id. The worker route is gated by a
-# constant-time compare against ANALYTICS_ERASURE_WORKER_TOKEN (fail closed).
+# constant-time compare against ANALYTICS_ERASURE_WORKER_TOKEN (fail closed). The account-wide routes
+# ("account", "account-status") verify the signed-in session inside the handler with the shared
+# withAuthenticatedUser gate; the account is the token's subject, never the body.
 verify_jwt = false
 
 [functions.selector-canary]

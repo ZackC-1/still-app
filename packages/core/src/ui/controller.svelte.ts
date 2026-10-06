@@ -228,6 +228,34 @@ export interface UiAnalytics {
   setSharing?(enabled: boolean): Promise<boolean>;
   /** Remember that the one-time notice was seen. */
   acknowledgeNotice?(): void;
+  /** Account-wide "Delete shared data on all devices" (U5-W3 packet B). Every call resolves null
+   * when the build does not offer it (per-device identities not wired): the action then stays
+   * hidden. */
+  accountErasure?: UiAccountErasure;
+}
+
+/** What the settings page shows for the account-wide deletion. */
+export interface UiAccountErasureView {
+  /** The approved withdrawal line to show, or "none". */
+  readonly withdrawal: "none" | "requested" | "verifying" | "deleted" | "failed";
+  /** This device was stopped by a deletion asked on another device (shown once). */
+  readonly stoppedElsewhere: boolean;
+}
+
+export interface UiAccountErasure {
+  state(account: string): Promise<UiAccountErasureView | null>;
+  /** Stop sharing on this device first (never a device erasure, owner decision 61), then send the
+   * request with this account's session. Null when nothing was sent because sharing could not be
+   * confirmed off here, or the action is not offered. Called synchronously from the confirming tap. */
+  start(account: string): Promise<UiAccountErasureView | null>;
+  retry(account: string): Promise<UiAccountErasureView | null>;
+  /** The done line or the other-device line has been shown. */
+  acknowledge(account: string): Promise<void> | void;
+}
+
+/** The account-wide deletion as the settings page renders it, for the account it belongs to. */
+export interface SharedDataErasure extends UiAccountErasureView {
+  readonly account: string;
 }
 
 export interface UsageSharingState {
@@ -326,6 +354,10 @@ export class UiController {
   usageSharing = $state<boolean | null>(null);
   /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
   usageNoticeVisible = $state(false);
+  /** Account-wide "Delete shared data on all devices"; null hides it (not offered, or signed out). */
+  sharedData = $state.raw<SharedDataErasure | null>(null);
+  /** A deletion request (or its retry) is on its way: the action waits. */
+  sharedDataSending = $state(false);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -1355,6 +1387,8 @@ export class UiController {
     // to show its outcome to, and the next session must be able to start its own.
     this.deleteFlow = "idle";
     this.deleteError = null;
+    this.sharedData = null;
+    this.sharedDataSending = false;
     this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
@@ -1430,6 +1464,78 @@ export class UiController {
       if (deletingUserId) this.analyticsCall((a) => a.identify(deletingUserId));
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // ── Account-wide "Delete shared data on all devices" (owner decisions 60, 61, 74) ────────────
+
+  /** Read the action's state for the signed-in account. Hidden (null) when signed out or when the
+   * build does not offer it. */
+  async loadSharedData(): Promise<void> {
+    const account = this.userId;
+    const service = this.analytics?.accountErasure;
+    if (!account || !service) {
+      this.sharedData = null;
+      return;
+    }
+    const revision = this.accountRevision;
+    let view: UiAccountErasureView | null;
+    try {
+      view = await service.state(account);
+    } catch {
+      view = null;
+    }
+    if (this.userId !== account || this.accountRevision !== revision) return;
+    this.showSharedData(account, view);
+  }
+
+  /** The person confirmed. A signed-in session is enough (no fresh code, D60). The local stop
+   * happens first, in the host, so on failure "Sharing stays off on this device" is true. */
+  confirmDeleteSharedData(): Promise<void> {
+    // No await before start(): a host that must change consent itself needs the tap's gesture.
+    return this.sendSharedData((service, account) => service.start(account), true);
+  }
+
+  /** "Try again" after the request could not be sent. */
+  retryDeleteSharedData(): Promise<void> {
+    return this.sendSharedData((service, account) => service.retry(account), false);
+  }
+
+  private async sendSharedData(
+    call: (service: UiAccountErasure, account: string) => Promise<UiAccountErasureView | null>,
+    stopsSharing: boolean,
+  ): Promise<void> {
+    const account = this.userId;
+    const service = this.analytics?.accountErasure;
+    if (!account || !service || this.sharedData?.account !== account || this.sharedDataSending) return;
+    const revision = this.accountRevision;
+    this.sharedDataSending = true;
+    let view: UiAccountErasureView | null;
+    try {
+      view = await call(service, account);
+    } catch {
+      view = null;
+    }
+    this.sharedDataSending = false;
+    // Signed out or another account meanwhile: this outcome is no longer this page's to show.
+    if (this.userId !== account || this.accountRevision !== revision) return;
+    // Sharing on this device has changed: show the switch as it now is.
+    if (stopsSharing) void this.loadUsageSharing();
+    // Null: nothing was sent (sharing could not be confirmed off here). Show what the host holds,
+    // never a line it did not report.
+    if (view === null) {
+      await this.loadSharedData();
+      return;
+    }
+    this.showSharedData(account, view);
+  }
+
+  private showSharedData(account: string, view: UiAccountErasureView | null): void {
+    this.sharedData = view ? { account, ...view } : null;
+    // The done line and the other-device line are shown once: this page keeps them, later ones
+    // do not repeat them.
+    if (view && (view.withdrawal === "deleted" || view.stoppedElsewhere)) {
+      this.analyticsCall((a) => void a.accountErasure?.acknowledge(account));
     }
   }
 
