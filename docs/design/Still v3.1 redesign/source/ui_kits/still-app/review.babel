@@ -1,0 +1,88 @@
+// Shared helpers for the D02–D04 review pages. Not part of the component library.
+const RDS = window.StillDesignSystem_c8e8ab;
+
+const REVIEW_PURPOSES = [
+  { name: 'Email', text: '[Approved purpose text: how your email is used with your usage data]' },
+  { name: 'Usage analytics', text: '[Provider]: which settings are used, so they can be improved.' },
+  { name: 'AI processing', text: '[Provider]: [approved purpose text]' },
+];
+const SAMPLE_OFFER = { price: '$9.99', priceNote: 'One payment. Access forever. No subscription' };
+const PRO_IDS = RDS.ProControlList().map(c => c.id);
+const accessAll = a => PRO_IDS.reduce((m, id) => ({ ...m, [id]: a }), {});
+// Desktop sidebar ads is desktop-only: mobile hosts never list it.
+const MOBILE_CONTROLS = { facebook: RDS.SiteInventory.facebook.controls.filter(c => c.id !== 'sidebar_ads') };
+const MOBILE_PRO = RDS.ProControlList(c => c.id !== 'sidebar_ads');
+const proKnownMissing = access => access && Object.values(access).includes('locked') && !Object.values(access).some(a => a === 'checking' || a === 'purchased' || a === 'protected' || a === 'verify');
+const canOfferPro = (host, access, channelReady = true) => host !== 'safari' && channelReady && access && Object.values(access).includes('locked') && !Object.values(access).some(a => a === 'checking' || a === 'purchased' || a === 'protected' || a === 'verify');
+const DE_YT = [
+  { id: 'yt_shorts', label: 'Shorts', sub: 'Geteilte Shorts, die du öffnest, werden weiter abgespielt.', free: true, defaultOn: true },
+  { id: 'yt_related', label: 'Ähnliche Videos', sub: 'Neben dem Player. Die Wiedergabe bleibt.' },
+  { id: 'yt_endscreen', label: 'Vorschläge am Ende des Videos', sub: 'Wiederholen und die Player-Steuerung bleiben.' },
+  { id: 'yt_autoplay', label: 'Automatische Wiedergabe verhindern', sub: 'Deine Warteschlangen und Playlists bleiben.' },
+  { id: 'yt_comments', label: 'Kommentare' }, { id: 'yt_livechat', label: 'Livechat' },
+];
+
+function Sec({ id, title, notes, children }) {
+  return (
+    <section className="r-sec" data-screen-label={title}>
+      <div className="r-meta">{id && <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.04em', margin: '0 0 4px' }}>{id}</p>}<h2>{title}</h2>{notes}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>{children}</div>
+    </section>
+  );
+}
+
+// kind: iphone | android | popover | tab | mac | iphoneapp | ipadapp
+function Device({ kind, cap, w, h, theme = 'light', scale, safeTop = 0, safeBottom = 0, url, title = 'Still', cls = '', children }) {
+  const sheet = kind === 'iphone' || kind === 'android';
+  const avail = h - safeTop - safeBottom - (sheet ? 72 : 0);
+  const vars = { width: w, height: h, ['--popup-max-block-size']: avail + 'px' };
+  if (scale) vars['--text-scale'] = scale;
+  const dims = w + '×' + h + (scale ? ' · text ' + scale + '×' : '');
+  return (
+    <div className="r-pane" style={{ width: w }}>
+      <span className="cap">{cap} <span className="dim">· {dims}</span></span>
+      <div className={'r-device r-' + kind + ' ' + cls} data-theme={theme} style={vars}>
+        {kind === 'mac' && <div className="r-titlebar"><i></i><i></i><i></i><span>{title}</span></div>}
+        {kind === 'tab' && <div className="r-tabbar"><span className="r-url">{url || 'Still · Settings'}</span></div>}
+        {sheet ? (
+          <>
+            <div className="r-page" style={{ height: safeTop + 52 }}></div>
+            <div className="r-sheet"><div className="r-grab" aria-hidden="true"></div><div className="r-body" style={{ paddingBottom: safeBottom }}>{children}</div></div>
+          </>
+        ) : (
+          <div className="r-body" style={{ paddingTop: safeTop, paddingBottom: safeBottom }}>{children}</div>
+        )}
+        {safeBottom > 0 && <div className="r-home" aria-hidden="true"></div>}
+      </div>
+    </div>
+  );
+}
+
+// Numbered setup steps (first-run and onboarding). done shows a check.
+function Steps({ items }) {
+  const { Glyph } = RDS;
+  return (
+    <ol className="steps">{items.map((s, i) => (
+      <li className="step" key={i} data-done={s.done || undefined}>
+        <span className="num" aria-hidden="true">{s.done ? <Glyph name="check" size={14} /> : i + 1}</span>
+        <span className="t">{s.title}{s.tag && <span className="access-tag boxed">{s.tag}</span>}{s.done && <span className="sr-only">Done.</span>}</span>
+        {s.body && <span className="b">{s.body}</span>}
+        {s.action && <div className="a">{s.action}</div>}
+      </li>
+    ))}</ol>
+  );
+}
+
+function Unresolved({ items }) {
+  return <ol className="r-unresolved">{items.map((t, i) => <li key={i}>{t}</li>)}</ol>;
+}
+
+function mountReview(Page) {
+  const run = () => {
+    const ok = RDS && RDS.SiteSection && RDS.ProControlList;
+    ReactDOM.createRoot(document.getElementById('root')).render(ok ? <Page /> : <p style={{ padding: 40 }}>The component bundle hasn't been compiled yet. Reload in a moment.</p>);
+  };
+  if (document.getElementById('root')) run(); else document.addEventListener('DOMContentLoaded', run);
+}
+
+Object.assign(window, { proKnownMissing, RDS, REVIEW_PURPOSES, SAMPLE_OFFER, accessAll, MOBILE_CONTROLS, MOBILE_PRO, canOfferPro, DE_YT, Sec, Device, Steps, Unresolved, mountReview });

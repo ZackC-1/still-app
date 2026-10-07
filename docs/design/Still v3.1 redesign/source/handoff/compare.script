@@ -1,0 +1,17 @@
+// Pixel-compares an implementation screenshot with a reference PNG.
+// Usage: npm i -D pngjs pixelmatch
+//   node --input-type=module - < handoff/compare.script handoff/reference/d01-desktop-popup/01-light-pro-not-owned.png my-shot.png [diff.png]
+// Capture your implementation in Chromium at deviceScaleFactor 2, same width, theme and --text-scale as the reference.
+import { readFileSync, writeFileSync } from 'node:fs';
+import { PNG } from 'pngjs';
+import pixelmatch from 'pixelmatch';
+
+const [ref, impl, out = 'diff.png'] = process.argv.slice(2);
+const a = PNG.sync.read(readFileSync(ref)), b = PNG.sync.read(readFileSync(impl));
+if (a.width !== b.width || a.height !== b.height) { console.error('Size mismatch: reference ' + a.width + 'x' + a.height + ', implementation ' + b.width + 'x' + b.height); process.exit(2); }
+const diff = new PNG({ width: a.width, height: a.height });
+const bad = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1, includeAA: false });
+writeFileSync(out, PNG.sync.write(diff));
+const pct = (100 * bad / (a.width * a.height)).toFixed(3);
+console.log(pct + '% of pixels differ (' + bad + '). Diff written to ' + out);
+process.exit(+pct > 0.5 ? 1 : 0);

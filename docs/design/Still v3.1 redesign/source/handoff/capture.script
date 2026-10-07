@@ -1,0 +1,45 @@
+// Generates pixel references for every approved screen frame.
+// Usage (from the design-system root):
+//   npm i -D playwright && npx playwright install chromium
+//   node --input-type=module - < handoff/capture.script            -> handoff/reference/<page>/<nn>-<caption>.png at 2x
+// Serves this folder on a local port, opens each page in handoff/screens.json, waits for fonts,
+// then screenshots every device frame (.r-device, .p-frame, .g-frame) and every store asset ([data-asset]) at its exact size.
+import { chromium } from 'playwright';
+import http from 'node:http';
+import { readFile, mkdir } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+
+const ROOT = process.cwd();
+const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.babel': 'text/plain', '.jsx': 'text/plain', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+const server = http.createServer(async (req, res) => {
+  try {
+    const p = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^([/\\])+/, '');
+    const body = await readFile(join(ROOT, p));
+    res.writeHead(200, { 'content-type': TYPES[extname(p)] || 'application/octet-stream' }); res.end(body);
+  } catch { res.writeHead(404); res.end(); }
+}).listen(0);
+const port = server.address().port;
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+
+const manifest = JSON.parse(await readFile(join(ROOT, 'handoff/screens.json'), 'utf8'));
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
+for (const p of manifest.pages) {
+  const page = await ctx.newPage();
+  await page.goto('http://localhost:' + port + '/' + p.page, { waitUntil: 'networkidle' });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(800);
+  const dir = join(ROOT, 'handoff/reference', slug(p.name)); await mkdir(dir, { recursive: true });
+  // Store assets render scaled; reset them to 1:1 so the PNG is the real export size.
+  await page.evaluate(() => document.querySelectorAll('[data-asset]').forEach(el => { el.style.transform = 'none'; const w = el.parentElement; w.style.width = el.style.width; w.style.height = el.style.height; w.parentElement.style.width = 'auto'; }));
+  const els = await page.$$('.r-device, .p-frame, .g-frame, [data-asset]');
+  let n = 0;
+  for (const el of els) {
+    const cap = await el.evaluate(e => { const pane = e.closest('.r-pane, .p-pane, .g-pane'); const c = pane && pane.querySelector('.cap'); return (c ? c.textContent : e.id || 'frame').trim(); });
+    n++;
+    await el.screenshot({ path: join(dir, String(n).padStart(2, '0') + '-' + slug(cap) + '.png'), animations: 'disabled' });
+  }
+  console.log(p.name + ': ' + n + ' frames');
+  await page.close();
+}
+await browser.close(); server.close();

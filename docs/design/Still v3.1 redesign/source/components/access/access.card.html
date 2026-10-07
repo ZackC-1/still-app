@@ -1,0 +1,29 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Access" subtitle="AccessTag states, ProOffer, RestoreStatus, AccountLink" -->
+<!doctype html>
+<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--font-ui)}.lbl{font-size:11px;color:var(--ink-secondary);letter-spacing:.02em;margin:0 0 6px}</style>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const DS = window.StillDesignSystem_c8e8ab;
+const { AccessTag, ProOffer, RestoreStatus, AccountLink } = DS;
+function Card() {
+  return (<div className="still-ui" style={{padding:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,alignItems:'start'}}>
+    <div style={{display:'grid',gap:12}}>
+      <p className="lbl">AccessTag</p>
+      <div style={{display:'flex',flexWrap:'wrap',gap:'8px 14px'}}>{['protected','purchased','checking','verify','locked','unsupported'].map(s => <AccessTag key={s} state={s} boxed />)}</div>
+      <p className="lbl">RestoreStatus</p>
+      {['checking','nothing','failed','verify'].map(s => <RestoreStatus key={s} state={s} announce={false} />)}
+    </div>
+    <div style={{display:'grid',gap:12}}>
+      <ProOffer host="browser" signedIn offer={{ price: '$9.99', priceNote: 'One payment. Access forever. No subscription' }} showList={false} state="failed" />
+      <AccountLink state="confirm" email="sam@example.com" />
+    </div>
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Card />);
+</script></body></html>

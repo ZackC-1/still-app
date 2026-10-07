@@ -1,0 +1,139 @@
+const { AccessTag, AppShell, Logo, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, AccountLinks, Button, StatusLine, ProOffer, RestoreStatus, AccountLink, ConsentCard, SharingSetting, Dialog, DemoMark } = RDS;
+
+// D03: the extension's full settings page (comfortable density, 432 column).
+function SettingsPage({ initial = {}, access = accessAll('locked'), pro = 'none', offerState = 'idle', restore, signedIn = false, sync, link, consent = 'unasked', withdrawal = 'none', setup = false, deleteDialog = false, browser = 'Chrome' }) {
+  const [on, setOn] = React.useState(initial.on ?? true);
+  const [open, setOpen] = React.useState(initial.open ?? null);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...initial.values });
+  const [asked, setAsked] = React.useState(consent !== 'unasked');
+  const [share, setShare] = React.useState(consent === 'on');
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  return (
+    <AppShell>
+      <HeroCard on={on} onChange={setOn} compact />
+      {setup && (
+        <SettingsCard label="Setup">
+          <StatusLine tone="caution" announce={false} detail={'Allow Still on YouTube, Instagram, Facebook and TikTok in ' + browser + ' so it can remove short-form video there.'}>{"Still can't block on these websites yet."}</StatusLine>
+          <Button variant="secondary" block>Review permissions</Button>
+        </SettingsCard>
+      )}
+      <SiteList paused={!on}>
+        {SiteOrder.map(k => (
+          <SiteSection key={k} service={k} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set}
+            open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} />
+        ))}
+      </SiteList>
+      <SettingsCard label={pro === 'owned' ? 'Still Pro and sync' : 'Settings sync'}>
+        {pro === 'owned' && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingBlockEnd: 12, borderBlockEnd: '1px solid var(--border)' }}>
+            <span className="row-title" style={{ fontSize: 'calc(15px * var(--text-scale, 1))', fontWeight: 600 }}>Still Pro</span>
+            <AccessTag state="purchased" boxed label="Purchased" />
+          </div>
+        )}
+        {signedIn ? (
+          <>
+            <p className="synced">sam@example.com</p>
+            {sync && <StatusLine tone={sync[0]} announce={false} actionLabel={sync[2]} detail={sync[3]}>{sync[1]}</StatusLine>}
+            <DemoMark>Demonstration only: no real sync or deletion</DemoMark>
+            <AccountLinks>
+              <Button variant="link">Sign out</Button>
+              <Button variant="danger-link">Delete account</Button>
+            </AccountLinks>
+          </>
+        ) : (
+          <>
+            <p className="muted">Free. Keep your settings updated across every device and browser</p>
+            <Button block>Sign in</Button>
+          </>
+        )}
+      </SettingsCard>
+      {pro !== 'owned' && <ProOffer host="browser" signedIn={signedIn} offer={SAMPLE_OFFER} showList={false} showPrice={false} ownership={pro === 'checking' ? 'checking' : 'none'} state={offerState} />}
+      {restore && <section className="card card-stack"><RestoreStatus state={restore} announce={false} /></section>}
+      {link && <AccountLink state={link} email="sam@example.com" />}
+      {!asked
+        ? <ConsentCard purposes={REVIEW_PURPOSES} onShare={() => { setShare(true); setAsked(true); }} onDecline={() => setAsked(true)} />
+        : <SharingSetting checked={share} onChange={setShare} withdrawal={withdrawal} announce={false} onRequestDeletion={() => {}} />}
+      <SettingsCard label="Help">
+        <AccountLinks>
+          <Button variant="link">Setup guide</Button>
+          <Button variant="link">Contact support</Button>
+          <Button variant="link">Privacy policy</Button>
+        </AccountLinks>
+        <p className="caption">Contact support opens your email app. Nothing about your browsing or account is attached.</p>
+      </SettingsCard>
+      {deleteDialog && <Dialog contained trapFocus={false} title="Delete your account?" body="This deletes your account and the settings synced to it. Settings on this device stay. A Still Pro purchase made in the Still app keeps working on that device." confirmLabel="Delete account" tone="danger" cancelLabel="Cancel" />}
+    </AppShell>
+  );
+}
+
+function Card({ cap, theme = 'light', w = 432, children }) {
+  return <div className="r-pane" style={{ width: w }}><span className="cap">{cap}</span><div className="r-device r-tab still-ui" data-theme={theme} style={{ padding: 12, gap: 12 }}>{children}</div></div>;
+}
+
+function Page() {
+  const locked = accessAll('locked'), purchased = accessAll('purchased');
+  const purposes = REVIEW_PURPOSES;
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D03 · Extension settings</h1><p>The full settings page that opens from the popup's Settings link. Same hierarchy as the popup, with each row's boundary line. Account, free sync, Still Pro, Restore, consent and help are cards on this one page: no dashboard, counters, report form or sign-in wall.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="D03 · D10 · D11 · D18 · D36" title="Signed out and signed in" notes={<>
+        <p>Signed out: one clear "Get Still Pro" button; sign-in happens only after the user taps it. Locked rows already show what Pro adds, so the card lists nothing. Consent is asked once, with equal buttons. Signed in: sync status is real, not "just now".</p>
+        <ul><li>Order: hero, sites, sync, Still Pro, sharing, help. Owners see one combined "Still Pro and sync" card.</li><li>Global Off greys sites only; Still Pro, sync, sharing and help keep working.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Signed out · Pro not owned · consent not asked" w={560} h={1180} url="Still · Settings"><SettingsPage access={locked} initial={{ open: 'youtube' }} /></Device>
+          <Device kind="tab" cap="Signed in · Pro purchased · sharing on" w={560} h={1180} theme="dark" url="Still · Settings"><SettingsPage access={purchased} pro="owned" signedIn sync={['success', 'Settings synced.']} consent="on" initial={{ open: 'instagram', values: { ig_stories: true } }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="States" title="Off, pending, error, empty, retry" notes={<>
+        <p>Each card shows the state that's actually true. Pending is never shown as done.</p>
+        <ul><li>"Nothing found" only after a conclusive answer.</li><li>Deletion requested is not deleted.</li><li>Delete account confirms first; focus starts on Cancel.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Card cap="Sync failed · retry"><SettingsCard label="Settings sync"><p className="synced">sam@example.com</p><StatusLine tone="failed" announce={false} actionLabel="Try again" detail="Your settings are saved on this device.">{"Sync didn't finish."}</StatusLine></SettingsCard></Card>
+          <Card cap="Purchase pending" theme="dark"><ProOffer host="browser" signedIn offer={SAMPLE_OFFER} showList={false} showPrice={false} state="pending" /></Card>
+          <Card cap="Restore · nothing found (conclusive)"><section className="card card-stack"><RestoreStatus state="nothing" announce={false} /></section></Card>
+          <Card cap="Restore · couldn't finish" theme="dark"><section className="card card-stack"><RestoreStatus state="failed" announce={false} /></section></Card>
+          <Card cap="Checking access"><ProOffer ownership="checking" /></Card>
+          <Card cap="Sharing off · deletion requested" theme="dark"><SharingSetting withdrawal="requested" announce={false} /></Card>
+          <Card cap="Linking a purchase · confirm account"><AccountLink email="sam@example.com" /></Card>
+          <Card cap="Still off · choices kept" theme="dark"><SiteList paused><SiteSection service="youtube" paused open values={{ yt_comments: true }} access={purchased} /></SiteList></Card>
+        </div>
+      </Sec>
+
+      <Sec id="Setup · dialogs" title="Permission and delete account" notes={<>
+        <p>If the browser hasn't granted website access, a Setup card sits under the hero and every choice stays saved.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Permission needed" w={560} h={720} url="Still · Settings"><SettingsPage access={locked} setup consent="off" /></Device>
+          <Device kind="tab" cap="Delete account dialog" w={560} h={720} theme="dark" url="Still · Settings"><SettingsPage access={purchased} pro="owned" signedIn consent="off" deleteDialog /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Accessibility" title="Minimum width, large text, keyboard" notes={<>
+        <p>320px minimum width at 1.5× text (<code>--text-scale</code>, normal layout). Focus ring on every control; Tab order follows the page.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="320 wide · 1.5× text" w={320} h={900} scale={1.5}><SettingsPage access={locked} initial={{ open: 'facebook' }} consent="off" /></Device>
+          <Device kind="tab" cap="Keyboard · focus on Sign in" w={560} h={900} theme="dark" cls="kbd-signin"><SettingsPage access={locked} consent="off" /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Card order: Settings sync now sits above Still Pro (owner request). Confirm for D04 too.',
+          'Help card: "Setup guide", "Contact support", "Privacy policy". The support address and guide URL are placeholders.',
+          'Consent purpose text and provider names are still bracketed placeholders.',
+          'Delete account copy mentions Apple purchases staying valid; confirm with engineering.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

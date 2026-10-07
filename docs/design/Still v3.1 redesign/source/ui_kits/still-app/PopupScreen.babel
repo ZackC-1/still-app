@@ -1,0 +1,26 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton } = window.StillDesignSystem_c8e8ab;
+
+function PopupScreen({ app }) {
+  const { on, setOn, svc, setSvc, access, open, setOpen, signedIn, email, openSignIn, goSettings } = app;
+  return (
+    <AppShell density="compact" width={380}>
+      <HeroCard on={on} onChange={setOn} compact />
+      <SiteList paused={!on} scroll>
+        {SiteOrder.map(k => (
+          <SiteSection key={k} service={k} coreOn={svc[k]} onCoreChange={v => setSvc(k, v)} values={svc} access={access} onControlChange={setSvc}
+            open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} showSubs={false} />
+        ))}
+      </SiteList>
+      {signedIn ? (
+        <SettingsCard variant="sync-row" title="Settings sync" sub={email} action={null} />
+      ) : (
+        <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline onClick={openSignIn}>Sign in</Button>} />
+      )}
+      <footer className="popup-footer">
+        <OpenSettingsButton setupTitle="Find Still in Chrome." onClick={goSettings} />
+        <a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a>
+      </footer>
+    </AppShell>
+  );
+}
+window.PopupScreen = PopupScreen;

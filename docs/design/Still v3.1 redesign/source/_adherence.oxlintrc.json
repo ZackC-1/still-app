@@ -1,0 +1,524 @@
+{
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "components/access/**",
+              "components/blocked/**",
+              "components/brand/**",
+              "components/controls/**",
+              "components/engagement/**",
+              "components/feedback/**",
+              "components/layout/**",
+              "components/privacy/**",
+              "components/sites/**"
+            ],
+            "message": "Import design-system components from 'index.js', not component internals."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+        "message": "Raw hex color — use a design-system color token via var()."
+      },
+      {
+        "selector": "Literal[value=/\\b\\d+px\\b/]",
+        "message": "Raw px value — use a design-system spacing token via var()."
+      },
+      {
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:InterVariable))/i]",
+        "message": "Font not provided by the design system. Available: InterVariable."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AccessTag'] > JSXAttribute > JSXIdentifier[name!=/^(?:state|label|boxed|key|ref|className|style|children)$/]",
+        "message": "<AccessTag> doesn't accept that prop. Declared props: state, label, boxed."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AccessTag'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:free|protected|purchased|checking|verify|locked|unsupported)$/]",
+        "message": "<AccessTag> state must be one of 'free' | 'protected' | 'purchased' | 'checking' | 'verify' | 'locked' | 'unsupported'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AccountLink'] > JSXAttribute > JSXIdentifier[name!=/^(?:state|email|onConfirm|onChooseOther|onRetry|signOutNote|key|ref|className|style|children)$/]",
+        "message": "<AccountLink> doesn't accept that prop. Declared props: state, email, onConfirm, onChooseOther, onRetry, signOutNote."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AccountLink'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:confirm|pending|linked|failed)$/]",
+        "message": "<AccountLink> state must be one of 'confirm' | 'pending' | 'linked' | 'failed'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AppShell'] > JSXAttribute > JSXIdentifier[name!=/^(?:density|host|width|style|children|key|ref|className|style|children)$/]",
+        "message": "<AppShell> doesn't accept that prop. Declared props: density, host, width, style, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AppShell'] > JSXAttribute[name.name='density'] > Literal[value!=/^(?:comfortable|compact)$/]",
+        "message": "<AppShell> density must be one of 'comfortable' | 'compact'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='AppShell'] > JSXAttribute[name.name='host'] > Literal[value!=/^(?:browser|safari|apple)$/]",
+        "message": "<AppShell> host must be one of 'browser' | 'safari' | 'apple'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|block|inline|center|href|children|key|ref|className|style|children)$/]",
+        "message": "<Button> doesn't accept that prop. Declared props: variant, block, inline, center, href, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:primary|secondary|link|danger-link|danger-solid)$/]",
+        "message": "<Button> variant must be one of 'primary' | 'secondary' | 'link' | 'danger-link' | 'danger-solid'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ConsentCard'] > JSXAttribute > JSXIdentifier[name!=/^(?:title|body|purposes|never|shareLabel|declineLabel|onShare|onDecline|footnote|key|ref|className|style|children)$/]",
+        "message": "<ConsentCard> doesn't accept that prop. Declared props: title, body, purposes, never, shareLabel, declineLabel, onShare, onDecline, footnote."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='DemoMark'] > JSXAttribute > JSXIdentifier[name!=/^(?:children|key|ref|className|style|children)$/]",
+        "message": "<DemoMark> doesn't accept that prop. Declared props: children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Dialog'] > JSXAttribute > JSXIdentifier[name!=/^(?:open|title|body|confirmLabel|onConfirm|cancelLabel|onCancel|tone|contained|trapFocus|children|key|ref|className|style|children)$/]",
+        "message": "<Dialog> doesn't accept that prop. Declared props: open, title, body, confirmLabel, onConfirm, cancelLabel, onCancel, tone, contained, trapFocus, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Dialog'] > JSXAttribute[name.name='tone'] > Literal[value!=/^(?:default|danger)$/]",
+        "message": "<Dialog> tone must be one of 'default' | 'danger'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Glyph'] > JSXAttribute > JSXIdentifier[name!=/^(?:name|size|className|title|key|ref|className|style|children)$/]",
+        "message": "<Glyph> doesn't accept that prop. Declared props: name, size, className, title."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Glyph'] > JSXAttribute[name.name='name'] > Literal[value!=/^(?:lock|chevron|check|alert|clock|spinner|external)$/]",
+        "message": "<Glyph> name must be one of 'lock' | 'chevron' | 'check' | 'alert' | 'clock' | 'spinner' | 'external'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='HeroCard'] > JSXAttribute > JSXIdentifier[name!=/^(?:on|onChange|compact|title|body|key|ref|className|style|children)$/]",
+        "message": "<HeroCard> doesn't accept that prop. Declared props: on, onChange, compact, title, body."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Invitation'] > JSXAttribute > JSXIdentifier[name!=/^(?:kind|store|title|body|actionLabel|onAccept|onDismiss|dismissLabel|key|ref|className|style|children)$/]",
+        "message": "<Invitation> doesn't accept that prop. Declared props: kind, store, title, body, actionLabel, onAccept, onDismiss, dismissLabel."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Invitation'] > JSXAttribute[name.name='kind'] > Literal[value!=/^(?:sync|link|rating)$/]",
+        "message": "<Invitation> kind must be one of 'sync' | 'link' | 'rating'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Logo'] > JSXAttribute > JSXIdentifier[name!=/^(?:markOnly|size|compact|key|ref|className|style|children)$/]",
+        "message": "<Logo> doesn't accept that prop. Declared props: markOnly, size, compact."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='OpenSettingsButton'] > JSXAttribute > JSXIdentifier[name!=/^(?:setupTitle|onClick|children|key|ref|className|style|children)$/]",
+        "message": "<OpenSettingsButton> doesn't accept that prop. Declared props: setupTitle, onClick, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='OwnerAllowances'] > JSXAttribute > JSXIdentifier[name!=/^(?:surfaces|current|draft|onDraftChange|state|onApply|onDiscard|onStatusAction|announce|key|ref|className|style|children)$/]",
+        "message": "<OwnerAllowances> doesn't accept that prop. Declared props: surfaces, current, draft, onDraftChange, state, onApply, onDiscard, onStatusAction, announce."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='OwnerAllowances'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:idle|applying|readback|applied|stale|failed)$/]",
+        "message": "<OwnerAllowances> state must be one of 'idle' | 'applying' | 'readback' | 'applied' | 'stale' | 'failed'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProOffer'] > JSXAttribute > JSXIdentifier[name!=/^(?:host|offer|channel|signedIn|ownership|state|controls|showList|showPrice|onBuy|onSignIn|onRestore|onOpenHost|onRetry|key|ref|className|style|children)$/]",
+        "message": "<ProOffer> doesn't accept that prop. Declared props: host, offer, channel, signedIn, ownership, state, controls, showList, showPrice, onBuy, onSignIn, onRestore, onOpenHost, onRetry."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProOffer'] > JSXAttribute[name.name='host'] > Literal[value!=/^(?:browser|safari|apple)$/]",
+        "message": "<ProOffer> host must be one of 'browser' | 'safari' | 'apple'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProOffer'] > JSXAttribute[name.name='channel'] > Literal[value!=/^(?:ready|unverified|unavailable)$/]",
+        "message": "<ProOffer> channel must be one of 'ready' | 'unverified' | 'unavailable'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProOffer'] > JSXAttribute[name.name='ownership'] > Literal[value!=/^(?:none|owned|checking)$/]",
+        "message": "<ProOffer> ownership must be one of 'none' | 'owned' | 'checking'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProOffer'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:idle|pending|failed|success)$/]",
+        "message": "<ProOffer> state must be one of 'idle' | 'pending' | 'failed' | 'success'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='RestoreStatus'] > JSXAttribute > JSXIdentifier[name!=/^(?:state|onAction|announce|key|ref|className|style|children)$/]",
+        "message": "<RestoreStatus> doesn't accept that prop. Declared props: state, onAction, announce."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='RestoreStatus'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:checking|restored|nothing|failed|verify)$/]",
+        "message": "<RestoreStatus> state must be one of 'checking' | 'restored' | 'nothing' | 'failed' | 'verify'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ServiceIcon'] > JSXAttribute > JSXIdentifier[name!=/^(?:service|size|key|ref|className|style|children)$/]",
+        "message": "<ServiceIcon> doesn't accept that prop. Declared props: service, size."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ServiceIcon'] > JSXAttribute[name.name='service'] > Literal[value!=/^(?:youtube|instagram|tiktok|facebook)$/]",
+        "message": "<ServiceIcon> service must be one of 'youtube' | 'instagram' | 'tiktok' | 'facebook'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SettingsCard'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|label|title|sub|checked|onChange|action|children|key|ref|className|style|children)$/]",
+        "message": "<SettingsCard> doesn't accept that prop. Declared props: variant, label, title, sub, checked, onChange, action, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SettingsCard'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:stack|row|sync-row)$/]",
+        "message": "<SettingsCard> variant must be one of 'stack' | 'row' | 'sync-row'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SharingSetting'] > JSXAttribute > JSXIdentifier[name!=/^(?:checked|onChange|withdrawal|onRequestDeletion|onRetry|title|sub|announce|key|ref|className|style|children)$/]",
+        "message": "<SharingSetting> doesn't accept that prop. Declared props: checked, onChange, withdrawal, onRequestDeletion, onRetry, title, sub, announce."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SharingSetting'] > JSXAttribute[name.name='withdrawal'] > Literal[value!=/^(?:none|requested|verifying|deleted|failed)$/]",
+        "message": "<SharingSetting> withdrawal must be one of 'none' | 'requested' | 'verifying' | 'deleted' | 'failed'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Sheet'] > JSXAttribute > JSXIdentifier[name!=/^(?:open|title|body|onDismiss|dismissLabel|contained|children|key|ref|className|style|children)$/]",
+        "message": "<Sheet> doesn't accept that prop. Declared props: open, title, body, onDismiss, dismissLabel, contained, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SiteSection'] > JSXAttribute > JSXIdentifier[name!=/^(?:service|serviceOn|onServiceChange|coreOn|onCoreChange|values|access|onControlChange|open|onToggleOpen|paused|host|showSubs|onAccessAction|controls|key|ref|className|style|children)$/]",
+        "message": "<SiteSection> doesn't accept that prop. Declared props: service, serviceOn, onServiceChange, coreOn, onCoreChange, values, access, onControlChange, open, onToggleOpen, paused, host, showSubs, onAccessAction, controls."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SiteSection'] > JSXAttribute[name.name='service'] > Literal[value!=/^(?:youtube|instagram|facebook|tiktok)$/]",
+        "message": "<SiteSection> service must be one of 'youtube' | 'instagram' | 'facebook' | 'tiktok'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SiteSection'] > JSXAttribute[name.name='host'] > Literal[value!=/^(?:browser|safari|apple)$/]",
+        "message": "<SiteSection> host must be one of 'browser' | 'safari' | 'apple'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='StatusLine'] > JSXAttribute > JSXIdentifier[name!=/^(?:tone|children|detail|actionLabel|onAction|announce|key|ref|className|style|children)$/]",
+        "message": "<StatusLine> doesn't accept that prop. Declared props: tone, children, detail, actionLabel, onAction, announce."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='StatusLine'] > JSXAttribute[name.name='tone'] > Literal[value!=/^(?:pending|success|failed|caution|info)$/]",
+        "message": "<StatusLine> tone must be one of 'pending' | 'success' | 'failed' | 'caution' | 'info'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SwitchRow'] > JSXAttribute > JSXIdentifier[name!=/^(?:id|label|sub|checked|onChange|access|inactive|inactiveNote|host|unavailableNote|onAccessAction|key|ref|className|style|children)$/]",
+        "message": "<SwitchRow> doesn't accept that prop. Declared props: id, label, sub, checked, onChange, access, inactive, inactiveNote, host, unavailableNote, onAccessAction."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SwitchRow'] > JSXAttribute[name.name='access'] > Literal[value!=/^(?:free|protected|purchased|checking|verify|locked|unsupported)$/]",
+        "message": "<SwitchRow> access must be one of 'free' | 'protected' | 'purchased' | 'checking' | 'verify' | 'locked' | 'unsupported'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SwitchRow'] > JSXAttribute[name.name='host'] > Literal[value!=/^(?:browser|safari|apple)$/]",
+        "message": "<SwitchRow> host must be one of 'browser' | 'safari' | 'apple'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TextField'] > JSXAttribute > JSXIdentifier[name!=/^(?:label|code|hint|error|key|ref|className|style|children)$/]",
+        "message": "<TextField> doesn't accept that prop. Declared props: label, code, hint, error."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TikTokBlocked'] > JSXAttribute > JSXIdentifier[name!=/^(?:host|state|confirmOpen|onOpenOnce|onOpenSettings|onReload|contained|style|key|ref|className|style|children)$/]",
+        "message": "<TikTokBlocked> doesn't accept that prop. Declared props: host, state, confirmOpen, onOpenOnce, onOpenSettings, onReload, contained, style."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TikTokBlocked'] > JSXAttribute[name.name='host'] > Literal[value!=/^(?:browser|ios)$/]",
+        "message": "<TikTokBlocked> host must be one of 'browser' | 'ios'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TikTokBlocked'] > JSXAttribute[name.name='state'] > Literal[value!=/^(?:blocked|reload)$/]",
+        "message": "<TikTokBlocked> state must be one of 'blocked' | 'reload'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Toggle'] > JSXAttribute > JSXIdentifier[name!=/^(?:checked|defaultChecked|onChange|label|labelledBy|describedBy|disabled|variant|size|key|ref|className|style|children)$/]",
+        "message": "<Toggle> doesn't accept that prop. Declared props: checked, defaultChecked, onChange, label, labelledBy, describedBy, disabled, variant, size."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Toggle'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:default|on-blue)$/]",
+        "message": "<Toggle> variant must be one of 'default' | 'on-blue'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Toggle'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:default|small)$/]",
+        "message": "<Toggle> size must be one of 'default' | 'small'."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.js"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "x-omelette": {
+    "components": {
+      "AccessTag": {
+        "replaces": []
+      },
+      "AccountLink": {
+        "replaces": []
+      },
+      "AppShell": {
+        "replaces": []
+      },
+      "Button": {
+        "replaces": []
+      },
+      "ConsentCard": {
+        "replaces": []
+      },
+      "DemoMark": {
+        "replaces": []
+      },
+      "Dialog": {
+        "replaces": []
+      },
+      "Glyph": {
+        "replaces": []
+      },
+      "HeroCard": {
+        "replaces": []
+      },
+      "Invitation": {
+        "replaces": []
+      },
+      "Logo": {
+        "replaces": []
+      },
+      "OpenSettingsButton": {
+        "replaces": []
+      },
+      "OwnerAllowances": {
+        "replaces": []
+      },
+      "ProOffer": {
+        "replaces": []
+      },
+      "RestoreStatus": {
+        "replaces": []
+      },
+      "ServiceIcon": {
+        "replaces": []
+      },
+      "SettingsCard": {
+        "replaces": []
+      },
+      "SharingSetting": {
+        "replaces": []
+      },
+      "Sheet": {
+        "replaces": []
+      },
+      "SiteSection": {
+        "replaces": []
+      },
+      "StatusLine": {
+        "replaces": []
+      },
+      "SwitchRow": {
+        "replaces": []
+      },
+      "TextField": {
+        "replaces": []
+      },
+      "TikTokBlocked": {
+        "replaces": []
+      },
+      "Toggle": {
+        "replaces": []
+      }
+    },
+    "tokens": [
+      "--action-primary",
+      "--action-primary-hover",
+      "--app-gap",
+      "--app-padding",
+      "--block-button-padding",
+      "--border",
+      "--border-strong",
+      "--caution",
+      "--content-max-inline-size",
+      "--control-edge",
+      "--danger",
+      "--danger-solid",
+      "--dialog-max-inline-size",
+      "--ds-version",
+      "--ease-standard",
+      "--focus-ring",
+      "--font-ui",
+      "--hero-padding",
+      "--hero-title-size",
+      "--ink",
+      "--ink-secondary",
+      "--link",
+      "--link-pressed",
+      "--logo-mark-size",
+      "--logo-word-size",
+      "--motion-expand",
+      "--motion-toggle",
+      "--on-blue",
+      "--on-blue-secondary",
+      "--popup-inline-size",
+      "--popup-max-block-size",
+      "--radius-card",
+      "--radius-control",
+      "--radius-sheet",
+      "--scrim",
+      "--service-card-background",
+      "--service-card-padding-block",
+      "--service-card-padding-inline",
+      "--service-icon-size",
+      "--service-name-size",
+      "--service-status-size",
+      "--services-gap",
+      "--settings-min-inline-size",
+      "--shadow-float",
+      "--shadow-knob",
+      "--sheet-max-inline-size",
+      "--space-1",
+      "--space-12",
+      "--space-2",
+      "--space-3",
+      "--space-4",
+      "--space-6",
+      "--space-8",
+      "--status-caution",
+      "--status-failed",
+      "--status-pending",
+      "--status-success",
+      "--still-blue",
+      "--still-blue-pressed",
+      "--success",
+      "--surface",
+      "--surface-brand",
+      "--surface-card",
+      "--surface-page",
+      "--surface-raised",
+      "--switch-hit",
+      "--sync-gap",
+      "--sync-padding",
+      "--tap-target",
+      "--text-body",
+      "--text-link",
+      "--text-on-brand",
+      "--text-scale",
+      "--text-secondary",
+      "--toggle-off",
+      "--toggle-off-edge",
+      "--type-body",
+      "--type-button",
+      "--type-caption",
+      "--type-card-title",
+      "--type-hero-body",
+      "--type-hero-title",
+      "--type-row-name",
+      "--type-row-sub",
+      "--type-section-label",
+      "--type-sheet-title",
+      "--type-status"
+    ],
+    "tokenKinds": {
+      "--still-blue": "color",
+      "--still-blue-pressed": "color",
+      "--ink": "color",
+      "--ink-secondary": "color",
+      "--surface": "color",
+      "--surface-raised": "color",
+      "--border": "color",
+      "--border-strong": "color",
+      "--on-blue": "color",
+      "--on-blue-secondary": "color",
+      "--focus-ring": "color",
+      "--danger": "color",
+      "--toggle-off": "color",
+      "--toggle-off-edge": "color",
+      "--link": "color",
+      "--link-pressed": "color",
+      "--success": "color",
+      "--caution": "color",
+      "--shadow-knob": "shadow",
+      "--shadow-float": "shadow",
+      "--text-body": "font",
+      "--text-secondary": "font",
+      "--text-link": "font",
+      "--text-on-brand": "font",
+      "--surface-page": "color",
+      "--surface-card": "color",
+      "--surface-brand": "color",
+      "--action-primary": "color",
+      "--action-primary-hover": "color",
+      "--control-edge": "color",
+      "--status-pending": "color",
+      "--status-success": "color",
+      "--status-caution": "color",
+      "--status-failed": "color",
+      "--scrim": "color",
+      "--danger-solid": "color",
+      "--space-1": "spacing",
+      "--space-2": "spacing",
+      "--space-3": "spacing",
+      "--space-4": "spacing",
+      "--space-6": "spacing",
+      "--space-8": "spacing",
+      "--space-12": "spacing",
+      "--radius-control": "radius",
+      "--radius-card": "radius",
+      "--radius-sheet": "radius",
+      "--popup-inline-size": "spacing",
+      "--content-max-inline-size": "spacing",
+      "--sheet-max-inline-size": "spacing",
+      "--tap-target": "spacing",
+      "--service-icon-size": "spacing",
+      "--logo-mark-size": "spacing",
+      "--logo-word-size": "spacing",
+      "--ds-version": "other",
+      "--text-scale": "other",
+      "--popup-max-block-size": "spacing",
+      "--settings-min-inline-size": "spacing",
+      "--switch-hit": "spacing",
+      "--dialog-max-inline-size": "spacing",
+      "--motion-expand": "other",
+      "--motion-toggle": "other",
+      "--ease-standard": "other",
+      "--font-ui": "font",
+      "--type-hero-title": "font",
+      "--type-sheet-title": "font",
+      "--type-row-name": "font",
+      "--type-body": "font",
+      "--type-button": "font",
+      "--type-card-title": "font",
+      "--type-hero-body": "font",
+      "--type-status": "font",
+      "--type-row-sub": "font",
+      "--type-section-label": "font",
+      "--type-caption": "font",
+      "--app-gap": "spacing",
+      "--app-padding": "spacing",
+      "--hero-padding": "spacing",
+      "--hero-title-size": "spacing",
+      "--service-card-padding-block": "spacing",
+      "--service-card-padding-inline": "spacing",
+      "--service-name-size": "spacing",
+      "--service-status-size": "spacing",
+      "--services-gap": "spacing",
+      "--service-card-background": "color",
+      "--sync-gap": "spacing",
+      "--sync-padding": "spacing",
+      "--block-button-padding": "spacing"
+    },
+    "fontFamilies": [
+      "InterVariable"
+    ]
+  }
+}

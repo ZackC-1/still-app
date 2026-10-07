@@ -1,0 +1,136 @@
+const G = window.StillDesignSystem_c8e8ab;
+
+function Gallery() {
+  const purchased = ALL_PRO('purchased');
+  const locked = ALL_PRO('locked');
+  const mixed = { ...locked, ig_explore: 'unsupported', ig_stories: 'checking', ig_suggested: 'verify' };
+  const [ownerState, setOwnerState] = React.useState('idle');
+  return (
+    <div className="g-wrap">
+      <header className="g-top">
+        <div>
+          <h1>Still V3 system gallery</h1>
+          <p>Version 3.0.1, built on the existing Still system (Still Blue #2A47E8, balance mark, wordmark, InterVariable). Representative states only, not a screen library. Light and dark render the same components with the same tokens.</p>
+        </div>
+        <span className="g-badge">Approved by owner · 3.0.0 · 2026-10-02</span>
+      </header>
+
+      <Section id="D01 · D06 · D07 · D09" title="Small popup" notes={<>
+        <p>Compact density, 380 wide. One main switch; sites collapsed on a fresh install, at most one open. Site list scrolls inside a bounded area so sync, settings and privacy stay reachable.</p>
+        <ul><li>Header: site name and service switch only. Shorts / Reels is the first row inside.</li><li>Pro rows show their saved choice; new ones start Off.</li><li>Global Off: rows greyed, choices kept, account and footer still work.</li></ul>
+      </>}>
+        <Pair width={380}>{() => <PopupSpec access={purchased} values={{ yt_comments: true, yt_autoplay: true }} />}</Pair>
+        <div className="g-row">
+          <Pane cap="Global Off · choices kept"><PopupSpec paused open="youtube" access={purchased} values={{ yt_comments: true }} /></Pane>
+          <Pane cap="Pro not owned · Purchase CTA"><PopupSpec access={locked} open={null} /></Pane>
+          <Pane cap="Safari popup · Pro not owned" theme="dark"><PopupSpec host="safari" open="facebook" access={locked} footerTitle="Find Still in Safari." /></Pane>
+        </div>
+      </Section>
+
+      <Section id="D03 · D10 · D18" title="Fuller settings" notes={<>
+        <p>Comfortable density, 432 column. Rows carry the boundary line from the inventory so the page explains itself without a dashboard.</p>
+        <ul><li>Instagram open: unsupported, checking, verify and locked rows side by side. Comments is Pro.</li><li>Offer card uses a sample verified US base price; production reads localized offer data.</li></ul>
+      </>}>
+        <Pair width={432}>{() => <SettingsSpec access={mixed} values={{ yt_comments: true, ig_explore: true, ig_stories: true }} />}</Pair>
+      </Section>
+
+      <Section id="D08" title="Access states" notes={<>
+        <p>Saved intention, purchase rights and host capability are separate inputs. Words and the lock carry the meaning; no state is colored.</p>
+        <ul><li><b>checking</b> never shows a lock or price.</li><li><b>verify</b> keeps free and protected controls usable.</li><li><b>unsupported</b> keeps the saved choice.</li></ul>
+      </>}>
+        <Pair width={420}>{() => (
+          <div className="service-group" style={{ margin: 12 }}><div className="list" style={{ display: 'flex', flexDirection: 'column', padding: '0 16px 4px' }}>
+            <G.SwitchRow label="Shorts" checked access="free" />
+            <G.SwitchRow label="[Control that was free in an earlier release]" sub="Protected: usable, no tag." checked access="protected" />
+            <G.SwitchRow label="Related videos" checked access="purchased" />
+            <G.SwitchRow label="Stories and Highlights" checked access="checking" />
+            <G.SwitchRow label="Suggested accounts" access="verify" />
+            <G.SwitchRow label="Live chat" access="locked" />
+            <G.SwitchRow label="Live chat" access="locked" host="safari" />
+            <G.SwitchRow label="Explore recommendations" checked access="unsupported" host="safari" />
+            <G.SwitchRow label="End-of-video suggestions" checked access="purchased" inactive />
+          </div></div>
+        )}</Pair>
+      </Section>
+
+      <Section id="D36 · D37" title="Consent" notes={<>
+        <p>One optional combined email-plus-usage choice, composed into an existing screen. Sign-in and purchase never grant it. Share and Don't share are the same button. The switch stays in settings, per device.</p>
+        <ul><li>Bracketed purpose text is a placeholder for the approved provider list.</li><li>Requested is not deleted.</li></ul>
+      </>}>
+        <Pair width={400}>{() => <div style={{ padding: 12, display: 'grid', gap: 12 }}><G.ConsentCard purposes={PURPOSES} /></div>}</Pair>
+        <div className="g-row">
+          {['requested', 'verifying', 'deleted', 'failed'].map(w => <Pane key={w} cap={'Withdrawal · ' + w} width={290}><div style={{ padding: 12 }}><G.SharingSetting withdrawal={w} announce={false} /></div></Pane>)}
+        </div>
+      </Section>
+
+      <Section id="D18 · D19 · D24 · D25 · D11" title="Purchase, Restore and linking" notes={<>
+        <p>Buy appears only with a verified offer and a ready channel. Browser purchase needs a confirmed Still account; Apple uses native StoreKit; Safari popup points to the app.</p>
+        <ul><li>"Nothing to restore" only after a conclusive answer.</li><li>Owned or checking never shows Buy.</li></ul>
+      </>}>
+        <div className="g-row">
+          <Pane cap="Browser · failed" width={300}><div style={{ padding: 12 }}><G.ProOffer host="browser" signedIn offer={SAMPLE_OFFER} controls={G.ProControlList()} state="failed" /></div></Pane>
+          <Pane cap="Browser · signed out" width={300} theme="dark"><div style={{ padding: 12 }}><G.ProOffer host="browser" offer={SAMPLE_OFFER} showList={false} /></div></Pane>
+          <Pane cap="Channel unverified" width={300}><div style={{ padding: 12 }}><G.ProOffer host="browser" signedIn channel="unverified" showList={false} /></div></Pane>
+        </div>
+        <div className="g-row">
+          <Pane cap="Safari popup" width={300} theme="dark"><div style={{ padding: 12 }}><G.ProOffer host="safari" controls={G.ProControlList()} /></div></Pane>
+          <Pane cap="Apple host · waiting for StoreKit" width={300}><div style={{ padding: 12 }}><G.ProOffer host="apple" offer={SAMPLE_OFFER} showList={false} state="pending" /></div></Pane>
+          <Pane cap="Checking rights" width={300}><div style={{ padding: 12 }}><G.ProOffer ownership="checking" /></div></Pane>
+        </div>
+        <div className="g-row">
+          <Pane cap="Restore outcomes" width={460}><div style={{ padding: 16, display: 'grid', gap: 14 }}>{['checking', 'restored', 'nothing', 'failed', 'verify'].map(s => <G.RestoreStatus key={s} state={s} announce={false} />)}</div></Pane>
+          <Pane cap="Linking · confirm, failed" width={300} theme="dark"><div style={{ padding: 12, display: 'grid', gap: 12 }}><G.AccountLink email="sam@example.com" /><G.AccountLink state="failed" email="sam@example.com" /></div></Pane>
+        </div>
+      </Section>
+
+      <Section id="D28 · D11" title="Invitations" notes={<>
+        <p>One quiet card on a later ordinary opening. Sync and linking outrank rating. Apple's rating uses the native review UI and isn't drawn here.</p>
+      </>}>
+        <Pair width={380}>{() => <div style={{ padding: 12, display: 'grid', gap: 12 }}><G.Invitation kind="sync" /><G.Invitation kind="rating" store="the Chrome Web Store" /></div>}</Pair>
+      </Section>
+
+      <Section id="Owner view" title="Owner rating control" notes={<>
+        <p>Private owner view. Everything starts Off. Master Off keeps surface choices. Apply reads back before it reports success.</p>
+        <ul><li>Click Apply to walk the states.</li></ul>
+      </>}>
+        <div className="g-row">
+          <Pane cap={'Draft · ' + ownerState} width={400}><div style={{ padding: 12 }}><G.OwnerAllowances current={{ global: true, chrome: true }} state={ownerState} announce={false}
+            onApply={() => { setOwnerState('applying'); setTimeout(() => setOwnerState('readback'), 700); setTimeout(() => setOwnerState('applied'), 1500); }} onStatusAction={() => setOwnerState('idle')} /></div></Pane>
+          <Pane cap="Stale" width={400} theme="dark"><div style={{ padding: 12 }}><G.OwnerAllowances current={{}} draft={{ global: true, firefox: true }} state="stale" announce={false} /></div></Pane>
+        </div>
+      </Section>
+
+      <Section id="D29" title="TikTok blocked page" notes={<>
+        <p>The only screen Still shows in a website. "Open TikTok this time" asks first and allows this tab only. No permanent off switch here.</p>
+        <ul><li>iPhone/iPad Safari: manual instructions instead of a settings link.</li><li>Reload page appears only when needed.</li></ul>
+      </>}>
+        <div className="g-row">
+          <Pane cap="Browser" width={300} height={420}><G.TikTokBlocked contained style={{ height: '100%' }} /></Pane>
+          <Pane cap="Confirmation" width={300} height={420} theme="dark"><G.TikTokBlocked contained confirmOpen style={{ height: '100%' }} /></Pane>
+          <Pane cap="iPhone Safari · reload needed" width={300} height={420}><G.TikTokBlocked contained host="ios" state="reload" style={{ height: '100%' }} /></Pane>
+        </div>
+      </Section>
+
+      <Section id="Accessibility" title="Focus, large text, long text, minimum width" notes={<>
+        <p>Focus ring is 2px <code>focus-ring</code> at 3px offset everywhere (white on the hero). Switches have a 44px hit area. Disabled switches stay focusable with aria-disabled. Dialogs trap focus, close on Escape and return focus.</p>
+        <ul><li>Large text: real 150% text scaling (<code>--text-scale: 1.5</code>) at the 320px settings minimum; layout reflows, nothing is zoomed.</li><li>Long text: German-length strings wrap; switches never shrink.</li></ul>
+      </>}>
+        <div className="g-row">
+          <Pane cap="Focus" width={320}><div style={{ padding: 16, display: 'grid', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}><span className="focus-demo" style={{ borderRadius: 999, display: 'inline-flex' }}><G.Toggle checked label="Focus" /></span><button className="secondary focus-demo">Don't share</button><button className="link focus-demo">Restore purchase</button></div>
+            <div className="hero"><div className="hero-text"><h1 style={{ fontSize: 18, margin: 0 }}>Still is active</h1></div><span style={{ outline: '2px solid #fff', outlineOffset: 3, borderRadius: 999, display: 'inline-flex' }}><G.Toggle checked variant="on-blue" label="Still" /></span></div>
+          </div></Pane>
+          <Pane cap="150% text (--text-scale) · 320 wide" width={320} theme="dark"><div style={{ ['--text-scale']: 1.5 }}><div className="service-group" style={{ margin: 8 }}><div style={{ padding: '0 10px' }}><G.SwitchRow label="End-of-video suggestions" checked access="purchased" /><G.SwitchRow label="Live chat" access="locked" /></div></div></div></Pane>
+          <Pane cap="Long text" width={320}><div style={{ padding: 12, display: 'grid', gap: 12 }}>
+            <div className="service-group"><div style={{ padding: '0 16px' }}><G.SwitchRow label="Vorschläge am Ende des Videos" sub="Wiederholen und die Player-Steuerung bleiben erhalten." checked access="purchased" /></div></div>
+            <G.StatusLine tone="failed" announce={false} actionLabel="Erneut versuchen">Die Überprüfung konnte nicht abgeschlossen werden. Es hat sich nichts geändert.</G.StatusLine>
+          </div></Pane>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+const ready = G && G.SiteSection && G.ProControlList;
+const mount = () => ReactDOM.createRoot(document.getElementById('root')).render(ready ? <Gallery /> : <p style={{ padding: 40, fontSize: 15 }}>The component bundle hasn't been compiled yet. Reload in a moment.</p>);
+if (document.getElementById('root')) mount(); else document.addEventListener('DOMContentLoaded', mount);

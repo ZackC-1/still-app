@@ -1,0 +1,42 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton, ProControlList, StatusLine } = window.StillDesignSystem_c8e8ab;
+
+const PRO_IDS = ProControlList().map(c => c.id);
+const accessAll = a => PRO_IDS.reduce((m, id) => ({ ...m, [id]: a }), {});
+const OPEN_KEY = 'still-popup-open';
+const canOfferPro = (host, access) => host !== 'safari' && access && Object.values(access).includes('locked') && !Object.values(access).some(a => a === 'checking' || a === 'purchased' || a === 'protected' || a === 'verify');
+
+
+// D01: Chrome/Firefox desktop popup. 380 wide, under 600 tall; the site list scrolls inside.
+function DesktopPopup({ initial = {}, access = accessAll('locked'), browser = 'Chrome', remember = false, signedIn = false, syncState, sites, overrides = {}, heroTitle }) {
+  const [on, setOn] = React.useState(initial.on ?? true);
+  const [open, setOpenRaw] = React.useState(() => remember ? (localStorage.getItem(OPEN_KEY) || null) : (initial.open ?? null));
+  const setOpen = k => { setOpenRaw(k); if (remember) { if (k) localStorage.setItem(OPEN_KEY, k); else localStorage.removeItem(OPEN_KEY); } };
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...initial.values });
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  return (
+    <AppShell density="compact" width={380}>
+      <HeroCard on={on} onChange={setOn} compact title={heroTitle} />
+      <SiteList paused={!on} scroll>
+        {(sites || SiteOrder).map(k => (
+          <SiteSection key={k} service={k} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set}
+            controls={overrides[k]} open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} showSubs={false} />
+        ))}
+      </SiteList>
+      {canOfferPro('browser', access) && <Button variant="secondary" block>Purchase Still Pro</Button>}
+      {signedIn ? (
+        <SettingsCard variant="sync-row" title="Settings sync" sub="sam@example.com" action={null}>
+          {syncState && <StatusLine tone={syncState[0]} announce={false} actionLabel={syncState[2]}>{syncState[1]}</StatusLine>}
+        </SettingsCard>
+      ) : (
+        <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline>Sign in</Button>} />
+      )}
+      <footer className="popup-footer">
+        <OpenSettingsButton setupTitle={'Find Still in ' + browser + '.'} />
+        <a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a>
+      </footer>
+    </AppShell>
+  );
+}
+
+window.DesktopPopup = DesktopPopup;
+window.accessAll = accessAll;

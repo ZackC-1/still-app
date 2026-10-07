@@ -1,0 +1,97 @@
+const { Logo, Button, StatusLine, SettingsCard, ConsentCard } = RDS;
+
+const B = { chrome: 'Chrome', firefox: 'Firefox' };
+
+// D14: the page the extension opens in a new tab right after install. Two setup steps, one optional sign-in, the one consent choice.
+function FirstRun({ browser = 'chrome', permission = 'granted', pinned = false, consent = 'unasked', signedIn = false }) {
+  const [asked, setAsked] = React.useState(consent !== 'unasked');
+  const [shared, setShared] = React.useState(consent === 'on');
+  const name = B[browser];
+  const permStep = {
+    title: 'Allow Still on supported sites',
+    done: permission === 'granted',
+    body: permission === 'granted' ? 'Allowed on YouTube, Instagram, Facebook and TikTok.' : name + ' asks once. Still only runs on these four sites.',
+    action: permission === 'needed' ? <Button>Allow</Button>
+      : permission === 'pending' ? <StatusLine tone="pending" announce={false}>{'Waiting for ' + name + '…'}</StatusLine>
+      : permission === 'denied' ? <><StatusLine tone="caution" announce={false} detail="Your choices are saved and start working once it's allowed.">{name + " didn't allow it. Still can't block yet."}</StatusLine><Button>Try again</Button></>
+      : null,
+  };
+  const pinStep = {
+    title: 'Pin Still to your toolbar',
+    done: browser === 'chrome' && pinned,
+    body: pinned && browser === 'chrome' ? 'Still is pinned.' : browser === 'chrome' ? 'Click the puzzle piece in the toolbar, then the pin next to Still.' : 'Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar.',
+  };
+  const syncStep = {
+    title: 'Settings sync', tag: 'Optional',
+    body: signedIn ? 'Signed in as sam@example.com.' : 'Free. Keep your settings updated across every device and browser',
+    done: signedIn,
+    action: signedIn ? null : <Button variant="secondary">Sign in</Button>,
+  };
+  const ready = permission === 'granted';
+  return (
+    <main className="still-ui fr">
+      <div className="fr-col">
+        <Logo />
+        <h1>{ready ? 'Still is on.' : 'One step to finish setup.'}</h1>
+        <p className="lede">{ready ? 'Visit YouTube, Instagram, Facebook or TikTok as usual.' : 'Allow Still on the sites it works on, and it starts right away.'}</p>
+        <section className="card"><Steps items={[permStep, pinStep, syncStep]} /></section>
+        {!asked
+          ? <ConsentCard purposes={REVIEW_PURPOSES} onShare={() => { setShared(true); setAsked(true); }} onDecline={() => setAsked(true)} />
+          : <section className="card card-stack"><StatusLine tone="info" announce={false} detail="Change this any time in Still settings.">{shared ? 'You chose to share your email and usage data.' : "You chose not to share your email and usage data."}</StatusLine></section>}
+        <footer className="fr-foot"><Button variant="link">Open Still settings</Button><Button variant="link">Privacy policy</Button></footer>
+      </div>
+    </main>
+  );
+}
+
+function Page() {
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D14 · Extension first-run</h1><p>The page Chrome or Firefox opens right after install. It finishes setup, offers free sync as optional, and asks the one consent question. No Still Pro offer, no sign-up wall, no tour.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="Chrome" title="Installed and working" notes={<>
+        <p>Chrome grants site access at install, so step 1 is already done. Pinning is optional; Chrome can tell Still when it's pinned.</p>
+        <ul><li>Consent: equal Share / Don't share, then a quiet confirmation.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Chrome · just installed" w={600} h={1000} url="Welcome to Still"><FirstRun /></Device>
+          <Device kind="tab" cap="Chrome · pinned, signed in, consent answered" w={600} h={1000} theme="dark" url="Welcome to Still"><FirstRun pinned signedIn consent="off" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Firefox" title="Permission needed, pending, denied" notes={<>
+        <p>Firefox asks for site access separately. Until it's allowed, the page says Still can't block yet and keeps every choice.</p>
+        <ul><li>Denied: one Try again, no nagging.</li><li>Firefox can't report pinning, so step 2 stays as instructions.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Firefox · permission needed" w={420} h={960} url="Welcome to Still"><FirstRun browser="firefox" permission="needed" /></Device>
+          <Device kind="tab" cap="Firefox · waiting" w={420} h={960} theme="dark" url="Welcome to Still"><FirstRun browser="firefox" permission="pending" consent="off" /></Device>
+          <Device kind="tab" cap="Firefox · not allowed" w={420} h={960} url="Welcome to Still"><FirstRun browser="firefox" permission="denied" consent="on" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Accessibility" title="Minimum width, large text, keyboard" notes={<>
+        <p>320px at 1.5× text (<code>--text-scale</code>). Focus starts on the first action.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="320 wide · 1.5× text" w={320} h={1100} scale={1.5} url="Welcome to Still"><FirstRun browser="firefox" permission="needed" consent="off" /></Device>
+          <Device kind="tab" cap="Keyboard · focus on Allow" w={480} h={760} theme="dark" cls="kbd-allow" url="Welcome to Still"><FirstRun browser="firefox" permission="needed" consent="off" /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Consent on this page: asked here once (as built), or only later in settings.',
+          'Headline: "Still is on." / "One step to finish setup." Keep, or add the tagline "Do what you came to do" here since this page is close to marketing.',
+          'Pinning step: keep it, or drop it to make setup one step.',
+          'Firefox pinning and permission wording follow current menus; engineering should confirm.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

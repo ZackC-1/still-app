@@ -1,0 +1,40 @@
+const { AppShell, Logo, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, AccountLinks, Button, ConsentCard, SharingSetting, DemoMark } = window.StillDesignSystem_c8e8ab;
+
+function SettingsScreen({ app }) {
+  const { on, setOn, svc, setSvc, access, open, setOpen, share, setShare, consentAsked, answerConsent, signedIn, email, openSignIn, signOut } = app;
+  return (
+    <AppShell>
+      <div className="appbar"><Logo /></div>
+      <HeroCard on={on} onChange={setOn} compact />
+      <SiteList paused={!on}>
+        {SiteOrder.map(k => (
+          <SiteSection key={k} service={k} coreOn={svc[k]} onCoreChange={v => setSvc(k, v)} values={svc} access={access} onControlChange={setSvc}
+            open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} />
+        ))}
+      </SiteList>
+      {!consentAsked && <ConsentCard purposes={window.KIT_PURPOSES} onShare={() => answerConsent(true)} onDecline={() => answerConsent(false)} />}
+      {consentAsked && <SharingSetting checked={share} onChange={setShare} />}
+      <SettingsCard label="Settings sync">
+        {signedIn ? (
+          <>
+            <p className="synced">{email}</p>
+            <DemoMark>Demonstration only: no real sync time</DemoMark>
+            <AccountLinks>
+              <Button variant="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</Button>
+              <Button variant="link" onClick={signOut}>Sign out</Button>
+            </AccountLinks>
+          </>
+        ) : (
+          <>
+            <p className="muted">Sign in to keep your settings the same in every browser. Free and optional.</p>
+            <Button block onClick={openSignIn}>Sign in</Button>
+            <AccountLinks>
+              <Button variant="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</Button>
+            </AccountLinks>
+          </>
+        )}
+      </SettingsCard>
+    </AppShell>
+  );
+}
+window.SettingsScreen = SettingsScreen;

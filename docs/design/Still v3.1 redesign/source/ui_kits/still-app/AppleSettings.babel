@@ -1,0 +1,133 @@
+const { AccessTag, AppShell, Logo, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, AccountLinks, Button, StatusLine, ProOffer, RestoreStatus, AccountLink, ConsentCard, SharingSetting, Invitation, DemoMark } = RDS;
+
+const SETUP_STEPS = {
+  ios: ['Open the Settings app.', 'Go to Apps, then Safari, then Extensions.', 'Turn on Still and allow it on every website.'],
+  mac: ['Open Safari, then Settings, then Extensions.', 'Turn on Still.', 'Allow it on every website.'],
+};
+
+// D04: settings inside the Still app on iPhone, iPad and Mac. Free blocking needs no account; Apple purchase needs no account; sync is a separate, optional sign-in.
+function AppleSettings({ platform = 'ios', initial = {}, access = accessAll('locked'), pro = 'none', offerState = 'idle', restore, signedIn = false, sync, linkInvite = false, link, consent = 'off', withdrawal = 'none', setup = false }) {
+  const [on, setOn] = React.useState(initial.on ?? true);
+  const [open, setOpen] = React.useState(initial.open ?? null);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...initial.values });
+  const [asked, setAsked] = React.useState(consent !== 'unasked');
+  const [share, setShare] = React.useState(consent === 'on');
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  const controls = platform === 'ios' ? MOBILE_CONTROLS : {};
+  return (
+    <AppShell host="apple">
+      <HeroCard on={on} onChange={setOn} compact />
+      {setup && (
+        <SettingsCard label="Turn on Still in Safari">
+          <p className="muted" style={{ fontSize: 'calc(14px * var(--text-scale, 1))' }}>Still works inside Safari. Your choices are saved and start working once it's on.</p>
+          <ol className="r-steps">{SETUP_STEPS[platform].map(s => <li key={s}>{s}</li>)}</ol>
+          <Button block>{platform === 'mac' ? 'Open Safari Settings' : 'Open Settings'}</Button>
+        </SettingsCard>
+      )}
+      <SiteList paused={!on}>
+        {SiteOrder.map(k => (
+          <SiteSection key={k} service={k} controls={controls[k]} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set}
+            open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} host="apple" />
+        ))}
+      </SiteList>
+      <SettingsCard label={pro === 'owned' ? 'Still Pro and sync' : 'Settings sync'}>
+        {pro === 'owned' && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingBlockEnd: 12, borderBlockEnd: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 'calc(15px * var(--text-scale, 1))', fontWeight: 600 }}>Still Pro</span>
+            <AccessTag state="purchased" boxed label="Purchased" />
+          </div>
+        )}
+        {signedIn ? (
+          <>
+            <p className="synced">sam@example.com</p>
+            {sync && <StatusLine tone={sync[0]} announce={false} actionLabel={sync[2]}>{sync[1]}</StatusLine>}
+            <DemoMark>Demonstration only: no real sync</DemoMark>
+            <AccountLinks><Button variant="link">Sign out</Button><Button variant="danger-link">Delete account</Button></AccountLinks>
+          </>
+        ) : (
+          <>
+            <p className="muted">Free. Keep your settings updated across every device and browser</p>
+            <Button block>Sign in</Button>
+            <p className="caption">Optional. Blocking and Still Pro work without an account.</p>
+          </>
+        )}
+      </SettingsCard>
+      {linkInvite && <Invitation kind="link" />}
+      {link && <AccountLink state={link} email="sam@example.com" />}
+      {pro !== 'verify' && pro !== 'owned' && <ProOffer host="apple" offer={SAMPLE_OFFER} showList={false} showPrice={false} ownership={pro === 'owned' ? 'owned' : pro === 'checking' ? 'checking' : 'none'} state={offerState} />}
+      {pro === 'none' && offerState === 'idle' && <p className="caption" style={{ marginBlockStart: -4, paddingInline: 4 }}>No account needed. Payment is handled by Apple.</p>}
+      {restore && <section className="card card-stack"><RestoreStatus state={restore} announce={false} /></section>}
+      {!asked
+        ? <ConsentCard purposes={REVIEW_PURPOSES} onShare={() => { setShare(true); setAsked(true); }} onDecline={() => setAsked(true)} />
+        : <SharingSetting checked={share} onChange={setShare} withdrawal={withdrawal} announce={false} />}
+      <SettingsCard label="Help">
+        <AccountLinks><Button variant="link">Setup guide</Button><Button variant="link">Contact support</Button><Button variant="link">Privacy policy</Button></AccountLinks>
+      </SettingsCard>
+    </AppShell>
+  );
+}
+
+function Page() {
+  const locked = accessAll('locked'), purchased = accessAll('purchased');
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D04 · Apple app settings</h1><p>Settings inside the Still app on iPhone, iPad and Mac. Free blocking needs no account. Still Pro is bought here through Apple, also without an account. Settings sync is a separate, optional sign-in. Native StoreKit and review sheets aren't drawn; frames show the app before and after them.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="iPhone" title="Setup, then everyday" notes={<>
+        <p>Until Still is turned on in Safari, a setup card with three steps sits under the hero. Choices are kept and apply once it's on.</p>
+        <ul><li>Get Still Pro opens Apple's purchase sheet.</li><li>After a new purchase that isn't linked, an optional "Link Still Pro" card can appear on a later visit, never right after buying.</li><li>Safe areas: 59pt top, 34pt bottom.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="iPhone 15 · Safari extension off" w={393} h={852} safeTop={59} safeBottom={34}><AppleSettings access={locked} setup /></Device>
+          <Device kind="iphoneapp" cap="iPhone 15 · Pro bought, link invitation" w={393} h={852} theme="dark" safeTop={59} safeBottom={34}><AppleSettings access={purchased} pro="owned" linkInvite initial={{ open: 'youtube', values: { yt_comments: true } }} /></Device>
+          <Device kind="iphoneapp" cap="iPhone 15 · waiting for Apple" w={393} h={852} safeTop={59} safeBottom={34}><AppleSettings access={locked} offerState="pending" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="iPad · Mac" title="Tablet and desktop host" notes={<>
+        <p>Same single column, centred. Mac uses a standard window with the system title bar; keyboard focus is visible on every control.</p>
+        <ul><li>Mac lists Desktop sidebar ads; iPhone and iPad don't.</li><li>Paid access that can't be confirmed offline asks to verify; free controls keep working.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="ipadapp" cap="iPad · Restore couldn't finish" w={820} h={760} safeTop={24} safeBottom={20}><AppleSettings platform="ios" access={locked} restore="failed" initial={{ open: 'instagram' }} /></Device>
+        </div>
+        <div className="r-row">
+          <Device kind="mac" cap="Mac · Still Pro needs verification" w={720} h={680} theme="dark" title="Still"><AppleSettings platform="mac" access={accessAll('verify')} pro="verify" restore="verify" initial={{ open: 'facebook', values: { fb_stories: true } }} consent="on" /></Device>
+          <Device kind="mac" cap="Mac · keyboard focus on the Still switch" w={520} h={680} title="Still" cls="kbd-hero"><AppleSettings platform="mac" access={purchased} pro="owned" signedIn sync={['success', 'Settings synced.']} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Linking · Restore" title="Account and recovery" notes={<>
+        <p>Linking is optional and confirms the intended account. Signing out keeps a purchase made on this device working.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="Link · confirm account" w={393} h={852} safeTop={59} safeBottom={34}><AppleSettings access={purchased} pro="owned" link="confirm" signedIn /></Device>
+          <Device kind="iphoneapp" cap="Restore · nothing found" w={393} h={852} theme="dark" safeTop={59} safeBottom={34}><AppleSettings access={locked} restore="nothing" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Dynamic Type" title="Large text" notes={<>
+        <p>Real text scaling (<code>--text-scale</code>) standing in for Dynamic Type: 1.35× ≈ xxxLarge, 2× ≈ an accessibility size. In the app, SwiftUI text styles do this natively.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="iPhone 15 · xxxLarge" w={393} h={852} safeTop={59} safeBottom={34} scale={1.35}><AppleSettings access={locked} setup /></Device>
+          <Device kind="iphoneapp" cap="iPhone 15 · accessibility size" w={393} h={852} theme="dark" safeTop={59} safeBottom={34} scale={2}><AppleSettings access={purchased} pro="owned" initial={{ open: 'youtube' }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Resolved: iPad and Mac keep the single 432 column, centred.',
+          'Pending (owner will confirm later): setup step wording for each iOS and macOS version.',
+          'Order: Settings sync sits above Still Pro, matching D03; Pro owners see one combined "Still Pro and sync" card.',
+          'Resolved: Sign in uses the same primary block button as D03.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

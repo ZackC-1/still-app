@@ -1,0 +1,52 @@
+<!-- @dsCard group="Brand" viewport="960x288" name="Cover" subtitle="Brand cover: name, blocks and resting-ball motif" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Still · Cover</title>
+<link rel="stylesheet" href="../styles.css">
+<style>body { margin: 0; background: var(--surface); color: var(--ink); font-family: var(--font-ui); }</style>
+</head>
+<body>
+<style>
+  html, body { margin: 0; background: var(--surface); }
+  .cover { position: relative; inline-size: 960px; block-size: 288px; overflow: hidden; background: var(--surface); font-family: var(--font-ui); }
+  .cover svg { position: absolute; inset: 0; }
+  .blue { fill: var(--still-blue); }
+  .pressed { fill: var(--still-blue-pressed); }
+  .ink { fill: var(--ink); }
+  .tint { fill: var(--toggle-off); }
+  .slab { rx: var(--radius-sheet); }
+  .tile { rx: var(--radius-card); }
+  .rule { stroke: var(--on-blue); stroke-width: 2.4px; stroke-linecap: round; }
+  .ball { fill: var(--on-blue); }
+  .rule-ink { stroke: var(--surface); stroke-width: 2.4px; stroke-linecap: round; }
+  .ball-ink { fill: var(--surface); }
+  .text { position: absolute; left: 48px; bottom: 40px; max-inline-size: 440px; }
+  .name { margin: 0; font-size: 120px; line-height: .92; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); }
+  .tag { margin: 16px 0 0; font-size: 14px; line-height: 1.35; color: var(--ink-secondary); }
+</style>
+<div class="cover">
+  <!--
+    blocks: still-blue slab 240x240 (space-12 x5), ink 176x112, toggle-off 80x112, still-blue-pressed 80x112; gaps space-4
+    arrangement: one tall slab with three satellites, right of x=480, top and bottom inset space-6
+    pattern: literal motif (the balance mark, a ball resting on a line, is the app icon) -> three rules with resting discs on the slab, one on the ink tile
+    scales: space-4 16, space-6 24, space-12 48; radius-sheet on the slab, radius-card on tiles; stroke 2.4 from the mark
+  -->
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <rect class="blue slab" x="504" y="24" width="240" height="240" rx="16"/>
+    <rect class="ink tile" x="760" y="24" width="176" height="112" rx="12"/>
+    <rect class="tint tile" x="760" y="152" width="80" height="112" rx="12"/>
+    <rect class="pressed tile" x="856" y="152" width="80" height="112" rx="12"/>
+    <line class="rule" x1="528" y1="88" x2="720" y2="88"/><circle class="ball" cx="576" cy="80" r="8"/>
+    <line class="rule" x1="528" y1="152" x2="720" y2="152"/><circle class="ball" cx="624" cy="144" r="8"/>
+    <line class="rule" x1="528" y1="216" x2="720" y2="216"/><circle class="ball" cx="672" cy="208" r="8"/>
+    <line class="rule-ink" x1="784" y1="96" x2="912" y2="96"/><circle class="ball-ink" cx="848" cy="88" r="8"/>
+  </svg>
+  <div class="text">
+    <p class="name">Still</p>
+  </div>
+</div>
+</body>
+</html>

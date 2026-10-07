@@ -1,0 +1,119 @@
+const { Logo, Button, StatusLine, ConsentCard } = RDS;
+
+const SAFARI_STEPS = {
+  ios: ['Open the Settings app.', 'Go to Apps, then Safari, then Extensions.', 'Turn on Still and allow it on every website.'],
+  mac: ['Open Safari, then Settings, then Extensions.', 'Turn on Still.', 'Allow it on every website.'],
+};
+const TOTAL = 4;
+
+// D12: first launch of the Still app on iPhone, iPad and Mac. Welcome → turn on in Safari → consent → done.
+function Onboarding({ platform = 'ios', step = 1, detect }) {
+  const [asked, setAsked] = React.useState(false);
+  const top = (
+    <div className="ob-top">
+      {step > 1 ? <Button variant="link">Back</Button> : <span></span>}
+      <span>Step {step} of {TOTAL}</span>
+    </div>
+  );
+  let main, actions;
+  if (step === 1) {
+    main = <>
+      <Logo size={64} markOnly />
+      <h1>Welcome to Still</h1>
+      <p className="lede">Still removes Shorts, Reels and the TikTok website when you browse in Safari. It doesn't work inside the YouTube, Instagram, Facebook or TikTok apps.</p>
+      <p className="caption">Free. No account needed.</p>
+    </>;
+    actions = <Button block>Continue</Button>;
+  } else if (step === 2) {
+    main = <>
+      <h1>Turn on Still in Safari</h1>
+      <p className="lede">Still works inside Safari. Your choices start working once it's on.</p>
+      <section className="card card-stack"><ol className="r-steps">{SAFARI_STEPS[platform].map(s => <li key={s}>{s}</li>)}</ol></section>
+      {platform === 'mac' && detect === 'waiting' && <StatusLine tone="pending" announce={false}>Waiting for Still in Safari…</StatusLine>}
+      {platform === 'mac' && detect === 'on' && <StatusLine tone="success" announce={false}>Still is on in Safari.</StatusLine>}
+    </>;
+    actions = platform === 'mac'
+      ? (detect === 'on' ? <Button block>Continue</Button> : <><Button block>Open Safari Settings</Button><Button variant="link">Do this later</Button></>)
+      : <><Button block>Open Settings</Button><Button variant="link">I've turned it on</Button></>;
+  } else if (step === 3) {
+    main = <>
+      <h1>Help improve Still?</h1>
+      {!asked
+        ? <ConsentCard purposes={REVIEW_PURPOSES} onShare={() => setAsked(true)} onDecline={() => setAsked(true)} />
+        : <StatusLine tone="info" announce={false}>Saved. Change this any time in Settings.</StatusLine>}
+    </>;
+    actions = asked ? <Button block>Continue</Button> : null;
+  } else {
+    main = <>
+      <Logo size={64} markOnly />
+      <h1>You're set</h1>
+      <p className="lede">Open Safari and visit YouTube, Instagram, Facebook or TikTok. You can change anything in Settings.</p>
+      <p className="caption">Settings sync is free and optional. Sign in from Settings any time.</p>
+    </>;
+    actions = <><Button block>Open Safari</Button><Button variant="link">Go to Settings</Button></>;
+  }
+  return (
+    <main className="still-ui ob">
+      <div className="ob-col">
+        {top}
+        <div className="ob-main">{main}</div>
+        {actions && <div className="ob-actions">{actions}</div>}
+      </div>
+    </main>
+  );
+}
+
+const PHONE = { w: 393, h: 852, safeTop: 59, safeBottom: 34 };
+
+function Page() {
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D12 · Apple onboarding</h1><p>First launch of the Still app on iPhone, iPad and Mac. Four short steps: welcome, turn on Still in Safari, the one consent question, done. No account, no Still Pro offer, no trial. Apple's own sheets aren't drawn.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="iPhone" title="The four steps" notes={<>
+        <p>One idea per screen, one primary button at the bottom. Back is always available after step 1.</p>
+        <ul><li>Step 1 says plainly that Still works in Safari, not inside the social apps.</li><li>iOS can't confirm the extension is on, so step 2 offers "I've turned it on".</li><li>Step 3 is the combined consent card; Continue appears only after a choice.</li></ul>
+      </>}>
+        <div className="r-row">
+          {[1, 2, 3, 4].map(s => <Device key={s} kind="iphoneapp" cap={'iPhone 15 · step ' + s} {...PHONE}><Onboarding step={s} /></Device>)}
+        </div>
+      </Sec>
+
+      <Sec id="Dark · small · large text" title="Dark, smallest phone, Dynamic Type" notes={<>
+        <p>Real text scaling with <code>--text-scale</code>: 1.35× ≈ xxxLarge, 2× ≈ an accessibility size. Content scrolls; the buttons stay at the bottom of the flow.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="iPhone 15 · step 1" theme="dark" {...PHONE}><Onboarding step={1} /></Device>
+          <Device kind="iphoneapp" cap="iPhone SE · step 2 · xxxLarge" w={375} h={667} safeTop={20} scale={1.35}><Onboarding step={2} /></Device>
+          <Device kind="iphoneapp" cap="iPhone 15 · step 1 · accessibility size" theme="dark" {...PHONE} scale={2}><Onboarding step={1} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="iPad · Mac" title="Tablet and desktop" notes={<>
+        <p>Same steps in a centred 480 column. On Mac, Still can see whether the extension is on, so step 2 waits and then confirms.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="ipadapp" cap="iPad · step 2" w={820} h={760} safeTop={24} safeBottom={20}><Onboarding step={2} /></Device>
+        </div>
+        <div className="r-row">
+          <Device kind="mac" cap="Mac · step 2 · waiting" w={640} h={600}><Onboarding platform="mac" step={2} detect="waiting" /></Device>
+          <Device kind="mac" cap="Mac · step 2 · on" w={640} h={600} theme="dark"><Onboarding platform="mac" step={2} detect="on" /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Step 1 wording names Shorts, Reels and the TikTok website. You said Still goes beyond short-form video: want a broader line, e.g. "Still removes the distracting parts of YouTube, Instagram, Facebook and TikTok when you browse in Safari"?',
+          'Consent as step 3 (as built), or ask later in Settings only.',
+          'iOS has no reliable way to confirm the extension is on; "I\'ve turned it on" trusts the user. Engineering to confirm.',
+          'Safari setup paths are pending your confirmation (same as D04).',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

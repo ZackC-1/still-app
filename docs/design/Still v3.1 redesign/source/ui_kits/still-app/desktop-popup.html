@@ -1,0 +1,115 @@
+<!-- @dsCard group="V3 review" viewport="1240x820" name="D01 Desktop popup" subtitle="Interactive + light/dark, collapsed, expanded, overflow, long text, keyboard · approved 2026-10-02" -->
+<!doctype html>
+<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Still · D01 desktop popup</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+html,body{margin:0}body{background:#e9ebf2;color:#0b1430;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+a{color:#2a47e8}a:hover{color:#1e37c2}
+.p-wrap{max-width:1240px;margin:0 auto;padding:40px 32px 80px;display:flex;flex-direction:column;gap:40px}
+.p-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
+.p-top h1{margin:0;font-size:28px;letter-spacing:-.02em}.p-top p{margin:4px 0 0;color:#4a5170;font-size:14px;max-width:64ch}
+.p-badge{font-size:12px;font-weight:600;border:1px solid #1a7046;color:#1a7046;border-radius:999px;padding:4px 10px;background:#fff}
+.p-sec h2{margin:0 0 4px;font-size:17px;letter-spacing:-.01em}.p-sec > p{margin:0 0 14px;font-size:13px;color:#4a5170;max-width:80ch}
+.p-row{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.p-pane{display:flex;flex-direction:column;gap:6px;width:380px}
+.p-pane .cap{font-size:11px;font-weight:600;letter-spacing:.03em;color:#4a5170}
+.p-frame{width:380px;max-height:600px;overflow:hidden;border-radius:10px;box-shadow:0 0 0 1px rgba(11,20,48,.1),0 8px 28px rgba(11,20,48,.12);background:var(--surface);position:relative}
+.p-frame[data-theme="dark"]{box-shadow:0 0 0 1px rgba(255,255,255,.1),0 8px 28px rgba(11,20,48,.3)}
+.p-h{font-size:11px;color:#4a5170;font-variant-numeric:tabular-nums}
+.kbd [aria-controls="site-youtube-panel"]{outline:2px solid var(--focus-ring);outline-offset:3px;border-radius:6px}
+.p-steps{margin:0;padding-left:18px;font-size:13px;color:#4a5170;display:flex;flex-direction:column;gap:3px;max-width:380px}
+.p-steps b{color:#0b1430;font-weight:600}
+</style></head><body><div id="root"></div>
+<script type="text/babel" src="DesktopPopup.babel"></script>
+<script type="text/babel">
+const DS = window.StillDesignSystem_c8e8ab;
+
+function Frame({ cap, theme = 'light', children, cls = '' }) {
+  const ref = React.useRef(null);
+  const [h, setH] = React.useState(0);
+  React.useEffect(() => { const el = ref.current; if (!el) return; const ro = new ResizeObserver(() => setH(Math.round(el.scrollHeight))); ro.observe(el); return () => ro.disconnect(); }, []);
+  return (
+    <div className="p-pane">
+      <span className="cap">{cap} <span className="p-h">· {h}px tall</span></span>
+      <div ref={ref} className={'p-frame ' + cls} data-theme={theme}>{children}</div>
+    </div>
+  );
+}
+
+const DE = [
+  { id: 'yt_related', label: 'Ähnliche Videos' }, { id: 'yt_endscreen', label: 'Vorschläge am Ende des Videos' },
+  { id: 'yt_autoplay', label: 'Automatische Wiedergabe verhindern' }, { id: 'yt_comments', label: 'Kommentare' }, { id: 'yt_livechat', label: 'Livechat' },
+];
+
+function Page() {
+  const purchased = accessAll('purchased');
+  const locked = accessAll('locked');
+  return (
+    <div className="p-wrap">
+      <header className="p-top">
+        <div><h1>D01 · Desktop popup</h1><p>Chrome and Firefox desktop. Built from the V3 system (approved at 3.0.0; renders with 3.0.1). 380 wide, under the browser's 600px cap. The site list scrolls inside its card, so the sync card, the settings link and privacy are always reachable.</p></div>
+        <span className="p-badge">Approved by owner · 2026-10-02</span>
+      </header>
+
+      <section className="p-sec" data-screen-label="Interactive">
+        <h2>Interactive</h2>
+        <p>Click through: expand a site (one at a time; the last one stays open across reloads, saved on this device only), switch controls, turn Still off. Pro not owned: the lock rows open Still Pro in settings.</p>
+        <div className="p-row">
+          <Frame cap="Light · Pro not owned"><DesktopPopup remember access={locked} /></Frame>
+          <Frame cap="Dark · Pro purchased" theme="dark"><DesktopPopup access={purchased} initial={{ open: 'instagram', values: { ig_stories: true, ig_explore: true } }} /></Frame>
+        </div>
+      </section>
+
+      <section className="p-sec" data-screen-label="States">
+        <h2>Collapsed, expanded, paused</h2>
+        <p>Fresh install opens collapsed. Expanded shows the saved choices; new Pro controls start Off. Global Off greys every row and keeps choices; sync and links stay usable.</p>
+        <div className="p-row">
+          <Frame cap="Fresh install · collapsed"><DesktopPopup access={locked} /></Frame>
+          <Frame cap="Expanded · YouTube, purchased"><DesktopPopup access={purchased} initial={{ open: 'youtube', values: { yt_comments: true, yt_autoplay: true } }} /></Frame>
+          <Frame cap="Still off · choices kept" theme="dark"><DesktopPopup access={purchased} initial={{ on: false, open: 'youtube', values: { yt_comments: true } }} /></Frame>
+        </div>
+      </section>
+
+      <section className="p-sec" data-screen-label="Access and sync">
+        <h2>Access and sync states</h2>
+        <p>Rights still checking: switches show the saved state, disabled, with no lock or price. Verification needed: free controls keep working. Signed in: the sync card shows what's actually happening, never a made-up "just now".</p>
+        <div className="p-row">
+          <Frame cap="Checking access · signed in, syncing"><DesktopPopup access={accessAll('checking')} initial={{ open: 'facebook', values: { fb_stories: true } }} signedIn syncState={['pending', 'Syncing your settings…']} /></Frame>
+          <Frame cap="Needs verification · sync failed" theme="dark"><DesktopPopup access={accessAll('verify')} initial={{ open: 'instagram', values: { ig_stories: true } }} signedIn syncState={['failed', "Sync didn't finish. Your settings are saved on this device.", 'Try again']} /></Frame>
+          <Frame cap="Firefox · Autoplay unavailable"><DesktopPopup browser="Firefox" access={{ ...purchased, yt_autoplay: 'unsupported' }} initial={{ open: 'youtube', values: { yt_autoplay: true } }} /></Frame>
+        </div>
+      </section>
+
+      <section className="p-sec" data-screen-label="Overflow and long text">
+        <h2>Overflow, large text, long text</h2>
+        <p>At 150% text the list scrolls inside its card, and the footer is still visible. German-length labels wrap and switches never shrink.</p>
+        <div className="p-row">
+          <Frame cap="150% text (--text-scale) · scrolls inside"><div style={{ ['--text-scale']: 1.5 }}><DesktopPopup access={purchased} initial={{ open: 'youtube' }} /></div></Frame>
+          <Frame cap="Long text (de)"><DesktopPopup access={purchased} initial={{ open: 'youtube', values: { yt_endscreen: true } }} sites={['youtube', 'tiktok']} overrides={{ youtube: DE }} heroTitle="Still ist aktiv" /></Frame>
+        </div>
+      </section>
+
+      <section className="p-sec" data-screen-label="Keyboard">
+        <h2>Keyboard</h2>
+        <p>The focus ring is 2px at a 3px offset on every interactive element. Tab order follows the reading order.</p>
+        <div className="p-row">
+          <Frame cap="Focus on the YouTube expander" cls="kbd"><DesktopPopup access={locked} /></Frame>
+          <ol className="p-steps">
+            <li><b>Still</b> switch (Space toggles)</li>
+            <li>Each site: <b>expander</b> (Enter/Space; announces expanded/collapsed), then its <b>service switch</b></li>
+            <li>If open: each control's switch or <b>lock</b> button; disabled switches stay focusable and read their reason</li>
+            <li><b>Sign in</b>, then <b>Open settings</b>, then <b>Privacy policy</b></li>
+            <li>Escape closes the popup (browser default). No focus traps in the popup itself.</li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(DS && DS.SiteSection ? <Page /> : <p style={{ padding: 40 }}>The component bundle hasn't been compiled yet. Reload in a moment.</p>);
+</script></body></html>

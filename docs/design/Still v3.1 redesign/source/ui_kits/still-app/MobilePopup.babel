@@ -1,0 +1,122 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton, StatusLine } = RDS;
+
+const SETUP = {
+  safari: ["Still can't block on these websites yet.", 'In Safari, tap the extensions button, choose Still, then Always Allow on Every Website.', 'Show me how'],
+  firefox: ['Still needs permission for these websites.', 'Firefox asks once. Allow it so Still can remove short-form video on supported sites.', 'Allow'],
+};
+
+// D02: the extension popup on phones and tablets. Safari = Safari extension inside the Apple app; firefox = Firefox Android (illustrative, capability-dependent).
+function MobilePopup({ host = 'safari', access = accessAll('locked'), initial = {}, setup = false, signedIn = false, syncState, overrides, channelReady = false }) {
+  const [on, setOn] = React.useState(initial.on ?? true);
+  const [open, setOpen] = React.useState(initial.open ?? null);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...initial.values });
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  const rowHost = host === 'safari' ? 'safari' : 'browser';
+  const ctl = { ...MOBILE_CONTROLS, ...overrides };
+  const s = SETUP[host];
+  return (
+    <AppShell density="compact">
+      <HeroCard on={on} onChange={setOn} compact />
+      {setup && (
+        <section className="card card-stack">
+          <StatusLine tone="caution" announce={false} detail={s[1]}>{s[0]}</StatusLine>
+          <Button variant="secondary" block>{s[2]}</Button>
+        </section>
+      )}
+      <SiteList paused={!on} scroll>
+        {SiteOrder.map(k => (
+          <SiteSection key={k} service={k} controls={ctl[k]} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set}
+            open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} host={rowHost} showSubs={false} />
+        ))}
+      </SiteList>
+      {canOfferPro(host, access, channelReady) && <Button variant="secondary" block>Purchase Still Pro</Button>}
+      {host === 'safari' && proKnownMissing(access) && <Button variant="secondary" block aria-label="See Still Pro in the Still app">See Still Pro</Button>}
+      {signedIn ? (
+        <SettingsCard variant="sync-row" title="Settings sync" sub="sam@example.com" action={null}>
+          {syncState && <StatusLine tone={syncState[0]} announce={false} actionLabel={syncState[2]}>{syncState[1]}</StatusLine>}
+        </SettingsCard>
+      ) : (
+        <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline>Sign in</Button>} />
+      )}
+      <footer className="popup-footer">
+        <OpenSettingsButton setupTitle={host === 'safari' ? 'Opens Still settings.' : 'Find Still in Firefox.'} />
+        <a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a>
+      </footer>
+    </AppShell>
+  );
+}
+
+function Page() {
+  const locked = accessAll('locked'), purchased = accessAll('purchased');
+  const mixed = { ...locked, ig_stories: 'purchased', ig_explore: 'unsupported', ig_suggested: 'checking', ig_threads: 'verify' };
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D02 · Mobile popup</h1><p>The Still popup on phones and tablets, built from the approved V3 system (3.0.1). Safari means the Safari extension inside the Still app on iPhone and iPad: it works on websites, never inside native social apps. Firefox Android is shown as an illustrative, capability-dependent variant, not a support claim.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="Safari · iPhone" title="Smallest phone and a current phone" notes={<>
+        <p>Safari opens the popup as a sheet. The popup fills the sheet's width and caps at its height; only the site list scrolls, so sync, Settings and Privacy policy stay on screen.</p>
+        <ul><li>Fresh install: collapsed, one section open at a time.</li><li>Pro not owned in Safari: lock + Still Pro rows and a "See Still Pro" button both open the Still app, where Apple handles the purchase. No price or Buy in the popup.</li><li>Desktop sidebar ads never appears on mobile.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphone" cap="iPhone SE · fresh install" w={375} h={667} safeTop={20}><MobilePopup access={locked} /></Device>
+          <Device kind="iphone" cap="iPhone 15 · Pro bought in the Still app" w={393} h={852} theme="dark" safeTop={59} safeBottom={34}><MobilePopup access={purchased} initial={{ open: 'youtube', values: { yt_comments: true, yt_autoplay: true } }} /></Device>
+          <Device kind="iphone" cap="iPhone 15 · Safari, Pro not owned" w={393} h={852} safeTop={59} safeBottom={34}><MobilePopup access={locked} initial={{ open: 'facebook' }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Setup" title="Setup and permission" notes={<>
+        <p>Before the browser allows Still on these websites, the popup says so plainly, keeps every choice, and offers one way forward. Nothing claims blocking is working.</p>
+        <ul><li>Safari: points to Safari's own permission control.</li><li>Firefox Android: one Allow request.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphone" cap="Safari · permission needed" w={375} h={667} safeTop={20}><MobilePopup access={locked} setup /></Device>
+          <Device kind="android" cap="Firefox Android · permission needed (illustrative)" w={360} h={780} theme="dark" safeTop={24} safeBottom={16}><MobilePopup host="firefox" access={locked} setup /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="States" title="Access, inactive, sync" notes={<>
+        <p>Saved choices, rights and host capability stay separate.</p>
+        <ul><li>Purchased: usable, no tag.</li><li>Checking: saved switch, disabled, no lock.</li><li>Verify: free controls keep working.</li><li>Unsupported (illustrative): "Not available in Safari. Your choice is saved."</li><li>Still off: everything greyed, nothing rewritten.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphone" cap="Instagram · mixed access" w={393} h={852} safeTop={59} safeBottom={34}><MobilePopup access={mixed} initial={{ open: 'instagram', values: { ig_stories: true, ig_explore: true, ig_suggested: true } }} /></Device>
+          <Device kind="iphone" cap="Still off · signed in, sync failed" w={393} h={852} theme="dark" safeTop={59} safeBottom={34}><MobilePopup access={purchased} signedIn syncState={['failed', "Sync didn't finish. Your settings are saved on this device.", 'Try again']} initial={{ on: false, open: 'youtube', values: { yt_comments: true } }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="iPad · Firefox Android" title="Tablet popover and Android" notes={<>
+        <p>On iPad, Safari shows the popup as a popover at desktop popup width. Firefox Android keeps the browser rules: lock + Still Pro opens the offer in settings.</p>
+        <ul><li>No Purchase Still Pro button on Firefox Android until its purchase channel is verified.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="popover" cap="iPad · Safari popover" w={380} h={600}><MobilePopup access={locked} initial={{ open: 'youtube' }} /></Device>
+          <Device kind="android" cap="Firefox Android · Pro not owned, channel unverified" w={360} h={780} safeTop={24} safeBottom={16}><MobilePopup host="firefox" access={locked} initial={{ open: 'instagram' }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Large and long text" title="Dynamic Type and localized text" notes={<>
+        <p>Real text scaling with <code>--text-scale</code> (no zoom): 1.35× ≈ Dynamic Type xxxLarge, 2× ≈ an accessibility size. Labels wrap; switches never shrink; the footer stays reachable.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphone" cap="iPhone SE · xxxLarge" w={375} h={667} safeTop={20} scale={1.35}><MobilePopup access={locked} initial={{ open: 'youtube' }} /></Device>
+          <Device kind="iphone" cap="iPhone SE · accessibility size" w={375} h={667} theme="dark" safeTop={20} scale={2}><MobilePopup access={locked} /></Device>
+          <Device kind="android" cap="Firefox Android · German" w={360} h={780} safeTop={24} safeBottom={16}><MobilePopup host="firefox" access={purchased} overrides={{ youtube: DE_YT }} initial={{ open: 'youtube', values: { yt_endscreen: true } }} /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Smallest supported phone: built at 375pt (iPhone SE 2nd/3rd gen). Confirm, or name a smaller target.',
+          'Hero while permission is missing: it stays "Still is active" (your choice is on) with the setup card underneath. Alternative: a hero title like "Still needs permission".',
+          "Safari permission instructions: wording follows Safari's current menu names; engineering should confirm the exact path for each iOS version.",
+          'Firefox Android: no purchase entry until its channel is verified. Confirm that rule for launch.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

@@ -1,0 +1,180 @@
+const { Logo, Button, StatusLine, RestoreStatus, Sheet, TextField, DemoMark, AccessTag } = RDS;
+
+const PRICE_LINE = 'One payment. Access forever. No subscription';
+
+function ProList({ mobile }) {
+  const list = mobile ? MOBILE_PRO : RDS.ProControlList();
+  const groups = [];
+  list.forEach(c => { let g = groups.find(x => x[0] === c.site); if (!g) groups.push(g = [c.site, []]); g[1].push(c.label); });
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{groups.map(([s, items]) => (
+    <div key={s}><p className="offer-site">{s} Blocking Options</p><ul className="offer-list">{items.map(i => <li key={i}>{i}</li>)}</ul></div>
+  ))}</div>;
+}
+
+// D18/D19: the Still Pro view, opened only from a lock row, Purchase Still Pro or See Still Pro. Never automatic.
+function ProView({ host = 'browser', mobile = false, signedIn = false, channel = 'ready', state = 'idle', owned, checking, restore }) {
+  const apple = host === 'apple';
+  const uncertain = restore === 'checking' || restore === 'verify' || restore === 'failed';
+  let cta = null;
+  if (owned) cta = <StatusLine tone="success" announce={false} detail="New controls start off. Turn on the ones you want.">You have Still Pro.</StatusLine>;
+  else if (uncertain) cta = null;
+  else if (checking) cta = <StatusLine tone="pending" announce={false} detail="Your free controls keep working.">Checking your Still Pro access…</StatusLine>;
+  else if (channel !== 'ready') cta = <StatusLine tone="info" announce={false} detail="Already bought it somewhere else? Restore it below.">{"Still Pro can't be bought here yet."}</StatusLine>;
+  else if (state === 'pending') cta = <Button block aria-busy="true">{apple ? 'Waiting for Apple…' : 'Waiting for checkout…'}</Button>;
+  else if (state === 'success') cta = <StatusLine tone="success" announce={false} detail="New controls start off. Turn on the ones you want.">Still Pro is ready.</StatusLine>;
+  else cta = <Button block>Get Still Pro</Button>;
+  const canBuy = !owned && !uncertain && !checking && channel === 'ready' && state !== 'pending' && state !== 'success';
+  return (
+    <main className="still-ui ob">
+      <div className="ob-col">
+        <div className="ob-top">{apple ? <Button variant="link">Close</Button> : <Button variant="link">Back to settings</Button>}<span></span></div>
+        <div className="ob-main" style={{ justifyContent: 'flex-start', gap: 16 }}>
+          <h1>Still Pro</h1>
+          <p className="lede">More control over YouTube, Instagram and Facebook. {PRICE_LINE}</p>
+          <section className="card card-stack"><ProList mobile={mobile} /></section>
+          {state === 'failed' && <StatusLine tone="failed" announce={false} detail="If you were charged, Restore purchase will find it.">{"The purchase wasn't confirmed."}</StatusLine>}
+          {restore && <RestoreStatus state={restore} announce={false} />}
+        </div>
+        <div className="ob-actions">
+          {cta}
+          {state === 'success' && <Button variant="secondary" block>Back to settings</Button>}
+          {!owned && state !== 'success' && !uncertain && <Button variant="link">Restore purchase</Button>}
+          {(canBuy || state === 'pending') && <p className="caption" style={{ textAlign: 'center' }}>{apple ? 'Payment is handled by Apple. No account needed.' : signedIn ? 'Checkout opens in a new tab.' : "You'll sign in first, so you can restore Still Pro in other browsers."}</p>}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// D20: Still-hosted page the payment provider returns to.
+function ReturnPage({ state = 'confirming' }) {
+  const S = {
+    confirming: ['pending', 'Confirming your purchase…', 'This usually takes a few seconds. You can keep this tab open.'],
+    ready: ['success', 'Still Pro is ready.', 'Go back to Still. New blockers start off, so turn on the ones you want.'],
+    unconfirmed: ['failed', "We couldn't confirm your payment yet.", 'If you were charged, Restore purchase in Still settings will find it.', 'Check again'],
+    cancelled: ['info', 'Checkout was cancelled.', 'Nothing was bought. You can try again from Still settings.'],
+  }[state];
+  return (
+    <main className="still-ui fr">
+      <div className="fr-col" style={{ paddingTop: 64 }}>
+        <Logo />
+        <h1>{state === 'ready' ? 'Thanks for purchasing Still Pro' : 'Still Pro'}</h1>
+        <section className="card card-stack"><StatusLine tone={S[0]} announce={false} detail={S[2]} actionLabel={S[3]}>{S[1]}</StatusLine></section>
+        {state === 'ready' && <Button block>Open Still settings</Button>}
+        <DemoMark>Demonstration only: no real payment</DemoMark>
+        <footer className="fr-foot"><Button variant="link">Contact support</Button><Button variant="link">Privacy policy</Button></footer>
+      </div>
+    </main>
+  );
+}
+
+function SignInToBuy({ restore }) {
+  return (
+    <div style={{ position: 'relative', height: '100%' }}>
+      <ProView />
+      <div className="still-ui"><Sheet contained trapFocus={false} title={restore ? 'Sign in to restore Still Pro' : 'Sign in to get Still Pro'} body={restore ? 'Use the account you bought Still Pro with.' : 'Your purchase is saved to your Still account, so you can restore it in other browsers.'} dismissLabel="Cancel">
+        <TextField label="Email address" type="email" placeholder="you@example.com" />
+        <Button>Send code</Button>
+        <DemoMark>Demonstration only: any 6 digits are accepted</DemoMark>
+      </Sheet></div>
+    </div>
+  );
+}
+
+const PHONE = { w: 393, h: 852, safeTop: 59, safeBottom: 34 };
+
+function Page() {
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D18–D25 · Purchase and Restore</h1><p>The Still Pro view, purchase states, the web checkout return page, success and Restore. Opened only when someone chooses Still Pro, never automatically. No price on Still's screens: Apple's sheet and web checkout show it before payment. Apple's sheets and the payment provider's checkout aren't drawn.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="D18" title="Still Pro view" notes={<>
+        <p>Opened from a lock row, Purchase Still Pro, or See Still Pro in the Still app. Lists every Pro control the host supports. One button; Restore underneath.</p>
+        <ul><li>Browser: signed out, Get Still Pro asks to sign in first.</li><li>Apple: Get Still Pro opens Apple's sheet; no account needed.</li><li>Safari popup has no paywall; it links here in the Still app.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Chrome · signed out" w={520} h={860} url="Still · Still Pro"><ProView /></Device>
+          <Device kind="iphoneapp" cap="iPhone · Still app" theme="dark" {...PHONE}><ProView host="apple" mobile /></Device>
+          <Device kind="mac" cap="Mac · Still app" w={560} h={760}><ProView host="apple" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="D19" title="Purchase states" notes={<>
+        <p>Pending, failed, already owned, checking and unavailable channel. Owned or checking never shows a Buy button.</p>
+        <ul><li>Cancelling Apple's sheet just returns here, with no message.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Waiting for checkout" w={420} h={820} url="Still · Still Pro"><ProView signedIn state="pending" /></Device>
+          <Device kind="iphoneapp" cap="Waiting for Apple" {...PHONE}><ProView host="apple" mobile state="pending" /></Device>
+          <Device kind="tab" cap="Not confirmed" w={420} h={820} theme="dark" url="Still · Still Pro"><ProView signedIn state="failed" /></Device>
+        </div>
+        <div className="r-row">
+          <Device kind="tab" cap="Checking access" w={420} h={820} url="Still · Still Pro"><ProView checking /></Device>
+          <Device kind="tab" cap="Firefox · channel not ready" w={420} h={820} theme="dark" url="Still · Still Pro"><ProView channel="unverified" /></Device>
+          <Device kind="tab" cap="Sign in to continue" w={420} h={820} url="Still · Still Pro"><SignInToBuy /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="D20" title="Web checkout and return" notes={<>
+        <p>Checkout runs on the payment provider's page in a new tab. Afterwards it returns to a Still page that confirms with the server before saying anything is done.</p>
+        <ul><li>Cancelled says nothing was bought only when the provider reports a cancel.</li></ul>
+      </>}>
+        <div className="r-row">
+          <div className="r-pane" style={{ width: 360 }}><span className="cap">Payment provider · not drawn</span><div className="r-device r-tab still-ui" style={{ width: 360, height: 560, alignItems: 'center', justifyContent: 'center', padding: 32, textAlign: 'center', gap: 8 }}><p style={{ margin: 0, fontWeight: 600 }}>[Payment provider checkout]</p><p className="muted" style={{ margin: 0, fontSize: 14 }}>Shows the price and takes payment. Not restyled by Still.</p></div></div>
+          <Device kind="tab" cap="Return · confirming" w={420} h={560} url="still.app/purchase/return"><ReturnPage /></Device>
+          <Device kind="tab" cap="Return · ready" w={420} h={560} theme="dark" url="still.app/purchase/return"><ReturnPage state="ready" /></Device>
+        </div>
+        <div className="r-row">
+          <Device kind="tab" cap="Return · not confirmed" w={420} h={560} url="still.app/purchase/return"><ReturnPage state="unconfirmed" /></Device>
+          <Device kind="tab" cap="Return · cancelled" w={420} h={560} theme="dark" url="still.app/purchase/return"><ReturnPage state="cancelled" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="D24" title="Success" notes={<>
+        <p>One calm confirmation. New controls start off; nothing turns on by itself. Settings then show the combined "Still Pro and sync" card.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="tab" cap="Chrome · after checkout" w={420} h={820} url="Still · Still Pro"><ProView signedIn state="success" /></Device>
+          <Device kind="iphoneapp" cap="iPhone · after Apple" theme="dark" {...PHONE}><ProView host="apple" mobile state="success" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="D25" title="Restore purchase" notes={<>
+        <p>"Nothing found" only after a conclusive answer. Network or store trouble is "couldn't finish", and nothing changes.</p>
+        <ul><li>While checking, verifying or after a failed check, there is no Get Still Pro button: the status line's own action is the only one.</li><li>Browser: signed out, Restore asks to sign in with the buying account.</li><li>Apple: Restore asks Apple; Apple may show its own sign-in.</li></ul>
+      </>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="Apple · checking" {...PHONE}><ProView host="apple" mobile restore="checking" /></Device>
+          <Device kind="iphoneapp" cap="Apple · restored" theme="dark" {...PHONE}><ProView host="apple" mobile owned restore="restored" /></Device>
+          <Device kind="iphoneapp" cap="Apple · nothing found" {...PHONE}><ProView host="apple" mobile restore="nothing" /></Device>
+        </div>
+        <div className="r-row">
+          <Device kind="tab" cap="Browser · couldn't finish" w={420} h={820} theme="dark" url="Still · Still Pro"><ProView signedIn restore="failed" /></Device>
+          <Device kind="tab" cap="Browser · needs verification" w={420} h={820} url="Still · Still Pro"><ProView signedIn restore="verify" /></Device>
+          <Device kind="tab" cap="Browser · sign in to restore" w={420} h={820} theme="dark" url="Still · Still Pro"><SignInToBuy restore /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Accessibility" title="Large text" notes={<p>Real text scaling. The list wraps; the button stays reachable at the bottom of the scroll.</p>}>
+        <div className="r-row">
+          <Device kind="iphoneapp" cap="iPhone SE · xxxLarge" w={375} h={667} safeTop={20} scale={1.35}><ProView host="apple" mobile /></Device>
+          <Device kind="tab" cap="320 wide · 1.5× text" w={320} h={900} scale={1.5} url="Still · Still Pro"><ProView signedIn /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'No price on the Still Pro view (matches your settings decision). Alternative: show the verified price here only, since this is where people decide.',
+          'Refund wording: none on Still screens (your earlier call). The brief\'s 7-day web refund window would then live only on the checkout and receipt. Confirm.',
+          'Resolved: return-page headline is "Thanks for purchasing Still Pro".',
+          'Web return page address is a placeholder (still.app/purchase/return).',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

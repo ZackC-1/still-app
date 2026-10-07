@@ -1,0 +1,14 @@
+{
+  "name": "still-design-handoff",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture": "node --input-type=module - < handoff/capture.script",
+    "compare": "node --input-type=module - \"$REF\" \"$IMPL\" < handoff/compare.script"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0",
+    "pngjs": "^7.0.0",
+    "pixelmatch": "^6.0.0"
+  }
+}
