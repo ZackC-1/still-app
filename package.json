@@ -9,6 +9,9 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "pnpm -r --if-present build && pnpm --filter @still/ext-chromium build:firefox",
+    "build:v3:local": "node scripts/qa/v3-profile.mjs local",
+    "build:v3:test": "node scripts/qa/v3-profile.mjs test",
+    "test:build-profiles": "node --test scripts/qa/v3-profile.test.mjs",
     "perf:sustained": "node tests/sustained/run.mjs",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",

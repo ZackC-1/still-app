@@ -6,6 +6,8 @@ import svelte from "eslint-plugin-svelte";
 export default tseslint.config(
   {
     ignores: [
+      // Pinned owner design references retain their original generated source bytes.
+      "docs/design/Still v3.1 redesign/source/**",
       // Bundled Apple app resources (fonts and licenses) are not lint inputs.
       "apps/apple/Still/Shared (App)/Resources/**",
       // Harness-managed subagent worktrees (gitignored checkouts of this repo) — linting them

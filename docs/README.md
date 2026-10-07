@@ -12,6 +12,8 @@ repository map.
 | [CONCEPTS.md](../CONCEPTS.md) | Canonical domain vocabulary; `CONTEXT.md` is a compatibility pointer. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime modules, interfaces, data flows and verification surfaces. |
 | [PRODUCT.md](PRODUCT.md) | Current Still 2.0.0 behavior, supported installations, sync rules and evidence boundaries. |
+| [design.md](../design.md) | Latest Still v3.1 redesign contract and screen behavior; implementation verification remains tracked separately. |
+| [Still v3.1 redesign references](design/Still%20v3.1%20redesign/README.md) | Pinned latest owner archive, indexed previews and functional coverage ledger; supersedes earlier V3 visual references. |
 | [CONNECTIONS.md](CONNECTIONS.md) | Service configuration, secret ownership and deployment gates. |
 | [monetization-design.md](monetization-design.md) | Retained purchase and entitlement infrastructure. |
 | [production-rule-set-keys.md](production-rule-set-keys.md) | Rule signing and production key management. |
