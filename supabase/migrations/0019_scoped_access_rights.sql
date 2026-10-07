@@ -73,6 +73,7 @@ create function public.commit_access_observation(
 declare
   observation private.access_observations%rowtype;
   item jsonb;
+  v_key text;
   stored private.access_rights%rowtype;
   v_verified bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
   v_conflict boolean := false;
@@ -108,13 +109,25 @@ begin
   if (select count(distinct value->>'key') from jsonb_array_elements(p_snapshot)) <> jsonb_array_length(p_snapshot) then
     raise exception 'duplicate access transaction';
   end if;
-  -- Lock identities in deterministic order; two accounts cannot both claim the same transaction.
-  for item in select value from jsonb_array_elements(p_snapshot) order by value->>'key' loop
-    insert into private.access_rights(environment, provider_key, provider_product, holder, active, verified_at)
-      values(p_environment, item->>'key', item->>'product', p_holder, true, v_verified)
-      on conflict(environment, provider_key) do nothing;
+  -- Lock or insert one sorted union of snapshot and owned keys. Snapshot keys that appear
+  -- mid-call must not be locked after a higher owned key. The observation lock fences transfers.
+  for v_key in
+    select key from (
+      select value->>'key' as key from jsonb_array_elements(p_snapshot)
+      union
+      select r.provider_key from private.access_rights r
+        where r.environment = p_environment and r.holder = p_holder
+    ) keys order by key
+  loop
+    select value into item from jsonb_array_elements(p_snapshot) where value->>'key' = v_key;
+    if item is not null then
+      insert into private.access_rights(environment, provider_key, provider_product, holder, active, verified_at)
+        values(p_environment, v_key, item->>'product', p_holder, true, v_verified)
+        on conflict(environment, provider_key) do nothing;
+    end if;
     select * into stored from private.access_rights
-      where environment = p_environment and provider_key = item->>'key' for update;
+      where environment = p_environment and provider_key = v_key for update;
+    if item is null then continue; end if;
     if stored.holder is distinct from p_holder or stored.provider_product <> item->>'product' then
       v_conflict := true;
       -- A different/deleted account is never silently adopted. Explicit transfer is separate.

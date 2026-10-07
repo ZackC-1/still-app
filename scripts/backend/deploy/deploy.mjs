@@ -846,7 +846,7 @@ export function parseJsonArray(line, category) {
   return value;
 }
 
-/** Row-count output must be a JSON object of non-negative integer counts; never printed. */
+/** Private invariant output contains non-negative counts or bounded MD5 fingerprints; never printed. */
 export function parseRowCounts(line) {
   let value;
   try {
@@ -859,7 +859,11 @@ export function parseRowCounts(line) {
     typeof value !== "object" ||
     Array.isArray(value) ||
     Object.keys(value).length === 0 ||
-    !Object.values(value).every((n) => Number.isInteger(n) && n >= 0)
+    !Object.values(value).every(
+      (n) =>
+        (Number.isInteger(n) && n >= 0) ||
+        (typeof n === "string" && /^[0-9a-f]{32}$/.test(n)),
+    )
   )
     throw new Refusal(
       "row-count-output-invalid",

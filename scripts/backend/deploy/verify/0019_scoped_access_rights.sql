@@ -50,11 +50,11 @@ expected_defaults(table_name,column_name,expression) as (values
   ('access_rights','right_id','gen_random_uuid()'),
   ('access_rights','ownership_revision','0')
 ),
-expected_routines(sig,body_md5) as (values
-  ('public.begin_access_observation(uuid,text)', 'c9b28453703a3fcb2fafd57e8c01d6f4'),
-  ('public.commit_access_observation(uuid,text,uuid,jsonb)', 'c3e28d73ef0d9e09904ef4db035ceec1'),
-  ('public.confirm_access_observation(uuid,text,uuid)', '111cb91a48bf198a20f971a6f5a1a97a'),
-  ('public.transfer_access_right(uuid,uuid,text,uuid,uuid,bigint)', 'ea7feb8fdd7b6f42cd2dc39c0dac2cfb')
+expected_routines(sig,body_md5,result_type) as (values
+  ('public.begin_access_observation(uuid,text)', 'c9b28453703a3fcb2fafd57e8c01d6f4', 'uuid'),
+  ('public.commit_access_observation(uuid,text,uuid,jsonb)', '36cbfea9ff8efc4c9ac5898dce5459db', 'jsonb'),
+  ('public.confirm_access_observation(uuid,text,uuid)', '111cb91a48bf198a20f971a6f5a1a97a', 'boolean'),
+  ('public.transfer_access_right(uuid,uuid,text,uuid,uuid,bigint)', 'ea7feb8fdd7b6f42cd2dc39c0dac2cfb', 'jsonb')
 ),
 tables as (
  select e.*,c.oid,c.relowner,c.relkind,c.relrowsecurity,c.relforcerowsecurity,c.relacl,
@@ -113,6 +113,8 @@ issues(code) as (
  union all select 'routine_owner:'||sig from routines where routine_oid is not null and proowner is distinct from (select oid from pg_catalog.pg_roles where rolname='postgres')
  union all select 'routine_definer:'||sig from routines where routine_oid is not null and not prosecdef
  union all select 'routine_language:'||sig from routines where routine_oid is not null and prolang<>(select oid from pg_catalog.pg_language where lanname='plpgsql')
+ union all select 'routine_result:'||sig from routines where routine_oid is not null and pg_catalog.pg_get_function_result(routine_oid) is distinct from result_type
+ union all select 'routine_behavior:'||sig from routines where routine_oid is not null and (prokind<>'f' or provolatile<>'v' or proisstrict)
  union all select 'routine_path:'||sig from routines where routine_oid is not null and proconfig is distinct from array['search_path=""']::text[]
  union all select 'routine_body:'||sig from routines where routine_oid is not null and pg_catalog.md5(prosrc)<>body_md5
  union all select 'routine_acl:'||r.sig from routines r where r.routine_oid is not null and

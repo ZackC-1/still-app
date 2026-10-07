@@ -25,6 +25,7 @@ import {
   parseDbUrl,
   parseDryRun,
   parseInputs,
+  parseRowCounts,
   pgEnv,
   prepareWorkdir,
   readProtection,
@@ -531,7 +532,10 @@ test("0018 revokes on every private routine 0017's check pins, so 0017 and 0018 
   assert.ok(changed.has("private.analytics_account_erasure_status"));
   // 0018 never re-creates 0017's snapshot function: the account-deletion safety net stays as proven.
   assert.ok(!changed.has("private.analytics_snapshot_deleted_subject"));
-  assert.doesNotMatch(m18.text, /function\s+private\.analytics_snapshot_deleted_subject/);
+  assert.doesNotMatch(
+    m18.text,
+    /function\s+private\.analytics_snapshot_deleted_subject/,
+  );
   assert.throws(
     () => assertIndependentVerifications([m17, m18]),
     (error) =>
@@ -543,7 +547,8 @@ test("0018 revokes on every private routine 0017's check pins, so 0017 and 0018 
   );
   assert.throws(
     () => assertIndependentVerifications([m16, m18]),
-    (error) => error instanceof Refusal && error.category === "verification-overlap",
+    (error) =>
+      error instanceof Refusal && error.category === "verification-overlap",
   );
   // 0018 also replaces 0017's device-erasure route (ordered row locks), which alone is an overlap.
   assert.ok(changed.has("private.analytics_begin_device_erasure"));
@@ -553,17 +558,29 @@ test("0018 revokes on every private routine 0017's check pins, so 0017 and 0018 
   );
   assert.notEqual(withoutRevoke, m18.text);
   assert.throws(
-    () => assertIndependentVerifications([m17, { ...m18, text: withoutRevoke }]),
-    (error) => error instanceof Refusal && /private\.analytics_begin_device_erasure/.test(error.message),
+    () =>
+      assertIndependentVerifications([m17, { ...m18, text: withoutRevoke }]),
+    (error) =>
+      error instanceof Refusal &&
+      /private\.analytics_begin_device_erasure/.test(error.message),
   );
   // NEGATIVE CONTROL: without the schema-wide revoke and the replaced route, the planner would not
   // see the overlap.
-  const start = withoutRevoke.indexOf("create or replace function private.analytics_begin_device_erasure(");
+  const start = withoutRevoke.indexOf(
+    "create or replace function private.analytics_begin_device_erasure(",
+  );
   const unguarded = {
     ...m18,
-    text: withoutRevoke.slice(0, start) + withoutRevoke.slice(withoutRevoke.indexOf("end $$;", start) + 7),
+    text:
+      withoutRevoke.slice(0, start) +
+      withoutRevoke.slice(withoutRevoke.indexOf("end $$;", start) + 7),
   };
-  assert.ok(start > 0 && !routinesChanged(unguarded.text).has("private.analytics_begin_device_erasure"));
+  assert.ok(
+    start > 0 &&
+      !routinesChanged(unguarded.text).has(
+        "private.analytics_begin_device_erasure",
+      ),
+  );
   assert.doesNotThrow(() => assertIndependentVerifications([m17, unguarded]));
   // Once 0017 is deployed and verified, 0018 plans on its own.
   assert.doesNotThrow(() => assertIndependentVerifications([m18]));
@@ -791,6 +808,81 @@ test("dry-run output is parsed from text or JSON and never guessed", () => {
     ["0014_a.sql", "0015_b.sql"],
   );
   assert.deepEqual(parseDryRun("Remote database is up to date."), []);
+});
+
+for (const version of [
+  "0019_scoped_access_rights",
+  "0020_apple_scoped_access",
+]) {
+  test(`private row invariants accept exact ${version} count and fingerprint shape`, async (t) => {
+    let sql;
+    try {
+      sql = await readFile(
+        new URL(`./verify/${version}.invariant.sql`, import.meta.url),
+        "utf8",
+      );
+    } catch (error) {
+      if (version.startsWith("0020") && error.code === "ENOENT") {
+        t.skip(
+          "0020 is absent at the deliberate 0019-only publication boundary",
+        );
+        return;
+      }
+      throw error;
+    }
+    const entries = [
+      ...sql.matchAll(/'([^']+)'\s*,\s*\(select pg_catalog\.(count|md5)/g),
+    ];
+    assert.equal(entries.length, version.startsWith("0019") ? 30 : 34);
+    const values = Object.fromEntries(
+      entries.map(([, key, kind]) => [
+        key,
+        kind === "count" ? 7 : "0123456789abcdef0123456789abcdef",
+      ]),
+    );
+    const line = JSON.stringify(values);
+    assert.equal(
+      parseRowCounts(line),
+      line,
+      "preserve exact private comparison bytes",
+    );
+  });
+}
+
+test("private row invariants reject malformed or unbounded fingerprints and non-count values", () => {
+  for (const value of [
+    null,
+    true,
+    {},
+    [],
+    -1,
+    1.5,
+    "7",
+    "g".repeat(32),
+    "a".repeat(31),
+    "a".repeat(33),
+    "A".repeat(32),
+    "a".repeat(64),
+    [1],
+    { nested: 1 },
+  ]) {
+    const line = JSON.stringify({ "private.access_rights": value });
+    assert.throws(
+      () => parseRowCounts(line),
+      (error) =>
+        error instanceof Refusal &&
+        error.category === "row-count-output-invalid",
+    );
+  }
+  for (const line of ["not JSON", "{}", "[]", "null", "true"]) {
+    assert.throws(
+      () => parseRowCounts(line),
+      (error) =>
+        error instanceof Refusal &&
+        error.category === "row-count-output-invalid",
+    );
+  }
+  assert.equal(parseRowCounts('{"table":0}'), '{"table":0}');
 });
 
 // ── Orchestration against an in-memory database ──────────────────────────────────────────────
@@ -1448,6 +1540,30 @@ test("the apply command exits 1 with an error, never a warning, when the second 
   assert.doesNotMatch(out.text, /::warning/);
   assert.doesNotMatch(out.text, /likely live/);
   assert.ok(!out.text.includes('"public.profiles":3'));
+});
+
+test("deploy accepts private fingerprint invariants without publishing their contents", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const db = fakeDb(p);
+  const fingerprint = "0123456789abcdef0123456789abcdef";
+  db.state.counts = {
+    "public.profiles": 3,
+    "public.profiles.fingerprint": fingerprint,
+    "private.access_observations": fingerprint,
+    "private.access_rights": fingerprint,
+  };
+  const receipt = await runDeploy({
+    exec: db.exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+  });
+  assert.equal(receipt.status, "verified");
+  assert.equal(pushes(db.state).length, 1);
+  assert.ok(!renderReceipt(receipt).includes(fingerprint));
+  assert.ok(!JSON.stringify(receipt).includes(fingerprint));
 });
 
 test("an unreadable baseline row-count read refuses before any write", async (t) => {
