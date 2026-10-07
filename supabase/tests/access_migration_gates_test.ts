@@ -228,7 +228,7 @@ Deno.test({
           sql,
           match[0]!
             .replace(/^create function/i, "create or replace function")
-            .replace(/\$\$;$/, "\n-- body drift control\n$$;"),
+            .replace(/\$\$;$/, () => "\n-- body drift control\n$$;"),
           "routine_body:",
         );
       }
@@ -524,7 +524,7 @@ Deno.test({
                       await session`select public.commit_access_observation(${holder}::uuid,'sandbox',${
                         String(token)
                       }::uuid,${
-                        JSON.stringify(
+                        session.json(
                           keys.map((key) => ({ key, product: "still_pro_v3" })),
                         )
                       }::jsonb) as result`;
