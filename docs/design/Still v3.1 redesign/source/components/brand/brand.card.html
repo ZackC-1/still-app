@@ -1,0 +1,15 @@
+<!-- @dsCard group="Components" viewport="700x140" name="Logo" subtitle="Lockup at 28px and compact 24px" -->
+<!doctype html>
+<html lang="en" data-theme="light"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--font-ui)}.lbl{font-size:11px;color:var(--ink-secondary);letter-spacing:.02em;margin:0 0 6px}</style>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const { Logo } = window.StillDesignSystem_c8e8ab;
+function Card() { return (<div className="still-ui" style={{padding:32,display:'flex',gap:48,alignItems:'center'}}><Logo /><Logo compact /><div data-theme="dark" style={{background:'#0b0f1a',padding:'16px 20px',borderRadius:12,'--still-blue':'#5a74ff'}}><Logo /></div></div>); }
+ReactDOM.createRoot(document.getElementById('root')).render(<Card />);
+</script></body></html>

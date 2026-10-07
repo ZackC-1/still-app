@@ -1,0 +1,103 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton, StatusLine, Invitation, OwnerAllowances } = RDS;
+
+const STORE = { chrome: 'the Chrome Web Store', firefox: 'Firefox Add-ons', 'firefox-android': 'Firefox Add-ons' };
+
+// A popup on a later ordinary opening. invite: 'rating' | 'sync' | null. The card sits between the sites and the sync card.
+function Popup({ browser = 'chrome', invite = 'rating', access = accessAll('locked'), state, mobile = false }) {
+  const [shown, setShown] = React.useState(invite);
+  const [open, setOpen] = React.useState(null);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true });
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  return (
+    <AppShell density="compact">
+      <HeroCard on compact />
+      {state === 'setup' && <section className="card card-stack"><StatusLine tone="caution" announce={false} detail="Allow Still on these websites so it can block there.">{"Still can't block on these websites yet."}</StatusLine><Button variant="secondary" block>Allow</Button></section>}
+      <SiteList scroll>
+        {SiteOrder.map(k => <SiteSection key={k} service={k} controls={mobile ? MOBILE_CONTROLS[k] : undefined} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set} open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} showSubs={false} />)}
+      </SiteList>
+      {shown === 'rating' && <Invitation kind="rating" store={STORE[browser]} onAccept={() => setShown(null)} onDismiss={() => setShown(null)} />}
+      {shown === 'sync' && <Invitation kind="sync" onAccept={() => setShown(null)} onDismiss={() => setShown(null)} />}
+      {state === 'sync-failed'
+        ? <SettingsCard variant="sync-row" title="Settings sync" sub="sam@example.com" action={null}><StatusLine tone="failed" announce={false} actionLabel="Try again">{"Sync didn't finish. Your settings are saved on this device."}</StatusLine></SettingsCard>
+        : <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline>Sign in</Button>} />}
+      <footer className="popup-footer"><OpenSettingsButton /><a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a></footer>
+    </AppShell>
+  );
+}
+
+function Rule({ items }) {
+  return <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#4a5170', maxWidth: 380 }}>{items.map(t => <li key={t}>{t}</li>)}</ul>;
+}
+
+function Page() {
+  const purchased = accessAll('purchased');
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D28 · Rating prompt</h1><p>One quiet invitation to rate Still in the browser's store, shown at most once per install. Apple's rating uses Apple's own review prompt, which isn't drawn here. No "Enjoying Still?", no stars in Still's UI, no thank-you, no tracking of whether someone rated.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="Chrome · Firefox" title="The invitation" notes={<>
+        <p>Sits between the sites and the sync card on a later ordinary opening. "Rate Still" opens the store page in a new tab. Either button removes the card for good.</p>
+        <Rule items={['At least 7 days after install and 3 separate days of use.', 'Only with the owner allowance on for that browser.', 'Click either button: the card goes away for good.']} />
+      </>}>
+        <div className="r-row">
+          <Device kind="popover" cap="Chrome popup" w={380} h={600}><Popup /></Device>
+          <Device kind="popover" cap="Firefox popup" w={380} h={600} theme="dark"><Popup browser="firefox" access={purchased} /></Device>
+          <Device kind="android" cap="Firefox Android (illustrative)" w={360} h={780} safeTop={24} safeBottom={16}><Popup browser="firefox-android" mobile /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Precedence · suppression" title="When it doesn't show" notes={<>
+        <p>Sync and purchase-linking invitations come first. Nothing is shown during setup, consent, errors, purchase or Restore.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="popover" cap="Sync invitation wins" w={380} h={600}><Popup invite="sync" /></Device>
+          <Device kind="popover" cap="Setup needed · no invitation" w={380} h={600} theme="dark"><Popup invite={null} state="setup" /></Device>
+          <Device kind="popover" cap="Sync error · no invitation" w={380} h={600}><Popup invite={null} state="sync-failed" /></Device>
+        </div>
+      </Sec>
+
+      <Sec id="Apple" title="iPhone, iPad and Mac" notes={<>
+        <p>The Still app asks Apple's review prompt to appear on a later ordinary opening. Apple decides whether it shows; the attempt counts either way. Still draws nothing: no card, no stars, no follow-up.</p>
+      </>}>
+        <div className="r-row">
+          <div className="r-pane" style={{ width: 393 }}>
+            <span className="cap">Apple host · native</span>
+            <div className="r-device r-iphoneapp still-ui" style={{ width: 393, height: 300, alignItems: 'center', justifyContent: 'center', padding: 32, textAlign: 'center', gap: 8 }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>Apple's review prompt</p>
+              <p className="muted" style={{ margin: 0, fontSize: 14 }}>Shown by iOS, iPadOS or macOS. Not drawn or restyled by Still.</p>
+            </div>
+          </div>
+        </div>
+      </Sec>
+
+      <Sec id="Owner" title="The owner allowance" notes={<>
+        <p>Every surface starts Off. The prompt can only appear where you've allowed it and applied the change.</p>
+      </>}>
+        <div className="r-row">
+          <div className="r-pane" style={{ width: 400 }}><span className="cap">Owner view · draft</span><div className="r-device r-tab still-ui" style={{ padding: 12 }}><OwnerAllowances current={{ global: true, chrome: true }} draft={{ global: true, chrome: true, firefox: true, 'apple-mobile': true }} announce={false} /></div></div>
+        </div>
+      </Sec>
+
+      <Sec id="Accessibility" title="Large text and keyboard" notes={<>
+        <p>At 1.5× text the site list shrinks first, so the invitation and footer stay visible. Tab order: sites, Rate Still, Not now, Sign in, Settings, Privacy policy.</p>
+      </>}>
+        <div className="r-row">
+          <Device kind="popover" cap="Chrome popup · 1.5× text" w={380} h={600} scale={1.5}><Popup /></Device>
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Copy: "Rate Still" / "A rating helps other people find Still." / "Not now" (store names removed by owner).',
+          'Position: between the sites and the sync card (as built), or below the sync card.',
+          'Show it on the extension settings page too, or only in the popup.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);

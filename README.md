@@ -44,6 +44,10 @@ use local or development values only.
 
 Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.md).
 
+Use the [explicit V3 QA profiles](scripts/qa/README.md) for coherent modern settings builds and
+artifact receipts. `pnpm build:v3:local` requires no backend; `pnpm build:v3:test` uses the approved
+existing hosted backend with dedicated test accounts. Ordinary build commands keep their defaults.
+
 ## What Still ships
 
 | Surface | What it does |

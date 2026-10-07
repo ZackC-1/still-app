@@ -1,0 +1,47 @@
+const DSG = window.StillDesignSystem_c8e8ab;
+
+// Theme pair: same content rendered light and dark
+function Pair({ children, width = 380, height, caps = ['Light', 'Dark'] }) {
+  return (
+    <div className="g-row">
+      {['light', 'dark'].map((t, i) => (
+        <div className="g-pane" key={t} style={{ width }}>
+          <span className="cap">{caps[i]}</span>
+          <div className="g-frame still-ui" data-theme={t} style={{ height }}>{typeof children === 'function' ? children(t) : children}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Pane({ cap, width = 380, theme = 'light', height, children, style }) {
+  return (
+    <div className="g-pane" style={{ width }}>
+      <span className="cap">{cap}</span>
+      <div className="g-frame still-ui" data-theme={theme} style={{ height, ...style }}>{children}</div>
+    </div>
+  );
+}
+
+function Section({ id, title, children, notes }) {
+  return (
+    <section className="g-sec" data-screen-label={title}>
+      <div className="g-meta">
+        <p className="id">{id}</p>
+        <h2>{title}</h2>
+        {notes}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>{children}</div>
+    </section>
+  );
+}
+
+const ALL_PRO = id => (DSG.ProControlList ? DSG.ProControlList() : []).reduce((m, c) => ({ ...m, [c.id]: id }), {});
+const PURPOSES = [
+  { name: 'Email', text: '[Approved purpose text: how your email is used with your usage data]' },
+  { name: 'Usage analytics', text: '[Provider]: which settings are used, so they can be improved.' },
+  { name: 'AI processing', text: '[Provider]: [approved purpose text]' },
+];
+const SAMPLE_OFFER = { price: '$9.99', priceNote: 'One payment. Access forever. No subscription' };
+
+Object.assign(window, { Pair, Pane, Section, ALL_PRO, PURPOSES, SAMPLE_OFFER });

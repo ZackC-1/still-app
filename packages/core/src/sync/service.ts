@@ -4,6 +4,7 @@ import { pendingSettingsRequest, sameSettingsScope, SettingsStorageRecovery, typ
 import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
 import type { SettingsSyncMetadata, SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
+import type { AccountDeletionResult } from "./account-deletion.js";
 
 // Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
 //   - Having an account is the only thing settings sync requires. While the paid tier is dormant
@@ -645,11 +646,11 @@ export class SyncService {
    * runs first: if it fails, the error propagates and the session is left intact (the UI surfaces it),
    * so we never appear signed-out while the account still exists.
    */
-  async deleteAccount(): Promise<void> {
+  async deleteAccount(): Promise<AccountDeletionResult | void> {
     const lifecycle = this.lifecycle;
     // The delete is the critical step: if it fails, propagate so the UI surfaces it and the session
     // stays intact (we never appear signed-out while the account still exists).
-    await this.backend.deleteAccount();
+    const result = await this.backend.deleteAccount();
     if (lifecycle !== this.lifecycle) return;
     // Account is gone server-side. Local sign-out is now best-effort — force SIGNED_OUT regardless, so
     // a failing auth.signOut() can't strand the UI signed-in against a deleted account.
@@ -671,6 +672,7 @@ export class SyncService {
     }
     if (signedOutLifecycle !== this.lifecycle) return;
     this.setState(SIGNED_OUT);
+    return result;
   }
 
   /** After this, every local settings edit is mirrored to the cloud (coalesced) while sync runs. */

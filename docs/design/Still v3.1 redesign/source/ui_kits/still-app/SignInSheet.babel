@@ -1,0 +1,26 @@
+const { Sheet, TextField, Button, DemoMark } = window.StillDesignSystem_c8e8ab;
+
+function SignInSheet({ open, onClose, onSignedIn }) {
+  const [step, setStep] = React.useState('email');
+  const [email, setEmail] = React.useState('');
+  const [code, setCode] = React.useState('');
+  const [err, setErr] = React.useState('');
+  React.useEffect(() => { if (open) { setStep('email'); setCode(''); setErr(''); } }, [open]);
+  if (!open) return null;
+  const send = () => { if (!/.+@.+\..+/.test(email)) { setErr('Enter a valid email address to continue.'); return; } setErr(''); setStep('code'); };
+  const verify = () => { if (code.length !== 6) { setErr("That code didn't work. Check it and try again."); return; } onSignedIn(email); };
+  if (step === 'email') return (
+    <Sheet contained title="Sign in for settings sync" body="Enter your email to get a 6-digit sign-in code. Sign-in is optional. Blocking works without an account." onDismiss={onClose}>
+      <TextField type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} error={err} autoFocus />
+      <Button onClick={send}>Send code</Button>
+    </Sheet>
+  );
+  return (
+    <Sheet contained title="Sign in for settings sync" body={'Enter the 6-digit code sent to ' + email + '.'} onDismiss={onClose}>
+      <TextField label="6-digit code" code maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} error={err} autoFocus />
+      <DemoMark>Demonstration only: any 6 digits are accepted</DemoMark>
+      <Button onClick={verify}>Sign in</Button>
+    </Sheet>
+  );
+}
+window.SignInSheet = SignInSheet;

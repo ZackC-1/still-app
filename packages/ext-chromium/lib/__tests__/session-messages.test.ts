@@ -27,6 +27,7 @@ function sessionStub(): ExtensionSession {
     verifyCode: vi.fn(async () => ({ kind: "verified" as const, userId: "user" })),
     signOut: vi.fn(async () => "signed-out" as const),
     deleteAccount: vi.fn(async () => "deleted" as const),
+    deleteAccountWithOutcome: vi.fn(async () => ({ deleted: true, analyticsDeleted: false, analyticsErasure: "unconfirmed" } as const)),
     reconcile: vi.fn(async () => "entitled" as const),
     restore: vi.fn(async () => "not-entitled" as const),
     createCheckout: vi.fn(async () => ({ kind: "checkout-url" as const, url: "https://checkout" })),
@@ -46,6 +47,7 @@ const requests: SessionRequest[] = [
   { kind: SESSION_MESSAGE_KIND, action: "verifyCode", email: "a@example.com", token: "123456" },
   { kind: SESSION_MESSAGE_KIND, action: "signOut" },
   { kind: SESSION_MESSAGE_KIND, action: "deleteAccount" },
+  { kind: SESSION_MESSAGE_KIND, action: "deleteAccountWithOutcome" },
   { kind: SESSION_MESSAGE_KIND, action: "reconcile" },
   { kind: SESSION_MESSAGE_KIND, action: "restore" },
   { kind: SESSION_MESSAGE_KIND, action: "createCheckout" },
@@ -76,6 +78,7 @@ describe("session protocol registry", () => {
       { kind: "verified", userId: "user" },
       "signed-out",
       "deleted",
+      { deleted: true, analyticsDeleted: false, analyticsErasure: "unconfirmed" },
       "entitled",
       "not-entitled",
       { kind: "checkout-url", url: "https://checkout" },
@@ -90,6 +93,7 @@ describe("session protocol registry", () => {
     expect(session.verifyCode).toHaveBeenCalledWith("a@example.com", "123456");
     expect(session.signOut).toHaveBeenCalledOnce();
     expect(session.deleteAccount).toHaveBeenCalledOnce();
+    expect(session.deleteAccountWithOutcome).toHaveBeenCalledOnce();
     expect(session.reconcile).toHaveBeenCalledOnce();
     expect(session.restore).toHaveBeenCalledOnce();
     expect(session.createCheckout).toHaveBeenCalledOnce();
@@ -120,6 +124,9 @@ describe("session protocol registry", () => {
     expect(isExtensionPageSender({ id: "other", url: `${origin}popup.html` }, "still", origin)).toBe(false);
     const router = createSessionMessageRouter(sessionStub(), "still", origin);
     await expect(sendThrough(router, requests[0]!, { id: "still", url: "https://www.youtube.com/", tab: {} })).resolves.toBeUndefined();
+    await expect(sendThrough(router, { kind: SESSION_MESSAGE_KIND, action: "deleteAccountWithOutcome" }, {
+      id: "still", url: "https://www.youtube.com/", tab: {},
+    })).resolves.toBeUndefined();
   });
 
   it("never reveals account email or starts a sync retry for content-script senders", async () => {

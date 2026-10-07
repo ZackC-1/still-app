@@ -65,6 +65,10 @@ export const SESSION_PROTOCOL = {
     (session, _payload: Record<never, never>) => session.deleteAccount(),
     "delete-failed",
   ),
+  deleteAccountWithOutcome: defineSessionCapability(
+    (session, _payload: Record<never, never>) => session.deleteAccountWithOutcome(),
+    "delete-failed",
+  ),
   reconcile: defineSessionCapability(
     (session, _payload: Record<never, never>) => session.reconcile(),
     "unknown" satisfies SessionReconcileOutcome,

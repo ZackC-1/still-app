@@ -1,0 +1,49 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton, Logo, ProOffer, SharingSetting, AccountLinks, DemoMark, ProControlList } = window.StillDesignSystem_c8e8ab;
+
+const canOfferPro = (host, access) => host !== 'safari' && access && Object.values(access).includes('locked') && !Object.values(access).some(a => a === 'checking' || a === 'purchased' || a === 'protected' || a === 'verify');
+
+// Small popup composition (compact, 380 wide, bounded scroll)
+function PopupSpec({ host = 'browser', paused: p0 = false, open: o0 = 'youtube', access, values, footerTitle = 'Find Still in Chrome.' }) {
+  const [on, setOn] = React.useState(!p0);
+  const [open, setOpen] = React.useState(o0);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...values });
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  return (
+    <AppShell density="compact" width={380} host={host}>
+      <HeroCard on={on} onChange={setOn} compact />
+      <SiteList paused={!on} scroll>
+        {SiteOrder.map(k => <SiteSection key={k} service={k} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set} open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} host={host} showSubs={false} />)}
+      </SiteList>
+      {canOfferPro(host, access) && <Button variant="secondary" block>Purchase Still Pro</Button>}
+      {host === 'safari' && access && Object.values(access).includes('locked') && !Object.values(access).some(a => a === 'checking' || a === 'purchased' || a === 'protected' || a === 'verify') && <Button variant="secondary" block aria-label="See Still Pro in the Still app">See Still Pro</Button>}
+      <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline>Sign in</Button>} />
+      <footer className="popup-footer"><OpenSettingsButton setupTitle={footerTitle} /><a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a></footer>
+    </AppShell>
+  );
+}
+
+// Fuller settings composition (comfortable, 432 column)
+function SettingsSpec({ access, values, open: o0 = 'instagram', offerState = 'idle' }) {
+  const [on, setOn] = React.useState(true);
+  const [open, setOpen] = React.useState(o0);
+  const [v, setV] = React.useState({ youtube: true, instagram: true, facebook: true, tiktok: true, ...values });
+  const set = (id, x) => setV(s => ({ ...s, [id]: x }));
+  return (
+    <AppShell>
+      <div className="appbar"><Logo /></div>
+      <HeroCard on={on} onChange={setOn} compact />
+      <SiteList paused={!on}>
+        {SiteOrder.map(k => <SiteSection key={k} service={k} coreOn={v[k]} onCoreChange={x => set(k, x)} values={v} access={access} onControlChange={set} open={open === k} onToggleOpen={() => setOpen(open === k ? null : k)} paused={!on} />)}
+      </SiteList>
+      <ProOffer host="browser" signedIn offer={SAMPLE_OFFER} controls={ProControlList()} showList={false} state={offerState} />
+      <SharingSetting checked={false} />
+      <SettingsCard label="Settings sync">
+        <p className="synced">sam@example.com</p>
+        <DemoMark>Demonstration only: no real sync time</DemoMark>
+        <AccountLinks><Button variant="link">Privacy policy</Button><Button variant="link">Sign out</Button><Button variant="danger-link">Delete account</Button></AccountLinks>
+      </SettingsCard>
+    </AppShell>
+  );
+}
+
+Object.assign(window, { PopupSpec, SettingsSpec });

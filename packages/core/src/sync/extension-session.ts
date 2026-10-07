@@ -1,5 +1,6 @@
 import type { EntitlementRecordStore } from "../entitlement/cache.js";
 import type { AccountSyncStatus } from "./account-status.js";
+import { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
 import type {
   AccountAuthPort,
   AuthPort,
@@ -189,6 +190,7 @@ export type SignOutSessionOutcome = "signed-out";
 
 /** delete-failed keeps the session AND local state intact (server-first, apple-session parity). */
 export type DeleteAccountSessionOutcome = "deleted" | "delete-failed";
+export type DeleteAccountWithOutcome = AccountDeletionResult | "delete-failed";
 
 /** The popup's mount snapshot (R2): userId and the persisted pending records have no
  * storage-watch mirror, so the popup asks once on mount and then mirrors settings/entitlement
@@ -215,6 +217,8 @@ export interface ExtensionSession {
   createCheckout(): Promise<WebCheckoutOutcome>;
   signOut(): Promise<SignOutSessionOutcome>;
   deleteAccount(): Promise<DeleteAccountSessionOutcome>;
+  /** Response-aware sibling; the retained action keeps its historical string contract. */
+  deleteAccountWithOutcome(): Promise<DeleteAccountWithOutcome>;
   /** The content-script reconcile nudge (R4/AE3) — the only handler content-script senders may
    * reach (U6 enforces that on the message router). */
   onNudge(): Promise<NudgeOutcome>;
@@ -369,6 +373,32 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     }
   };
 
+  const deleteAccountWithOutcome = async (): Promise<DeleteAccountWithOutcome> => {
+    accountStatusTeardowns += 1;
+    const generation = generations.capture();
+    try {
+      let result: AccountDeletionResult | void;
+      try {
+        const deletingUserId = await auth.currentUserId();
+        if (!deletingUserId || !generations.isCurrent(generation)) return "delete-failed";
+        result = await sync.deleteAccount();
+        // A cold session may not yet have a remembered identity, so an intervening sign-in can
+        // replace it without an identity-purge generation. Check the actual account as well.
+        const currentUserId = await auth.currentUserId();
+        if (currentUserId !== null && currentUserId !== deletingUserId) return "delete-failed";
+      } catch {
+        return "delete-failed";
+      }
+      // The old account may be gone, but a replacement session must keep its own local state.
+      if (!generations.isCurrent(generation)) return "delete-failed";
+      await clearUserScopedState("user-leaving");
+      // Legacy hosts resolve void on successful deletion, with no provider-erasure report.
+      return result ?? readAccountDeletionResult({ deleted: true })!;
+    } finally {
+      accountStatusTeardowns -= 1;
+    }
+  };
+
   return {
     async getSyncStatus(): Promise<AccountSyncStatus | null> {
       if (accountStatusTeardowns > 0) return null;
@@ -502,21 +532,10 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     },
 
     async deleteAccount(): Promise<DeleteAccountSessionOutcome> {
-      accountStatusTeardowns += 1;
-      // Server-first (apple-session parity): a failed backend delete keeps the session AND the
-      // local state intact — never appear signed-out while the account still exists.
-      try {
-        try {
-          await sync.deleteAccount();
-        } catch {
-          return "delete-failed";
-        }
-        await clearUserScopedState("user-leaving");
-        return "deleted";
-      } finally {
-        accountStatusTeardowns -= 1;
-      }
+      return await deleteAccountWithOutcome() === "delete-failed" ? "delete-failed" : "deleted";
     },
+
+    deleteAccountWithOutcome,
 
     async onNudge(): Promise<NudgeOutcome> {
       if (nudgeInFlight) return "throttled"; // in-instance single-flight: burst → ONE reconcile

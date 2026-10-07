@@ -5,6 +5,7 @@ import { readSettingsReceipt, SettingsStorageRecovery, type CanonicalSettingsEnv
 import { migrateSettingsV2 } from "../storage/settings-v2.js";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 import { parseSyncedSettingsEnvelope } from "../storage/settings-validation.js";
+import { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
 import type {
   BackendPort,
   CheckedReconcilePort,
@@ -172,15 +173,18 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     };
   }
 
-  async deleteAccount(): Promise<void> {
+  async deleteAccount(): Promise<AccountDeletionResult> {
     // The session JWT is attached automatically; the function derives the subject from it and deletes
     // the auth user (cascades profile + entitlement, U11/U15). Surface the failure so the UI can show
     // it rather than appearing to delete when it didn't.
-    const { error } = await this.client.functions.invoke("delete-user", {
+    const { data, error } = await this.client.functions.invoke("delete-user", {
       body: {},
       signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (error) throw error;
+    const result = readAccountDeletionResult(data);
+    if (!result) throw new Error("Account deletion is unconfirmed");
+    return result;
   }
 }
 

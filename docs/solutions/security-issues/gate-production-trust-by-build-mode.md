@@ -66,3 +66,18 @@ fail-safe fallback, never fall through to a weaker set.
   rule-set loader every extension build uses (Safari, Chromium, Firefox); the key sets live in
   `packages/core/src/rules/trusted-keys.ts`.
 - The deploy procedure that fills the prod gap: `docs/production-rule-set-keys.md`.
+
+## Isolate QA build inputs too
+
+Production bundler mode alone does not establish the trust boundary: Vite's `PROD` also depends on
+`NODE_ENV`, and WXT and Vite have different environment-file loaders. Pin `NODE_ENV=production`,
+remove inherited client/trust inputs, run WXT from an empty environment directory, and point
+Vite's `envDir` at that same directory. Explicitly supply only the selected profile's public inputs.
+Otherwise a local `.env` file or inherited development setting can silently change a QA artifact.
+
+The [V3 profile runner](../../../scripts/qa/v3-profile.mjs) applies this to all four web-resource
+targets without changing ordinary package builds. Its tests cover hostile inherited inputs and
+public-key admission. Actual builds with poisoned package `.env.production` files and inherited
+development/client inputs confirmed that the local artifacts contain none of those sentinel values.
+QA currently retains production access trust with an empty key set; a configured backend alone
+does not supply scoped purchase proof or authorize accepting sandbox keys.

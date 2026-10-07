@@ -92,3 +92,38 @@ describe("SupabaseBackendPort.readProfile", () => {
     await expect(port.readProfile()).rejects.toThrow("offline");
   });
 });
+
+describe("SupabaseBackendPort.deleteAccount", () => {
+  function deletionPort(data: unknown, error: unknown = null) {
+    const invoke = vi.fn(async () => ({ data, error }));
+    const client = { functions: { invoke } } as unknown as SupabaseClient;
+    return { port: new SupabaseBackendPort(client), invoke };
+  }
+
+  it.each([true, false, null])("retains the reported legacy analytics deletion result %s", async (analyticsDeleted) => {
+    const { port, invoke } = deletionPort({ deleted: true, analyticsDeleted });
+    await expect(port.deleteAccount()).resolves.toEqual({ deleted: true, analyticsDeleted, analyticsErasure: "unconfirmed" });
+    expect(invoke).toHaveBeenCalledWith("delete-user", {
+      body: {}, signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("keeps an older response without analytics status unreported", async () => {
+    await expect(deletionPort({ deleted: true }).port.deleteAccount())
+      .resolves.toEqual({ deleted: true, analyticsDeleted: null, analyticsErasure: "unconfirmed" });
+  });
+
+  it.each([null, {}, [], { deleted: false }, { deleted: "true" }])("rejects an unconfirmed or malformed success body %j", async (data) => {
+      await expect(deletionPort(data).port.deleteAccount()).rejects.toThrow("Account deletion is unconfirmed");
+  });
+
+  it("does not lose a confirmed account deletion to malformed optional analytics metadata", async () => {
+    await expect(deletionPort({ deleted: true, analyticsDeleted: "true", analyticsErasure: "completed" }).port.deleteAccount())
+      .resolves.toEqual({ deleted: true, analyticsDeleted: null, analyticsErasure: "unconfirmed" });
+  });
+
+  it("propagates an invocation failure even when the body claims deletion", async () => {
+    await expect(deletionPort({ deleted: true, analyticsDeleted: true }, new Error("offline")).port.deleteAccount())
+      .rejects.toThrow("offline");
+  });
+});

@@ -1,0 +1,168 @@
+const { AppShell, HeroCard, SiteList, SiteSection, SiteOrder, SettingsCard, Button, OpenSettingsButton, StatusLine, Logo } = RDS;
+
+// Store story: 1 blocking, 2 controls, 3 optional free sync. UI is the real components at 1×, scaled into the canvas.
+const STORY = {
+  browser: [
+    ['Do what you came to do.', 'Still removes Shorts, Reels and the TikTok website. Free, no account needed.'],
+    ['Choose what stays.', 'Turn off comments, related videos, Stories and more with Still Pro. One payment.'],
+    ['Same settings in every browser.', 'Free, optional settings sync.'],
+  ],
+  apple: [
+    ['Do what you came to do.', 'Still removes Shorts, Reels and the TikTok website in Safari on iPhone, iPad and Mac.'],
+    ['Choose what stays.', 'Turn off comments, related videos, Stories and more with Still Pro. One payment.'],
+    ['Same settings on every device.', 'Free, optional settings sync. Works in Safari, not inside the social apps.'],
+  ],
+};
+
+function StoreUI({ scene, host = 'browser', browser = 'Chrome', mobile = false }) {
+  const pro = accessAll(scene === 2 ? 'purchased' : 'locked');
+  const values = { youtube: true, instagram: true, facebook: true, tiktok: true, yt_comments: true, yt_related: true };
+  const open = scene === 2 ? 'youtube' : null;
+  const synced = scene === 3;
+  return (
+    <AppShell density="compact" width={380}>
+      <HeroCard on compact />
+      <SiteList>
+        {(scene === 2 ? ['youtube', 'tiktok'] : SiteOrder).map(k => <SiteSection key={k} service={k} controls={mobile ? MOBILE_CONTROLS[k] : undefined} coreOn values={values} access={pro} open={open === k} host={host === 'apple' ? 'safari' : 'browser'} showSubs={false} />)}
+      </SiteList>
+      {synced
+        ? <SettingsCard variant="sync-row" title="Settings sync" sub="sam@example.com" action={null}><StatusLine tone="success" announce={false}>Settings synced.</StatusLine></SettingsCard>
+        : <SettingsCard variant="sync-row" title="Settings sync" sub="Free. Keep your settings updated across every device and browser" action={<Button inline>Sign in</Button>} />}
+      <footer className="popup-footer"><OpenSettingsButton setupTitle={'Find Still in ' + browser + '.'} /><a className="link" href="#" onClick={e => e.preventDefault()}>Privacy policy</a></footer>
+    </AppShell>
+  );
+}
+
+const BLUE = '#2a47e8';
+// One export-sized asset, previewed at scale s. id = snapshot target.
+function Asset({ id, cap, w, h, s, children }) {
+  return (
+    <div className="r-pane" style={{ width: w * s }}>
+      <span className="cap">{cap} <span className="dim">· {w}×{h}</span></span>
+      <div style={{ width: w * s, height: h * s, overflow: 'hidden', borderRadius: 8, boxShadow: '0 0 0 1px rgba(11,20,48,.12)' }}>
+        <div id={id} data-asset="" style={{ width: w, height: h, transform: 'scale(' + s + ')', transformOrigin: '0 0', background: BLUE, color: '#fff', position: 'relative', overflow: 'hidden', fontFamily: 'var(--font-ui)' }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Ui({ scale, children, style }) {
+  return <div className="still-ui" data-theme="light" style={{ position: 'absolute', transformOrigin: '0 0', transform: 'scale(' + scale + ')', width: 380, borderRadius: 16, overflow: 'hidden', background: 'var(--surface)', ...style }}>{children}</div>;
+}
+
+function Landscape({ id, cap, w = 1280, h = 800, s = 0.5, scene, host, browser, mobile }) {
+  const [t, b] = STORY[host === 'apple' ? 'apple' : 'browser'][scene - 1];
+  const k = h / 800;
+  return (
+    <Asset id={id} cap={cap} w={w} h={h} s={s}>
+      <div style={{ position: 'absolute', left: 88 * k, top: 0, bottom: 0, width: 520 * k, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 * k }}>
+        <p style={{ margin: 0, fontSize: 60 * k, lineHeight: 1.08, fontWeight: 700, letterSpacing: '-0.02em' }}>{t}</p>
+        <p style={{ margin: 0, fontSize: 26 * k, lineHeight: 1.35, color: 'rgba(255,255,255,.9)' }}>{b}</p>
+      </div>
+      <Ui scale={1.2 * k} style={{ left: w - (380 * 1.2 + 96) * k, top: 40 * k }}><StoreUI scene={scene} host={host} browser={browser} mobile={mobile} /></Ui>
+    </Asset>
+  );
+}
+
+function Portrait({ id, cap, w, h, s, scene, ui = 3 }) {
+  const [t, b] = STORY.apple[scene - 1];
+  const k = w / 1320;
+  return (
+    <Asset id={id} cap={cap} w={w} h={h} s={s}>
+      <div style={{ position: 'absolute', left: 110 * k, right: 110 * k, top: 200 * k, display: 'flex', flexDirection: 'column', gap: 36 * k }}>
+        <p style={{ margin: 0, fontSize: 120 * k, lineHeight: 1.05, fontWeight: 700, letterSpacing: '-0.02em' }}>{t}</p>
+        <p style={{ margin: 0, fontSize: 52 * k, lineHeight: 1.3, color: 'rgba(255,255,255,.9)' }}>{b}</p>
+      </div>
+      <Ui scale={ui * k} style={{ left: (w - 380 * ui * k) / 2, top: Math.min(900 * k, h - 600 * ui * k - 120 * k) }}><StoreUI scene={scene} host="apple" browser="Safari" mobile /></Ui>
+    </Asset>
+  );
+}
+
+function Tile({ id, cap, w, h, s }) {
+  return (
+    <Asset id={id} cap={cap} w={w} h={h} s={s}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', gap: h * 0.1, padding: '0 ' + h * 0.16 + 'px' }}>
+        <img src="../../assets/logos/still-app-icon-1024.png" alt="" style={{ width: h * 0.36, height: h * 0.36, borderRadius: h * 0.08 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: h * 0.03 }}>
+          <span style={{ fontSize: h * 0.2, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>Still</span>
+          <span style={{ fontSize: h * 0.075, color: 'rgba(255,255,255,.9)' }}>Do what you came to do.</span>
+        </div>
+      </div>
+    </Asset>
+  );
+}
+
+function IconCell({ src, size, label, bg = '#fff', round }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: Math.max(size, 40) + 24, height: Math.max(size, 40) + 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: bg, borderRadius: 12, boxShadow: '0 0 0 1px rgba(11,20,48,.08)' }}>
+        <img src={src} alt="" width={size} height={size} style={{ borderRadius: round ? size * 0.225 : 0 }} />
+      </div>
+      <span style={{ fontSize: 11, color: '#4a5170', fontVariantNumeric: 'tabular-nums' }}>{label}</span>
+    </div>
+  );
+}
+
+function Page() {
+  return (
+    <div className="r-wrap">
+      <header className="r-top">
+        <div><h1>D41 · D43 · D45 · Store assets and icons</h1><p>One three-image story for every store: blocking, controls, optional free sync. Every image uses the real Still components on a flat Still Blue field. Each asset is built at its exact export size and previewed smaller. Only proven browsers are shown; no Edge, Google Play or native Android.</p></div>
+        <span className="r-badge" style={{ borderStyle: 'solid', borderColor: '#1a7046', color: '#1a7046' }}>Approved by owner · 2026-10-03</span>
+      </header>
+
+      <Sec id="D43 · Chrome Web Store" title="Chrome screenshots and promo tiles" notes={<>
+        <p>Screenshots 1280×800. Small promo tile 440×280. Marquee 1400×560.</p>
+        <ul><li>Image 2 shows Pro controls switched on and says they come with Still Pro.</li><li>No price in images; the listing shows it.</li></ul>
+      </>}>
+        <div className="r-row">{[1, 2, 3].map(n => <Landscape key={n} id={'cws-' + n} cap={'Chrome · ' + n} scene={n} browser="Chrome" s={0.36} />)}</div>
+        <div className="r-row"><Tile id="cws-small" cap="Small promo tile" w={440} h={280} s={0.8} /><Tile id="cws-marquee" cap="Marquee" w={1400} h={560} s={0.4} /></div>
+      </Sec>
+
+      <Sec id="D41 · Firefox Add-ons" title="Firefox desktop and Android" notes={<>
+        <p>Same story with the Firefox popup. The Android image is illustrative until Firefox Android support is proven; don't publish it before then.</p>
+      </>}>
+        <div className="r-row">{[1, 2, 3].map(n => <Landscape key={n} id={'amo-' + n} cap={'Firefox · ' + n} scene={n} browser="Firefox" s={0.36} />)}</div>
+        <div className="r-row"><Landscape id="amo-android" cap="Firefox Android · illustrative" scene={1} browser="Firefox" mobile s={0.36} /></div>
+      </Sec>
+
+      <Sec id="D43 · App Store" title="iPhone, iPad and Mac" notes={<>
+        <p>iPhone 6.9" 1320×2868, iPad 13" 2064×2752, Mac 2880×1800. Copy says Safari plainly and that Still doesn't work inside the social apps.</p>
+        <ul><li>Safari rows show lock + Still Pro; no price or Buy.</li></ul>
+      </>}>
+        <div className="r-row">{[1, 2, 3].map(n => <Portrait key={n} id={'ios-' + n} cap={'iPhone · ' + n} w={1320} h={2868} s={0.15} scene={n} />)}</div>
+        <div className="r-row">
+          <Portrait id="ipad-1" cap="iPad · 1" w={2064} h={2752} s={0.15} scene={1} ui={1.5} />
+          <Landscape id="mac-1" cap="Mac · 1" w={2880} h={1800} s={0.16} scene={1} host="apple" browser="Safari" />
+        </div>
+      </Sec>
+
+      <Sec id="D45" title="App icon, extension icons, favicon" notes={<>
+        <p>The existing balance mark on Still Blue, unchanged. No new artwork. The browser toolbar and favicon use the mark at small sizes.</p>
+        <ul><li>App icon: 1024 master; Apple applies its own corner mask.</li><li>Extension: 16, 32, 48, 128.</li><li>Dark toolbars use the dark mark.</li></ul>
+      </>}>
+        <div className="r-row" style={{ alignItems: 'flex-end' }}>
+          <IconCell src="../../assets/logos/still-app-icon-1024.png" size={180} label="App icon · 1024 master" round />
+          <IconCell src="../../assets/logos/still-mark.svg" size={128} label="Extension · 128" />
+          <IconCell src="../../assets/logos/still-mark.svg" size={48} label="48" />
+          <IconCell src="../../assets/logos/still-mark.svg" size={32} label="32 · favicon" />
+          <IconCell src="../../assets/logos/still-mark.svg" size={16} label="16" />
+          <IconCell src="../../assets/logos/still-mark-dark.svg" size={32} label="Dark toolbar · 32" bg="#202124" />
+          <IconCell src="../../assets/logos/still-mark-dark.svg" size={16} label="16" bg="#202124" />
+        </div>
+      </Sec>
+
+      <Sec title="Unresolved choices" notes={<p>Need your call before approval.</p>}>
+        <Unresolved items={[
+          'Image 1 subline names Shorts, Reels and the TikTok website. You said Still goes beyond short-form video: want a broader line?',
+          'Image 2 headline "Choose what stays." and the Pro mention. Keep, or reword.',
+          'Background: flat Still Blue on every image (as built), or alternate with the light surface.',
+          'Firefox Android image: hold until support is proven (as noted), or drop it.',
+          'Exact pixel exports: I can save each asset as a PNG at full size once you approve.',
+        ]} />
+      </Sec>
+    </div>
+  );
+}
+
+mountReview(Page);
