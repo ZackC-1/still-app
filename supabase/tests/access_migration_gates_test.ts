@@ -1,5 +1,5 @@
 // Actual SQL/catalog negative controls. Cloud-only: skipped runs are not SQL evidence.
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import type postgres from "postgres";
 import { connection } from "./synthetic_settings_helpers.ts";
 
@@ -19,11 +19,31 @@ const source = (path: string) =>
 
 type Sql = ReturnType<typeof connection>;
 type Tx = postgres.TransactionSql;
+function verificationIssues(value: unknown): string[] {
+  const decoded: unknown = typeof value === "string"
+    ? JSON.parse(value)
+    : value;
+  assert(
+    Array.isArray(decoded) && decoded.every((code) => typeof code === "string"),
+    "invalid-verification-issues",
+  );
+  return decoded;
+}
+function preservedInvariant(value: unknown): string {
+  const decoded: unknown = typeof value === "string"
+    ? JSON.parse(value)
+    : value;
+  assert(
+    decoded !== null && typeof decoded === "object" && !Array.isArray(decoded),
+    "invalid-preservation-invariant",
+  );
+  return JSON.stringify(decoded);
+}
 async function issues(tx: Sql | Tx) {
   const rows = await tx.unsafe(
     await source(`../../scripts/backend/deploy/verify/${stem}.sql`),
   );
-  return JSON.parse(String(Object.values(rows[0]!)[0])) as string[];
+  return verificationIssues(Object.values(rows[0]!)[0]);
 }
 async function readOnly(sql: Sql) {
   return await sql.begin(async (tx) => {
@@ -116,8 +136,39 @@ async function invariant(sql: Sql | Tx) {
       "../../scripts/backend/deploy/verify/0019_scoped_access_rights.invariant.sql",
     ),
   );
-  return String(Object.values(rows[0]!)[0]);
+  return preservedInvariant(Object.values(rows[0]!)[0]);
 }
+Deno.test("migration gate JSON columns retain decoded issue and invariant values", async () => {
+  const row = (value: unknown) =>
+    ({ unsafe: () => Promise.resolve([{ result: value }]) }) as unknown as Sql;
+  for (
+    const codes of [[], ["migration_version", "check_expression:synthetic"]]
+  ) {
+    assertEquals(await issues(row(codes)), codes);
+    assertEquals(await issues(row(JSON.stringify(codes))), codes);
+  }
+  const before = { profiles: 1, profiles_md5: "1".repeat(32) };
+  const after = { ...before, profiles_md5: "2".repeat(32) };
+  assertEquals(
+    await invariant(row(before)),
+    await invariant(row(JSON.stringify(before))),
+  );
+  assert(await invariant(row(before)) !== await invariant(row(after)));
+  for (const invalid of [null, true, 1, {}, [1], ["issue", false]]) {
+    assertThrows(
+      () => verificationIssues(invalid),
+      Error,
+      "invalid-verification-issues",
+    );
+  }
+  for (const invalid of [null, true, 1, []]) {
+    assertThrows(
+      () => preservedInvariant(invalid),
+      Error,
+      "invalid-preservation-invariant",
+    );
+  }
+});
 Deno.test({
   name: "exact access migration catalog, ACL, body and drift gates",
   ignore: !enabled,
@@ -302,7 +353,10 @@ Deno.test({
       );
       assert(changed instanceof Error);
       assertEquals(changed.message, "synthetic-rollback");
-      assertEquals(await invariant(sql), preserved);
+      assert(
+        await invariant(sql) === preserved,
+        "preserved-row-invariant-changed",
+      );
     } finally {
       await sql.end();
     }

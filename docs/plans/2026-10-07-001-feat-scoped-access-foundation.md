@@ -62,7 +62,14 @@ changes automatic ownership adoption or permits client grants.
   pins `pg_catalog, pg_temp`, matching the maintained contract, and updates the exact 0019
   verifier. All four function bodies and their MD5 pins remain unchanged. A pglast control
   rejects the published settings and accepts the corrected settings; deploy tests pass again
-  (57 passed, one explicit skip). Fresh independent review and hosted rerun remain pending.
+  (57 passed, one explicit skip). An independent Muse review approved this correction before
+  publication; the hosted rerun then passed that catalog assertion.
+- The rerun reached the new pre-migration gate and exposed two test-reader defects:
+  postgres.js already decodes JSON columns, so parsing a coerced array fails and coercing an
+  invariant object hides fingerprint changes. The corrected readers preserve decoded values
+  and validate their shapes. An actual pinned-driver control reproduced both defects; the
+  corrected reader test passed with both cloud tests ignored locally. Independent Muse review
+  approved this bounded correction. The actual cloud gates still require a successful rerun.
 
 ## Remaining gates and recovery
 
