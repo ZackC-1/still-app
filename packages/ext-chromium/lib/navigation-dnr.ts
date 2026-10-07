@@ -7,7 +7,7 @@ import {
   navigationDnrRuleIdsFor,
   NAVIGATION_DNR_RULE_IDS,
   type NavigationDnrRule,
-} from "../../core/src/rules/navigation-dnr.js";
+} from "@still/core/rules/navigation-dnr";
 
 /**
  * The declarativeNetRequest calls the navigation sync uses. Session rules, never dynamic ones: they

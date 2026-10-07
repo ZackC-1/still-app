@@ -19,12 +19,12 @@
 </script>
 
 <script lang="ts">
-  import ExtensionSettings from "../../../core/src/ui/v3/ExtensionSettings.svelte";
+  import ExtensionSettings from "@still/core/ui/v3/ExtensionSettings.svelte";
   import type {
     ExtensionSettingsProps,
     RestoreStatusCardProps,
-  } from "../../../core/src/ui/v3/extension-settings-presentation.js";
-  import { createBrowserSettingsRestore } from "../../../core/src/ui/v3/browser-settings-restore.js";
+  } from "@still/core/ui/v3/extension-settings-presentation";
+  import { createBrowserSettingsRestore } from "@still/core/ui/v3/browser-settings-restore";
 
   // The V3 new-sync settings page with its free-period "Restore purchase" link (owner decisions
   // 62 and 73). Loaded in place of ExtensionSettings only by those builds; every other prop passes

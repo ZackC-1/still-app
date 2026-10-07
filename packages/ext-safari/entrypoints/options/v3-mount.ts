@@ -1,7 +1,7 @@
 import { mount } from "svelte";
 import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
 import SafariV3Options from "./SafariV3Options.svelte";
-import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
+import { bindTextScale } from "@still/core/ui/v3/text-scale";
 
 // The V3 settings-page components and their global stylesheet. Loaded by ./v3 only after the
 // record gate has chosen V3.

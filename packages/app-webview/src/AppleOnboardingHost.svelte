@@ -2,14 +2,14 @@
   // D12 Apple onboarding host: prop plumbing only. Every rule (the one native gate, setup status,
   // completion) lives in @still/core's tested apple-onboarding-host module. The entry reaches this
   // file only through the same build-time-folded dynamic import as the D04 settings host, so the
-  // D12 screens and their global stylesheet exist only in bundles that opt in. The leaf is imported
-  // by file path through this package's dependency link, as AppleSettingsHost imports its leaf.
+  // D12 screens and their global stylesheet exist only in bundles that opt in. The dedicated
+  // @still/core export keeps the dependency outside this package's rootDir: src.
   import { untrack } from "svelte";
-  import AppleOnboarding from "../node_modules/@still/core/src/ui/v3/AppleOnboarding.svelte";
+  import AppleOnboarding from "@still/core/ui/v3/AppleOnboarding.svelte";
   import type {
     AppleOnboardingHost,
     AppleOnboardingHostView,
-  } from "../node_modules/@still/core/src/ui/v3/apple-onboarding-host.js";
+  } from "@still/core/ui/v3/apple-onboarding-host";
 
   interface Props {
     /** A started host whose view is visible (runAppleOnboardingFirst mounts only then). */

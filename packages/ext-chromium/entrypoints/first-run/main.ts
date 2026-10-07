@@ -13,7 +13,7 @@ import { createPageAnalytics } from "../../lib/analytics.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 import { declaredSiteOrigins, firstRunAnalytics, type PinApi } from "./first-run-ports.js";
 import FirstRunApp from "./FirstRunApp.svelte";
-import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
+import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { isFirefoxAndroid, runtimePlatformFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
 
 // The D14 first-run page. The background opens it once, on a brand-new install; Settings → Setup

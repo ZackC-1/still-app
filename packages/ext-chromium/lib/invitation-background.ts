@@ -33,14 +33,14 @@ import {
   type InvitationLedgerPort,
   type InvitationOwnerParameters,
   type InvitationReservation,
-} from "../../core/src/invitations/index.js";
+} from "@still/core/invitations";
 import {
   newLedgerAnchor,
   recordRatingOpening,
   reserveRatingCard,
   type RatingAllowance,
   type RatingCardSurface,
-} from "../../core/src/invitations/rating-allowance.js";
+} from "@still/core/invitations/rating-allowance";
 
 export const INVITATION_MESSAGE_KIND = "still:invitation";
 

@@ -3,12 +3,12 @@
   // card (U13-P3), whichever the background's ledger picked for this opening. It reserves and
   // commits the card through the background before anything renders, and adds nothing else.
   import { onMount } from "svelte";
-  import DesktopPopup from "../../../core/src/ui/v3/DesktopPopup.svelte";
-  import type { DesktopPopupProps } from "../../../core/src/ui/v3/presentation.js";
+  import DesktopPopup from "@still/core/ui/v3/DesktopPopup.svelte";
+  import type { DesktopPopupProps } from "@still/core/ui/v3/presentation";
   import {
     presentInvitation,
     syncInvitationPresentation,
-  } from "../../../core/src/ui/v3/popup-invitation-flow.js";
+  } from "@still/core/ui/v3/popup-invitation-flow";
   import { popupInvitationHost } from "../../lib/invitation-popup-host.js";
   import { openRatingReview, ratingCardPresentation } from "../../lib/rating-card.js";
 

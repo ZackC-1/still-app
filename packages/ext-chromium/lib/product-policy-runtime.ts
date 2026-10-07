@@ -9,10 +9,10 @@ import {
 import {
   evaluateRatingPolicy, evaluateSalesPolicy, packagedPolicyContext,
   type PackagedPolicyContext, type ProductPolicyResponse, type ProductPolicyVerdict,
-} from "../../core/src/entitlement/product-policy.js";
+} from "@still/core/entitlement/product-policy";
 import {
   OrdinaryPolicyCache, type PolicyCacheRead, type PolicyCacheRecord,
-} from "../../core/src/entitlement/product-policy-cache.js";
+} from "@still/core/entitlement/product-policy-cache";
 
 // Chrome and Firefox client for the remote product policy (U6). Its only consumer is the rating
 // path (U13-P3): lib/rating-invitation.ts, which background.ts loads behind the inline V3 build

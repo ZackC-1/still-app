@@ -1,9 +1,9 @@
-import { TIKTOK_ROUTE } from "../../core/src/content/tiktok-blocked-route.js";
+import { TIKTOK_ROUTE } from "@still/core/content/tiktok-blocked-route";
 import {
   createTiktokTabAuthority,
   type TiktokTabAuthorityDeps,
   type TiktokTabContext,
-} from "../../core/src/content/tiktok-tab-authority.js";
+} from "@still/core/content/tiktok-tab-authority";
 import { isExtensionPageSender } from "./session-messages.js";
 
 export interface TiktokBrowserSender {

@@ -6,15 +6,15 @@
     LegacyPopupAuthority,
   } from "@still/core/ui";
   import { DEFAULT_SETTINGS } from "@still/shared-types";
-  import FirstRun from "../../../core/src/ui/v3/FirstRun.svelte";
-  import Toggle from "../../../core/src/ui/v3/Toggle.svelte";
-  import SignInSheet from "../../../core/src/ui/components/SignInSheet.svelte";
+  import FirstRun from "@still/core/ui/v3/FirstRun.svelte";
+  import Toggle from "@still/core/ui/v3/Toggle.svelte";
+  import SignInSheet from "@still/core/ui/components/SignInSheet.svelte";
   import {
     firstRunHostProps,
     type FirstRunBrowser,
     type FirstRunHostObservations,
     type FirstRunSiteAccess,
-  } from "../../../core/src/ui/v3/first-run-host.js";
+  } from "@still/core/ui/v3/first-run-host";
   import {
     observePinned,
     observeSiteAccess,

@@ -1,7 +1,7 @@
 // One popup page's sync invitation host (U13-P2). main.ts configures it only in builds that show
 // the V3 popup; the wrapper around DesktopPopup reads it. No ledger access lives here.
 
-import type { PopupInvitationPort } from "../../core/src/ui/v3/popup-invitation-flow.js";
+import type { PopupInvitationPort } from "@still/core/ui/v3/popup-invitation-flow";
 
 export interface PopupInvitationHost {
   readonly controller: { readonly userId: string | null; openSignIn(): void };

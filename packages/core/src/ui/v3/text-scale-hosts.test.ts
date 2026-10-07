@@ -84,7 +84,7 @@ describe("text size binding sites", () => {
       "ext-chromium/entrypoints/popup/PopupApp.svelte",
       "ext-chromium/entrypoints/options/OptionsApp.svelte",
     ];
-    for (const path of legacy) expect(read(path)).not.toContain("text-scale.js");
+    for (const path of legacy) expect(read(path)).not.toMatch(/text-scale|bindTextScale\(/);
     for (const name of readdirSync(here).filter((file) => file.endsWith(".svelte")))
       expect(readFileSync(join(here, name), "utf8"), name).not.toContain("text-scale.js");
   });

@@ -2,7 +2,7 @@ import { mount } from "svelte";
 import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
 import type { SafariPopupSurface } from "../../lib/safari-v3.js";
 import SafariV3Popup from "./SafariV3Popup.svelte";
-import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
+import { bindTextScale } from "@still/core/ui/v3/text-scale";
 
 // The V3 popup components and their global stylesheet. Loaded by ./v3 only after the record gate
 // has chosen V3.

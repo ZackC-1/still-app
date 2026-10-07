@@ -17,7 +17,7 @@ import {
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination } from "@still/core/native";
-import { bindTextScale } from "../node_modules/@still/core/src/ui/v3/text-scale.js";
+import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
