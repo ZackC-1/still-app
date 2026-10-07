@@ -91,8 +91,8 @@ async function seedPreservedRows(sql: Sql) {
     const validation =
       await tx`select private.product_policy_body_valid('sales','sandbox',1,${body}) as valid,
       private.product_policy_sales_activates(${body}) as activates,
-      encode(sha256(convert_to(concat_ws(E'\n','still-product-policy-preview-1',${fixtureOperation},'apply','sales','sandbox',${fixtureUser},'0','-',
-        floor(extract(epoch from '2026-10-01 13:00:00+00'::timestamptz)*1000)::bigint::text,${body}),'UTF8')),'hex') as preview_hash`;
+      encode(sha256(convert_to(concat_ws(E'\n','still-product-policy-preview-1',${fixtureOperation}::text,'apply','sales','sandbox',${fixtureUser}::text,'0','-',
+        floor(extract(epoch from '2026-10-01 13:00:00+00'::timestamptz)*1000)::bigint::text,${body}::text),'UTF8')),'hex') as preview_hash`;
     assertEquals(validation[0]?.valid, true);
     assertEquals(validation[0]?.activates, true);
     await tx`insert into public.entitlements(user_id,still_sync,source,revenuecat_subscriber_id,updated_at)
