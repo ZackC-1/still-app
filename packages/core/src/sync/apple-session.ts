@@ -1,6 +1,7 @@
 import type { UiController } from "../ui/controller.svelte.js";
 import type { AppleCredential, PurchaseResult, ReceiptStatusValue } from "../native/bridge.js";
 import type { AccountSyncStatus } from "./account-status.js";
+import type { AccountDeletionResult } from "./account-deletion.js";
 import type { SyncService, SyncState } from "./service.js";
 import { createTeardownGeneration } from "./teardown-generation.js";
 
@@ -100,7 +101,7 @@ export interface AppleSession {
    * the success screen) and re-reconcile a signed-in pending purchase. */
   onVisibilityChange(visibility: DocumentVisibilityState): void;
   signOutEverywhere(): Promise<void>;
-  deleteAccountEverywhere(): Promise<void>;
+  deleteAccountEverywhere(): Promise<AccountDeletionResult | void>;
 }
 
 export function createAppleSession(deps: AppleSessionDeps): AppleSession {
@@ -171,6 +172,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.pendingUpload = false;
       controller.deleteFlow = "idle";
       controller.deleteError = null;
+      controller.accountDeletion = null;
     }
     if (email !== undefined) controller.accountEmail = email;
     try {
@@ -474,9 +476,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // failure → UI surfaces it, session intact), then resets the native RevenueCat identity so the
     // deleted user's app_user_id isn't left configured. Receipt-derived Pro survives deletion too —
     // the purchase belongs to the Apple Account, not the Still account.
-    async deleteAccountEverywhere(): Promise<void> {
+    async deleteAccountEverywhere(): Promise<AccountDeletionResult | void> {
       const startGeneration = generations.capture();
-      await sync.deleteAccount();
+      const result = await sync.deleteAccount();
       if (!generations.isCurrent(startGeneration)) return;
       generations.bump();
       const generation = generations.capture();
@@ -495,6 +497,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
           /* account already deleted + session cleared; native reset is best-effort */
         }
       }
+      if (generations.isCurrent(generation)) return result;
     },
   };
 }

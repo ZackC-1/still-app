@@ -79,6 +79,7 @@ export function harness(store: StorageAdapter = new InMemoryStorageAdapter()) {
             gate.entered();
             await gate.response;
           }
+          return { data: { deleted: true, analyticsDeleted: false }, error: null };
         }
         return { data: {}, error: null };
       },

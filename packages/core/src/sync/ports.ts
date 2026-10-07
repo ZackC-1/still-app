@@ -2,6 +2,7 @@ import type { CanonicalSettingsEnvelope } from "../storage/atomic-settings.js";
 import type { UntrustedSettingsOperationRequest } from "@still/shared-types";
 import type { StillSettings } from "@still/shared-types";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
+import type { AccountDeletionResult } from "./account-deletion.js";
 
 export type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 
@@ -127,5 +128,5 @@ export interface BackendPort {
   ): () => void;
   /** Delete the signed-in user's account (App Store Guideline 5.1.1 / GDPR). The subject is derived
    * from the verified session JWT server-side; cascades profile + entitlement. Throws on failure. */
-  deleteAccount(): Promise<void>;
+  deleteAccount(): Promise<AccountDeletionResult | void>;
 }

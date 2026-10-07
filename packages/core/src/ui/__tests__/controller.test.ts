@@ -324,7 +324,7 @@ describe("UiController", () => {
 
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
 
-  const deletableAuth = (deleteAccount: () => Promise<void>): UiAuth => ({
+  const deletableAuth = (deleteAccount: NonNullable<UiAuth["deleteAccount"]>): UiAuth => ({
     signIn: () => Promise.resolve({}),
     signOut: vi.fn(() => Promise.resolve()),
     deleteAccount,
@@ -373,6 +373,39 @@ describe("UiController", () => {
     expect(c.deleteFlow).toBe("error");
     expect(c.deleteError).toBe("boom");
     expect(c.userId).toBe("u"); // still signed in
+  });
+
+  it.each([true, false, null])("keeps account completion separate from legacy analytics status %s", async (analyticsDeleted) => {
+    const result = { deleted: true, analyticsDeleted, analyticsErasure: "unconfirmed" } as const;
+    const { c } = makeController({ auth: deletableAuth(async () => result) });
+    c.userId = "u";
+    await c.confirmDeleteAccount();
+    expect(c.userId).toBeNull();
+    expect(c.accountDeletion).toEqual(result);
+    await c.signOut();
+    expect(c.accountDeletion).toBeNull();
+  });
+
+  it("does not claim analytics completion from a legacy void host", async () => {
+    const { c } = makeController({ auth: deletableAuth(async () => {}) });
+    c.userId = "u";
+    await c.confirmDeleteAccount();
+    expect(c.accountDeletion).toEqual({ deleted: true, analyticsDeleted: null, analyticsErasure: "unconfirmed" });
+  });
+
+  it("ignores an old deletion result after another account takes over", async () => {
+    let complete!: (result: import("../../sync/account-deletion.js").AccountDeletionResult) => void;
+    const result = { deleted: true, analyticsDeleted: true, analyticsErasure: "unconfirmed" } as const;
+    const { c } = makeController({ auth: deletableAuth(() => new Promise((resolve) => { complete = resolve; })) });
+    c.userId = "u";
+    const deletion = c.confirmDeleteAccount();
+    await vi.waitFor(() => expect(complete).toBeDefined());
+    c.accountRevision++;
+    c.userId = "replacement";
+    complete(result);
+    await deletion;
+    expect(c.userId).toBe("replacement");
+    expect(c.accountDeletion).toBeNull();
   });
 
   // ── purchase flow (P1 #5) ───────────────────────────────────────────────────────────────────────

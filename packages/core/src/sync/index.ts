@@ -17,6 +17,7 @@ export type {
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";
 export { SupabaseBackendPort } from "./profile.js";
+export { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
 export {
   createAppleSession,
   type AppleSession,
@@ -43,6 +44,7 @@ export {
   type ResumeOutcome,
   type SignOutSessionOutcome,
   type DeleteAccountSessionOutcome,
+  type DeleteAccountWithOutcome,
 } from "./extension-session.js";
 
 export { parseAccountSyncStatus, type AccountSyncStatus } from "./account-status.js";

@@ -8,6 +8,7 @@ import {
   type AppleSessionDeps,
 } from "../../apple-session.js";
 import type { SyncState } from "../../service.js";
+import type { AccountDeletionResult } from "../../account-deletion.js";
 
 // The Apple session harness, shared by the suite that runs against the switch as shipped and the
 // one that runs the money flows with the switch mocked on. One harness so the two cannot drift.
@@ -59,7 +60,7 @@ export function harness(opts: {
     signOut: vi.fn(async () => {
       session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
     }),
-    deleteAccount: vi.fn(async () => {}),
+    deleteAccount: vi.fn(async (): Promise<AccountDeletionResult | void> => {}),
   };
   const session = createAppleSession({
     controller,

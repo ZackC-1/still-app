@@ -1,5 +1,5 @@
 import { browser } from "wxt/browser";
-import { extensionSupabaseConfig } from "@still/core/sync";
+import { extensionSupabaseConfig, readAccountDeletionResult } from "@still/core/sync";
 import { STRINGS, type ExtensionPurchaseDeps, type UiController } from "@still/core/ui";
 import {
   SESSION_MESSAGE_KIND,
@@ -86,10 +86,12 @@ export function createExtensionPurchaseDeps(sendMessage: SessionSender): Extensi
         await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "signOut" });
       },
       deleteAccount: async () => {
-        const outcome = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "deleteAccount" });
+        const outcome = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "deleteAccountWithOutcome" });
         // Server-first (R8): a failed delete keeps the session, and the UI surfaces the calm
         // shared line — never raw backend text.
-        if (outcome !== "deleted") throw new Error(STRINGS.account.deleteError);
+        const result = readAccountDeletionResult(outcome);
+        if (!result) throw new Error(STRINGS.account.deleteError);
+        return result;
       },
     },
     persistence: {

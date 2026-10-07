@@ -137,7 +137,7 @@ function harness(opts: HarnessOpts = {}) {
       };
     }),
     subscribeToProfile: vi.fn(() => vi.fn()),
-    deleteAccount: vi.fn(async () => {}),
+    deleteAccount: vi.fn(async (): Promise<import("../account-deletion.js").AccountDeletionResult | void> => {}),
     createWebCheckout: vi.fn(
       async (): Promise<WebCheckoutOutcome> =>
         opts.checkout ?? { kind: "checkout-url", url: "https://pay.rev.cat/t/u1" },
@@ -657,6 +657,41 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.backend.deleteAccount).toHaveBeenCalled();
     expectFullTeardown(h);
     await expectIdentityRemembered(h);
+  });
+
+  it("response-aware deletion returns the backend outcome while the old action keeps its string", async () => {
+    const result = { deleted: true, analyticsDeleted: false, analyticsErasure: "unconfirmed" } as const;
+    const first = harness();
+    first.backend.deleteAccount.mockResolvedValueOnce(result);
+    await expect(first.session.deleteAccountWithOutcome()).resolves.toEqual(result);
+    expect(first.backend.deleteAccount).toHaveBeenCalledOnce();
+
+    const legacy = harness();
+    legacy.backend.deleteAccount.mockResolvedValueOnce(result);
+    await expect(legacy.session.deleteAccount()).resolves.toBe("deleted");
+    expect(legacy.backend.deleteAccount).toHaveBeenCalledOnce();
+  });
+
+  it("legacy successful deletion reports analytics erasure as unconfirmed", async () => {
+    const h = harness();
+    await expect(h.session.deleteAccountWithOutcome()).resolves.toEqual({
+      deleted: true, analyticsDeleted: null, analyticsErasure: "unconfirmed",
+    });
+  });
+
+  it("does not purge a replacement session after an older response-aware deletion finishes", async () => {
+    const h = harness();
+    let complete!: (result: import("../account-deletion.js").AccountDeletionResult) => void;
+    h.backend.deleteAccount.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    const deletion = h.session.deleteAccountWithOutcome();
+    await vi.waitFor(() => expect(h.backend.deleteAccount).toHaveBeenCalledOnce());
+    h.nextVerifyIs("u2");
+    await h.session.verifyCode("second@example.test", "123456");
+    const writes = h.recordWrites.length;
+    complete({ deleted: true, analyticsDeleted: true, analyticsErasure: "unconfirmed" });
+    await expect(deletion).resolves.toBe("delete-failed");
+    expect(h.persistedSession()).toBe("u2");
+    expect(h.recordWrites).toHaveLength(writes);
   });
 
   it("a failed backend delete keeps the session AND the local state intact (server-first)", async () => {

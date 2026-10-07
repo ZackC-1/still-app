@@ -71,6 +71,19 @@ describe("purchase wiring protocol translations", () => {
     await expect(deps.auth!.deleteAccount!()).rejects.toThrow("delete failed");
   });
 
+  it("requests and retains the response-aware account deletion result", async () => {
+    const result = { deleted: true, analyticsDeleted: false, analyticsErasure: "unconfirmed" } as const;
+    const sendMessage = vi.fn(async () => result) as unknown as SessionSender;
+    const deps = createExtensionPurchaseDeps(sendMessage);
+    await expect(deps.auth!.deleteAccount!()).resolves.toEqual(result);
+    expect(sendMessage).toHaveBeenCalledWith({ kind: "still:session", action: "deleteAccountWithOutcome" });
+  });
+
+  it.each([undefined, "deleted", { deleted: false }, { analyticsDeleted: true }])("cannot turn a missing or unconfirmed response %j into account completion", async (response) => {
+      const deps = createExtensionPurchaseDeps(senderFor(response));
+      await expect(deps.auth!.deleteAccount!()).rejects.toThrow("delete failed");
+  });
+
   it("maps restore outcomes to their controller actions", async () => {
     const notEntitled = controllerStub();
     restoreHandler(notEntitled, senderFor("not-entitled"))();

@@ -5,6 +5,7 @@ import { isValidEmail } from "./email.js";
 import type { EmailConsent } from "./email-consent.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
+import { readAccountDeletionResult, type AccountDeletionResult } from "../sync/account-deletion.js";
 import type {
   RequestCodeOutcome,
   VerifyCodeOutcome,
@@ -150,7 +151,7 @@ export interface UiAuth {
   signOut(): Promise<void>;
   /** Delete the account (App Store 5.1.1 / GDPR). Optional: only wired on hosts with an account.
    * Throws on failure so the UI can surface it and keep the session. */
-  deleteAccount?(): Promise<void>;
+  deleteAccount?(): Promise<AccountDeletionResult | void>;
   /** Email a 6-digit sign-in code (plan U2/R1, extension hosts). Wire BOTH code methods or
    * neither — the code-entry UI only renders when the pair is present. */
   requestCode?(email: string): Promise<RequestCodeOutcome>;
@@ -342,6 +343,8 @@ export class UiController {
   paywallPrice = $state<string | null>(null);
   deleteFlow = $state<DeleteFlow>("idle");
   deleteError = $state<string | null>(null);
+  /** Account completion is distinct from analytics erasure; no completion readback exists yet. */
+  accountDeletion = $state.raw<AccountDeletionResult | null>(null);
   purchaseFlow = $state<PurchaseFlow>("idle");
   purchaseError = $state<string | null>(null);
   /** The post-purchase success screen (R3). Suppresses the payoff while active — a purchase
@@ -1110,6 +1113,7 @@ export class UiController {
     if (this.authFlowGeneration !== gen) return;
     if (outcome.kind === "verified") {
       this.accountRevision++;
+      this.accountDeletion = null;
       if (this.userId !== outcome.userId) {
         this.lastSyncedAt = null;
         this.pendingUpload = false;
@@ -1388,6 +1392,7 @@ export class UiController {
     this.deleteFlow = "idle";
     this.deleteError = null;
     this.sharedData = null;
+    this.accountDeletion = null;
     this.sharedDataSending = false;
     this.emailConsentGiven = false;
     this.paywallOpen = false;
@@ -1424,6 +1429,7 @@ export class UiController {
   requestDeleteAccount(): void {
     this.deleteFlow = "confirming";
     this.deleteError = null;
+    this.accountDeletion = null;
   }
 
   /** Back out of the confirmation without deleting. */
@@ -1450,12 +1456,14 @@ export class UiController {
       return;
     }
     try {
-      await this.auth.deleteAccount();
+      const result = await this.auth.deleteAccount();
       // Someone else signed in meanwhile: their session stands (they already reset this flow).
       if (this.userId !== null && this.accountRevision !== revision) return;
       // Account gone → mirror the signed-out reset. The deletion is counted anonymously.
       this.track("account_deleted", {});
       this.resetToSignedOut();
+      // Legacy hosts also confirm successful account deletion, but report no analytics status.
+      this.accountDeletion = result ?? readAccountDeletionResult({ deleted: true });
     } catch (e) {
       // The account still exists, so attribute to it again, but only for the session that asked:
       // after a sign-out (or another sign-in) meanwhile the UI is no longer this account's, and

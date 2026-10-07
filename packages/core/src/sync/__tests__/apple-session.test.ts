@@ -187,6 +187,19 @@ describe("AppleSession — teardown parity (KTD5)", () => {
     await h.session.deleteAccountEverywhere();
     expect(h.bridge.signOut).toHaveBeenCalled();
   });
+
+  it("carries the account and analytics outcome through native cleanup to the controller", async () => {
+    const result = { deleted: true, analyticsDeleted: true, analyticsErasure: "unconfirmed" } as const;
+    const h = harness();
+    await h.session.enterSession("u1");
+    h.sync.deleteAccount.mockResolvedValueOnce(result);
+    await h.controller.confirmDeleteAccount();
+    expect(h.bridge.signOut).toHaveBeenCalledOnce();
+    expect(h.controller.userId).toBeNull();
+    expect(h.controller.accountDeletion).toEqual(result);
+    await h.session.enterSession("u2");
+    expect(h.controller.accountDeletion).toBeNull();
+  });
 });
 
 describe("AppleSession — receipt lane (R6/R17/R18, plan 2026-07-15-001)", () => {
@@ -456,6 +469,7 @@ it("does not clear a new account when an earlier account deletion finishes", asy
   expect(h.controller.accountEmail).toBe("second@example.com");
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" }));
   expect(h.controller.deleteFlow).toBe("idle");
+  expect(h.controller.accountDeletion).toBeNull();
   h.controller.requestDeleteAccount();
   expect(h.controller.deleteFlow).toBe("confirming");
 });
