@@ -138,22 +138,20 @@ async function invariant(sql: Sql | Tx) {
   );
   return preservedInvariant(Object.values(rows[0]!)[0]);
 }
-Deno.test("migration gate JSON columns retain decoded issue and invariant values", async () => {
-  const row = (value: unknown) =>
-    ({ unsafe: () => Promise.resolve([{ result: value }]) }) as unknown as Sql;
+Deno.test("migration gate JSON columns retain decoded issue and invariant values", () => {
   for (
     const codes of [[], ["migration_version", "check_expression:synthetic"]]
   ) {
-    assertEquals(await issues(row(codes)), codes);
-    assertEquals(await issues(row(JSON.stringify(codes))), codes);
+    assertEquals(verificationIssues(codes), codes);
+    assertEquals(verificationIssues(JSON.stringify(codes)), codes);
   }
   const before = { profiles: 1, profiles_md5: "1".repeat(32) };
   const after = { ...before, profiles_md5: "2".repeat(32) };
   assertEquals(
-    await invariant(row(before)),
-    await invariant(row(JSON.stringify(before))),
+    preservedInvariant(before),
+    preservedInvariant(JSON.stringify(before)),
   );
-  assert(await invariant(row(before)) !== await invariant(row(after)));
+  assert(preservedInvariant(before) !== preservedInvariant(after));
   for (const invalid of [null, true, 1, {}, [1], ["issue", false]]) {
     assertThrows(
       () => verificationIssues(invalid),
