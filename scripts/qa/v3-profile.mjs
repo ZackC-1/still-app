@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -12,7 +12,16 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  APPLE_TARGETS, assertPaidBuild, sandboxConfiguration, isolatedSandboxSource,
+  candidateIdentity, requireIntegratedPaidCandidate, runChecked, buildAppleTarget,
+  sourceSnapshot,
+  assertCompiledSandboxTrust,
+  assertFreePaidFlags,
+} from "../../apps/apple/scripts/paid-sandbox-qa.mjs";
+
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+export const PAID_INSTALL_ARGS = Object.freeze(["install", "--frozen-lockfile", "--prod=false"]);
 export const SURFACES = Object.freeze({
   chrome: "ext-chromium",
   firefox: "ext-chromium",
@@ -22,8 +31,8 @@ export const SURFACES = Object.freeze({
 
 /** No inherited client configuration or debug logging reaches the build loaders. */
 export function profileEnvironment(profile, input = process.env) {
-  if (!["local", "test"].includes(profile))
-    throw new Error("Choose the local or test QA profile");
+  if (!["local", "test", "paid-sandbox"].includes(profile))
+    throw new Error("Choose the local, test or paid-sandbox QA profile");
   const env = Object.fromEntries(
     Object.entries(input).filter(
       ([key]) =>
@@ -35,7 +44,7 @@ export function profileEnvironment(profile, input = process.env) {
   env.NODE_ENV = "production";
   env.VITE_MODERN_SETTINGS_SYNC_ENABLED = "true";
   env.VITE_APPLE_ATOMIC_SETTINGS = "true";
-  if (profile === "test") {
+  if (profile === "test" || profile === "paid-sandbox") {
     if (input.STILL_QA_BACKEND_ENVIRONMENT !== "shared-hosted")
       throw new Error(
         "Test builds require STILL_QA_BACKEND_ENVIRONMENT=shared-hosted for the approved hosted backend with dedicated test accounts",
@@ -80,6 +89,14 @@ export function profileEnvironment(profile, input = process.env) {
     env.VITE_SUPABASE_URL = url.origin;
     env.VITE_SUPABASE_ANON_KEY = key;
   }
+  if (profile === "paid-sandbox") {
+    const config = sandboxConfiguration(input);
+    // Do not forward provider credentials, bearer tokens or signing paths to clone/build tools.
+    const allowed = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_CTYPE", "PNPM_HOME", "CI"]);
+    for (const key of Object.keys(env)) if (!allowed.has(key) && !key.startsWith("VITE_") && key !== "NODE_ENV") delete env[key];
+    env.VITE_ACCESS_ENVIRONMENT = "sandbox";
+    env.VITE_ACCESS_PUBLIC_KEYS = config.publicKeysJson;
+  }
   return env;
 }
 
@@ -115,7 +132,12 @@ export function artifactManifest({
   sourceSha256,
   backendUrl,
   artifacts,
+  paidBuild,
 }) {
+  if (profile === "paid-sandbox") {
+    assertPaidBuild(paidBuild);
+    if (paidBuild.sourceSha256 !== sourceSha256 || !paidBuild.targets.includes(surface)) throw new Error("Paid sandbox source/target identity mismatch");
+  }
   return {
     schema: "still-v3-qa-artifact/v1",
     profile: `v3-${profile}`,
@@ -126,15 +148,15 @@ export function artifactManifest({
     runtime: {
       modernSettingsSync: true,
       appleAtomicSettings: true,
-      paidTierEnabled: false,
+      paidTierEnabled: profile === "paid-sandbox",
     },
     backend: {
       state:
-        profile === "test"
+        profile !== "local"
           ? "configured-shared-hosted-unverified"
           : "unconfigured",
       accountScope:
-        profile === "test" ? "dedicated-test-accounts-required" : "none",
+        profile !== "local" ? "dedicated-test-accounts-required" : "none",
       // Bind the target without exporting a private test endpoint or client key.
       targetSha256: backendUrl
         ? createHash("sha256").update(backendUrl).digest("hex")
@@ -144,9 +166,11 @@ export function artifactManifest({
     trust: {
       buildMode: "production",
       rules: "production-only",
-      access: "production-empty-keys",
-      sandboxProofAccepted: false,
+      access: profile === "paid-sandbox" ? "sandbox-compiled-public-keys" : "production-empty-keys",
+      sandboxProofAccepted: profile === "paid-sandbox",
+      ...(profile === "paid-sandbox" ? { publicTrustSha256: paidBuild.trustSha256 } : {}),
     },
+    ...(profile === "paid-sandbox" ? { paidBuild } : {}),
     tools: { node: process.version },
     artifacts,
     gates: [
@@ -158,57 +182,37 @@ export function artifactManifest({
   };
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args = process.argv.slice(2), input = process.env, root = ROOT, runner = spawnSync) {
   const [profile, surface = "all", ...extra] = args;
   if (
-    !["local", "test"].includes(profile) ||
+    !["local", "test", "paid-sandbox"].includes(profile) ||
     extra.length ||
-    (surface !== "all" && !Object.hasOwn(SURFACES, surface))
+    (surface !== "all" && !Object.hasOwn(SURFACES, surface) && !(profile === "paid-sandbox" && (Object.hasOwn(APPLE_TARGETS, surface) || surface === "apple-all")))
   )
     throw new Error(
-      "Usage: v3-profile.mjs <local|test> [all|chrome|firefox|safari|apple-webview]",
+      "Usage: v3-profile.mjs <local|test|paid-sandbox> [all|chrome|firefox|safari|apple-webview|apple-ios-sim|apple-macos|apple-ios-archive|apple-macos-archive|apple-all]",
     );
+  if (profile === "paid-sandbox") return paidSandboxMain(surface, input, root);
   const surfaces = surface === "all" ? Object.keys(SURFACES) : [surface];
-  const output = join(ROOT, ".output", "v3-qa", profile);
+  const output = join(root, ".output", "v3-qa", profile);
   await mkdir(output, { recursive: true });
   // Invalidate all selected receipts before validation or building. A refused all build cannot
   // leave later surfaces looking as though they passed the current invocation.
   for (const selected of surfaces)
     await rm(join(output, selected, "artifact-manifest.json"), { force: true });
-  const env = profileEnvironment(profile);
-  const git = (args) =>
-    execFileSync("git", args, { cwd: ROOT, encoding: "utf8" }).trim();
-  const revision = git(["rev-parse", "HEAD"]);
-  const dirty = git(["status", "--porcelain"]).length > 0;
-  const sourceHash = createHash("sha256");
-  const sourcePaths = execFileSync(
-    "git",
-    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-    { cwd: ROOT, encoding: "utf8" },
-  )
-    .split("\0")
-    .filter(Boolean)
-    .sort();
-  for (const path of sourcePaths) {
-    // Removed tracked files are represented explicitly in the source fingerprint.
-    sourceHash.update(path).update("\0");
-    try {
-      sourceHash.update(await readFile(join(ROOT, path)));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      sourceHash.update("<deleted>");
-    }
-    sourceHash.update("\0");
-  }
-  const sourceSha256 = sourceHash.digest("hex");
+  const env = profileEnvironment(profile, input);
+  // These builds use the current working tree, including HEAD files removed only from the index.
+  const { revision, dirty, sha256: sourceSha256, files } = await sourceSnapshot(root, { includeIndexRemovedFiles: true });
+  assertFreePaidFlags(files);
   const isolatedEnvDir = await mkdtemp(join(output, ".env-empty-"));
+  const pending = [];
   try {
     for (const selected of surfaces) {
       const surfaceDir = join(output, selected);
       await mkdir(surfaceDir, { recursive: true });
-      const result = spawnSync(
+      const result = runner(
         process.execPath,
-        [join(ROOT, "scripts/qa/v3-worker.mjs"), selected, surfaceDir],
+        [join(root, "scripts/qa/v3-worker.mjs"), selected, surfaceDir],
         { cwd: isolatedEnvDir, env, stdio: "inherit" },
       );
       if (result.error || result.status !== 0)
@@ -225,16 +229,72 @@ export async function main(args = process.argv.slice(2)) {
         backendUrl: env.VITE_SUPABASE_URL,
         artifacts,
       });
-      await writeFile(
-        join(surfaceDir, "artifact-manifest.json"),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-      );
+      pending.push({ path: join(surfaceDir, "artifact-manifest.json"), manifest, selected, surfaceDir });
+    }
+    if ((await sourceSnapshot(root, { includeIndexRemovedFiles: true })).sha256 !== sourceSha256)
+      throw new Error("QA source changed during build; no manifest was issued");
+    for (const { path, manifest, selected, surfaceDir } of pending) {
+      await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
       process.stdout.write(
-        `${selected}: ${artifacts.totalBytes} bytes; ${relative(ROOT, surfaceDir)}/artifact-manifest.json\n`,
+        `${selected}: ${manifest.artifacts.totalBytes} bytes; ${relative(root, surfaceDir)}/artifact-manifest.json\n`,
       );
     }
+  } catch (error) {
+    for (const selected of surfaces) await rm(join(output, selected, "artifact-manifest.json"), { force: true });
+    throw error;
   } finally {
     await rm(isolatedEnvDir, { recursive: true, force: true });
+  }
+}
+
+
+/** All selected targets share one source overlay, public trust fingerprint and build identity. */
+export async function paidSandboxMain(surface, input = process.env, root = ROOT) {
+  const targets = surface === "apple-all" ? [...Object.keys(SURFACES), "apple-ios-sim", "apple-macos"] :
+    surface === "all" ? Object.keys(SURFACES) : Object.hasOwn(APPLE_TARGETS, surface) ? ["safari", "apple-webview", surface] : [surface];
+  const output = join(root, ".output/v3-qa/paid-sandbox");
+  await mkdir(output, { recursive: true });
+  for (const target of targets) await rm(join(output, target, "artifact-manifest.json"), { force: true });
+  // Inputs and integration prerequisites are checked before any install/build/compiler operation.
+  const env = profileEnvironment("paid-sandbox", input), config = sandboxConfiguration(input);
+  await requireIntegratedPaidCandidate(root);
+  const pending = [];
+  try {
+    await isolatedSandboxSource(root, config, async ({ clone, run, snapshot, overlay }) => {
+      const identity = candidateIdentity(snapshot, overlay, targets);
+      const envDir = join(run, "empty-env"); await mkdir(envDir);
+      runChecked("pnpm", PAID_INSTALL_ARGS, { cwd: clone, env });
+      for (const target of targets) {
+        const targetDir = join(output, target);
+        await rm(targetDir, { recursive: true, force: true }); await mkdir(targetDir);
+        let nativePackage;
+        if (Object.hasOwn(APPLE_TARGETS, target)) {
+          nativePackage = await buildAppleTarget({ clone, output: targetDir, target, env, config });
+          // The native packager rebuilds dist through existing release commands. Bind those
+          // resources to the same run's independently built web-resource receipts too.
+          for (const [webTarget, actual] of [["apple-webview", "packages/app-webview/dist"], ["safari", "packages/ext-safari/dist/safari-mv3"]]) {
+            const built = await inventory(join(clone, actual));
+            const expected = pending.find(item => item.target === webTarget)?.manifest.artifacts;
+            const files = built.files.filter(file => file.path !== ".env-state");
+            if (!expected || JSON.stringify(files) !== JSON.stringify(expected.files)) throw new Error("Native/web resource build identities differ; receipt refused");
+          }
+        } else {
+          runChecked(process.execPath, [join(clone, "scripts/qa/v3-worker.mjs"), target, targetDir], { cwd: envDir, env });
+        }
+        const artifacts = await inventory(join(targetDir, "artifact"));
+        if (!nativePackage) await assertCompiledSandboxTrust(join(targetDir, "artifact"), config);
+        const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
+          sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, artifacts,
+          paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });
+        pending.push({ target, path: join(targetDir, "artifact-manifest.json"), manifest });
+      }
+    });
+    // Issue receipts only after ALL targets and source preservation checks succeed.
+    for (const item of pending) await writeFile(item.path, `${JSON.stringify(item.manifest, null, 2)}\n`);
+    process.stdout.write(`Paid sandbox QA: ${targets.length} targets built; common source/trust identity recorded. Provider/device verification remains required.\n`);
+  } catch (error) {
+    for (const target of targets) await rm(join(output, target, "artifact-manifest.json"), { force: true });
+    throw error;
   }
 }
 
