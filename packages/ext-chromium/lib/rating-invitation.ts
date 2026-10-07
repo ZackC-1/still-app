@@ -13,7 +13,7 @@
 //     a guess, so a phone can never be authorized by the desktop allowance.
 //   * No identifier, analytics or notification. The request is the policy client's one plain read.
 
-import type { RatingAllowance } from "../../core/src/invitations/rating-allowance.js";
+import type { RatingAllowance } from "@still/core/invitations/rating-allowance";
 import {
   createChromeProductPolicyRuntime, type ProductPolicyRuntime, type ProductPolicyRuntimeOptions,
 } from "./product-policy-runtime.js";

@@ -1,5 +1,5 @@
 import type { UiController } from "@still/core/ui";
-import type { BrowserRestoreAnswer } from "../../core/src/ui/v3/browser-settings-restore.js";
+import type { BrowserRestoreAnswer } from "@still/core/ui/v3/browser-settings-restore";
 
 // The Chrome/Firefox settings page's free-period "Restore purchase" (owner decisions 62 and 73,
 // option A). Imported only by the lazily loaded options wrapper (RestoreSettings.svelte), which

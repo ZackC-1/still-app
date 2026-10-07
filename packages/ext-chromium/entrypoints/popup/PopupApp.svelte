@@ -56,7 +56,7 @@
               : () => import("./InvitedDesktopPopup.svelte"),
           }),
         )
-      : () => import("../../../core/src/ui/v3/DesktopPopup.svelte");
+      : () => import("@still/core/ui/v3/DesktopPopup.svelte");
 
   function openOptions(): void {
     chrome.runtime.openOptionsPage();

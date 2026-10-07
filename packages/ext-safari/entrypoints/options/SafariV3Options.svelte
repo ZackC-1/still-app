@@ -7,12 +7,12 @@
   // (appManagedSettingsSync): no sign-in, sign-out, delete-account or retry callback exists here,
   // and the card hides every action whose callback is absent. No Still Pro, Restore, account-link
   // or sharing card is supplied: no price, purchase or paywall on this surface.
-  import ExtensionSettings from "../../../core/src/ui/v3/ExtensionSettings.svelte";
+  import ExtensionSettings from "@still/core/ui/v3/ExtensionSettings.svelte";
   import {
     PRIVACY_POLICY_URL,
     SETUP_GUIDE_URL,
     SUPPORT_EMAIL,
-  } from "../../../core/src/ui/config.js";
+  } from "@still/core/ui/config";
   import {
     STRINGS,
     createPopupViewBinding,

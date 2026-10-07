@@ -13,8 +13,8 @@
   //    The account display is read-only (appManagedPopupAccount) and the account slot carries only
   //    the settings recovery action.
   //  - Setup and invitations: no verified Safari observation exists for them.
-  import DesktopPopup from "../../../core/src/ui/v3/DesktopPopup.svelte";
-  import MobilePopup from "../../../core/src/ui/v3/MobilePopup.svelte";
+  import DesktopPopup from "@still/core/ui/v3/DesktopPopup.svelte";
+  import MobilePopup from "@still/core/ui/v3/MobilePopup.svelte";
   import {
     PRIVACY_POLICY_URL,
     STRINGS,

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import MobilePopup from "../../../core/src/ui/v3/MobilePopup.svelte";
-  import type { DesktopPopupProps } from "../../../core/src/ui/v3/presentation.js";
+  import MobilePopup from "@still/core/ui/v3/MobilePopup.svelte";
+  import type { DesktopPopupProps } from "@still/core/ui/v3/presentation";
 
   // Firefox for Android shows the toolbar popup as a full-screen overlay, not a small panel, so the
   // shared committed popup host gets the phone presentation there (lib/runtime-platform.ts decides,

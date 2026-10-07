@@ -1,5 +1,5 @@
 import type { UiAnalytics } from "@still/core/ui";
-import type { FirstRunSiteAccess } from "../../../core/src/ui/v3/first-run-host.js";
+import type { FirstRunSiteAccess } from "@still/core/ui/v3/first-run-host";
 
 /** The existing page analytics minus event recording. The closed event schema has no first-run
  * surface, so this page records no events; the usage-sharing switch, its one-time notice and the

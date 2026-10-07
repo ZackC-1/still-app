@@ -1,8 +1,8 @@
 // Extension-page side of the sync invitation (popup and options). Messages only: the ledger lives
 // in the background service worker's serialized queue, never behind a port opened here.
 
-import type { InvitationControl, InvitationReservation } from "../../core/src/invitations/index.js";
-import type { PopupInvitationPort } from "../../core/src/ui/v3/popup-invitation-flow.js";
+import type { InvitationControl, InvitationReservation } from "@still/core/invitations";
+import type { PopupInvitationPort } from "@still/core/ui/v3/popup-invitation-flow";
 import { INVITATION_MESSAGE_KIND, type InvitationReply } from "./invitation-background.js";
 
 /** How long a page waits for any invitation reply (present, commit or control). */

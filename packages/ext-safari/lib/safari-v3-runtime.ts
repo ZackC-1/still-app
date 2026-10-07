@@ -1,8 +1,8 @@
 import { ChromeStorageAdapter, SettingsCache, type StoredSettingsRecord } from "@still/core/storage";
 import { ChromeEntitlementAdapter, EntitlementCache, packagedAccessContext } from "@still/core/entitlement";
 import { UiController, type CommittedPopupBinding, type CommittedPopupToggle } from "@still/core/ui";
-import { watchAccountStatus } from "../../core/src/ui/account-status.js";
-import { createDesktopPopupBinding } from "../../core/src/ui/v3/desktop-popup-binding.js";
+import { watchAccountStatus } from "@still/core/ui/account-status";
+import { createDesktopPopupBinding } from "@still/core/ui/v3/desktop-popup-binding";
 import { readAccountStatus } from "./account-status.js";
 import { createSafariPageAnalytics } from "./analytics.js";
 import { savedRecordIsAtomic, selectSafariV3Build, type SafariV3BuildInput } from "./safari-v3.js";

@@ -5,9 +5,9 @@
 // (tabs.create, no new permission). Nothing here records analytics: no event, no outcome, no "did
 // they rate" signal.
 
-import type { RatingCardSurface } from "../../core/src/invitations/rating-allowance.js";
-import { ratingReviewUrl } from "../../core/src/invitations/rating-review.js";
-import type { InvitationIdentity, PopupInvitationPresentation } from "../../core/src/ui/v3/invitation-presentation.js";
+import type { RatingCardSurface } from "@still/core/invitations/rating-allowance";
+import { ratingReviewUrl } from "@still/core/invitations/rating-review";
+import type { InvitationIdentity, PopupInvitationPresentation } from "@still/core/ui/v3/invitation-presentation";
 
 export function ratingCardPresentation(input: {
   readonly installation: string;

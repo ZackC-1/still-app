@@ -2,11 +2,10 @@
   // D04 Apple settings host: prop plumbing only. Every rule lives in @still/core's tested
   // apple-settings-host module and the existing committed popup view binding. The entry reaches
   // this file only through a dynamic import that default builds fold away, so AppleSettings and
-  // its global stylesheet exist only in bundles that opt in. The leaf is imported by file path
-  // (as the Chromium popup imports DesktopPopup), through this package's dependency link so the
-  // app-webview `rootDir` check treats core as a dependency, not as local source.
-  import AppleSettings from "../node_modules/@still/core/src/ui/v3/AppleSettings.svelte";
-  import SettingsSwitch from "../node_modules/@still/core/src/ui/v3/Toggle.svelte";
+  // its global stylesheet exist only in bundles that opt in. Its dedicated @still/core export
+  // keeps the dependency outside this package's rootDir: src. Keep this leaf out of @still/core/ui.
+  import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
+  import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
   import {
     STRINGS,
     SignInSheet,
@@ -26,7 +25,7 @@
   import {
     appleRatingHold,
     reportRatingHold,
-  } from "../node_modules/@still/core/src/invitations/rating-hold.js";
+  } from "@still/core/invitations/rating-hold";
 
   interface Props {
     controller: UiController;

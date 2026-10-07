@@ -9,8 +9,8 @@
   import {
     PRIVACY_POLICY_URL,
     SUPPORT_EMAIL,
-  } from "../../../core/src/ui/config.js";
-  import { FIRST_RUN_PAGE } from "../../../core/src/ui/v3/first-run-host.js";
+  } from "@still/core/ui/config";
+  import { FIRST_RUN_PAGE } from "@still/core/ui/v3/first-run-host";
   import {
     extensionPurchaseDeps,
     restoreHandler,
@@ -19,7 +19,7 @@
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
-  import { observeDirectControls } from "../../../core/src/ui/v3/direct-control-observer.js";
+  import { observeDirectControls } from "@still/core/ui/v3/direct-control-observer";
   import { reportDirectControl } from "../../lib/invitation-client.js";
 
   // An extension page like the popup, so it gets the same purchase-spine injection (plan U6):
@@ -79,7 +79,7 @@
           module.bindSettingsRestore(purchase ? controller : undefined);
           return module;
         })
-    : () => import("../../../core/src/ui/v3/ExtensionSettings.svelte");
+    : () => import("@still/core/ui/v3/ExtensionSettings.svelte");
   const help = {
     // Setup guide reopens the extension's own first-run page (owner decision 2026-10-05).
     onGuide: () => {

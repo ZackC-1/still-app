@@ -1,6 +1,6 @@
 import { mount, unmount } from "svelte";
 import { openNativeDestination, type NativeBridge } from "@still/core/native";
-import { runAppleOnboardingFirst } from "../node_modules/@still/core/src/ui/v3/apple-onboarding-host.js";
+import { runAppleOnboardingFirst } from "@still/core/ui/v3/apple-onboarding-host";
 import AppleOnboardingHost from "./AppleOnboardingHost.svelte";
 
 // D12 onboarding wiring for the Apple app's web view. Reached only through main.ts's D04 branch,

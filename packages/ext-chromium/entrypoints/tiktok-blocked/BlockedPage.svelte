@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import TikTokBlocked from "../../../core/src/ui/v3/TikTokBlocked.svelte";
-  import type { TikTokBlockedPresentation } from "../../../core/src/ui/v3/tiktok-blocked-presentation.js";
+  import TikTokBlocked from "@still/core/ui/v3/TikTokBlocked.svelte";
+  import type { TikTokBlockedPresentation } from "@still/core/ui/v3/tiktok-blocked-presentation";
 
   let {
     host,

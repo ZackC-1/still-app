@@ -6,7 +6,7 @@ import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
 } from "@still/core/rules";
-import { admitPackagedRuleSetV2, PACKAGED_RULE_SET_V2 } from "../../core/src/rules/packaged.js";
+import { admitPackagedRuleSetV2, PACKAGED_RULE_SET_V2 } from "@still/core/rules/packaged";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -31,8 +31,8 @@ import {
 } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { createNavigationDnrSync, type NavigationDnrApi } from "../lib/navigation-dnr.js";
-import { FORMAT2_SHIPPING_SERVICES } from "../../core/src/content/extension-entry.js";
-import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
+import { FORMAT2_SHIPPING_SERVICES } from "@still/core/content/extension-entry";
+import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "@still/core/ui/v3/first-run-host";
 import {
   chromeInvitationLedgerPort,
   createInvitationHost,
@@ -45,7 +45,7 @@ import {
   createTiktokBlockedRoute,
   withTimeout,
   TIKTOK_WAIT_MS,
-} from "../../core/src/content/tiktok-blocked-route.js";
+} from "@still/core/content/tiktok-blocked-route";
 import {
   createChromeTiktokTabAuthority,
   isTiktokRouteMessage,

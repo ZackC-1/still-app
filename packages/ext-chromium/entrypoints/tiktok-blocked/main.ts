@@ -1,7 +1,7 @@
 import { mount } from "svelte";
-import { createTikTokBlockedHost } from "../../../core/src/ui/v3/tiktok-blocked-host.js";
+import { createTikTokBlockedHost } from "@still/core/ui/v3/tiktok-blocked-host";
 import BlockedPage from "./BlockedPage.svelte";
-import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
+import { bindTextScale } from "@still/core/ui/v3/text-scale";
 
 // The extension-owned, top-level TikTok blocked page (D29). The background sends a blocked tab
 // here with a one-time request id; every action goes back to the background's trusted route, which
