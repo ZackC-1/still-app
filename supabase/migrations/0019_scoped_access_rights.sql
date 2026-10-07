@@ -47,7 +47,7 @@ revoke all on table private.access_observations, private.access_rights, private.
   from public, anon, authenticated, service_role, still_entitlement_writer;
 
 create function public.begin_access_observation(p_holder uuid, p_environment text)
-returns uuid language plpgsql security definer set search_path = '' as $$
+returns uuid language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare v_token uuid := gen_random_uuid();
 begin
   if session_user <> 'still_entitlement_writer'
@@ -69,7 +69,7 @@ $$;
 -- The snapshot contains only fully verified, active, environment-bound lifetime transactions.
 create function public.commit_access_observation(
   p_holder uuid, p_environment text, p_token uuid, p_snapshot jsonb
-) returns jsonb language plpgsql security definer set search_path = '' as $$
+) returns jsonb language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
   observation private.access_observations%rowtype;
   item jsonb;
@@ -163,7 +163,7 @@ $$;
 
 -- Final response fence: a refund, newer lookup, transfer or deletion while signing discards reply.
 create function public.confirm_access_observation(p_holder uuid, p_environment text, p_token uuid)
-returns boolean language plpgsql security definer set search_path = '' as $$
+returns boolean language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare observation private.access_observations%rowtype; item jsonb;
 begin
   if session_user <> 'still_entitlement_writer'
@@ -187,7 +187,7 @@ $$;
 -- authorities and the canonical provider association before calling this CAS. No client route.
 create function public.transfer_access_right(
   p_operation uuid, p_right uuid, p_environment text, p_from uuid, p_to uuid, p_revision bigint
-) returns jsonb language plpgsql security definer set search_path = '' as $$
+) returns jsonb language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare stored private.access_rights%rowtype; operation private.access_transfer_operations%rowtype; result jsonb;
 begin
   if session_user <> 'still_entitlement_writer'

@@ -115,7 +115,7 @@ issues(code) as (
  union all select 'routine_language:'||sig from routines where routine_oid is not null and prolang<>(select oid from pg_catalog.pg_language where lanname='plpgsql')
  union all select 'routine_result:'||sig from routines where routine_oid is not null and pg_catalog.pg_get_function_result(routine_oid) is distinct from result_type
  union all select 'routine_behavior:'||sig from routines where routine_oid is not null and (prokind<>'f' or provolatile<>'v' or proisstrict)
- union all select 'routine_path:'||sig from routines where routine_oid is not null and proconfig is distinct from array['search_path=""']::text[]
+ union all select 'routine_path:'||sig from routines where routine_oid is not null and proconfig is distinct from array['search_path=pg_catalog, pg_temp']::text[]
  union all select 'routine_body:'||sig from routines where routine_oid is not null and pg_catalog.md5(prosrc)<>body_md5
  union all select 'routine_acl:'||r.sig from routines r where r.routine_oid is not null and
   (select coalesce(array_agg(a.grantee order by a.grantee),array[]::oid[]) from pg_catalog.aclexplode(coalesce(r.proacl,pg_catalog.acldefault('f',r.proowner))) a where a.privilege_type='EXECUTE')

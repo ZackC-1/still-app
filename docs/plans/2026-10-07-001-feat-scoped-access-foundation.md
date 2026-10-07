@@ -57,6 +57,12 @@ changes automatic ownership adoption or permits client grants.
 - Independent Muse source review approved the exact seven-source snapshot with no introduced
   P1/P2/P3 findings. Configured model: `muse-spark-1.3`; actual served model: **UNVERIFIED**.
   The final Claude attempt stopped at its weekly limit before reviewing this snapshot.
+- The first hosted CI run applied 0019, then both backend jobs failed the existing 0014+
+  catalog assertion because the four new routines used an empty search path. The correction
+  pins `pg_catalog, pg_temp`, matching the maintained contract, and updates the exact 0019
+  verifier. All four function bodies and their MD5 pins remain unchanged. A pglast control
+  rejects the published settings and accepts the corrected settings; deploy tests pass again
+  (57 passed, one explicit skip). Fresh independent review and hosted rerun remain pending.
 
 ## Remaining gates and recovery
 
