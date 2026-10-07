@@ -10,7 +10,7 @@ import type { ExtensionSettingsProps } from "../../../../packages/core/src/ui/v3
 import type { ServiceId } from "@still/shared-types";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { Deviation, Rendered, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY } from "./shared.js";
+import { OWNER_SYNC_COPY, REFERENCE_DEMO_ACCOUNT } from "./shared.js";
 
 const screen = "d03-extension-settings";
 
@@ -161,6 +161,7 @@ const cases: VisualCase[] = [
       open: "instagram",
       values: { values: { ig_stories: true } },
     }),
+    deviations: [REFERENCE_DEMO_ACCOUNT],
   },
   {
     ...base,
@@ -192,7 +193,9 @@ const cases: VisualCase[] = [
       consent: "off",
     }),
     actions: [{ click: "button.link.danger" }],
-    notes: "dialog opened with a real click on Delete account",
+    notes:
+      "dialog opened with a real click on Delete account; latest reference includes a demonstration banner behind the scrim",
+    deviations: [REFERENCE_DEMO_ACCOUNT],
   },
   {
     ...base,

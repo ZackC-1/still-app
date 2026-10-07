@@ -1,13 +1,6 @@
-// Owner decisions 40 and 41, paid ON (a test-only seam: an injected paid-world access snapshot in
-// which the Still Pro features are `locked`, plus a ready offer port). A locked row's lock opens the
-// Still Pro sheet holding that host's existing offer. The sheet closes with its X, with Escape and
-// with a click outside it, and focus returns to the lock that opened it. Opening it starts
-// nothing: only the sheet's explicit Buy reaches the purchase port. With paid OFF the same rows
-// stay inert (pro-dormancy.test.ts).
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
-import { tick } from "svelte";
 import { FEATURE_REGISTRY } from "@still/shared-types";
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import DesktopPopup from "./DesktopPopup.svelte";
@@ -22,8 +15,12 @@ import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 interface Host {
   name: string;
   /** Renders the host in the paid world; `buy` is the only purchase port it may reach. */
-  mount(): Promise<{ buy: ReturnType<typeof vi.fn>; unmount: () => void }>;
-  /** The sheet's explicit purchase button. */
+  mount(): Promise<{
+    buy: ReturnType<typeof vi.fn>;
+    navigate?: ReturnType<typeof vi.fn>;
+    unmount: () => void;
+  }>;
+  /** Settings retain a separate explicit purchase button. */
   buyLabel: string;
 }
 
@@ -49,8 +46,14 @@ const HOSTS: Host[] = [
     async mount() {
       const { props } = await desktopFixture("locked");
       const buy = vi.fn();
+      const navigate = vi.fn();
       props.onPurchase = buy;
-      return { buy, unmount: await show(render(DesktopPopup, { props })) };
+      props.onSeePro = navigate;
+      return {
+        buy,
+        navigate,
+        unmount: await show(render(DesktopPopup, { props })),
+      };
     },
   },
   {
@@ -59,12 +62,14 @@ const HOSTS: Host[] = [
     async mount() {
       const { props: desktop } = await desktopFixture("locked");
       const buy = vi.fn();
+      const navigate = vi.fn();
       const props: MobilePopupProps = {
         settings: desktop.settings,
         access: desktop.access,
         host: "firefox",
         channelReady: true,
         onPurchase: buy,
+        onSeePro: navigate,
         privacyUrl: "https://still.test/privacy",
         onGlobalChange: vi.fn(),
         onServiceChange: vi.fn(),
@@ -72,7 +77,11 @@ const HOSTS: Host[] = [
         onSettings: vi.fn(),
         onSignIn: vi.fn(),
       };
-      return { buy, unmount: await show(render(MobilePopup, { props })) };
+      return {
+        buy,
+        navigate,
+        unmount: await show(render(MobilePopup, { props })),
+      };
     },
   },
   {
@@ -120,99 +129,53 @@ const HOSTS: Host[] = [
 ];
 
 const lock = () =>
-  screen.getByRole("button", { name: "Still Pro", description: "Comments" });
-const sheet = () => screen.queryByRole("dialog", { name: "Still Pro" });
-
-async function open() {
-  const opener = lock();
-  opener.focus();
-  await fireEvent.click(opener);
-  await tick();
-  const dialog = sheet();
-  expect(dialog).not.toBeNull();
-  return { opener, dialog: dialog! };
-}
-
-describe.each(HOSTS)("decision 41, paid on: $name", (host) => {
-  it("a locked row opens the Still Pro sheet without starting a purchase; X, Escape and outside close it and return focus", async () => {
-    const { buy, unmount } = await host.mount();
-    expect(sheet()).toBeNull();
-
-    // X.
-    const first = await open();
-    let opener = first.opener;
-    const dialog = first.dialog;
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(buy).not.toHaveBeenCalled();
-    const close = within(dialog).getByRole("button", { name: "Close" });
-    // The X takes focus first, so a stray Enter after an accidental tap only closes.
-    expect(close).toHaveFocus();
-    await fireEvent.click(close);
-    await tick();
-    expect(sheet()).toBeNull();
-    expect(opener).toHaveFocus();
-
-    // Escape.
-    ({ opener } = await open());
-    await fireEvent.keyDown(document.activeElement ?? document.body, {
-      key: "Escape",
-    });
-    await tick();
-    expect(sheet()).toBeNull();
-    expect(opener).toHaveFocus();
-
-    // A tap or click outside the sheet.
-    ({ opener } = await open());
-    await fireEvent.click(document.querySelector<HTMLElement>(".scrim")!);
-    await tick();
-    expect(sheet()).toBeNull();
-    expect(opener).toHaveFocus();
-
-    expect(buy).not.toHaveBeenCalled();
-    unmount();
+  screen.getByRole("button", {
+    name: "Comments. Included in Still Pro. See Still Pro",
   });
 
-  it("Tab wraps inside the sheet, and only its explicit Buy reaches the purchase port, once per press", async () => {
-    const { buy, unmount } = await host.mount();
-    const { dialog } = await open();
-    expect(buy).not.toHaveBeenCalled();
-    // Tab wraps inside the sheet: from the last control to the X, and Shift+Tab from the X back
-    // to the last control. (jsdom never moves focus on Tab by itself, so only the trap can.)
-    const controls = within(dialog)
-      .getAllByRole("button")
-      .filter((control) => !control.hasAttribute("disabled"));
-    const close = within(dialog).getByRole("button", { name: "Close" });
-    const last = controls.at(-1)!;
-    expect(controls[0]).toBe(close);
-    expect(last).not.toBe(close);
-    last.focus();
-    await fireEvent.keyDown(last, { key: "Tab" });
-    expect(close).toHaveFocus();
-    await fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
-    expect(last).toHaveFocus();
-    await fireEvent.click(
-      within(dialog).getByRole("button", { name: host.buyLabel }),
-    );
-    expect(buy).toHaveBeenCalledOnce();
+describe.each(HOSTS)("latest reference Pro destination: $name", (host) => {
+  it("opens the host destination or existing Pro region without an intermediate sheet", async () => {
+    const { buy, navigate, unmount } = await host.mount();
+    await fireEvent.click(lock());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    if (host.buyLabel === "Purchase Still Pro") {
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(buy).not.toHaveBeenCalled();
+      await fireEvent.click(
+        screen.getByRole("button", { name: host.buyLabel }),
+      );
+      expect(buy).toHaveBeenCalledOnce();
+    } else {
+      const card = screen.getByRole("region", { name: "Still Pro" });
+      expect(card).toHaveFocus();
+      expect(buy).not.toHaveBeenCalled();
+      await fireEvent.click(
+        within(card).getByRole("button", { name: host.buyLabel }),
+      );
+      expect(buy).toHaveBeenCalledOnce();
+    }
     unmount();
   });
 });
 
-describe("decision 41, paid off: the same hosts never open the sheet", () => {
+describe("packaged free-period access stays dormant", () => {
   it.each(["Chrome", "Firefox"] as const)(
-    "%s desktop popup with the packaged snapshot and a purchase port",
+    "%s holds the destination even with a supplied port",
     async (browser) => {
       const { props } = await desktopFixture();
       props.browser = browser;
       props.access = initialAccessSnapshot();
       props.onPurchase = vi.fn();
+      props.onSeePro = vi.fn();
       const unmount = await show(render(DesktopPopup, { props }));
-      const opener = lock();
+      const opener = screen.getByRole("button", {
+        name: "Comments. Included in Still Pro.",
+      });
       expect(opener).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(opener);
-      await tick();
-      expect(sheet()).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(props.onPurchase).not.toHaveBeenCalled();
+      expect(props.onSeePro).not.toHaveBeenCalled();
       unmount();
     },
   );

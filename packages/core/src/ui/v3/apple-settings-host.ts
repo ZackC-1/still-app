@@ -240,6 +240,8 @@ export interface AppleSettingsAccountSource {
   readonly userId: string | null;
   readonly accountEmail: string | null;
   readonly accountRevision: number;
+  /** Fresh, identity-and-revision-fenced auth proof; an address alone never confirms it. */
+  readonly accountConfirmed?: boolean;
   readonly cloudReachable: boolean;
   readonly pendingUpload: boolean;
   readonly lastSyncedAt: number | null;
@@ -308,7 +310,7 @@ export function createAppleSettingsSync() {
     if (!identity) return { onSignIn: ops.onSignIn };
     const base = {
       address: source.accountEmail ?? "",
-      confirmed: false,
+      confirmed: source.accountConfirmed === true,
       status: accountStatus(source, ops.retry),
       onSignOut: ops.onSignOut,
     };

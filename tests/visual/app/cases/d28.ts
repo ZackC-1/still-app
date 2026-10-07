@@ -2,6 +2,7 @@
 // The invitation is the real PopupInvitation inside the merged DesktopPopup (invitationVariant
 // "d28") or MobilePopup (Firefox Android). Fixture observations admit exactly the invitation the
 // reference frame shows; the caller-owned eligibility facts are test values, not product state.
+import OwnerAllowanceSpecimen from "../OwnerAllowanceSpecimen.svelte";
 import DesktopPopup from "../../../../packages/core/src/ui/v3/DesktopPopup.svelte";
 import MobilePopup from "../../../../packages/core/src/ui/v3/MobilePopup.svelte";
 import type { DesktopPopupProps } from "../../../../packages/core/src/ui/v3/presentation.js";
@@ -190,6 +191,26 @@ const cases: VisualCase[] = [
   },
   {
     ...base,
+    id: "d28-08",
+    reference: "08-owner-view-draft.png",
+    caption: "Owner view · draft",
+    component: "OwnerAllowances",
+    theme: "light",
+    width: 400,
+    frame: { kind: "card", w: 400 },
+    render: () => ({
+      component: OwnerAllowanceSpecimen,
+      props: { padding: 0 },
+    }),
+    actions: [
+      { click: '[aria-labelledby="al-firefox_desktop"]' },
+      { click: '[aria-labelledby="al-apple_mobile_host"]' },
+    ],
+    notes:
+      "Existing private owner component, inert Apply/status callbacks and real local draft edits only. No auth or policy changes. Its truthful no-approved-builds warning remains; the reference assumes allowed surfaces without a packaged-build receipt.",
+  },
+  {
+    ...base,
     id: "d28-09",
     reference: "09-chrome-popup-1-5-text-380-600-text-1-5.png",
     caption: "Chrome popup · 1.5× text",
@@ -208,7 +229,5 @@ export const D28: ScreenCases = {
   unmapped: {
     "07-apple-host-native.png":
       "Apple host frame is a placeholder for Apple's native review prompt (StoreKit); Still draws nothing there, so no Svelte component exists to mount",
-    "08-owner-view-draft.png":
-      "Owner rating allowance view (OwnerAllowances) has no merged V3 Svelte component on main",
   },
 };

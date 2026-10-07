@@ -15,7 +15,6 @@
   } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
-  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
 
@@ -33,6 +32,7 @@
     commandsDisabled = false,
     accountActions,
     onPurchase,
+    onSeePro,
     account,
     sectionMemory,
     services = ["youtube", "instagram", "facebook", "tiktok"],
@@ -64,11 +64,10 @@
     failed: "alert",
     caution: "clock",
   } as const;
-  let offer = $derived(
-    Boolean(onPurchase) &&
-      FEATURE_REGISTRY.some(
-        (row) => row.tier === "pro" && access.states[row.id] === "locked",
-      ) &&
+  let knownMissing = $derived(
+    FEATURE_REGISTRY.some(
+      (row) => row.tier === "pro" && access.states[row.id] === "locked",
+    ) &&
       !FEATURE_REGISTRY.some(
         (row) =>
           row.tier === "pro" &&
@@ -80,13 +79,9 @@
           ].includes(access.states[row.id]),
       ),
   );
+  let offer = $derived(Boolean(onPurchase) && knownMissing);
+  let proDestinationReady = $derived(Boolean(onSeePro) && knownMissing);
   let dormant = $derived(proRowsDormant(access));
-  // Owner decision 41: a locked row opens a sheet holding this popup's existing purchase entry;
-  // only that explicit button reaches the host's purchase path.
-  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
-  $effect(() => {
-    if (paywall && !offer) paywall = null;
-  });
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -274,9 +269,9 @@
                         )
                           onFeatureChange(row.id, next);
                       }}
-                      onLock={offer
-                        ? (opener) => {
-                            if (offer) paywall = { opener };
+                      onLock={proDestinationReady
+                        ? () => {
+                            if (proDestinationReady) onSeePro?.();
                           }
                         : undefined}
                     />
@@ -292,23 +287,6 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
-  {#if paywall && offer}
-    <ProPaywallSheet
-      opener={paywall.opener}
-      onDismiss={() => {
-        paywall = null;
-      }}
-    >
-      <h2>Still Pro</h2>
-      <button
-        type="button"
-        class="secondary block"
-        onclick={() => {
-          if (offer) onPurchase?.();
-        }}>Purchase Still Pro</button
-      >
-    </ProPaywallSheet>
-  {/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">

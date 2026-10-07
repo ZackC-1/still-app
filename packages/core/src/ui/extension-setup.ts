@@ -133,6 +133,10 @@ export function createExtensionUiController(
     controller.entitled = entitled;
   });
   entitlement.watch();
+  // A committed paid page starts held and asks the existing scoped authority once. Hydrating
+  // the historical Boolean cache cannot verify Pro; subsequent epochs use the same watcher.
+  if (PAID_TIER_ENABLED && options?.onCommittedPopupBinding)
+    void entitlement.refreshAccess();
 
   if (purchase) {
     const revision = controller.accountRevision;

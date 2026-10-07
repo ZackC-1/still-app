@@ -405,3 +405,47 @@ it("does not mistake a session read error for sign-out", async () => {
   const port = new SupabaseAuthPort({ auth: { getSession } } as unknown as SupabaseClient);
   await expect(port.currentAccount()).rejects.toThrow("Account status unavailable");
 });
+
+describe("SupabaseAuthPort currentVerifiedAccount", () => {
+  const original = { access_token: "token-a", user: { id: "account-a", email: "untrusted@example.test", email_confirmed_at: "2026-01-01T00:00:00Z" } };
+  const verified = { id: "account-a", email: "server@example.test", email_confirmed_at: "2026-10-07T18:00:00Z" };
+  const setup = (user: Record<string, unknown> | null = verified, error: Error | null = null) => {
+    const getSession = vi.fn(async () => ({ data: { session: original }, error: null }));
+    const getUser = vi.fn(async () => ({ data: { user }, error }));
+    const auth = new SupabaseAuthPort({ auth: { getSession, getUser } } as unknown as SupabaseClient);
+    return { auth, getSession, getUser };
+  };
+  it("uses the server response for confirmation and pins the checked access token", async () => {
+    const { auth, getUser } = setup();
+    await expect(auth.currentVerifiedAccount()).resolves.toEqual({ id: "account-a", email: "server@example.test", emailConfirmed: true });
+    expect(getUser).toHaveBeenCalledWith("token-a");
+  });
+  it.each([undefined, null, "", "invalid-date"])("does not infer email confirmation from cached metadata (%s)", async email_confirmed_at => {
+    const { auth } = setup({ ...verified, email_confirmed_at, confirmed_at: "2026-10-07T18:00:00Z", phone_confirmed_at: "2026-10-07T18:00:00Z" });
+    await expect(auth.currentVerifiedAccount()).resolves.toEqual({ id: "account-a", email: "server@example.test", emailConfirmed: false });
+  });
+  it("does not treat verification failure as a confirmed account", async () => {
+    await expect(setup(verified, new Error("offline")).auth.currentVerifiedAccount()).rejects.toThrow("Account confirmation unavailable");
+  });
+  it("rejects a server identity different from the captured session", async () => {
+    await expect(setup({ ...verified, id: "account-b" }).auth.currentVerifiedAccount()).resolves.toBeNull();
+  });
+  it("discards a late proof after another account replaces the session", async () => {
+    const { auth, getSession } = setup();
+    getSession.mockResolvedValueOnce({ data: { session: original }, error: null })
+      .mockResolvedValueOnce({ data: { session: { ...original, access_token: "token-b", user: { ...original.user, id: "account-b" } } }, error: null });
+    await expect(auth.currentVerifiedAccount()).resolves.toBeNull();
+  });
+  it("discards proof when the captured session disappears", async () => {
+    const { auth, getSession } = setup();
+    getSession.mockResolvedValueOnce({ data: { session: original }, error: null })
+      .mockResolvedValueOnce({ data: { session: null }, error: null } as unknown as Awaited<ReturnType<typeof getSession>>);
+    await expect(auth.currentVerifiedAccount()).resolves.toBeNull();
+  });
+  it("discards a proof when the same account's access token is replaced", async () => {
+    const { auth, getSession } = setup();
+    getSession.mockResolvedValueOnce({ data: { session: original }, error: null })
+      .mockResolvedValueOnce({ data: { session: { ...original, access_token: "token-b" } }, error: null });
+    await expect(auth.currentVerifiedAccount()).resolves.toBeNull();
+  });
+});

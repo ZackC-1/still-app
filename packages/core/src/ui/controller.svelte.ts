@@ -7,6 +7,7 @@ import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import { readAccountDeletionResult, type AccountDeletionResult } from "../sync/account-deletion.js";
 import type {
+  VerifiedAccount,
   RequestCodeOutcome,
   VerifyCodeOutcome,
   WebCheckoutOutcome,
@@ -143,6 +144,8 @@ export interface UiHost {
 }
 
 export interface UiAuth {
+  /** Fresh server verification; absent capabilities never imply confirmation. */
+  currentVerifiedAccount?(): Promise<VerifiedAccount | null>;
   /** Send a magic link. Currently wired by NO host (extensions and the Apple app all use the
    * code pair below — a WKWebView/popup can never receive the link's browser redirect); retained
    * for a possible future full-browser host. Hosts advertise capabilities, and the sheet renders
@@ -345,6 +348,29 @@ export class UiController {
   deleteError = $state<string | null>(null);
   /** Account completion is distinct from analytics erasure; no completion readback exists yet. */
   accountDeletion = $state.raw<AccountDeletionResult | null>(null);
+  private accountConfirmation = $state.raw<{ account: VerifiedAccount; revision: number } | null>(null);
+  private accountConfirmationRead = 0;
+
+  get accountConfirmed(): boolean {
+    const proof = this.accountConfirmation;
+    return proof !== null && proof.revision === this.accountRevision && proof.account.id === this.userId && proof.account.emailConfirmed;
+  }
+
+  async refreshAccountConfirmation(): Promise<void> {
+    const read = ++this.accountConfirmationRead;
+    const identity = this.userId;
+    const revision = this.accountRevision;
+    this.accountConfirmation = null;
+    if (!identity || !this.auth?.currentVerifiedAccount) return;
+    try {
+      const account = await this.auth.currentVerifiedAccount();
+      if (read !== this.accountConfirmationRead || identity !== this.userId || revision !== this.accountRevision) return;
+      if (account?.id === identity) this.accountConfirmation = { account, revision };
+    } catch {
+      // Unavailable confirmation never changes the signed-in display or free sync.
+    }
+  }
+
   purchaseFlow = $state<PurchaseFlow>("idle");
   purchaseError = $state<string | null>(null);
   /** The post-purchase success screen (R3). Suppresses the payoff while active — a purchase

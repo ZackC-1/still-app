@@ -18,24 +18,25 @@
 //   VITE_APPLE_ATOMIC_SETTINGS=true pnpm --filter @still/app-webview build
 // Needs Playwright's WebKit (pnpm exec playwright install webkit). Opt-in: not part of CI.
 //
-// The design package is private. When it is absent the run prints SKIPPED and exits 0.
+// The design package is private. Missing or stale inputs fail before browser launch.
 // Output (gitignored): tests/visual/real/webkit/.output/{report.json,report.md,impl,diff}
-// Exit code: 0 when every compared frame passes (or the package is absent), 1 when any frame
-// fails, 2 for a usage or setup error. BLOCKED frames are listed with the reason, never passes.
+// Exit code: 0 when every required frame passes, 1 when inputs are invalid or any frame
+// fails or is BLOCKED, 2 for a usage or setup error. BLOCKED frames are listed with the reason, never passes.
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cases } from "./cases.mjs";
 import { recipes } from "./recipes.mjs";
+import { designInputs, buildLineage, assertBuildStable, assertReferencesStable, coverageLedger } from "../inputs.mjs";
+import { inventoryProblems } from "../validate-frames.mjs";
 import { compare, pngSize, withinGate } from "../gate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../../..");
-const PKG = resolve(process.env.STILL_DESIGN_PACKAGE ?? resolve(REPO, "build/v3/still-design-system-v3.2"));
-const COMPARE = join(PKG, "handoff/compare.script");
-const REFERENCES = join(PKG, "handoff/reference");
-const INVENTORY = join(REFERENCES, "render-inventory.json");
+let inputs;
+try { inputs = designInputs(REPO); } catch (error) { console.error(error.message); process.exit(1); }
+const { pkg: PKG, references: REFERENCES, compareScript: COMPARE, tooling: TOOLING } = inputs;
 const FRAME_MAP = resolve(HERE, "../frames.json");
 const SELF_TEST_CASE = "d02-01";
 
@@ -60,19 +61,12 @@ if (!["shipped", "emitted-chunk"].includes(appEntry)) {
 const diagnostic = appEntry !== "shipped";
 const OUT = resolve(process.env.STILL_VISUAL_REAL_OUTPUT ?? join(HERE, ".output", diagnostic ? "diagnostic-emitted-chunk" : ""));
 
-if (!existsSync(COMPARE) || !existsSync(INVENTORY)) {
-  console.log(`SKIPPED: V3 design package not found at ${PKG} (set STILL_DESIGN_PACKAGE). No frames compared.`);
-  process.exit(0);
-}
-for (const dep of ["pngjs", "pixelmatch"]) {
-  if (!existsSync(join(PKG, "node_modules", dep))) {
-    console.error(`The design package's compare script needs its own ${dep}; run "npm i" in ${PKG}.`);
-    process.exit(2);
-  }
-}
 // Every case that claims a frame id must agree with the frame-to-tier map, when it exists.
 if (existsSync(FRAME_MAP)) {
-  const map = new Map(JSON.parse(readFileSync(FRAME_MAP, "utf8")).frames.map((f) => [f.id, f]));
+  const frameMap = JSON.parse(readFileSync(FRAME_MAP, "utf8"));
+  const problems = inventoryProblems(frameMap, inputs.frames);
+  if (problems.length) { console.error(`FAIL: ${problems.join("; ")}`); process.exit(1); }
+  const map = new Map(frameMap.frames.map((f) => [f.id, f]));
   const bad = cases.filter((c) => !c.twin && map.has(c.id) && !c.reference.endsWith(map.get(c.id).file));
   if (bad.length) {
     console.error(`Cases disagree with frames.json: ${bad.map((c) => c.id).join(", ")}`);
@@ -107,9 +101,11 @@ if (problems.length) {
   process.exit(2);
 }
 
-const inventory = JSON.parse(readFileSync(INVENTORY, "utf8"));
-const boxes = new Map(inventory.inventory.flatMap((page) => page.frames.map((f) => [f.output, f])));
-const boxOf = (c) => boxes.get(c.reference.split("/").pop());
+
+const builds = { safari: buildLineage(REPO, harness.SAFARI_EXTENSION), apple: buildLineage(REPO, harness.APPLE_WEBVIEW) };
+const stable = () => { assertReferencesStable(inputs); return { safari: assertBuildStable(REPO, builds.safari), apple: assertBuildStable(REPO, builds.apple) }; };
+const boxes = new Map(inputs.frames.map((f) => [f.file, f]));
+const boxOf = (c) => boxes.get(c.reference);
 
 let browser;
 try {
@@ -146,6 +142,7 @@ async function blankPageNote(frame, c) {
 
 /** Capture one case: the framed page, screenshotted at the reference's CSS size and 2x. */
 async function capture(c, file, { perturb = 0 } = {}) {
+  stable();
   const reference = join(REFERENCES, c.reference);
   const { width: pw, height: ph } = pngSize(reference);
   const box = boxOf(c);
@@ -197,6 +194,7 @@ async function capture(c, file, { perturb = 0 } = {}) {
     };
   } finally {
     await lane.close();
+    stable();
   }
 }
 
@@ -214,7 +212,9 @@ async function measure(c, { out = OUT, perturb = 0, referenceOverride } = {}) {
     row.implementation = relative(REPO, implementation);
     if (c.evidenceOnly) return { ...row, status: "BLOCKED", reason: c.evidenceOnly };
     if (!shot.sizeMatches) return { ...row, status: "FAIL", reason: `capture is ${shot.size.width}x${shot.size.height}, the reference is not` };
-    const outcome = compare({ pkg: PKG, compareScript: COMPARE }, referenceOverride ?? join(REFERENCES, c.reference), implementation, diff);
+    stable();
+    const outcome = compare({ pkg: TOOLING, compareScript: COMPARE }, referenceOverride ?? join(REFERENCES, c.reference), implementation, diff);
+    stable();
     if (outcome.error) return { ...row, status: "FAIL", reason: outcome.error };
     Object.assign(row, outcome, { diff: relative(REPO, diff) });
     row.status = outcome.passed && row.fontLoaded ? "PASS" : "FAIL";
@@ -262,6 +262,7 @@ if (selfTest) {
       ? "SELF-TEST OK: an identical render passes, a 2px-shifted render fails, and the gate flips exactly at 0.5%."
       : "SELF-TEST FAILED: the gate did not separate the clean and shifted renders.",
   );
+  stable();
   await finish(ok ? 0 : 1);
 }
 
@@ -288,12 +289,15 @@ const counts = {
   blocked: required.filter((r) => r.status === "BLOCKED").length,
   twins: results.length - required.length,
 };
+const buildsAfterCapture = stable();
 const summary = {
   generatedAt: new Date().toISOString(),
   tier: "T2 (built bundle in WebKit with a recorded native state)",
   diagnostic: diagnostic ? "DIAGNOSTIC: Apple frames from the emitted chunk, not the shipped page; never a verdict" : null,
-  designPackage: PKG,
-  designVersion: inventory.design_version,
+  ...inputs.lineage,
+  buildLineage: builds,
+  buildsAfterCapture,
+  coverage: coverageLedger(inputs.frames, cases, results),
   builds: { safari: relative(REPO, harness.SAFARI_EXTENSION), apple: relative(REPO, harness.APPLE_WEBVIEW), appEntry },
   deviceScaleFactor: 2,
   gate: "differing pixels * 200 <= total pixels (pixelmatch threshold 0.1, includeAA false), the package's own compare.script",
@@ -324,4 +328,4 @@ writeFileSync(
 console.log(
   `\n${diagnostic ? "DIAGNOSTIC (not a verdict): " : ""}${counts.pass} PASS, ${counts.fail} FAIL, ${counts.blocked} BLOCKED (+${counts.twins} twin rows). Report: ${relative(REPO, join(OUT, "report.md"))}`,
 );
-await finish(counts.fail > 0 || results.some((r) => r.twin && r.status === "FAIL" && r.reason.startsWith("harness")) ? 1 : 0);
+await finish(counts.fail > 0 || counts.blocked > 0 || diagnostic || results.some((r) => r.twin && r.status === "FAIL" && r.reason.startsWith("harness")) ? 1 : 0);

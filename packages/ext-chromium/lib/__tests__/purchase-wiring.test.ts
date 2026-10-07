@@ -50,6 +50,18 @@ describe("purchase wiring protocol translations", () => {
     await expect(unavailable.retrySync!()).rejects.toThrow();
   });
 
+  it("keeps verified confirmation separate from display account metadata and transport failure", async () => {
+    const missing = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => undefined }));
+    const signedOut = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => null }));
+    await expect(missing.auth!.currentVerifiedAccount!()).rejects.toThrow("Account confirmation unavailable");
+    await expect(signedOut.auth!.currentVerifiedAccount!()).resolves.toBeNull();
+    const account = { id: "account-a", email: "confirmed@example.test", emailConfirmed: true };
+    const sendMessage = vi.fn(async () => account);
+    const deps = createExtensionPurchaseDeps(createSessionSender({ sendMessage }));
+    await expect(deps.auth!.currentVerifiedAccount!()).resolves.toEqual(account);
+    expect(sendMessage).toHaveBeenCalledWith({ kind: "still:session", action: "getVerifiedAccount" });
+  });
+
   it("maps missing or rejected runtime responses to the action fail-safe", async () => {
     const missing = createSessionSender({ sendMessage: async () => undefined });
     const rejected = createSessionSender({ sendMessage: async () => Promise.reject(new Error("worker asleep")) });

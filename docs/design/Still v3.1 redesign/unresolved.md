@@ -13,11 +13,11 @@ These are outstanding implementation or verification obligations, not approved o
 | Protected benefit cutoff and owner allowances | Reviewed historical classification, frozen snapshot, owner authorization and preview/apply/readback; no production sales enablement inferred | U5/U10 |
 | Safari Pro app route | Trusted fixed destination; native cold/warm routing, popup failure/recovery and unsupported-host behavior | U6 |
 | Platform setup/support destinations | Actual URLs and permission/setup behavior, including iOS uncertainty and Firefox Android capabilities | U8/U9/U10 |
-| Wordmark | Decode-valid central production asset derived from verified brand artwork; original corrupt asset remains excluded | U2 |
-| Exact visual baselines | DOM-derived frames/captions, engine/font/version receipt; references mandatory for release gate | U2/U11 |
+| Wordmark integration | Verified central artwork repair is in the merged foundation; confirm correct rendering in final packaged surfaces. Original corrupt asset remains excluded | U2/U11 |
+| Final visual acceptance | Portable capture has 144 primary DOM frames with engine/font/version and source hashes; startup repair passed bounded independent review; actual Claude coverage and raw shared/installed comparison failures remain open. References are mandatory for release gate | U2/U11 |
 | Physical device/surface coverage | Real iPhone/iPad/macOS Safari and Firefox Android evidence; simulator/Chromium framing does not replace device proof | U11 |
 | Persistent Firefox QA installation | Unlisted signed XPI, paired reproducible source/hashes, desktop/Android installation and restart/permission evidence; source ZIP alone is insufficient | U11 |
 
-Current readiness is source-audited only. No provider configuration, deployed backend behavior, payment transaction or device completion is claimed by this reference intake.
+Readiness now includes recorded source tests, cryptographic checks, unsigned builds and controlled browser captures from isolated packets. Those receipts do not establish provider configuration, deployed modern backend correctness, payment transactions, signed installation or physical device completion. The active plan records their scope; intake alone proves none of those outcomes.
 
 Read-only hosted inspection on2026-10-07: Auth health returned200; product-policy route returned404. Deployed-function inventory contains retained auth/deletion/reconcile/checkout/analytics functions, but does not list sync-settings, product-policy or its admin handler. This identifies deployment work; it does not establish why the route is absent or prove provider readiness. No hosted state was changed.

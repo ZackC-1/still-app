@@ -27,27 +27,26 @@ import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 type SuppliedProducerProps = AppleSettingsProps &
   Required<Pick<AppleSettingsProps, "pro" | "sharing">>;
 
-
 /** Decision 40: every lock is named "Still Pro"; the row's own label describes it. */
-const PRO_LOCK = { name: "Still Pro", description: "Comments" } as const;
+const PRO_LOCK = {
+  name: /^.+\. Included in Still Pro\./,
+  description: "Comments",
+} as const;
 
-/**
- * Owner decision 41: a locked row opens the Still Pro sheet; only the sheet's own explicit
- * "Get Still Pro" reaches the native purchase. The sheet is closed again with its X.
- */
+/** A lock reveals the existing Pro card; only its explicit Buy requests a purchase. */
 async function requestThroughLock(feature = "Comments") {
   const row = screen.queryByRole("button", {
-    name: "Still Pro",
+    name: /^.+\. Included in Still Pro\./,
     description: feature,
   });
   if (!row) return;
   await fireEvent.click(row);
-  const sheet = screen.queryByRole("dialog", { name: "Still Pro" });
-  if (!sheet) return;
-  const buy = within(sheet).queryByRole("button", { name: "Get Still Pro" });
-  if (buy) await fireEvent.click(buy);
-  await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog", { name: "Still Pro" })).toBeNull();
+  const card = screen.queryByRole("region", { name: "Still Pro" });
+  if (!card || row.getAttribute("aria-disabled") === "true") return;
+  expect(card).toHaveFocus();
+  const buy = within(card).queryByRole("button", { name: "Get Still Pro" });
+  if (buy) await fireEvent.click(buy);
 }
 
 async function fixture(state: AccessState = "purchased") {
@@ -541,6 +540,29 @@ function retainedClick(button: HTMLElement) {
 }
 
 describe("D04 destructive and native recovery port lifetimes", () => {
+  it.each([[false, true], [true, false]])(
+    "keeps same-account deletion usable when confirmation changes from %s to %s",
+    async (initial, refreshed) => {
+      const { props } = await fixture();
+      const remove = vi.fn();
+      const account = {
+        address: "fixture@still.test", confirmed: initial,
+        identity: "account-a", revision: 1, onDeleteAccount: remove,
+      };
+      props.sync.account = account;
+      const view = render(AppleSettings, { props });
+      await fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+      props.sync.account = { ...account, confirmed: refreshed };
+      await view.rerender(props);
+      const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Delete account" });
+      expect(confirm).toBeEnabled();
+      await fireEvent.click(confirm);
+      expect(remove).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      view.unmount();
+    },
+  );
+
   it.each(["address", "identity", "revision", "port", "removal", "account"])(
     "invalidates an open deletion consent on %s replacement, including ABA",
     async (change) => {
@@ -1197,7 +1219,7 @@ it("requires explicit account/session tokens only for the typed deletion-enabled
 /** Present controls report "disabled" only through aria-disabled="true". */
 function rowControl(
   role: "button" | "switch",
-  query: string | { name: string; description: string },
+  query: string | { name: string | RegExp; description: string },
 ) {
   const control = screen.queryByRole(
     role,
@@ -1491,7 +1513,7 @@ describe("D04 native offer card follows the supplied Pro access states", () => {
     );
     expect(rowControl("switch", "Comments")).toBe("disabled");
     const lock = screen.getByRole("button", {
-      name: "Still Pro",
+      name: /^.+\. Included in Still Pro\./,
       description: "Related videos",
     });
     expect(lock).toHaveAttribute("aria-disabled", "true");
@@ -1630,7 +1652,9 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     expect(links[0]).toHaveClass("link");
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
-    expect(screen.queryByText("Still Pro can't be bought here yet.")).toBeNull();
+    expect(
+      screen.queryByText("Still Pro can't be bought here yet."),
+    ).toBeNull();
     expect(
       screen.queryByText("No account needed. Payment is handled by Apple."),
     ).toBeNull();
@@ -1679,7 +1703,9 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     const order = [
       screen.getByRole("heading", { name: "Settings sync" }),
       screen.getByRole("button", { name: "Restore purchase" }),
-      screen.getByText("No Still Pro purchase was found for this Apple Account."),
+      screen.getByText(
+        "No Still Pro purchase was found for this Apple Account.",
+      ),
       screen.getByRole("heading", { name: "Help" }),
     ];
     for (let i = 1; i < order.length; i++)

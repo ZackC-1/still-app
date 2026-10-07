@@ -205,6 +205,97 @@ describe("TikTok blocked page host state machine", () => {
   });
 });
 
+describe("TikTok host lifetime and confirmation reply fencing", () => {
+  it("does not navigate when a reopen answer arrives after the host stops", async () => {
+    let answer!: (reply: unknown) => void;
+    const h = harness({
+      [TIKTOK_ROUTE.screen]: { status: "granted", tab: 7 },
+      [TIKTOK_ROUTE.open]: () => new Promise((resolve) => { answer = resolve; }),
+    });
+    await h.host.start();
+    h.host.actions.reload();
+    await settle();
+    h.host.stop();
+    answer({ status: "open", url: "https://www.tiktok.com/@fixture" });
+    await settle();
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  it("a lost document connection publishes unavailable before stopping retained actions", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 } });
+    await h.host.start();
+    h.host.stop(true);
+    expect(h.host.state().phase).toBe("unavailable");
+    expect(h.published.at(-1)?.capability?.status).toBe("unavailable");
+    h.host.actions.requestConfirmation();
+    await settle();
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  it("settings republishing does not discard a current reopen answer", async () => {
+    let answer!: (reply: unknown) => void;
+    const h = harness({
+      [TIKTOK_ROUTE.screen]: { status: "granted", tab: 7 },
+      [TIKTOK_ROUTE.open]: () => new Promise((resolve) => { answer = resolve; }),
+    });
+    await h.host.start();
+    h.host.actions.reload();
+    await settle();
+    h.host.actions.settings();
+    await settle();
+    answer({ status: "open", url: "https://www.tiktok.com/@fixture" });
+    await settle();
+    expect(h.openSettings).toHaveBeenCalledOnce();
+    expect(h.navigate).toHaveBeenCalledWith("https://www.tiktok.com/@fixture");
+  });
+
+  it("stopped hosts cannot dispatch retained actions or queued settings openings", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 } });
+    await h.host.start();
+    h.host.actions.settings();
+    const sent = h.sent.length;
+    h.host.stop();
+    h.host.actions.requestConfirmation();
+    h.host.actions.confirmOpen();
+    h.host.actions.cancel();
+    h.host.actions.reload();
+    h.host.actions.settings();
+    await h.host.start();
+    await settle();
+    expect(h.sent).toHaveLength(sent);
+    expect(h.openSettings).not.toHaveBeenCalled();
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not let an earlier dialog heartbeat close a later confirmation", async () => {
+    vi.useFakeTimers();
+    let answer!: (reply: unknown) => void;
+    const h = harness({
+      [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 },
+      [TIKTOK_ROUTE.request]: { status: "confirming" },
+      [TIKTOK_ROUTE.cancel]: { status: "cancelled" },
+      [TIKTOK_ROUTE.confirming]: () => new Promise((resolve) => { answer = resolve; }),
+    });
+    await h.host.start();
+    h.host.actions.requestConfirmation();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(h.host.state().phase).toBe("confirmation");
+    h.host.actions.cancel();
+    await settle();
+    h.host.actions.requestConfirmation();
+    await settle();
+    expect(h.host.state().phase).toBe("confirmation");
+    const current = h.host.current().observation;
+    answer({ status: "idle" });
+    await settle();
+    expect(h.host.state().phase).toBe("confirmation");
+    expect(h.host.current().observation).toBe(current);
+    expect(tikTokOpenFailed(h.host.current())).toBe(false);
+    h.host.stop();
+  });
+});
+
 describe("TikTokBlocked rendered from the host", () => {
   it("drives the real screen: open, confirm, reload", async () => {
     const h = harness({

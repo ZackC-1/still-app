@@ -596,6 +596,8 @@ function createSessionSpine(
     currentSettingsSession: () => port.currentSettingsSession(),
     // Display identity comes from the authenticated session, never the popup's pending OTP draft.
     currentAccount: () => port.currentAccount(),
+    // Purchase prerequisites require a fresh server check, independently of offline display.
+    currentVerifiedAccount: () => port.currentVerifiedAccount(),
   };
   const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud });
   const identityStore = createIdentityStore();

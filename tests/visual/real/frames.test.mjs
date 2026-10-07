@@ -15,9 +15,9 @@ import { caseProblems, validateFrames } from "./validate-frames.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../..");
 const PKG = resolve(
-  process.env.STILL_DESIGN_PACKAGE ?? join(REPO, "build/v3/still-design-system-v3.2"),
+  process.env.STILL_DESIGN_PACKAGE ?? join(REPO, "docs/design/Still v3.1 redesign/source"),
 );
-const REFERENCES = join(PKG, "handoff/reference");
+const REFERENCES = resolve(process.env.STILL_VISUAL_REFERENCE_DIR ?? join(PKG, "handoff/reference"));
 const map = JSON.parse(readFileSync(join(HERE, "frames.json"), "utf8"));
 const clone = () => structuredClone(map);
 

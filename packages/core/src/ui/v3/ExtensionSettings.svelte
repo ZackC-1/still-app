@@ -6,7 +6,6 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import ProOfferCard from "./ProOfferCard.svelte";
-  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
@@ -93,9 +92,6 @@
       knownMissing &&
       pro.ownership === "none" &&
       !restoreHeld &&
-      pro.channel === "ready" &&
-      Boolean(pro.offer?.price.trim()) &&
-      Boolean(sync.account?.confirmed ? pro.onBuy : pro.onSignIn) &&
       pro.state !== "pending" &&
       pro.state !== "failed" &&
       pro.state !== "success",
@@ -109,16 +105,16 @@
   function requestFreeRestore() {
     if (freeRestoreReady) onRestore?.();
   }
-  // Owner decision 41: a locked row opens the offer in a sheet; only its own Buy starts anything.
-  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
-  let paywallShown = $derived(
-    paywall !== null && pro !== undefined && pro.ownership !== "owned",
-  );
-  $effect(() => {
-    if (paywall && !paywallShown) paywall = null;
-  });
-  function openPaywall(opener: HTMLElement) {
-    if (proActionReady) paywall = { opener };
+  let proSection: HTMLDivElement | undefined = $state();
+  function revealPro() {
+    if (!proActionReady) return;
+    const card = proSection?.querySelector<HTMLElement>(
+      '[aria-label="Still Pro"]',
+    );
+    if (!card) return;
+    card.setAttribute("tabindex", "-1");
+    card.scrollIntoView?.({ block: "center" });
+    card.focus({ preventScroll: true });
   }
   $effect(() => () => {
     deleteTarget = null;
@@ -242,7 +238,7 @@
     {services}
     {features}
     {labels}
-    onProAction={proActionReady ? openPaywall : undefined}
+    onProAction={proActionReady ? revealPro : undefined}
   />
   <SyncCard
     owned={pro?.ownership === "owned"}
@@ -266,15 +262,17 @@
       : undefined}
   />
   {#if pro && pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
-    <ProOfferCard
-      {...pro}
-      confirmedAccount={sync.account?.confirmed ?? false}
-      {knownMissing}
-      {accessHeld}
-      {accessChecking}
-      {accessVerify}
-      {restoreHeld}
-    />
+    <div bind:this={proSection} style="display:contents;">
+      <ProOfferCard
+        {...pro}
+        confirmedAccount={sync.account?.confirmed ?? false}
+        {knownMissing}
+        {accessHeld}
+        {accessChecking}
+        {accessVerify}
+        {restoreHeld}
+      />
+    </div>
   {/if}
   {#if freeRestoreShown}
     <!-- Free period: the Still Pro card's slot holds only its plain Restore link, so past
@@ -320,24 +318,6 @@
       account is attached.
     </p>
   </section>
-  {#if paywallShown && pro}
-    <ProPaywallSheet
-      opener={paywall?.opener}
-      onDismiss={() => {
-        paywall = null;
-      }}
-    >
-      <ProOfferCard
-        {...pro}
-        confirmedAccount={sync.account?.confirmed ?? false}
-        {knownMissing}
-        {accessHeld}
-        {accessChecking}
-        {accessVerify}
-        {restoreHeld}
-      />
-    </ProPaywallSheet>
-  {/if}
   <ConfirmationDialog
     open={deleteTargetCurrent}
     title="Delete your account?"

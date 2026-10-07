@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AuthPort, CodeAuthPort, RequestCodeOutcome, VerifyCodeOutcome } from "./ports.js";
+import type { AuthPort, CodeAuthPort, RequestCodeOutcome, VerifyCodeOutcome, VerifiedAccount } from "./ports.js";
 
 // Passwordless email auth over Supabase (R8, plan U2/R1). EVERY live host — the extensions AND
 // the Apple app (since 2026-07-06) — completes with the emailed 6-digit code ({{ .Token }}); the
@@ -196,6 +196,29 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     if (error) throw new Error("Account status unavailable");
     const user = data.session?.user;
     return user ? { id: user.id, email: user.email ?? null } : null;
+  }
+
+  /** Server-verified confirmation for account UI and purchase prerequisites. Cached session
+   * metadata remains display-only. The checked token must still own the local session when
+   * verification finishes, so an old response cannot confirm a replacement account. */
+  async currentVerifiedAccount(): Promise<VerifiedAccount | null> {
+    const before = await this.client.auth.getSession();
+    if (before.error) throw new Error("Account confirmation unavailable");
+    const session = before.data.session;
+    if (!session) return null;
+    const { data, error } = await this.client.auth.getUser(session.access_token);
+    if (error) throw new Error("Account confirmation unavailable");
+    const user = data.user;
+    if (!user || user.id !== session.user.id) return null;
+    const after = await this.client.auth.getSession();
+    if (after.error) throw new Error("Account confirmation unavailable");
+    if (after.data.session?.access_token !== session.access_token || after.data.session.user.id !== user.id) return null;
+    const email = user.email ?? null;
+    return {
+      id: user.id,
+      email,
+      emailConfirmed: email !== null && typeof user.email_confirmed_at === "string" && Number.isFinite(Date.parse(user.email_confirmed_at)),
+    };
   }
 
   async currentUserId(): Promise<string | null> {

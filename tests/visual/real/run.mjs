@@ -9,11 +9,11 @@
 //   STILL_DESIGN_PACKAGE=/abs/path pnpm visual:real
 //
 // Build the extension first: pnpm --filter @still/ext-chromium build.
-// The design package is private. When it is absent (CI) the run prints SKIPPED and exits 0.
+// The design package is private. Missing or stale inputs fail before browser launch.
 //
 // Output (gitignored): tests/visual/real/.output/{report.json,report.md,impl/*.png,diff/*.png}
-// Exit code: 0 when every compared frame passes (or the package is absent), 1 when any frame
-// fails, 2 for a usage error. BLOCKED frames (state not reachable yet) are listed, never counted
+// Exit code: 0 when every selected frame passes, 1 when inputs are invalid or any frame
+// fails or is BLOCKED, 2 for a usage error. BLOCKED frames (state not reachable yet) are listed, never counted
 // as passes.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -21,32 +21,22 @@ import { fileURLToPath } from "node:url";
 import { cases } from "./cases.mjs";
 import { compare, cropReferenceTop, pngSize, referenceChrome, signInCompiledIn } from "./gate.mjs";
 import { Blocked, recipes } from "./recipes.mjs";
-import { caseProblems } from "./validate-frames.mjs";
+import { designInputs, buildLineage, assertBuildStable, assertReferencesStable, coverageLedger } from "./inputs.mjs";
+import { caseProblems, inventoryProblems } from "./validate-frames.mjs";
 import { CHROMIUM_EXTENSION, extensionIdOf, launchExtension, waitForCommittedSettings } from "../../qa/shared/launch.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../..");
-const PKG = resolve(process.env.STILL_DESIGN_PACKAGE ?? resolve(REPO, "build/v3/still-design-system-v3.2"));
+let inputs;
+try { inputs = designInputs(REPO); } catch (error) { console.error(error.message); process.exit(1); }
+const { references: REFERENCES, compareScript: COMPARE, tooling: TOOLING } = inputs;
 const OUT = resolve(process.env.STILL_VISUAL_REAL_OUTPUT ?? join(HERE, ".output"));
-const COMPARE = join(PKG, "handoff/compare.script");
-const REFERENCES = join(PKG, "handoff/reference");
-const INVENTORY = join(REFERENCES, "render-inventory.json");
 const FRAME_MAP = join(HERE, "frames.json");
 
 const args = process.argv.slice(2);
 const only = args.flatMap((arg, i) => (args[i - 1] === "--only" ? arg.split(",") : [])).filter(Boolean);
 const selfTest = args.includes("--self-test");
 
-if (!existsSync(COMPARE) || !existsSync(INVENTORY)) {
-  console.log(`SKIPPED: V3 design package not found at ${PKG} (set STILL_DESIGN_PACKAGE). No frames compared.`);
-  process.exit(0);
-}
-for (const dep of ["pngjs", "pixelmatch"]) {
-  if (!existsSync(join(PKG, "node_modules", dep))) {
-    console.error(`The design package's compare script needs its own ${dep}; run "npm i" in ${PKG}.`);
-    process.exit(2);
-  }
-}
 if (!existsSync(join(CHROMIUM_EXTENSION, "manifest.json"))) {
   console.error(`No built extension at ${CHROMIUM_EXTENSION}. Run: pnpm --filter @still/ext-chromium build`);
   process.exit(2);
@@ -54,7 +44,8 @@ if (!existsSync(join(CHROMIUM_EXTENSION, "manifest.json"))) {
 
 // When the frame-to-tier map is present, every case must agree with it (id and reference file).
 if (existsSync(FRAME_MAP)) {
-  const problems = caseProblems(cases, JSON.parse(readFileSync(FRAME_MAP, "utf8")));
+  const map = JSON.parse(readFileSync(FRAME_MAP, "utf8"));
+  const problems = [...caseProblems(cases, map), ...inventoryProblems(map, inputs.frames)];
   if (problems.length) {
     console.error(`Cases disagree with frames.json:\n  ${problems.join("\n  ")}`);
     process.exit(2);
@@ -62,10 +53,13 @@ if (existsSync(FRAME_MAP)) {
 }
 
 const SIGN_IN = signInCompiledIn(CHROMIUM_EXTENSION);
-const PACKAGE_COMPARE = { pkg: PKG, compareScript: COMPARE };
+const PACKAGE_COMPARE = { pkg: TOOLING, compareScript: COMPARE };
+const build = buildLineage(REPO, CHROMIUM_EXTENSION);
+const stable = () => { assertReferencesStable(inputs); return assertBuildStable(REPO, build); };
 
 /** Capture one case; the page is screenshotted at exactly the reference's CSS size and 2x. */
 async function capture(c, file, { perturb = 0 } = {}) {
+  stable();
   const reference = join(REFERENCES, c.reference);
   const { width: pw, height: ph } = pngSize(reference);
   // A reference that includes browser chrome (a tab strip) is captured without it: the page is
@@ -91,6 +85,7 @@ async function capture(c, file, { perturb = 0 } = {}) {
     return { fontLoaded, errors, viewport: size };
   } finally {
     await context.close();
+    stable();
   }
 }
 
@@ -106,9 +101,11 @@ async function measure(c, { out = OUT, perturb = 0, referenceOverride } = {}) {
     Object.assign(row, { fontLoaded: shot.fontLoaded, pageErrors: shot.errors, viewport: shot.viewport });
     const { top } = referenceChrome(c.id, FRAME_MAP);
     const reference = join(REFERENCES, c.reference);
-    const compared = referenceOverride ?? (top ? cropReferenceTop(PKG, reference, join(out, "impl", `${c.id}.reference.png`), top) : reference);
+    const compared = referenceOverride ?? (top ? cropReferenceTop(TOOLING, reference, join(out, "impl", `${c.id}.reference.png`), top) : reference);
     if (top) row.referenceCropTopCssPx = top;
+    stable();
     const outcome = compare(PACKAGE_COMPARE, compared, implementation, diff);
+    stable();
     row.implementation = relative(REPO, implementation);
     if (outcome.error) return { ...row, status: "FAIL", reason: outcome.error };
     Object.assign(row, outcome, { diff: relative(REPO, diff) });
@@ -151,6 +148,7 @@ if (selfTest) {
       ? "SELF-TEST OK: an identical render passes, a 2px-shifted render fails, and the gate flips exactly at 0.5%."
       : "SELF-TEST FAILED: the gate did not separate the clean and shifted renders.",
   );
+  stable();
   process.exit(ok ? 0 : 1);
 }
 
@@ -175,11 +173,19 @@ const counts = {
   fail: results.filter((r) => r.status === "FAIL").length,
   blocked: results.filter((r) => r.status === "BLOCKED").length,
 };
-const inventory = JSON.parse(readFileSync(INVENTORY, "utf8"));
+const buildAfterCapture = stable();
+const coverage = coverageLedger(inputs.frames, cases, results);
 const summary = {
   generatedAt: new Date().toISOString(),
-  designPackage: PKG,
-  designVersion: inventory.design_version,
+  ...inputs.lineage,
+  build,
+  buildAfterCapture,
+  coverage,
+  scopeNotes: [
+    "Popup is opened as an extension page at the reference size; this does not certify the browser toolbar popup chrome or native popup sizing.",
+    "Reference auth/purchase states require the matching configured QA profile; disabled or unavailable real capabilities remain absent and measured pixel failures remain failures.",
+    "Approved supported-surface copy may differ from the reference's every-device/browser copy; no pixels are masked or excluded for that wording.",
+  ],
   extension: relative(REPO, CHROMIUM_EXTENSION),
   deviceScaleFactor: 2,
   gate: "differing pixels * 200 <= total pixels (pixelmatch threshold 0.1, includeAA false), the package's own compare.script",
@@ -198,6 +204,10 @@ writeFileSync(
     "",
     `Compared ${counts.compared}: ${counts.pass} PASS, ${counts.fail} FAIL. BLOCKED (state not reachable yet): ${counts.blocked}.`,
     "",
+    `Latest inventory: ${coverage.length} frames; ${coverage.filter((r) => r.status === "UNMAPPED").length} without installed recipes; ${coverage.filter((r) => r.status === "ASSET_REVIEW_REQUIRED").length} store/icon frames require separate artifact review.`,
+    "",
+    ...summary.scopeNotes.map((note) => `- ${note}`),
+    "",
     "| Frame | Theme | Diff % | Result | Reason | Diff image |",
     "|---|---|---|---|---|---|",
     ...results.map(
@@ -208,4 +218,4 @@ writeFileSync(
   ].join("\n"),
 );
 console.log(`\n${counts.pass} PASS, ${counts.fail} FAIL, ${counts.blocked} BLOCKED. Report: ${relative(REPO, join(OUT, "report.md"))}`);
-process.exit(counts.fail > 0 ? 1 : 0);
+process.exit(counts.fail > 0 || counts.blocked > 0 ? 1 : 0);

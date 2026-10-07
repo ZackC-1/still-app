@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { InMemoryEntitlementAdapter } from "../../entitlement/adapter.js";
-import type { EntitlementRecord, EntitlementRecordStore } from "../../entitlement/cache.js";
+import type {
+  EntitlementRecord,
+  EntitlementRecordStore,
+} from "../../entitlement/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import {
@@ -37,7 +40,9 @@ const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
  * imported because core cannot depend on an extension package. */
 const AUTH_STORAGE_KEY = "still:auth";
 
-function makeSlot<T>(initial: unknown = null): PersistedSlot<T> & { value: unknown } {
+function makeSlot<T>(
+  initial: unknown = null,
+): PersistedSlot<T> & { value: unknown } {
   const slot = {
     value: initial,
     get: async () => slot.value,
@@ -74,7 +79,8 @@ function harness(opts: HarnessOpts = {}) {
   // sign-in that deleted its own session pass this whole suite: removing the key had no modelled
   // consequence anywhere.
   const browserStorage = new Map<string, string>();
-  const persistedSession = (): string | null => browserStorage.get(AUTH_STORAGE_KEY) ?? null;
+  const persistedSession = (): string | null =>
+    browserStorage.get(AUTH_STORAGE_KEY) ?? null;
   const persistSession = (userId: string | null): void => {
     if (userId === null) browserStorage.delete(AUTH_STORAGE_KEY);
     else browserStorage.set(AUTH_STORAGE_KEY, userId);
@@ -95,7 +101,17 @@ function harness(opts: HarnessOpts = {}) {
       const id = persistedSession();
       return id === null ? null : { id, email: "verified@example.test" };
     }),
-    requestCode: vi.fn(async (): Promise<RequestCodeOutcome> => ({ kind: "sent" })),
+    currentVerifiedAccount: vi.fn(
+      async (): Promise<import("../ports.js").VerifiedAccount | null> => {
+        const id = persistedSession();
+        return id === null
+          ? null
+          : { id, email: "verified@example.test", emailConfirmed: true };
+      },
+    ),
+    requestCode: vi.fn(async (): Promise<RequestCodeOutcome> => ({
+      kind: "sent",
+    })),
     verifyCode: vi.fn(async (): Promise<VerifyCodeOutcome> => {
       const outcome = opts.verify ?? { kind: "verified", userId: "u1" };
       // A verified code persists the new session immediately, under the same key any previous
@@ -106,7 +122,8 @@ function harness(opts: HarnessOpts = {}) {
   };
 
   const requireSession = (): void => {
-    if (persistedSession() === null) throw new Error("no session: the server would answer 401");
+    if (persistedSession() === null)
+      throw new Error("no session: the server would answer 401");
   };
 
   let profileVersion = 0;
@@ -114,11 +131,15 @@ function harness(opts: HarnessOpts = {}) {
     reconcileEntitlement: vi.fn(async () => {
       events.push("reconcile");
     }),
-    reconcileEntitlementChecked: vi.fn(async (): Promise<ReconcileCallOutcome> => {
-      events.push("reconcile");
-      return opts.checked ?? "ok";
-    }),
-    readEntitlement: vi.fn(async (): Promise<EntitlementRead> => opts.read ?? "entitled"),
+    reconcileEntitlementChecked: vi.fn(
+      async (): Promise<ReconcileCallOutcome> => {
+        events.push("reconcile");
+        return opts.checked ?? "ok";
+      },
+    ),
+    readEntitlement: vi.fn(
+      async (): Promise<EntitlementRead> => opts.read ?? "entitled",
+    ),
     // Both profile calls refuse without a session, the way the server does: the settings row is
     // reached through a function that derives its subject from the caller's own token, so a client
     // with no session cannot read or write one. Without that, a browser that had signed itself out
@@ -137,10 +158,17 @@ function harness(opts: HarnessOpts = {}) {
       };
     }),
     subscribeToProfile: vi.fn(() => vi.fn()),
-    deleteAccount: vi.fn(async (): Promise<import("../account-deletion.js").AccountDeletionResult | void> => {}),
+    deleteAccount: vi.fn(
+      async (): Promise<
+        import("../account-deletion.js").AccountDeletionResult | void
+      > => {},
+    ),
     createWebCheckout: vi.fn(
       async (): Promise<WebCheckoutOutcome> =>
-        opts.checkout ?? { kind: "checkout-url", url: "https://pay.rev.cat/t/u1" },
+        opts.checkout ?? {
+          kind: "checkout-url",
+          url: "https://pay.rev.cat/t/u1",
+        },
     ),
   };
 
@@ -171,7 +199,9 @@ function harness(opts: HarnessOpts = {}) {
   const sync = new SyncService(cache, auth, backend, undefined, identity);
 
   const pendingOtp = makeSlot<PendingOtpRecord>(opts.pendingOtpValue ?? null);
-  const checkoutPending = makeSlot<CheckoutPendingRecord>(opts.checkoutPendingValue ?? null);
+  const checkoutPending = makeSlot<CheckoutPendingRecord>(
+    opts.checkoutPendingValue ?? null,
+  );
   const nudgeStamp = makeSlot<number>(opts.nudgeStampValue ?? null);
   const closeTab = vi.fn(async () => {});
   // What clearExtensionAuthStorage really does: remove the session key. Removing it signs this
@@ -235,7 +265,11 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     const outcome = await h.session.verifyCode("a@still.app", "123456");
     expect(outcome).toEqual({ kind: "verified", userId: "u1" });
     expect(h.backend.reconcileEntitlement).toHaveBeenCalledTimes(1); // onSignedIn's self-heal
-    expect(h.recordWrites).toContainEqual({ entitled: true, userId: "u1", updatedAt: T0 });
+    expect(h.recordWrites).toContainEqual({
+      entitled: true,
+      userId: "u1",
+      updatedAt: T0,
+    });
     // Sign-in seeded the empty account from this browser (the first-ever sign-in rule), so the
     // edit below is the SECOND write, not the first.
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
@@ -243,14 +277,21 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(2);
   });
 
-  includedAccessIt("no entitlement: record written explicit false, and settings sync starts anyway", async () => {
-    const h = harness({ sessionUser: null, read: "not-entitled" });
-    await h.session.verifyCode("a@still.app", "123456");
-    expect(h.recordWrites).toContainEqual({ entitled: false, userId: "u1", updatedAt: T0 });
-    h.backend.writeProfile.mockClear();
-    await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
-  });
+  includedAccessIt(
+    "no entitlement: record written explicit false, and settings sync starts anyway",
+    async () => {
+      const h = harness({ sessionUser: null, read: "not-entitled" });
+      await h.session.verifyCode("a@still.app", "123456");
+      expect(h.recordWrites).toContainEqual({
+        entitled: false,
+        userId: "u1",
+        updatedAt: T0,
+      });
+      h.backend.writeProfile.mockClear();
+      await h.cache.setGlobalOn(false);
+      expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("unknown (offline read): NO record write — never write on couldn't-read (AE6)", async () => {
     const h = harness({ sessionUser: null, read: "unknown" });
@@ -288,13 +329,19 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     });
     const outcome = await h.session.verifyCode("a@still.app", "000000");
     expect(outcome).toEqual({ kind: "invalid-code" });
-    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0 });
+    expect(h.pendingOtp.value).toEqual({
+      email: "a@still.app",
+      requestedAt: T0,
+    });
   });
 });
 
 describe("ExtensionSession — identity switch (AE5)", () => {
   it("verifyCode as B after entitled A: A's grant + pending purged BEFORE B's reconcile", async () => {
-    const h = harness({ sessionUser: null, verify: { kind: "verified", userId: "B" } });
+    const h = harness({
+      sessionUser: null,
+      verify: { kind: "verified", userId: "B" },
+    });
     h.seedIdentity("A");
     await h.inner.setRecord({ entitled: true, userId: "A", updatedAt: T0 });
     h.checkoutPending.value = { startedAt: T0, tabId: 7 };
@@ -303,12 +350,18 @@ describe("ExtensionSession — identity switch (AE5)", () => {
 
     // The downgrade write (A's cache reset) precedes B's reconcile — nothing of B's landed first.
     expect(h.events.indexOf("record:false")).toBeGreaterThanOrEqual(0);
-    expect(h.events.indexOf("record:false")).toBeLessThan(h.events.indexOf("reconcile"));
+    expect(h.events.indexOf("record:false")).toBeLessThan(
+      h.events.indexOf("reconcile"),
+    );
     // A's checkout tab is closed (it still carries A's identity) and the pending flag is gone.
     expect(h.closeTab).toHaveBeenCalledWith(7);
     expect(h.checkoutPending.value).toBe(null);
     // B's own definitive answer lands after, bound to B.
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "B", updatedAt: T0 });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: true,
+      userId: "B",
+      updatedAt: T0,
+    });
     // The browser now remembers B as the last person to sync here, replacing A rather than
     // forgetting everyone: the next person to sign in must still read this browser as not theirs.
     expect(await h.identity.get()).toBe("B");
@@ -342,7 +395,11 @@ describe("ExtensionSession — identity switch (AE5)", () => {
     // broken and every write failed. B is signed in and their own next edit does reach their
     // account, which is the difference between a rule working and a session that is not there.
     expect(await h.session.getState()).toMatchObject({ userId: "B" });
-    expect(h.sync.getState()).toMatchObject({ userId: "B", syncing: true, cloudReachable: true });
+    expect(h.sync.getState()).toMatchObject({
+      userId: "B",
+      syncing: true,
+      cloudReachable: true,
+    });
     await h.cache.setGlobalOn(false);
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
   });
@@ -366,8 +423,16 @@ describe("ExtensionSession — identity switch (AE5)", () => {
     expect(await h.session.getState()).toMatchObject({ userId: "B" });
     // And the rest of B's sign-in completed: their entitlement answer is recorded against them,
     // their settings sync is running and reaching the cloud, and their own edit publishes.
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "B", updatedAt: T0 });
-    expect(h.sync.getState()).toMatchObject({ userId: "B", syncing: true, cloudReachable: true });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: true,
+      userId: "B",
+      updatedAt: T0,
+    });
+    expect(h.sync.getState()).toMatchObject({
+      userId: "B",
+      syncing: true,
+      cloudReachable: true,
+    });
     h.backend.writeProfile.mockClear();
     await h.cache.setGlobalOn(false);
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
@@ -396,7 +461,11 @@ describe("ExtensionSession — reconcile / restore", () => {
     h.advance(1000);
     const outcome = await h.session.reconcile();
     expect(outcome).toBe("entitled");
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "u1", updatedAt: T0 + 1000 });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: true,
+      userId: "u1",
+      updatedAt: T0 + 1000,
+    });
     // The plan's sequence: "write cache, clear pending" — background-side, the popup may never open.
     expect(h.checkoutPending.value).toBe(null);
   });
@@ -405,7 +474,11 @@ describe("ExtensionSession — reconcile / restore", () => {
     const h = harness({ read: "not-entitled" });
     const outcome = await h.session.reconcile();
     expect(outcome).toBe("not-entitled");
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: false, userId: "u1", updatedAt: T0 });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: false,
+      userId: "u1",
+      updatedAt: T0,
+    });
     expect(h.entitledNotifications).toContain(false);
   });
 
@@ -417,7 +490,10 @@ describe("ExtensionSession — reconcile / restore", () => {
   });
 
   it("401 → auth-required: cache and pending untouched, NO teardown (KTD)", async () => {
-    const h = harness({ checked: "auth-required", checkoutPendingValue: { startedAt: T0 } });
+    const h = harness({
+      checked: "auth-required",
+      checkoutPendingValue: { startedAt: T0 },
+    });
     await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
     expect(await h.session.reconcile()).toBe("auth-required");
     expect(h.recordWrites).toHaveLength(0);
@@ -431,29 +507,42 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  includedAccessIt("a purchase landing after sign-in leaves the settings sync it already had", async () => {
-    // Signing in starts the sync, so by the time a purchase is confirmed there is nothing left to
-    // mirror. The reconcile that confirms it must not re-run the initial mirror, and must not
-    // interrupt the write-through that is already carrying this user's edits.
-    const h = harness({ read: "not-entitled" });
-    await h.session.verifyCode("a@still.app", "123456");
-    expect(h.sync.getState()).toMatchObject({ entitled: false, syncing: true });
-    h.backend.readProfile.mockClear();
+  includedAccessIt(
+    "a purchase landing after sign-in leaves the settings sync it already had",
+    async () => {
+      // Signing in starts the sync, so by the time a purchase is confirmed there is nothing left to
+      // mirror. The reconcile that confirms it must not re-run the initial mirror, and must not
+      // interrupt the write-through that is already carrying this user's edits.
+      const h = harness({ read: "not-entitled" });
+      await h.session.verifyCode("a@still.app", "123456");
+      expect(h.sync.getState()).toMatchObject({
+        entitled: false,
+        syncing: true,
+      });
+      h.backend.readProfile.mockClear();
 
-    h.backend.readEntitlement.mockResolvedValue("entitled"); // the purchase landed
-    expect(await h.session.reconcile()).toBe("entitled");
-    expect(h.backend.readProfile).not.toHaveBeenCalled();
-    expect(h.sync.getState()).toMatchObject({ entitled: true, syncing: true });
+      h.backend.readEntitlement.mockResolvedValue("entitled"); // the purchase landed
+      expect(await h.session.reconcile()).toBe("entitled");
+      expect(h.backend.readProfile).not.toHaveBeenCalled();
+      expect(h.sync.getState()).toMatchObject({
+        entitled: true,
+        syncing: true,
+      });
 
-    h.backend.writeProfile.mockClear();
-    await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
-  });
+      h.backend.writeProfile.mockClear();
+      await h.cache.setGlobalOn(false);
+      expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("restore() is the same reconcile spine (the web Restore button, R5)", async () => {
     const h = harness();
     expect(await h.session.restore()).toBe("entitled");
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "u1", updatedAt: T0 });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: true,
+      userId: "u1",
+      updatedAt: T0,
+    });
   });
 });
 
@@ -461,7 +550,10 @@ describe("ExtensionSession — createCheckout", () => {
   it("200: passes checkout-url through; the pending flag is the controller's to persist (U4 split)", async () => {
     const h = harness();
     const outcome = await h.session.createCheckout();
-    expect(outcome).toEqual({ kind: "checkout-url", url: "https://pay.rev.cat/t/u1" });
+    expect(outcome).toEqual({
+      kind: "checkout-url",
+      url: "https://pay.rev.cat/t/u1",
+    });
     expect(h.checkoutPending.value).toBe(null);
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
@@ -471,7 +563,11 @@ describe("ExtensionSession — createCheckout", () => {
     const outcome = await h.session.createCheckout();
     expect(outcome).toEqual({ kind: "already-entitled" });
     expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(1);
-    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "u1", updatedAt: T0 });
+    expect(h.recordWrites.at(-1)).toEqual({
+      entitled: true,
+      userId: "u1",
+      updatedAt: T0,
+    });
   });
 
   it("401: auth-required passthrough — cache and pending untouched (re-sign-in, not teardown)", async () => {
@@ -495,7 +591,10 @@ describe("ExtensionSession — onNudge (content-script reconcile nudge, R4)", ()
   });
 
   it("pending flag set → one reconcile; the throttle holds across a second nudge", async () => {
-    const h = harness({ read: "not-entitled", checkoutPendingValue: { startedAt: T0 } });
+    const h = harness({
+      read: "not-entitled",
+      checkoutPendingValue: { startedAt: T0 },
+    });
     expect(await h.session.onNudge()).toBe("reconciled");
     expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(1);
     h.advance(NUDGE_THROTTLE_MS - 1);
@@ -523,7 +622,10 @@ describe("ExtensionSession — onNudge (content-script reconcile nudge, R4)", ()
   });
 
   it("two CONCURRENT nudges (session-restore burst) → exactly one reconcile", async () => {
-    const h = harness({ read: "not-entitled", checkoutPendingValue: { startedAt: T0 } });
+    const h = harness({
+      read: "not-entitled",
+      checkoutPendingValue: { startedAt: T0 },
+    });
     let release!: (v: ReconcileCallOutcome) => void;
     h.backend.reconcileEntitlementChecked.mockImplementationOnce(
       () =>
@@ -533,7 +635,9 @@ describe("ExtensionSession — onNudge (content-script reconcile nudge, R4)", ()
     );
     const first = h.session.onNudge();
     const second = h.session.onNudge(); // in flight before the first's reconcile resolves
-    await vi.waitFor(() => expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(1),
+    );
     release("ok");
     expect(await first).toBe("reconciled");
     expect(await second).toBe("throttled");
@@ -541,7 +645,10 @@ describe("ExtensionSession — onNudge (content-script reconcile nudge, R4)", ()
   });
 
   it("a non-definitive reconcile (offline → unknown) rolls the throttle stamp back — no 6h mute (F4)", async () => {
-    const h = harness({ checked: "unavailable", checkoutPendingValue: { startedAt: T0 } });
+    const h = harness({
+      checked: "unavailable",
+      checkoutPendingValue: { startedAt: T0 },
+    });
     expect(await h.session.onNudge()).toBe("reconciled");
     // The stamp was written before the await, then rolled back to its prior value (null) because
     // the reconcile couldn't confirm — the next nudge must not be muted for 6h.
@@ -580,16 +687,19 @@ describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
     expect(h.backend.writeProfile).not.toHaveBeenCalled();
   });
 
-  includedAccessIt("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
-    const h = harness();
-    await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
-    expect(await h.session.resume()).toBe("resumed-free");
-    h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
-    await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
-    expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
-    expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
-  });
+  includedAccessIt(
+    "a cached entitlement of false still resumes write-through, and still spends no RC query",
+    async () => {
+      const h = harness();
+      await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
+      expect(await h.session.resume()).toBe("resumed-free");
+      h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
+      await h.cache.setGlobalOn(false);
+      expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+      expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
+      expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
+    },
+  );
 
   it("a record bound to another user reads as no cache (R8): resumes free", async () => {
     const h = harness();
@@ -619,7 +729,9 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
 
   /** The one thing teardown must NOT erase: who last synced in this browser. A shared machine
    * needs that answer most after the first person leaves, so it outlives both exits. */
-  async function expectIdentityRemembered(h: ReturnType<typeof harness>): Promise<void> {
+  async function expectIdentityRemembered(
+    h: ReturnType<typeof harness>,
+  ): Promise<void> {
     expect(await h.identity.get()).toBe("u1");
   }
 
@@ -660,10 +772,16 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
   });
 
   it("response-aware deletion returns the backend outcome while the old action keeps its string", async () => {
-    const result = { deleted: true, analyticsDeleted: false, analyticsErasure: "unconfirmed" } as const;
+    const result = {
+      deleted: true,
+      analyticsDeleted: false,
+      analyticsErasure: "unconfirmed",
+    } as const;
     const first = harness();
     first.backend.deleteAccount.mockResolvedValueOnce(result);
-    await expect(first.session.deleteAccountWithOutcome()).resolves.toEqual(result);
+    await expect(first.session.deleteAccountWithOutcome()).resolves.toEqual(
+      result,
+    );
     expect(first.backend.deleteAccount).toHaveBeenCalledOnce();
 
     const legacy = harness();
@@ -675,20 +793,35 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
   it("legacy successful deletion reports analytics erasure as unconfirmed", async () => {
     const h = harness();
     await expect(h.session.deleteAccountWithOutcome()).resolves.toEqual({
-      deleted: true, analyticsDeleted: null, analyticsErasure: "unconfirmed",
+      deleted: true,
+      analyticsDeleted: null,
+      analyticsErasure: "unconfirmed",
     });
   });
 
   it("does not purge a replacement session after an older response-aware deletion finishes", async () => {
     const h = harness();
-    let complete!: (result: import("../account-deletion.js").AccountDeletionResult) => void;
-    h.backend.deleteAccount.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    let complete!: (
+      result: import("../account-deletion.js").AccountDeletionResult,
+    ) => void;
+    h.backend.deleteAccount.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
     const deletion = h.session.deleteAccountWithOutcome();
-    await vi.waitFor(() => expect(h.backend.deleteAccount).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.backend.deleteAccount).toHaveBeenCalledOnce(),
+    );
     h.nextVerifyIs("u2");
     await h.session.verifyCode("second@example.test", "123456");
     const writes = h.recordWrites.length;
-    complete({ deleted: true, analyticsDeleted: true, analyticsErasure: "unconfirmed" });
+    complete({
+      deleted: true,
+      analyticsDeleted: true,
+      analyticsErasure: "unconfirmed",
+    });
     await expect(deletion).resolves.toBe("delete-failed");
     expect(h.persistedSession()).toBe("u2");
     expect(h.recordWrites).toHaveLength(writes);
@@ -722,14 +855,21 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
 describe("ExtensionSession — requestCode + purchase-intent continuation", () => {
   it("requestCode persists the pending-OTP record for popup-death rehydration (AE2)", async () => {
     const h = harness({ sessionUser: null });
-    expect(await h.session.requestCode("a@still.app")).toEqual({ kind: "sent" });
-    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0 });
+    expect(await h.session.requestCode("a@still.app")).toEqual({
+      kind: "sent",
+    });
+    expect(h.pendingOtp.value).toEqual({
+      email: "a@still.app",
+      requestedAt: T0,
+    });
   });
 
   it("a send failure persists nothing", async () => {
     const h = harness({ sessionUser: null });
     h.auth.requestCode.mockResolvedValueOnce({ kind: "send-failed" });
-    expect(await h.session.requestCode("a@still.app")).toEqual({ kind: "send-failed" });
+    expect(await h.session.requestCode("a@still.app")).toEqual({
+      kind: "send-failed",
+    });
     expect(h.pendingOtp.value).toBe(null);
   });
 
@@ -744,13 +884,20 @@ describe("ExtensionSession — requestCode + purchase-intent continuation", () =
     });
     // Deliberate withdrawal strips the flag from the persisted record.
     await h.session.setPurchaseIntent(false);
-    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0 });
+    expect(h.pendingOtp.value).toEqual({
+      email: "a@still.app",
+      requestedAt: T0,
+    });
   });
 
   it("setPendingOtp(null) clears the record (deliberate 'Not now' dismiss)", async () => {
     const h = harness({
       sessionUser: null,
-      pendingOtpValue: { email: "a@still.app", requestedAt: T0, purchaseIntent: true },
+      pendingOtpValue: {
+        email: "a@still.app",
+        requestedAt: T0,
+        purchaseIntent: true,
+      },
     });
     await h.session.setPendingOtp(null);
     expect(h.pendingOtp.value).toBe(null);
@@ -760,7 +907,11 @@ describe("ExtensionSession — requestCode + purchase-intent continuation", () =
 describe("ExtensionSession — getState (the popup's mount snapshot)", () => {
   it("returns userId, entitlement, and both persisted records", async () => {
     const h = harness({
-      pendingOtpValue: { email: "a@still.app", requestedAt: T0, purchaseIntent: true },
+      pendingOtpValue: {
+        email: "a@still.app",
+        requestedAt: T0,
+        purchaseIntent: true,
+      },
       checkoutPendingValue: { startedAt: T0, tabId: 7 },
     });
     await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
@@ -768,7 +919,11 @@ describe("ExtensionSession — getState (the popup's mount snapshot)", () => {
       userId: "u1",
       entitled: true,
       checkoutPending: { startedAt: T0, tabId: 7 },
-      pendingOtp: { email: "a@still.app", requestedAt: T0, purchaseIntent: true },
+      pendingOtp: {
+        email: "a@still.app",
+        requestedAt: T0,
+        purchaseIntent: true,
+      },
     });
   });
 
@@ -785,70 +940,117 @@ describe("ExtensionSession — getState (the popup's mount snapshot)", () => {
 });
 
 describe("ExtensionSession — account sync display", () => {
-  includedAccessIt("reads the authenticated email and sync status without using the OTP draft", async () => {
-    const h = harness({ pendingOtpValue: { email: "draft@example.test", requestedAt: T0 } });
-    let release!: (value: SyncedSettingsEnvelope | null) => void;
-    h.backend.readProfile.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-    const resumed = h.session.resume();
-    await vi.waitFor(() => expect(h.backend.readProfile).toHaveBeenCalledOnce());
+  includedAccessIt(
+    "reads the authenticated email and sync status without using the OTP draft",
+    async () => {
+      const h = harness({
+        pendingOtpValue: { email: "draft@example.test", requestedAt: T0 },
+      });
+      let release!: (value: SyncedSettingsEnvelope | null) => void;
+      h.backend.readProfile.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const resumed = h.session.resume();
+      await vi.waitFor(() =>
+        expect(h.backend.readProfile).toHaveBeenCalledOnce(),
+      );
 
-    expect(await h.session.getSyncStatus()).toEqual({
-      accountId: "u1",
-      email: "verified@example.test",
-      lastSyncedAt: null,
-      pendingUpload: false,
-      cloudReachable: true,
-      updatedAt: T0,
-    });
-    release(null);
-    await resumed;
-  });
+      expect(await h.session.getSyncStatus()).toEqual({
+        accountId: "u1",
+        email: "verified@example.test",
+        lastSyncedAt: null,
+        pendingUpload: false,
+        cloudReachable: true,
+        updatedAt: T0,
+      });
+      release(null);
+      await resumed;
+    },
+  );
 
-  includedAccessIt("does not pair one account's email with another account's sync state", async () => {
-    const h = harness();
-    await h.session.resume();
-    h.setSessionUser("u2");
-    await expect(h.session.getSyncStatus()).rejects.toThrow("not ready");
-  });
+  includedAccessIt(
+    "does not pair one account's email with another account's sync state",
+    async () => {
+      const h = harness();
+      await h.session.resume();
+      h.setSessionUser("u2");
+      await expect(h.session.getSyncStatus()).rejects.toThrow("not ready");
+    },
+  );
 
-  includedAccessIt("hides status while sign-out is waiting for the auth provider", async () => {
-    const h = harness();
-    await h.session.resume();
-    let release!: () => void;
-    h.auth.signOut.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
-    const signedOut = h.session.signOut();
-    await vi.waitFor(() => expect(h.auth.signOut).toHaveBeenCalledOnce());
-    expect(await h.session.getSyncStatus()).toBeNull();
-    release();
-    await signedOut;
-    expect(await h.session.getSyncStatus()).toBeNull();
-  });
+  includedAccessIt(
+    "hides status while sign-out is waiting for the auth provider",
+    async () => {
+      const h = harness();
+      await h.session.resume();
+      let release!: () => void;
+      h.auth.signOut.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const signedOut = h.session.signOut();
+      await vi.waitFor(() => expect(h.auth.signOut).toHaveBeenCalledOnce());
+      expect(await h.session.getSyncStatus()).toBeNull();
+      release();
+      await signedOut;
+      expect(await h.session.getSyncStatus()).toBeNull();
+    },
+  );
 
-  includedAccessIt("rejects an old account read after sign-out and same-account re-entry", async () => {
-    const h = harness();
-    await h.session.resume();
-    let release!: (value: { id: string; email: string }) => void;
-    h.auth.currentAccount.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-    const oldStatus = h.session.getSyncStatus();
-    await h.session.signOut();
-    await h.session.verifyCode("new@example.test", "123456");
-    release({ id: "u1", email: "old@example.test" });
-    expect(await oldStatus).toBeNull();
-    expect(await h.session.getSyncStatus()).toMatchObject({ accountId: "u1", email: "verified@example.test" });
-  });
+  includedAccessIt(
+    "rejects an old account read after sign-out and same-account re-entry",
+    async () => {
+      const h = harness();
+      await h.session.resume();
+      let release!: (value: { id: string; email: string }) => void;
+      h.auth.currentAccount.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const oldStatus = h.session.getSyncStatus();
+      await h.session.signOut();
+      await h.session.verifyCode("new@example.test", "123456");
+      release({ id: "u1", email: "old@example.test" });
+      expect(await oldStatus).toBeNull();
+      expect(await h.session.getSyncStatus()).toMatchObject({
+        accountId: "u1",
+        email: "verified@example.test",
+      });
+    },
+  );
 
-  includedAccessIt("restores display status after a failed account deletion", async () => {
-    const h = harness();
-    await h.session.resume();
-    let reject!: (reason: Error) => void;
-    h.backend.deleteAccount.mockImplementationOnce(() => new Promise<void>((_resolve, no) => { reject = no; }));
-    const deletion = h.session.deleteAccount();
-    await vi.waitFor(() => expect(h.backend.deleteAccount).toHaveBeenCalledOnce());
-    expect(await h.session.getSyncStatus()).toBeNull();
-    reject(new Error("delete failed"));
-    expect(await deletion).toBe("delete-failed");
-    expect(await h.session.getSyncStatus()).toMatchObject({ accountId: "u1", email: "verified@example.test" });
-  });
+  includedAccessIt(
+    "restores display status after a failed account deletion",
+    async () => {
+      const h = harness();
+      await h.session.resume();
+      let reject!: (reason: Error) => void;
+      h.backend.deleteAccount.mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, no) => {
+            reject = no;
+          }),
+      );
+      const deletion = h.session.deleteAccount();
+      await vi.waitFor(() =>
+        expect(h.backend.deleteAccount).toHaveBeenCalledOnce(),
+      );
+      expect(await h.session.getSyncStatus()).toBeNull();
+      reject(new Error("delete failed"));
+      expect(await deletion).toBe("delete-failed");
+      expect(await h.session.getSyncStatus()).toMatchObject({
+        accountId: "u1",
+        email: "verified@example.test",
+      });
+    },
+  );
 
   it("distinguishes signed-out from an unavailable authenticated identity read", async () => {
     const h = harness({ sessionUser: null });
@@ -874,14 +1076,95 @@ describe("ExtensionSession — malformed persisted state (defensive boot)", () =
   });
 
   it("a recognizable pending record with a garbage startedAt keeps flowing, field dropped (U4 expired-pending)", async () => {
-    const h = harness({ checkoutPendingValue: { startedAt: "yesterday", tabId: 7 } });
+    const h = harness({
+      checkoutPendingValue: { startedAt: "yesterday", tabId: 7 },
+    });
     const state = await h.session.getState();
     expect(state.checkoutPending).toEqual({ tabId: 7 });
   });
 
   it("a pending OTP with a garbage requestedAt salvages the email", async () => {
-    const h = harness({ pendingOtpValue: { email: "a@still.app", requestedAt: "noon" } });
+    const h = harness({
+      pendingOtpValue: { email: "a@still.app", requestedAt: "noon" },
+    });
     const state = await h.session.getState();
     expect(state.pendingOtp).toEqual({ email: "a@still.app" });
+  });
+});
+
+describe("verified account read lifetime", () => {
+  it("does not ask auth for confirmation while deletion is pending", async () => {
+    const h = harness();
+    let finishDelete!: () => void;
+    h.backend.deleteAccount.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const deletion = h.session.deleteAccountWithOutcome();
+    await vi.waitFor(() =>
+      expect(h.backend.deleteAccount).toHaveBeenCalledOnce(),
+    );
+    await expect(h.session.getVerifiedAccount()).resolves.toBeNull();
+    expect(h.auth.currentVerifiedAccount).not.toHaveBeenCalled();
+    finishDelete();
+    await expect(deletion).resolves.toMatchObject({ deleted: true });
+  });
+
+  it("rejects confirmation resolving during deletion before the generation changes", async () => {
+    const h = harness();
+    let finishVerification!: (
+      value: import("../ports.js").VerifiedAccount,
+    ) => void;
+    const verification = new Promise<import("../ports.js").VerifiedAccount>(
+      (resolve) => {
+        finishVerification = resolve;
+      },
+    );
+    h.auth.currentVerifiedAccount.mockReturnValueOnce(verification);
+    const pending = h.session.getVerifiedAccount();
+    let failDelete!: (error: Error) => void;
+    h.backend.deleteAccount.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          failDelete = reject;
+        }),
+    );
+    const deletion = h.session.deleteAccountWithOutcome();
+    await vi.waitFor(() =>
+      expect(h.backend.deleteAccount).toHaveBeenCalledOnce(),
+    );
+    finishVerification({
+      id: "u1",
+      email: "verified@example.test",
+      emailConfirmed: true,
+    });
+    await expect(pending).resolves.toBeNull();
+    failDelete(new Error("Deletion unavailable"));
+    await expect(deletion).resolves.toBe("delete-failed");
+    await expect(h.session.getVerifiedAccount()).resolves.toMatchObject({
+      id: "u1",
+      emailConfirmed: true,
+    });
+  });
+
+  it("does not return a proof after sign-out finishes during verification", async () => {
+    const h = harness();
+    let complete!: (value: import("../ports.js").VerifiedAccount) => void;
+    const verification = new Promise<import("../ports.js").VerifiedAccount>(
+      (resolve) => {
+        complete = resolve;
+      },
+    );
+    h.auth.currentVerifiedAccount.mockReturnValueOnce(verification);
+    const pending = h.session.getVerifiedAccount();
+    await h.session.signOut();
+    complete({
+      id: "u1",
+      email: "verified@example.test",
+      emailConfirmed: true,
+    });
+    await expect(pending).resolves.toBeNull();
   });
 });

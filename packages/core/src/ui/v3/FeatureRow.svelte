@@ -14,6 +14,7 @@
     note,
     onChange,
     onLock,
+    host = "browser",
   }: {
     id: FeatureId;
     label: string;
@@ -26,10 +27,11 @@
     note?: string;
     onChange: (next: boolean) => void;
     /**
-     * The locked row's action, given the lock button so a sheet it opens can return focus to it.
-     * Hosts supply it only while Still Pro is really offered (owner decision 41).
+     * The locked row's host-owned destination. It never starts a purchase in this row.
+     * Hosts supply it only while the actual Still Pro destination is available.
      */
     onLock?: (opener: HTMLElement) => void;
+    host?: "browser" | "safari";
   } = $props();
   let state = $derived<AccessState>(dormant ? "locked" : accessState);
   let lockAction = $derived(dormant ? undefined : onLock);
@@ -75,12 +77,10 @@
         .join(" ") || undefined}
     />
   {:else if state === "locked"}
-    <!-- Owner decision 40: the accessible name is exactly the visible "Still Pro" (the lock glyph
-      is decorative). The row's own label, and its note when there is one, describe the button, so
-      a screen reader still says which feature this is: "Still Pro, button, Comments". -->
     <button
       type="button"
       class="lock-pro"
+      aria-label={`${label}. Included in Still Pro.${lockAction ? ` ${host === "safari" ? "Open the Still app" : "See Still Pro"}` : ""}`}
       aria-describedby={[`${key}-l`, visibleNote ? `${key}-s` : undefined]
         .filter(Boolean)
         .join(" ")}

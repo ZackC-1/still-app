@@ -75,6 +75,8 @@ export interface DesktopPopupProps {
   accountActions?: Snippet;
   /** Trusted caller supplies this only when an actual eligible purchase flow exists. */
   onPurchase?: () => void;
+  /** Navigation to the actual Pro destination; a feature lock never starts checkout. */
+  onSeePro?: () => void;
   account?: {
     address?: string;
     status?: {

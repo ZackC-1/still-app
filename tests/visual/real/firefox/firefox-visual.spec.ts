@@ -9,47 +9,48 @@ import {
   type StillFirefox,
   type Tab,
 } from "../../../firefox/_session.js";
+import { designInputs, buildLineage, assertBuildStable, assertReferencesStable, coverageLedger } from "../inputs.mjs";
 import { compare, cropReferenceTop, referenceChrome } from "../gate.mjs";
-import { caseProblems } from "../validate-frames.mjs";
+import { caseProblems, inventoryProblems } from "../validate-frames.mjs";
 import { cases } from "./cases.mjs";
 
 // T1 Firefox visual runner: the real built Firefox extension in stock Firefox, photographed with
 // Firefox's own window snapshot at 2x (the popup as the real toolbar panel), compared with the design
 // package's 2x reference by the package's own compare.script and the V1 gate, unchanged. See
-// playwright.config.ts for how to run it. Skips cleanly when the private design package is absent.
+// playwright.config.ts for how to run it. Missing or stale design inputs fail before browser launch.
 //
 // Output (gitignored): tests/visual/real/firefox/.output/{report.md,report.json,impl/*.png,diff/*.png}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../../..");
-const PKG = resolve(
-  process.env.STILL_DESIGN_PACKAGE ??
-    resolve(REPO, "build/v3/still-design-system-v3.2"),
-);
+const inputs = designInputs(REPO);
+const { references: REFERENCES, compareScript: COMPARE, tooling: TOOLING } = inputs;
 const OUT = resolve(
   process.env.STILL_VISUAL_FIREFOX_OUTPUT ?? join(HERE, ".output"),
 );
-const COMPARE = join(PKG, "handoff/compare.script");
-const REFERENCES = join(PKG, "handoff/reference");
-const PACKAGE_COMPARE = { pkg: PKG, compareScript: COMPARE };
+const PACKAGE_COMPARE = { pkg: TOOLING, compareScript: COMPARE };
 const FRAME_MAP = join(HERE, "..", "frames.json");
 
 // Every case must agree with the frame map (id, reference file, theme, tier).
-const mapProblems = caseProblems(cases, JSON.parse(readFileSync(FRAME_MAP, "utf8")));
+const frameMap = JSON.parse(readFileSync(FRAME_MAP, "utf8"));
+const mapProblems = [...caseProblems(cases, frameMap), ...inventoryProblems(frameMap, inputs.frames)];
 if (mapProblems.length > 0)
   throw new Error(`Firefox cases disagree with frames.json:\n  ${mapProblems.join("\n  ")}`);
 
-const present =
-  existsSync(COMPARE) &&
-  existsSync(join(PKG, "node_modules/pngjs")) &&
-  existsSync(join(PKG, "node_modules/pixelmatch")) &&
-  existsSync(join(FIREFOX_EXTENSION, "manifest.json"));
-
-test.skip(
-  !present,
-  `SKIPPED: design package (STILL_DESIGN_PACKAGE) or the Firefox build is missing; nothing compared`,
-);
-
+if (!existsSync(join(FIREFOX_EXTENSION, "manifest.json"))) throw new Error("FAIL: the built Firefox extension is missing; no frames compared");
+let lineage = { ...inputs.lineage, build: buildLineage(REPO, FIREFOX_EXTENSION) };
+let runInputs = inputs;
+// Global setup owns one baseline for the entire run; replacement workers cannot adopt a
+// rebuilt artifact and attribute persisted screenshots from an earlier worker to it.
+test.beforeAll(() => {
+  const pinned = JSON.parse(readFileSync(join(OUT, "run-lineage.json"), "utf8"));
+  runInputs = { ...inputs, inputFiles: pinned.inputFiles };
+  lineage = { ...inputs.lineage, build: pinned.build };
+  assertReferencesStable(inputs);
+  assertReferencesStable(runInputs);
+  assertBuildStable(REPO, lineage.build);
+});
+const stable = () => { assertReferencesStable(runInputs); return assertBuildStable(REPO, lineage.build); };
 type Case = (typeof cases)[number];
 type Row = {
   id: string;
@@ -64,7 +65,7 @@ type Row = {
 };
 const record = (row: Row) => {
   mkdirSync(join(OUT, "rows"), { recursive: true });
-  writeFileSync(join(OUT, "rows", `${row.id}.json`), JSON.stringify(row));
+  writeFileSync(join(OUT, "rows", `${row.id}.json`), JSON.stringify({ ...row, lineage }));
 };
 
 const setSwitch = async (firefox: StillFirefox, label: string, on: boolean) => {
@@ -93,6 +94,7 @@ async function capture(
   file: string,
   { shift = 0 } = {},
 ): Promise<{ width: number; height: number }> {
+  stable();
   const reference = join(REFERENCES, c.reference);
   const ref = pngSize(readFileSync(reference));
   // A reference with browser chrome (a tab strip) is photographed without it; see frames.json.
@@ -197,11 +199,12 @@ async function capture(
     return pngSize(png);
   } finally {
     await firefox.stop();
+    stable();
   }
 }
 
 test.afterAll(() => {
-  if (!present) return;
+  const buildAfterCapture = stable();
   // Rebuilt from the per-frame rows, so a worker restart after a failure loses nothing.
   const rows = cases
     .map((c) => join(OUT, "rows", `${c.id}.json`))
@@ -211,7 +214,7 @@ test.afterAll(() => {
   const gated = rows.filter((r) => r.mode === "gated");
   writeFileSync(
     join(OUT, "report.json"),
-    `${JSON.stringify({ generatedAt: new Date().toISOString(), designPackage: PKG, rows }, null, 2)}\n`,
+    `${JSON.stringify({ generatedAt: new Date().toISOString(), ...lineage, buildAfterCapture, coverage: coverageLedger(inputs.frames, cases, rows), rows }, null, 2)}\n`,
   );
   const cell = (v: unknown) =>
     String(v ?? "")
@@ -245,13 +248,13 @@ for (const c of cases) {
         reason: c.reason,
         reference: c.reference,
       });
-      test.skip(true, c.reason);
+      throw new Error(`BLOCKED: ${c.reason}`);
     }
     mkdirSync(join(OUT, "impl"), { recursive: true });
     const original = join(REFERENCES, c.reference);
     const { top } = referenceChrome(c.id, FRAME_MAP);
     const reference = top
-      ? cropReferenceTop(PKG, original, join(OUT, "impl", `${c.id}.reference.png`), top)
+      ? cropReferenceTop(TOOLING, original, join(OUT, "impl", `${c.id}.reference.png`), top)
       : original;
     mkdirSync(join(OUT, "impl"), { recursive: true });
     const impl = join(OUT, "impl", `${c.id}.png`);
@@ -271,7 +274,9 @@ for (const c of cases) {
       if (c.mode === "gated") expect(size).toBe("same size");
       return;
     }
+    stable();
     const outcome = compare(PACKAGE_COMPARE, reference, impl, diff);
+    stable();
     if (outcome.error) {
       record({
         id: c.id,
@@ -334,6 +339,7 @@ test("self-test: an identical Firefox render passes, a 2px-shifted render fails 
   console.log(
     `self-test clean ${cleanResult.percent?.toFixed(6)}%  shifted ${shiftedResult.percent?.toFixed(6)}%`,
   );
+  stable();
   expect(cleanResult.passed, "a repeat capture is the same picture").toBe(true);
   expect(shiftedResult.passed, "a 2px shift must fail the gate").toBe(false);
 });
