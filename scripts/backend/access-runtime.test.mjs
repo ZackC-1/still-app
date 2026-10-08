@@ -369,3 +369,143 @@ test("both hosted access database scripts reject before planning or Docker on or
     );
   }
 });
+
+test("access CLI diagnostics emit only closed phases/categories from synthetic private logs", async () => {
+  const { classifyAccessCliFailure } = await import(
+    "./access-cli-diagnostics.mjs"
+  );
+  const privateText = "synthetic-private-token-account-path-message";
+  for (
+    const [text, category] of [
+      ["InvalidWorkerCreation: worker boot error", "boot"],
+      ["Module not found", "import-resolution"],
+      ["failed to read path", "mount"],
+      ["Could not find npm package", "npm"],
+      ["PostgresError 42501", "privilege"],
+    ]
+  ) {
+    assert.deepEqual(
+      classifyAccessCliFailure(`${text} ${privateText}`, "synthetic"),
+      { accessCliFailure: { phase: "synthetic", categories: [category] } },
+    );
+  }
+  const unknown = classifyAccessCliFailure(privateText, privateText);
+  assert.deepEqual(unknown, {
+    accessCliFailure: { phase: "unknown", categories: [] },
+  });
+  assert(!JSON.stringify(unknown).includes(privateText));
+  assert.deepEqual(
+    classifyAccessCliFailure(
+      "worker boot worker boot failed to read path 28P01",
+      "default",
+    ),
+    {
+      accessCliFailure: {
+        phase: "default",
+        categories: ["boot", "mount", "privilege"],
+      },
+    },
+  );
+});
+
+test("access CLI diagnostics retain bounded file/stream tails without leaking private content", async (t) => {
+  const { Readable } = await import("node:stream");
+  const { DIAGNOSTIC_BYTE_LIMIT, readDiagnosticTail, collectDiagnosticTail } =
+    await import("./access-cli-diagnostics.mjs");
+  const root = await mkdtemp(join(tmpdir(), "still-diagnostic-tail-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "synthetic.log");
+  const text = "discard-private-prefix".repeat(100_000) +
+    "\nfailed to read path synthetic-private-tail";
+  await writeFile(path, text);
+  const expected = Buffer.from(text).subarray(-DIAGNOSTIC_BYTE_LIMIT).toString(
+    "utf8",
+  );
+  assert.equal(readDiagnosticTail(path), expected);
+  assert.equal(
+    await collectDiagnosticTail(
+      Readable.from([
+        Buffer.from(text.slice(0, 100)),
+        Buffer.from(text.slice(100)),
+      ]),
+    ),
+    expected,
+  );
+  assert.equal(readDiagnosticTail(join(root, "absent")), "");
+  const output = execFileSync(process.execPath, [
+    join(checkout, "scripts/backend/access-cli-diagnostics.mjs"),
+    path,
+    "synthetic-private-phase",
+  ], { input: text, encoding: "utf8", maxBuffer: 2048 });
+  assert.deepEqual(JSON.parse(output), {
+    accessCliFailure: { phase: "unknown", categories: ["mount"] },
+  });
+  assert(!output.includes("synthetic-private"));
+});
+
+test("access served failure diagnostics keep exit1 and cleanup with exact ephemeral container only", async (t) => {
+  const shell = await readFile(
+    join(checkout, "scripts/backend/rehearse-access.sh"),
+    "utf8",
+  );
+  const probe = shell.slice(
+    shell.indexOf("served_test() {"),
+    shell.indexOf("\nread_mount() {"),
+  );
+  assert.match(
+    probe,
+    /timeout 5s docker logs --tail 200 supabase_edge_runtime_still-app 2>&1/,
+  );
+  assert.match(
+    probe.replaceAll("\\\n", ""),
+    /\|\s*node scripts\/backend\/access-cli-diagnostics\.mjs/,
+  );
+  assert.match(shell, /trap cleanup EXIT/);
+  const root = await mkdtemp(join(tmpdir(), "still-diagnostic-failure-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(
+    join(root, "access-serve.log"),
+    "synthetic-private-token-account-log",
+  );
+  for (const failure of ["boot", "log-unavailable", "classifier-unavailable"]) {
+    const stubs =
+      `set -euo pipefail\nserve_pid=synthetic\nkill(){ return 0; }\ndeno(){ return 1; }\ntimeout(){ [[ $1 == 5s ]]; shift; "$@"; }\ndocker(){ [[ "$*" == 'logs --tail 200 supabase_edge_runtime_still-app' ]]; ${
+        failure === "log-unavailable"
+          ? "return 7;"
+          : "printf '%s\\n' 'InvalidWorkerCreation synthetic-private-token-account-path';"
+      } }\n${
+        failure === "classifier-unavailable" ? "node(){ return 9; }" : ""
+      }\ntrap 'printf "%s\\n" closed-cleanup' EXIT\n`;
+    assert.throws(
+      () =>
+        execFileSync("bash", [
+          "-c",
+          stubs + probe + "\nserved_test\nprintf unexpected-success",
+        ], {
+          cwd: checkout,
+          env: {
+            ...process.env,
+            RUNNER_TEMP: root,
+            STILL_ACCESS_SERVED_PHASE: "synthetic",
+          },
+          encoding: "utf8",
+          stdio: "pipe",
+        }),
+      (error) => {
+        assert.equal(error.status, 1);
+        assert(error.stdout.includes("closed-cleanup"));
+        assert(!error.stdout.includes("unexpected-success"));
+        assert(!error.stdout.includes("synthetic-private"));
+        if (failure !== "classifier-unavailable") {
+          assert.deepEqual(JSON.parse(error.stdout.split("\n")[0]), {
+            accessCliFailure: {
+              phase: "synthetic",
+              categories: failure === "boot" ? ["boot"] : [],
+            },
+          });
+        }
+        return true;
+      },
+    );
+  }
+});

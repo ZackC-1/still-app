@@ -180,3 +180,50 @@ Deno.test("served readiness exposes only closed phase and HTTP/protocol/transpor
     );
   }
 });
+
+Deno.test("served readiness recognizes only exact documented worker response codes", async () => {
+  const privateText = "synthetic-private-token-account-message-path";
+  for (
+    const [code, condition] of [
+      ["BOOT_ERROR", "boot-error"],
+      ["WORKER_ERROR", "worker-error"],
+      ["WORKER_LIMIT", "worker-limit"],
+      ["BOOT_ERROR " + privateText, "unexpected-envelope"],
+      [privateText, "unexpected-envelope"],
+      [null, "unexpected-envelope"],
+    ] as const
+  ) {
+    let attempts = 0;
+    const waits: number[] = [];
+    const error = await assertRejects(() =>
+      pollServedAccess(
+        () => {
+          attempts++;
+          return Promise.resolve({
+            status: 503,
+            data: {
+              code,
+              message: privateText,
+              token: privateText,
+              account: privateText,
+            },
+          });
+        },
+        () => false,
+        "synthetic",
+        (milliseconds) => {
+          waits.push(milliseconds);
+          return Promise.resolve();
+        },
+      )
+    );
+    assert(error instanceof Error);
+    assertEquals(
+      error.message,
+      `access-cli-current-worker-readiness-failed:synthetic:http-503-${condition}`,
+    );
+    assertEquals(attempts, 25);
+    assertEquals(waits, Array(25).fill(400));
+    assert(!error.message.includes(privateText));
+  }
+});
