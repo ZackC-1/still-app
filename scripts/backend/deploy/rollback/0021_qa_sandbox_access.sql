@@ -371,6 +371,10 @@ revoke all on function public.read_access_removals(uuid, text, uuid) from public
 grant execute on function public.read_access_removals(uuid, text, uuid) to still_entitlement_writer;
 
 -- Stop new QA admission, preserve exact bound data for reviewed recovery/re-enable.
+-- PG17 creator ADMIN is inert; temporarily permit the postgres operator to manage QA-owner ACLs.
+-- Bound inherited owner authority to this transaction; no runtime actor receives membership.
+-- Revoke this operator grant below; preserve inert bootstrap ADMIN provenance.
+grant still_qa_sandbox_owner to postgres with inherit true, set true;
 alter role still_qa_sandbox_writer nologin password null;
 revoke execute on function public.qa_sandbox_account_enabled(uuid) from still_qa_sandbox_writer;
 revoke execute on function public.qa_sandbox_begin_access_observation(uuid) from still_qa_sandbox_writer;
@@ -390,4 +394,5 @@ revoke execute on function public.qa_sandbox_read_checkout_operation(uuid,uuid) 
 revoke execute on function public.qa_sandbox_record_checkout_status(uuid,text,text) from still_qa_sandbox_writer;
 revoke execute on function public.qa_sandbox_consume_rate_limit(text,integer,integer) from still_qa_sandbox_writer;
 revoke execute on function public.qa_sandbox_claim_checkout_creation(uuid,uuid,text) from still_qa_sandbox_writer;
+revoke still_qa_sandbox_owner from postgres;
 commit;

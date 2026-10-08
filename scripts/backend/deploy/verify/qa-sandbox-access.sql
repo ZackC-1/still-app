@@ -11,18 +11,18 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
  ('public.transfer_access_right(uuid,uuid,text,uuid,uuid,bigint)','postgres',true,'22dd4b425da7010dcdb75c454136164b','still_entitlement_writer'),
  ('private.begin_apple_access_observation_core(text,text,text,text,text)','postgres',false,'b351d4d43b77984fbace1d4d521221d6','still_qa_sandbox_owner'),
  ('public.begin_apple_access_observation(text,text,text,text,text)','postgres',true,'049d250a6c29c093fca93f54d5b5e42b','still_entitlement_writer'),
- ('private.commit_apple_access_observation_core(text,text,uuid,boolean,uuid,uuid,bigint,uuid)','postgres',false,'ab9fc6713ed8a22b19844a2a6b37e54b','still_qa_sandbox_owner'),
+ ('private.commit_apple_access_observation_core(text,text,uuid,boolean,uuid,uuid,bigint,uuid)','postgres',false,'f0e27ae399210fcbd24b85299a46d5d2','still_qa_sandbox_owner'),
  ('public.commit_apple_access_observation(text,text,uuid,boolean,uuid,uuid,bigint,uuid)','postgres',true,'3d9903c5009d3a383ad2ccfaffc454ea','still_entitlement_writer'),
  ('private.confirm_apple_access_observation_core(text,text,uuid,uuid,uuid,bigint,bigint)','postgres',false,'98491c940d8357bcf9bbe239d806dd68','still_qa_sandbox_owner'),
  ('public.confirm_apple_access_observation(text,text,uuid,uuid,uuid,bigint,bigint)','postgres',true,'95ca51d90659174606564c17681d7a44','still_entitlement_writer'),
  ('private.read_linked_apple_transactions_core(uuid,text)','postgres',false,'2f7b11fb38ef267c42dba0a3ed9a25da','still_qa_sandbox_owner'),
  ('public.read_linked_apple_transactions(uuid,text)','postgres',true,'e7e252a83e0027c14c7a1b6cb2a29690','still_entitlement_writer'),
- ('private.read_access_removals_core(uuid,text,uuid,boolean)','postgres',false,'8bb3a409baa3f7e448b4e97171f078bc','still_qa_sandbox_owner'),
+ ('private.read_access_removals_core(uuid,text,uuid,boolean)','postgres',false,'5d93b3aebe5f74d87d3a68b5cbf41003','still_qa_sandbox_owner'),
  ('public.read_access_removals(uuid,text,uuid)','postgres',true,'aebc3ad303e8663fea69e91809c5bf1d','still_entitlement_writer'),
  ('private.qa_sandbox_session()','postgres',false,'f9a9663df4c1ee634debec3269f135e8','still_qa_sandbox_owner'),
- ('private.qa_sandbox_confirmed_account(uuid)','postgres',true,'4399d063da76a0c4f9042574258e7d9c','still_qa_sandbox_owner'),
+ ('private.qa_sandbox_confirmed_account(uuid,boolean,boolean)','postgres',true,'3e8f325dba0899f3e20c5ab88b6e8368','still_qa_sandbox_owner'),
  ('private.qa_sandbox_subject(uuid,boolean)','postgres',false,'de995fb4afdd5fd53755364323c36fa3','still_qa_sandbox_owner'),
- ('public.qa_sandbox_account_enabled(uuid)','still_qa_sandbox_owner',true,'4b128e44b432a8e18c8cd4a10c103107','still_qa_sandbox_writer'),
+ ('public.qa_sandbox_account_enabled(uuid)','still_qa_sandbox_owner',true,'ecb062a6f59a838c2d5e6cc0ace21281','still_qa_sandbox_writer'),
  ('public.qa_sandbox_begin_access_observation(uuid)','still_qa_sandbox_owner',true,'716b02117e9d0ebfa35912d6ef2ef00f','still_qa_sandbox_writer'),
  ('public.qa_sandbox_commit_access_observation(uuid,uuid,jsonb)','still_qa_sandbox_owner',true,'b7f0b11ff56d4f569f0f25dce792639a','still_qa_sandbox_writer'),
  ('public.qa_sandbox_confirm_access_observation(uuid,uuid)','still_qa_sandbox_owner',true,'df573ca762862755efd4cda3a03fe45a','still_qa_sandbox_writer'),
@@ -60,6 +60,8 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
   where r.rolname in ('still_qa_sandbox_writer','still_qa_sandbox_owner')) or exists(select 1 from pg_catalog.pg_auth_members m join pg_catalog.pg_roles r on r.oid=m.roleid where r.rolname in ('still_qa_sandbox_writer','still_qa_sandbox_owner') and not (m.member=(select oid from pg_catalog.pg_roles where rolname='postgres') and m.admin_option and not m.inherit_option and not m.set_option and exists(select 1 from pg_catalog.pg_roles grantor where grantor.oid=m.grantor and grantor.rolsuper)))
  union all select 'QA_production_removal_default' where not exists(select 1 from pg_catalog.pg_proc p where p.oid=pg_catalog.to_regprocedure('private.read_access_removals_core(uuid,text,uuid,boolean)')
   and p.pronargdefaults=1 and pg_catalog.pg_get_expr(p.proargdefaults,0)='true')
+ union all select 'QA_account_defaults' where not exists(select 1 from pg_catalog.pg_proc p where p.oid=pg_catalog.to_regprocedure('private.qa_sandbox_confirmed_account(uuid,boolean,boolean)')
+  and p.pronargdefaults=2 and pg_catalog.pg_get_expr(p.proargdefaults,0)='false, true')
  union all select 'QA_missing_role_setting:'||setting from unnest(array['lock_timeout=1s','statement_timeout=2s','idle_in_transaction_session_timeout=5s','log_parameter_max_length=0','log_parameter_max_length_on_error=0']) setting
   where not exists(select 1 from pg_catalog.pg_db_role_setting s where s.setrole=(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_writer') and s.setdatabase=0 and setting=any(s.setconfig))
  union all select 'QA_shared_RLS:'||t.name from unnest(array['access_observations','access_rights','access_revocations','access_transfer_operations','apple_access_observations','apple_access_link_operations']) t(name)

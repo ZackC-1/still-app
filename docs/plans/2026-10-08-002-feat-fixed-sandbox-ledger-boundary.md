@@ -16,7 +16,7 @@ Prepare the server-only sandbox ledger boundary for Still v3.1 QA on the existin
 - R3. Genuine native sandbox possession stays accountless. The local Apple wrapper accepts no holder or linking arguments. Explicit linking and account confirmation use distinct wrappers.
 - R4. Canonical known refunds and removals survive membership disablement, including a transferred purchase observed by its original provider subject. Unknown negatives cannot create a right. Delayed active results cannot resurrect a canonical refund.
 - R5. Preserve purchase identity through interruptions. Immutable holder, configuration fingerprint and Session binding; one unresolved attempt; one-way creation claim before any external creation request. Unknown attempts never release another charge; canonical paid time prevents later unpaid closure.
-- R6. Nine existing production RPCs retain their signature, owner, ACL, session/writer guard and successful or denied behavior. Shared private cores preserve literal prior ledger bodies. Existing rows and policy revisions remain unchanged by migration apply.
+- R6. Nine existing production RPCs retain their signature, owner, ACL, session/writer guard and successful or denied behavior. Seven shared private cores preserve literal prior ledger bodies; the two existing Auth-reading cores use the reviewed private account-reader helper with missing-account and lock options matching the prior behavior. Existing rows and policy revisions remain unchanged by migration apply.
 - R7. The separate QA rate limiter uses closed quotas and short-lived HMAC counters without storing clear IP or subject values.
 - R8. Reviewed emergency forward restore recovers prior production definitions and stops QA execution without deleting ledger records. Ordinary registry disablement continues known negative recovery and differs from an emergency stop.
 - R9. Actual disposable GitHub-hosted Linux tests must exercise upgrade and clean install, real login denial, membership races, recovery and rollback; old production Edge composition must also run against the new SQL. Local skipped SQL tests are not successful database evidence.
@@ -31,9 +31,13 @@ Prepare the server-only sandbox ledger boundary for Still v3.1 QA on the existin
 
 ## Verification and current evidence
 
-Source preparation verifies nine literal core bodies, prior rollback bodies, eighteen QA signatures and thirty-nine catalog body pins. Existing backend runtime/publication checks passed all twenty tests after allowing public dependency metadata for cold Deno resolution. Shell syntax and whitespace checks passed.
+Source preparation verifies seven literal core bodies, the exact two Auth-helper substitutions, all nine prior rollback bodies, eighteen QA signatures and thirty-nine catalog body pins. Existing backend runtime/publication checks passed all twenty tests after allowing public dependency metadata for cold Deno resolution. Shell syntax and whitespace checks passed.
 
-SQL compilation, actual database behavior, production Edge/new-SQL compatibility and rollback execution are unverified until the cloud job passes. Independent Claude SQL source review is running; no final review verdict or completion is claimed. No hosted migration, credential provisioning, provider call or payment was performed.
+Typed SQL compilation passed with the database test intentionally ignored on macOS; this is not SQL runtime evidence. The actual independent Claude SQL review retained four findings, all accepted and addressed: PostgreSQL 17 creator membership, strict shared-table RLS metadata, known refunds from a banned prior holder, and narrow login resource limits. A further source review and complete cloud run remain required.
+
+The second disposable Linux run at `93d56fa8` applied the migration and passed seven behavioral steps, but failed seven others. Corrections use driver-native JSONB fixtures, reuse a private postgres account reader rather than granting access to managed Auth, and temporarily acquire only the QA owner ACL authority inside the emergency rollback transaction before removing that explicit edge. The two original catalog rehearsal baselines remain pinned at 0020 so their selected-creator refusal assertion continues to characterize its original boundary; the separate QA job tests 0021.
+
+Corrected cloud upgrade and clean install, production Edge/new-SQL compatibility and emergency rollback execution remain unverified. No hosted migration, credential provisioning, provider call or payment was performed.
 
 ## Hosted gate and recovery
 

@@ -20,9 +20,10 @@ alter role still_qa_sandbox_writer set idle_in_transaction_session_timeout='5s';
 alter role still_qa_sandbox_writer set log_parameter_max_length=0;
 alter role still_qa_sandbox_writer set log_parameter_max_length_on_error=0;
 grant usage on schema public to still_qa_sandbox_writer;
-grant usage on schema public, private, auth, extensions to still_qa_sandbox_owner;
+grant usage on schema public, private, extensions to still_qa_sandbox_owner;
 -- No login inherits or can SET ROLE to the wrapper owner. Provision only writer LOGIN later.
-grant select (id,email_confirmed_at,deleted_at,banned_until) on auth.users to still_qa_sandbox_owner;
+-- Auth is Supabase-owned: narrowly delegated status reads use the existing postgres-definer helper.
+-- No attempted direct Auth schema/table grant to the QA wrapper owner.
 
 create table private.qa_sandbox_subjects (
  holder uuid primary key references auth.users(id) on delete cascade,
@@ -399,8 +400,8 @@ begin
  end if;
  if p_target is not null then
   -- Current database account confirmation guards deletion/confirmation races after JWT verification.
-  if not exists(select 1 from auth.users where id=p_target and email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp()))
-   or (p_source is not null and not exists(select 1 from auth.users where id=p_source and email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp()))) then
+  if not private.qa_sandbox_confirmed_account(p_target,true,false)
+   or (p_source is not null and not private.qa_sandbox_confirmed_account(p_source,true,false)) then
    return '{"status":"stale"}';
   end if;
   select * into operation from private.apple_access_link_operations where operation_id=p_operation;
@@ -505,8 +506,7 @@ language plpgsql security invoker set search_path=pg_catalog,pg_temp as $$
 declare v_token uuid; v_revocations jsonb;
 begin
  if p_holder is null or p_environment is null or p_environment not in ('sandbox','production') or p_token is null then return null; end if;
- if p_confirmed_required and not exists(select 1 from auth.users where id=p_holder and email_confirmed_at is not null and deleted_at is null
-   and (banned_until is null or banned_until<=clock_timestamp())) then return null; end if;
+ if p_confirmed_required and not private.qa_sandbox_confirmed_account(p_holder,true,false) then return null; end if;
  select token into v_token from private.access_observations where holder=p_holder and environment=p_environment for share;
  if not found or v_token<>p_token then return null; end if;
  select coalesce(jsonb_agg(jsonb_build_object('right',right_id,'revision',revision) order by right_id),'[]'::jsonb)
@@ -542,21 +542,30 @@ $$;
 revoke all on function private.qa_sandbox_session() from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer;
 grant execute on function private.qa_sandbox_session() to still_qa_sandbox_owner;
 
--- Narrow privileged auth lock, rather than any direct auth UPDATE grant to the QA owner.
--- Account deletion/confirmation/banning cannot race the positive commit's authority check.
-create function private.qa_sandbox_confirmed_account(p_holder uuid) returns boolean
+-- Managed Auth reads stay under postgres; no direct Auth grant to the QA owner is needed.
+-- QA admission requires an existing locked row by default. Production compatibility calls
+-- explicitly permit a missing row and keep their previous nonlocking status-read behavior.
+create function private.qa_sandbox_confirmed_account(p_holder uuid,p_allow_missing boolean default false,p_lock boolean default true) returns boolean
 language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 declare confirmed boolean;
 begin
- if session_user <> 'still_qa_sandbox_writer' then raise exception 'QA server role required' using errcode='42501'; end if;
- select email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp())
-  into confirmed from auth.users where id=p_holder for share;
- if not found then raise exception 'QA account unavailable' using errcode='42501'; end if;
+ if session_user not in ('still_qa_sandbox_writer','still_entitlement_writer') and not pg_catalog.pg_has_role(session_user,current_user,'USAGE') then
+  raise exception 'server role required' using errcode='42501';
+ end if;
+ if p_allow_missing is null or p_lock is null then raise exception 'invalid account read scope'; end if;
+ if p_lock then
+  select email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp())
+   into confirmed from auth.users where id=p_holder for share;
+ else
+  select email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp())
+   into confirmed from auth.users where id=p_holder;
+ end if;
+ if not found and not p_allow_missing then raise exception 'QA account unavailable' using errcode='42501'; end if;
  return coalesce(confirmed,false);
 end;
 $$;
-revoke all on function private.qa_sandbox_confirmed_account(uuid) from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer;
-grant execute on function private.qa_sandbox_confirmed_account(uuid) to still_qa_sandbox_owner;
+revoke all on function private.qa_sandbox_confirmed_account(uuid,boolean,boolean) from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer;
+grant execute on function private.qa_sandbox_confirmed_account(uuid,boolean,boolean) to still_qa_sandbox_owner;
 
 create function private.qa_sandbox_subject(p_holder uuid,p_positive boolean) returns boolean
 language plpgsql security invoker set search_path=pg_catalog,pg_temp as $$
@@ -581,9 +590,8 @@ create function public.qa_sandbox_account_enabled(p_holder uuid) returns boolean
 language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
  perform private.qa_sandbox_session();
- return exists(select 1 from private.qa_sandbox_subjects q join auth.users u on u.id=q.holder
-  where q.holder=p_holder and q.enabled and u.email_confirmed_at is not null and u.deleted_at is null
-   and (u.banned_until is null or u.banned_until<=clock_timestamp()));
+ return exists(select 1 from private.qa_sandbox_subjects q where q.holder=p_holder and q.enabled)
+  and private.qa_sandbox_confirmed_account(p_holder,true,false);
 end;
 $$;
 
@@ -907,6 +915,8 @@ begin
  end loop;
  if not exists(select 1 from pg_catalog.pg_proc p where p.oid='private.read_access_removals_core(uuid,text,uuid,boolean)'::regprocedure
   and p.pronargdefaults=1 and pg_catalog.pg_get_expr(p.proargdefaults,0)='true') then raise exception 'unsafe production removal default'; end if;
+ if not exists(select 1 from pg_catalog.pg_proc p where p.oid='private.qa_sandbox_confirmed_account(uuid,boolean,boolean)'::regprocedure
+  and p.pronargdefaults=2 and pg_catalog.pg_get_expr(p.proargdefaults,0)='false, true') then raise exception 'unsafe QA account defaults'; end if;
  foreach setting in array array['lock_timeout=1s','statement_timeout=2s','idle_in_transaction_session_timeout=5s','log_parameter_max_length=0','log_parameter_max_length_on_error=0'] loop
   if not exists(select 1 from pg_catalog.pg_db_role_setting where setrole=(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_writer')
    and setdatabase=0 and setting=any(setconfig)) then raise exception 'unsafe QA role settings'; end if;

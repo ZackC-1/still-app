@@ -171,6 +171,13 @@ Deno.test({
           );
           await assertRejects(async () => q`set role still_qa_sandbox_owner`);
           await assertRejects(async () => q`set role still_entitlement_writer`);
+          await assertRejects(async () => q`select id from auth.users`);
+          await assertRejects(async () =>
+            q`select private.qa_sandbox_confirmed_account(${A}::uuid,true,false)`
+          );
+          await assertRejects(async () =>
+            live`select private.qa_sandbox_confirmed_account(${A}::uuid,true,false)`
+          );
           for (
             const role of [
               "anon",
@@ -191,6 +198,75 @@ Deno.test({
         },
       );
       await admin`insert into private.qa_sandbox_subjects(holder,enabled) values(${A}::uuid,true),(${B}::uuid,true)`;
+      await t.step(
+        "delegated Auth read preserves admission and production missing/banned guards",
+        async () => {
+          assertEquals(
+            (await q`select public.qa_sandbox_account_enabled(${A}::uuid) as enabled`)[
+              0
+            ]?.enabled,
+            true,
+          );
+          assertEquals(
+            (await q`select public.qa_sandbox_account_enabled(${C}::uuid) as enabled`)[
+              0
+            ]?.enabled,
+            false,
+          );
+          const missing = crypto.randomUUID(), token = crypto.randomUUID();
+          assertEquals(
+            (await q`select public.qa_sandbox_account_enabled(${missing}::uuid) as enabled`)[
+              0
+            ]?.enabled,
+            false,
+          );
+          await assertRejects(
+            async () =>
+              q`select public.qa_sandbox_begin_access_observation(${missing}::uuid)`,
+            Error,
+            "QA account unavailable",
+          );
+          assertEquals(
+            (await live`select public.read_access_removals(${missing}::uuid,'production',${token}::uuid) as result`)[
+              0
+            ]?.result,
+            null,
+          );
+          const appleToken =
+            (await live`select public.begin_apple_access_observation(${APPLE},'production','com.example.still','still_pro_v3','212121212121') as token`)[
+              0
+            ]!.token;
+          assertEquals(
+            (await live`select public.commit_apple_access_observation(${APPLE},'production',${appleToken}::uuid,true,${missing}::uuid,${crypto.randomUUID()}::uuid,0,null) as result`)[
+              0
+            ]?.result,
+            { status: "stale" },
+          );
+          await admin`update auth.users set banned_until=clock_timestamp()+interval '1 hour' where id=${A}::uuid`;
+          try {
+            assertEquals(
+              (await q`select public.qa_sandbox_account_enabled(${A}::uuid) as enabled`)[
+                0
+              ]?.enabled,
+              false,
+            );
+            assertEquals(
+              (await live`select public.read_access_removals(${A}::uuid,'production',${token}::uuid) as result`)[
+                0
+              ]?.result,
+              null,
+            );
+            assertEquals(
+              (await live`select public.commit_apple_access_observation(${APPLE},'production',${appleToken}::uuid,true,${A}::uuid,${crypto.randomUUID()}::uuid,0,null) as result`)[
+                0
+              ]?.result,
+              { status: "stale" },
+            );
+          } finally {
+            await admin`update auth.users set banned_until=null where id=${A}::uuid`;
+          }
+        },
+      );
       const begin = async (holder = A) =>
         String(
           (await q`select public.qa_sandbox_begin_access_observation(${holder}::uuid) as token`)[
@@ -203,7 +279,7 @@ Deno.test({
         value: unknown = snapshot,
       ) =>
         (await q`select public.qa_sandbox_commit_access_observation(${holder}::uuid,${token}::uuid,${
-          JSON.stringify(value)
+          q.json(value as Parameters<typeof q.json>[0])
         }::jsonb) as result`)[0]?.result;
       const appleBegin = async () =>
         String(
@@ -233,7 +309,7 @@ Deno.test({
             ]!.token;
           const result =
             (await live`select public.commit_access_observation(${A}::uuid,'production',${liveToken}::uuid,${
-              JSON.stringify(snapshot)
+              live.json(snapshot)
             }::jsonb) as result`)[0]!.result;
           assertEquals(result.status, "committed");
           assert(
