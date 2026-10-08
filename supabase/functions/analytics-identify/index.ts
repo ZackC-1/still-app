@@ -21,6 +21,11 @@ const posthog = new HttpPostHog(postHogConfig);
 // released 2.1 path works exactly as before and the per-device path answers 503.
 const eraserUrl = Deno.env.get("ANALYTICS_ERASER_DB_URL") ?? "";
 const eraserSql = eraserUrl ? createWriterSql(eraserUrl) : null;
+// Released clients still need an abuse budget when per-device identity setup is disabled.
+// Reuse an existing narrow role: both roles already hold the limiter RPC, never client grants.
+const writerUrl = Deno.env.get("ENTITLEMENT_WRITER_DB_URL") ?? "";
+const limiterSql = eraserSql ?? (writerUrl ? createWriterSql(writerUrl) : null);
+const limiter = limiterSql ? new PgRateLimiter(limiterSql) : null;
 const subjects = eraserSql
   ? {
     store: new PgErasureStore(eraserSql),
@@ -57,5 +62,5 @@ const accounts = {
 const subjectsEnabled = Deno.env.get("ANALYTICS_SUBJECTS_ENABLED") === "true";
 
 Deno.serve((req) =>
-  handleAnalyticsIdentify(req, { jwtSecret, jwksUrl, expected, accounts, posthog, subjectsEnabled, subjects })
+  handleAnalyticsIdentify(req, { jwtSecret, jwksUrl, expected, accounts, posthog, limiter, subjectsEnabled, subjects })
 );
