@@ -13,13 +13,27 @@ migration history, prerequisite objects, production RPC definitions/owners/ACLs/
 role memberships, enabled routes/JWT settings and configuration-name presence. Preserve private
 account lists, credentials and database fingerprints outside Git and public CI logs.
 
-Required 0015/0016/0019/0020-era objects and the sandbox policy row must exist and pass their gates.
-If any are missing, stop and prepare a separately reviewed prerequisite change. A successful
-disposable-database rehearsal does not establish those objects on the hosted target.
+Required 0015/0016/0019/0020/0021 history, their current objects and the sandbox policy row must exist
+and pass the current prerequisite and QA catalog gates. Earlier migration gates deliberately pin
+their original schema and RPC bodies; running those unchanged against the latest schema is not a
+valid prerequisite check. If current objects are missing, stop and prepare a separately reviewed
+prerequisite change. A successful disposable-database rehearsal does not establish those objects
+on the hosted target.
 
-The protected migration workflow currently refuses Edge Function deployment. Do not deploy from a
-developer shell or treat the synthetic foundation workflow as production authority. An exact,
-reviewed function-deployment operation and its negative controls are required before activation.
+The generic migration workflow refuses caller-selected Edge Function deployment. The separate
+fixed `qa-sandbox-functions` operation is under preparation; its source, protection checks, target
+baseline and negative controls must be reviewed before activation. Do not deploy from a developer
+shell or treat the synthetic foundation workflow as production authority.
+
+The migration receipt can report `applied-verified-counts-changed` when a private full-row invariant
+changes while catalog verification passes. Investigate that warning before preparing a function
+activation packet. Concurrent production traffic can change those fingerprints, so the warning
+does not identify the cause. A successful migration exit code alone never authorizes QA activation.
+
+The latest read-only GitHub checks for the exact `supabase-production` environment returned HTTP
+404. Its presence, access and required configuration are unverified. Establish reviewed owner-only
+protection and explicit setup scope before either a protected baseline read or an apply job; do not
+let a workflow implicitly create an unprotected environment.
 
 ## Exact route scope
 
