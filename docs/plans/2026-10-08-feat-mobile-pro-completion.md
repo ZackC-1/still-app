@@ -22,3 +22,22 @@ Meaningful regressions must demonstrate the missing mobile behavior before repai
 Physical iPhone/iPad Safari and Firefox Android tests, including actual feed layouts and foreground/background autoplay, remain explicit engineering/owner QA gates. Record inability to obtain authenticated Facebook feed structure as a blocker for that feature rather than inventing a selector or claiming all twelve work.
 
 This source unit does not activate purchases, deploy the backend, alter live accounts or certify the full sandbox package set. The existing complete-delivery contract remains authoritative.
+
+## Checkpoint: mobile YouTube comments
+
+Integrated worker source `3719d088` adds the observed individual mobile comments entry point and
+dedicated, sole-child comments engagement panel. It preserves the shared metadata carousel and
+ambiguous mixed panels. Public phone-layout observation established those structures; the
+headless public player could not play the video, so actual mobile countdown/end-screen behavior
+and live chat remain unverified.
+
+Regenerated `packages/core/rules/format2.json` with the existing `sign-format2` development signer;
+no production signing key or hosted publication was used. Both generator consistency/free-rule
+protection and mobile rule suites passed (14 tests). The Chromium build succeeded and the two
+built-extension YouTube fixture suites passed all 21 tests, including mobile comments recycling,
+Off restoration, preservation and synthetic autoplay/playlist controls. These fixture tests use
+Chromium capabilities and the existing disposable purchased-access seam. They do not prove the
+Safari capability registry, Safari execution, Firefox Android or real mobile player behavior.
+
+Owner deferred Facebook sign-in; the private setup guide is prepared. Mobile sponsored-feed
+selectors and the corresponding all-twelve capability expansion remain unfinished.

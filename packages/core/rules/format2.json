@@ -68,7 +68,9 @@
           "action": "hide",
           "selectors": [
             "ytd-comments",
-            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]"
+            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]",
+            "comments-entry-point-teaser-view-model",
+            "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))"
           ]
         },
         {
@@ -245,6 +247,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "d0301145a62595faf5c96e4661078cfa3499e127a5a73d09e1e78b1bfb8d601caa9b9659ae0c0a769aab5d994142a53358caa3fdf4616692b6374f051e7dae06"
+    "value": "d650c34def423a2f7b67c91699b9b85a03bd0065aa3c95a889a8962b2e105ae9f62fc2ae235a7a95f7d5b1e0c20069764a43619c1d968b08db26790f4ee8340d"
   }
 }
