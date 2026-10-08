@@ -191,6 +191,22 @@ test("served fixture keeps actual entrypoints and checks the substituted provide
   const envFile = join(root, "private.env"),
     stateFile = join(root, "state.json");
   await prepareAccessFixture(checkout, root, envFile, stateFile);
+  // CLI 2.119.0 discovers and walks every enabled function before runtime startup,
+  // including policy routes outside the three substituted access providers.
+  const policyPath = "packages/shared-types/src/product-policy.ts";
+  assert.equal(
+    await readFile(join(root, policyPath), "utf8"),
+    await readFile(join(checkout, policyPath), "utf8"),
+  );
+  for (const name of ["product-policy", "product-policy-admin"]) {
+    const graph = JSON.parse(execFileSync("deno", [
+      "info", "--json", "--frozen", "--config",
+      join(root, "supabase/functions/deno.json"),
+      join(root, `supabase/functions/${name}/index.ts`),
+    ], { encoding: "utf8", stdio: "pipe" }));
+    assert.ok(graph.modules.some((module) => module.local === join(root, policyPath)));
+    assert.ok(graph.modules.every((module) => !module.error));
+  }
   const state = JSON.parse(await readFile(stateFile, "utf8"));
   assert.match(state.kid, /^access-rehearsal-[a-f0-9-]+$/);
   assert.match(state.publicHex, /^[a-f0-9]{64}$/);

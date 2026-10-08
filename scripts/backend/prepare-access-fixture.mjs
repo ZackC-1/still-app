@@ -25,7 +25,12 @@ export async function prepareAccessFixture(root, target, envFile, stateFile) {
           ),
     },
   );
-  for (const path of settingsRuntimeSources) {
+  // Serve walks all enabled functions before startup; the policy routes use a
+  // shared source deliberately absent from the settings runtime barrel.
+  for (const path of [
+    ...settingsRuntimeSources,
+    "packages/shared-types/src/product-policy.ts",
+  ]) {
     await mkdir(join(target, path, ".."), { recursive: true });
     await cp(join(root, path), join(target, path));
   }
