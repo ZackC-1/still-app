@@ -37,16 +37,14 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
       filter: (path) => path.endsWith("_shared") || path.endsWith(".ts"),
     },
   );
-  for (
-    const path of [
-      ...settingsRuntimeSources,
-      "supabase/functions/deno.json",
-      "supabase/functions/deno.lock",
-      "supabase/functions/sync-settings/index.ts",
-      "supabase/functions/sync-settings/deno.json",
-      "supabase/functions/sync-settings/deno.lock",
-    ]
-  ) {
+  for (const path of [
+    ...settingsRuntimeSources,
+    "supabase/functions/deno.json",
+    "supabase/functions/deno.lock",
+    "supabase/functions/sync-settings/index.ts",
+    "supabase/functions/sync-settings/deno.json",
+    "supabase/functions/sync-settings/deno.lock",
+  ]) {
     await mkdir(join(root, path, ".."), { recursive: true });
     await cp(join(checkout, path), join(root, path));
   }
@@ -63,7 +61,11 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   const rootLockBytes = await readFile(rootLockPath, "utf8");
   const functionLock = JSON.parse(functionLockBytes);
   const lock = JSON.parse(rootLockBytes);
-  assert.deepEqual(functionLock.npm, lock.npm);
+  // Other functions have additional dependencies. Every dependency in the settings
+  // closure must still match the shared reviewed version and integrity exactly.
+  for (const [name, entry] of Object.entries(functionLock.npm)) {
+    assert.deepEqual(entry, lock.npm[name], name);
+  }
   assert.deepEqual(functionLock.jsr, lock.jsr);
   const denoEnv = { ...process.env, DENO_DIR: join(root, "empty-deno-cache") };
   const graph = JSON.parse(
@@ -85,6 +87,7 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
     await readFile(join(root, "supabase/functions/deno.json"), "utf8"),
   ).imports;
   for (const [alias, specifier] of Object.entries(rootImports)) {
+    if (!(alias in imports)) continue;
     if (!specifier.startsWith("npm:") && !specifier.startsWith("jsr:")) {
       continue;
     }
@@ -101,7 +104,7 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   }
   assert.deepEqual(
     Object.keys(graph.npmPackages).sort(),
-    Object.keys(lock.npm).sort(),
+    Object.keys(functionLock.npm).sort(),
   );
   assert.equal(await readFile(functionLockPath, "utf8"), functionLockBytes);
   assert.equal(await readFile(rootLockPath, "utf8"), rootLockBytes);
@@ -120,7 +123,7 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
       ),
     /manifest/,
   );
-  for (const alias of ["./settings-v2.js", "./access.js"]) {
+  for (const alias of ["./settings-v2.js", "./access.js", "./access-wire.js"]) {
     const missingAlias = { ...imports };
     delete missingAlias[alias];
     assert.throws(
@@ -131,16 +134,14 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   }
   const scratch = await mkdtemp(join(tmpdir(), "still-settings-graph-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
-  const graphSources = graph.modules.filter((m) =>
-    m.local && m.specifier.startsWith("file:")
-  ).map((m) => relative(root, m.local));
-  for (
-    const path of [
-      ...graphSources,
-      "supabase/functions/sync-settings/deno.json",
-      "supabase/functions/sync-settings/deno.lock",
-    ]
-  ) {
+  const graphSources = graph.modules
+    .filter((m) => m.local && m.specifier.startsWith("file:"))
+    .map((m) => relative(root, m.local));
+  for (const path of [
+    ...graphSources,
+    "supabase/functions/sync-settings/deno.json",
+    "supabase/functions/sync-settings/deno.lock",
+  ]) {
     assert(!path.startsWith(".."));
     await mkdir(join(scratch, path, ".."), { recursive: true });
     await cp(join(root, path), join(scratch, path));
@@ -171,17 +172,21 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   await writeFile(functionLockPath, JSON.stringify(incompleteLock));
   assert.throws(
     () =>
-      execFileSync("deno", [
-        "info",
-        "--json",
-        "--config",
-        mapPath,
-        join(root, "supabase/functions/sync-settings/index.ts"),
-      ], {
-        encoding: "utf8",
-        env: denoEnv,
-        stdio: "pipe",
-      }),
+      execFileSync(
+        "deno",
+        [
+          "info",
+          "--json",
+          "--config",
+          mapPath,
+          join(root, "supabase/functions/sync-settings/index.ts"),
+        ],
+        {
+          encoding: "utf8",
+          env: denoEnv,
+          stdio: "pipe",
+        },
+      ),
     /lockfile is out of date/,
   );
   assert.equal(
@@ -197,7 +202,9 @@ test("handler workflows run the retained limiter assertion with exact source-rea
       join(root, ".github/workflows", workflow),
       "utf8",
     );
-    const command = source.match(/^\s*(?:run: )?(deno test[^\n]*)$/m)?.[1];
+    const command = [...source.matchAll(/^\s*(?:run: )?(deno test[^\n]*)$/gm)]
+      .map((match) => match[1])
+      .find((candidate) => candidate.includes("--allow-read="));
     assert(command, `Missing root handler test invocation: ${workflow}`);
     const args = command.split(/\s+/).slice(1);
     const permission = args.find((arg) => arg.startsWith("--allow-read="));
@@ -214,11 +221,15 @@ test("handler workflows run the retained limiter assertion with exact source-rea
     execFileSync("deno", [...args, "--no-prompt", entrypoint], options);
     assert.throws(
       () =>
-        execFileSync("deno", [
-          ...args.filter((arg) => arg !== permission),
-          "--no-prompt",
-          entrypoint,
-        ], options),
+        execFileSync(
+          "deno",
+          [
+            ...args.filter((arg) => arg !== permission),
+            "--no-prompt",
+            entrypoint,
+          ],
+          options,
+        ),
       (error) =>
         error.status === 1 && /Requires read access/.test(error.stdout),
     );
@@ -277,7 +288,9 @@ test("migration 0015 structural constants and fields equal the maintained gramma
   assert.deepEqual(actual, maintained.fields);
   assert.equal(maintained.servicePrefixes, true);
   assert.deepEqual(
-    /core_sites constant text\[\] := array\[([^\]]+)\]/.exec(sql)[1].split(",")
+    /core_sites constant text\[\] := array\[([^\]]+)\]/
+      .exec(sql)[1]
+      .split(",")
       .map((s) => s.trim().slice(1, -1)),
     maintained.coreSites,
   );
@@ -290,7 +303,10 @@ test("0015 post-apply verification pins the migration's exact routine bodies", a
     "utf8",
   );
   const verification = await readFile(
-    join(root, "scripts/backend/deploy/verify/0015_settings_sync_per_field.sql"),
+    join(
+      root,
+      "scripts/backend/deploy/verify/0015_settings_sync_per_field.sql",
+    ),
     "utf8",
   );
   // PostgreSQL stores the text between the dollar quotes verbatim as prosrc.
@@ -304,11 +320,16 @@ test("0015 post-apply verification pins the migration's exact routine bodies", a
     );
     const open = migration.indexOf("$$", start);
     const close = migration.indexOf("$$", open + 2);
-    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+    return createHash("md5")
+      .update(migration.slice(open + 2, close))
+      .digest("hex");
   }
   const pinned = new Map(
-    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)'(?:, (?:true|false), (?:true|false)|, '[a-z_]+'), '([0-9a-f]{32})'\)/g)]
-      .map((m) => [m[1], m[2]]),
+    [
+      ...verification.matchAll(
+        /\('((?:private|public)\.[a-z_]+)\([^)]*\)'(?:, (?:true|false), (?:true|false)|, '[a-z_]+'), '([0-9a-f]{32})'\)/g,
+      ),
+    ].map((m) => [m[1], m[2]]),
   );
   assert.deepEqual([...pinned.keys()].sort(), [
     "private.claim_settings_write",
@@ -354,11 +375,16 @@ test("0017 post-apply verification pins the migration's exact routine bodies", a
     );
     const open = migration.indexOf("$$", start);
     const close = migration.indexOf("$$", open + 2);
-    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+    return createHash("md5")
+      .update(migration.slice(open + 2, close))
+      .digest("hex");
   }
   const pinned = new Map(
-    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g)]
-      .map((m) => [m[1], m[2]]),
+    [
+      ...verification.matchAll(
+        /\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g,
+      ),
+    ].map((m) => [m[1], m[2]]),
   );
   assert.deepEqual([...pinned.keys()].sort(), [
     "private.analytics_anonymous_ids",
@@ -383,13 +409,17 @@ test("0017 post-apply verification pins the migration's exact routine bodies", a
 
 test("0018 post-apply verification pins the new routes' bodies and re-pins 0017's", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  const source = (file) => readFile(join(root, "supabase/migrations", file), "utf8");
+  const source = (file) =>
+    readFile(join(root, "supabase/migrations", file), "utf8");
   const sources = {
     "0018": await source("0018_analytics_account_erasure.sql"),
     "0017": await source("0017_analytics_erasure.sql"),
   };
   const verification = await readFile(
-    join(root, "scripts/backend/deploy/verify/0018_analytics_account_erasure.sql"),
+    join(
+      root,
+      "scripts/backend/deploy/verify/0018_analytics_account_erasure.sql",
+    ),
     "utf8",
   );
   function body(migration, name) {
@@ -402,13 +432,21 @@ test("0018 post-apply verification pins the new routes' bodies and re-pins 0017'
     );
     const open = migration.indexOf("$$", start);
     const close = migration.indexOf("$$", open + 2);
-    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+    return createHash("md5")
+      .update(migration.slice(open + 2, close))
+      .digest("hex");
   }
   const pinned = new Map(
-    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g)]
-      .map((m) => [m[1], m[2]]),
+    [
+      ...verification.matchAll(
+        /\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g,
+      ),
+    ].map((m) => [m[1], m[2]]),
   );
-  const added = ["private.analytics_account_erasure_status", "private.analytics_begin_account_erasure"];
+  const added = [
+    "private.analytics_account_erasure_status",
+    "private.analytics_begin_account_erasure",
+  ];
   assert.deepEqual([...pinned.keys()].sort(), [
     ...added,
     "private.analytics_begin_device_erasure",
@@ -422,15 +460,18 @@ test("0018 post-apply verification pins the new routes' bodies and re-pins 0017'
   ]);
   const replaced = ["private.analytics_begin_device_erasure"];
   for (const [name, digest] of pinned) {
-    if (added.includes(name) || replaced.includes(name)) assert.equal(body(sources["0018"], name), digest, name);
-    else if (name !== "public.consume_rate_limit") assert.equal(body(sources["0017"], name), digest, name);
+    if (added.includes(name) || replaced.includes(name))
+      assert.equal(body(sources["0018"], name), digest, name);
+    else if (name !== "public.consume_rate_limit")
+      assert.equal(body(sources["0017"], name), digest, name);
   }
   // 0018's device erasure is 0017's body plus exactly the ordered row lock, nothing else.
   const text = (migration, name) => {
     const start = migration.indexOf(`create or replace function ${name}(`);
     return migration.slice(start, migration.indexOf("end $$;", start) + 7);
   };
-  const lock = "  -- 0018: lock this device's subjects in subject_id order before changing any of them, the order\n" +
+  const lock =
+    "  -- 0018: lock this device's subjects in subject_id order before changing any of them, the order\n" +
     "  -- the account pre-step uses, so the two can never wait on each other in a cycle.\n" +
     "  perform 1 from private.analytics_subjects s where s.origin_key = k order by s.subject_id for update;\n";
   assert.equal(
@@ -438,14 +479,36 @@ test("0018 post-apply verification pins the new routes' bodies and re-pins 0017'
     text(sources["0017"], replaced[0]),
   );
   // The snapshot function is re-pinned at exactly 0017's value, which 0017's own check pins too.
-  const v17 = await readFile(join(root, "scripts/backend/deploy/verify/0017_analytics_erasure.sql"), "utf8");
-  assert.equal(pinned.get("private.analytics_snapshot_deleted_subject"), "5bbbec70399c1ac78f1eb39255c418c2");
-  assert.match(v17, /'private\.analytics_snapshot_deleted_subject\(\)', true, null::text\[\], '5bbbec70399c1ac78f1eb39255c418c2'/);
-  assert.match(sources["0018"], /'5bbbec70399c1ac78f1eb39255c418c2'/, "the self-check re-pins it too");
+  const v17 = await readFile(
+    join(root, "scripts/backend/deploy/verify/0017_analytics_erasure.sql"),
+    "utf8",
+  );
+  assert.equal(
+    pinned.get("private.analytics_snapshot_deleted_subject"),
+    "5bbbec70399c1ac78f1eb39255c418c2",
+  );
+  assert.match(
+    v17,
+    /'private\.analytics_snapshot_deleted_subject\(\)', true, null::text\[\], '5bbbec70399c1ac78f1eb39255c418c2'/,
+  );
+  assert.match(
+    sources["0018"],
+    /'5bbbec70399c1ac78f1eb39255c418c2'/,
+    "the self-check re-pins it too",
+  );
   for (const name of added) {
-    const start = sources["0018"].indexOf(`create or replace function ${name}(`);
-    const header = sources["0018"].slice(start, sources["0018"].indexOf("$$", start));
-    assert.match(header, /security definer set search_path = pg_catalog, pg_temp\s/, name);
+    const start = sources["0018"].indexOf(
+      `create or replace function ${name}(`,
+    );
+    const header = sources["0018"].slice(
+      start,
+      sources["0018"].indexOf("$$", start),
+    );
+    assert.match(
+      header,
+      /security definer set search_path = pg_catalog, pg_temp\s/,
+      name,
+    );
   }
   assert.doesNotMatch(sources["0018"], /search_path = ''/);
 });
@@ -453,8 +516,13 @@ test("0018 post-apply verification pins the new routes' bodies and re-pins 0017'
 test("0017 keeps 0015's limiter body and adds only three bucket names", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const limiter = async (file) => {
-    const source = await readFile(join(root, "supabase/migrations", file), "utf8");
-    const start = source.indexOf("create or replace function public.consume_rate_limit(");
+    const source = await readFile(
+      join(root, "supabase/migrations", file),
+      "utf8",
+    );
+    const start = source.indexOf(
+      "create or replace function public.consume_rate_limit(",
+    );
     const end = source.indexOf("\n$$;", start);
     assert(start >= 0 && end > start, `${file} limiter`);
     return source.slice(start, end + 4);
@@ -618,13 +686,11 @@ test("exact operation binds artifact, observed baseline, run and recovery scope"
     baseline,
     digest: operation.digest,
   });
-  for (
-    const changed of [
-      { ...baseline, runId: "124:1" },
-      { ...baseline, generation: 1 },
-      { ...baseline, securityBoundary: false },
-    ]
-  ) {
+  for (const changed of [
+    { ...baseline, runId: "124:1" },
+    { ...baseline, generation: 1 },
+    { ...baseline, securityBoundary: false },
+  ]) {
     await assert.rejects(
       verifyOperationPlan(root, operation, {
         revision,
@@ -634,14 +700,12 @@ test("exact operation binds artifact, observed baseline, run and recovery scope"
       }),
     );
   }
-  for (
-    const key of [
-      "artifactDigest",
-      "operations",
-      "expectedBaseline",
-      "sourceRevision",
-    ]
-  ) {
+  for (const key of [
+    "artifactDigest",
+    "operations",
+    "expectedBaseline",
+    "sourceRevision",
+  ]) {
     await assert.rejects(
       verifyOperationPlan(
         root,
@@ -696,20 +760,22 @@ test("function lock bytes participate in the rehearsal and exact operation diges
     baseline,
   });
   assert(
-    plan.files.some((file) =>
-      file.path === "supabase/functions/demo/deno.lock"
+    plan.files.some(
+      (file) => file.path === "supabase/functions/demo/deno.lock",
     ),
   );
   await writeFile(path, '{"version":"5","specifiers":{"changed":"1"}}\n');
   await assert.rejects(
     verifyPlan(root, plan, { revision, target, digest: plan.digest }),
   );
-  await assert.rejects(verifyOperationPlan(root, operation, {
-    revision,
-    target,
-    baseline,
-    digest: operation.digest,
-  }));
+  await assert.rejects(
+    verifyOperationPlan(root, operation, {
+      revision,
+      target,
+      baseline,
+      digest: operation.digest,
+    }),
+  );
 });
 
 test("settings endpoint binds every shared runtime source and rejects source drift", async (t) => {
@@ -732,7 +798,9 @@ test("settings endpoint binds every shared runtime source and rejects source dri
   }
   const plan = await createPlan(root, { revision, target });
   assert.deepEqual(
-    plan.files.filter((f) => f.path.startsWith("packages/")).map((f) => f.path)
+    plan.files
+      .filter((f) => f.path.startsWith("packages/"))
+      .map((f) => f.path)
       .sort(),
     [...settingsRuntimeSources].sort(),
   );
