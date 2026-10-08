@@ -738,6 +738,51 @@ describe("Apple account Restore ambiguity", () => {
 
 
 describe("Apple operation cleanup ownership", () => {
+  it.each(["account", "offering"] as const)("an account change during %s preflight releases Buy for the new account", async phase => {
+    const h = await harness();
+    const refreshAccountAccess = vi.fn(async () => access("locked"));
+    Object.assign(h.deps, {refreshAccountAccess});
+    h.setAccount(user);
+    await h.host.refresh();
+    await h.settle();
+    let release!: () => void;
+    if (phase === "account") refreshAccountAccess.mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve(access("locked"));
+    }));
+    else vi.mocked(h.deps.bridge.proOffering).mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve(offer);
+    }));
+    const buy = h.host.props([]).native.onBuy!;
+    buy();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(h.host.props([]).purchase.state).toBe("pending");
+    h.setAccount({...user, id:"dddddddd-dddd-4ddd-8ddd-dddddddddddd", revision:2});
+    release();
+    await h.host.refresh();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.host.props([]).purchase.state).toBe("idle");
+    buy();
+    await vi.waitFor(() => expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce());
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+  });
+  it("an account change preserves recovery after native purchase has completed", async () => {
+    const h = await harness();
+    let finish!: (value: BenefitAccessSnapshot) => void;
+    vi.mocked(h.deps.verifyLocalPurchase).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    h.host.props([]).native.onBuy?.();
+    finish(access("purchased"));
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    await h.host.refresh();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+  });
   it("an earlier account link completion cannot release a replacement account's purchase", async () => {
     const h = await harness();
     h.host.observeAccess(access("purchased"));

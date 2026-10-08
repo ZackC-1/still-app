@@ -8,6 +8,7 @@ import type {
 import { DEFAULT_SETTINGS, type SettingsV2 } from "@still/shared-types";
 import { type StoredSettingsRecord } from "@still/core/storage";
 import type { ExtensionSession, ExtensionSessionDeps } from "@still/core/sync";
+import { salesBody } from "./product-policy-fixtures.js";
 
 // Synthetic browser/SDK auth/realtime transport only. The maintained background,
 // session, SyncService, SupabaseBackendPort, SDK HTTP, cache and writer remain real.
@@ -91,6 +92,8 @@ async function start(
     configured?: boolean;
     scopedReply?: unknown;
     accessEnvironment?: string;
+    salesPolicy?: () => unknown;
+    build?: string;
   } = {},
 ) {
   vi.resetModules();
@@ -177,7 +180,7 @@ async function start(
     runtime: {
       id: "compatibility",
       getURL: (path: string) => origin + path,
-      getManifest: () => ({ version: "test" }),
+      getManifest: () => ({ version: options.build ?? "test" }),
       onMessage: {
         addListener: (listener: (typeof messages)[number]) =>
           messages.push(listener),
@@ -245,6 +248,15 @@ async function start(
         throw new Error("Outbound request forbidden");
       if (url.pathname.endsWith("/get_current_rule_set"))
         return new Response("{}", { status: 503 });
+      if (url.pathname.endsWith("/qa-sandbox-product-policy")) {
+        const policy = options.salesPolicy?.();
+        return policy === undefined ? new Response(null, {status:503}) : respond(policy);
+      }
+      if (url.pathname.endsWith("/qa-sandbox-create-web-checkout")) return respond({
+        operation_id: LINEAGE, status: "session_bound",
+        checkout_url: "https://checkout.stripe.com/c/pay/cs_test_synthetic",
+      });
+      if (url.pathname.endsWith("/qa-sandbox-complete-web-checkout")) return respond({operation_id: LINEAGE, status:"access_observed"});
       if (url.pathname.endsWith("/profiles")) return respond(row());
       if (url.pathname.endsWith("/entitlements"))
         return respond({ still_sync: false });
@@ -405,6 +417,40 @@ const signed = () => ({
   },
 });
 describe("configured modern paid background scoped access", () => {
+  it.each(["off", "unavailable", "wrong-environment"])("configured sandbox %s sales cannot create checkout", async state => {
+    const policy = JSON.parse(salesBody({build:"3.1.0", salesEnabled: state !== "off"}));
+    if (state !== "wrong-environment") policy.environment = "sandbox";
+    const h = await start({signedIn:true, flag:"true", build:"3.1.0", salesPolicy: () => state === "unavailable" ? undefined : policy});
+    h.requests.length = 0;
+    expect(await h.message({kind:"still:session", action:"createCheckout"})).toEqual({kind:"unavailable"});
+    expect(h.requests).toEqual([{path:"/functions/v1/qa-sandbox-product-policy", body:{namespace:"sales", environment:"sandbox"}}]);
+    expect(h.store["still:qa-checkout-operation"]).toBeUndefined();
+  });
+  it("configured sandbox checks fresh On before creating and durably retaining its test checkout", async () => {
+    const policy = {...JSON.parse(salesBody({build:"3.1.0"})), environment:"sandbox"};
+    const h = await start({signedIn:true, flag:"true", build:"3.1.0", salesPolicy: () => policy});
+    h.requests.length = 0;
+    expect(await h.message({kind:"still:session", action:"createCheckout"})).toEqual({
+      kind:"checkout-url", operationId:LINEAGE, url:"https://checkout.stripe.com/c/pay/cs_test_synthetic",
+    });
+    expect(h.requests).toEqual([
+      {path:"/functions/v1/qa-sandbox-product-policy", body:{namespace:"sales", environment:"sandbox"}},
+      {path:"/functions/v1/qa-sandbox-create-web-checkout", body:{access_schema:1}},
+    ]);
+    expect(h.store["still:qa-checkout-operation"]).toEqual({accountId:USER, operationId:LINEAGE});
+  });
+  it("configured sandbox completes an existing operation and restores rights while sales is Off", async () => {
+    const policy = {...JSON.parse(salesBody({build:"3.1.0", salesEnabled:false})), environment:"sandbox"};
+    const h = await start({signedIn:true, flag:"true", build:"3.1.0", salesPolicy: () => policy, scopedReply:signed()});
+    await h.spine!.stores.checkoutOperation!.set({accountId:USER, operationId:LINEAGE});
+    h.requests.length = 0;
+    expect(await h.message({kind:"still:session", action:"restore"})).toBe("entitled");
+    expect(h.requests).toEqual([
+      {path:"/functions/v1/qa-sandbox-complete-web-checkout", body:{access_schema:1, operation_id:LINEAGE}},
+      {path:"/functions/v1/qa-sandbox-reconcile-entitlement", body:{access_schema:1}},
+    ]);
+    expect(h.store["still:qa-checkout-operation"]).toBeUndefined();
+  });
   it("holds the QA session spine when modern settings are not enabled", async () => {
     const h = await start({ signedIn: true, flag: "", scopedReply: signed() });
     expect(h.spine).toBeUndefined();

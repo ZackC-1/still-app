@@ -80,6 +80,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let linkingRequested = false;
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
+  let preflightGeneration: number | undefined;
   const changed = () => {
     if (!stopped) deps.publish();
   };
@@ -173,6 +174,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // Re-read before charge: stale handles cannot offer a duplicate purchase.
     busy = true;
     const generation = ++epoch;
+    preflightGeneration = generation;
     let verifyingLocal = false;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
     restore = kind === "restore" ? { state: "checking" } : undefined;
@@ -220,6 +222,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         purchase = { state: "failed" };
         return;
       }
+      preflightGeneration = undefined;
       const result =
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
@@ -281,6 +284,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           : { state: "failed", onAction: () => void transact("restore") };
     } finally {
       if (generation === epoch) {
+        preflightGeneration = undefined;
         busy = false;
         void refreshLinkEligibility();
         changed();
@@ -401,6 +405,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       changed();
     },
     accountChanged() {
+      // Cancel only checks that have not reached native purchase/Restore. A dispatched
+      // purchase still needs its independent signed-rights recovery, never another charge.
+      if (preflightGeneration === epoch) {
+        preflightGeneration = undefined;
+        if (pendingKind === undefined) {
+          purchase = { state: "idle" };
+          restore = undefined;
+        }
+      }
       epoch++;
       busy = false;
       if (linkAccount && !sameAccount(linkAccount)) {
