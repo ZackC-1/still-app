@@ -1,7 +1,9 @@
 # Vibe Security audit and remediation
 
-Status: implementation in progress  
-Audit baseline: `e7cab90d` (current origin/main on October 7, 2026)  
+Status: implemented and locally verified; protected merge results are recorded on the linked PRs.
+
+Audit baseline: `e7cab90d` (current origin/main on October 7, 2026).
+
 Workspace: isolated `fix/vibe-security-audit-20261007`; owner checkout preserved.
 
 ## Scope and evidence
@@ -54,7 +56,7 @@ const text = await req.text();
 // Or await req.json(), or reader.read() without a deadline.
 ```
 
-After (planned):
+After:
 
 ```ts
 const text = await readBoundedBody(req, { maxBytes: 1024, timeoutMs: 2000 });
@@ -62,7 +64,7 @@ const text = await readBoundedBody(req, { maxBytes: 1024, timeoutMs: 2000 });
 // cancellation is started but never awaited.
 ```
 
-One PR will add a small shared transport reader and migrate the three affected handlers.
+PR #357 adds a small shared transport reader and migrates the three affected handlers.
 Keep complete, small legacy bodies compatible. Reject over-limit, aborted, errored,
 malformed UTF-8 and unfinished transport input before any account/provider work. Preserve
 OPTIONS/method responses and every existing successful request contract.
@@ -87,7 +89,7 @@ if (proof !== null) return identifySubject(...); // Only this path is limited.
 const account = await deps.accounts.account(userId);
 ```
 
-After (planned):
+After:
 
 ```ts
 const limited = await enforceRateLimit(limiter, "analytics-identify", userId, req, policy);
@@ -95,7 +97,7 @@ if (limited) return limited;
 const account = await deps.accounts.account(userId);
 ```
 
-A separate PR will wire the existing narrow PostgreSQL limiter into the legacy path with
+PR #358 wires the existing narrow PostgreSQL limiter into the legacy path with
 per-account/per-network windows. Missing/unavailable limiter configuration must refuse
 side-effecting identify while the unconfigured analytics no-op remains available. Preserve
 the released response contract, subject erasure behavior, and existing event schema. No
@@ -129,10 +131,10 @@ fixtures and native logic checks. No framework or unrelated dependency upgrade.
 Implement and publish each issue independently, in priority order. Commit scoped files only;
 protect owner untracked skill/configuration and other agents' work. Review actual final diffs,
 repair valid findings, require successful repository checks and use normal protected PR
-merges with the exact reviewed head. Fetch/rebase subsequent issue branches on merged main.
+merges with the exact reviewed head. Fetch and merge current main into subsequent issue branches.
 Do not bypass protections or deploy hosted functions/store artifacts as a side effect of Git.
 
-Final evidence will record lint, full typecheck, workspace tests, production build, Playwright
+Final evidence records lint, full typecheck, workspace tests, production build, Playwright
 fixtures, Deno lint/check/tests and relevant StillKit tests. Tests cover free accountless
 blocking, supported fixture routes, auth/session isolation, local settings/sync, purchases and
 restoration through existing synthetic boundaries. Real hosted account/payment journeys,
@@ -141,5 +143,50 @@ their existing release gates. A passing suite cannot establish perfect functiona
 
 ## Completion evidence
 
-Pending implementation and per-PR verification. Mem0 read failed due to its monthly quota;
-repository documents and the local work-state tracker hold this task's evidence.
+| Priority | Issue | Scoped PR |
+|---|---|---|
+| Medium | Bound actual request bytes and total ingestion time | [#357](https://github.com/ZackC-1/still-app/pull/357) |
+| Medium | Meter released-client analytics identification before side effects | [#358](https://github.com/ZackC-1/still-app/pull/358) |
+| Low application exposure | Patch the single vulnerable transitive dependency | [#359](https://github.com/ZackC-1/still-app/pull/359) |
+
+The first issue's six handler regressions failed before the fix and passed afterward. Four
+reader tests cover exact bytes, trickles and cancellation. Four legacy analytics security
+regressions likewise failed before the second fix. Six final analytics-limit tests cover
+budgets, IPv6 network keys, outages, no-op/auth behavior and the actual production entrypoint.
+
+Recorded local verification:
+
+- Workspace lint, full typecheck and ordinary production builds passed on the body-reader and
+  patched-dependency branches. Analytics-limit workspace lint/typecheck also passed.
+- Both full workspace runs passed 5,601 unit tests with 39 configured skips, plus 53 visual-runner
+  tests with one skip. The patched dependency passed frozen installation and production audit
+  with zero advisories.
+- Updated PR #358's Linux CI passed 5,549 workspace tests with 81 skips, 53 visual-runner tests
+  and all 117 release/versioning checks. Its additional skips are the macOS-only compiled
+  native authority, migration and lifecycle tests, which ran in the local macOS suite above.
+- Both local Playwright fixture runs passed 307 tests with 21 configuration-specific skips.
+  PR #357's required GitHub job also passed both lanes: unconfigured 307 passed/21 skipped,
+  configured 186 passed/142 skipped. Each lane excludes scenarios for the opposite build.
+- Real Firefox 156 passed all 15 fixture tests in a disposable profile.
+- Explicit local V3 builds passed for Chrome, Firefox, Safari and Apple web view, including
+  with the patched dependency. These are credential-free QA artifacts, not signed store builds.
+- Native StillKit passed all 417 tests. The actual Apple certificate/JWS boundary passed two
+  tests with 25 steps using ephemeral synthetic keys; no real purchase/provider was contacted.
+- Individual Deno suites passed: body-reader branch 374 tests/125 steps; analytics-limit branch
+  370 tests/125 steps. Each skipped the separately executed certificate case. Both passed Deno
+  lint and all 14 function entrypoint checks.
+- After integrating the merged body-reader fix into the analytics-limit branch, the combined
+  suite passed 380 tests and 125 steps with zero failures and one separately executed
+  certificate case skipped. Deno lint and all 14 entrypoint checks also passed together.
+
+Each PR requires the repository's three protected checks: lint/typecheck/unit/build,
+Playwright fixtures, and Deno functions. Later branches incorporate merged main before their
+final checks. PR checks and merge records are the authoritative evidence for protected merges.
+No hosted function, production database, store artifact or payment configuration is deployed
+by this work. The existing analytics-erasure or entitlement-writer database URL provides the
+narrow limiter connection; missing or unavailable limiter configuration fails closed for
+side-effecting identification. Deployment and live verification must follow the existing
+release procedures.
+
+Mem0 retrieval failed due to its monthly quota. Repository documents and the local work-state
+tracker hold this task's evidence; no successful remote memory write is claimed.
