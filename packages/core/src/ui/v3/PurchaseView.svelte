@@ -47,6 +47,7 @@
   );
   let canAcquire = $derived(
     acquisitionAuthority &&
+      !props.purchase.verificationRequired &&
       (props.purchase.state === "idle" || props.purchase.state === "failed"),
   );
   let actionAvailable = $derived(
@@ -184,7 +185,16 @@
         })}{/if}
     </div>
     <div class="ob-actions">
-      {#if owned}
+      {#if props.host === "apple" && props.purchase.verificationRequired}
+        {@render status({
+          tone: "caution",
+          text: "Your purchase needs to be verified.",
+          detail:
+            "Go online and verify it. Your free controls and saved choices stay.",
+          actionLabel: "Verify now",
+          onAction: props.native.verified ? props.native.onVerify : undefined,
+        })}
+      {:else if owned}
         {@render status({
           tone: "success",
           text: "You have Still Pro.",
@@ -216,6 +226,7 @@
             <button
               type="button"
               class="primary block"
+              disabled={true}
               aria-busy="true"
               aria-disabled="true"
               onclick={acquire}
@@ -227,7 +238,7 @@
             <button
               type="button"
               class="primary block"
-              disabled={!actionAvailable}
+              disabled={!canAcquire || !actionAvailable}
               onclick={acquire}>Get Still Pro</button
             >
           {/if}

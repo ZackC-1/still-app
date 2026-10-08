@@ -1,4 +1,7 @@
 import { mount } from "svelte";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+import type { AppleProHostDeps } from "@still/core/ui/v3/apple-pro-host";
+import type { ApplePurchaseLinkAuthority } from "@still/core/sync";
 import { createClient, type SupabaseClient, type SupportedStorage } from "@supabase/supabase-js";
 import "@still/core/ui/tokens.css";
 import {
@@ -16,7 +19,8 @@ import {
   type AuthPersistence,
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
-import { NativeBridge, openNativeDestination } from "@still/core/native";
+import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
+import { packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
@@ -95,6 +99,15 @@ const analytics = createAppAnalytics({
 });
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
+// Configured modern builds use issuer proofs and the native atomic installer.
+let applePurchaseAuthority: {
+  verifyLocalPurchase: AppleProHostDeps["verifyLocalPurchase"];
+  readLinkEligibility: AppleProHostDeps["readLinkEligibility"];
+  ownershipRevision: AppleProHostDeps["ownershipRevision"];
+  purchaseLink: ApplePurchaseLinkAuthority;
+} | undefined;
+let appleProServices: Pick<AppleProHostDeps,
+  "bridge" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
 
 if (supabaseUrl && supabaseAnonKey) {
   const sessionStorage = safeStorage();
@@ -114,6 +127,43 @@ if (supabaseUrl && supabaseAnonKey) {
     undefined,
     reviewEmail ? { email: reviewEmail } : undefined,
   );
+  if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && bridge.available) {
+    const authority = createApplePurchaseAuthority({
+      trust: packagedAccessTrust({
+        environment: import.meta.env.VITE_ACCESS_ENVIRONMENT,
+        publicKeys: import.meta.env.VITE_ACCESS_PUBLIC_KEYS,
+      }),
+      bridge,
+      readVerifiedAccount: () => authPort.currentVerifiedAccount(),
+      readAccessToken: async () => {
+        const before = await supabase.auth.getSession();
+        if (before.error || !before.data.session) return null;
+        const account = await authPort.currentVerifiedAccount();
+        const after = await supabase.auth.getSession();
+        if (after.error || !account?.emailConfirmed || account.id !== before.data.session.user.id ||
+          after.data.session?.access_token !== before.data.session.access_token) return null;
+        return { accountId: account.id, accessToken: before.data.session.access_token };
+      },
+      verifyLocal: async body => {
+        const { data, error } = await supabase.functions.invoke("verify-apple-access", { body });
+        if (error) throw error;
+        return data;
+      },
+      fulfillLink: async body => {
+        const { data, error } = await supabase.functions.invoke("link-apple-access", { body });
+        if (error) throw error;
+        return data;
+      },
+    });
+    applePurchaseAuthority = authority;
+    // This callback does no SDK work: Supabase holds its auth lock while notifying listeners.
+    supabase.auth.onAuthStateChange(event => {
+      if (event !== "TOKEN_REFRESHED" && event !== "INITIAL_SESSION") authority.invalidateAccount();
+    });
+    void authority.refreshOwnership().catch(() => {});
+    // This refresh issues device-local proofs only; it never links an account on launch.
+    void authority.verifyLocalPurchase().catch(() => {});
+  }
   // atomic-cloud syncs the committed record per field through the modern sync function; every
   // other configured build keeps exactly the legacy whole-record construction.
   const backend =
@@ -193,6 +243,8 @@ if (supabaseUrl && supabaseAnonKey) {
     controller,
     sync,
     bridge,
+    purchaseLinkMode: appleSettingsMode === "legacy" ? "legacy" : "explicit",
+    purchaseLink: applePurchaseAuthority?.purchaseLink,
     exchangeAppleCredential: async (cred) => {
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: "apple",
@@ -206,6 +258,15 @@ if (supabaseUrl && supabaseAnonKey) {
     onAccountAbsent: () => void analytics.accountAbsent(),
   });
 
+  if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && applePurchaseAuthority) {
+    appleProServices = {
+      bridge,
+      verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
+      readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
+      ownershipRevision: applePurchaseAuthority.ownershipRevision,
+      linkPurchase: intent => session.linkPurchase(intent),
+    };
+  }
   controller.retrySync = () => sync.retryNow();
   window.addEventListener("online", () => void sync.retryNow());
 
@@ -222,7 +283,7 @@ if (supabaseUrl && supabaseAnonKey) {
       controller.rehydrateCodeEntry({
         email: pending.email,
         requestedAt: typeof pending.requestedAt === "number" ? pending.requestedAt : undefined,
-        purchaseIntent: (await sessionStorage.getItem(PURCHASE_INTENT_KEY)) === "1",
+        purchaseIntent: appleSettingsMode === "legacy" && (await sessionStorage.getItem(PURCHASE_INTENT_KEY)) === "1",
       });
     } catch {
       /* unreadable record — the user simply starts from the email field */
@@ -328,6 +389,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
         restoreBridge: appleRestoreBridge(bridge),
+        proServices: appleProServices,
         // "Open Safari Settings" on the setup card: one fixed destination, from the tap.
         openDestination: (destination) => void openNativeDestination(destination),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),

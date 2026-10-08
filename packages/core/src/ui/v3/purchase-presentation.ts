@@ -22,6 +22,8 @@ interface PurchaseViewCommon {
   purchase: {
     state: "idle" | "pending" | "failed" | "success";
     confirmed?: boolean;
+    /** Charged/native pending evidence awaiting signed verification; never a new acquisition. */
+    verificationRequired?: boolean;
   };
   restore?: {
     state: RestoreStatusCardProps["state"] | "unknown";
@@ -50,6 +52,8 @@ export type PurchaseViewProps = PurchaseViewCommon &
           verified: boolean;
           onBuy?: () => void;
           onRestore?: () => void;
+          /** Retry the existing local signed fulfillment without asking Apple to charge again. */
+          onVerify?: () => void;
         };
       }
   );

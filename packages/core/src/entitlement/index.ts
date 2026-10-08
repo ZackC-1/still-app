@@ -17,3 +17,6 @@ export {
 } from "./chrome-adapter.js";
 export * from "./local-protection.js";
 export { WKBenefitAccessAdapter, type NativeBenefitSource } from "./wk-benefit-adapter.js";
+export * from "./account-access-transport.js";
+
+export { packagedAccessTrust } from "./packaged-access-trust.js";

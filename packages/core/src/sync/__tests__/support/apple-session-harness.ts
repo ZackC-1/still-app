@@ -34,6 +34,8 @@ export function harness(opts: {
   /** What the (fake) reconcile lands in the controller when enterSession runs. */
   onSignedInState?: Partial<SyncState>;
   exchange?: AppleSessionDeps["exchangeAppleCredential"];
+  purchaseLinkMode?: AppleSessionDeps["purchaseLinkMode"];
+  purchaseLink?: AppleSessionDeps["purchaseLink"];
 } = {}) {
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
   const controller = new UiController({
@@ -67,6 +69,8 @@ export function harness(opts: {
     sync,
     bridge,
     exchangeAppleCredential: opts.exchange ?? (async () => ({ userId: "u1" })),
+    purchaseLinkMode: opts.purchaseLinkMode,
+    purchaseLink: opts.purchaseLink,
   });
   return { session, controller, bridge, sync };
 }

@@ -4,9 +4,10 @@ import {
   FEATURE_IDS, PAID_ACCESS_WINDOW_MS, STILL_PRO_V3_BENEFITS,
   type AccessClaims, type AccessEnvelope, type AccessEnvironment, type BenefitId,
   type ProtectedBenefitSnapshot,
+  canonicalAccessClaims, accessSigningBytes, encodeAccessBase64,
 } from "@still/shared-types";
 
-const DOMAIN = "still-access-proof-v1\n";
+export { canonicalAccessClaims, accessSigningBytes, encodeAccessBase64 } from "@still/shared-types";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ID = /^[a-z0-9][a-z0-9._-]{0,95}$/;
 const B64 = /^[A-Za-z0-9_-]+$/;
@@ -39,9 +40,6 @@ export function isSafeAccessInteger(value: unknown): value is number { return ty
 export function isAccessUUID(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
 export function isPaidAccess(claims: AccessClaims): boolean { return claims.kind === "paid_account" || claims.kind === "paid_apple_local"; }
 
-export function encodeAccessBase64(bytes: Uint8Array): string {
-  return btoa(Array.from(bytes, b => String.fromCharCode(b)).join("")).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
 function decodeBase64(value: unknown, max: number): Uint8Array | null {
   if (typeof value !== "string" || !B64.test(value) || value.length > Math.ceil(max * 4 / 3) || value.length % 4 === 1) return null;
   try {
@@ -50,15 +48,6 @@ function decodeBase64(value: unknown, max: number): Uint8Array | null {
   } catch { return null; }
 }
 
-export function canonicalAccessClaims(claims: AccessClaims): string {
-  return JSON.stringify({ schema: claims.schema, issuer: claims.issuer, environment: claims.environment,
-    audience: claims.audience, kind: claims.kind, provenance: claims.provenance, right: claims.right,
-    holder: claims.holder, product: claims.product, benefits: claims.benefits,
-    ownership_revision: claims.ownership_revision, verified_at: claims.verified_at,
-    ...(isPaidAccess(claims) ? { expires_at: claims.expires_at } : {}),
-  });
-}
-export function accessSigningBytes(payload: string): Uint8Array { return new TextEncoder().encode(DOMAIN + payload); }
 
 /** Text admission is deliberate: duplicate members cannot be detected after JSON.parse. */
 export async function verifyAccessProof(text: string, trust: AccessTrust): Promise<AccessProofResult> {

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Product-analytics identity for the Apple apps and their Safari extensions, mirroring
 /// `packages/core/src/analytics/identity.ts`:
@@ -174,17 +175,28 @@ public final class AnalyticsIdentityStore {
 
   /// On unless the person turned it off.
   public var consent: Bool {
-    group.object(forKey: Self.consentKey) as? Bool ?? true
+    if let permission = analyticsPermission { return permission["state"] as? String == "granted" }
+    return group.object(forKey: Self.consentKey) as? Bool ?? true
   }
 
   public func setConsent(_ enabled: Bool) {
+    // A legacy switch must never recreate a combined permission or discard its stop authority.
+    if var permission = analyticsPermission {
+      if !enabled, permission["state"] as? String == "granted" {
+        permission["state"] = "stopped"
+        guard let generation = Self.integer(permission["generation"]) else { return }
+        permission["generation"] = min(9_007_199_254_740_991, generation + 1)
+        _ = commitAnalyticsPermission(permission)
+      }
+      return
+    }
     group.set(enabled, forKey: Self.consentKey)
   }
 
   /// True once a choice was written, either way. Before that `consent` reads the default (on),
   /// which is not an answer, so nothing may present it as a saved choice.
   public var consentAnswered: Bool {
-    (group.object(forKey: Self.consentKey) as? Bool) != nil
+    analyticsPermission != nil || (group.object(forKey: Self.consentKey) as? Bool) != nil
   }
 
   /// The `setAnalyticsConsent` bridge reply: write the person's explicit choice, then report the
@@ -192,6 +204,74 @@ public final class AnalyticsIdentityStore {
   public func commitConsent(_ enabled: Bool) -> [String: Any] {
     setConsent(enabled)
     return ["ok": true, "enabled": consent, "answered": consentAnswered]
+  }
+
+  /// The same per-installation consent slot, with the current combined permission schema.
+  /// Reading an older Boolean never grants permission, creates identities, or writes anything.
+  public var analyticsPermission: [String: Any]? {
+    guard let raw = group.string(forKey: Self.consentKey), raw.utf8.count <= 4_096, !raw.contains("\\"),
+          let data = raw.data(using: .utf8),
+          let value = try? JSONSerialization.jsonObject(with: data) else { return nil }
+    // All record keys are fixed ASCII. Reject duplicate/escaped keys before JSON's dictionary
+    // decoding could hide them; every value is a Boolean, integer, or bounded ASCII string.
+    guard let keys = try? NSRegularExpression(pattern: #""([^"\\]+)"\s*:"#),
+          keys.numberOfMatches(in: raw, range: NSRange(raw.startIndex..., in: raw)) == 12
+    else { return nil }
+    return Self.readAnalyticsPermission(value)
+  }
+
+  public func analyticsPermissionReply() -> [String: Any] {
+    if let permission = analyticsPermission { return ["ok": true, "permission": permission] }
+    // Preserve an Off choice without inventing an optional identity or a fresh permission.
+    if group.object(forKey: Self.consentKey) as? Bool == false { return ["ok": true, "permission": false] }
+    return ["ok": true, "permission": NSNull()]
+  }
+
+  /// Used by the existing shared consent authority after a fresh reviewed choice. A write is
+  /// acknowledged only after readback; legacy true and malformed records cannot reach this lane.
+  public func commitAnalyticsPermission(_ value: Any) -> [String: Any] {
+    if let boolean = value as? NSNumber, CFGetTypeID(boolean) == CFBooleanGetTypeID() {
+      guard !boolean.boolValue else { return ["ok": false] }
+      setConsent(false)
+      guard !consent else { return ["ok": false] }
+      return analyticsPermissionReply()
+    }
+    guard let permission = Self.readAnalyticsPermission(value),
+          let data = try? JSONSerialization.data(withJSONObject: permission, options: [.sortedKeys]),
+          let raw = String(data: data, encoding: .utf8) else { return ["ok": false] }
+    group.set(raw, forKey: Self.consentKey)
+    guard let stored = analyticsPermission,
+          NSDictionary(dictionary: stored).isEqual(to: permission) else { return ["ok": false] }
+    return analyticsPermissionReply()
+  }
+
+  private static func readAnalyticsPermission(_ value: Any) -> [String: Any]? {
+    guard let v = value as? [String: Any],
+          Set(v.keys) == Set(["schemaVersion", "state", "version", "origin", "generation", "provider", "purposes"]),
+          let schema = integer(v["schemaVersion"]), schema == 1,
+          let state = v["state"] as? String, state == "granted" || state == "stopped",
+          let version = v["version"] as? String, version.utf8.count == 64,
+          version.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+          let origin = v["origin"] as? String, isId(origin),
+          let generation = integer(v["generation"]), generation >= 1,
+          let provider = v["provider"] as? [String: Any], Set(provider.keys) == Set(["anonymousId", "deviceId"]),
+          let anonymous = provider["anonymousId"] as? String, isId(anonymous),
+          let device = provider["deviceId"] as? String, isId(device), anonymous != device,
+          let purposes = v["purposes"] as? [String: Any], Set(purposes.keys) == Set(["usage", "email", "ai"]),
+          purposes.values.allSatisfy({ item in
+            guard let number = item as? NSNumber else { return false }
+            return CFGetTypeID(number) == CFBooleanGetTypeID() && number.boolValue
+          }) else { return nil }
+    return ["schemaVersion": 1, "state": state, "version": version, "origin": origin,
+            "generation": generation, "provider": ["anonymousId": anonymous, "deviceId": device],
+            "purposes": ["usage": true, "email": true, "ai": true]]
+  }
+
+  private static func integer(_ value: Any?) -> Int64? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue.isFinite, abs(number.doubleValue) <= 9_007_199_254_740_991,
+          number.doubleValue.rounded() == number.doubleValue else { return nil }
+    return number.int64Value
   }
 
   public func acknowledgeNotice() {

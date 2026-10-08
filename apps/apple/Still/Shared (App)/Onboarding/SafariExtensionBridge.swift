@@ -47,7 +47,7 @@ enum SafariExtensionBridge {
     if let qa = QAHooks.safariStatusOverride { return qa }
     #endif
     #if os(macOS)
-    await withCheckedContinuation { (continuation: CheckedContinuation<SafariExtensionStatus, Never>) in
+    return await withCheckedContinuation { (continuation: CheckedContinuation<SafariExtensionStatus, Never>) in
       SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleID) { state, error in
         guard let state, error == nil else {
           continuation.resume(returning: .unknown)

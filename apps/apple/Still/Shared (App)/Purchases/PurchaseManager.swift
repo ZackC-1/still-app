@@ -69,6 +69,39 @@ private final class Once: @unchecked Sendable {
 struct ReceiptRead: Sendable, Equatable {
   let status: ReceiptStatus
   let ownershipIsPurchased: Bool
+  var productID: String? = nil
+}
+
+/// The current-entitlements sequence omits refunds: publish verified history before reading it.
+/// Ports return only observations produced by the native StoreKit verification adapter below.
+@MainActor
+enum AppleOwnershipScan {
+  static func run(products: [String], latest: (String) async -> NativeAppleOwnershipObservation,
+    current: () async -> NativeAppleOwnershipObservation,
+    onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> NativeAppleOwnershipObservation {
+    var history = false, uncertain = false
+    var revocations: [NativeVerifiedAppleRevocation] = []
+    func consume(_ observation: NativeAppleOwnershipObservation) {
+      switch observation {
+      case .unknown: uncertain = true
+      case .purchaseHistory: history = true
+      case .verifiedRevocations(let verified):
+        history = true
+        for revocation in verified { revocations.append(revocation); onVerifiedRevocation(revocation) }
+      case .noPurchases: break
+      }
+    }
+    for product in products {
+      if Task.isCancelled { return revocations.isEmpty ? .unknown : .verifiedRevocations(revocations) }
+      consume(await latest(product))
+    }
+    // Known removal is sufficient. A slow currentEntitlements must never delay its publication.
+    if !revocations.isEmpty { return .verifiedRevocations(revocations) }
+    if Task.isCancelled { return .unknown }
+    consume(await current())
+    if !revocations.isEmpty { return .verifiedRevocations(revocations) }
+    return uncertain ? .unknown : history ? .purchaseHistory : .noPurchases
+  }
 }
 
 @MainActor
@@ -108,6 +141,8 @@ final class PurchaseManager {
 
   /// Last bounded receipt read (also mirrored into `stillReceiptStatusCache` for the bridge).
   private(set) var lastReceiptRead = ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+  /// Held until StoreKit itself settles, even if the web reply reaches its deadline first.
+  private var modernPurchaseInFlight: Task<ApplePurchaseActionResult, Never>?
 
   private init() {}
 
@@ -122,7 +157,7 @@ final class PurchaseManager {
   /// would otherwise hang the web layer's promise forever — and a hung launch receipt read would
   /// defer install-id publication and startup indefinitely (R16). Matches the web side's 8s
   /// edge-call ceiling (EDGE_FN_TIMEOUT_MS).
-  private static let identityTransitionTimeoutNs: UInt64 = 8_000_000_000
+  private nonisolated static let identityTransitionTimeoutNs: UInt64 = 8_000_000_000
 
   /// Await an SDK completion with a resume-once guard and the deadline above. Returns the
   /// completion's success flag; the deadline path counts as failure (unknown ≠ settled), so
@@ -134,6 +169,25 @@ final class PurchaseManager {
       Task {
         try? await Task.sleep(nanoseconds: identityTransitionTimeoutNs)
         once.run { continuation.resume(returning: false) } // deadline: settle the bridge, fail closed
+      }
+    }
+  }
+
+  private static func bounded<T>(_ deadline: UInt64 = identityTransitionTimeoutNs, fallback: T,
+    cancelOnTimeout: Bool = false, _ operation: @escaping @MainActor () async -> T) async -> T {
+    let once = Once()
+    let operationTask = Task { @MainActor in await operation() }
+    return await withCheckedContinuation { continuation in
+      Task { @MainActor in
+        let result = await operationTask.value
+        once.run { continuation.resume(returning: result) }
+      }
+      Task {
+        try? await Task.sleep(nanoseconds: deadline)
+        once.run {
+          if cancelOnTimeout { operationTask.cancel() }
+          continuation.resume(returning: fallback)
+        }
       }
     }
   }
@@ -223,9 +277,194 @@ final class PurchaseManager {
   /// resolves to nil here, which flows to the `.unavailable` outcome — never a purchase.
   private func stillProPackage() async -> Package? {
     guard isConfigured else { return nil }
-    let offerings = try? await Purchases.shared.offerings()
-    let packages = offerings?.current?.availablePackages ?? []
-    return packages.first { $0.storeProduct.productIdentifier == Self.productID }
+    let offerings = await Self.bounded(fallback: Optional<Offerings>.none) {
+      try? await Purchases.shared.offerings()
+    }
+    guard let offeringID = ApplePurchaseCatalog.stillProV3.offeringID,
+          let offering = offerings?.all[offeringID], offering.identifier == offeringID else { return nil }
+    let matches = offering.availablePackages.filter { self.offering(for: $0) != nil }
+    return matches.count == 1 ? matches[0] : nil
+  }
+
+  private func offering(for package: Package) -> AppleLifetimeOffering? {
+    guard package.storeProduct.price > 0, let currency = package.storeProduct.currencyCode else { return nil }
+    return ApplePurchaseCatalog.lifetimeOffering(offeringID: package.offeringIdentifier,
+      packageID: package.identifier, productID: package.storeProduct.productIdentifier,
+      isLifetime: package.packageType == .lifetime,
+      isNonConsumable: package.storeProduct.productType == .nonConsumable,
+      price: package.storeProduct.localizedPriceString, currencyCode: currency)
+  }
+
+  func lifetimeOffering() async -> AppleLifetimeOffering? {
+    guard let package = await stillProPackage() else { return nil }
+    return offering(for: package)
+  }
+
+  /// Deliberate account association accepts personally purchased transactions only.
+  func applePurchaseEvidence(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> [String: String]? {
+    await appleEvidence(allowFamilyShared: false, onVerifiedRevocation: onVerifiedRevocation)
+  }
+
+  /// Anonymous local validation may also prove a currently verified family entitlement.
+  /// This request supplies no client ownership flag; the native StoreKit result is authoritative.
+  func appleLocalPurchaseEvidence(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> [String: String]? {
+    await appleEvidence(allowFamilyShared: true, onVerifiedRevocation: onVerifiedRevocation)
+  }
+
+  private func appleEvidence(allowFamilyShared: Bool, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void) async -> [String: String]? {
+    await Self.bounded(fallback: Optional<[String: String]>.none) {
+      for product in ApplePurchaseCatalog.all {
+        guard let result = await Transaction.latest(for: product.productID), case .verified(let transaction) = result else { continue }
+        if let revocation = Self.verifiedNativeRevocation(transaction, jws: result.jwsRepresentation) {
+          onVerifiedRevocation(revocation); continue
+        }
+        guard transaction.productID == product.productID, transaction.revocationDate == nil,
+          transaction.expirationDate.map({ $0 > Date() }) ?? true,
+          let identity = Self.verifiedNativeIdentity(transaction, jws: result.jwsRepresentation),
+          allowFamilyShared || identity.ownership == .purchased else { continue }
+        return ["productId": transaction.productID, "bundleId": identity.appBundleId,
+          "signedTransaction": result.jwsRepresentation]
+      }
+      return nil
+    }
+  }
+
+  /// Known verified refunds publish immediately, even if a later StoreKit read times out.
+  /// Unknown/unverified results neither manufacture absence nor revoke a cached signed right.
+  func observeAppleOwnership(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> NativeAppleOwnershipObservation {
+    await Self.bounded(3_000_000_000, fallback: NativeAppleOwnershipObservation.unknown, cancelOnTimeout: true) {
+      await AppleOwnershipScan.run(products: ApplePurchaseCatalog.all.map { $0.productID }, latest: { productID in
+        guard let result = await Transaction.latest(for: productID) else { return .noPurchases }
+        switch result {
+        case .unverified: return .unknown
+        case .verified(let transaction):
+          if let revocation = Self.verifiedNativeRevocation(transaction, jws: result.jwsRepresentation) {
+            return .verifiedRevocations([revocation])
+          }
+          return .purchaseHistory
+        }
+      }, current: {
+        var history = false, uncertain = false
+        for await result in Transaction.currentEntitlements {
+          if Task.isCancelled { return .unknown }
+          switch result {
+          case .unverified: uncertain = true
+          case .verified(let transaction):
+            if ApplePurchaseCatalog.all.contains(where: { $0.productID == transaction.productID }) { history = true }
+          }
+        }
+        return uncertain ? .unknown : history ? .purchaseHistory : .noPurchases
+      }, onVerifiedRevocation: onVerifiedRevocation)
+    }
+  }
+
+  /// Both grants and refunds use the same metadata parser after StoreKit cryptographic verification.
+  private static func verifiedNativeIdentity(_ transaction: Transaction, jws: String) -> NativeVerifiedApplePurchase? {
+    guard let bundle = Bundle.main.bundleIdentifier,
+      ApplePurchaseCatalog.all.contains(where: { $0.productID == transaction.productID }),
+      transaction.ownershipType == .purchased || transaction.ownershipType == .familyShared else { return nil }
+    let parts = jws.split(separator: ".")
+    guard parts.count == 3, parts[1].utf8.count <= 32_768 else { return nil }
+    let segment = String(parts[1])
+    guard segment.count % 4 != 1 else { return nil }
+    let padded = segment.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/") +
+      String(repeating: "=", count: (4 - segment.count % 4) % 4)
+    guard let payload = Data(base64Encoded: padded),
+      let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+      claims["bundleId"] as? String == bundle, claims["productId"] as? String == transaction.productID,
+      claims["originalTransactionId"] as? String == String(transaction.originalID),
+      let environment = claims["environment"] as? String, ["Production", "Sandbox"].contains(environment)
+    else { return nil }
+    return NativeVerifiedApplePurchase(environment: environment == "Production" ? "production" : "sandbox",
+      appBundleId: bundle, productId: transaction.productID, originalTransactionId: String(transaction.originalID),
+      ownership: transaction.ownershipType == .purchased ? .purchased : .familyShared,
+      isRevoked: transaction.revocationDate != nil)
+  }
+
+  private static func verifiedNativeRevocation(_ transaction: Transaction, jws: String) -> NativeVerifiedAppleRevocation? {
+    guard let date = transaction.revocationDate,
+      let identity = verifiedNativeIdentity(transaction, jws: jws) else { return nil }
+    let milliseconds = date.timeIntervalSince1970 * 1000
+    guard milliseconds.isFinite, milliseconds >= 0, milliseconds <= 9_007_199_254_740_991 else { return nil }
+    return NativeVerifiedAppleRevocation(identity: identity, revokedAt: Int(milliseconds))
+  }
+
+  /// Independent current StoreKit oracle for installation; a revoked purchase never grants.
+  func verifiedApplePurchaseIdentity(productId: String, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> NativeVerifiedApplePurchase? {
+    guard ApplePurchaseCatalog.all.contains(where: { $0.productID == productId }) else { return nil }
+    return await Self.bounded(fallback: Optional<NativeVerifiedApplePurchase>.none) {
+      guard let result = await Transaction.latest(for: productId), case .verified(let transaction) = result else { return nil }
+      if let revocation = Self.verifiedNativeRevocation(transaction, jws: result.jwsRepresentation) {
+        onVerifiedRevocation(revocation); return nil
+      }
+      guard transaction.productID == productId, transaction.revocationDate == nil,
+        transaction.expirationDate.map({ $0 > Date() }) ?? true else { return nil }
+      return Self.verifiedNativeIdentity(transaction, jws: result.jwsRepresentation)
+    }
+  }
+
+  /// Link eligibility is purchaser-only, including the historical product, with one bounded
+  /// deadline across the native reads. Only current StoreKit verification supplies these tuples.
+  func verifiedAppleLinkPurchaseIdentities(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> [NativeVerifiedApplePurchase]? {
+    await Self.bounded(3_000_000_000, fallback: Optional<[NativeVerifiedApplePurchase]>.none, cancelOnTimeout: true) {
+      var identities: [NativeVerifiedApplePurchase] = []
+      for product in ApplePurchaseCatalog.all {
+        if Task.isCancelled { return nil }
+        guard let result = await Transaction.latest(for: product.productID), case .verified(let transaction) = result else { continue }
+        if let revocation = Self.verifiedNativeRevocation(transaction, jws: result.jwsRepresentation) {
+          onVerifiedRevocation(revocation); continue
+        }
+        guard transaction.productID == product.productID, transaction.revocationDate == nil,
+          transaction.expirationDate.map({ $0 > Date() }) ?? true,
+          let identity = Self.verifiedNativeIdentity(transaction, jws: result.jwsRepresentation),
+          identity.ownership == .purchased else { continue }
+        identities.append(identity)
+      }
+      return identities
+    }
+  }
+
+  /// V3 purchases do not associate a Still account. Re-read the displayed offer before charging,
+  /// join repeated taps, and require a fresh verified exact-product receipt for purchase feedback.
+  func purchasePro(offer: AppleLifetimeOffering, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ApplePurchaseActionResult {
+    if let modernPurchaseInFlight {
+      return await Self.bounded(120_000_000_000, fallback: ApplePurchaseActionResult(.pending)) {
+        await modernPurchaseInFlight.value
+      }
+    }
+    let task = Task { @MainActor in
+      let receipt = await self.refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
+      if receipt == .entitled {
+        return ApplePurchaseActionResult(.restored, receipt: receipt, productId: self.lastReceiptRead.productID)
+      }
+      guard let fresh = await self.lifetimeOffering(), fresh == offer else {
+        return ApplePurchaseActionResult(.unavailable)
+      }
+      // Deliberate purchase may repair a stale SDK identity; ordinary V3 sign-in never re-keys it.
+      guard self.currentAppUserID == nil, await self.ensureAnonymousIdentity() else {
+        return ApplePurchaseActionResult(.staleIdentity)
+      }
+      let outcome = await self.purchaseStillPro(expectedOffer: offer, onVerifiedRevocation: onVerifiedRevocation)
+      let status = await self.refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
+      let mapped: ApplePurchaseActionOutcome
+      switch outcome {
+      case .purchased: mapped = .purchased
+      case .cancelled: mapped = .cancelled
+      case .pending: mapped = .pending
+      case .unavailable: mapped = .unavailable
+      case .staleIdentity: mapped = .staleIdentity
+      case .failed: mapped = .failed
+      }
+      return ApplePurchaseActionResult(mapped, receipt: status, productId: self.lastReceiptRead.productID)
+    }
+    modernPurchaseInFlight = task
+    Task { @MainActor in
+      _ = await task.value
+      if self.modernPurchaseInFlight == task { self.modernPurchaseInFlight = nil }
+    }
+    return await Self.bounded(120_000_000_000, fallback: ApplePurchaseActionResult(.pending)) {
+      await task.value
+    }
   }
 
   // MARK: - Receipt oracle (StoreKit 2, identity-independent — ADR 0003)
@@ -234,12 +473,17 @@ final class PurchaseManager {
   /// transactions disappear from that sequence, which would make refunds unobservable and AE6
   /// unimplementable). Verified + unrevoked → entitled; verified + revocationDate →
   /// verifiedNotEntitled; nil/unverified → noSignal (absence is never a downgrade signal).
-  private static func classifyReceipt(_ latest: StoreKit.VerificationResult<StoreKit.Transaction>?) -> ReceiptRead {
+  private static func classifyReceipt(_ latest: StoreKit.VerificationResult<StoreKit.Transaction>?,
+    onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) -> ReceiptRead {
     switch latest {
     case .some(.verified(let transaction)):
+      if let latest, let revocation = verifiedNativeRevocation(transaction, jws: latest.jwsRepresentation) {
+        onVerifiedRevocation(revocation)
+      }
       return ReceiptRead(
         status: transaction.revocationDate == nil ? .entitled : .verifiedNotEntitled,
-        ownershipIsPurchased: transaction.ownershipType == .purchased)
+        ownershipIsPurchased: transaction.ownershipType == .purchased,
+        productID: transaction.productID)
     case .some(.unverified), .none:
       return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
     }
@@ -254,7 +498,8 @@ final class PurchaseManager {
     if !entitled.isEmpty {
       return ReceiptRead(
         status: .entitled,
-        ownershipIsPurchased: entitled.contains { $0.ownershipIsPurchased })
+        ownershipIsPurchased: entitled.contains { $0.ownershipIsPurchased },
+        productID: entitled.first?.productID)
     }
     if reads.contains(where: { $0.status == .verifiedNotEntitled }) {
       return ReceiptRead(status: .verifiedNotEntitled, ownershipIsPurchased: false)
@@ -265,16 +510,16 @@ final class PurchaseManager {
   /// One bounded receipt read across every restorable product — the sellable one plus the
   /// historical one. `Transaction.latest(for:)` takes a single id, so one call cannot cover
   /// past buyers and new buyers at once; both reads share this call's deadline.
-  private static func boundedReceiptRead() async -> ReceiptRead {
+  private static func boundedReceiptRead(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptRead {
     let once = Once()
     return await withCheckedContinuation { (continuation: CheckedContinuation<ReceiptRead, Never>) in
       Task {
-        async let sellable = Transaction.latest(for: Self.productID)
-        async let historical = Transaction.latest(for: ApplePurchaseCatalog.historicalStillSync.productID)
-        let read = Self.combinedReceipt([
-          Self.classifyReceipt(await sellable),
-          Self.classifyReceipt(await historical),
-        ])
+        // Each completed verified result commits its removal immediately, before its peer settles.
+        async let sellable = Self.classifyReceipt(await Transaction.latest(for: Self.productID),
+          onVerifiedRevocation: onVerifiedRevocation)
+        async let historical = Self.classifyReceipt(await Transaction.latest(for: ApplePurchaseCatalog.historicalStillSync.productID),
+          onVerifiedRevocation: onVerifiedRevocation)
+        let read = await Self.combinedReceipt([sellable, historical])
         once.run { continuation.resume(returning: read) }
       }
       Task {
@@ -290,8 +535,8 @@ final class PurchaseManager {
   /// blocked-write re-read are the call sites). Mirrors into `stillReceiptStatusCache` for the
   /// bridge's synchronous policy provider and returns the fresh status.
   @discardableResult
-  func refreshReceiptStatus() async -> ReceiptStatus {
-    let read = await Self.boundedReceiptRead()
+  func refreshReceiptStatus(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ReceiptStatus {
+    let read = await Self.boundedReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
     lastReceiptRead = read
     stillReceiptStatusCache.set(read.status)
     return read.status
@@ -322,12 +567,12 @@ final class PurchaseManager {
   /// Buy Still Pro — signed in OR signed out (purchase-first, R1). The returned `.purchased`
   /// acknowledges local StoreKit/RevenueCat success; the caller (router) refreshes the receipt and
   /// restamps the App Group so Safari unlocks immediately (R5).
-  func purchaseStillPro() async -> Outcome {
+  func purchaseStillPro(expectedOffer: AppleLifetimeOffering? = nil, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Outcome {
     let startingUserID = currentAppUserID
     // Receipt pre-flight (R14): a device that provably owns Pro never re-enters the purchase or
     // restore machinery — under default transfer semantics a RevenueCat receipt-post from a fresh
     // identity would move the entitlement OFF the account it is attached to.
-    if await refreshReceiptStatus() == .entitled { return .purchased }
+    if await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation) == .entitled { return .purchased }
     // R15 ordering (review finding, 3 independent reviewers): verify the anonymous identity
     // BEFORE trusting CustomerInfo. A failed prior logOut leaves the SDK keyed to a departed
     // account; probing hasStillPro() against it would return a false `.purchased` — success
@@ -358,6 +603,7 @@ final class PurchaseManager {
       return .failed("identity changed")
     }
     guard let package else { return .unavailable }
+    if let expectedOffer, offering(for: package) != expectedOffer { return .unavailable }
     do {
       let result = try await Purchases.shared.purchase(package: package)
       if result.userCancelled { return .cancelled }
@@ -374,9 +620,9 @@ final class PurchaseManager {
   /// receipt (R14): when the device already owns Pro, succeed WITHOUT calling RevenueCat restore,
   /// whose transfer semantics would strip the entitlement from whichever account it is attached
   /// to. Only receipt-negative devices (true recovery) reach RevenueCat.
-  func restore() async -> Bool {
+  func restore(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Bool {
     let startingUserID = currentAppUserID
-    if await refreshReceiptStatus() == .entitled { return true }
+    if await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation) == .entitled { return true }
     // Same R15 ordering as purchaseStillPro(): never trust CustomerInfo on an unverified
     // identity — a stale departed account's Pro would fake a successful restore.
     let verifiedAnonymous = startingUserID == nil ? await ensureAnonymousIdentity() : false
@@ -399,9 +645,9 @@ final class PurchaseManager {
   /// re-key can leave them divergent — attaching then would transfer the purchase to the wrong
   /// customer, AE13), and the transaction directly purchased (family-shared never transfers the
   /// buyer's entitlement to a family member's account, AE14).
-  func attachPurchases() async -> Bool {
+  func attachPurchases(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Bool {
     guard isConfigured else { return false }
-    let read = await Self.boundedReceiptRead()
+    let read = await Self.boundedReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
     guard PurchaseDecision.attachEligible(
       currentAppUserID: currentAppUserID,
       sdkAppUserID: Purchases.shared.appUserID,

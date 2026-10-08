@@ -25,6 +25,10 @@ export {
   type AppleSession,
   type AppleSessionBridge,
   type AppleSessionDeps,
+  type ApplePurchaseLinkAuthority,
+  type ApplePurchaseLinkIntent,
+  type ApplePurchaseLinkResult,
+  type ApplePurchaseLinkCommit,
 } from "./apple-session.js";
 export {
   createExtensionSession,

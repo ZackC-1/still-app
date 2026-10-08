@@ -36,6 +36,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // removeObserver(self) does NOT deregister a block observer, so the token is the only handle
     // that can. Held so deinit can remove it.
     private var didBecomeActiveToken: NSObjectProtocol?
+    private var appRouteToken: NSObjectProtocol?
 
     // The Apple rating path (U13-P3): records each app opening locally and, only when the owner's
     // remote rating policy allows it, asks for Apple's own review sheet. Inert while that is Off.
@@ -103,12 +104,19 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         }
 
         observeExternalSettingsChanges()
+        appRouteToken = NotificationCenter.default.addObserver(
+            forName: StillProRoute.changed, object: nil, queue: .main
+        ) { [weak self] _ in
+            // Fixed event only: the page reads the trusted pending route through the bridge.
+            self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('still:route'))")
+        }
     }
 
     deinit {
         if let token = didBecomeActiveToken {
             NotificationCenter.default.removeObserver(token)
         }
+        if let token = appRouteToken { NotificationCenter.default.removeObserver(token) }
     }
 
     // Refresh the already-running web UI when another App-Group process writes settings (e.g. the

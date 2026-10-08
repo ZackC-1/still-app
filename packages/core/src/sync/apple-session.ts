@@ -1,5 +1,8 @@
 import type { UiController } from "../ui/controller.svelte.js";
-import type { AppleCredential, PurchaseResult, ReceiptStatusValue } from "../native/bridge.js";
+import type { AppleCredential, PurchaseResult, ReceiptStatusValue, NativeApplePurchaseEvidence } from "../native/bridge.js";
+import { parseNativeAppleAccessCommit, type NativeAppleAccessCommit } from "../native/bridge.js";
+import { isAccessUUID, isSafeAccessInteger, verifyAccessProof,
+  type AccessTrust, type VerifiedAccessProof } from "../entitlement/access-proof.js";
 import type { AccountSyncStatus } from "./account-status.js";
 import type { AccountDeletionResult } from "./account-deletion.js";
 import type { SyncService, SyncState } from "./service.js";
@@ -52,6 +55,7 @@ export interface AppleSessionBridge {
   restore(): Promise<boolean>;
   receiptStatus(): Promise<ReceiptStatusValue>;
   attachPurchases(): Promise<boolean>;
+  applePurchaseEvidence?(): Promise<NativeApplePurchaseEvidence | null>;
   price(): Promise<string | null>;
   signOut(): Promise<void>;
   setEntitlement(entitled: boolean): Promise<void>;
@@ -63,6 +67,9 @@ export interface AppleSessionDeps {
   readonly sync: Pick<SyncService, "onSignedIn" | "signOut" | "deleteAccount"> &
     Partial<Pick<SyncService, "retryNow">>;
   readonly bridge: AppleSessionBridge;
+  /** Only modern V3 composition opts in. The shipped 2.x identity/Restore flow stays legacy. */
+  readonly purchaseLinkMode?: "legacy" | "explicit";
+  readonly purchaseLink?: ApplePurchaseLinkAuthority;
   /** Exchange the native Apple credential for a Supabase session (signInWithIdToken); returns the
    * Supabase user id, or the error message to surface. */
   readonly exchangeAppleCredential: (
@@ -74,6 +81,36 @@ export interface AppleSessionDeps {
    * (signed out, deleted or expired, here or elsewhere). Analytics lets go of any earlier account. */
   readonly onAccountAbsent?: () => void;
 }
+
+export interface ApplePurchaseLinkIntent {
+  readonly intendedAccountId: string;
+  readonly expectedOwnershipRevision: number;
+  readonly operationId: string;
+}
+
+export interface ApplePurchaseLinkCommit {
+  readonly accountId: string;
+  readonly accountRevision: number;
+  readonly localProof: VerifiedAccessProof;
+  readonly accountProof: VerifiedAccessProof;
+  readonly issuerTime: number;
+  readonly ownershipRevision: number;
+  readonly nativeBinding: string;
+}
+
+/** Existing authenticated server ownership writer and scoped proof cache, supplied by the host.
+ * This is first association only: an owned-elsewhere answer never rekeys RevenueCat or transfers. */
+export interface ApplePurchaseLinkAuthority {
+  readonly trust: AccessTrust;
+  readVerifiedAccount(): Promise<{ readonly id: string; readonly emailConfirmed: boolean } | null>;
+  fulfill(request: ApplePurchaseLinkIntent & { readonly evidence: NativeApplePurchaseEvidence }): Promise<unknown>;
+  /** Must acknowledge the existing scoped native cache commit with the current account fence. */
+  commit(proofs: ApplePurchaseLinkCommit): Promise<NativeAppleAccessCommit>;
+}
+
+export type ApplePurchaseLinkResult =
+  | { readonly status: "linked" | "already_linked"; readonly ownershipRevision: number }
+  | { readonly status: "owned_elsewhere" | "stale" | "unavailable" };
 
 export interface AppleSession {
   /** Wire as the SyncService onState callback: projects sync state into the controller and
@@ -97,6 +134,8 @@ export interface AppleSession {
   onCodeVerified(userId: string, email?: string | null): Promise<void>;
   onGet(): Promise<void>;
   onRestore(): Promise<void>;
+  /** Deliberate, confirmed first association; ordinary auth/foreground never invokes it. */
+  linkPurchase(intent: ApplePurchaseLinkIntent): Promise<ApplePurchaseLinkResult>;
   /** Foreground return: refresh the receipt (R18 — resolves a signed-out Ask-to-Buy approval into
    * the success screen) and re-reconcile a signed-in pending purchase. */
   onVisibilityChange(visibility: DocumentVisibilityState): void;
@@ -106,6 +145,7 @@ export interface AppleSession {
 
 export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   const { controller, sync, bridge } = deps;
+  const explicitLink = deps.purchaseLinkMode === "explicit";
   // A reconcile begun before voluntary teardown may finish after SyncService has emitted its
   // definitive signed-out state. Keep that stale confirmed callback from re-stamping Pro into the
   // App Group — and keep an in-flight attach evaluation from firing after sign-out (AE13); the
@@ -189,7 +229,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // independent jobs, so they start together. Settings sync is what signing in buys and it
       // must not queue behind a purchase SDK that can take seconds or fail outright; the attach
       // evaluation below is the one step that genuinely needs both, so it waits for both.
-      const identityReady = bridge.available
+      const identityReady = bridge.available && !explicitLink
         ? bridge
             .configurePurchases(userId)
             .then(() => true)
@@ -207,6 +247,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // path that could not use the answer.
       if (
         !controller.serverEntitled &&
+        !explicitLink &&
         generations.isCurrent(generationAtEntry) &&
         (await identityReady)
       ) {
@@ -302,6 +343,67 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       }
     },
     refreshReceipt,
+
+    async linkPurchase(intent): Promise<ApplePurchaseLinkResult> {
+      const authority = deps.purchaseLink;
+      if (!explicitLink || !authority || !bridge.available || !bridge.applePurchaseEvidence ||
+        !isAccessUUID(intent.intendedAccountId) || !isAccessUUID(intent.operationId) ||
+        !isSafeAccessInteger(intent.expectedOwnershipRevision)) return { status: "unavailable" };
+      const identity = controller.userId;
+      const revision = controller.accountRevision;
+      const generation = generations.capture();
+      const current = () => identity === intent.intendedAccountId && controller.userId === identity &&
+        controller.accountRevision === revision && generations.isCurrent(generation);
+      if (!current()) return { status: "stale" };
+      try {
+        const confirmed = await authority.readVerifiedAccount();
+        if (!current()) return { status: "stale" };
+        if (confirmed?.id !== identity || !confirmed.emailConfirmed) return { status: "unavailable" };
+        const evidence = await bridge.applePurchaseEvidence();
+        if (!current()) return { status: "stale" };
+        if (!evidence) return { status: "unavailable" };
+        const fresh = await authority.readVerifiedAccount();
+        if (!current()) return { status: "stale" };
+        if (fresh?.id !== identity || !fresh.emailConfirmed) return { status: "unavailable" };
+        const raw = await authority.fulfill({ ...intent, evidence });
+        if (!current()) return { status: "stale" };
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { status: "unavailable" };
+        const result = raw as Record<string, unknown>;
+        if (["owned_elsewhere", "stale", "unavailable"].includes(result.status as string) &&
+          Object.keys(result).length === 1) return { status: result.status as "owned_elsewhere" | "stale" | "unavailable" };
+        if ((result.status !== "linked" && result.status !== "already_linked") ||
+          Object.keys(result).sort().join(",") !== "accountProof,issuerTime,localProof,nativeBinding,ownershipRevision,status" ||
+          !isSafeAccessInteger(result.ownershipRevision) || !isSafeAccessInteger(result.issuerTime) ||
+          typeof result.localProof !== "string" || typeof result.accountProof !== "string" ||
+          typeof result.nativeBinding !== "string" || result.nativeBinding.length === 0 || result.nativeBinding.length > 6144) return { status: "unavailable" };
+        const [local, account] = await Promise.all([
+          verifyAccessProof(result.localProof, authority.trust),
+          verifyAccessProof(result.accountProof, authority.trust),
+        ]);
+        if (!current()) return { status: "stale" };
+        if (local.status !== "verified" || account.status !== "verified") return { status: "unavailable" };
+        const lc = local.proof.claims, ac = account.proof.claims;
+        if (lc.kind !== "paid_apple_local" || lc.provenance !== "provider_verified" || lc.holder !== lc.right ||
+          ac.kind !== "paid_account" || ac.holder !== identity || ac.right !== lc.right ||
+          ac.product !== lc.product || ac.ownership_revision !== result.ownershipRevision ||
+          ac.provenance !== "provider_verified" || ac.verified_at !== lc.verified_at || ac.expires_at !== lc.expires_at ||
+          JSON.stringify(ac.benefits) !== JSON.stringify(lc.benefits) ||
+          lc.ownership_revision !== result.ownershipRevision ||
+          (result.ownershipRevision !== intent.expectedOwnershipRevision &&
+            result.ownershipRevision !== intent.expectedOwnershipRevision + 1) ||
+          (result.status === "linked" && result.ownershipRevision <= intent.expectedOwnershipRevision) ||
+          result.issuerTime !== lc.verified_at ||
+          result.issuerTime >= Math.min(lc.expires_at!, ac.expires_at!)) return { status: "unavailable" };
+        const committed = parseNativeAppleAccessCommit(await authority.commit({ accountId: identity!, accountRevision: revision, localProof: local.proof,
+          accountProof: account.proof, issuerTime: result.issuerTime, ownershipRevision: result.ownershipRevision,
+          nativeBinding: result.nativeBinding }));
+        if (!current()) return { status: "stale" };
+        if (committed.localRight !== lc.right || committed.ownershipRevision !== lc.ownership_revision ||
+          committed.verifiedAt !== lc.verified_at || committed.expiresAt !== lc.expires_at ||
+          committed.localProofIdentity !== local.proof.identity || committed.accountProofIdentity !== account.proof.identity) return { status: "unavailable" };
+        return { status: result.status, ownershipRevision: result.ownershipRevision };
+      } catch { return { status: current() ? "unavailable" : "stale" }; }
+    },
 
     async onCodeVerified(userId: string, email?: string | null): Promise<void> {
       try {
@@ -419,6 +521,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
           // relaunch. Condition is deliberately narrow (receipt-entitled + signed-in +
           // server-not-entitled) so ordinary foregrounds never burn a rate-limited reconcile.
           if (
+            !explicitLink &&
             receipt === "entitled" &&
             controller.userId &&
             !controller.serverEntitled &&

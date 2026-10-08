@@ -14,6 +14,8 @@ export interface NativeProOfferCardProps extends Omit<
   "confirmedAccount" | "onSignIn" | "offer"
 > {
   offer?: { price: string; priceNote?: string; refundNote?: string };
+  /** Signed local fulfillment is pending; recovery is separate from a new acquisition. */
+  verificationRequired?: boolean;
 }
 
 type AppleSettingsAccount = Omit<

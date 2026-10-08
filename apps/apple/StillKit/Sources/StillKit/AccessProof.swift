@@ -64,26 +64,11 @@ public struct VerifiedAccessProof {
 
   @available(macOS 10.15, *)
   public static func verify(_ text: String, trust: AccessTrust) throws -> VerifiedAccessProof {
-    guard text.utf8.count <= 6_144, !text.contains("\\"), let bytes = text.data(using: .utf8),
-      let raw = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-      Set(raw.keys) == Set(["payload", "kid", "alg", "signature"]),
-      let payloadText = raw["payload"] as? String, let kid = raw["kid"] as? String,
-      raw["alg"] as? String == "ed25519", let signatureText = raw["signature"] as? String,
-      matches(kid, "^[a-z0-9][a-z0-9._-]{0,95}$") else { throw AccessProofFailure.invalid }
-    // JSONSerialization otherwise loses duplicate members. Closed envelope values are ASCII
-    // strings without escapes; enumerate original members and require each allowed key once.
-    let regex = try NSRegularExpression(pattern: #""([A-Za-z_]+)"\s*:\s*"([A-Za-z0-9_.-]+)""#)
-    let members = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-    let keys = members.compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } }
-    guard members.count == 4, Set(keys).count == 4, Set(keys) == Set(raw.keys),
-      let payload = decodeBase64(payloadText, maximum: 4_096),
-      let signature = decodeBase64(signatureText, maximum: 64), signature.count == 64,
-      let key = trust.keys.first(where: { $0.kid == kid && $0.environment == trust.environment }), key.publicKey.count == 32,
-      let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: key.publicKey),
-      let decoded = String(data: payload, encoding: .utf8) else { throw AccessProofFailure.invalid }
-    let signingBytes = Data(("still-access-proof-v1\n" + decoded).utf8)
-    guard publicKey.isValidSignature(signature, for: signingBytes),
-      let dictionary = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else { throw AccessProofFailure.invalid }
+    let signed = try verifySignedAccessPayload(text, trust: trust, domain: "still-access-proof-v1\n")
+    let payload = signed.payload
+    guard let decoded = String(data: payload, encoding: .utf8),
+      let dictionary = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
+    else { throw AccessProofFailure.invalid }
     if let schema = dictionary["schema"] as? NSNumber, schema.intValue > 1 { throw AccessProofFailure.unsupported }
     let claims = try JSONDecoder().decode(AccessClaims.self, from: payload)
     let baseKeys = ["schema", "issuer", "environment", "audience", "kind", "provenance", "right", "holder", "product", "benefits", "ownership_revision", "verified_at"]
@@ -107,13 +92,37 @@ public struct VerifiedAccessProof {
       guard let product = trust.protectedProduct else { throw AccessProofFailure.verificationRequired }
       guard claims.product == product, claims.benefits.allSatisfy({ trust.protectedBenefits.contains($0) }) else { throw AccessProofFailure.invalid }
     }
-    let identity = kid + ":" + signature.map { String(format: "%02x", $0) }.joined()
-    return VerifiedAccessProof(claims: claims, envelope: text, identity: identity)
+    return VerifiedAccessProof(claims: claims, envelope: text, identity: signed.identity)
   }
 
   public func matchesHolder(accountId: String?, localRights: Set<String>) -> Bool {
     claims.isAccount ? accountId == claims.holder : claims.holder == claims.right && localRights.contains(claims.right)
   }
+}
+
+/// Shared closed-envelope verification. The distinct signing domains prevent proof/binding substitution.
+struct SignedAccessPayload { let payload: Data; let identity: String }
+@available(macOS 10.15, *)
+func verifySignedAccessPayload(_ text: String, trust: AccessTrust, domain: String) throws -> SignedAccessPayload {
+    guard text.utf8.count <= 6_144, !text.contains("\\"), let bytes = text.data(using: .utf8),
+      let raw = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+      Set(raw.keys) == Set(["payload", "kid", "alg", "signature"]),
+      let payloadText = raw["payload"] as? String, let kid = raw["kid"] as? String,
+      raw["alg"] as? String == "ed25519", let signatureText = raw["signature"] as? String,
+      matches(kid, "^[a-z0-9][a-z0-9._-]{0,95}$") else { throw AccessProofFailure.invalid }
+    // JSONSerialization otherwise loses duplicate members. Closed envelope values are ASCII
+    // strings without escapes; enumerate original members and require each allowed key once.
+    let regex = try NSRegularExpression(pattern: #""([A-Za-z_]+)"\s*:\s*"([A-Za-z0-9_.-]+)""#)
+    let members = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+    let keys = members.compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } }
+    guard members.count == 4, Set(keys).count == 4, Set(keys) == Set(raw.keys),
+      let payload = decodeBase64(payloadText, maximum: 4_096),
+      let signature = decodeBase64(signatureText, maximum: 64), signature.count == 64,
+      let key = trust.keys.first(where: { $0.kid == kid && $0.environment == trust.environment }), key.publicKey.count == 32,
+      let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: key.publicKey),
+      let decoded = String(data: payload, encoding: .utf8) else { throw AccessProofFailure.invalid }
+    guard publicKey.isValidSignature(signature, for: Data((domain + decoded).utf8)) else { throw AccessProofFailure.invalid }
+    return SignedAccessPayload(payload: payload, identity: kid + ":" + signature.map { String(format: "%02x", $0) }.joined())
 }
 
 private func matches(_ text: String, _ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
@@ -183,11 +192,12 @@ public struct AccessCacheRecord: Codable, Equatable {
   public var generation = 0
   public var sessionId: String?
   public var localProtectionUnavailable = false
+  public var appleBindings: [CachedAppleRightBinding] = []
   public var rights: [CachedAccessRight] = []
   public var revocations: [AccessRevocation] = []
   public var localProtection: LocalProtectionRecord?
   public init() {}
-  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, localProtection }
+  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, localProtection, appleBindings }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     schema = try c.decode(Int.self, forKey: .schema)
@@ -196,6 +206,7 @@ public struct AccessCacheRecord: Codable, Equatable {
     sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
     rights = try c.decode([CachedAccessRight].self, forKey: .rights)
     revocations = try c.decode([AccessRevocation].self, forKey: .revocations)
+    appleBindings = try c.decodeIfPresent([CachedAppleRightBinding].self, forKey: .appleBindings) ?? []
     if c.contains(.localProtection), !(try c.decodeNil(forKey: .localProtection)) {
       localProtection = try? c.decode(LocalProtectionRecord.self, forKey: .localProtection)
       localProtectionUnavailable = !(localProtection?.valid ?? false)
@@ -208,6 +219,7 @@ public struct AccessCacheRecord: Codable, Equatable {
     try c.encode(generation, forKey: .generation); try c.encode(sessionId, forKey: .sessionId)
     try c.encode(rights, forKey: .rights)
     try c.encode(revocations, forKey: .revocations)
+    if !appleBindings.isEmpty { try c.encode(appleBindings, forKey: .appleBindings) }
     try c.encodeIfPresent(localProtection, forKey: .localProtection)
   }
 }
@@ -244,7 +256,7 @@ public struct NativeAccessContext {
   public let localRights: Set<String>
   public let evidenceStatus: String
   public init(paidMode: Bool = MonetizationConfig.paidTierEnabled,
-              supported: Set<String> = Set(PackagedFeatureRegistry.features.filter { $0.tier == "free" }.map { $0.id } + [PackagedFeatureRegistry.tiktokAlias]),
+              supported: Set<String> = NativeAppleAccessCapabilities.supported(paidMode: MonetizationConfig.paidTierEnabled),
               accountId: String? = nil, sessionId: String? = nil, sessionKnown: Bool = false,
               localRights: Set<String> = [], evidenceStatus: String = "unknown") {
     self.paidMode = paidMode; self.supported = supported

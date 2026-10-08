@@ -57,8 +57,8 @@ final class MonetizationConfigTests: XCTestCase {
   func testPurchaseAndRestoreBridgeActionsBothUseTheAppleSwitch() throws {
     let source = try routerSource()
     let storeKitCallPerAction = [
-      (action: "purchase", call: "self.purchases.purchaseStillPro()"),
-      (action: "restore", call: "self.purchases.restore()"),
+      (action: "purchase", call: "self.purchases.purchaseStillPro {"),
+      (action: "restore", call: "self.purchases.restore {"),
     ]
     for (action, storeKitCall) in storeKitCallPerAction {
       let block = try XCTUnwrap(
@@ -129,7 +129,7 @@ final class MonetizationConfigTests: XCTestCase {
       let calls = body.components(separatedBy: "purchases.").dropFirst()
       for call in calls {
         XCTAssertTrue(
-          call.hasPrefix("refreshReceiptStatus()"),
+          call.hasPrefix("refreshReceiptStatus {"),
           "\(name)(), reached from the free-period Restore, calls PurchaseManager beyond the "
             + "read-only receipt read: purchases.\(call.prefix(40))"
         )
@@ -141,18 +141,44 @@ final class MonetizationConfigTests: XCTestCase {
       contentsOf: repositoryRoot
         .appendingPathComponent("apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift"),
       encoding: .utf8)
-    for signature in ["func refreshReceiptStatus() async -> ReceiptStatus {",
-                      "private static func boundedReceiptRead() async -> ReceiptRead {"] {
+    for signature in ["func refreshReceiptStatus(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ReceiptStatus {",
+                      "private static func boundedReceiptRead(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptRead {"] {
       let body = try XCTUnwrap(
         methodBody(signature: signature, in: manager),
         "this test can no longer find PurchaseManager's \(signature)"
       )
-      XCTAssertTrue(body.contains("Transaction.latest(for:") || body.contains("boundedReceiptRead()"),
+      XCTAssertTrue(body.contains("Transaction.latest(for:") || body.contains("boundedReceiptRead(onVerifiedRevocation:"),
                     "the receipt read no longer reads StoreKit's transaction history")
       for forbidden in ["Purchases.", "purchase(", "restorePurchases", "syncPurchases", "logIn", "logOut"] {
         XCTAssertFalse(body.contains(forbidden), "the receipt read must not reach \(forbidden)")
       }
     }
+  }
+
+  /// Administrative proof routes are also dormant: configured trust must not bypass the flag.
+  func testAppleAccessAdministrativeRoutesRequirePaidModeBeforeAuthorityWork() throws {
+    let source = try routerSource()
+    for (action, authority) in [("installAppleAccess", "AppleAccessInstallRequest.parse"),
+                                ("observeAppleAccess", "entitlement.handle"),
+                                ("observeAppleLinkAccess", "verifiedAppleLinkPurchaseIdentities")] {
+      let body = try XCTUnwrap(bridgeActionBody(named: action, in: source))
+      let guardRange = try XCTUnwrap(body.range(of: "guard MonetizationConfig.paidTierEnabled else"))
+      let authorityRange = try XCTUnwrap(body.range(of: authority))
+      XCTAssertLessThan(guardRange.lowerBound, authorityRange.lowerBound,
+        "\(action) must refuse dormant mode before native authority or storage")
+    }
+    let receipt = try XCTUnwrap(bridgeActionBody(named: "receiptStatus", in: source))
+    XCTAssertTrue(receipt.contains("await self.refreshReceiptStamp()"), "receipt read must use verified revocation commit path")
+  }
+
+  func testAppleLinkEligibilityRefusesMultipleCandidatesAndGenerationChange() throws {
+    let body = try XCTUnwrap(bridgeActionBody(named: "observeAppleLinkAccess", in: routerSource()))
+    XCTAssertTrue(body.contains("guard candidate == nil, observation.rights.count == 1 else"),
+      "a second purchaser or duplicate local binding must be unavailable instead of selecting first")
+    XCTAssertTrue(body.contains("candidate?.generation == empty.generation"),
+      "the chosen right must still belong to the current durable generation")
+    XCTAssertFalse(body.contains("encode(observation)"), "do not return from inside the catalog scan")
+    XCTAssertTrue(body.contains("encode(candidate ?? empty)"), "reply only after the completed candidate scan")
   }
 
   /// One identifier the helpers reached from the free-period Restore must not use. It matches the

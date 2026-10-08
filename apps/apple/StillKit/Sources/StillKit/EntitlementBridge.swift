@@ -73,7 +73,7 @@ public final class SharedEntitlementStore {
   private let decoder = JSONDecoder()
 
   public init(backing: SettingsBacking, coordinationAvailable: Bool = true,
-              trust: AccessTrust = AccessTrust(environment: "production", keys: [])) {
+              trust: AccessTrust = .compiled) {
     self.backing = backing
     self.coordinationAvailable = coordinationAvailable
     self.trust = trust
@@ -120,7 +120,8 @@ public final class SharedEntitlementStore {
   private func decodeAccess(_ object: Any) throws -> AccessCacheRecord {
     let result = try decoder.decode(AccessCacheRecord.self, from: JSONSerialization.data(withJSONObject: object))
     guard result.schema == 1, accessInteger(result.generation), result.accountId.map(accessUUID) ?? true, result.sessionId.map(accessUUID) ?? true,
-      result.rights.count <= 32, result.revocations.count <= 64,
+      result.rights.count <= 32, result.revocations.count <= 64, result.appleBindings.count <= 32,
+      result.appleBindings.allSatisfy({ !$0.envelope.isEmpty && $0.envelope.utf8.count <= 6_144 && !$0.localProofIdentity.isEmpty && $0.localProofIdentity.utf8.count <= 256 }),
       result.rights.allSatisfy({ $0.envelope.utf8.count <= 6_144 && ($0.accountGeneration.map(accessInteger) ?? true) }),
       result.revocations.allSatisfy({ accessUUID($0.right) && accessInteger($0.revision) }) else { throw AccessProofFailure.invalid }
     return result
@@ -128,6 +129,8 @@ public final class SharedEntitlementStore {
 
   /// A complete scoped entitlement record commits before the caller can publish modern access.
   /// No separate cache or lock is introduced. Throws preserve the original durable bytes.
+  // Clock-producing autoclosures on the public access operations are evaluated inside this
+  // transaction, so a queued reader cannot persist an earlier wall after another process.
   private func transactionAccess<T>(_ body: (inout AccessCacheRecord) throws -> T) throws -> T {
     guard coordinationAvailable else { throw AccessProofFailure.verificationRequired }
     return try backing.transaction { data in
@@ -138,9 +141,9 @@ public final class SharedEntitlementStore {
       let encoded = try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any] ?? [:]
       var access = object["access"] as? [String: Any] ?? [:]
       for (key, value) in encoded {
-        if let values = value as? [[String: Any]], ["rights", "revocations"].contains(key) {
+        if let values = value as? [[String: Any]], ["rights", "revocations", "appleBindings"].contains(key) {
           var old = access[key] as? [[String: Any]] ?? []
-          let identity = key == "rights" ? "envelope" : "right"
+          let identity = key == "revocations" ? "right" : "envelope"
           access[key] = values.map { replacement in
             let index = old.firstIndex { ($0[identity] as? String) == (replacement[identity] as? String) }
             let prior = index.map { old.remove(at: $0) }
@@ -187,10 +190,11 @@ public final class SharedEntitlementStore {
   }
 
   /// Internal authoritative online lane only. This is not reachable from a raw extension request.
-  public func installAccess(_ proof: VerifiedAccessProof, generation: Int, issuerNow: Int, wall: Int,
+  public func installAccess(_ proof: VerifiedAccessProof, generation: Int, issuerNow: Int, wall: @autoclosure () -> Int,
                             localRights: Set<String>) throws -> AccessCacheRecord {
     guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
     return try transactionAccess { record in
+      let wall = wall()
       let checked = try VerifiedAccessProof.verify(proof.envelope, trust: trust)
       guard generation == record.generation, checked.matchesHolder(accountId: record.accountId, localRights: localRights),
         !record.revocations.contains(where: { $0.right == checked.claims.right && $0.revision >= checked.claims.ownership_revision }) else { throw AccessProofFailure.invalid }
@@ -198,13 +202,13 @@ public final class SharedEntitlementStore {
         guard let value = try? VerifiedAccessProof.verify(cached.envelope, trust: trust) else { return nil }
         return (cached, value)
       }
-      let prior = existing.first { $0.1.claims.right == checked.claims.right }
+      let prior = existing.first { $0.1.claims.right == checked.claims.right && $0.1.claims.kind == checked.claims.kind }
       if let prior {
         guard checked.claims.ownership_revision >= prior.1.claims.ownership_revision, checked.claims.verified_at >= prior.1.claims.verified_at else { throw AccessProofFailure.invalid }
         if checked.identity == prior.1.identity { return record }
         guard checked.claims.verified_at > prior.1.claims.verified_at else { throw AccessProofFailure.invalid }
       }
-      record.rights.removeAll { cached in existing.contains { $0.0 == cached && $0.1.claims.right == checked.claims.right } }
+      record.rights.removeAll { cached in existing.contains { $0.0 == cached && $0.1.claims.right == checked.claims.right && $0.1.claims.kind == checked.claims.kind } }
       guard record.rights.count < 32 else { throw AccessProofFailure.invalid }
       record.rights.append(CachedAccessRight(envelope: proof.envelope, clock: checked.claims.isPaid ? try PaidAccessClock.install(checked, issuerNow: issuerNow, wall: wall) : nil, accountGeneration: checked.claims.isAccount ? record.generation : nil))
       return record
@@ -222,9 +226,190 @@ public final class SharedEntitlementStore {
     }
   }
 
-  public func observeAccess(wall: Int, runningEstimate: Int? = nil) throws -> (AccessCacheRecord, [ScopedAccessEvidence]) {
+  /// The signed binding and both scopes commit under the existing App Group lock. A readback
+  /// exists only after backing.transaction acknowledges the complete durable replacement.
+  public func installAppleAccess(_ request: AppleAccessInstallRequest, nativePurchase: NativeVerifiedApplePurchase,
+                                 session: VerifiedNativeAccessSession? = nil, expectedGeneration: Int? = nil,
+                                 wall: @autoclosure () -> Int) throws -> AppleAccessCommit {
+    let binding = try VerifiedAppleRightBinding.verify(request.nativeBinding, trust: trust)
+    let local = try VerifiedAccessProof.verify(request.localProof, trust: trust)
+    let account = try request.accountProof.map { try VerifiedAccessProof.verify($0, trust: trust) }
+    let c = binding.claims
+    // Only a freshly issued online proof can create a new receipt baseline. Ordinary cached
+    // reads never invoke this path; signed stale blobs cannot start a new thirty-day window.
+    guard !nativePurchase.isRevoked, binding.matches(local), binding.matches(nativePurchase), request.issuerTime == c.verifiedAt,
+      (account == nil) == (session == nil), (account == nil) == (request.accessToken == nil)
+    else { throw AccessProofFailure.invalid }
+    if let account, let session {
+      let a = account.claims, l = local.claims
+      guard nativePurchase.ownership == .purchased, a.kind == "paid_account", a.provenance == "provider_verified", a.holder == session.accountId,
+        a.right == l.right, a.product == l.product, a.environment == l.environment, a.benefits == l.benefits,
+        a.ownership_revision == l.ownership_revision, a.verified_at == l.verified_at, a.expires_at == l.expires_at
+      else { throw AccessProofFailure.invalid }
+    }
+    return try transactionAccess { record in
+      let wall = wall()
+      if let session {
+        guard expectedGeneration == record.generation else { throw AccessProofFailure.invalid }
+        try bindSession(&record, accountId: session.accountId, sessionId: session.sessionId)
+      }
+      let previous = record.appleBindings.compactMap { cached -> (CachedAppleRightBinding, VerifiedAppleRightBinding)? in
+        guard let verified = try? VerifiedAppleRightBinding.verify(cached.envelope, trust: trust) else { return nil }
+        return (cached, verified)
+      }.first { $0.1.claims.environment == c.environment && $0.1.claims.appBundleId == c.appBundleId &&
+        $0.1.claims.productId == c.productId && $0.1.claims.originalTransactionId == c.originalTransactionId }
+      if let previous {
+        let restoredFamilyLocal = previous.0.revokesAccount == false && account == nil &&
+          nativePurchase.ownership == .familyShared && previous.0.revokedAt.map({ c.verifiedAt > $0 }) == true &&
+          c.verifiedAt > previous.1.claims.verifiedAt
+        guard previous.0.revokedAt == nil || restoredFamilyLocal,
+          previous.1.claims.right == c.right,
+          previous.1.claims.ownershipRevision <= c.ownershipRevision,
+          previous.1.claims.verifiedAt <= c.verifiedAt else { throw AccessProofFailure.invalid }
+      }
+      // A lost acknowledgement may retry an already committed identity without creating
+      // a new receipt baseline. New proofs still require the bounded online freshness check.
+      let identicalRetry = previous?.0.envelope == request.nativeBinding &&
+        previous?.0.localProofIdentity == local.identity && previous?.0.revokedAt == nil &&
+        (account == nil || record.rights.contains { $0.envelope == account?.envelope && $0.accountGeneration == record.generation })
+      guard accessInteger(wall), wall < c.expiresAt,
+        identicalRetry || abs(wall - c.verifiedAt) <= 300_000 else { throw AccessProofFailure.invalid }
+      try upsertAppleProof(local, into: &record, issuerTime: request.issuerTime, wall: wall)
+      if let account { try upsertAppleProof(account, into: &record, issuerTime: request.issuerTime, wall: wall) }
+      record.appleBindings.removeAll { cached in
+        (try? VerifiedAppleRightBinding.verify(cached.envelope, trust: trust))?.claims.right == c.right
+      }
+      guard record.appleBindings.count < 32 else { throw AccessProofFailure.invalid }
+      record.appleBindings.append(CachedAppleRightBinding(envelope: request.nativeBinding, localProofIdentity: local.identity))
+      return AppleAccessCommit(generation: record.generation, localRight: c.right, ownershipRevision: c.ownershipRevision,
+        verifiedAt: c.verifiedAt, expiresAt: c.expiresAt, localProofIdentity: local.identity,
+        accountProofIdentity: account?.identity)
+    }
+  }
+
+  private func upsertAppleProof(_ proof: VerifiedAccessProof, into record: inout AccessCacheRecord,
+                                issuerTime: Int, wall: Int) throws {
+    guard !record.revocations.contains(where: { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision })
+    else { throw AccessProofFailure.invalid }
+    let prior = record.rights.enumerated().first { cached in
+      guard let p = try? VerifiedAccessProof.verify(cached.element.envelope, trust: trust) else { return false }
+      return p.claims.right == proof.claims.right && p.claims.kind == proof.claims.kind
+    }
+    if let prior, let p = try? VerifiedAccessProof.verify(prior.element.envelope, trust: trust) {
+      guard p.claims.ownership_revision <= proof.claims.ownership_revision, p.claims.verified_at <= proof.claims.verified_at
+      else { throw AccessProofFailure.invalid }
+      if p.identity == proof.identity {
+        guard record.rights[prior.offset].clock?.observe(proof, wall: wall) == true,
+          !proof.claims.isAccount || prior.element.accountGeneration == record.generation
+        else { throw AccessProofFailure.invalid }
+        return // Same identity preserves the original wall/issuer receipt baseline and latches.
+      }
+      guard p.claims.verified_at < proof.claims.verified_at else { throw AccessProofFailure.invalid }
+      record.rights.remove(at: prior.offset)
+    }
+    guard record.rights.count < 32 else { throw AccessProofFailure.invalid }
+    record.rights.append(CachedAccessRight(envelope: proof.envelope,
+      clock: try PaidAccessClock.install(proof, issuerNow: issuerTime, wall: wall),
+      accountGeneration: proof.claims.isAccount ? record.generation : nil))
+  }
+
+  private func verifiedAppleBindings(_ record: AccessCacheRecord) -> [(CachedAppleRightBinding, VerifiedAppleRightBinding, VerifiedAccessProof)] {
+    record.appleBindings.compactMap { cached in
+      guard let binding = try? VerifiedAppleRightBinding.verify(cached.envelope, trust: trust),
+        let proof = record.rights.compactMap({ try? VerifiedAccessProof.verify($0.envelope, trust: trust) })
+          .first(where: { $0.identity == cached.localProofIdentity && binding.matches($0) })
+      else { return nil }
+      return (cached, binding, proof)
+    }
+  }
+
+  /// Match independently verified native revocation to the stored signed Apple identity.
+  /// A right-scoped global revocation would also revoke a protected scope sharing the UUID;
+  /// keep this marker on the Apple binding and latch only its paid proof clocks instead.
+  @discardableResult
+  public func revokeAppleAccess(_ revocation: NativeVerifiedAppleRevocation, wall: @autoclosure () -> Int) throws -> Bool {
+    try transactionAccess { record in
+      let wall = wall()
+      let matched = try latchAppleRevocation(revocation, into: &record)
+      _ = observeRecord(&record, wall: wall)
+      return matched
+    }
+  }
+
+  private func latchAppleRevocation(_ revocation: NativeVerifiedAppleRevocation,
+                                    into record: inout AccessCacheRecord) throws -> Bool {
+    guard accessInteger(revocation.revokedAt) else { throw AccessProofFailure.invalid }
+    var matched = false
+    for i in record.appleBindings.indices {
+      guard let binding = try? VerifiedAppleRightBinding.verify(record.appleBindings[i].envelope, trust: trust),
+        binding.matches(revocation.identity) else { continue }
+      let alreadyRevokesAccount = record.appleBindings[i].revokedAt != nil && record.appleBindings[i].revokesAccount != false
+      record.appleBindings[i].revokedAt = max(record.appleBindings[i].revokedAt ?? 0, revocation.revokedAt)
+      record.appleBindings[i].revokesAccount = alreadyRevokesAccount || revocation.identity.ownership == .purchased
+      matched = true
+    }
+    return matched
+  }
+
+  public func observeAppleBenefits(wall: @autoclosure () -> Int, ownership: NativeAppleOwnershipObservation,
+                                   paidMode: Bool = MonetizationConfig.paidTierEnabled) throws -> BenefitAccessSnapshot {
+    if !paidMode { return try observeBenefits(wall: wall()).1 }
+    return try transactionAccess { record in
+      let wall = wall()
+      if case .verifiedRevocations(let revocations) = ownership {
+        for revocation in revocations { _ = try latchAppleRevocation(revocation, into: &record) }
+      }
+      let evidence = observeRecord(&record, wall: wall)
+      let context = NativeAccessContext(paidMode: true,
+        supported: NativeAppleAccessCapabilities.supported(paidMode: true),
+        accountId: record.accountId, sessionId: record.sessionId, sessionKnown: true,
+        localRights: Set(verifiedAppleBindings(record).map { $0.1.claims.right }),
+        evidenceStatus: ownership.evidenceStatus)
+      return resolveAccessSnapshot(record, evidence: evidence, context: context)
+    }
+  }
+
+  public func observeAppleAccess(wall: @autoclosure () -> Int) throws -> AppleAccessObservation {
+    try observeAppleAccess(wall: wall, matching: nil)
+  }
+
+  /// Linking requires a current independently verified purchaser transaction matched to the
+  /// stored signed local binding. Generic protection, account access and family sharing cannot
+  /// select this route's eligibility; this read never installs or renews a proof baseline.
+  public func observeAppleLinkAccess(nativePurchase: NativeVerifiedApplePurchase?,
+                                    wall: @autoclosure () -> Int) throws -> AppleAccessObservation {
+    guard let nativePurchase else {
+      return try transactionAccess { record in
+        _ = observeRecord(&record, wall: wall())
+        return AppleAccessObservation(generation: record.generation, rights: [])
+      }
+    }
+    guard nativePurchase.ownership == .purchased, !nativePurchase.isRevoked else { throw AccessProofFailure.invalid }
+    return try observeAppleAccess(wall: wall, matching: nativePurchase)
+  }
+
+  private func observeAppleAccess(wall: () -> Int, matching nativePurchase: NativeVerifiedApplePurchase?) throws -> AppleAccessObservation {
+    try transactionAccess { record in
+      let wall = wall()
+      let evidence = observeRecord(&record, wall: wall)
+      let rights = verifiedAppleBindings(record).filter { cached, binding, proof in
+        cached.revokedAt == nil && !evidence.contains { $0.proof.identity == proof.identity && $0.revoked } &&
+          (nativePurchase.map { purchase in binding.matches(purchase) &&
+            evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked } } ?? true)
+      }.map { cached, binding, proof in
+        let valid = evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked }
+        return AppleAccessObservation.Right(localRight: binding.claims.right, ownershipRevision: binding.claims.ownershipRevision,
+          verifiedAt: binding.claims.verifiedAt, expiresAt: binding.claims.expiresAt,
+          localProofIdentity: cached.localProofIdentity, status: valid ? "purchased" : "verification_required")
+      }
+      return AppleAccessObservation(generation: record.generation, rights: rights)
+    }
+  }
+
+  public func observeAccess(wall: @autoclosure () -> Int, runningEstimate: Int? = nil) throws -> (AccessCacheRecord, [ScopedAccessEvidence]) {
     guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
     return try transactionAccess { record in
+      let wall = wall()
       let evidence = observeRecord(&record, wall: wall, runningEstimate: runningEstimate)
       return (record, evidence)
     }
@@ -233,9 +418,19 @@ public final class SharedEntitlementStore {
   @available(macOS 10.15, *)
   private func observeRecord(_ record: inout AccessCacheRecord, wall: Int, runningEstimate: Int? = nil) -> [ScopedAccessEvidence] {
     var evidence: [ScopedAccessEvidence] = []
+    var revokedAppleLocalRights: Set<String> = [], revokedAppleAccountRights: Set<String> = []
+    for cached in record.appleBindings where cached.revokedAt != nil {
+      guard let binding = try? VerifiedAppleRightBinding.verify(cached.envelope, trust: trust) else { continue }
+      let identity = binding.claims.environment + "\n" + binding.claims.right
+      revokedAppleLocalRights.insert(identity)
+      if cached.revokesAccount != false { revokedAppleAccountRights.insert(identity) }
+    }
     for i in record.rights.indices {
       guard let proof = try? VerifiedAccessProof.verify(record.rights[i].envelope, trust: trust) else { continue }
-      let revoked = (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
+      let appleIdentity = proof.claims.environment + "\n" + proof.claims.right
+      let nativeRevoked = (proof.claims.kind == "paid_apple_local" && revokedAppleLocalRights.contains(appleIdentity)) ||
+        (proof.claims.kind == "paid_account" && revokedAppleAccountRights.contains(appleIdentity))
+      let revoked = nativeRevoked || (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
       if revoked { record.rights[i].clock?.revoked = true }
       let valid = record.rights[i].clock?.observe(proof, wall: wall, runningEstimate: runningEstimate) ?? false
       evidence.append(ScopedAccessEvidence(proof: proof, validPaid: valid, revoked: revoked))
@@ -266,24 +461,29 @@ public final class SharedEntitlementStore {
 
   /// Resolve inside the actual transaction, publish only after full durable commit succeeds.
   /// A free-mode read requires neither backing coordination nor account/native verification.
-  public func observeBenefits(wall: Int, context: NativeAccessContext = NativeAccessContext()) throws -> (AccessCacheRecord, BenefitAccessSnapshot) {
+  public func observeBenefits(wall: @autoclosure () -> Int, context: NativeAccessContext = NativeAccessContext()) throws -> (AccessCacheRecord, BenefitAccessSnapshot) {
     if !context.paidMode { return (AccessCacheRecord(), resolveAccessSnapshot(AccessCacheRecord(), evidence: [], context: context)) }
     guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
     return try transactionAccess { record in
+      let wall = wall()
       if context.sessionKnown { try bindSession(&record, accountId: context.accountId, sessionId: context.sessionId) }
       let evidence = observeRecord(&record, wall: wall)
-      return (record, resolveAccessSnapshot(record, evidence: evidence, context: context))
+      let localRights = context.localRights.union(verifiedAppleBindings(record).map { $0.1.claims.right })
+      let verifiedContext = NativeAccessContext(paidMode: context.paidMode, supported: context.supported,
+        accountId: context.accountId, sessionId: context.sessionId, sessionKnown: context.sessionKnown,
+        localRights: localRights, evidenceStatus: context.evidenceStatus)
+      return (record, resolveAccessSnapshot(record, evidence: evidence, context: verifiedContext))
     }
   }
 
   /// The production store in the shared App Group container, falling back to in-memory when the
   /// App Group isn't provisioned (same degradation as SharedSettingsStore.appGroup()).
-  public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> SharedEntitlementStore {
+  public static func appGroup(_ identifier: String = StillAppGroup.identifier, trust: AccessTrust = .compiled) -> SharedEntitlementStore {
     guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier),
       let legacy = AppGroupBacking(appGroupId: identifier, key: "still:entitlement") else {
-      return SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false)
+      return SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false, trust: trust)
     }
-    return SharedEntitlementStore(backing: AtomicSettingsBacking(directory: directory, name: "still-entitlement", legacyRead: { legacy.read() }))
+    return SharedEntitlementStore(backing: AtomicSettingsBacking(directory: directory, name: "still-entitlement", legacyRead: { legacy.read() }), trust: trust)
   }
 }
 
@@ -323,6 +523,7 @@ public enum EntitlementRequest: Equatable, Sendable {
   case get
   case getAccess
   case getBenefitAccess
+  case getAppleAccess
   case set(entitled: Bool)
 
   /// Parse a raw message body into a request; nil means "not an entitlement message" so hosts can
@@ -330,6 +531,9 @@ public enum EntitlementRequest: Equatable, Sendable {
   public static func parse(_ body: Any) -> EntitlementRequest? {
     guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else { return nil }
     switch kind {
+    case "observeAppleAccess":
+      guard dict.count == 1 else { return nil }
+      return .getAppleAccess
     case "getBenefitAccess":
       guard dict.count == 1 else { return nil }
       return .getBenefitAccess
@@ -385,6 +589,11 @@ public struct EntitlementBridge {
 
   public func handle(_ request: EntitlementRequest) -> String {
     switch request {
+    case .getAppleAccess:
+      do {
+        let observation = try store.observeAppleAccess(wall: now())
+        return String(data: try JSONEncoder().encode(observation), encoding: .utf8) ?? "{\"ok\":false}"
+      } catch { return "{\"ok\":false}" }
     case .getBenefitAccess:
       do {
         let snapshot = try store.observeBenefits(wall: now(), context: accessContext()).1
@@ -435,6 +644,33 @@ public struct EntitlementBridge {
   public func clearAccessAccount() throws {
     guard !readOnly else { throw AccessProofFailure.verificationRequired }
     _ = try store.changeAccessAccount(nil)
+  }
+
+  @discardableResult
+  public func revokeAppleAccess(_ revocation: NativeVerifiedAppleRevocation) throws -> Bool {
+    guard !readOnly else { throw AccessProofFailure.invalid }
+    return try store.revokeAppleAccess(revocation, wall: now())
+  }
+
+  public func observeAppleBenefits(_ ownership: NativeAppleOwnershipObservation) throws -> BenefitAccessSnapshot {
+    try store.observeAppleBenefits(wall: now(), ownership: ownership)
+  }
+
+  public func observeAppleLinkAccess(nativePurchase: NativeVerifiedApplePurchase?) throws -> AppleAccessObservation {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    return try store.observeAppleLinkAccess(nativePurchase: nativePurchase, wall: now())
+  }
+
+  public func prepareAppleAccessInstall() throws -> Int {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    return try store.observeAccess(wall: now()).0.generation
+  }
+
+  public func installAppleAccess(_ request: AppleAccessInstallRequest, nativePurchase: NativeVerifiedApplePurchase,
+                                 session: VerifiedNativeAccessSession? = nil, expectedGeneration: Int? = nil) throws -> AppleAccessCommit {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    return try store.installAppleAccess(request, nativePurchase: nativePurchase, session: session,
+      expectedGeneration: expectedGeneration, wall: now())
   }
 
   private func apply(proposed: EntitlementRecord) {

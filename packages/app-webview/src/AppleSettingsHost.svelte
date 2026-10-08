@@ -4,9 +4,15 @@
   // this file only through a dynamic import that default builds fold away, so AppleSettings and
   // its global stylesheet exist only in bundles that opt in. Its dedicated @still/core export
   // keeps the dependency outside this package's rootDir: src. Keep this leaf out of @still/core/ui.
+  import { untrack } from "svelte";
+  import PurchaseView from "@still/core/ui/v3/PurchaseView.svelte";
+  import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
+  import {
+    createAppleProHost,
+    type AppleProHostDeps,
+  } from "@still/core/ui/v3/apple-pro-host";
   import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
-  import { PAID_TIER_ENABLED } from "@still/shared-types";
   import {
     STRINGS,
     SignInSheet,
@@ -39,6 +45,14 @@
     restoreBridge?: AppleRestoreBridge;
     /** Opens the setup card's fixed destination from a tap; absent, its button stays disabled. */
     openDestination?: AppleSetupOpener;
+    proServices?: Pick<
+      AppleProHostDeps,
+      | "bridge"
+      | "verifyLocalPurchase"
+      | "ownershipRevision"
+      | "readLinkEligibility"
+      | "linkPurchase"
+    >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
   let {
@@ -49,8 +63,104 @@
     restoreBridge,
     openDestination,
     onCommittedToggle,
+    proServices,
   }: Props = $props();
 
+  let proRevision = $state(0);
+  const proHost = untrack(() =>
+    proServices
+      ? createAppleProHost({
+          ...proServices,
+          readAccess: () => authority.entitlement.refreshAccess(),
+          verifyLocalPurchase: async () => {
+            // The installer reads its signed binding back first. Refresh the same settings
+            // authority afterward so rows and the purchase screen observe that committed cache.
+            await proServices.verifyLocalPurchase();
+            await authority.entitlement.refreshAccess();
+            return authority.entitlement.refreshAccess();
+          },
+          account: () =>
+            c.userId && c.accountEmail
+              ? {
+                  id: c.userId,
+                  email: c.accountEmail,
+                  revision: c.accountRevision,
+                  confirmed: c.accountConfirmed,
+                }
+              : null,
+          signIn: () => c.openSignIn(),
+          chooseOtherAccount: async () => {
+            await c.signOut();
+          },
+          publish: () => {
+            proRevision = untrack(() => proRevision) + 1;
+          },
+        })
+      : undefined,
+  );
+  $effect(() => {
+    if (!proHost) return;
+    const entitlement = authority.entitlement;
+    proHost.observeAccess(entitlement.currentAccessSnapshot());
+    return entitlement.subscribeAccess((snapshot) =>
+      proHost.observeAccess(snapshot),
+    );
+  });
+  let proState = $derived.by(() => {
+    void proRevision;
+    return proHost?.settings();
+  });
+  let purchaseOpen = $derived.by(() => {
+    void proRevision;
+    return proHost?.open ?? false;
+  });
+  let purchaseProps = $derived.by(() => {
+    void proRevision;
+    return proHost?.props(
+      FEATURE_REGISTRY.filter(
+        (row) =>
+          row.tier === "pro" &&
+          view.state !== null &&
+          view.state.access.states[row.id] !== "unsupported",
+      ).map((row) => ({
+        site: {
+          youtube: "YouTube",
+          instagram: "Instagram",
+          facebook: "Facebook",
+        }[row.service],
+        label: row.name,
+      })),
+    );
+  });
+  let canLink = $derived.by(() => {
+    void proRevision;
+    return proHost?.canLink ?? false;
+  });
+  $effect(() => {
+    void c.userId;
+    void c.accountEmail;
+    void c.accountConfirmed;
+    void accountRevision;
+    proHost?.accountChanged();
+  });
+  $effect(() => {
+    if (!proHost) return;
+    const route = () => void proHost.route();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void proHost.refresh();
+    };
+    window.addEventListener("still:route", route);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    route();
+    void proHost.refresh();
+    return () => {
+      window.removeEventListener("still:route", route);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      proHost.stop();
+    };
+  });
   const view = createPopupViewBinding(
     () => authority.binding,
     (toggle) => onCommittedToggle?.(toggle),
@@ -111,7 +221,9 @@
     publish: (next) => (restoreStatus = next),
   });
   $effect(() => () => freeRestore.stop());
-  let restore = $derived(restoreStatus ?? appleSettingsRestore(c));
+  let restore = $derived(
+    proState?.restore ?? restoreStatus ?? appleSettingsRestore(c),
+  );
   // Platform starts as the narrower iOS inventory and follows any later successful observation.
   let platform = $state<AppleSettingsProps["platform"]>("ios");
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
@@ -147,10 +259,17 @@
       signInOpen: c.signInOpen,
       usageNoticeVisible: c.usageNoticeVisible,
       deleteFlow: c.deleteFlow,
-      purchaseFlow: c.purchaseFlow,
+      purchaseFlow:
+        proState?.pro?.state === "pending" ? "purchasing" : c.purchaseFlow,
       checkoutFlow: c.checkoutFlow,
-      paywallOpen: c.paywallOpen,
-      successScreen: c.successScreen,
+      paywallOpen:
+        purchaseOpen ||
+        (proState?.link !== undefined && proState.link.state !== "linked") ||
+        c.paywallOpen,
+      successScreen:
+        purchaseOpen && proState?.pro?.state === "success"
+          ? "synced"
+          : c.successScreen,
       signedIn: c.userId !== null,
       cloudReachable: c.cloudReachable,
       restoreShown: restore !== undefined,
@@ -227,7 +346,19 @@
   {/if}
 {/snippet}
 
-{#if view.settings && view.state && view.commands}
+{#if purchaseOpen && purchaseProps}
+  <PurchaseView {...purchaseProps} />
+  {#if canLink}<div class="still-ui app">
+      <button
+        type="button"
+        class="secondary block"
+        onclick={() => {
+          proHost?.close();
+          proHost?.requestLink();
+        }}>Link Still Pro to an account</button
+      >
+    </div>{/if}
+{:else if view.settings && view.state && view.commands}
   <AppleSettings
     settings={view.settings}
     access={view.state.access}
@@ -236,12 +367,28 @@
     onServiceChange={view.commands.service}
     onFeatureChange={view.commands.feature}
     {sync}
+    pro={proState?.pro}
+    link={proState?.link}
     {restore}
     onRestore={restoreBridge ? freeRestore.start : undefined}
     {setup}
     privacyActions={usageActions}
     {help}
   />
+  {#if proState?.pro?.verificationRequired}
+    <div class="still-ui app">
+      <button
+        type="button"
+        class="secondary block"
+        onclick={() => proHost?.show()}>Verify purchase</button
+      >
+    </div>
+  {/if}
+  {#if canLink}<div class="still-ui app">
+      <button type="button" class="link" onclick={() => proHost?.requestLink()}
+        >Link Still Pro to an account</button
+      >
+    </div>{/if}
   {#if view.settingsUnavailable && !reading}
     <div class="still-ui app" data-host="apple">
       {@render settingsRecovery()}
