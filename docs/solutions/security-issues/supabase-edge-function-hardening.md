@@ -172,3 +172,22 @@ Four reader cases additionally cover exact byte boundaries, a trickle, false Con
 cancellation that never resolves. The complete Deno run passed 374 tests and 125 steps, with
 one separately gated certificate integration case ignored; Deno lint and entrypoint checking
 also passed. See the [remediation plan](../../plans/2026-10-07-002-fix-vibe-security-audit.md).
+
+## Apply abuse budgets to every released request shape (2026-10-07)
+
+Analytics identification limited its newer per-device request while accepting the released
+2.1 `{}` request without consuming a slot. The client could choose the legacy shape to repeat
+privileged account reads, metadata work and PostHog ingestion, even with an exhausted limiter.
+
+Both paths now use the same `analytics-identify` budget: 30 requests per verified account and
+120 per network in ten minutes. IPv6 keys group the network's /64. The legacy path limits
+before account lookup or provider work and fails closed when the limiter is missing or fails;
+unconfigured analytics retains its existing no-op. The production entrypoint constructs its
+persistent limiter independently of the per-device switch, using the existing eraser or
+entitlement-writer connection. A client cannot obtain another budget by changing body shape.
+
+Four security regressions failed on the prior implementation. Six final limiter tests verify
+actual handler budgets, network grouping, missing/failed configuration, no-op/auth behavior,
+and the real `index.ts` composition with synthetic environment configuration. Test the actual
+entrypoint as well as dependency-injected handlers: otherwise a safe handler can still ship
+without its limiter dependency.

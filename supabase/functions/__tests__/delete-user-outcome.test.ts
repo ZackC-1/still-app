@@ -202,6 +202,7 @@ Deno.test("analytics-identify failures are logged as a category, never the accou
     const res = await handleAnalyticsIdentify(req(jwt), {
       jwtSecret: SECRET,
       expected: TEST_EXPECTED_CLAIMS,
+      limiter: { consume: () => Promise.resolve(0) },
       accounts: { account: () => Promise.reject(authError), markAnalyticsSeen: () => Promise.resolve() },
       posthog: { canIdentify: true, canDelete: false, setPersonEmail: () => Promise.resolve(), deletePerson: () => Promise.resolve() },
     });
