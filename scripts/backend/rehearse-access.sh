@@ -24,7 +24,11 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 export SUPABASE_AUTH_JWT_ISSUER='http://kong:8000/auth/v1'
 supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
-supabase db reset --local --no-seed --version 0020 >/dev/null
+access_version=${STILL_ACCESS_REHEARSAL_VERSION:-0020}
+if [[ $access_version != 0020 && $access_version != 0021 ]]; then
+  echo 'Unsupported access rehearsal schema version.' >&2; exit 1
+fi
+supabase db reset --local --no-seed --version "$access_version" >/dev/null
 # Only the existing narrow writer is enabled with a disposable test credential.
 psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X --set=ON_ERROR_STOP=1 <<'SQL'
 alter role still_entitlement_writer login password 'access-synthetic-writer-only';
