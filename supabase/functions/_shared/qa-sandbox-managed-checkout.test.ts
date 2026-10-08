@@ -13,7 +13,7 @@ const UNKNOWN_SESSION = { status: "unknown", sessionId: ID } as const;
 function checkout(paid = false): Record<string, unknown> {
   return { object: "checkout.session", id: ID, livemode: false, mode: "payment", managed_payments: { enabled: true },
     client_reference_id: OP.holderId, metadata: { operation_id: OP.operationId }, currency: "usd", amount_subtotal: 999, amount_total: 1087,
-    status: paid ? "complete" : "open", payment_status: paid ? "paid" : "unpaid", url: paid ? null : `https://checkout.stripe.com/c/pay/${ID}#fixture%3Dabc` };
+    payment_intent: "pi_Fixture", status: paid ? "complete" : "open", payment_status: paid ? "paid" : "unpaid", url: paid ? null : `https://checkout.stripe.com/c/pay/${ID}#fixture%3Dabc` };
 }
 function lines(): Record<string, unknown> {
   return { object: "list", has_more: false, data: [{ object: "item", quantity: 1, currency: "usd", amount_subtotal: 999, amount_total: 1087,
@@ -35,6 +35,8 @@ function fixture(options: {
     calls.push({ url: target, init });
     const changed = options.replace?.(target, init, calls.length);
     const payload = target.endsWith("/account") ? { object: "account", id: CONFIG.stripeAccountId } :
+      target.includes("/payment_intents/") ? { object: "payment_intent",id: "pi_Fixture",livemode: false,currency: "usd",amount: options.session?.amount_total ?? 1087,status: "succeeded",latest_charge: "ch_Fixture" } :
+      target.includes("/charges/") ? { object: "charge",id: "ch_Fixture",livemode: false,currency: "usd",amount: options.session?.amount_total ?? 1087,paid: true,payment_intent: "pi_Fixture",amount_refunded: 0,refunded: false } :
       target.includes("/line_items?") ? options.items ?? lines() : target.includes("revenuecat.com") ? {} : options.session ?? checkout(options.paid);
     return Promise.resolve(changed ?? new Response(JSON.stringify(payload)));
   }) as typeof fetch;
@@ -445,4 +447,109 @@ Deno.test("discovery shares one total deadline across pagination and never start
   assertEquals(calls.length <= 3, true);
   assertEquals(calls.every((call) => !call.init.method), true);
   assertEquals(calls.some((call) => call.url.endsWith(`/${ID}`)), false);
+});
+
+const CHARGE = "ch_Fixture", INTENT = "pi_Fixture";
+const CREATED = Math.floor(Date.now() / 1000);
+function refundFixture(patch: { charge?: Record<string, unknown>; session?: Record<string, unknown>; list?: Record<string, unknown>; items?: Record<string, unknown>; timeout?: number; replace?: (url: string) => Response | Promise<Response> | undefined } = {}) {
+  const paid = { ...checkout(true), payment_intent: INTENT, created: CREATED, ...patch.session };
+  const charge = { object: "charge", id: CHARGE, livemode: false, paid: true, status: "succeeded", currency: "usd", amount: 1087,
+    amount_refunded: 1087, refunded: true, payment_intent: INTENT, ...patch.charge };
+  return fixture({ paid: true, timeout: patch.timeout, session: paid, items: patch.items, replace: url => patch.replace?.(url) ??
+    (url.includes("/charges/") ? new Response(JSON.stringify(charge)) : url.includes("?payment_intent=") ?
+      new Response(JSON.stringify({ object: "list", url: "/v1/checkout/sessions", has_more: false, data: [paid], ...patch.list })) : undefined) });
+}
+Deno.test("canonical full refund readback binds Charge PaymentIntent to unique managed Session using GET only", async () => {
+  const { client, calls } = refundFixture();
+  assertEquals(await client.readChargeRefund(CHARGE), { status: "full_refund", ...OP, sessionId: ID, paymentIntentId: INTENT, createdAtMs: CREATED * 1000 });
+  assertEquals(calls.map(c => c.url), ["https://api.stripe.com/v1/account", `https://api.stripe.com/v1/charges/${CHARGE}`,
+    `https://api.stripe.com/v1/checkout/sessions?payment_intent=${INTENT}&limit=2`, `https://api.stripe.com/v1/checkout/sessions/${ID}`,
+    `https://api.stripe.com/v1/checkout/sessions/${ID}/line_items?limit=2&expand%5B%5D=data.price.product`]);
+  assertEquals(calls.every(c => !c.init.method || c.init.method === "GET"), true);
+});
+Deno.test("canonical partial and zero refunds never become full refund", async () => {
+  for (const [amount, status] of [[0, "not_refunded"], [400, "partial_refund"]] as const) {
+    assertEquals((await refundFixture({ charge: { amount_refunded: amount, refunded: false } }).client.readChargeRefund(CHARGE)).status, status);
+  }
+});
+Deno.test("refund charge and PaymentIntent inconsistencies fail before any Session binding", async () => {
+  for (const charge of [{ id: "ch_Other" }, { livemode: true }, { object: "refund" }, { paid: false }, { status: "pending" },
+    { currency: "eur" }, { amount: 0 }, { amount: 1.5 }, { amount_refunded: -1 }, { amount_refunded: 1088 },
+    { amount_refunded: 400 }, { refunded: false }, { payment_intent: null }, { payment_intent: "pi_x/evil" }]) {
+    const s = refundFixture({ charge }); assertEquals(await s.client.readChargeRefund(CHARGE), UNKNOWN);
+    assertEquals(s.calls.some(c => c.url.includes("checkout/sessions")), false);
+  }
+});
+Deno.test("refund invalid charge and wrong account never query arbitrary provider paths", async () => {
+  const s = refundFixture();
+  for (const charge of ["ch_x/evil", "pi_Fixture", "ch_", `ch_${"a".repeat(201)}`]) assertEquals(await s.client.readChargeRefund(charge), UNKNOWN);
+  assertEquals(s.calls.length, 0);
+  const wrong = refundFixture({ replace: url => url.endsWith("/account") ? Response.json({ object: "account", id: "acct_Other" }) : undefined });
+  assertEquals(await wrong.client.readChargeRefund(CHARGE), UNKNOWN); assertEquals(wrong.calls.length, 1);
+});
+Deno.test("refund requires complete unique Session list and canonical same PaymentIntent and total", async () => {
+  for (const list of [{ has_more: true }, { data: [] }, { data: [checkout(true), checkout(true)] }, { url: "/v1/charges" }]) {
+    assertEquals(await refundFixture({ list }).client.readChargeRefund(CHARGE), UNKNOWN);
+  }
+  for (const session of [{ payment_intent: "pi_Other" }, { created: null }, { created: 0 }, { amount_total: 999 },
+    { metadata: { operation_id: "bad" } }, { client_reference_id: "bad" }, { managed_payments: { enabled: false } }, { livemode: true }]) {
+    assertEquals(await refundFixture({ session }).client.readChargeRefund(CHARGE), UNKNOWN);
+  }
+  const wrongRead = refundFixture({ replace: url => url.endsWith(`/${ID}`) ? Response.json({ ...checkout(true), payment_intent: "pi_Other", created: CREATED }) : undefined });
+  assertEquals(await wrongRead.client.readChargeRefund(CHARGE), UNKNOWN);
+});
+Deno.test("refund independently checks exact sole Price and product and bounded aggregate deadline", async () => {
+  assertEquals(await refundFixture({ items: { ...lines(), has_more: true } }).client.readChargeRefund(CHARGE), UNKNOWN);
+  const line = (lines().data as Record<string, unknown>[])[0]!;
+  assertEquals(await refundFixture({ items: { ...lines(), data: [{ ...line, price: { ...(line.price as object), id: "price_Other" } }] } }).client.readChargeRefund(CHARGE), UNKNOWN);
+  const stalled = refundFixture({ timeout: 10, replace: url => url.includes("/charges/") ? new Promise<Response>(() => {}) : undefined });
+  const start = performance.now(); assertEquals(await stalled.client.readChargeRefund(CHARGE), UNKNOWN);
+  assertEquals(performance.now() - start < 1000, true);
+});
+Deno.test("canonical full Charge refund prevents receipt import even when Session remains paid", async () => {
+  const { client,calls } = fixture({ paid: true,session: { ...checkout(true),payment_intent: INTENT },replace: url =>
+    url.includes("/payment_intents/") ? Response.json({ object: "payment_intent",id: INTENT,livemode: false,currency: "usd",amount: 1087,status: "succeeded",latest_charge: CHARGE }) :
+    url.includes("/charges/") ? Response.json({ object: "charge",id: CHARGE,livemode: false,currency: "usd",amount: 1087,paid: true,payment_intent: INTENT,amount_refunded: 1087,refunded: true }) : undefined });
+  assertEquals(await client.trackCompletedPurchase(OP,ID),UNAVAILABLE);
+  assertEquals(calls.some(call => call.url.includes("revenuecat.com")),false);
+});
+Deno.test("pre-import reads canonical PaymentIntent and Charge and permits partial refund lifetime", async () => {
+  for (const refunded of [0,400]) {
+    const s = fixture({ paid: true,replace: url => url.includes("/charges/") ? Response.json({ object: "charge",id: CHARGE,livemode: false,
+      currency: "usd",amount: 1087,paid: true,payment_intent: INTENT,amount_refunded: refunded,refunded: false }) : undefined });
+    assertEquals(await s.client.trackCompletedPurchase(OP,ID),{ status: "tracked" });
+    assertEquals(s.calls.map(c => c.url),["https://api.stripe.com/v1/account",`https://api.stripe.com/v1/checkout/sessions/${ID}`,
+      `https://api.stripe.com/v1/checkout/sessions/${ID}/line_items?limit=2&expand%5B%5D=data.price.product`,
+      `https://api.stripe.com/v1/payment_intents/${INTENT}`,`https://api.stripe.com/v1/charges/${CHARGE}`,"https://api.revenuecat.com/v1/receipts"]);
+    assertEquals(s.calls.filter(c => c.init.method === "POST").length,1);
+  }
+});
+Deno.test("pre-import rejects unknown wrong live unbound PaymentIntent and Charge before receipt POST", async () => {
+  for (const session of [{ payment_intent: null },{ payment_intent: "pi_bad/evil" },{ payment_intent: {} }]) {
+    const s = fixture({ paid: true,session: { ...checkout(true),...session } });
+    assertEquals(await s.client.trackCompletedPurchase(OP,ID),UNAVAILABLE);
+    assertEquals(s.calls.some(c => c.url.includes("/payment_intents/") || c.init.method === "POST"),false);
+  }
+  const pi = { object: "payment_intent",id: INTENT,livemode: false,currency: "usd",amount: 1087,status: "succeeded",latest_charge: CHARGE };
+  for (const patch of [{ object: "charge" },{ id: "pi_Other" },{ livemode: true },{ currency: "eur" },{ amount: 999 },
+    { status: "processing" },{ latest_charge: null },{ latest_charge: "ch_bad/evil" }]) {
+    const s = fixture({ paid: true,replace: url => url.includes("/payment_intents/") ? Response.json({ ...pi,...patch }) : undefined });
+    assertEquals(await s.client.trackCompletedPurchase(OP,ID),UNAVAILABLE);
+    assertEquals(s.calls.some(c => c.url.includes("/charges/") || c.init.method === "POST"),false);
+  }
+  const charge = { object: "charge",id: CHARGE,livemode: false,currency: "usd",amount: 1087,paid: true,payment_intent: INTENT,amount_refunded: 0,refunded: false };
+  for (const patch of [{ object: "refund" },{ id: "ch_Other" },{ payment_intent: "pi_Other" },{ livemode: true },{ currency: "eur" },
+    { paid: false },{ amount: 999 },{ amount_refunded: -1 },{ amount_refunded: 1088 },{ amount_refunded: 0.5 },{ refunded: true },{ refunded: null },
+    { amount_refunded: 1087,refunded: false }]) {
+    const s = fixture({ paid: true,replace: url => url.includes("/charges/") ? Response.json({ ...charge,...patch }) : undefined });
+    assertEquals(await s.client.trackCompletedPurchase(OP,ID),UNAVAILABLE); assertEquals(s.calls.some(c => c.init.method === "POST"),false);
+  }
+});
+Deno.test("pre-import deadline and unknown Charge body never start receipts POST", async () => {
+  for (const response of [Response.json({}),new Response(null,{ status: 404 }),new Response("x".repeat(65537)),new Response(new Uint8Array([255]))]) {
+    const s = fixture({ paid: true,replace: url => url.includes("/charges/") ? response : undefined });
+    assertEquals(await s.client.trackCompletedPurchase(OP,ID),UNAVAILABLE); assertEquals(s.calls.some(c => c.init.method === "POST"),false);
+  }
+  const s = fixture({ paid: true,timeout: 10,replace: url => url.includes("/payment_intents/") ? new Promise<Response>(() => {}) : undefined });
+  assertEquals(await s.client.trackCompletedPurchase(OP,ID),UNAVAILABLE); assertEquals(s.calls.some(c => c.init.method === "POST"),false);
 });

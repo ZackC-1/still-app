@@ -43,6 +43,11 @@ export type QaCheckoutRecovered = {
 };
 export type QaCheckoutUnknown = { readonly status: "unknown"; readonly sessionId?: string };
 export type QaCheckoutRecovery = QaCheckoutCreated | QaCheckoutRecovered | QaCheckoutUnknown;
+export type QaChargeRefund = { readonly status: "unknown" } | {
+  readonly status: "full_refund" | "partial_refund" | "not_refunded";
+  readonly operationId: string; readonly holderId: string; readonly sessionId: string;
+  readonly paymentIntentId: string; readonly createdAtMs: number;
+};
 type Unavailable = { readonly status: "unavailable" };
 type JsonObject = Record<string, unknown>;
 
@@ -236,6 +241,37 @@ export class QaSandboxManagedCheckout {
     return { status: "unknown" };
   }
 
+  /** Canonical Charge -> PaymentIntent -> unique managed Session. Snapshot metadata is
+   * never a purchase binding; refunds do not import receipts or authorize access. */
+  async readChargeRefund(chargeId: string): Promise<QaChargeRefund> {
+    const unknown = { status: "unknown" } as const;
+    if (!/^ch_[A-Za-z0-9]{1,200}$/.test(chargeId)) return unknown;
+    const deadline = performance.now() + this.timeoutMs;
+    if (!await this.accountMatches(deadline)) return unknown;
+    const charge = object(await this.request(`https://api.stripe.com/v1/charges/${chargeId}`, { headers: this.stripeHeaders() }, false, deadline));
+    if (!charge || charge.object !== "charge" || charge.id !== chargeId || charge.livemode !== false || charge.currency !== "usd" ||
+      charge.paid !== true || charge.status !== "succeeded" || !positiveAmount(charge.amount) ||
+      typeof charge.amount_refunded !== "number" || !Number.isSafeInteger(charge.amount_refunded) || charge.amount_refunded < 0 ||
+      charge.amount_refunded > (charge.amount as number) || typeof charge.refunded !== "boolean" ||
+      charge.refunded !== (charge.amount_refunded === charge.amount) || typeof charge.payment_intent !== "string" ||
+      !/^pi_[A-Za-z0-9]{1,200}$/.test(charge.payment_intent)) return unknown;
+    const query = new URLSearchParams({ payment_intent: charge.payment_intent, limit: "2" });
+    const list = object(await this.request(`${STRIPE}?${query}`, { headers: this.stripeHeaders() }, false, deadline));
+    if (list?.object !== "list" || list.url !== "/v1/checkout/sessions" || list.has_more !== false ||
+      !Array.isArray(list.data) || list.data.length !== 1) return unknown;
+    const hint = object(list.data[0]);
+    const operationId = object(hint?.metadata)?.operation_id, holderId = hint?.client_reference_id;
+    if (typeof operationId !== "string" || !UUID.test(operationId) || typeof holderId !== "string" || !UUID.test(holderId) ||
+      typeof hint?.id !== "string" || !SESSION_ID.test(hint.id) || hint.object !== "checkout.session" || hint.livemode !== false ||
+      hint.payment_intent !== charge.payment_intent) return unknown;
+    const row = await this.readSession({ operationId, holderId }, hint.id, true, deadline);
+    if (!row || row.payment_intent !== charge.payment_intent || row.status !== "complete" || row.payment_status !== "paid" ||
+      row.amount_total !== charge.amount || typeof row.created !== "number" || !Number.isSafeInteger(row.created) || row.created <= 0 ||
+      !Number.isSafeInteger(row.created * 1000)) return unknown;
+    return { status: charge.refunded ? "full_refund" : charge.amount_refunded > 0 ? "partial_refund" : "not_refunded",
+      operationId, holderId, sessionId: row.id as string, paymentIntentId: charge.payment_intent, createdAtMs: row.created * 1000 };
+  }
+
   /** Single initial dispatch by the SQL claim winner. Retries always use the GET recovery methods. */
   async createCheckout(operation: QaCheckoutOperation, creationStartedAtMs: number): Promise<QaCheckoutCreated | QaCheckoutRecovered | QaCheckoutUnknown | Unavailable> {
     if (!binding(operation)) return { status: "unavailable" };
@@ -270,12 +306,27 @@ export class QaSandboxManagedCheckout {
   async trackCompletedPurchase(operation: QaCheckoutOperation, sessionId: string): Promise<{ readonly status: "tracked" } | Unavailable> {
     if (!binding(operation) || !SESSION_ID.test(sessionId)) return { status: "unavailable" };
     const frozen = Object.freeze({ operationId: operation.operationId, holderId: operation.holderId });
-    const row = await this.readSession(frozen, sessionId);
-    if (!row || row.status !== "complete" || row.payment_status !== "paid") return { status: "unavailable" };
+    const deadline = performance.now() + this.timeoutMs;
+    const row = await this.readSession(frozen, sessionId, false, deadline);
+    if (!row || row.status !== "complete" || row.payment_status !== "paid" || typeof row.payment_intent !== "string" ||
+      !/^pi_[A-Za-z0-9]{1,200}$/.test(row.payment_intent)) return { status: "unavailable" };
+    // Checkout Sessions retain paid status after refund. Canonical PaymentIntent/Charge
+    // readback blocks already-refunded receipts before import, independently of webhook order.
+    // A refund arriving AFTER this read remains a distributed provider consistency gate.
+    const intent = object(await this.request(`https://api.stripe.com/v1/payment_intents/${row.payment_intent}`, { headers: this.stripeHeaders() }, false, deadline));
+    if (!intent || intent.object !== "payment_intent" || intent.id !== row.payment_intent || intent.livemode !== false ||
+      intent.currency !== "usd" || intent.amount !== row.amount_total || intent.status !== "succeeded" ||
+      typeof intent.latest_charge !== "string" || !/^ch_[A-Za-z0-9]{1,200}$/.test(intent.latest_charge)) return { status: "unavailable" };
+    const charge = object(await this.request(`https://api.stripe.com/v1/charges/${intent.latest_charge}`, { headers: this.stripeHeaders() }, false, deadline));
+    if (!charge || charge.object !== "charge" || charge.id !== intent.latest_charge || charge.payment_intent !== intent.id ||
+      charge.livemode !== false || charge.currency !== "usd" || charge.paid !== true || charge.amount !== row.amount_total ||
+      typeof charge.amount_refunded !== "number" || !Number.isSafeInteger(charge.amount_refunded) || charge.amount_refunded < 0 ||
+      charge.amount_refunded > (charge.amount as number) || typeof charge.refunded !== "boolean" ||
+      charge.refunded !== (charge.amount_refunded === charge.amount) || charge.refunded) return { status: "unavailable" };
     const imported = await this.request(RECEIPTS, { method: "POST", headers: {
       "Content-Type": "application/json", "X-Platform": "stripe",
       Authorization: `Bearer ${this.config.revenueCatStripePublicKey}`,
-    }, body: JSON.stringify({ fetch_token: sessionId, app_user_id: frozen.holderId }) }, true);
+    }, body: JSON.stringify({ fetch_token: sessionId, app_user_id: frozen.holderId }) }, true, deadline);
     return imported !== null ? { status: "tracked" } : { status: "unavailable" };
   }
 }
