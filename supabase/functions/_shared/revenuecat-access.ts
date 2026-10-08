@@ -59,7 +59,8 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
 
   async getRights(holder: string, environment: AccessEnvironment): Promise<ProviderAccess> {
     const unavailable = { status: "unavailable" } as const;
-    if (!this.secret || !ID.test(this.project) || !this.mappings.length) return unavailable;
+    if (!this.secret || !ID.test(this.project) || !this.mappings.length ||
+        environment !== "sandbox" && this.mappings.some(mapping => mapping.store === "stripe")) return unavailable;
     const path = `/v2/projects/${this.project}/customers/${encodeURIComponent(holder)}/purchases`;
     let next = `${path}?environment=${environment}&limit=100`;
     const rights: ProviderRight[] = [];

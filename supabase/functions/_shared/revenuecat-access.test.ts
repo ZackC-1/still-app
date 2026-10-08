@@ -138,6 +138,18 @@ Deno.test("Stripe owned evidence yields canonical benefit and stable provider pu
   assertEquals(result.rights[0]?.key.length, 64);
   assertEquals(await read([stripePurchase()], {}, mappings), result);
 });
+Deno.test("QA Stripe mapping cannot classify production purchases or refunds", async () => {
+  const real = globalThis.fetch;
+  try {
+    for (const status of ["owned", "refunded"]) {
+      globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({
+        object: "list", next_page: null,
+        items: [{ ...stripePurchase(), status, environment: "production" }],
+      })))) as typeof fetch;
+      assertEquals(await new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [STRIPE_MAPPING]).getRights(HOLDER, "production"), { status: "unavailable" });
+    }
+  } finally { globalThis.fetch = real; }
+});
 Deno.test("Stripe mapping rejects wrong product/app/store/entitlement and unknown or zero payment", async () => {
   const mappings = parseAccessProductMappings(JSON.stringify([STRIPE_MAPPING]));
   if (!mappings) throw new Error("Stripe grammar rejected");
