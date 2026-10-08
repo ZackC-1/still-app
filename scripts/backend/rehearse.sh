@@ -21,7 +21,9 @@ cleanup() {
 }
 trap cleanup EXIT
 supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >/dev/null
-supabase db reset --local --no-seed >/dev/null
+# The U1 candidate characterizes the 0020 creator/ACL baseline; the fixed QA owner
+# introduced in 0021 has its own upgrade/clean-install and role-denial rehearsal.
+supabase db reset --local --no-seed --version 0020 >/dev/null
 # Local socket in this disposable CLOUD container only. Create a generic fixture login for event
 # trigger DDL and selected creator-default hardening. This explicitly privileged synthetic
 # administrator is separate from non-superuser application/admin tests; production authority
@@ -40,7 +42,9 @@ export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.
 # One environment permission for every database test: driver PG* defaults plus each test's inputs.
 db_test_env=--allow-env=STILL_REQUIRE_CLOUD_TESTS,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,STILL_U5W2_ERASURE_TEST_DATABASE_URL,STILL_U5W2_ERASURE_TEST_MODE,STILL_U5W3_ERASURE_TEST_DATABASE_URL,STILL_U5W3_ERASURE_TEST_MODE,STILL_U5W3_AUTH_URL,STILL_U5W3_AUTH_SERVICE_KEY,STILL_ACCESS_TEST_DATABASE_URL,STILL_ACCESS_MIGRATION_MODE,STILL_ACCESS_MIGRATION_VERSION,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
 deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
-supabase db reset --local --no-seed >/dev/null
+# The U1 candidate characterizes the 0020 creator/ACL baseline; the fixed QA owner
+# introduced in 0021 has its own upgrade/clean-install and role-denial rehearsal.
+supabase db reset --local --no-seed --version 0020 >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
 # cross-account isolation against the hardened state, with extension-only test helper grants.
 bootstrap_fixture
