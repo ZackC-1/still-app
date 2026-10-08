@@ -17,8 +17,8 @@ const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : u
 const expected = authenticatedClaims(supabaseUrl || undefined);
 const postHogConfig = postHogConfigFromEnv((name) => Deno.env.get(name));
 const posthog = new HttpPostHog(postHogConfig);
-// Per-device identities (0017) need the eraser login, a separate owner operation. Without it the
-// released 2.1 path works exactly as before and the per-device path answers 503.
+// Per-device identities (0017) need the eraser login, a separate owner operation. Without it,
+// per-device requests answer 503; released clients may use the narrow writer's abuse limiter.
 const eraserUrl = Deno.env.get("ANALYTICS_ERASER_DB_URL") ?? "";
 const eraserSql = eraserUrl ? createWriterSql(eraserUrl) : null;
 // Released clients still need an abuse budget when per-device identity setup is disabled.
