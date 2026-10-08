@@ -17,6 +17,7 @@ allowBuilds:
   spawn-sync: true
 
 overrides:
+  devalue: 5.9.3
   esbuild: 0.28.1
   shell-quote: 1.9.0
   tmp: 0.2.7
