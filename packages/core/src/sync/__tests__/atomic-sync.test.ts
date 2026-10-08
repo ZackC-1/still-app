@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, SETTINGS_FIELDS, readSettingsOperationRequest, type SettingsField, type SettingsV2 } from "@still/shared-types";
+
+// Modern V3 settings stay free even in a build that sells optional Pro features.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: true,
+}));
+
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, SETTINGS_FIELDS, readSettingsOperationRequest, type SettingsField, type SettingsV2 } from "@still/shared-types";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter, type SyncedSettingsEnvelope } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
@@ -143,6 +150,74 @@ const settle = async () => { for (let i = 0; i < 150; i++) await Promise.resolve
 afterEach(() => vi.useRealTimers());
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it.each(["unknown", "not-entitled", "failed", "read-failed", "pending"] as const)(
+    "modern settings read, subscribe and write without %s purchase authority",
+    async authority => {
+      expect(PAID_TIER_ENABLED).toBe(true);
+      const h = harness(); await h.cache.hydrate();
+      let release!: () => void;
+      if (authority === "pending") {
+        const pending = new Promise<void>(resolve => { release = resolve; });
+        h.backend.reconcileEntitlement = () => pending;
+      } else if (authority === "failed") {
+        h.backend.reconcileEntitlement = async () => { throw new Error("purchase service unavailable"); };
+      } else if (authority === "read-failed") {
+        h.backend.readEntitlement = async () => { throw new Error("entitlement read unavailable"); };
+      } else {
+        h.backend.readEntitlement = async () => authority;
+      }
+      const signingIn = h.service.onSignedIn(A);
+      try {
+        await settle();
+        expect(h.reads()).toBe(1);
+        expect(h.subscriptions()).toBe(1);
+        expect(h.service.getState()).toMatchObject({ userId: A, entitled: false, syncing: true, cloudReachable: true,
+          confirmed: authority === "not-entitled" });
+        await h.cache.setService("tiktok", false); await settle();
+        expect(h.settings().services.tiktok).toBe(false);
+        expect(h.requests).toHaveLength(1);
+        await h.service.onEntitlementConfirmed(A, false);
+        expect(h.subscriptions()).toBe(1);
+        await h.cache.setService("tiktok", true); await settle();
+        expect(h.settings().services.tiktok).toBe(true);
+        expect(h.requests).toHaveLength(2);
+        await h.service.signOut();
+        expect(h.subscriptions()).toBe(0);
+        await h.cache.setService("tiktok", false); await settle();
+        expect(h.requests).toHaveLength(2);
+      } finally {
+        release?.(); await signingIn;
+        await h.service.signOut(); h.cache.watch()();
+      }
+      expect(h.service.getState()).toMatchObject({ userId: null, entitled: false, syncing: false });
+    },
+  );
+
+  it("a delayed old entitlement cannot replace a modern same-account session or its writes", async () => {
+    const h = harness(); await h.cache.hydrate();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    h.backend.reconcileEntitlement = () => pending;
+    h.backend.readEntitlement = async () => "entitled";
+    const earlier = h.service.onSignedIn(A);
+    try {
+      await settle();
+      expect(h.subscriptions()).toBe(1);
+      h.switchSession(NEXT_SESSION);
+      h.backend.reconcileEntitlement = async () => {};
+      h.backend.readEntitlement = async () => "not-entitled";
+      await h.service.onSignedIn(A);
+      h.backend.readEntitlement = async () => "entitled";
+      release(); await earlier;
+      expect(h.service.getState()).toMatchObject({ userId: A, entitled: false, confirmed: true, syncing: true });
+      await h.cache.setService("tiktok", false); await settle();
+      expect(h.settings().services.tiktok).toBe(false);
+      expect(h.requests).toHaveLength(1);
+    } finally {
+      release(); await earlier; await h.service.signOut(); h.cache.watch()();
+    }
+  });
+
   it.each(["signOut", "deleteAccount"] as const)("never-linked Off survives unavailable first-link proof, %s and later nonempty first link", async teardown => {
     const h = harness("never-linked"); h.useUntouchedCanonicalGlobal();
     await h.cache.hydrate(); await h.cache.setGlobalOn(false); vi.useFakeTimers();
