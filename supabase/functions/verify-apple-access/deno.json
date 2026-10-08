@@ -1,9 +1,9 @@
 {
   "imports": {
-    "@std/assert": "jsr:@std/assert@1.0.19",
-    "postgres": "npm:postgres@3.4.9",
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.108.2",
-    "linkedom": "npm:linkedom@0.18.12",
+    "@std/assert": "jsr:@std/assert@1",
+    "postgres": "npm:postgres@3",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "linkedom": "npm:linkedom@0.18",
     "@still/shared-types": "../../../packages/shared-types/src/index.ts",
     "@noble/hashes/utils.js": "npm:@noble/hashes@2.4.0/utils.js",
     "../../../packages/core/src/rules/canonical.js": "../../../packages/core/src/rules/canonical.ts",
@@ -23,10 +23,14 @@
     "../../../packages/shared-types/src/access.js": "../../../packages/shared-types/src/access.ts",
     "./access.js": "../../../packages/shared-types/src/access.ts",
     "../../../packages/shared-types/src/access-wire.js": "../../../packages/shared-types/src/access-wire.ts",
-    "./access-wire.js": "../../../packages/shared-types/src/access-wire.ts"
+    "./access-wire.js": "../../../packages/shared-types/src/access-wire.ts",
+    "@apple/app-store-server-library": "npm:@apple/app-store-server-library@3.1.0",
+    "pkijs": "npm:pkijs@3.4.1",
+    "asn1js": "npm:asn1js@3.0.10",
+    "jose": "npm:jose@6.2.12"
   },
   "lock": {
-    "path": "./deno.lock",
+    "path": "../deno.lock",
     "frozen": true
   },
   "nodeModulesDir": "auto"

@@ -8,12 +8,10 @@ export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${
-      Object.keys(value)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-        .join(",")
-    }}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -29,6 +27,7 @@ export const settingsRuntimeSources = Object.freeze([
     "settings-v2",
     "settings-operation",
     "access",
+    "access-wire",
   ].map((name) => `packages/shared-types/src/${name}.ts`),
   "packages/core/src/storage/settings-v2.ts",
   "packages/core/src/sync/field-order.ts",
@@ -128,17 +127,15 @@ export async function createPlan(root, { revision, target }) {
     );
   }
   const paths = [];
-  for (
-    const path of [
-      "supabase/migrations",
-      "supabase/functions",
-      "supabase/config.toml",
-      "scripts/backend",
-      "supabase/tests",
-      ".github/workflows/supabase-security-rehearsal.yml",
-      ".github/workflows/security-audit.yml",
-    ]
-  ) {
+  for (const path of [
+    "supabase/migrations",
+    "supabase/functions",
+    "supabase/config.toml",
+    "scripts/backend",
+    "supabase/tests",
+    ".github/workflows/supabase-security-rehearsal.yml",
+    ".github/workflows/security-audit.yml",
+  ]) {
     paths.push(...(await filesUnder(root, path)));
   }
   // Older rehearsal callers retain their protocol. Once present, the apply source is bound too.
@@ -150,13 +147,13 @@ export async function createPlan(root, { revision, target }) {
   }
   if (paths.includes("supabase/functions/sync-settings/index.ts")) {
     for (const path of settingsRuntimeSources) {
-      paths.push(...await filesUnder(root, path));
+      paths.push(...(await filesUnder(root, path)));
     }
     paths.push(
-      ...await filesUnder(
+      ...(await filesUnder(
         root,
         ".github/workflows/supabase-settings-rehearsal.yml",
-      ),
+      )),
     );
   }
   const files = [];
@@ -188,6 +185,7 @@ export async function createPlan(root, { revision, target }) {
       "hardening candidate",
       "role and server assertions",
       "post-hardening injected-grant rejection",
+      "run actual access CLI contracts with synthetic provider ports",
       "destroy runtime",
     ],
     files,

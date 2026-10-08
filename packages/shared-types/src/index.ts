@@ -4,6 +4,7 @@ export * from "./rules.js";
 export * from "./settings.js";
 export * from "./entitlement.js";
 export * from "./access.js";
+export * from "./access-wire.js";
 export * from "./feature-registry.js";
 export * from "./settings-v2.js";
 export * from "./settings-operation.js";

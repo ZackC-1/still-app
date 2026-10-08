@@ -434,3 +434,50 @@ Re-running 0015's check after 0016 reports the new private objects; that is expe
 
 Nothing here publishes a policy. The first owner apply is itself a separate, explicitly approved
 operation; until then every client reads Off.
+
+### Scoped access and Apple migrations (0019, 0020)
+
+Deploy `0019_scoped_access_rights.sql` alone and verify its exact end state, then deploy
+`0020_apple_scoped_access.sql` as a separate reviewed operation. The accepted deployment planner
+refuses a combined operation: 0020 replaces `public.commit_access_observation`, whose original
+body 0019's verifier pins. Preserve an intermediate merged commit whose newest migration is
+0019, then add 0020 in a later merged commit. Plan the first operation against that earlier
+0019 commit; the planner accepts it after main adds 0020 only while its planned bytes remain
+identical. Listing 0019 alone against a commit already containing 0020 is refused as an
+incomplete pending tail. Each operation uses the matching single read-only verifier and private
+pre/post invariant under `scripts/backend/deploy/verify/`. These gates check migration history,
+exact columns/defaults/check expressions/foreign keys, RLS, every table/column/routine grantee,
+writer role reachability, SECURITY DEFINER/search path, and reviewed routine body hashes. The
+0020 pins include the consolidated server correction and its token-fenced removal-only RPC.
+Existing row counts and protected/free/settings row fingerprints must remain unchanged; 0020
+also fingerprints every existing scoped ledger field, excluding only the newly added source
+column. The accepted runner keeps these comparisons private. Live concurrent account or settings
+changes may require the owner's private comparison after a verified apply.
+
+The security rehearsal applies each migration through the actual pinned CLI as the ordinary
+`postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
+nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column
+ACL, RLS/policy, shape and weakened-check drift. The existing 0019 behavioral ledger probe runs
+at exactly 0019; the Apple ledger and removal probes run at 0020. All database execution remains
+restricted to an ephemeral GitHub-hosted Linux runner.
+
+The same workflow then runs `rehearse-access.sh` with the actual CLI, gateway and GoTrue. Its
+first pass uses the exact deployed source, nearest import maps and frozen lock: anonymous local
+verification reaches its handler, account endpoints reject missing/forged JWTs, valid Auth reaches
+their request grammar, and missing Apple configuration grants nothing. Its second pass copies
+the project into a disposable tree and replaces only Apple and RevenueCat provider module ports.
+Actual entrypoints, handlers, Auth confirmation, rate limiter, PostgreSQL ledger and Ed25519
+issuer remain unchanged. It verifies local and account proof signatures, explicit linking,
+account conflicts, refusal without source authority, dual-auth transfer, former-owner removals,
+and accountless Restore after transfer. Fresh ephemeral signing material distinguishes the new
+worker; private fixture files and raw runtime logs are removed on exit. Mounted source/config/lock
+bytes are compared after each served pass. This proves composition and envelope contracts with
+synthetic provider I/O; it does not prove Apple certificates, OCSP, current provider API responses,
+production configuration or deployment.
+
+`node --test scripts/backend/access-runtime.test.mjs` exercises actual cold Deno graphs for all
+three entrypoints, exact frozen npm closure and raw-specifier aliases, with source/alias/lock
+negative controls. It also checks the generated provider fixture's actual graph and types while
+retaining entrypoint/auth/store/issuer bytes. SQL and actual CLI serve tests skipped on this Mac
+are not runtime evidence. Hosted rehearsal, provider configuration, protected deployment approval
+and actual store/device QA remain distinct gates.

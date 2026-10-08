@@ -475,3 +475,11 @@ verify_jwt = false
 # verify_jwt=true: owner-only. The function also verifies the user JWT itself (exp required, role
 # authenticated, project issuer) and the database checks the subject against its owner allowlist.
 verify_jwt = true
+
+[functions.verify-apple-access]
+# Accountless local purchase: in-function Apple chain/current-transaction verification + IP limits.
+verify_jwt = false
+
+[functions.link-apple-access]
+# Explicit link derives destination from verified JWT; transfer additionally proves source account.
+verify_jwt = true

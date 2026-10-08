@@ -87,6 +87,10 @@ jobs:
       - name: Typecheck entrypoints
         working-directory: supabase/functions
         run: deno check */index.ts
+      - name: Test Apple certificate and JWS boundary with ephemeral synthetic keys
+        working-directory: supabase/functions
+        run: deno test --allow-run=openssl --allow-read --allow-write _shared/apple-access.test.ts
+
       - name: Test handlers (faked payloads + mocked stores — no Apple, no live DB)
         working-directory: supabase/functions
         run: deno test --allow-read=../migrations/0013_counter_retention.sql,../migrations/0015_settings_sync_per_field.sql

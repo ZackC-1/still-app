@@ -6,7 +6,6 @@ if [[ ${GITHUB_ACTIONS:-} != true || ${RUNNER_ENVIRONMENT:-} != github-hosted ||
   echo 'Cloud rehearsal requires an ephemeral GitHub-hosted Linux runner.' >&2
   exit 1
 fi
-export STILL_REQUIRE_CLOUD_TESTS=1
 if [[ $# != 2 || ! $1 =~ ^[a-f0-9]{40}$ || ! $2 =~ ^[a-f0-9]{64}$ ]]; then
   echo 'Supply the exact checkout revision and reviewed rehearsal digest.' >&2
   exit 1
@@ -15,6 +14,7 @@ if [[ $(git rev-parse HEAD) != "$1" ]]; then
   echo 'Checkout revision changed.' >&2
   exit 1
 fi
+export STILL_REQUIRE_CLOUD_TESTS=1
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
 cleanup() {
   supabase stop --project-id still-app --no-backup >/dev/null 2>&1 || return 1
@@ -158,13 +158,16 @@ u5w3_erasure_test upgrade
 # 0018's exact eraser inventory is checked at 0018, before 0019 extends private.
 supabase db reset --local --no-seed --version 0018 >/dev/null
 u5w3_erasure_test clean
-# Check the foundation migration at its exact 0019 end state.
+# Each new migration is an independent accepted deployment operation: 0020 replaces
+# commit_access_observation, whose original body is pinned by 0019's verifier.
 access_migration_test() {
+  local test_file=supabase/tests/access_migration_gates_test.ts
+  if [[ "$1" == 0020 ]]; then test_file=supabase/tests/apple_access_migration_gates_test.ts; fi
   STILL_ACCESS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" \
     STILL_ACCESS_MIGRATION_VERSION="$1" STILL_ACCESS_MIGRATION_MODE="$2" \
     deno test --config supabase/functions/deno.json "$db_test_env" \
       --allow-read=supabase/migrations,scripts/backend/deploy/verify \
-      --allow-net=127.0.0.1:54322 supabase/tests/access_migration_gates_test.ts
+      --allow-net=127.0.0.1:54322 "$test_file"
 }
 access_upgrade() {
   local version="$1" stem="$2" before after
@@ -176,10 +179,17 @@ access_upgrade() {
   unset before after
   access_migration_test "$version" post
 }
-# Begin at the tested exact 0018 state; the 0019 upgrade carries nonempty old rows.
+# Begin at the tested exact 0018 state. Both upgrades carry nonempty old rows.
 access_upgrade 0019 0019_scoped_access_rights
+STILL_ACCESS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" \
+  deno test --config supabase/functions/deno.json "$db_test_env" --allow-net=127.0.0.1:54322 supabase/tests/scoped_access_rights_test.ts
 supabase db reset --local --no-seed --version 0019 >/dev/null
 access_migration_test 0019 post
-# The pgTAP suite again at the clean 0019 head, after rollback-only drift controls.
+access_upgrade 0020 0020_apple_scoped_access
+STILL_ACCESS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" \
+  deno test --config supabase/functions/deno.json "$db_test_env" --allow-net=127.0.0.1:54322 supabase/tests/apple_scoped_access_test.ts
+supabase db reset --local --no-seed --version 0020 >/dev/null
+access_migration_test 0020 post
+# The pgTAP suite again at the head, after the policy routes have been exercised.
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
