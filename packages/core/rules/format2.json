@@ -70,7 +70,8 @@
             "ytd-comments",
             "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]",
             "comments-entry-point-teaser-view-model",
-            "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))"
+            "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))",
+            "ytm-engagement-panel[data-still-youtube-comments-panel]"
           ]
         },
         {
@@ -247,6 +248,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "d650c34def423a2f7b67c91699b9b85a03bd0065aa3c95a889a8962b2e105ae9f62fc2ae235a7a95f7d5b1e0c20069764a43619c1d968b08db26790f4ee8340d"
+    "value": "ccc844d766a6040ff0f2f0aa7c04f294de9aba8e341093cfa149e8c65c3b6c431c31a68e1553fd4e61d68857cfcc5b2d36500951ae51fc8580fdb46f6bbcbc08"
   }
 }

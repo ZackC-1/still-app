@@ -19,6 +19,7 @@ vi.mock("@still/shared-types", async (original) => ({
 
 const scripts: ContentScriptHandle[] = [];
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const mutations = async () => { await Promise.resolve(); await Promise.resolve(); };
 const shown = (id: string): boolean => {
   const node = document.getElementById(id);
   expect(node, id).not.toBeNull();
@@ -31,6 +32,7 @@ const targets = ["keep-related", "target-m-comments-teaser", "target-m-comments-
 
 afterEach(() => {
   for (const script of scripts.splice(0)) script.stop();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.head.innerHTML = "";
   document.body.innerHTML = "";
@@ -38,7 +40,17 @@ afterEach(() => {
 });
 
 describe("Safari modern content entry with observed mobile YouTube structures", () => {
-  it("requires accepted scoped access and saved On, restores Off/revocation, preserves chosen content and free Shorts", async () => {
+  it.each([true, false])("requires access and On; preserves content and Shorts with :has support %s", async (hasSupported) => {
+    vi.stubGlobal("CSS", { supports: () => hasSupported });
+    if (!hasSupported) {
+      // Model an older CSS parser rejecting only unsupported rules. jsdom itself supports :has;
+      // merely stubbing CSS.supports would leave the primary selector hiding the panel.
+      const setter = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!.set!;
+      vi.spyOn(Node.prototype, "textContent", "set").mockImplementation(function (this: Node, value) {
+        setter.call(this, this instanceof HTMLStyleElement && typeof value === "string"
+          ? value.split("\n").filter(rule => !rule.includes(":has(")).join("\n") : value);
+      });
+    }
     vi.stubGlobal("crypto", webcrypto);
     const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, "youtube-mobile.html",
       "https://m.youtube.com/watch?v=synthetic-mobile", scripts);
@@ -82,6 +94,7 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
     await tick(); await tick();
     expect(snapshot.states["youtube.comments"]).toBe("verification_required");
     for (const id of targets) expect(shown(id), `${id} unknown`).toBe(true);
+    expect(document.querySelector("[data-still-youtube-comments-panel]")).toBeNull();
     expect(shown("free-shorts")).toBe(false);
 
     const publish = async (revoked = false) => {
@@ -98,7 +111,8 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
     await publish();
     for (const id of targets) expect(shown(id), `${id} purchased On`).toBe(false);
     for (const id of kept) expect(shown(id), id).toBe(true);
-    expect(document.body.innerHTML).toBe(original);
+    if (hasSupported) expect(document.body.innerHTML).toBe(original);
+    else expect(document.getElementById("comments-panel-shell")!.hasAttribute("data-still-youtube-comments-panel")).toBe(true);
 
     await h.authority.commitIntent({ path: "sites.youtube.shorts", value: false, updatedAt: Date.now() });
     expect(shown("free-shorts")).toBe(true);
@@ -107,6 +121,7 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
     for (const path of ["services.youtube", "globalOn"] as const) {
       await h.authority.commitIntent({ path, value: false, updatedAt: Date.now() });
       for (const id of [...targets, "free-shorts"]) expect(shown(id), `${id} ${path} Off`).toBe(true);
+      expect(document.querySelector("[data-still-youtube-comments-panel]")).toBeNull();
       await h.authority.commitIntent({ path, value: true, updatedAt: Date.now() });
       for (const id of [...targets, "free-shorts"]) expect(shown(id), `${id} ${path} On`).toBe(false);
     }
@@ -116,17 +131,30 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
       for (const id of feature === "youtube.related" ? ["keep-related"] : targets.filter(id => id !== "keep-related"))
         expect(shown(id), `${id} Off`).toBe(true);
       expect(shown("free-shorts")).toBe(false);
+      if (feature === "youtube.comments") expect(document.querySelector("[data-still-youtube-comments-panel]")).toBeNull();
       await h.authority.commitIntent({ path: `sites.${feature}`, value: true, updatedAt: Date.now() });
     }
 
     // Recycled sole-child modal becomes mixed and stops hiding its parent's shared actions.
     const shell = document.getElementById("comments-panel-shell")!;
     shell.insertAdjacentHTML("beforeend", '<button id="late-chosen-action">Invented chosen action</button>');
+    if (!hasSupported) await mutations(); // Deliver mutations in this microtask checkpoint, before paint.
     expect(shown(shell.id)).toBe(true);
     expect(shown("late-chosen-action")).toBe(true);
     expect(shown("target-m-comments-panel")).toBe(true);
     shell.lastElementChild!.remove(); // simulated page renderer, never extension mutation
+    if (!hasSupported) await mutations();
     expect(shown(shell.id)).toBe(false);
+    const section = shell.firstElementChild!;
+    section.classList.remove("engagement-panel-comments-section");
+    if (!hasSupported) await mutations();
+    expect(shown(shell.id)).toBe(true);
+    section.classList.add("engagement-panel-comments-section");
+    if (!hasSupported) await mutations();
+    expect(shown(shell.id)).toBe(false);
+    shell.insertAdjacentHTML("afterend", '<ytm-engagement-panel id="late-comments"><ytm-engagement-panel-section-list-renderer class="engagement-panel-comments-section"></ytm-engagement-panel-section-list-renderer></ytm-engagement-panel>');
+    if (!hasSupported) await mutations();
+    expect(shown("late-comments")).toBe(false);
     h.win.history.pushState(null, "", "/watch?v=synthetic-second&list=chosen");
     await tick(); await tick();
     expect(shown("keep-chosen-playlist")).toBe(true);
@@ -136,12 +164,15 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
       revision: verified.proof.claims.ownership_revision, generation: state.generation }, trust)).record;
     await publish(true);
     for (const id of targets) expect(shown(id), `${id} revoked`).toBe(true);
+    expect(shown("late-comments")).toBe(true);
+    expect(document.querySelector("[data-still-youtube-comments-panel]")).toBeNull();
     for (const id of kept) expect(shown(id), id).toBe(true);
     expect(shown("free-shorts")).toBe(false);
     expect(h.replace).not.toHaveBeenCalled();
     scripts[0]!.stop();
     expect(shown("free-shorts")).toBe(true);
     expect([...document.documentElement.classList].filter(name => name.startsWith("still-"))).toEqual([]);
+    document.getElementById("late-comments")!.remove();
     expect(document.body.innerHTML).toBe(original);
   });
 });

@@ -1,4 +1,4 @@
-import type { ExtrasRoute, ServiceExtras } from "./extras.js";
+import type { ExtrasRoute, MarkerAdapter, ServiceExtras } from "./extras.js";
 
 /**
  * YouTube's Still Pro extras: hide surfaces (copied into the packaged rule set by sign-format2.mjs),
@@ -34,6 +34,17 @@ const ENDSCREEN = Object.freeze([
   ".ytp-endscreen-content",
 ]);
 
+const COMMENTS_PANEL = "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))";
+const COMMENTS_PANEL_MARKER: MarkerAdapter = Object.freeze({
+  feature: "youtube.comments",
+  attribute: "data-still-youtube-comments-panel",
+  candidates: "ytm-engagement-panel",
+  ruleSelector: "ytm-engagement-panel[data-still-youtube-comments-panel]",
+  structuralFallback: COMMENTS_PANEL,
+  owns: (element: Element) => element.matches("ytm-engagement-panel") && element.children.length === 1
+    && element.firstElementChild!.matches("ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section"),
+});
+
 /** youtube.comments (Comments): the comments section and the comments engagement panel. */
 const COMMENTS = Object.freeze([
   // The element itself, not its `#comments` id, so a recycled section with another id still
@@ -45,7 +56,8 @@ const COMMENTS = Object.freeze([
   // An observed dedicated comments panel includes its own scrim. Hiding only the section
   // leaves that scrim/modal shell intercepting taps. Require the sole direct child to be the
   // comments renderer; an ambiguous panel that also holds another section remains visible.
-  "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))",
+  COMMENTS_PANEL,
+  COMMENTS_PANEL_MARKER.ruleSelector,
 ]);
 
 /** youtube.livechat (Live chat): the chat frame (with its entry button) and chat replay panel. */
@@ -77,7 +89,7 @@ export const YOUTUBE_EXTRAS: ServiceExtras = Object.freeze({
     Object.freeze({ id: "youtube-live-chat", feature: "youtube.livechat", action: "hide", selectors: LIVECHAT }),
   ]),
   routes: Object.freeze([LIVE_CHAT_ROUTE]),
-  markers: Object.freeze([]),
+  markers: Object.freeze([COMMENTS_PANEL_MARKER]),
   // youtube.autoplay (Autoplay prevention) is a packaged content handler, never rule data:
   // content/youtube-autoplay.ts, attached only while effectiveFeatures() reports it.
   handlers: Object.freeze(["youtube.autoplay"] as const),

@@ -322,6 +322,9 @@ describe("YouTube extras capability table and selector boundaries", () => {
       "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))",
     ]);
     expect(YOUTUBE_EXTRAS.surfaces.map((surface) => surface.feature)).toEqual(YT_PRO);
-    expect(YOUTUBE_EXTRAS.markers).toEqual([]);
+    expect(YOUTUBE_EXTRAS.markers).toHaveLength(1);
+    expect(YOUTUBE_EXTRAS.markers[0]).toMatchObject({ feature: "youtube.comments",
+      candidates: "ytm-engagement-panel", ruleSelector: "ytm-engagement-panel[data-still-youtube-comments-panel]",
+      structuralFallback: extrasSelectors.find(selector => selector.includes(":has(")) });
   });
 });

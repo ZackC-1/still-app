@@ -53,3 +53,11 @@ TypeScript regressions before repair. All 150 focused TypeScript tests and 419 S
 the complete native run required permitted OS notification access. Core typecheck and touched-file
 lint passed. End-screen, live chat, autoplay and Facebook sponsored behavior remain unsupported
 on Safari. WebKit/device, Firefox Android and live provider acceptance remain outstanding.
+
+## Checkpoint: supported Safari selector fallback
+
+Full independent review of frozen `371339e5` confirmed that the dedicated comments panel relied on `:has()`, unavailable before Safari 15.4 despite Still's iOS 15.0/macOS 12.0 deployment targets. The existing marker hook now provides a compiled fallback only when the browser cannot parse the primary selector. It marks exactly the sole-child comments panel, observes only relevant class/child-list mutations while Comments is effective, clears detached marks, and disconnects on Off, revocation, service changes and teardown. The primary CSS path stays in use on modern browsers. No OS minimum, host permission or paid authority rule changed.
+
+The composed Safari regression rejected unsupported CSS rules and failed before repair. Both selector-support lanes now pass accepted-access, saved-On, Off, revocation, late insertion, pre-paint recycling and independent free Shorts controls. The repaired tree passed 124 focused tests and the complete core suite (4,818 passed, 39 existing skips), typecheck with zero errors/warnings, scoped lint, Chromium/Safari resource builds and 21 built YouTube fixtures. Initial broad-run failures came from temporary package-subpath aliases and restricted Swift cache access; corrected verification tooling passed without source/assertion/timeout changes. Regenerated only the existing development rule seed/signature.
+
+Earlier integrated runtime `371339e5` also passed 439 StillKit tests and unsigned Release iOS Simulator/macOS app-plus-Safari builds with matching packaged resources. Those native artifacts predate this fallback and are not final repaired binaries. Fresh independent review, current required CI, protected merge and the repaired native package cohort remain open. Simulated unsupported-selector coverage does not establish execution on physical older Safari, current iPhone Safari or Firefox Android.
