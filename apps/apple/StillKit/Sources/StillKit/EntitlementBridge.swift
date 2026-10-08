@@ -197,7 +197,8 @@ public final class SharedEntitlementStore {
       let wall = wall()
       let checked = try VerifiedAccessProof.verify(proof.envelope, trust: trust)
       guard generation == record.generation, checked.matchesHolder(accountId: record.accountId, localRights: localRights),
-        !record.revocations.contains(where: { $0.right == checked.claims.right && $0.revision >= checked.claims.ownership_revision }) else { throw AccessProofFailure.invalid }
+        !record.revocations.contains(where: { $0.right == checked.claims.right && $0.revision >= checked.claims.ownership_revision }),
+        !accountRevoked(checked, record: record) else { throw AccessProofFailure.invalid }
       let existing = record.rights.compactMap { cached -> (CachedAccessRight, VerifiedAccessProof)? in
         guard let value = try? VerifiedAccessProof.verify(cached.envelope, trust: trust) else { return nil }
         return (cached, value)
@@ -287,9 +288,58 @@ public final class SharedEntitlementStore {
     }
   }
 
+  private func accountRevoked(_ proof: VerifiedAccessProof, record: AccessCacheRecord) -> Bool {
+    proof.claims.kind == "paid_account" && record.accountRevocations.contains {
+      $0.holder == proof.claims.holder && $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision
+    }
+  }
+
+  public func prepareAccountAccess(_ session: VerifiedNativeAccessSession, expectedGeneration: Int) throws -> Int {
+    try transactionAccess { record in
+      guard expectedGeneration == record.generation else { throw AccessProofFailure.invalid }
+      try bindSession(&record, accountId: session.accountId, sessionId: session.sessionId)
+      return record.generation
+    }
+  }
+
+  /// All validated proofs and named removals share one existing durable transaction. A removal
+  /// only acquires a scoped fence for an independently verified known right of this holder.
+  public func installAccountAccess(_ snapshot: NativeAccountAccessSnapshot, session: VerifiedNativeAccessSession,
+                                  expectedGeneration: Int, wall: @autoclosure () -> Int) throws -> NativeAccountAccessCommit {
+    try transactionAccess { record in
+      let wall = wall()
+      guard record.generation == expectedGeneration, record.accountId == session.accountId,
+        record.sessionId == session.sessionId, snapshot.holder == session.accountId,
+        accessInteger(wall), abs(wall - snapshot.issuerTime) <= 300_000 else { throw AccessProofFailure.invalid }
+      let known = record.rights.compactMap { try? VerifiedAccessProof.verify($0.envelope, trust: trust) }
+      for removal in snapshot.revocations {
+        let old = record.accountRevocations.first { $0.holder == session.accountId && $0.right == removal.right }
+        guard old != nil || known.contains(where: { $0.claims.kind == "paid_account" &&
+          $0.claims.holder == session.accountId && $0.claims.right == removal.right }) else { continue }
+        record.accountRevocations.removeAll { $0.holder == session.accountId && $0.right == removal.right }
+        guard record.accountRevocations.count < 64 else { throw AccessProofFailure.invalid }
+        record.accountRevocations.append(.init(holder: session.accountId, right: removal.right, revision: max(old?.revision ?? 0, removal.revision)))
+        let removals = record.accountRevocations
+        record.rights.removeAll { cached in
+          guard let proof = try? VerifiedAccessProof.verify(cached.envelope, trust: trust), proof.claims.kind == "paid_account" else { return false }
+          return removals.contains { $0.holder == proof.claims.holder && $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
+        }
+      }
+      for supplied in snapshot.proofs {
+        let proof = try VerifiedAccessProof.verify(supplied.envelope, trust: trust)
+        guard proof.claims.kind == "paid_account", proof.claims.holder == session.accountId,
+          proof.claims.verified_at <= snapshot.issuerTime, (proof.claims.expires_at ?? 0) > snapshot.issuerTime else { throw AccessProofFailure.invalid }
+        try upsertAppleProof(proof, into: &record, issuerTime: snapshot.issuerTime, wall: wall)
+      }
+      return NativeAccountAccessCommit(generation: record.generation, accountId: session.accountId, sessionId: session.sessionId,
+        issuerTime: snapshot.issuerTime, proofIdentities: snapshot.proofs.map { $0.identity })
+    }
+  }
+
   private func upsertAppleProof(_ proof: VerifiedAccessProof, into record: inout AccessCacheRecord,
                                 issuerTime: Int, wall: Int) throws {
-    guard !record.revocations.contains(where: { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision })
+    guard !record.revocations.contains(where: { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }),
+      !accountRevoked(proof, record: record)
     else { throw AccessProofFailure.invalid }
     let prior = record.rights.enumerated().first { cached in
       guard let p = try? VerifiedAccessProof.verify(cached.element.envelope, trust: trust) else { return false }
@@ -430,7 +480,7 @@ public final class SharedEntitlementStore {
       let appleIdentity = proof.claims.environment + "\n" + proof.claims.right
       let nativeRevoked = (proof.claims.kind == "paid_apple_local" && revokedAppleLocalRights.contains(appleIdentity)) ||
         (proof.claims.kind == "paid_account" && revokedAppleAccountRights.contains(appleIdentity))
-      let revoked = nativeRevoked || (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
+      let revoked = nativeRevoked || accountRevoked(proof, record: record) || (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
       if revoked { record.rights[i].clock?.revoked = true }
       let valid = record.rights[i].clock?.observe(proof, wall: wall, runningEstimate: runningEstimate) ?? false
       evidence.append(ScopedAccessEvidence(proof: proof, validPaid: valid, revoked: revoked))
@@ -671,6 +721,17 @@ public struct EntitlementBridge {
     guard !readOnly else { throw AccessProofFailure.verificationRequired }
     return try store.installAppleAccess(request, nativePurchase: nativePurchase, session: session,
       expectedGeneration: expectedGeneration, wall: now())
+  }
+
+  public func prepareAccountAccess(_ session: VerifiedNativeAccessSession, expectedGeneration: Int) throws -> Int {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    return try store.prepareAccountAccess(session, expectedGeneration: expectedGeneration)
+  }
+
+  public func installAccountAccess(_ snapshot: NativeAccountAccessSnapshot, session: VerifiedNativeAccessSession,
+                                  expectedGeneration: Int) throws -> NativeAccountAccessCommit {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    return try store.installAccountAccess(snapshot, session: session, expectedGeneration: expectedGeneration, wall: now())
   }
 
   private func apply(proposed: EntitlementRecord) {
