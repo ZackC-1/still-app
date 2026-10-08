@@ -314,8 +314,13 @@ describe("YouTube extras capability table and selector boundaries", () => {
   });
 
   it("no selector names a wrapper that also holds the playlist, live chat, comments or player controls", () => {
-    const wrappers = /#secondary\b|#related\b|#primary\b|#columns\b|#below\b|ytd-watch-flexy|ytm-app|#movie_player|html5-video-player|ytp-chrome|ytp-player-content|html5-endscreen|ytp-autonav|ytd-watch-metadata|ytd-item-section-renderer|ytd-engagement-panel-section-list-renderer(?!\[target-id=)|ytm-item-section-renderer(?!\[section-identifier=)|:has\(/;
+    const wrappers = /#secondary\b|#related\b|#primary\b|#columns\b|#below\b|ytd-watch-flexy|ytm-app|#movie_player|html5-video-player|ytp-chrome|ytp-player-content|html5-endscreen|ytp-autonav|ytd-watch-metadata|ytd-item-section-renderer|ytd-engagement-panel-section-list-renderer(?!\[target-id=)|ytm-item-section-renderer(?!\[section-identifier=)/;
     for (const surface of YOUTUBE_EXTRAS.surfaces) for (const selector of surface.selectors) expect(selector, surface.id).not.toMatch(wrappers);
+    // A mobile modal's own scrim belongs to its sole comments-section child. No generic
+    // ancestor or shared carousel gains a :has() rule.
+    expect(extrasSelectors.filter(selector => selector.includes(":has("))).toEqual([
+      "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))",
+    ]);
     expect(YOUTUBE_EXTRAS.surfaces.map((surface) => surface.feature)).toEqual(YT_PRO);
     expect(YOUTUBE_EXTRAS.markers).toEqual([]);
   });

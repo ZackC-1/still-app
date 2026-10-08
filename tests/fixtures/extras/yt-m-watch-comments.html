@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Synthetic, text-free structural regression. The comments teaser and comments panel tag
+     families were observed on public m.youtube.com with a phone viewport on 2026-10-08.
+     This does not prove physical Safari/Firefox Android behavior or a live-chat layout. -->
+<html><head><meta charset="utf-8"><style>
+  ytm-app, yt-video-metadata-carousel-view-model, yt-carousel-item-view-model,
+  comments-entry-point-teaser-view-model, yt-comment-teaser-carousel-item-view-model,
+  ytm-engagement-panel, ytm-engagement-panel-section-list-renderer,
+  ytm-comments-header-renderer, ytw-scrim { display: block; min-height: 20px; }
+</style></head><body><ytm-app>
+  <div id="movie_player"><video id="keep-player-video" class="html5-main-video"></video>
+    <button id="keep-replay">Replay</button><button id="keep-next">Next</button></div>
+  <div id="keep-title">Invented title</div>
+  <yt-video-metadata-carousel-view-model id="keep-carousel" role="button">
+    <yt-carousel-item-view-model id="keep-comments-item">
+      <comments-entry-point-teaser-view-model id="target-m-comments-teaser">
+        <yt-comment-teaser-carousel-item-view-model id="target-m-comments-preview"></yt-comment-teaser-carousel-item-view-model>
+      </comments-entry-point-teaser-view-model>
+    </yt-carousel-item-view-model>
+    <yt-carousel-item-view-model id="keep-unrelated-item"><button id="keep-shared-carousel-action">Invented action</button></yt-carousel-item-view-model>
+  </yt-video-metadata-carousel-view-model>
+  <ytm-engagement-panel id="comments-panel-shell">
+    <ytm-engagement-panel-section-list-renderer class="engagement-panel-comments-section" id="target-m-comments-panel">
+      <ytw-scrim id="target-m-comments-scrim">Invented comments scrim</ytw-scrim>
+      <ytm-comments-header-renderer id="target-m-comments-header">Invented comments heading</ytm-comments-header-renderer>
+    </ytm-engagement-panel-section-list-renderer>
+  </ytm-engagement-panel>
+  <ytm-engagement-panel id="keep-description-panel">
+    <ytm-engagement-panel-section-list-renderer class="engagement-panel-description-section" id="keep-description-content">Invented description</ytm-engagement-panel-section-list-renderer>
+  </ytm-engagement-panel>
+  <ytm-item-section-renderer section-identifier="related-items" id="keep-related">Invented recommendation</ytm-item-section-renderer>
+  <div id="keep-chosen-playlist">Invented chosen playlist</div>
+</ytm-app></body></html>

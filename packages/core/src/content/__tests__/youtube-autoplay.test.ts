@@ -19,8 +19,8 @@ import { createNavigationIntentTracker } from "../redirect.js";
 const WATCH = "https://www.youtube.com/watch?v=inv300001";
 const PLAYLIST = "https://www.youtube.com/watch?v=inv300003&list=PLinvented03&index=2";
 
-function render(): void {
-  document.body.innerHTML = new DOMParser().parseFromString(extrasFixture("yt-autoplay.html"), "text/html").body.innerHTML;
+function render(file = "yt-autoplay.html"): void {
+  document.body.innerHTML = new DOMParser().parseFromString(extrasFixture(file), "text/html").body.innerHTML;
 }
 const video = () => document.getElementById("player-video") as HTMLVideoElement;
 const overlay = () => document.getElementById("keep-autonav-overlay")!;
@@ -55,10 +55,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the Autoplay guard", () => {
+describe.each([
+  { name: "desktop", origin: "https://www.youtube.com", file: "yt-autoplay.html" },
+  { name: "mobile candidate countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html" },
+])("the Autoplay guard: $name", ({ origin, file }) => {
+  const WATCH = `${origin}/watch?v=inv300001`;
+  const PLAYLIST = `${origin}/watch?v=inv300003&list=PLinvented03&index=2`;
+  beforeEach(() => render(file));
   it("cancels this up-next countdown once when the video ends, and never pauses, plays, toggles or navigates", async () => {
     const counts = counters();
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     await settle();
@@ -74,7 +80,7 @@ describe("the Autoplay guard", () => {
 
   it("does nothing while inactive, and Off mid-countdown never clicks or starts playback", async () => {
     const counts = counters();
-    const g = guard();
+    const g = guard(WATCH);
     end();
     g.reconcile(false, new URL(WATCH));
     end();
@@ -95,7 +101,7 @@ describe("the Autoplay guard", () => {
   it("enforces for the whole ended state: a countdown shown later is cancelled too", async () => {
     const counts = counters();
     overlay().style.display = "none";
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     await settle();
@@ -114,7 +120,7 @@ describe("the Autoplay guard", () => {
   it("Replay (the video plays again) ends the ended state; stale and foreign events are ignored", async () => {
     const counts = counters();
     overlay().style.display = "none";
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     video().dispatchEvent(new Event("play"));
@@ -131,7 +137,7 @@ describe("the Autoplay guard", () => {
     // Leaving the page drops the ended state: a countdown on the next page needs its own end.
     overlay().style.display = "none";
     end();
-    g.reconcile(true, new URL("https://www.youtube.com/watch?v=inv399999"));
+    g.reconcile(true, new URL(`${origin}/watch?v=inv399999`));
     overlay().style.display = "";
     await settle();
     expect(counts.cancel).toBe(0);
@@ -155,10 +161,10 @@ describe("the Autoplay guard", () => {
 
   it("a list id the page added on its own is not a choice; one the person opened is", async () => {
     const counts = counters();
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     // The page moved itself into an automatic Mix: same list in the up-next, but never chosen.
-    const mix = new URL("https://www.youtube.com/watch?v=inv300010&list=RDinvented10");
+    const mix = new URL(`${origin}/watch?v=inv300010&list=RDinvented10`);
     g.navigated(mix, "page");
     g.reconcile(true, mix);
     nextLink().href = "/watch?v=inv300011&list=RDinvented10";
@@ -166,14 +172,14 @@ describe("the Autoplay guard", () => {
     await settle();
     expect(counts.cancel).toBe(1);
     // The person opens that Mix deliberately (a link they activated): it continues.
-    const chosen = new URL("https://www.youtube.com/watch?v=inv300012&list=RDinvented10");
+    const chosen = new URL(`${origin}/watch?v=inv300012&list=RDinvented10`);
     g.navigated(chosen, "deliberate");
     g.reconcile(true, chosen);
     end();
     await settle();
     expect(counts.cancel).toBe(1);
     // A deliberate move to an ordinary video ends the chosen playlist.
-    const single = new URL("https://www.youtube.com/watch?v=inv300013");
+    const single = new URL(`${origin}/watch?v=inv300013`);
     g.navigated(single, "deliberate");
     g.reconcile(true, single);
     end();
@@ -186,15 +192,15 @@ describe("the Autoplay guard", () => {
     const g = guard(PLAYLIST);
     g.reconcile(true, new URL(PLAYLIST));
     for (const link of [
-      "https://www.youtube.com/watch?v=inv300003&t=90s",
-      "https://www.youtube.com/watch?v=inv300003&t=1m30s&index=2",
+      `${origin}/watch?v=inv300003&t=90s`,
+      `${origin}/watch?v=inv300003&t=1m30s&index=2`,
     ]) g.navigated(new URL(link), "deliberate");
     nextLink().href = "/watch?v=inv300004&list=PLinvented03&index=3";
     end();
     await settle();
     expect(counts.cancel, "the next item of the chosen playlist continues").toBe(0);
     // A deliberate click on a DIFFERENT video with no list still ends the chosen playlist.
-    const other = new URL("https://www.youtube.com/watch?v=inv300030");
+    const other = new URL(`${origin}/watch?v=inv300030`);
     g.navigated(other, "deliberate");
     g.reconcile(true, other);
     nextLink().href = "/watch?v=inv300004&list=PLinvented03&index=3";
@@ -208,17 +214,17 @@ describe("the Autoplay guard", () => {
     const tracker = createNavigationIntentTracker(() => now);
     // The person clicks an ordinary video; within the deliberate window the page itself moves
     // into an automatic Mix on /watch. Only the clicked video (v and list) is deliberate.
-    tracker.recordLink(new URL("https://www.youtube.com/watch?v=inv300040"));
+    tracker.recordLink(new URL(`${origin}/watch?v=inv300040`));
     now += 1_000;
-    const mix = new URL("https://www.youtube.com/watch?v=inv300041&list=RDinvented41");
+    const mix = new URL(`${origin}/watch?v=inv300041&list=RDinvented41`);
     expect(tracker.intentFor(mix)).toBe("page");
-    expect(tracker.intentFor(new URL("https://www.youtube.com/watch?v=inv300040&pp=invented")), "the clicked video, with tracking extras").toBe("deliberate");
-    expect(tracker.intentFor(new URL("https://www.youtube.com/watch?v=inv300040&list=RDinvented41")), "same video, a list the page added").toBe("page");
+    expect(tracker.intentFor(new URL(`${origin}/watch?v=inv300040&pp=invented`)), "the clicked video, with tracking extras").toBe("deliberate");
+    expect(tracker.intentFor(new URL(`${origin}/watch?v=inv300040&list=RDinvented41`)), "same video, a list the page added").toBe("page");
     // Another site's routes keep the path-only rule.
     tracker.recordLink(new URL("https://www.instagram.com/reel/inv1/"));
     expect(tracker.intentFor(new URL("https://www.instagram.com/reel/inv1/?igsh=x"))).toBe("deliberate");
     const counts = counters();
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     g.navigated(mix, tracker.intentFor(mix));
     g.reconcile(true, mix);
@@ -235,12 +241,12 @@ describe("the Autoplay guard", () => {
       ["the Play button wearing the Cancel class", '<button class="ytp-autonav-endscreen-upnext-cancel-button ytp-autonav-endscreen-upnext-play-button" id="probe">Play</button>'],
     ];
     for (const [name, markup] of variants) {
-      render();
+      render(file);
       document.getElementById("keep-autonav-cancel")!.remove();
       overlay().insertAdjacentHTML("afterbegin", markup);
       let clicks = 0;
       document.getElementById("probe")!.addEventListener("click", (event) => { clicks++; event.preventDefault(); });
-      const g = guard();
+      const g = guard(WATCH);
       g.reconcile(true, new URL(WATCH));
       end();
       await settle();
@@ -251,7 +257,7 @@ describe("the Autoplay guard", () => {
 
   it("presses Cancel at most twice in one ended state, however often the countdown comes back", async () => {
     const counts = counters();
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     await settle();
@@ -272,7 +278,7 @@ describe("the Autoplay guard", () => {
   it("stop removes every listener and observer", async () => {
     const counts = counters();
     overlay().style.display = "none";
-    const g = guard();
+    const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     g.stop();
@@ -296,20 +302,24 @@ function shippedChromium(): { access: BenefitAccessSnapshot; capabilities: Reado
   return { access: initialAccessSnapshot(packagedAccessContext("chromium")),
     capabilities: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host: "chromium" }) };
 }
-async function contentScript(settings: SettingsV2, paid: boolean) {
+async function contentScript(settings: SettingsV2, paid: boolean, href = WATCH) {
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { initial: settings as never });
   const seam = paid ? paidOn() : shippedChromium();
+  let access = seam.access;
+  let accessChanged: (() => void) | undefined;
   const entitlement = {
-    currentAccessSnapshot: () => seam.access, current: () => paid, hydrate: () => Promise.resolve(),
-    refreshAccess: () => Promise.resolve(seam.access), watch: () => () => {}, subscribeAccess: () => () => {}, subscribe: () => () => {},
+    currentAccessSnapshot: () => access, current: () => paid, hydrate: () => Promise.resolve(),
+    refreshAccess: () => Promise.resolve(access), watch: () => () => {},
+    subscribeAccess: (listener: () => void) => { accessChanged = listener; return () => { accessChanged = undefined; }; },
+    subscribe: () => () => {},
   };
-  const win = { location: { href: WATCH, replace: vi.fn(), assign: vi.fn() }, history: { pushState: vi.fn(), replaceState: vi.fn() },
+  const win = { location: { href, replace: vi.fn(), assign: vi.fn() }, history: { pushState: vi.fn(), replaceState: vi.fn() },
     addEventListener: vi.fn(), removeEventListener: vi.fn(), MutationObserver: window.MutationObserver, requestAnimationFrame: vi.fn() };
   const script = createContentScript({ win, doc: document, ruleSet: seed as unknown as SignedRuleSet,
     ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!, cache, entitlement: entitlement as never, capabilities: seam.capabilities });
   scripts.push(script);
   await script.start();
-  return { script, cache, win };
+  return { script, cache, win, updateAccess: (next: BenefitAccessSnapshot) => { access = next; accessChanged?.(); } };
 }
 
 describe("Autoplay through the real content script and packaged rules", () => {
@@ -386,5 +396,30 @@ describe("Autoplay through the real content script and packaged rules", () => {
     end();
     await settle();
     expect(counts.cancel).toBe(0);
+  });
+
+  it("mobile: Pro loss through the real content subscription drops a waiting countdown and keeps playback untouched", async () => {
+    render("yt-m-autoplay.html");
+    const counts = counters();
+    overlay().style.display = "none";
+    const { updateAccess, win } = await contentScript(ALL_ON, true, "https://m.youtube.com/watch?v=inv300001");
+    end();
+    const purchased = paidOn().access;
+    updateAccess({ ...purchased, states: { ...purchased.states, "youtube.autoplay": "locked" } });
+    await settle();
+    overlay().style.display = "";
+    end();
+    await settle();
+    expect(counts).toEqual({ cancel: 0, toggle: 0 });
+    expect(win.location.replace).not.toHaveBeenCalled();
+    expect(win.location.assign).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    // A valid new access projection restores the handler without restarting the document.
+    updateAccess(purchased);
+    await settle();
+    end();
+    await settle();
+    expect(counts.cancel).toBe(1);
   });
 });
