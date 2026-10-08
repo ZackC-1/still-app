@@ -6,6 +6,7 @@ problem_type: security_issue
 module: scripts/qa
 applies_when: Building a paid sandbox candidate from a dirty checkout without changing shipped flags
 date: 2026-10-07
+last_updated: 2026-10-07
 status: active
 tags:
   - qa
@@ -46,6 +47,21 @@ both bundles. The candidate's project settings must agree with that team. Every 
 also checks that generated JavaScript embeds all selected public keys. This is an embedding check;
 it does not certify a provider response or device acceptance. Compiler output streams
 to the run log; only small structured plist output is captured.
+
+Recognizing a supported environment reference does not authorize it as a store-package input.
+[package.mjs](../../../scripts/release/package.mjs) classifies `VITE_ACCESS_ENVIRONMENT` and
+`VITE_ACCESS_PUBLIC_KEYS` as QA-only references while retaining its public store-input allowlist.
+Ordinary store packages strip ambient QA trust values, reject explicitly requested QA trust inputs
+before creating output, and omit them from AMO rebuild instructions. Unknown and private variable
+names remain errors. Adding these names to the public allowlist would bypass that boundary; a
+future production trust configuration needs its own reviewed release change.
+
+[release.test.mjs](../../../scripts/release/release.test.mjs) checks reference classification,
+ambient stripping, explicit refusal, empty output on refusal and omitted rebuild instructions.
+Private negative controls remove the classification or admit QA trust into the public allowlist;
+both make the corresponding check fail. The restored complete `pnpm test:release` command passes,
+including byte-identical repeated Chrome/Firefox packaging. These release-script checks do not
+establish live access verification, a configured backend or device acceptance.
 
 [v3-profile.test.mjs](../../../scripts/qa/v3-profile.test.mjs) reproduces staged deletion, alternate
 Git state, fingerprint ambiguity, malformed public configuration and unexpected resources. It also
