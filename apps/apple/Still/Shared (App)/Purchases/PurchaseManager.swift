@@ -604,16 +604,32 @@ final class PurchaseManager {
     }
     guard let package else { return .unavailable }
     if let expectedOffer, offering(for: package) != expectedOffer { return .unavailable }
-    do {
-      let result = try await Purchases.shared.purchase(package: package)
-      if result.userCancelled { return .cancelled }
-      return Self.proEntitlementIsActive(in: result.customerInfo) ? .purchased : .pending
-    } catch {
-      if let rcError = error as? RevenueCat.ErrorCode, rcError == .paymentPendingError {
-        return .pending // Ask-to-Buy: guardian approval arrives out-of-band
+    return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable) {
+      // The policy await must not allow a departed identity to receive this new charge.
+      guard self.currentAppUserID == startingUserID else { return .failed("identity changed") }
+      do {
+        let result = try await Purchases.shared.purchase(package: package)
+        if result.userCancelled { return .cancelled }
+        return Self.proEntitlementIsActive(in: result.customerInfo) ? .purchased : .pending
+      } catch {
+        if let rcError = error as? RevenueCat.ErrorCode, rcError == .paymentPendingError {
+          return .pending // Ask-to-Buy: guardian approval arrives out-of-band
+        }
+        return .failed(error.localizedDescription)
       }
-      return .failed(error.localizedDescription)
     }
+  }
+
+  private func freshSalesPolicy() -> ProductPolicyRuntime? {
+    let info = Bundle.main.infoDictionary ?? [:]
+    guard let profile = NativeAccessConfiguration.backendRouteProfile(info: info),
+      !NativeAccessConfiguration.trust(info: info).keys.isEmpty,
+      NativeAccessConfiguration.sessionVerifier(info: info) != nil,
+      let revisions = ProductPolicyRevisionStore.appGroup(),
+      let origin = info["StillAccessSupabaseURL"] as? String,
+      let build = info["CFBundleShortVersionString"] as? String else { return nil }
+    return ProductPolicyRuntime(supabaseURL: origin, environment: profile.environment,
+      surface: RatingPrompt.appSurface, build: build, routeProfile: profile, store: revisions)
   }
 
   /// Restore purchases (the visible restore affordance, R4) — works signed out. Pre-flights the

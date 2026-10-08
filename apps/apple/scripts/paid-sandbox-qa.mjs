@@ -27,8 +27,19 @@ export const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const refusal = message => { throw new Error(`Paid sandbox QA: ${message}`); };
 const gitEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 
+/** Routing is a separate compiled choice from access-proof trust and backend hosting. */
+export function backendRouteProfile(input, { requireSandbox = false } = {}) {
+  const value = input.STILL_QA_BACKEND_ROUTE_PROFILE;
+  if (value !== undefined && value !== "production" && value !== "shared-hosted-sandbox")
+    throw new Error("QA backend route profile must be production or shared-hosted-sandbox");
+  if (requireSandbox && value !== "shared-hosted-sandbox")
+    throw new Error("Paid sandbox QA requires an explicit shared-hosted-sandbox backend route profile");
+  return value ?? "production";
+}
+
 /** Same closed public-key grammar as packagedAccessTrust and NativeAccessConfiguration. */
 export function sandboxConfiguration(input) {
+  const routeProfile = backendRouteProfile(input, { requireSandbox: true });
   if (input.STILL_QA_BACKEND_ENVIRONMENT !== "shared-hosted") refusal("approved shared-hosted arrangement required");
   if (Object.keys(input).some(key => /^(STILL_QA_.*(?:PRIVATE|SECRET|TOKEN|PASSWORD|KEY_PATH)|ASC_)/.test(key)))
     refusal("private keys, tokens and signing credential inputs are forbidden");
@@ -70,7 +81,7 @@ export function sandboxConfiguration(input) {
   if (typeof revenueCatKey !== "string" || revenueCatKey.length > 1_024 || !/^appl_[A-Za-z0-9_-]+$/.test(revenueCatKey))
     refusal("public Apple RevenueCat SDK key required");
   const publicKeys = keys.map(({ kid, publicKeyHex, environment, purpose }) => ({ kid, publicKeyHex, environment, purpose }));
-  return { environment: "sandbox", publicKeys, publicKeysJson: JSON.stringify(publicKeys), backendUrl: url.origin, publicKey, revenueCatKey,
+  return { environment: "sandbox", backendRouteProfile: routeProfile, publicKeys, publicKeysJson: JSON.stringify(publicKeys), backendUrl: url.origin, publicKey, revenueCatKey,
     trustSha256: hash(JSON.stringify(publicKeys)), backendSha256: hash(url.origin), revenueCatKeySha256: hash(revenueCatKey) };
 }
 
@@ -103,7 +114,7 @@ export async function sourceSnapshot(root, { includeIndexRemovedFiles = false } 
 const xml = text => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const valueXml = value => Array.isArray(value) ? `<array>${value.map(valueXml).join("")}</array>` : typeof value === "object" ? `<dict>${Object.entries(value).map(([key, v]) => `<key>${xml(key)}</key>${valueXml(v)}`).join("")}</dict>` : `<string>${xml(value)}</string>`;
 export function plistConfiguration(config) {
-  return { StillAccessEnvironment: "sandbox", StillAccessTrustKeys: config.publicKeys,
+  return { StillBackendRouteProfile: config.backendRouteProfile, StillAccessEnvironment: "sandbox", StillAccessTrustKeys: config.publicKeys,
     StillAccessSupabaseURL: config.backendUrl, StillAccessSupabasePublishableKey: config.publicKey };
 }
 
@@ -130,7 +141,7 @@ export async function applySandboxOverlay(clone, config) {
   }
   for (const [path, text] of prepared) await writeFile(join(clone, path), text);
   return { mode: "paid-sandbox", flags: { jsPaid: true, nativePaid: true, modernSettingsSync: true, appleAtomicSettings: true },
-    environment: "sandbox", trustSha256: config.trustSha256, backendSha256: config.backendSha256, revenueCatKeySha256: config.revenueCatKeySha256,
+    environment: "sandbox", backendRouteProfile: config.backendRouteProfile, trustSha256: config.trustSha256, backendSha256: config.backendSha256, revenueCatKeySha256: config.revenueCatKeySha256,
     products: { bundleId: "com.chartash.still", extensionBundleId: "com.chartash.still.Extension", current: "still_pro_v3", historical: "still_sync", offering: "still_pro_v3", package: "$rc_lifetime" },
     overlayFiles: prepared.map(([path, bytes]) => ({ path, beforeSha256: before.get(path), sha256: hash(bytes) })) };
 }
@@ -168,7 +179,7 @@ export async function assertSandboxOverlay(clone, overlay) {
   }
 }
 export function assertPaidBuild(build) {
-  if (!build || build.mode !== "paid-sandbox" || build.environment !== "sandbox" || build.flags?.jsPaid !== true || build.flags?.nativePaid !== true ||
+  if (!build || build.mode !== "paid-sandbox" || build.environment !== "sandbox" || build.backendRouteProfile !== "shared-hosted-sandbox" || build.flags?.jsPaid !== true || build.flags?.nativePaid !== true ||
     build.flags?.modernSettingsSync !== true || build.flags?.appleAtomicSettings !== true || !/^[a-f0-9]{64}$/.test(build.trustSha256 ?? "") ||
     !/^[a-f0-9]{64}$/.test(build.sourceSha256 ?? "") || !Array.isArray(build.targets) || !build.targets.length) refusal("mixed or incomplete paid build identity");
 }
@@ -267,7 +278,7 @@ export async function verifyApplePackage(app, target, config, clone) {
     "Still Extension", "Still Extension.debug.dylib", "__preview.dylib", "embedded.mobileprovision"]);
   const packagedFiles = packagedSafari.files.filter(file => !nativeFiles.has(file.path) && !(file.path.startsWith("_CodeSignature/") && !mac));
   if (JSON.stringify(safari.files) !== JSON.stringify(packagedFiles)) refusal("packaged Safari resources differ from current candidate build");
-  return { nativeInfoPlistsMatched: true, webviewSha256: hash(web), safari, codeSigned: APPLE_TARGETS[target].signed, ...(signingTeam ? { signingTeam } : {}) };
+  return { nativeInfoPlistsMatched: true, nativeBackendRouteProfileMatched: true, webviewSha256: hash(web), safari, codeSigned: APPLE_TARGETS[target].signed, ...(signingTeam ? { signingTeam } : {}) };
 }
 
 export async function buildAppleTarget({ clone, output, target, env, config }) {
@@ -295,6 +306,12 @@ export async function buildAppleTarget({ clone, output, target, env, config }) {
 export async function requireIntegratedPaidCandidate(root) {
   for (const path of ["packages/core/src/entitlement/packaged-access-trust.ts", "apps/apple/StillKit/Sources/StillKit/NativeAccessConfiguration.swift"])
     try { await readFile(join(root, path)); } catch { refusal("integrated packaged/native access trust wiring is missing; this base is not a paid QA candidate"); }
+  // Source presence is a prerequisite, not proof that generated clients consume the profile.
+  try { await readFile(join(root, "packages/core/src/sync/backend-route-profile.ts")); }
+  catch { refusal("integrated backend route profile source is missing; this base is not a complete paid QA candidate"); }
+  const native = await readFile(join(root, "apps/apple/StillKit/Sources/StillKit/NativeAccessConfiguration.swift"), "utf8");
+  if (!native.includes("StillBackendRouteProfile"))
+    refusal("integrated native backend route profile source is missing; this base is not a complete paid QA candidate");
   const catalog = await readFile(join(root, "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift"), "utf8");
   if (!/public static let stillProV3 = ApplePurchaseProduct\([\s\S]*?productID: "still_pro_v3",[\s\S]*?entitlementID: "still_pro_v3",[\s\S]*?offeringID: "still_pro_v3",[\s\S]*?packageID: "\$rc_lifetime"/.test(catalog) || !/public static let historicalStillSync = ApplePurchaseProduct\([\s\S]*?productID: "still_sync"/.test(catalog)) refusal("canonical Apple purchase mapping missing");
 }

@@ -6,12 +6,15 @@ import { migrateSettingsV2 } from "../storage/settings-v2.js";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 import { parseSyncedSettingsEnvelope } from "../storage/settings-validation.js";
 import { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
+import { isAccessUUID } from "../entitlement/access-proof.js";
+import { backendRoutes, type BackendRouteProfile, type BackendRoutes } from "./backend-route-profile.js";
 import type {
   BackendPort,
   CheckedReconcilePort,
   EntitlementRead,
   ReconcileCallOutcome,
   WebCheckoutOutcome,
+  WebCheckoutCompletion,
   WebCheckoutPort,
 } from "./ports.js";
 
@@ -28,8 +31,12 @@ const EDGE_FN_TIMEOUT_MS = 8_000;
 
 export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, CheckedReconcilePort {
   readonly modernSettingsEnabled: boolean;
-  constructor(private readonly client: SupabaseClient, options: { readonly modernSettings?: boolean } = {}) {
+  readonly managedCheckout: boolean;
+  private readonly routes: BackendRoutes;
+  constructor(private readonly client: SupabaseClient, options: { readonly modernSettings?: boolean; readonly routeProfile?: BackendRouteProfile } = {}) {
     this.modernSettingsEnabled = options.modernSettings === true;
+    this.routes = backendRoutes(options.routeProfile === undefined ? "production" : options.routeProfile);
+    this.managedCheckout = options.routeProfile === "shared-hosted-sandbox";
   }
 
   readCanonicalSettings(): Promise<CanonicalSettingsEnvelope> {
@@ -42,7 +49,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   }
   private async invokeSettings(body: UntrustedSettingsOperationRequest | { protocol: 2; action: "read" }): Promise<CanonicalSettingsEnvelope> {
     if (!this.modernSettingsEnabled) throw new SettingsStorageRecovery("rollout-held");
-    const { data, error } = await this.client.functions.invoke("sync-settings", {
+    const { data, error } = await this.client.functions.invoke(this.routes.settings, {
       body, signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (error) throw error;
@@ -53,8 +60,8 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
 
   async reconcileEntitlement(): Promise<void> {
     // The session JWT is attached automatically; the function derives the subject from it (KTD5).
-    const { error } = await this.client.functions.invoke("reconcile-entitlement", {
-      body: {},
+    const { error } = await this.client.functions.invoke(this.routes.reconcile, {
+      body: this.managedCheckout ? { access_schema: 1 } : {},
       signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (error) throw error;
@@ -64,8 +71,8 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
    * failure maps by HTTP status instead of throwing — 401 → auth-required (re-sign-in, never
    * teardown), everything else → unavailable. Mirrors `createWebCheckout`'s mapping below. */
   async reconcileEntitlementChecked(): Promise<ReconcileCallOutcome> {
-    const { error } = await this.client.functions.invoke("reconcile-entitlement", {
-      body: {},
+    const { error } = await this.client.functions.invoke(this.routes.reconcile, {
+      body: this.managedCheckout ? { access_schema: 1 } : {},
       signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (!error) return "ok";
@@ -77,27 +84,52 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
    * (502, network, malformed body) → unavailable. `functions.invoke` buries the status inside
    * `FunctionsHttpError.context` (the raw Response), so the mapping reads it from there; the
    * response's error strings are never matched. */
-  async createWebCheckout(): Promise<WebCheckoutOutcome> {
-    const { data, error } = await this.client.functions.invoke("create-web-checkout", {
-      body: {},
-      signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
-    });
-    if (!error) {
-      const url = (data as { checkout_url?: unknown } | null)?.checkout_url;
-      // A 200 without a usable, https URL is a malformed success — fail calm, never open a garbage or
-      // non-https tab. The extension is the last gate before opening a trusted-looking checkout tab,
-      // so it validates the scheme even though the URL comes from our own authenticated backend.
-      return typeof url === "string" && isHttpsUrl(url)
-        ? { kind: "checkout-url", url }
-        : { kind: "unavailable" };
-    }
-    const status = statusOf(error);
-    if (status === 409) return { kind: "already-entitled" }; // cross-device restore — a success (R5/AE4)
-    if (status === 401) return { kind: "auth-required" }; // session death — re-sign-in, never teardown
-    return { kind: "unavailable" }; // 502 / network / timeout / unexpected — one calm retry line (R3)
+  async createWebCheckout(operationId?: string): Promise<WebCheckoutOutcome> {
+    try {
+      if (operationId !== undefined && (!this.managedCheckout || !isAccessUUID(operationId))) return { kind: "unavailable" };
+      const { data, error } = await this.client.functions.invoke(this.routes.createCheckout, {
+        body: this.managedCheckout ? { access_schema: 1, ...(operationId ? { operation_id: operationId } : {}) } : {},
+        signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
+      });
+      if (!error) {
+        if (this.managedCheckout) {
+          const result = readSandboxCheckoutResponse(data, operationId);
+          if (!result) return { kind: "unavailable" };
+          return result.url ? { kind: "checkout-url", url: result.url, operationId: result.operationId }
+            : { kind: "unavailable", operationId: result.operationId };
+        }
+        const url = (data as { checkout_url?: unknown } | null)?.checkout_url;
+        // A 200 without a usable, https URL is a malformed success — fail calm, never open a garbage or
+        // non-https tab. The extension is the last gate before opening a trusted-looking checkout tab,
+        // so it validates the scheme even though the URL comes from our own authenticated backend.
+        return typeof url === "string" && isHttpsUrl(url)
+          ? { kind: "checkout-url", url }
+          : { kind: "unavailable" };
+      }
+      const status = statusOf(error);
+      if (status === 409) return { kind: "already-entitled" }; // cross-device restore — a success (R5/AE4)
+      if (status === 401) return { kind: "auth-required" }; // session death — re-sign-in, never teardown
+      return { kind: "unavailable" }; // 502 / network / timeout / unexpected — one calm retry line (R3)
+    } catch { return { kind: "unavailable" }; }
+  }
+
+  async completeWebCheckout(operationId: string): Promise<WebCheckoutCompletion> {
+    if (!this.managedCheckout || !this.routes.completeCheckout || !isAccessUUID(operationId)) return { kind: "unavailable" };
+    try {
+      const { data, error } = await this.client.functions.invoke(this.routes.completeCheckout, {
+        body: { access_schema: 1, operation_id: operationId }, signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
+      });
+      if (error) return { kind: statusOf(error) === 401 ? "auth-required" : "unavailable" };
+      const result = readSandboxCheckoutResponse(data, operationId);
+      return result ? { kind: "observed", operationId: result.operationId,
+        terminal: ["refunded", "closed_unpaid", "access_observed"].includes(result.status) } : { kind: "unavailable" };
+    } catch { return { kind: "unavailable" }; }
   }
 
   async readEntitlement(): Promise<EntitlementRead> {
+    // The QA lane consumes scoped proofs through the host's existing fenced reconciler.
+    // Reading the shared legacy Boolean here would bypass its environment/registry boundary.
+    if (this.managedCheckout) return "unknown";
     const { data, error } = await this.client
       .from("entitlements")
       .select("still_sync")
@@ -115,6 +147,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
    * here rather than being passed on as an empty account.
    */
   async readProfile(): Promise<SyncedSettingsEnvelope | null> {
+    if (this.managedCheckout) throw new SettingsStorageRecovery("rollout-held");
     const { data, error } = await this.client
       .from("profiles")
       .select("settings,settings_version,settings_server_updated_at,settings_last_write_id")
@@ -129,6 +162,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   }
 
   async writeProfile(settings: StillSettings, writeId: string): Promise<SyncedSettingsEnvelope> {
+    if (this.managedCheckout) throw new SettingsStorageRecovery("rollout-held");
     const { data, error } = await this.client.rpc("write_profile_settings", {
       p_settings: settings,
       p_write_id: writeId,
@@ -145,6 +179,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     onEnvelope: (envelope: SyncedSettingsEnvelope) => void,
     onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
   ): () => void {
+    if (this.managedCheckout) return () => {};
     const channel = this.client
       .channel(`profile-settings:${userId}`)
       .on(
@@ -186,6 +221,22 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     if (!result) throw new Error("Account deletion is unconfirmed");
     return result;
   }
+}
+
+const SANDBOX_CHECKOUT_STATES = new Set(["prepared", "session_bound", "paid_verified",
+  "import_pending", "imported", "access_observed", "closed_unpaid", "refunded", "recovery_required"]);
+
+function readSandboxCheckoutResponse(value: unknown, requestedOperation?: string): {
+  operationId: string; status: string; url?: string;
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).some(key => !["operation_id", "status", "checkout_url", "access"].includes(key)) ||
+    !isAccessUUID(row.operation_id) || requestedOperation !== undefined && row.operation_id !== requestedOperation ||
+    typeof row.status !== "string" || !SANDBOX_CHECKOUT_STATES.has(row.status)) return null;
+  if (Object.hasOwn(row, "checkout_url") && (row.status !== "session_bound" || typeof row.checkout_url !== "string" ||
+    row.checkout_url.length > 4096 || !/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_[A-Za-z0-9]{1,200}(?:#[A-Za-z0-9_%=+.-]{1,2048})?$/.test(row.checkout_url))) return null;
+  return { operationId: row.operation_id, status: row.status, ...(typeof row.checkout_url === "string" ? { url: row.checkout_url } : {}) };
 }
 
 /** The HTTP status of a failed `functions.invoke`, or null when it isn't an HTTP error (network,

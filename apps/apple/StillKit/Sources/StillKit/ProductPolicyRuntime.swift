@@ -2,7 +2,8 @@ import Foundation
 
 /// The Apple app's client for the remote product policy (U6). Its only consumer is the rating path
 /// (U13-P3): the app's `RatingPromptPresenter` constructs it and asks `freshCheck(.rating)` once per
-/// locally eligible app opening. No app build packages a project URL yet, so it makes no request.
+/// locally eligible app opening. Ordinary builds retain no rating project URL; a complete compiled
+/// shared-hosted-sandbox profile selects only the fixed QA policy function.
 /// Nothing asks it about sales.
 ///
 /// Before a purchase may start or a review prompt may be requested, the app asks the public
@@ -30,6 +31,7 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
   typealias Evaluator = (ProductPolicy.Namespace, ProductPolicy.Context, ProductPolicy.Response?, Int, @escaping () -> Int) -> ProductPolicy.Verdict
 
   private let endpoint: URL?
+  private let routeProfile: NativeAccessConfiguration.BackendRouteProfile?
   private let context: ProductPolicy.Context
   private let store: ProductPolicyRevisionStore
   private let transport: ProductPolicyTransport
@@ -37,19 +39,24 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
   private let evaluate: Evaluator
 
   /// `supabaseURL` is the build's configured project URL; only its origin is used, and absent or
-  /// malformed means no request is ever made and every check is Off. `now` is monotonic
+  /// malformed means no request is ever made and every check is Off. The QA profile requires an
+  /// HTTPS origin and a matching sandbox context. `now` is monotonic
   /// milliseconds (defaults to system uptime).
   public convenience init(supabaseURL: String?, environment: String, surface: String, build: String,
+                          routeProfile: NativeAccessConfiguration.BackendRouteProfile? = .production,
                           store: ProductPolicyRevisionStore,
                           transport: ProductPolicyTransport = URLSessionPolicyTransport(),
                           now: @escaping () -> Int = ProductPolicyRuntime.uptimeMilliseconds) {
     self.init(supabaseURL: supabaseURL, context: ProductPolicy.Context(environment: environment, surface: surface, build: build),
+              routeProfile: routeProfile,
               store: store, transport: transport, now: now, evaluate: ProductPolicyRuntime.packagedEvaluator)
   }
 
-  init(supabaseURL: String?, context: ProductPolicy.Context, store: ProductPolicyRevisionStore,
+  init(supabaseURL: String?, context: ProductPolicy.Context,
+       routeProfile: NativeAccessConfiguration.BackendRouteProfile? = .production, store: ProductPolicyRevisionStore,
        transport: ProductPolicyTransport, now: @escaping () -> Int, evaluate: @escaping Evaluator) {
-    self.endpoint = ProductPolicyRuntime.endpoint(supabaseURL)
+    self.endpoint = ProductPolicyRuntime.endpoint(supabaseURL, routeProfile: routeProfile)
+    self.routeProfile = routeProfile
     self.context = context
     self.store = store
     self.transport = transport
@@ -70,16 +77,19 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
   }
 
   /// The function URL on the configured project's origin, or nil when the build has none.
-  public static func endpoint(_ supabaseURL: String?) -> URL? {
+  public static func endpoint(_ supabaseURL: String?, routeProfile: NativeAccessConfiguration.BackendRouteProfile? = .production) -> URL? {
     let trimmed = supabaseURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !trimmed.isEmpty, let parsed = URLComponents(string: trimmed),
+    guard let routeProfile, !trimmed.isEmpty, let parsed = URLComponents(string: trimmed),
           let scheme = parsed.scheme?.lowercased(), scheme == "https" || scheme == "http",
           let host = parsed.host, !host.isEmpty, parsed.user == nil, parsed.password == nil else { return nil }
+    if routeProfile == .sharedHostedSandbox {
+      guard scheme == "https", ["", "/"].contains(parsed.path), parsed.query == nil, parsed.fragment == nil else { return nil }
+    }
     var origin = URLComponents()
     origin.scheme = scheme
     origin.host = host
     origin.port = parsed.port
-    origin.path = path
+    origin.path = routeProfile.policyPath
     return origin.url
   }
 
@@ -99,6 +109,7 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
 
   /// One fresh online check. Never throws; anything but a fresh, valid, current, allowlisted On is Off.
   public func freshCheck(_ namespace: ProductPolicy.Namespace) async -> ProductPolicy.Verdict {
+    guard let routeProfile, routeProfile.environment == context.environment else { return ProductPolicy.Verdict(.context) }
     // The packaged context decides some verdicts by itself (with the shipped compiled switch, every
     // sales check). Those never make a request.
     let packaged = evaluate(namespace, context, nil, 0, now)

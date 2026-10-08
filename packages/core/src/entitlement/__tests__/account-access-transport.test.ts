@@ -43,10 +43,17 @@ describe("authenticated scoped account transport", () => {
   });
   it("transport uses fixed schema and errors never become no-right", async () => {
     const invoke = vi.fn().mockResolvedValue({ data: response(), error: null });
-    expect((await reconcileAccountAccess(invoke, vectors.account, trust)).status).toBe("verified");
-    expect(invoke).toHaveBeenCalledWith("reconcile-entitlement", { body: { access_schema: 1 } });
+    expect((await reconcileAccountAccess(invoke, vectors.account, trust, "shared-hosted-sandbox")).status).toBe("verified");
+    expect(invoke).toHaveBeenCalledWith("qa-sandbox-reconcile-entitlement", { body: { access_schema: 1 } });
     invoke.mockResolvedValue({ data: response(), error: new Error("offline") });
+    expect(await reconcileAccountAccess(invoke, vectors.account, trust, "shared-hosted-sandbox")).toEqual({ status: "unavailable" });
+  });
+  it("never invokes a live route for sandbox trust, or QA for production trust", async () => {
+    const invoke = vi.fn();
     expect(await reconcileAccountAccess(invoke, vectors.account, trust)).toEqual({ status: "unavailable" });
+    expect(await reconcileAccountAccess(invoke, vectors.account, { ...trust, environment: "production" }, "shared-hosted-sandbox"))
+      .toEqual({ status: "unavailable" });
+    expect(invoke).not.toHaveBeenCalled();
   });
   it("unavailable with authenticated removals remains removals-only, never a grant or verified-none", async () => {
     const revocations = [{ right: "11111111-1111-4111-8111-111111111111", revision: 2 }];

@@ -8,8 +8,8 @@
 //
 //  Inert today, by two separate locks:
 //    * The owner's remote rating policy is Off, and switches on only after the V3 store release.
-//    * No project URL is packaged into the app yet, so the policy client makes no request at all
-//      and every allowance is Off. Supplying one is a separate reviewed change.
+//    * Ordinary builds supply no project URL, so every allowance is Off without a request.
+//      Complete compiled QA configuration uses only the sandbox policy endpoint and environment.
 //  What does run: each ordinary opening of the app records its local calendar day in the App Group
 //  invitation ledger (local only, never sent anywhere), so the "three days of use" are known once
 //  rating is allowed. Only Still app openings count; the Safari extension never records one.
@@ -53,9 +53,14 @@ final class RatingPromptPresenter {
     #else
     let environment = "production"
     #endif
+    let info = Bundle.main.infoDictionary ?? [:]
+    let routeProfile = NativeAccessConfiguration.backendRouteProfile(info: info)
+    let policyEnvironment = routeProfile == .sharedHostedSandbox ? "sandbox" : environment
     let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
     let policy = ProductPolicyRuntime(
-      supabaseURL: nil, environment: environment, surface: RatingPrompt.appSurface, build: build, store: revisions)
+      supabaseURL: NativeAccessConfiguration.ratingPolicySupabaseURL(info: info),
+      environment: policyEnvironment, surface: RatingPrompt.appSurface, build: build,
+      routeProfile: routeProfile, store: revisions)
     coordinator = RatingPromptCoordinator(store: ledger, freshCheck: { await policy.freshCheck(.rating) })
     #if os(iOS)
     let left = UIApplication.didEnterBackgroundNotification

@@ -18,6 +18,7 @@ import {
   sourceSnapshot,
   assertCompiledSandboxTrust,
   assertFreePaidFlags,
+  backendRouteProfile,
 } from "../../apps/apple/scripts/paid-sandbox-qa.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -42,6 +43,7 @@ export function profileEnvironment(profile, input = process.env) {
     ),
   );
   env.NODE_ENV = "production";
+  env.VITE_BACKEND_ROUTE_PROFILE = backendRouteProfile(input, { requireSandbox: profile === "paid-sandbox" });
   env.VITE_MODERN_SETTINGS_SYNC_ENABLED = "true";
   env.VITE_APPLE_ATOMIC_SETTINGS = "true";
   if (profile === "test" || profile === "paid-sandbox") {
@@ -131,12 +133,14 @@ export function artifactManifest({
   dirty,
   sourceSha256,
   backendUrl,
+  backendRouteProfile: routeProfile = "production",
   artifacts,
   paidBuild,
 }) {
+  backendRouteProfile({ STILL_QA_BACKEND_ROUTE_PROFILE: routeProfile }, { requireSandbox: profile === "paid-sandbox" });
   if (profile === "paid-sandbox") {
     assertPaidBuild(paidBuild);
-    if (paidBuild.sourceSha256 !== sourceSha256 || !paidBuild.targets.includes(surface)) throw new Error("Paid sandbox source/target identity mismatch");
+    if (paidBuild.backendRouteProfile !== routeProfile || paidBuild.sourceSha256 !== sourceSha256 || !paidBuild.targets.includes(surface)) throw new Error("Paid sandbox source/target identity mismatch");
   }
   return {
     schema: "still-v3-qa-artifact/v1",
@@ -151,6 +155,8 @@ export function artifactManifest({
       paidTierEnabled: profile === "paid-sandbox",
     },
     backend: {
+      routeProfile,
+      routeConsumption: "unverified",
       state:
         profile !== "local"
           ? "configured-shared-hosted-unverified"
@@ -177,6 +183,7 @@ export function artifactManifest({
     tools: { node: process.version },
     artifacts,
     gates: [
+      "Compiled client backend route consumption",
       "Real backend account/sync journeys",
       "Scoped sandbox fulfillment and host trust wiring",
       "Managed-only web checkout capability",
@@ -230,6 +237,7 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
         dirty,
         sourceSha256,
         backendUrl: env.VITE_SUPABASE_URL,
+        backendRouteProfile: env.VITE_BACKEND_ROUTE_PROFILE,
         artifacts,
       });
       pending.push({ path: join(surfaceDir, "artifact-manifest.json"), manifest, selected, surfaceDir });
@@ -291,7 +299,7 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
         // inline module as well, so keep its JavaScript trust check alongside Chrome/Firefox.
         if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config, { sourceRoot: clone, inlineModules: target === "apple-webview" });
         const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
-          sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, artifacts,
+          sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, backendRouteProfile: config.backendRouteProfile, artifacts,
           paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });
         pending.push({ target, path: join(targetDir, "artifact-manifest.json"), manifest });
       }

@@ -186,6 +186,22 @@ public struct CachedAccessRight: Codable, Equatable {
   }
 }
 public struct AccessRevocation: Codable, Equatable { public let right: String; public let revision: Int }
+public struct AccountAccessRevocation: Codable, Equatable {
+  public let holder: String; public let right: String; public let revision: Int
+  init(holder: String, right: String, revision: Int) { self.holder = holder; self.right = right; self.revision = revision }
+  private struct Key: CodingKey {
+    let stringValue: String; let intValue: Int? = nil
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+  }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Key.self)
+    guard Set(c.allKeys.map { $0.stringValue }) == ["holder", "right", "revision"] else { throw AccessProofFailure.invalid }
+    holder = try c.decode(String.self, forKey: Key(stringValue: "holder")!)
+    right = try c.decode(String.self, forKey: Key(stringValue: "right")!)
+    revision = try c.decode(Int.self, forKey: Key(stringValue: "revision")!)
+  }
+}
 public struct AccessCacheRecord: Codable, Equatable {
   public var schema = 1
   public var accountId: String?
@@ -195,9 +211,10 @@ public struct AccessCacheRecord: Codable, Equatable {
   public var appleBindings: [CachedAppleRightBinding] = []
   public var rights: [CachedAccessRight] = []
   public var revocations: [AccessRevocation] = []
+  public var accountRevocations: [AccountAccessRevocation] = []
   public var localProtection: LocalProtectionRecord?
   public init() {}
-  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, localProtection, appleBindings }
+  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, accountRevocations, localProtection, appleBindings }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     schema = try c.decode(Int.self, forKey: .schema)
@@ -206,6 +223,9 @@ public struct AccessCacheRecord: Codable, Equatable {
     sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
     rights = try c.decode([CachedAccessRight].self, forKey: .rights)
     revocations = try c.decode([AccessRevocation].self, forKey: .revocations)
+    accountRevocations = c.contains(.accountRevocations) ? try c.decode([AccountAccessRevocation].self, forKey: .accountRevocations) : []
+    guard accountRevocations.count <= 64, accountRevocations.allSatisfy({ accessUUID($0.holder) && accessUUID($0.right) && accessInteger($0.revision) }),
+      Set(accountRevocations.map { $0.holder + ":" + $0.right }).count == accountRevocations.count else { throw AccessProofFailure.invalid }
     appleBindings = try c.decodeIfPresent([CachedAppleRightBinding].self, forKey: .appleBindings) ?? []
     if c.contains(.localProtection), !(try c.decodeNil(forKey: .localProtection)) {
       localProtection = try? c.decode(LocalProtectionRecord.self, forKey: .localProtection)
@@ -219,6 +239,7 @@ public struct AccessCacheRecord: Codable, Equatable {
     try c.encode(generation, forKey: .generation); try c.encode(sessionId, forKey: .sessionId)
     try c.encode(rights, forKey: .rights)
     try c.encode(revocations, forKey: .revocations)
+    if !accountRevocations.isEmpty { try c.encode(accountRevocations, forKey: .accountRevocations) }
     if !appleBindings.isEmpty { try c.encode(appleBindings, forKey: .appleBindings) }
     try c.encodeIfPresent(localProtection, forKey: .localProtection)
   }

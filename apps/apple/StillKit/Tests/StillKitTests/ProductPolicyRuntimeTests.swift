@@ -98,6 +98,67 @@ final class ProductPolicyRuntimeTests: XCTestCase {
     XCTAssertTrue(transport.requests.isEmpty)
   }
 
+  func testSandboxContextCannotSelectProductionPolicyByDefault() async {
+    let transport = Transport { _ in (200, self.ratingBody(environment: "sandbox")) }
+    let policy = ProductPolicyRuntime(supabaseURL: url, environment: "sandbox", surface: "apple_mobile_host", build: build,
+      store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+    let verdict = await policy.freshCheck(.rating)
+    XCTAssertFalse(verdict.allowed)
+    XCTAssertTrue(transport.requests.isEmpty)
+  }
+
+  func testQaProfileUsesOnlyItsFixedPolicyRouteAndSandboxBody() async throws {
+    let transport = Transport { _ in (200, self.ratingBody(environment: "sandbox")) }
+    let policy = ProductPolicyRuntime(supabaseURL: "https://project.example", environment: "sandbox", surface: "apple_mobile_host", build: build,
+      routeProfile: .sharedHostedSandbox, store: ProductPolicyRevisionStore(defaults: defaults), transport: transport, now: Clock().now)
+    let verdict = await policy.freshCheck(.rating)
+    XCTAssertEqual(verdict, ProductPolicy.Verdict(.on, revision: 5))
+    let request = try XCTUnwrap(transport.requests.first)
+    XCTAssertEqual(transport.requests.count, 1)
+    XCTAssertEqual(request.url?.absoluteString, "https://project.example/functions/v1/qa-sandbox-product-policy")
+    XCTAssertEqual(request.httpBody, Data("{\"namespace\":\"rating\",\"environment\":\"sandbox\"}".utf8))
+    XCTAssertEqual(request.allHTTPHeaderFields, ["Content-Type": "application/json"])
+    XCTAssertEqual(request.httpMethod, "POST")
+    XCTAssertFalse(request.httpShouldHandleCookies)
+    XCTAssertEqual(request.timeoutInterval, 5)
+    XCTAssertEqual(fence as? Int, 5)
+  }
+
+  func testInvalidOrCrossEnvironmentProfileNeverSendsAnyRequest() async {
+    let cases: [(NativeAccessConfiguration.BackendRouteProfile?, String)] = [(nil, "production"), (nil, "sandbox"),
+      (.sharedHostedSandbox, "production"), (.production, "sandbox")]
+    for (profile, environment) in cases {
+      let transport = Transport { _ in (200, self.ratingBody(environment: environment)) }
+      let policy = ProductPolicyRuntime(supabaseURL: "https://project.example", environment: environment,
+        surface: "apple_mobile_host", build: build, routeProfile: profile,
+        store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+      let verdict = await policy.freshCheck(.rating)
+      XCTAssertEqual(verdict, ProductPolicy.Verdict(.context))
+      XCTAssertTrue(transport.requests.isEmpty)
+      XCTAssertNil(fence)
+    }
+  }
+
+  func testQaRouteRequiresAnHttpsProjectOriginAndCannotAcceptProductionPolicy() async {
+    for bad in [nil, "", "http://project.example", "https://user@project.example", "https://project.example/x",
+      "https://project.example?route=product-policy", "https://project.example#policy"] as [String?] {
+      XCTAssertNil(ProductPolicyRuntime.endpoint(bad, routeProfile: .sharedHostedSandbox))
+      let transport = Transport { _ in (200, self.ratingBody(environment: "sandbox")) }
+      let policy = ProductPolicyRuntime(supabaseURL: bad, environment: "sandbox", surface: "apple_mobile_host", build: build,
+        routeProfile: .sharedHostedSandbox, store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+      let verdict = await policy.freshCheck(.rating)
+      XCTAssertFalse(verdict.allowed)
+      XCTAssertTrue(transport.requests.isEmpty)
+    }
+    let transport = Transport { _ in (200, self.ratingBody(environment: "production")) }
+    let policy = ProductPolicyRuntime(supabaseURL: "https://project.example", environment: "sandbox", surface: "apple_mobile_host", build: build,
+      routeProfile: .sharedHostedSandbox, store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+    let verdict = await policy.freshCheck(.rating)
+    XCTAssertEqual(verdict.reason, .environment)
+    XCTAssertFalse(verdict.allowed)
+    XCTAssertNil(fence)
+  }
+
   func testProductionTransportKeepsNoCacheCookiesOrCredentials() {
     let configuration = URLSessionPolicyTransport().session.configuration
     XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
