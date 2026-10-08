@@ -6,6 +6,7 @@ if [[ ${GITHUB_ACTIONS:-} != true || ${RUNNER_ENVIRONMENT:-} != github-hosted ||
   echo 'Cloud rehearsal requires an ephemeral GitHub-hosted Linux runner.' >&2
   exit 1
 fi
+export STILL_REQUIRE_CLOUD_TESTS=1
 if [[ $# != 2 || ! $1 =~ ^[a-f0-9]{40}$ || ! $2 =~ ^[a-f0-9]{64}$ ]]; then
   echo 'Supply the exact checkout revision and reviewed rehearsal digest.' >&2
   exit 1
@@ -37,7 +38,7 @@ SQL
 bootstrap_fixture
 export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 # One environment permission for every database test: driver PG* defaults plus each test's inputs.
-db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,STILL_U5W2_ERASURE_TEST_DATABASE_URL,STILL_U5W2_ERASURE_TEST_MODE,STILL_U5W3_ERASURE_TEST_DATABASE_URL,STILL_U5W3_ERASURE_TEST_MODE,STILL_U5W3_AUTH_URL,STILL_U5W3_AUTH_SERVICE_KEY,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+db_test_env=--allow-env=STILL_REQUIRE_CLOUD_TESTS,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,STILL_U5W2_ERASURE_TEST_DATABASE_URL,STILL_U5W2_ERASURE_TEST_MODE,STILL_U5W3_ERASURE_TEST_DATABASE_URL,STILL_U5W3_ERASURE_TEST_MODE,STILL_U5W3_AUTH_URL,STILL_U5W3_AUTH_SERVICE_KEY,STILL_ACCESS_TEST_DATABASE_URL,STILL_ACCESS_MIGRATION_MODE,STILL_ACCESS_MIGRATION_VERSION,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
 deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
 supabase db reset --local --no-seed >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
@@ -154,8 +155,31 @@ psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabas
 u5w3_erasure_test pre-upgrade
 migrate_up_to 0018
 u5w3_erasure_test upgrade
-supabase db reset --local --no-seed >/dev/null
+# 0018's exact eraser inventory is checked at 0018, before 0019 extends private.
+supabase db reset --local --no-seed --version 0018 >/dev/null
 u5w3_erasure_test clean
-# The pgTAP suite again at the head, after the policy routes have been exercised.
+# Check the foundation migration at its exact 0019 end state.
+access_migration_test() {
+  STILL_ACCESS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" \
+    STILL_ACCESS_MIGRATION_VERSION="$1" STILL_ACCESS_MIGRATION_MODE="$2" \
+    deno test --config supabase/functions/deno.json "$db_test_env" \
+      --allow-read=supabase/migrations,scripts/backend/deploy/verify \
+      --allow-net=127.0.0.1:54322 supabase/tests/access_migration_gates_test.ts
+}
+access_upgrade() {
+  local version="$1" stem="$2" before after
+  access_migration_test "$version" pre
+  before=$(psql "$STILL_SECURITY_TEST_DATABASE_URL" -X -At --set=ON_ERROR_STOP=1 --file="scripts/backend/deploy/verify/$stem.invariant.sql")
+  migrate_up_to "$version"
+  after=$(psql "$STILL_SECURITY_TEST_DATABASE_URL" -X -At --set=ON_ERROR_STOP=1 --file="scripts/backend/deploy/verify/$stem.invariant.sql")
+  if [[ "$before" != "$after" ]]; then echo 'Access migration row invariant changed.' >&2; exit 1; fi
+  unset before after
+  access_migration_test "$version" post
+}
+# Begin at the tested exact 0018 state; the 0019 upgrade carries nonempty old rows.
+access_upgrade 0019 0019_scoped_access_rights
+supabase db reset --local --no-seed --version 0019 >/dev/null
+access_migration_test 0019 post
+# The pgTAP suite again at the clean 0019 head, after rollback-only drift controls.
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
