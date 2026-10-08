@@ -3,6 +3,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile, mkdir, rm, lstat, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 export const PAID_FLAGS = Object.freeze({
   js: "packages/shared-types/src/entitlement.ts",
@@ -172,11 +174,36 @@ export function assertPaidBuild(build) {
     !/^[a-f0-9]{64}$/.test(build.sourceSha256 ?? "") || !Array.isArray(build.targets) || !build.targets.length) refusal("mixed or incomplete paid build identity");
 }
 
-/** Establish key embedding in generated JavaScript, separately from provider/device acceptance. */
+/** Establish key embedding in generated JavaScript, including the webview's inline modules.
+ * Arbitrary HTML text cannot satisfy the check. Provider/device acceptance is separate. */
 export async function assertCompiledSandboxTrust(artifact, config) {
   const { inventory } = await import("../../../scripts/qa/v3-profile.mjs");
-  const files = (await inventory(artifact)).files.filter(file => /\.(?:m?js)$/.test(file.path));
-  const scripts = await Promise.all(files.map(file => readFile(join(artifact, file.path), "utf8")));
+  const files = (await inventory(artifact)).files.filter(file => /\.(?:m?js|html)$/.test(file.path));
+  const scripts = [];
+  let parse;
+  for (const file of files) {
+    const text = await readFile(join(artifact, file.path), "utf8");
+    if (/\.(?:m?js)$/.test(file.path)) scripts.push(text);
+    else {
+      // Reuse jsdom's existing development parser; no new app dependency or script execution.
+      if (!parse) {
+        const core = createRequire(new URL("../../../packages/core/package.json", import.meta.url));
+        const parser = createRequire(core.resolve("jsdom")).resolve("parse5");
+        ({ parse } = await import(pathToFileURL(parser).href));
+      }
+      const visit = node => {
+        if (node.tagName === "template") return;
+        if (node.tagName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+          node.attrs.some(attr => attr.name === "type" && attr.value === "module") &&
+          !node.attrs.some(attr => attr.name === "src")) {
+          scripts.push(node.childNodes.filter(child => child.nodeName === "#text").map(child => child.value).join(""));
+        }
+        for (const child of node.childNodes ?? []) visit(child);
+      };
+      // Match the scripting-enabled webview: noscript and raw-text contents are inert.
+      visit(parse(text, { scriptingEnabled: true }));
+    }
+  }
   if (config.publicKeys.some(key => !scripts.some(text => text.includes(key.publicKeyHex))))
     refusal("generated JavaScript lacks the selected sandbox public trust");
 }

@@ -314,6 +314,36 @@ test("web trust check requires every selected key in generated JavaScript", asyn
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("webview trust check reads inline modules but refuses HTML, CSS and external script bodies", async () => {
+  const root = await mkdtemp(join(tmpdir(), "still-paid-inline-trust-test-"));
+  try {
+    const config = paid.sandboxConfiguration(paidInputs), key = sandboxKey.publicKeyHex;
+    const path = join(root, "index.html");
+    for (const text of [
+      `<div>${key}</div>`,
+      `<style>/* ${key} */</style>`,
+      `<script type="application/json">${key}</script>`,
+      `<script type="module" src="missing.js">${key}</script>`,
+      `<script type="module" src>${key}</script>`,
+      `<!-- <script type="module">${key}</script> -->`,
+      `<script data-type="module">${key}</script>`,
+      `<script title='type="module"'>${key}</script>`,
+      `<script type="application/json" data-type="module">${key}</script>`,
+      `<template><script type="module">${key}</script></template>`,
+      `<noscript><script type="module">${key}</script></noscript>`,
+      `<textarea><script type="module">${key}</script></textarea>`,
+      `<style><script type="module">${key}</script></style>`,
+    ]) {
+      await writeFile(path, text);
+      await assert.rejects(paid.assertCompiledSandboxTrust(root, config), /JavaScript lacks/);
+    }
+    await writeFile(path, `<html><head><script type="module">const key = "${key}";</script></head></html>`);
+    await paid.assertCompiledSandboxTrust(root, config);
+    await writeFile(path, '<script type="module">const key = "production trust only";</script>');
+    await assert.rejects(paid.assertCompiledSandboxTrust(root, config), /JavaScript lacks/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("local all-target receipts refuse source edits during a build and retain coherent healthy results", async () => {
   const { mkdirSync, writeFileSync } = await import("node:fs");
   const root = await fixture();
@@ -408,7 +438,9 @@ test("isolation enables both constants and typed app/extension trust while sourc
     await assert.rejects(readFile(join(runPath, "source", paid.PAID_FLAGS.js)), /ENOENT/);
     const manifest = artifactManifest({ profile: "paid-sandbox", surface: "safari", revision: before.revision, dirty: false,
       sourceSha256: before.sha256, backendUrl: paidInputs.STILL_QA_SUPABASE_URL, artifacts: { totalBytes: 0, files: [] }, paidBuild: build });
-    assert.equal(manifest.runtime.paidTierEnabled, true); assert.equal(manifest.trust.sandboxProofAccepted, true);
+    assert.equal(manifest.runtime.paidTierEnabled, true); assert.equal(manifest.trust.sandboxProofAccepted, null);
+    assert.equal(manifest.trust.access, "sandbox-native-authority-unverified");
+    assert.equal(manifest.trust.nativePackageVerification, "unverified-resource-only");
     assert.equal(manifest.paidBuild.flags.nativePaid, true);
     assert.doesNotMatch(JSON.stringify(manifest), /abcdefghijklmnopqrst|appl_public_fixture|sb_publishable/);
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: before.sha256,

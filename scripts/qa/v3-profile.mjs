@@ -166,8 +166,11 @@ export function artifactManifest({
     trust: {
       buildMode: "production",
       rules: "production-only",
-      access: profile === "paid-sandbox" ? "sandbox-compiled-public-keys" : "production-empty-keys",
-      sandboxProofAccepted: profile === "paid-sandbox",
+      access: profile === "paid-sandbox"
+        ? surface === "safari" ? "sandbox-native-authority-unverified" : "sandbox-compiled-public-keys"
+        : "production-empty-keys",
+      sandboxProofAccepted: profile === "paid-sandbox" && surface === "safari" ? null : profile === "paid-sandbox",
+      ...(profile === "paid-sandbox" && surface === "safari" ? { nativePackageVerification: "unverified-resource-only" } : {}),
       ...(profile === "paid-sandbox" ? { publicTrustSha256: paidBuild.trustSha256 } : {}),
     },
     ...(profile === "paid-sandbox" ? { paidBuild } : {}),
@@ -282,7 +285,11 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
           runChecked(process.execPath, [join(clone, "scripts/qa/v3-worker.mjs"), target, targetDir], { cwd: envDir, env });
         }
         const artifacts = await inventory(join(targetDir, "artifact"));
-        if (!nativePackage) await assertCompiledSandboxTrust(join(targetDir, "artifact"), config);
+        // Safari delegates benefit verification to its native host; these resources cannot
+        // certify that host's trust. Apple targets verify the compiled app/extension plists
+        // and bind their resources to this same cohort. The webview verifies proofs in its
+        // inline module as well, so keep its JavaScript trust check alongside Chrome/Firefox.
+        if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config);
         const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
           sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, artifacts,
           paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });
