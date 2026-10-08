@@ -6,7 +6,7 @@ problem_type: security_issue
 module: scripts/qa
 applies_when: Building a paid sandbox candidate from a dirty checkout without changing shipped flags
 date: 2026-10-07
-last_updated: 2026-10-07
+last_updated: 2026-10-08
 status: active
 tags:
   - qa
@@ -43,10 +43,21 @@ payloads satisfy the native base64url and size grammar before compilation. Gener
 Safari resource inventories must match in paths, sizes and hashes; Safari excludes only the known
 native metadata, executable, signature and provisioning entries observed in real Xcode products.
 Signed archives must satisfy an Apple certificate anchor and the fixed reviewed signing team for
-both bundles. The candidate's project settings must agree with that team. Every paid web target
-also checks that generated JavaScript embeds all selected public keys. This is an embedding check;
-it does not certify a provider response or device acceptance. Compiler output streams
-to the run log; only small structured plist output is captured.
+both bundles. The candidate's project settings must agree with that team. Chrome and Firefox also check that generated JavaScript embeds all selected public keys.
+The Apple webview checks only real inline module bodies in its executed index.html entry; an
+unused assets chunk or another HTML file cannot satisfy it. Reuse the candidate's existing
+jsdom/parse5 development dependency after the isolated frozen install. Run that parser in a
+separate Node process with an empty environment and bounded input, output and runtime, rather
+than importing candidate dependencies into the operator verifier's realm. This separates
+environment and JavaScript globals; it is not an operating-system filesystem sandbox.
+
+Scripting-enabled HTML parsing excludes comments, templates, noscript, raw text, external-script
+bodies and attribute impostors. Browser extension targets do not accept inline modules. Safari
+resources delegate verification to the native host and are explicitly marked
+sandbox-native-authority-unverified with sandboxProofAccepted null; source resources alone do
+not establish compiled native authority. Native targets still require the existing compiled
+app/extension plist and complete resource checks. These are embedding and packaging checks;
+they do not certify a provider response or device acceptance. Compiler output streams to the run log; structured plist and bounded parser output are captured.
 
 Recognizing a supported environment reference does not authorize it as a store-package input.
 [package.mjs](../../../scripts/release/package.mjs) classifies `VITE_ACCESS_ENVIRONMENT` and
@@ -77,3 +88,12 @@ production environment. That install already succeeded with current pnpm before 
 establish source and packaging boundaries; they do not establish a real paid archive, provider
 configuration, StoreKit transaction, TestFlight upload or device journey. Those require separate
 release evidence.
+
+The October 8 parser regressions also reject keys present only in orphan JavaScript or a different
+HTML document. A synthetic candidate parser sees no operator environment sentinel and cannot
+modify the parent verifier's globals. Restoring the previous helper makes both controls fail.
+The 25-test focused suite passes with the corrections. A fresh isolated source clone with an
+actual frozen offline development install accepts the previously built webview index.html alone;
+no compiler or provider operation ran during that check. Preliminary six-target packages remain
+bound to their original clean 3c4a08aa source receipt and must not be relabelled as a later helper
+commit or as signed, installed or payment-ready artifacts.
