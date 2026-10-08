@@ -90,6 +90,38 @@ final class AccessProofTests: XCTestCase {
     XCTAssertEqual(a.peek()?.source, .receipt)
     XCTAssertThrowsError(try b.installAccess(p, generation: scope.generation, issuerNow: f.verifiedAt, wall: 10_000, localRights: []))
   }
+  private final class TransactionHookBacking: SettingsBacking {
+    let memory = InMemoryBacking()
+    var beforeTransaction: (() throws -> Void)?
+    func read() -> Data? { memory.read() }
+    func write(_ data: Data) { memory.write(data) }
+    func transaction<T>(_ body: (inout Data?) throws -> T) throws -> T {
+      let hook = beforeTransaction
+      beforeTransaction = nil
+      try hook?()
+      return try memory.transaction(body)
+    }
+  }
+  func testQueuedObservationSamplesWallAfterEarlierProcessCommit() throws {
+    let f = try fixtures(), p = try proof(f)
+    let backing = TransactionHookBacking()
+    let app = SharedEntitlementStore(backing: backing, trust: trust(f))
+    let safari = SharedEntitlementStore(backing: backing, trust: trust(f))
+    let scope = try app.changeAccessAccount(f.account)
+    _ = try app.installAccess(p, generation: scope.generation, issuerNow: f.verifiedAt, wall: 1000, localRights: [])
+    var wall = 2000
+    backing.beforeTransaction = {
+      wall = 3000
+      _ = try safari.observeAccess(wall: wall)
+    }
+    let observed = try app.observeAccess(wall: wall)
+    XCTAssertTrue(observed.1.first?.validPaid == true)
+    XCTAssertFalse(observed.0.rights.first?.clock?.paused == true)
+    XCTAssertEqual(observed.0.rights.first?.clock?.lastWall, 3000)
+    // A real subsequent backwards wall adjustment still latches verification-required.
+    XCTAssertFalse(try app.observeAccess(wall: 2999).1.first?.validPaid == true)
+    XCTAssertTrue(try app.observeAccess(wall: 4000).0.rights.first?.clock?.paused == true)
+  }
   func testSameProofRetryDoesNotRenewOrRemoveExpiry() throws {
     let f = try fixtures(), p = try proof(f)
     let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust(f))

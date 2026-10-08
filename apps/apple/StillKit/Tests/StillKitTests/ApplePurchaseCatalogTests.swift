@@ -123,8 +123,10 @@ final class ApplePurchaseCatalogTests: XCTestCase {
     // The package selector charges the sellable id: an offering holding only the historical
     // product resolves to no package, which flows to `.unavailable` — never a purchase.
     XCTAssertTrue(
-      source.contains("productIdentifier == Self.productID"),
-      "the offering selector must match by the sellable product id")
+      source.contains("ApplePurchaseCatalog.lifetimeOffering(offeringID: package.offeringIdentifier"),
+      "the offering selector must validate the reviewed offering/package/product tuple")
+    XCTAssertTrue(source.contains("offerings?.all[offeringID]"),
+      "the default/current offering must never substitute an arbitrary product")
   }
 
   /// The server grants Pro from the new entitlement OR the historical one (U16-W2 ruling: both

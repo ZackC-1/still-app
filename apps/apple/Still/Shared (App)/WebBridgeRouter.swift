@@ -95,11 +95,58 @@ import WebKit
 import StoreKit
 import StillKit
 
+/// Process-local install fence. Known cryptographic revocation advances it even before a
+/// binding exists; a failed durable commit blocks modern replies until that verified removal retries.
+struct AppleAccessRevocationFence {
+  private struct RevocationKey: Hashable {
+    let environment: String, appBundleId: String, productId: String, originalTransactionId: String
+    let purchased: Bool
+    let revokedAt: Int
+    init(_ revocation: NativeVerifiedAppleRevocation) {
+      let identity = revocation.identity
+      environment = identity.environment; appBundleId = identity.appBundleId
+      productId = identity.productId; originalTransactionId = identity.originalTransactionId
+      purchased = identity.ownership == .purchased; revokedAt = revocation.revokedAt
+    }
+  }
+  private(set) var generation = 0
+  private var pending: [NativeVerifiedAppleRevocation] = []
+  // Successful no-binding commits are also settled. The install oracle still re-verifies its
+  // own transaction; repeated historical refunds must not invalidate unrelated current reads.
+  private var committed: Set<RevocationKey> = []
+  var ready: Bool { pending.isEmpty }
+  func permitsInstall(_ captured: Int) -> Bool { ready && captured == generation }
+  mutating func observe(_ revocation: NativeVerifiedAppleRevocation) {
+    let key = RevocationKey(revocation)
+    guard !committed.contains(key) else { return }
+    generation += 1
+    guard !pending.contains(where: { RevocationKey($0) == key }) else { return }
+    pending.append(revocation)
+  }
+  @discardableResult
+  mutating func retry(_ commit: (NativeVerifiedAppleRevocation) throws -> Void) -> Bool {
+    var failed: [NativeVerifiedAppleRevocation] = []
+    for revocation in pending {
+      do {
+        try commit(revocation)
+        committed.insert(RevocationKey(revocation))
+      } catch { failed.append(revocation) }
+    }
+    pending = failed
+    return ready
+  }
+}
+
 @MainActor
 final class WebBridgeRouter {
   private let settings: SettingsExecutor
   private let entitlement: EntitlementBridge
   private let accountSyncStatus: AccountSyncStatusStore
+  private let accessTrust: AccessTrust
+  private let accessSessionVerifier: NativeAccessSessionVerifier?
+  /// Native arrival-order fence; display state supplies lineage only, never authentication.
+  private var accessAccountLineage = 0
+  private var accessRevocations = AppleAccessRevocationFence()
   private let analytics = AnalyticsIdentityStore.appGroup()
   /// Read once per launch: `appContext` records the version it ran, so a second read in the same
   /// launch would lose the update it just reported. Callers that arrive while the first read is
@@ -129,19 +176,27 @@ final class WebBridgeRouter {
     settings: SettingsExecutor,
     entitlement: EntitlementBridge = EntitlementBridge(
       store: .appGroup(), receiptStatus: { stillReceiptStatusCache.current }),
-    accountSyncStatus: AccountSyncStatusStore = .appGroup()
+    accountSyncStatus: AccountSyncStatusStore = .appGroup(),
+    accessTrust: AccessTrust = .compiled,
+    accessSessionVerifier: NativeAccessSessionVerifier? = NativeAccessConfiguration.sessionVerifier()
   ) {
     self.settings = settings
     self.entitlement = entitlement
     self.accountSyncStatus = accountSyncStatus
+    self.accessTrust = accessTrust
+    self.accessSessionVerifier = accessSessionVerifier
   }
 
   /// Refresh the cached receipt snapshot and route it through the stamp policy (the receipt lane's
   /// restamp — R5/R16). Called at launch (before install-id publication), on foreground, and after
   /// purchase/restore so the Safari extension unlocks without any account.
-  func refreshReceiptStamp() async {
-    let status = await purchases.refreshReceiptStatus()
-    _ = entitlement.applyReceipt(status)
+  @discardableResult
+  func refreshReceiptStamp() async -> ReceiptStatus {
+    retryVerifiedRevocations()
+    let status = await purchases.refreshReceiptStatus { self.commitVerifiedRevocation($0) }
+    // Failure cannot be presented as purchased, even when a separate receipt is entitled.
+    let accepted = accessRevocations.ready ? status : .noSignal
+    _ = entitlement.applyReceipt(accepted)
     // Cohort capture rides along on the same moments the receipt is read, but is deliberately NOT
     // awaited: launch defers publishing the install-generation id until this method returns, and
     // asking Apple for the app transaction has no time bound at all. It is idempotent and asks
@@ -149,6 +204,19 @@ final class WebBridgeRouter {
     // and restore are harmless. While paid access is dormant it asks Apple nothing and only writes
     // the local record, which touches no network at all.
     Task { await self.captureOriginalInstall() }
+    return accepted
+  }
+
+  private func retryVerifiedRevocations() {
+    guard MonetizationConfig.paidTierEnabled else { return }
+    accessRevocations.retry { _ = try self.entitlement.revokeAppleAccess($0) }
+  }
+
+  private func commitVerifiedRevocation(_ revocation: NativeVerifiedAppleRevocation) {
+    guard MonetizationConfig.paidTierEnabled else { return }
+    // Must precede any attempt to commit: no existing binding is still a meaningful install fence.
+    accessRevocations.observe(revocation)
+    retryVerifiedRevocations()
   }
 
   func handle(_ body: Any, frame: BridgeFrame, reply: @escaping (Any?, String?) -> Void) {
@@ -228,6 +296,157 @@ final class WebBridgeRouter {
         reply(Self.json(["ok": true]), nil)
       }
 
+    case "pendingAppRoute":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid app route request"); return
+      }
+      reply(Self.json(["pending": StillProRoute.pending() as Any? ?? NSNull()]), nil)
+
+    case "acknowledgeAppRoute":
+      guard Set(dict.keys) == ["kind", "revision"], frame.isTrusted,
+            let number = dict["revision"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+            number.doubleValue >= 0, number.doubleValue <= 9_007_199_254_740_991,
+            number.doubleValue.rounded(.down) == number.doubleValue else {
+        reply(nil, "still: invalid app route acknowledgment"); return
+      }
+      reply(Self.json(["ok": StillProRoute.acknowledge(number.intValue), "revision": number.intValue]), nil)
+
+    case "applePurchaseEvidence":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid purchase evidence request"); return
+      }
+      Task {
+        let evidence = await self.purchases.applePurchaseEvidence { self.commitVerifiedRevocation($0) }
+        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        reply(Self.json(["evidence": evidence as Any? ?? NSNull()]), nil)
+      }
+
+    case "appleLocalPurchaseEvidence":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid local purchase evidence request"); return
+      }
+      Task {
+        let evidence = await self.purchases.appleLocalPurchaseEvidence { self.commitVerifiedRevocation($0) }
+        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        reply(Self.json(["evidence": evidence as Any? ?? NSNull()]), nil)
+      }
+
+    case "installAppleAccess":
+      guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple access unavailable"); return }
+      retryVerifiedRevocations()
+      guard accessRevocations.ready, frame.isTrusted, let request = AppleAccessInstallRequest.parse(body),
+        let binding = try? VerifiedAppleRightBinding.verify(request.nativeBinding, trust: accessTrust),
+        let generation = try? entitlement.prepareAppleAccessInstall()
+      else { reply(nil, "still: Apple access requires verification"); return }
+      let lineage = accessAccountLineage
+      let revocationLineage = accessRevocations.generation
+      let accountAtStart = accountSyncStatus.peek()?.accountId
+      Task {
+        let session: VerifiedNativeAccessSession?
+        if let token = request.accessToken {
+          session = await self.accessSessionVerifier?.verify(accessToken: token)
+          guard let session, session.accountId == accountAtStart,
+            self.accessAccountLineage == lineage, self.accountSyncStatus.peek()?.accountId == accountAtStart
+          else { reply(nil, "still: Apple account session requires verification"); return }
+        } else { session = nil }
+        guard let identity = await self.purchases.verifiedApplePurchaseIdentity(productId: binding.claims.productId,
+          onVerifiedRevocation: { self.commitVerifiedRevocation($0) }),
+          self.accessRevocations.permitsInstall(revocationLineage),
+          session == nil || (self.accessAccountLineage == lineage && self.accountSyncStatus.peek()?.accountId == accountAtStart)
+        else { reply(nil, "still: Apple purchase requires verification"); return }
+        do {
+          let committed = try self.entitlement.installAppleAccess(request, nativePurchase: identity,
+            session: session, expectedGeneration: session == nil ? nil : generation)
+          reply(String(data: try JSONEncoder().encode(committed), encoding: .utf8), nil)
+        } catch { reply(nil, "still: Apple access commit requires verification") }
+      }
+
+    case "observeAppleAccess":
+      guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple access unavailable"); return }
+      retryVerifiedRevocations()
+      guard accessRevocations.ready, frame.isTrusted, Set(dict.keys) == ["kind"] else {
+        reply(nil, "still: invalid Apple access observation"); return
+      }
+      reply(entitlement.handle(.getAppleAccess), nil)
+
+    case "observeAppleLinkAccess":
+      guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple link access unavailable"); return }
+      retryVerifiedRevocations()
+      guard accessRevocations.ready, frame.isTrusted, Set(dict.keys) == ["kind"] else {
+        reply(nil, "still: invalid Apple link observation"); return
+      }
+      let revocationLineage = accessRevocations.generation
+      let accountLineage = accessAccountLineage
+      Task {
+        guard let identities = await self.purchases.verifiedAppleLinkPurchaseIdentities { self.commitVerifiedRevocation($0) },
+          self.accessRevocations.permitsInstall(revocationLineage), self.accessAccountLineage == accountLineage
+        else { reply(nil, "still: Apple link purchase requires verification"); return }
+        do {
+          var candidate: AppleAccessObservation?
+          for identity in identities {
+            let observation = try self.entitlement.observeAppleLinkAccess(nativePurchase: identity)
+            if !observation.rights.isEmpty {
+              // Never silently select one purchaser when more than one current local right matches.
+              guard candidate == nil, observation.rights.count == 1 else { throw AccessProofFailure.invalid }
+              candidate = observation
+            }
+          }
+          let empty = try self.entitlement.observeAppleLinkAccess(nativePurchase: nil)
+          guard candidate == nil || candidate?.generation == empty.generation else { throw AccessProofFailure.invalid }
+          reply(String(data: try JSONEncoder().encode(candidate ?? empty), encoding: .utf8), nil)
+        } catch { reply(nil, "still: Apple link eligibility requires verification") }
+      }
+
+    case "proOffering":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid offering request"); return
+      }
+      guard MonetizationConfig.paidTierEnabled else { reply(Self.json(["offer": NSNull()]), nil); return }
+      Task {
+        let offer = await self.purchases.lifetimeOffering()
+        reply(Self.json(["offer": offer?.payload as Any? ?? NSNull()]), nil)
+      }
+
+    case "purchasePro":
+      guard Set(dict.keys) == ["kind", "offer"], frame.isTrusted,
+            let offer = AppleLifetimeOffering.parse(dict["offer"]) else {
+        reply(nil, "still: invalid purchase offer"); return
+      }
+      guard MonetizationConfig.paidTierEnabled else {
+        reply(Self.json(ApplePurchaseActionResult(.unavailable).payload), nil); return
+      }
+      Task {
+        let result = await RatingHold.app.during(.purchase) {
+          let result = await self.purchases.purchasePro(offer: offer, onVerifiedRevocation: { self.commitVerifiedRevocation($0) })
+          await self.refreshReceiptStamp()
+          return result
+        }
+        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        reply(Self.json(result.payload), nil)
+      }
+
+    case "restorePro":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid restore request"); return
+      }
+      guard MonetizationConfig.paidTierEnabled else {
+        reply(Self.json(ApplePurchaseActionResult(.unavailable).payload), nil); return
+      }
+      Task {
+        let result = await RatingHold.app.during(.restore) {
+          // The existing bounded StoreKit check includes historical purchases and conclusively
+          // reports absence only after an actual successful AppStore.sync. Never RC transfer.
+          let checked = await self.freePeriodRestore.run()
+          await self.refreshReceiptStamp()
+          let read = self.purchases.lastReceiptRead
+          let outcome: ApplePurchaseActionOutcome = checked == .restored ? .restored :
+            (checked == .none ? .nothing : .failed)
+          return ApplePurchaseActionResult(outcome, receipt: read.status, productId: read.productID)
+        }
+        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        reply(Self.json(result.payload), nil)
+      }
+
     case "purchase":
       // The paid tier is dormant behind MonetizationConfig.paidTierEnabled, so the two actions that
       // could put a price in front of someone are refused here, at the native boundary. That holds
@@ -240,7 +459,7 @@ final class WebBridgeRouter {
       }
       Task {
         let outcome = await RatingHold.app.during(.purchase) {
-          let outcome = await self.purchases.purchaseStillPro()
+          let outcome = await self.purchases.purchaseStillPro { self.commitVerifiedRevocation($0) }
           // Restamp from the fresh receipt before acknowledging (R5): Safari unlocks even if the
           // webview dies right after the sheet. Harmless for cancelled/failed (noSignal no-ops).
           await self.refreshReceiptStamp()
@@ -269,7 +488,7 @@ final class WebBridgeRouter {
       }
       Task {
         let restored = await RatingHold.app.during(.restore) {
-          let restored = await self.purchases.restore()
+          let restored = await self.purchases.restore { self.commitVerifiedRevocation($0) }
           await self.refreshReceiptStamp()
           return restored
         }
@@ -286,8 +505,7 @@ final class WebBridgeRouter {
       // The webview's receipt read (R17 — how a signed-out purchaser's UI shows Pro). Reads are
       // refresh sites: the cache and stamp stay fresh as a side effect.
       Task {
-        let status = await self.purchases.refreshReceiptStatus()
-        _ = self.entitlement.applyReceipt(status)
+        let status = await self.refreshReceiptStamp()
         reply(Self.json(["receipt": status.rawValue]), nil)
       }
 
@@ -296,7 +514,7 @@ final class WebBridgeRouter {
       // gate (session + SDK identity equality + purchased ownership) refuses the teardown race
       // (AE13) and family-shared transactions (AE14).
       Task {
-        let entitled = await RatingHold.app.during(.purchase) { await self.purchases.attachPurchases() }
+        let entitled = await RatingHold.app.during(.purchase) { await self.purchases.attachPurchases { self.commitVerifiedRevocation($0) } }
         reply(Self.json(["entitled": entitled]), nil)
       }
 
@@ -307,6 +525,7 @@ final class WebBridgeRouter {
       }
 
     case "signOut":
+      accessAccountLineage += 1
       // Fence modern account rights before asynchronous identity cleanup. Existing independent
       // Apple/local protected rights and all saved settings survive this scoped teardown.
       let accessCleared = (try? { try entitlement.clearAccessAccount(); return true }()) ?? false
@@ -324,6 +543,16 @@ final class WebBridgeRouter {
     case "analyticsContext":
       Task { await self.handleAnalyticsContext(reply: reply) }
 
+    case "analyticsPermission":
+      reply(Self.json(analytics.analyticsPermissionReply()), nil)
+
+    case "commitAnalyticsPermission":
+      guard let value = dict["permission"] else {
+        reply(nil, "still: commitAnalyticsPermission missing permission")
+        return
+      }
+      reply(Self.json(analytics.commitAnalyticsPermission(value)), nil)
+
     case "setAnalyticsConsent":
       guard let enabled = dict["enabled"] as? Bool else {
         reply(nil, "still: setAnalyticsConsent missing enabled")
@@ -337,13 +566,36 @@ final class WebBridgeRouter {
 
     case "setAccountSyncStatus":
       // Only the trusted bundled WK frame reaches this writer. The Safari native lane only reads.
-      guard let status = dict["status"], accountSyncStatus.save(rawStatus: status) else {
+      let priorAccountId = accountSyncStatus.peek()?.accountId
+      guard frame.isTrusted, Set(dict.keys) == ["kind", "status"],
+        let status = dict["status"], accountSyncStatus.save(rawStatus: status) else {
         reply(nil, "still: malformed account sync status")
         return
       }
+      if accountSyncStatus.peek()?.accountId != priorAccountId {
+        accessAccountLineage += 1
+        do { try entitlement.clearAccessAccount() }
+        catch { reply(nil, "still: account access lineage requires verification"); return }
+      }
       reply(Self.json(["ok": true]), nil)
 
-    case "setEntitlement", "getEntitlement", "getAccess", "getBenefitAccess":
+    case "getBenefitAccess":
+      guard frame.isTrusted, Set(dict.keys) == ["kind"] else {
+        reply(nil, "still: invalid benefit access request"); return
+      }
+      if !MonetizationConfig.paidTierEnabled { reply(entitlement.handle(.getBenefitAccess), nil); return }
+      Task {
+        self.retryVerifiedRevocations()
+        let ownership = await self.purchases.observeAppleOwnership { self.commitVerifiedRevocation($0) }
+        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        do {
+          let snapshot = try self.entitlement.observeAppleBenefits(ownership)
+          let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
+          reply(Self.json(["ok": true, "snapshot": value]), nil)
+        } catch { reply(nil, "still: benefit access requires verification") }
+      }
+
+    case "setEntitlement", "getEntitlement", "getAccess":
       // Entitlement mirror: the web layer proposes its server-reconciled value (server lane);
       // EntitlementBridge routes it through StampPolicy (R13). Only the bundled web build reaches
       // this handler (the navigation lockdown in ViewController), the same trust boundary as
@@ -356,10 +608,7 @@ final class WebBridgeRouter {
         if kind == "setEntitlement", (dict["entitled"] as? Bool) == false,
            stillReceiptStatusCache.current == .entitled {
           Task {
-            let fresh = await self.purchases.refreshReceiptStatus()
-            if fresh == .verifiedNotEntitled {
-              _ = self.entitlement.applyReceipt(fresh)
-            }
+            await self.refreshReceiptStamp()
           }
         }
       } else {

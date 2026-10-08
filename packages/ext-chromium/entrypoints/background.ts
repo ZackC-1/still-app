@@ -1,7 +1,7 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, FunctionsHttpError, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter, SettingsStorageRecovery } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, type TrustedAccessContext } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, packagedAccessTrust, createAccountAccessReconciler, type TrustedAccessContext } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
@@ -155,20 +155,31 @@ export default defineBackground(() => {
     override mutateAccess(mutation: Parameters<ChromeEntitlementAdapter["mutateAccess"]>[0]) {
       return order(() => super.mutateAccess(mutation));
     }
+    override commitAccountAccess(...args: Parameters<ChromeEntitlementAdapter["commitAccountAccess"]>) {
+      return order(() => super.commitAccountAccess(...args));
+    }
     override mutateLocalProtection(mutation: Parameters<ChromeEntitlementAdapter["mutateLocalProtection"]>[0]) {
       return order(() => super.mutateLocalProtection(mutation));
     }
   }
+  let scopedAccountEvidence: ((session: TrustedAccessContext["session"]) => "absent" | "unknown") | null = null;
   let verifiedAccessSession: (() => Promise<TrustedAccessContext["session"]>) | null = null;
-  const entitlements = new OrderedEntitlements(Date.now, { authority: true, context: async () => {
+  let scopedEvidenceDeadline: (() => number | null) | null = null;
+  const accessTrust = packagedAccessTrust({
+    environment: import.meta.env.VITE_ACCESS_ENVIRONMENT as string | undefined,
+    publicKeys: import.meta.env.VITE_ACCESS_PUBLIC_KEYS as string | undefined,
+  });
+  const entitlements = new OrderedEntitlements(Date.now, { authority: true, trust: accessTrust, context: async () => {
     // Host-specific, so a Still Pro extra this build implements can resolve once paid is on.
     // While paid is off every host's context is exactly the free features.
     const context = packagedAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium");
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
     // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.
-    return { ...context, session: verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined) : undefined };
-  } });
+    const verified = verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined) : undefined;
+    return { ...context, session: verified, evidenceStatus: scopedAccountEvidence?.(verified) ?? "unknown",
+      evidenceDeadline: scopedEvidenceDeadline?.() ?? null };
+  }, evidenceDeadline: () => scopedEvidenceDeadline?.() ?? null });
   chrome.runtime.onMessage.addListener(createEntitlementMessageRouter(entitlements, chrome.runtime.id, chrome.runtime.getURL("")));
   const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
@@ -207,8 +218,10 @@ export default defineBackground(() => {
   const hydrated = settingsRuntime.atomicLocal
     ? settingsAuthority.initializeAtomic("unknown").catch(heldInitialization).then(() => cache.hydrate())
     : cache.hydrate();
-  const spine = createSessionSpine(cache, entitlements, order, settingsRuntime);
+  const spine = createSessionSpine(cache, entitlements, order, settingsRuntime, accessTrust);
   const session = spine?.session ?? null;
+  scopedAccountEvidence = spine?.accessEvidence ?? null;
+  scopedEvidenceDeadline = spine?.accessEvidenceDeadline ?? null;
   // Sync invitation ledger (U13-P2): every ledger transaction runs in this worker's serialized
   // queue; popup and options only send messages. The inline build-time check can only narrow to
   // legacy, so a configured store-style build drops this whole block and stays byte-identical.
@@ -252,8 +265,14 @@ export default defineBackground(() => {
   }
   if (spine) {
     const accessAuth = new SupabaseAuthPort(spine.client);
-    verifiedAccessSession = async () => (await accessAuth.currentSettingsSession()) ?? undefined;
-    spine.client.auth.onAuthStateChange(() => entitlements.invalidateAccessContext());
+    verifiedAccessSession = async () => {
+      // SDK token/claims verification may persist a refreshed token through `order`; finish it
+      // before any entitlement writer enters that queue. A failed proof is unknown, not absent.
+      const { data, error } = await spine.client.auth.getSession();
+      if (error) return undefined;
+      if (!data.session) return undefined;
+      return (await accessAuth.currentSettingsSession()) ?? undefined;
+    };
   }
 
   // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
@@ -565,7 +584,9 @@ function createSessionSpine(
   entitlements: ChromeEntitlementAdapter,
   order: import("../lib/auth-storage.js").AuthMutationOrder,
   settingsRuntime: ReturnType<typeof modernSettingsRuntime>,
-): { session: ExtensionSession; client: SupabaseClient } | null {
+  accessTrust: import("@still/core/entitlement").AccessTrust,
+): { session: ExtensionSession; client: SupabaseClient; accessEvidence: (session: TrustedAccessContext["session"]) => "absent" | "unknown";
+  accessEvidenceDeadline: () => number | null } | null {
   const config = settingsRuntime.supabase;
   if (config === null) return null;
 
@@ -599,7 +620,37 @@ function createSessionSpine(
     // Purchase prerequisites require a fresh server check, independently of offline display.
     currentVerifiedAccount: () => port.currentVerifiedAccount(),
   };
+  let accessEpoch = 0;
+  let accessAuthEpoch = 0;
+  const authBoundary = () => { accessEpoch++; accessAuthEpoch++; entitlements.invalidateAccessContext(); };
+  client.auth.onAuthStateChange((event) => {
+    accessEpoch++;
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT") accessAuthEpoch++;
+    entitlements.invalidateAccessContext();
+    // No SDK await in the auth callback or mutation queue. The explicit signed-out event
+    // clears only account-derived rights; independent local rights remain in the same record.
+    if (PAID_TIER_ENABLED && settingsRuntime.modernCloud && event === "SIGNED_OUT") void entitlements.mutateAccess({ kind: "session", session: null }).catch(() => {});
+  });
+  const scoped = PAID_TIER_ENABLED && settingsRuntime.modernCloud
+    ? createAccountAccessReconciler({
+        readSession: () => port.currentSettingsSession(),
+        epoch: () => accessEpoch,
+        authEpoch: () => accessAuthEpoch,
+        invalidateEvidence: () => entitlements.invalidateBenefitSnapshot(),
+        trust: accessTrust,
+        invoke: (name, options) => client.functions.invoke(name, { ...options, signal: AbortSignal.timeout(8_000) }),
+        authRequired: error => error instanceof FunctionsHttpError && error.context instanceof Response && error.context.status === 401,
+        commit: (verified, result, current, authCurrent) => entitlements.commitAccountAccess(verified, result, current, authCurrent),
+      })
+    : undefined;
   const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud });
+  if (scoped) {
+    backend.reconcileEntitlementChecked = () => scoped.reconcile();
+    backend.reconcileEntitlement = async () => {
+      if (await scoped.reconcile() !== "ok") throw new Error("Scoped access unavailable");
+    };
+    backend.readEntitlement = async () => scoped.read();
+  }
   const identityStore = createIdentityStore();
   const identity = { get: () => identityStore.get(), set: (userId: string) => order(() => identityStore.set(userId)) };
   const sessionStores = createSessionStores();
@@ -625,7 +676,8 @@ function createSessionSpine(
     },
     // Offline-proof sign-out (F1): drop the persisted session so a failed remote revoke can't leave
     // it on disk for the next wake to resurrect.
-    clearAuthStorage: () => clearExtensionAuthStorage(order),
+    clearAuthStorage: () => { authBoundary(); return clearExtensionAuthStorage(order); },
   });
-  return { session, client };
+  return { session, client, accessEvidence: verified => scoped?.evidenceStatus(verified) ?? "unknown",
+    accessEvidenceDeadline: () => scoped?.evidenceDeadline() ?? null };
 }

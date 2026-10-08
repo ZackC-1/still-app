@@ -71,4 +71,75 @@ public enum ApplePurchaseCatalog {
   public static func product(forEntitlementID entitlementID: String) -> ApplePurchaseProduct? {
     all.first { $0.entitlementID == entitlementID }
   }
+
+  /// Select only the reviewed lifetime offering/package/product tuple. Dashboard ordering and
+  /// the current/default offering never substitute another product or subscription.
+  public static func lifetimeOffering(
+    offeringID: String, packageID: String, productID: String,
+    isLifetime: Bool, isNonConsumable: Bool, price: String, currencyCode: String
+  ) -> AppleLifetimeOffering? {
+    let product = stillProV3
+    guard offeringID == product.offeringID, packageID == product.packageID,
+          productID == product.productID, isLifetime, isNonConsumable,
+          !price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          currencyCode.count == 3,
+          currencyCode.utf8.allSatisfy({ (65...90).contains($0) }) else { return nil }
+    return AppleLifetimeOffering(productId: productID, offeringId: offeringID,
+      packageId: packageID, package: product.grantedPackage!, kind: "lifetime",
+      price: price, currencyCode: currencyCode)
+  }
+}
+
+/// Store-localized display metadata, never access proof or an account association.
+public struct AppleLifetimeOffering: Codable, Equatable, Sendable {
+  public let productId: String
+  public let offeringId: String
+  public let packageId: String
+  public let package: String
+  public let kind: String
+  public let price: String
+  public let currencyCode: String
+
+  public var payload: [String: String] {
+    ["productId": productId, "offeringId": offeringId, "packageId": packageId,
+     "package": package, "kind": kind, "price": price, "currencyCode": currencyCode]
+  }
+
+  public static func parse(_ raw: Any?) -> AppleLifetimeOffering? {
+    guard let value = raw as? [String: String],
+          Set(value.keys) == ["productId", "offeringId", "packageId", "package", "kind", "price", "currencyCode"],
+          value["package"] == ApplePurchaseCatalog.stillProV3.grantedPackage,
+          value["kind"] == "lifetime" else { return nil }
+    return ApplePurchaseCatalog.lifetimeOffering(offeringID: value["offeringId"]!,
+      packageID: value["packageId"]!, productID: value["productId"]!, isLifetime: true,
+      isNonConsumable: true, price: value["price"]!, currencyCode: value["currencyCode"]!)
+  }
+}
+
+public enum ApplePurchaseActionOutcome: String, Sendable {
+  case purchased, restored, cancelled, pending, unavailable, staleIdentity, nothing, failed
+}
+
+/// Local store feedback only. Account ownership and scoped benefits need separate verified proof.
+public struct ApplePurchaseActionResult: Sendable {
+  public let outcome: ApplePurchaseActionOutcome
+  public let receipt: ReceiptStatus
+  public let productId: String?
+
+  public init(_ outcome: ApplePurchaseActionOutcome, receipt: ReceiptStatus = .noSignal,
+    productId: String? = nil) {
+    let known = productId.flatMap { ApplePurchaseCatalog.product(forProductID: $0) } != nil
+    let validSuccess = receipt == .entitled && known &&
+      (outcome != .purchased || productId == ApplePurchaseCatalog.stillProV3.productID)
+    self.outcome = (outcome == .purchased || outcome == .restored) && !validSuccess ? .pending :
+      (outcome == .nothing && receipt == .entitled ? .failed : outcome)
+    self.receipt = receipt
+    self.productId = known ? productId : nil
+  }
+
+  public var payload: [String: Any] {
+    var value: [String: Any] = ["outcome": outcome.rawValue, "receipt": receipt.rawValue]
+    if let productId { value["productId"] = productId }
+    return value
+  }
 }

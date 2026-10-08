@@ -1,3 +1,4 @@
+import type { AccountAccessResult } from "./account-access-transport.js";
 import { mutateLocalProtection, type LocalProtectionMutation } from "./local-protection.js";
 import type { EntitlementAdapter, EntitlementRecord, EntitlementRecordStore } from "./cache.js";
 import { recordMatchesSession } from "./cache.js";
@@ -23,6 +24,8 @@ export interface EntitlementAuthorityOptions {
    * implements, so a host that forgot to say which it is under-claims rather than over-claims.
    */
   readonly context?: () => TrustedAccessContext | Promise<TrustedAccessContext>;
+  /** A conclusive absence expires independently of a later projection/cache read. */
+  readonly evidenceDeadline?: () => number | null;
   /** Safari delegates observation to the existing atomic native entitlement authority. */
   readonly nativeObservation?: () => Promise<BenefitAccessSnapshot>;
 }
@@ -127,6 +130,53 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     });
   }
 
+  /** One atomic server-authorized batch in the existing writer. Auth is captured before queuing;
+   * the synchronous fence is checked at admission, before persistence and after acknowledgment. */
+  async commitAccountAccess(
+    session: { readonly userId: string; readonly sessionId: string },
+    result: AccountAccessResult,
+    isCurrent: () => boolean,
+    isAuthCurrent: () => boolean = isCurrent,
+  ): Promise<"committed" | "stale" | "unavailable"> {
+    if (!this.options.authority) throw new Error("Entitlement write requires background authority");
+    // A validated partial response can carry known refunds without proving current ownership
+    // or absence. Plain unavailable has no authority to mutate the existing record.
+    if (!("revocations" in result)) return "unavailable";
+    return this.serialize(async () => {
+      if (!isCurrent()) return "stale";
+      const value: unknown = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error("Unreadable entitlement record");
+      const stored = (value ?? {}) as Record<string, unknown>;
+      const trust = this.options.trust ?? NO_ACCESS_TRUST;
+      let record = (await mutateAccessRecord(parseAccessCacheRecord(stored.access), { kind: "session", session }, trust)).record;
+      for (const revocation of result.revocations) {
+        record = (await mutateAccessRecord(record, { kind: "revoke", ...revocation, generation: record.generation }, trust)).record;
+      }
+      for (const proof of result.proofs) {
+        if (proof.claims.kind !== "paid_account" || proof.claims.holder !== session.userId) throw new Error("Invalid account proof scope");
+        record = (await mutateAccessRecord(record, { kind: "install", proof, generation: record.generation,
+          issuerNow: result.issuerTime, wall: this.now(), localRights: new Set() }, trust)).record;
+      }
+      const next = { ...stored, access: record };
+      if (new TextEncoder().encode(JSON.stringify(next)).length > 131_072) throw new Error("Access record full");
+      if (!isCurrent()) return "stale";
+      await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      this.committedWrite();
+      if (!isCurrent()) {
+        // A newer request or token refresh with the same identity invalidates this response,
+        // but cannot erase valid durable rights. Only an actual auth boundary needs cleanup.
+        if (isAuthCurrent()) return "stale";
+        // An auth change while the storage API was pending cannot cancel that API. Clear the
+        // obsolete account lane inside the same writer before acknowledging the failed batch.
+        const fenced = (await mutateAccessRecord(record, { kind: "session", session: null }, trust)).record;
+        await chrome.storage.local.set({ [STORAGE_KEY]: { ...stored, access: fenced } });
+        this.committedWrite();
+        return "stale";
+      }
+      return "committed";
+    });
+  }
+
   /** Internal local host command only. The runtime router exposes no declaration or policy input. */
   async mutateLocalProtection(mutation: LocalProtectionMutation): Promise<AccessCacheRecord> {
     if (!this.options.authority) throw new Error("Entitlement write requires background authority");
@@ -157,11 +207,18 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
   private benefitContextEpoch = -1;
   private benefitDeadline = 0;
   private benefitObservedWall = 0;
+  private benefitSnapshotEpoch = 0;
   private committedWrite(): void {
     const area = chrome.storage.local;
     writerRevisions.set(area, (writerRevisions.get(area) ?? 0) + 1);
   }
   invalidateAccessContext(): void { this.contextEpoch++; }
+  invalidateBenefitSnapshot(): void {
+    this.benefitSnapshotEpoch++;
+    this.benefitSnapshot = null;
+    // Already-started callers still finish; fresh consumers get the new evidence projection.
+    this.benefitFlight = null;
+  }
 
   private benefitFlight: Promise<BenefitAccessSnapshot> | null = null;
 
@@ -178,19 +235,21 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       }));
     }
     const epoch = this.contextEpoch;
+    const snapshotEpoch = this.benefitSnapshotEpoch;
     // Bind freshness before context, queue, native and durable commit delays can consume it.
     const startedWall = this.now();
-    const operation = boundedAccessRead(() => this.options.authority ? this.observeOwnedBenefits() : this.observeBrokerBenefits(), signal);
+    let evidenceDeadline = Infinity;
+    const operation = boundedAccessRead(() => this.options.authority ? this.observeOwnedBenefits(deadline => { evidenceDeadline = deadline; }) : this.observeBrokerBenefits(), signal);
     const flight = operation.then(snapshot => {
       // The consuming cache binds broker transport freshness to its own request start.
       if (!this.options.authority) return snapshot;
-      const deadline = startedWall + (snapshot.refreshAfterMs ?? 60_000);
+      const deadline = Math.min(startedWall + (snapshot.refreshAfterMs ?? 60_000), evidenceDeadline);
       const completedWall = this.now();
       if (completedWall < startedWall || completedWall >= deadline) throw new Error("Access observation expired");
       const remaining = parseBenefitAccessSnapshot({ ...snapshot,
         refreshAfterMs: snapshot.refreshAfterMs === null ? null : deadline - completedWall,
       });
-      if (this.options.authority && epoch === this.contextEpoch) {
+      if (this.options.authority && epoch === this.contextEpoch && snapshotEpoch === this.benefitSnapshotEpoch) {
         this.benefitSnapshot = snapshot; this.benefitContextEpoch = epoch;
         this.benefitRevision = writerRevisions.get(chrome.storage.local) ?? 0;
         this.benefitObservedWall = startedWall;
@@ -211,9 +270,13 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     return parseBenefitAccessSnapshot((reply as { snapshot?: unknown }).snapshot);
   }
 
-  private async observeOwnedBenefits(): Promise<BenefitAccessSnapshot> {
+  private async observeOwnedBenefits(captureDeadline: (deadline: number) => void): Promise<BenefitAccessSnapshot> {
     const epoch = this.contextEpoch;
     const supplied = this.options.context ? await this.options.context() : packagedAccessContext();
+    // The status may have been read just before the expiry millisecond. Explicit absence
+    // without its captured deadline is already expired, never another sixty-second window.
+    captureDeadline(supplied.evidenceStatus === "absent" && supplied.evidenceDeadline === null ? -Infinity
+      : (supplied.evidenceDeadline !== undefined ? supplied.evidenceDeadline : this.options.evidenceDeadline?.()) ?? Infinity);
     const context: TrustedAccessContext = { ...supplied, session: supplied.session && { ...supplied.session },
       supported: new Set(supplied.supported), localRights: new Set(supplied.localRights) };
     if (epoch !== this.contextEpoch) throw new Error("Stale access context");

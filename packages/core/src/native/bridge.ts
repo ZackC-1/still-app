@@ -1,11 +1,13 @@
-import type { BenefitAccessSnapshot } from "@still/shared-types";
+import { PAID_ACCESS_WINDOW_MS, type BenefitAccessSnapshot } from "@still/shared-types";
 import { boundedAccessRead, parseBenefitAccessSnapshot } from "../entitlement/access-policy.js";
 import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
 import { isDeviceClass, isVersion, type AnalyticsDevice } from "../analytics/events.js";
 import { isAnalyticsId } from "../analytics/identity.js";
+import { readAnalyticsPermission, type AnalyticsPermission } from "../analytics/consent.js";
 import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/access-record.js";
+import { isAccessUUID, isSafeAccessInteger } from "../entitlement/access-proof.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
 // same `window.webkit.messageHandlers.still` port the storage adapter uses (WebBridgeRouter.swift
@@ -51,6 +53,86 @@ export interface PurchaseResult {
  * offline, no native host) and never downgrades anything. */
 export type ReceiptStatusValue = "entitled" | "verifiedNotEntitled" | "noSignal";
 
+/** Native store metadata for the one approved lifetime tuple; never an access grant. */
+export interface NativeLifetimeOffering {
+  readonly productId: "still_pro_v3";
+  readonly offeringId: "still_pro_v3";
+  readonly packageId: "$rc_lifetime";
+  readonly package: "still-pro-v3";
+  readonly kind: "lifetime";
+  readonly price: string;
+  readonly currencyCode: string;
+}
+
+export type NativeProOutcome =
+  | "purchased" | "restored" | "cancelled" | "pending" | "unavailable"
+  | "staleIdentity" | "nothing" | "failed";
+
+/** Local verified store feedback. Scoped account/local proof is a separate authority. */
+export interface NativeProResult {
+  readonly outcome: NativeProOutcome;
+  readonly receipt: ReceiptStatusValue;
+  readonly productId?: "still_pro_v3" | "still_sync";
+}
+
+/** Sensitive functional evidence for the authenticated verifier only; never analytics or logs. */
+export interface NativeApplePurchaseEvidence {
+  readonly productId: "still_pro_v3" | "still_sync";
+  readonly bundleId: string;
+  readonly signedTransaction: string;
+}
+
+/** Signed functional evidence only. Native independently verifies the current StoreKit holder. */
+export interface NativeAppleAccessInstall {
+  readonly nativeBinding: string;
+  readonly localProof: string;
+  readonly issuerTime: number;
+  readonly accountProof?: string;
+  /** Used transiently by native's compiled auth endpoint; never stored or logged. */
+  readonly accessToken?: string;
+}
+export interface NativeAppleAccessCommit {
+  readonly schema: 1;
+  readonly status: "committed";
+  readonly generation: number;
+  readonly localRight: string;
+  readonly ownershipRevision: number;
+  readonly verifiedAt: number;
+  readonly expiresAt: number;
+  readonly localProofIdentity: string;
+  readonly accountProofIdentity: string | null;
+}
+export interface NativeAppleAccessRight {
+  readonly localRight: string;
+  readonly ownershipRevision: number;
+  readonly verifiedAt: number;
+  readonly expiresAt: number;
+  readonly localProofIdentity: string;
+  readonly status: "purchased" | "verification_required";
+}
+export interface NativeAppleAccessObservation {
+  readonly schema: 1;
+  readonly generation: number;
+  readonly rights: readonly NativeAppleAccessRight[];
+}
+const APPLE_ACCESS_IDENTITY = /^[a-z0-9][a-z0-9._-]{0,95}:[0-9a-f]{128}$/;
+export function parseNativeAppleAccessCommit(value: unknown): NativeAppleAccessCommit {
+  const r = asObject(value);
+  if (!r || Object.keys(r).sort().join(",") !== "accountProofIdentity,expiresAt,generation,localProofIdentity,localRight,ownershipRevision,schema,status,verifiedAt" ||
+    r.schema !== 1 || r.status !== "committed" || !isAccessUUID(r.localRight) ||
+    ![r.generation, r.ownershipRevision, r.verifiedAt, r.expiresAt].every(isSafeAccessInteger) ||
+    (r.expiresAt as number) - (r.verifiedAt as number) !== PAID_ACCESS_WINDOW_MS ||
+    typeof r.localProofIdentity !== "string" || !APPLE_ACCESS_IDENTITY.test(r.localProofIdentity) ||
+    !(r.accountProofIdentity === null || (typeof r.accountProofIdentity === "string" && APPLE_ACCESS_IDENTITY.test(r.accountProofIdentity)))) {
+    throw new Error("Native Apple access commit requires verification");
+  }
+  return r as unknown as NativeAppleAccessCommit;
+}
+
+export const NATIVE_PURCHASE_DEADLINE_MS = 150_000;
+export const STILL_PRO_APP_URL = "still://pro";
+export interface NativeAppRoute { readonly route: "pro"; readonly revision: number }
+
 /** Native extension state only; this never proves site permission or onboarding completion. */
 export type SafariSetupObservation =
   | {
@@ -80,6 +162,11 @@ export interface OnboardingStateReply {
 export interface AnalyticsConsentObservation {
   readonly consent: boolean;
   readonly answered: boolean;
+}
+
+/** Null permission is a successfully observed legacy/unasked slot; null observation is failure. */
+export interface AnalyticsPermissionObservation {
+  readonly permission: AnalyticsPermission | false | null;
 }
 
 /** Deadline for a native read whose caller must never hang (onboarding, Safari setup). */
@@ -177,6 +264,16 @@ export type NativeMessage =
   | { readonly kind: "signInWithApple" }
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
+  | { readonly kind: "proOffering" }
+  | { readonly kind: "purchasePro"; readonly offer: NativeLifetimeOffering }
+  | { readonly kind: "restorePro" }
+  | { readonly kind: "applePurchaseEvidence" }
+  | { readonly kind: "appleLocalPurchaseEvidence" }
+  | ({ readonly kind: "installAppleAccess" } & NativeAppleAccessInstall)
+  | { readonly kind: "observeAppleAccess" }
+  | { readonly kind: "observeAppleLinkAccess" }
+  | { readonly kind: "pendingAppRoute" }
+  | { readonly kind: "acknowledgeAppRoute"; readonly revision: number }
   | { readonly kind: "restore" }
   | { readonly kind: "purchaseStatus" }
   | { readonly kind: "receiptStatus" }
@@ -217,6 +314,8 @@ export class NativeBridge {
   private onboardingCompletionGeneration = 0;
   private analyticsConsentReadGeneration = 0;
   private analyticsConsentWriteGeneration = 0;
+  private analyticsPermissionReadGeneration = 0;
+  private analyticsPermissionWriteGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -363,6 +462,78 @@ export class NativeBridge {
     }
   }
 
+  /** Read only the combined permission slot; this never asks native to create analytics ids. */
+  async observeAnalyticsPermission(): Promise<AnalyticsPermissionObservation | null> {
+    const generation = ++this.analyticsPermissionReadGeneration;
+    const write = this.analyticsPermissionWriteGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "analyticsPermission" });
+      if (
+        generation !== this.analyticsPermissionReadGeneration ||
+        write !== this.analyticsPermissionWriteGeneration ||
+        port !== this.port
+      )
+        return null;
+      const obj = asObject(reply);
+      if (
+        !obj ||
+        Array.isArray(obj) ||
+        Object.keys(obj).length !== 2 ||
+        obj.ok !== true
+      )
+        return null;
+      if (obj.permission === null || obj.permission === false) return { permission: obj.permission };
+      const permission = readAnalyticsPermission(obj.permission);
+      return permission ? { permission } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Existing consent authority's storage write, acknowledged from native committed readback. */
+  async commitAnalyticsPermission(
+    value: AnalyticsPermission | false,
+  ): Promise<boolean> {
+    const wanted = value === false ? false : readAnalyticsPermission(value);
+    if (wanted === null) return false;
+    const generation = ++this.analyticsPermissionWriteGeneration;
+    this.analyticsPermissionReadGeneration += 1;
+    const port = this.port;
+    if (!port) return false;
+    try {
+      const reply = await port.postMessage({
+        kind: "commitAnalyticsPermission",
+        permission: wanted,
+      });
+      if (
+        generation !== this.analyticsPermissionWriteGeneration ||
+        port !== this.port
+      )
+        return false;
+      const obj = asObject(reply);
+      if (
+        !obj ||
+        Array.isArray(obj) ||
+        Object.keys(obj).length !== 2 ||
+        obj.ok !== true
+      )
+        return false;
+      const stored =
+        obj.permission === null
+          ? null
+          : readAnalyticsPermission(obj.permission);
+      if (wanted === false)
+        return obj.permission === false || stored?.state === "stopped";
+      return (
+        stored !== null && JSON.stringify(stored) === JSON.stringify(wanted)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Present native Sign in with Apple. Returns the identity token + raw nonce to exchange via Supabase
    * `signInWithIdToken({ provider: "apple", token, nonce })`. Throws on cancel/failure with the
@@ -396,6 +567,61 @@ export class NativeBridge {
       entitled: obj.entitled === true,
       error: typeof obj.error === "string" ? obj.error : undefined,
     };
+  }
+
+  async proOffering(): Promise<NativeLifetimeOffering | null> {
+    const reply = asObject(await boundedNativeRead(() => this.post({ kind: "proOffering" }), null));
+    return parseLifetimeOffering(reply?.offer);
+  }
+
+  async purchasePro(offer: NativeLifetimeOffering): Promise<NativeProResult> {
+    const validated = parseLifetimeOffering(offer);
+    if (!validated || !this.available) return { outcome: "unavailable", receipt: "noSignal" };
+    return parseProResult(await boundedNativeRead(
+      () => this.post({ kind: "purchasePro", offer: validated }),
+      { outcome: "pending", receipt: "noSignal" }, NATIVE_PURCHASE_DEADLINE_MS,
+    ));
+  }
+
+  async restorePro(): Promise<NativeProResult> {
+    if (!this.available) return { outcome: "unavailable", receipt: "noSignal" };
+    return parseProResult(await boundedNativeRead(
+      () => this.post({ kind: "restorePro" }),
+      { outcome: "failed", receipt: "noSignal" }, NATIVE_PURCHASE_DEADLINE_MS,
+    ));
+  }
+
+  async applePurchaseEvidence(): Promise<NativeApplePurchaseEvidence | null> {
+    return this.readApplePurchaseEvidence("applePurchaseEvidence");
+  }
+
+  async appleLocalPurchaseEvidence(): Promise<NativeApplePurchaseEvidence | null> {
+    return this.readApplePurchaseEvidence("appleLocalPurchaseEvidence");
+  }
+
+  private async readApplePurchaseEvidence(kind: "applePurchaseEvidence" | "appleLocalPurchaseEvidence"): Promise<NativeApplePurchaseEvidence | null> {
+    const reply = asObject(await boundedNativeRead(() => this.post({ kind }), null, 10_000));
+    const value = asObject(reply?.evidence);
+    if (!value || Object.keys(value).sort().join(",") !== "bundleId,productId,signedTransaction" ||
+      (value.productId !== "still_pro_v3" && value.productId !== "still_sync") ||
+      typeof value.bundleId !== "string" || !value.bundleId || value.bundleId.length > 255 ||
+      typeof value.signedTransaction !== "string" || value.signedTransaction.length > 65_536 ||
+      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.signedTransaction)) return null;
+    return { productId: value.productId, bundleId: value.bundleId, signedTransaction: value.signedTransaction };
+  }
+
+  async pendingAppRoute(): Promise<NativeAppRoute | null> {
+    const reply = asObject(await boundedNativeRead(() => this.post({ kind: "pendingAppRoute" }), null));
+    const pending = asObject(reply?.pending);
+    if (!pending || Object.keys(pending).sort().join(",") !== "revision,route" || pending.route !== "pro" ||
+      typeof pending.revision !== "number" || !Number.isSafeInteger(pending.revision) || pending.revision < 0) return null;
+    return { route: "pro", revision: pending.revision };
+  }
+
+  async acknowledgeAppRoute(revision: number): Promise<boolean> {
+    if (!Number.isSafeInteger(revision) || revision < 0) return false;
+    const reply = asObject(await boundedNativeRead(() => this.post({ kind: "acknowledgeAppRoute", revision }), null));
+    return reply?.ok === true && reply.revision === revision;
   }
 
   /** Restore purchases; returns whether Still Pro is now active per RevenueCat. */
@@ -454,6 +680,52 @@ export class NativeBridge {
     const reply = asObject(await this.post({ kind: "getAccess" }));
     if (reply?.ok !== true) throw new Error("Native access requires verification");
     return parseAccessCacheRecord(reply.record);
+  }
+
+  async installAppleAccess(value: NativeAppleAccessInstall): Promise<NativeAppleAccessCommit> {
+    const linked = value.accountProof !== undefined || value.accessToken !== undefined;
+    const expected = ["issuerTime", "localProof", "nativeBinding", ...(linked ? ["accountProof", "accessToken"] : [])].sort().join(",");
+    if (Object.keys(value).sort().join(",") !== expected || !isSafeAccessInteger(value.issuerTime) ||
+      ![value.nativeBinding, value.localProof].every(v => typeof v === "string" && v.length > 0 && v.length <= 6144) ||
+      (linked && !(typeof value.accountProof === "string" && value.accountProof.length > 0 && value.accountProof.length <= 6144 &&
+        typeof value.accessToken === "string" && value.accessToken.length > 0 && value.accessToken.length <= 16384))) {
+      throw new Error("Invalid native Apple access installation");
+    }
+    const result = parseNativeAppleAccessCommit(await boundedNativeRead(
+      () => this.post({ kind: "installAppleAccess", ...value }), null, 30_000,
+    ));
+    if (result.verifiedAt !== value.issuerTime || linked !== (result.accountProofIdentity !== null)) {
+      throw new Error("Mismatched native Apple access commit");
+    }
+    return result;
+  }
+
+  async observeAppleAccess(): Promise<NativeAppleAccessObservation> {
+    return this.readAppleAccess("observeAppleAccess");
+  }
+
+  /** Native filters signed local bindings against current independently verified purchaser identity. */
+  async observeAppleLinkAccess(): Promise<NativeAppleAccessObservation> {
+    return this.readAppleAccess("observeAppleLinkAccess");
+  }
+
+  private async readAppleAccess(kind: "observeAppleAccess" | "observeAppleLinkAccess"): Promise<NativeAppleAccessObservation> {
+    const r = asObject(await boundedAccessRead(() => this.post({ kind })));
+    if (!r || Object.keys(r).sort().join(",") !== "generation,rights,schema" || r.schema !== 1 ||
+      !isSafeAccessInteger(r.generation) || !Array.isArray(r.rights) || r.rights.length > 32) {
+      throw new Error("Native Apple access observation requires verification");
+    }
+    const rights = r.rights.map(value => {
+      const right = asObject(value);
+      if (!right || Object.keys(right).sort().join(",") !== "expiresAt,localProofIdentity,localRight,ownershipRevision,status,verifiedAt" ||
+        !["purchased", "verification_required"].includes(right.status as string)) {
+        throw new Error("Invalid native Apple right observation");
+      }
+      parseNativeAppleAccessCommit({ ...right, schema: 1, status: "committed", generation: r.generation, accountProofIdentity: null });
+      return right as unknown as NativeAppleAccessRight;
+    });
+    if (new Set(rights.map(r => r.localRight)).size !== rights.length) throw new Error("Duplicate native Apple right");
+    return { schema: 1, generation: r.generation, rights };
   }
 
   /** Resolved native projection only. The native host owns account/mapping/trust/time context. */
@@ -529,4 +801,35 @@ function isOutcome(value: unknown): value is PurchaseOutcome {
     value === "staleIdentity" ||
     value === "failed"
   );
+}
+
+function parseLifetimeOffering(raw: unknown): NativeLifetimeOffering | null {
+  const value = asObject(raw);
+  if (!value || Array.isArray(value) || Object.keys(value).sort().join(",") !==
+    "currencyCode,kind,offeringId,package,packageId,price,productId" ||
+    value.productId !== "still_pro_v3" || value.offeringId !== "still_pro_v3" ||
+    value.packageId !== "$rc_lifetime" || value.package !== "still-pro-v3" ||
+    value.kind !== "lifetime" || typeof value.price !== "string" || !value.price.trim() ||
+    typeof value.currencyCode !== "string" || !/^[A-Z]{3}$/.test(value.currencyCode)) return null;
+  return { productId: "still_pro_v3", offeringId: "still_pro_v3", packageId: "$rc_lifetime",
+    package: "still-pro-v3", kind: "lifetime", price: value.price, currencyCode: value.currencyCode };
+}
+
+function parseProResult(raw: unknown): NativeProResult {
+  const value = asObject(raw);
+  const failed: NativeProResult = { outcome: "failed", receipt: "noSignal" };
+  if (!value || Array.isArray(value) || Object.keys(value).some((key) =>
+    !["outcome", "receipt", "productId"].includes(key))) return failed;
+  const outcomes: readonly NativeProOutcome[] = ["purchased", "restored", "cancelled", "pending",
+    "unavailable", "staleIdentity", "nothing", "failed"];
+  if (!outcomes.includes(value.outcome as NativeProOutcome) ||
+    !["entitled", "verifiedNotEntitled", "noSignal"].includes(value.receipt as string)) return failed;
+  const receipt = value.receipt as ReceiptStatusValue;
+  const productId = value.productId === "still_pro_v3" || value.productId === "still_sync" ? value.productId : undefined;
+  if (value.productId !== undefined && !productId) return failed;
+  let outcome = value.outcome as NativeProOutcome;
+  if ((outcome === "purchased" || outcome === "restored") &&
+    (receipt !== "entitled" || !productId || (outcome === "purchased" && productId !== "still_pro_v3"))) outcome = "pending";
+  if (outcome === "nothing" && receipt === "entitled") return failed;
+  return { outcome, receipt, ...(productId ? { productId } : {}) };
 }

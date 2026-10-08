@@ -54,6 +54,8 @@ export interface AccessResolutionContext {
   readonly localRights: ReadonlySet<string>;
   readonly localProtection?: LocalProtectionRecord | null;
   readonly evidenceStatus: "checking" | "unknown" | "absent";
+  /** Captured alongside evidenceStatus; asynchronous projection cannot renew absence. */
+  readonly evidenceDeadline?: number | null;
 }
 
 export function accessProofMatchesHolder(proof: VerifiedAccessProof, context: Pick<AccessResolutionContext, "accountId" | "localRights">): boolean {
@@ -93,6 +95,8 @@ export interface TrustedAccessContext {
   readonly session?: { readonly userId: string; readonly sessionId: string } | null;
   readonly localRights: ReadonlySet<string>;
   readonly evidenceStatus: "checking" | "unknown" | "absent";
+  /** Captured alongside evidenceStatus; asynchronous projection cannot renew absence. */
+  readonly evidenceDeadline?: number | null;
 }
 
 export const ACCESS_BENEFITS: readonly BenefitId[] = Object.freeze([...FEATURE_IDS, "tiktok.all"]);

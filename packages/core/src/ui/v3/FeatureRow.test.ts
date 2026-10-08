@@ -209,6 +209,22 @@ describe("latest reference: the locked row's screen-reader label", () => {
   });
 
   it.each(["browser", "safari"] as const)(
+    "does not promise a destination when the %s host has no action",
+    async (host) => {
+      const { props } = await fixture("locked");
+      const view = render(FeatureRow, { props: { ...props, host } });
+      const lock = screen.getByRole("button", {
+        name: "Comments. Included in Still Pro.",
+      });
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      await view.rerender({ ...props, host, onLock: vi.fn(), dormant: true });
+      expect(lock).toHaveAccessibleName("Comments. Included in Still Pro.");
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      view.unmount();
+    },
+  );
+
+  it.each(["browser", "safari"] as const)(
     "%s announces a destination only while its current action is available",
     async (host) => {
       const { props } = await fixture("locked");

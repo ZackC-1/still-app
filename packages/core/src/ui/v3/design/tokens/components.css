@@ -262,7 +262,7 @@
 .offer-list li { display: flex; gap: 6px; align-items: baseline; }
 .offer-list li::before { content: ""; flex: none; inline-size: 5px; block-size: 5px; border-radius: 999px; background: var(--ink-secondary); transform: translateY(-2px); }
 .offer-site { font-size: calc(12px * var(--text-scale, 1)); font-weight: 600; color: var(--ink-secondary); margin: var(--space-1) 0 0; }
-.primary[aria-busy="true"] { cursor: progress; opacity: 0.75; }
+.still-ui .primary[aria-busy="true"] { cursor: progress; opacity: 0.75; }
 
 /* Dialog: centered, modal, focus-trapped */
 .dialog {

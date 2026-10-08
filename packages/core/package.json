@@ -55,6 +55,8 @@
     "./ui/v3/popup-invitation-flow": "./src/ui/v3/popup-invitation-flow.ts",
     "./ui/v3/presentation": "./src/ui/v3/presentation.ts",
     "./ui/v3/text-scale": "./src/ui/v3/text-scale.ts",
+    "./ui/v3/apple-pro-host": "./src/ui/v3/apple-pro-host.ts",
+    "./ui/v3/PurchaseView.svelte": "./src/ui/v3/PurchaseView.svelte",
     "./ui/v3/tiktok-blocked-host": "./src/ui/v3/tiktok-blocked-host.ts",
     "./ui/v3/tiktok-blocked-presentation": "./src/ui/v3/tiktok-blocked-presentation.ts"
   },

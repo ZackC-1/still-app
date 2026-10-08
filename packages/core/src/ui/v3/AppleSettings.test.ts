@@ -666,6 +666,29 @@ describe("D04 destructive and native recovery port lifetimes", () => {
     },
   );
 
+  it("keeps the current account deletion consent usable across a confirmation refresh", async () => {
+    const { props } = await fixture();
+    const remove = vi.fn();
+    const account = {
+      address: "fixture@still.test", confirmed: true,
+      identity: "private-fixture-account", revision: 0, onDeleteAccount: remove,
+    };
+    props.sync.account = account;
+    const view = render(AppleSettings, { props });
+    await fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+    props.sync.account = { ...account, confirmed: false };
+    await view.rerender(props);
+    props.sync.account = account;
+    await view.rerender(props);
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", {
+      name: "Delete account",
+    });
+    expect(confirm).not.toBeDisabled();
+    await fireEvent.click(confirm);
+    expect(remove).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
   it.each(["cancel", "unmount"])(
     "makes a retained deletion confirmation inert after %s and a fresh opening",
     async (end) => {

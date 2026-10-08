@@ -10,6 +10,7 @@
     accessVerify = false,
     restoreHeld = false,
     state = "idle",
+    verificationRequired = false,
     onBuy,
     onRestore,
     onRetry,
@@ -41,7 +42,21 @@
 <section class="card card-stack" aria-label="Still Pro">
   <!-- Mirrors ProOfferCard: verify and failed ownership or a failed purchase show their own
     state, never the spinner. A residual held access counts as checking unless verify is held. -->
-  {#if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
+  {#if verificationRequired}
+    <h2 class="card-title">Still Pro</h2>
+    <div class="status-line" data-tone="caution" role="status">
+      <span class="glyph"><Glyph name="clock" size={16} /></span>
+      <div class="status-body">
+        <span>Your purchase needs to be verified.</span>
+        <span
+          class="muted"
+          style="font-size:calc(12.5px * var(--text-scale, 1));"
+        >
+          Go online and verify it. Your free controls and saved choices stay.
+        </span>
+      </div>
+    </div>
+  {:else if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">
       <span class="glyph"><Glyph name="spinner" size={16} /></span>

@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** Compiled issuer environment; sandbox keys must never enter a production profile. */
+  readonly VITE_ACCESS_ENVIRONMENT?: string;
+  /** Public verification allowlist only. Never contains issuer signing keys. */
+  readonly VITE_ACCESS_PUBLIC_KEYS?: string;
   /** PostHog project API key (public, send-only). Absent → no analytics. */
   readonly VITE_POSTHOG_KEY?: string;
   /** PostHog ingestion host, e.g. https://us.i.posthog.com. */

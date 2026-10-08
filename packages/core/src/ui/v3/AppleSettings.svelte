@@ -156,6 +156,7 @@
   );
   let proActionReady = $derived(
     pro !== undefined &&
+      !pro.verificationRequired &&
       knownMissing &&
       pro.ownership === "none" &&
       !restoreHeld &&

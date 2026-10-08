@@ -6,6 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Multiple consumers receive a cached or shared observation with a relative freshness interval
 date: 2026-10-03
+last_updated: 2026-10-07
 status: active
 tags: [entitlement, cache, async, clock, expiry]
 ---
@@ -52,3 +53,24 @@ early hold. Provider readiness and physical-device behavior require their own ev
 
 Keep lifecycle ownership alongside these timing checks:
 [invalidate delayed work by session lifecycle](invalidate-sync-work-by-session-lifecycle.md).
+
+## Capture conclusive absence with its expiry
+
+A conclusive no-right reconciliation has its own sixty-second observation window. If a benefit
+read captures `absent` at 59,950 milliseconds but samples the reconciler deadline only after a
+slow storage write, the deadline can have expired or a newer reconciliation can have cleared the
+last observation. Replacing that missing deadline with a new sixty-second projection renews the
+old absence and can show an expired purchase offer.
+
+Capture `evidenceDeadline` alongside `evidenceStatus` in the trusted host context. Carry that exact
+value through queued storage, crypto and native reads; cap the returned and cached projection by
+it when the read finishes. Explicit `absent` with a null captured deadline is already expired,
+including when the expiry millisecond falls between synchronous clock samples. Snapshot-only
+invalidation prevents an older read from replacing a newer projection without aborting its caller.
+
+The two long-read/reset regressions in
+[chrome-account-access.test.ts](../../../packages/core/src/entitlement/__tests__/chrome-account-access.test.ts)
+failed before this repair and passed afterward. A third regression rejects the synchronous
+absent/null boundary. All 53 focused account-writer, adapter and response-parser tests passed.
+These checks concern local freshness and UI truth; they do not establish payment-provider or
+physical-device behavior.
