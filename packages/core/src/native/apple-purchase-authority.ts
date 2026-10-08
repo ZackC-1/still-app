@@ -114,8 +114,10 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
       fresh.accessToken !== token.accessToken) throw unavailable();
     const snapshot = await deps.bridge.observeBenefits();
     // Observe the committed removals without turning surviving cached rights into a fresh
-    // account confirmation. Restore can still independently verify a local Apple purchase.
-    if (!current() || ack.accountStatus === "unavailable") throw unavailable();
+    // account confirmation. A conflict without accepted proofs is also unresolved;
+    // Restore can still independently verify a local Apple purchase.
+    if (!current() || ack.accountStatus === "unavailable" ||
+      (ack.accountStatus === "conflict" && ack.proofIdentities.length === 0)) throw unavailable();
     return snapshot;
   }
 

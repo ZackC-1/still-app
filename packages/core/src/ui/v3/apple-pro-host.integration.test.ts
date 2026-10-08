@@ -79,7 +79,7 @@ async function compose(
     initial?: "locked" | "purchased" | "protected";
     accountOnly?: boolean;
     accountState?: "locked" | "purchased" | "verification_required";
-    accountUnavailable?: boolean;
+    accountUncertain?: "unavailable" | "conflict";
     eligible?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -129,9 +129,9 @@ async function compose(
                 return writer.initialize("unknown");
               case "reconcileAccountAccess":
                 accountRequests.push(message);
-                if (!options.accountUnavailable) rights = snapshot(options.accountState ?? "purchased");
-                return {schema: 1, status: "committed", accountStatus: options.accountUnavailable ? "unavailable" : options.accountState === "locked" ? "none" : "verified", generation: 2, accountId, sessionId,
-                  issuerTime: 1800000000000, proofIdentities: options.accountUnavailable || options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
+                if (!options.accountUncertain) rights = snapshot(options.accountState ?? "purchased");
+                return {schema: 1, status: "committed", accountStatus: options.accountUncertain ? options.accountUncertain : options.accountState === "locked" ? "none" : "verified", generation: 2, accountId, sessionId,
+                  issuerTime: 1800000000000, proofIdentities: options.accountUncertain || options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
               case "getBenefitAccess":
                 return { ok: true, snapshot: rights };
               case "proOffering":
@@ -774,6 +774,16 @@ describe("Restore signed-verifier progress survives accepted cache publications"
 
 
 describe("mounted Apple account-only native authority", () => {
+  it.each(["unavailable", "conflict"] as const)("%s account verification cannot start an Apple charge on an empty cache", async accountUncertain => {
+    const f = await compose({accountOnly: true, accountUncertain});
+    await fireEvent.click(await screen.findByRole("button", {name: "Get Still Pro"}));
+    await fireEvent.click(await screen.findByRole("button", {name: "Get Still Pro"}));
+    await screen.findByText("The purchase wasn't confirmed.");
+    expect(f.accountRequests.length).toBeGreaterThan(0);
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
   it("launch recovers a web purchase through typed native commit and renders accepted Pro", async () => {
     const f = await compose({accountOnly: true});
     f.setRoute(91);
@@ -794,8 +804,8 @@ describe("mounted Apple account-only native authority", () => {
     expect(f.purchase).not.toHaveBeenCalled();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
-  it("unavailable native account authority keeps cached Pro but cannot confirm Restore", async () => {
-    const f = await compose({accountOnly: true, accountUnavailable: true});
+  it.each(["unavailable", "conflict"] as const)("%s native account authority keeps cached Pro but cannot confirm Restore", async accountUncertain => {
+    const f = await compose({accountOnly: true, accountUncertain});
     // The native cache changes before the mounted screen receives its next observation.
     f.setNativeAccess("purchased");
     await fireEvent.click(await screen.findByRole("button", {name: "Restore purchase"}));

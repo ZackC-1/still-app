@@ -738,6 +738,68 @@ describe("Apple account Restore ambiguity", () => {
 
 
 describe("Apple operation cleanup ownership", () => {
+  it("an account change during native cancellation releases Buy only after Apple confirms cancellation", async () => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    finish({outcome:"cancelled", receipt:"noSignal"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"idle"});
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+  });
+  it("an account change with a lost native reply keeps Buy held for current signed recovery", async () => {
+    const h = await harness();
+    let fail!: (reason: Error) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise((_resolve, reject) => {fail = reject;}));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(fail).toBeTypeOf("function"));
+    h.setAccount(user);
+    fail(new Error("Native response lost"));
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    h.host.props([]).native.onBuy?.();
+    await h.host.refresh();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it.each(["buy", "restore"] as const)("an account change while native %s is pending retains signed recovery without a second acquisition", async kind => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    const acquire = kind === "buy" ? h.deps.bridge.purchasePro : h.deps.bridge.restorePro;
+    vi.mocked(acquire).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    const native = h.host.props([]).native;
+    if (kind === "buy") native.onBuy?.();
+    else native.onRestore?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    await h.host.refresh();
+    h.host.props([]).native.onBuy?.();
+    h.host.props([]).native.onRestore?.();
+    await h.settle();
+    expect(acquire).toHaveBeenCalledOnce();
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    finish({...owned, outcome: kind === "buy" ? "purchased" : "restored"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    await h.host.refresh();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual(kind === "buy" ? {state:"success", confirmed:true} : {state:"idle"});
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledTimes(kind === "buy" ? 1 : 0);
+    expect(h.deps.bridge.restorePro).toHaveBeenCalledTimes(kind === "restore" ? 1 : 0);
+  });
   it.each(["account", "offering"] as const)("an account change during %s preflight releases Buy for the new account", async phase => {
     const h = await harness();
     const refreshAccountAccess = vi.fn(async () => access("locked"));

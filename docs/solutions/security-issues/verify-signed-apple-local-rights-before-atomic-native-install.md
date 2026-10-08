@@ -34,6 +34,17 @@ trying StoreKit. The Apple purchase authority now observes the updated cache, th
 unavailable reconciliation so Restore keeps accepted rights and still tries its independent local
 purchase path. Regression coverage includes durable removal and cold reopening, strict bridge
 status/proof combinations, and a mounted Restore with a purchase cached before the UI observes it.
+An ownership conflict with no accepted proofs is similarly unresolved. It must reject fresh
+account confirmation after the removal commit; accepted proofs in a partial conflict and a
+conclusive empty `none` result remain usable. Factory and mounted Buy/Restore regressions show
+that an empty conflict neither starts a charge nor reports cached rights as freshly restored.
+
+Account replacement also cannot discard a StoreKit request already dispatched. Keep a separate
+native acquisition generation until Apple replies, blocking overlapping Buy and Restore. A stale
+completion retains only recovery intent, and a current signed local read establishes rights.
+Confirmed cancellation releases the hold; a lost native reply retains verification rather than
+starting another purchase. Deferred Buy/Restore, cancellation and lost-reply tests cover these
+boundaries without granting rights or linking the replacement account from store feedback.
 The repaired tree passed 437 StillKit tests and 4,766 core tests; synthetic tests do not establish
 provider or physical-device behavior.
 

@@ -246,12 +246,21 @@ describe("Apple account-only authority composition", () => {
     expect(await h.authority.refreshAccountAccess()).toBe(h.snapshot);
     expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
   });
-  it("unavailable account authority cannot confirm cached benefits after durable native removals", async () => {
+  it("a conflict with accepted account proofs still observes the committed independent benefits", async () => {
+    const h = await setup();
+    const ack = await h.bridge.reconcileAccountAccess();
+    expect(ack.proofIdentities.length).toBeGreaterThan(0);
+    h.bridge.reconcileAccountAccess.mockResolvedValue({...ack, accountStatus: "conflict"});
+    expect(await h.authority.refreshAccountAccess()).toBe(h.snapshot);
+    expect(h.bridge.observeBenefits).toHaveBeenCalledOnce();
+    expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
+  });
+  it.each(["unavailable", "conflict"] as const)("%s account authority without proofs cannot confirm cached benefits after durable native removals", async accountStatus => {
     const h = await setup();
     const cached = {...h.snapshot, states: {...h.snapshot.states, "youtube.related": "purchased" as const}};
     h.bridge.observeBenefits.mockResolvedValue(cached);
     h.bridge.reconcileAccountAccess.mockResolvedValue({...await h.bridge.reconcileAccountAccess(),
-      accountStatus: "unavailable", proofIdentities: []});
+      accountStatus, proofIdentities: []});
     await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
     expect(h.bridge.observeBenefits).toHaveBeenCalledOnce();
     expect(await h.bridge.observeBenefits()).toBe(cached);

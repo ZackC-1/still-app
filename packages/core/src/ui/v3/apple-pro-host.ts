@@ -81,6 +81,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
   let preflightGeneration: number | undefined;
+  let nativeAcquisitionGeneration: number | undefined;
   const changed = () => {
     if (!stopped) deps.publish();
   };
@@ -166,6 +167,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     if (
       stopped ||
       busy ||
+      nativeAcquisitionGeneration !== undefined ||
       !deps.bridge.available ||
       (kind === "buy" &&
         (purchase.state === "pending" || pendingKind !== undefined))
@@ -223,11 +225,28 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         return;
       }
       preflightGeneration = undefined;
+      nativeAcquisitionGeneration = generation;
       const result =
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
-      if (stopped || generation !== epoch) return;
+      if (nativeAcquisitionGeneration === generation)
+        nativeAcquisitionGeneration = undefined;
+      if (stopped) return;
+      if (generation !== epoch) {
+        // Account replacement cannot discard a dispatched StoreKit completion. Retain
+        // only its recovery intent; a current signed read must establish the rights.
+        if (result.outcome === "cancelled") {
+          purchase = { state: "idle" };
+          restore = undefined;
+        } else {
+          pendingKind = kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+        }
+        changed();
+        return;
+      }
       if (result.outcome === "cancelled") {
         purchase = { state: "idle" };
         restore = undefined;
@@ -275,6 +294,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       throw new Error("Native purchase did not complete");
     } catch {
+      if (nativeAcquisitionGeneration === generation) {
+        nativeAcquisitionGeneration = undefined;
+        if (!stopped && generation !== epoch) {
+          // An interrupted native response is an unknown acquisition, never a reason
+          // to charge again. Current local verification supplies the recovery path.
+          pendingKind = kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+          changed();
+        }
+      }
       if (stopped || generation !== epoch) return;
       purchase = { state: "failed" };
       if (kind === "restore")
