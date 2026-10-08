@@ -24,6 +24,7 @@ Paths and reports remain local; no credential values belong in tracked examples.
 | Input | Existing consumer |
 |---|---|
 | `STILL_QA_BACKEND_ENVIRONMENT`, `STILL_QA_SUPABASE_URL`, `STILL_QA_SUPABASE_ANON_KEY` | [V3 QA build profiles](../scripts/qa/README.md); the hosted profile requires the approved `shared-hosted` arrangement and public client values. |
+| `STILL_QA_ACCESS_ENVIRONMENT`, `STILL_QA_ACCESS_PUBLIC_KEYS`, `STILL_QA_REVENUECAT_PUBLIC_API_KEY` | Additional public inputs for the existing [paid-sandbox QA tooling](../scripts/qa/README.md#additional-paid-sandbox-tooling-inputs). Production trust and private signing material are refused. |
 | `STILL_DESIGN_PACKAGE` | Visual runners: override the local design/comparator package location. |
 | `STILL_VISUAL_REFERENCE_DIR` | Component and real-bundle visual runners: override the reference-frame directory. |
 | `STILL_VISUAL_OUTPUT` | Component/store visual runners: override their output directory. |

@@ -67,7 +67,8 @@ deterministic work-state tracker preserve this task's result.
   zero missing explicit input names in the root or any client package example. It also checked
   new assignments: all blank except Safari's existing public analytics host default.
 - A follow-up command-line input audit documented the visual-runner overrides, linked existing
-  QA-profile configuration and distinguished Node/GitHub metadata. This adds documentation only;
+  QA-profile configuration (including the existing sandbox public inputs) and distinguished
+  Node/GitHub metadata. This adds documentation only;
   the same validated runtime/template inputs are retained, with final protected CI on the new head.
 - Final diff review confirms only documentation and `.env.example` files change. All actual
   config files, runtime source, public exports, routes, dependencies and release flags are preserved.

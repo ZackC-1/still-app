@@ -49,14 +49,31 @@ The manifest is removed before a rebuild, so failed builds cannot reuse a previo
 Files identify font/JS/CSS and total download bytes; startup/observer timing needs separate
 comparable packaged-runtime measurements. Apple embeds the font in its single-file HTML.
 
-Current scoped-access clients default to production trust with no access keys. Both QA profiles
+The ordinary `local` and `test` scoped-access clients default to production trust with no access keys.
+These two profiles
 therefore reject sandbox access proofs and mark sandbox fulfillment/host trust wiring outstanding.
-Setting an arbitrary sandbox `VITE_*` variable cannot change this. U5/U6 must deliver reviewed
-environment-bound proof transport and actual sandbox provider/native evidence before paid journeys
-can pass. The production bundler mode never selects development rule keys; an empty production
+Setting an arbitrary sandbox `VITE_*` variable cannot change this. Actual sandbox provider/native
+evidence remains necessary before paid journeys can pass. The production bundler mode never
+selects development rule keys; an empty production
 allowlist holds remote updates safely. No QA profile is a store-release or TestFlight certificate.
 
 The Apple webview output intentionally has no ordinary `dist/.env-state` archive stamp: it cannot
 be substituted for a guarded release build. Use the existing native release procedures when native
 configuration and hosted sandbox fulfillment are ready. Compare package `dist` baseline and this
 profile only when their backend/flags and measurement conditions match.
+
+## Additional paid-sandbox tooling inputs
+
+The existing `paid-sandbox` profile and [Apple QA configuration parser](../../apps/apple/scripts/paid-sandbox-qa.mjs)
+require the shared-hosted public inputs listed above and three additional shell inputs:
+
+- `STILL_QA_ACCESS_ENVIRONMENT`: exactly `sandbox`; production or an unspecified environment is refused.
+- `STILL_QA_ACCESS_PUBLIC_KEYS`: a JSON array of one to eight distinct public access-verification
+  keys. Each record contains exactly `kid`, `publicKeyHex`, `purpose: "access"` and
+  `environment: "sandbox"`. The parser validates identifier and public-key encoding.
+- `STILL_QA_REVENUECAT_PUBLIC_API_KEY`: the Apple public RevenueCat SDK key (`appl_` prefix).
+  Server API keys, issuer private keys and signing-credential inputs are refused.
+
+Keep actual values in private local configuration. These are additional inputs to the separate
+sandbox tooling; ordinary `local` and `test` profiles retain their configuration above. Documenting
+them does not run a purchase, sign/publish an artifact or establish hosted/provider/device readiness.
