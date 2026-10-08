@@ -57,8 +57,7 @@ resources delegate verification to the native host and are explicitly marked
 sandbox-native-authority-unverified with sandboxProofAccepted null; source resources alone do
 not establish compiled native authority. Native targets still require the existing compiled
 app/extension plist and complete resource checks. These are embedding and packaging checks;
-they do not certify a provider response or device acceptance. Compiler output streams
-to the run log; only small structured plist output is captured.
+they do not certify a provider response or device acceptance. Compiler output streams to the run log; structured plist and bounded parser output are captured.
 
 Recognizing a supported environment reference does not authorize it as a store-package input.
 [package.mjs](../../../scripts/release/package.mjs) classifies `VITE_ACCESS_ENVIRONMENT` and
