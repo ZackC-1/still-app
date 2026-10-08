@@ -17,7 +17,7 @@ still describe; Step 3 of the docs refresh carries these decisions into
 - Still Pro: twelve optional extras, fresh installs Off — YouTube Related
   videos, end-of-video suggestions, autoplay prevention, comments hiding, live
   chat hiding; Instagram Explore, Stories/Highlights, suggested accounts,
-  Threads links; Facebook Stories, Videos, sidebar ads.
+  Threads links; Facebook Stories, Videos, desktop sidebar ads and sponsored posts in the phone feed (one `facebook.sponsored` extra).
 - Price: $9.99 US base, one-time lifetime, one launch offer. No subscription,
   trial, or price experiments.
 - Web refund: seven-day voluntary full-refund request window. Apple purchases
@@ -43,7 +43,15 @@ Curated from the local-only commercial package and decision summary; see
   only after consented eligible inputs and deletion/expiry are proven.
 - Rating: owner-controlled, initially Off; no rating analytics.
 - Deferred/removed: counting/history/summary, Edge, native Android/Play,
-  trials, sponsored-feed detection, non-TikTok placeholders.
+  trials, desktop sponsored-feed detection, non-TikTok placeholders.
+
+## Mobile Pro amendment (8 October 2026)
+
+The owner requires all twelve extras on Safari and Firefox Android and approved
+sponsored-post hiding in the Facebook phone feed as the mobile behavior of
+`facebook.sponsored`. Desktop sidebar behavior remains. This is an approved
+implementation requirement; structural and physical-device acceptance is pending.
+See [the bounded implementation plan](../../../plans/2026-10-08-feat-mobile-pro-completion.md).
 
 ## Design
 
