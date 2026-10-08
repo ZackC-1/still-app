@@ -47,7 +47,9 @@ client_reach(oid) as (
   where not exists(select 1 from pg_catalog.pg_roles r where r.rolname=name)
  union all select 'unsafe_role:'||r.rolname from pg_catalog.pg_roles r
   where r.rolname in ('still_settings_writer','still_policy_reader','still_policy_admin','still_entitlement_writer','still_qa_sandbox_writer')
-  and (r.rolsuper or r.rolinherit or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls)
+  -- The legacy entitlement role was created INHERIT in 0001. Its membership gate below
+  -- refuses inherited authority; modern narrow roles additionally require NOINHERIT.
+  and (r.rolsuper or (r.rolinherit and r.rolname<>'still_entitlement_writer') or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls)
  union all select 'role_membership:'||r.rolname from pg_catalog.pg_roles r
   join pg_catalog.pg_auth_members m on m.member=r.oid or m.roleid=r.oid
   where r.rolname in ('still_settings_writer','still_policy_reader','still_policy_admin','still_entitlement_writer')

@@ -573,9 +573,18 @@ test(
       return JSON.parse(result.stdout.trim())[0];
     };
     assert.deepEqual((await query()).issues, []);
+    assert.deepEqual(
+      (await query("alter role still_entitlement_writer inherit;")).issues,
+      [],
+      "the legacy role keeps its original INHERIT attribute without receiving memberships",
+    );
     for (
       const [mutation, issue] of [
         ["alter role still_settings_writer inherit;", /^unsafe_role:/],
+        [
+          "grant still_settings_writer to still_entitlement_writer;",
+          /^role_membership:/,
+        ],
         [
           "grant execute on function private.lock_settings(uuid,uuid,text) to anon;",
           /^routine_acl:/,
@@ -677,6 +686,10 @@ test(
     assert.equal(status.code, 0);
     const anonKey = JSON.parse(status.stdout).ANON_KEY;
     assert.equal(typeof anonKey, "string");
+    let runtimeLog = "";
+    const capture = (chunk) => {
+      runtimeLog = (runtimeLog + chunk.toString()).slice(-16_384);
+    };
     service = spawn("supabase", [
       "functions",
       "serve",
@@ -684,7 +697,9 @@ test(
       fixtureDir,
       "--env-file",
       envFile,
-    ], { cwd, stdio: ["ignore", "ignore", "ignore"] });
+    ], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    service.stdout.on("data", capture);
+    service.stderr.on("data", capture);
     let serviceError = false;
     service.on("error", () => {
       serviceError = true;
@@ -702,6 +717,7 @@ test(
       });
     const deadline = Date.now() + 90_000;
     let ready = false;
+    let lastStatus = null;
     while (Date.now() < deadline) {
       assert.equal(
         serviceError,
@@ -714,22 +730,30 @@ test(
         "local Edge runtime process stopped before readiness",
       );
       try {
-        ready = (await request("qa-sandbox-product-policy")).status === 400;
+        lastStatus = (await request("qa-sandbox-product-policy")).status;
+        ready = lastStatus === 400;
       } catch { /* startup only */ }
       if (ready) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    assert.ok(ready, "actual sealed policy bundle never reached its handler");
+    assert.ok(
+      ready,
+      `actual sealed policy bundle never reached its handler (HTTP ${lastStatus}); local fixture diagnostics: ${
+        runtimeLog.replaceAll(anonKey, "[local JWT]")
+      }`,
+    );
     for (const { name, verifyJwt } of manifest.functions) {
       const response = await request(name);
-      const body = await response.json();
       if (verifyJwt) {
+        const body = await response.json();
         assert.equal(response.status, 401, name);
         assert.deepEqual(body, { error: "unauthorized" });
       } else if (name === "qa-sandbox-verify-apple-access") {
+        const body = await response.json();
         assert.equal(response.status, 200, name);
         assert.deepEqual(body, { status: "unavailable" });
       } else if (name === "qa-sandbox-stripe-webhook") {
+        const body = await response.json();
         assert.equal(response.status, 503, name);
         assert.deepEqual(body, { error: "webhook_unavailable" });
       } else assert.equal(response.status, 400, name);
