@@ -79,7 +79,9 @@ if (
   let edgeText = "";
   try {
     edgeText = await collectDiagnosticTail(process.stdin);
-  } catch {}
+  } catch {
+    // Collection unavailable: retain an empty closed diagnostic and the original test failure.
+  }
   console.log(JSON.stringify(classifyAccessCliFailure(
     `${readDiagnosticTail(process.argv[2])}\n${edgeText}`,
     process.argv[3],
