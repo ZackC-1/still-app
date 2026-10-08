@@ -1909,7 +1909,7 @@ export async function main(
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
     if (receipt?.kind === "supabase-exact-qa-functions" || operation === "qa-sandbox-functions") {
       const qa = await import("./qa-functions.mjs");
-      const text = qa.renderQaFinal(receipt);
+      const text = qa.renderQaFinal(receipt, context);
       await writeSummary(text, env);
       say(text);
       return 0;

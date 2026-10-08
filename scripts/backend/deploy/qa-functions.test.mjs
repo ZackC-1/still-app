@@ -41,7 +41,7 @@ async function put(root, path, value) {
   await writeFile(join(root, path), value);
 }
 
-async function fixture(t, mode = "apply") {
+async function fixture(t, mode = "apply", { existingQa = false } = {}) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "still-qa-operation-")),
   );
@@ -106,8 +106,19 @@ async function fixture(t, mode = "apply") {
     created_at: 1,
     updated_at: 2,
   };
+  const existing = QA_FUNCTIONS.map(({ name, verifyJwt }) => ({
+    ...production,
+    id: `existing-${name}`,
+    slug: name,
+    name,
+    verify_jwt: verifyJwt,
+    created_at: 42,
+    version: 7,
+  }));
   const state = {
-    functions: [production],
+    functions: [production, ...(existingQa ? existing : [])].sort((a, b) =>
+      a.slug.localeCompare(b.slug)
+    ),
     secrets: REQUIRED_SECRETS.map((name) => ({ name, digest: "b".repeat(64) }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     roles: ["synthetic narrow roles"],
@@ -128,6 +139,8 @@ async function fixture(t, mode = "apply") {
     missingGate: false,
     schemaMissing: false,
     dependencyMissing: false,
+    secretResponse: null,
+    replacementDrift: null,
   };
   const exec = async (command, args, options) => {
     if (command === "psql") {
@@ -182,6 +195,7 @@ async function fixture(t, mode = "apply") {
       }),
     };
   };
+  const receipts = [];
   const fetchImpl = async (url, options) => {
     assert.equal(
       options.redirect === "error" || url.startsWith("https://api.github.com/"),
@@ -221,10 +235,35 @@ async function fixture(t, mode = "apply") {
     }
     assert.ok(url.startsWith(`https://api.supabase.com/v1/projects/${REF}/`));
     if (url.endsWith("/functions")) return json(state.functions);
-    if (url.endsWith("/secrets")) return json(state.secrets);
+    if (url.endsWith("/secrets")) {
+      const wire = state.secrets.map(({ name, digest }) => ({
+        name,
+        value: digest,
+        updated_at: "2026-10-08T00:00:00Z",
+      }));
+      return json(
+        controls.secretResponse ? controls.secretResponse(wire) : wire,
+      );
+    }
     if (options.method === "POST") {
-      controls.postCount++;
       const name = new URL(url).searchParams.get("slug");
+      const persisted = receipts.at(-1);
+      assert.equal(
+        persisted?.status,
+        "uploading",
+        "durable attempt must precede POST",
+      );
+      assert.equal(persisted.writeAttempted, true);
+      assert.equal(persisted.attemptedRoute, name);
+      assert.deepEqual(
+        persisted.completed.map(({ name }) => name),
+        QA_FUNCTIONS.slice(0, controls.postCount).map(({ name }) => name),
+      );
+      assert.equal(
+        receipts.filter(({ status }) => status === "uploading").length,
+        controls.postCount + 1,
+      );
+      controls.postCount++;
       const metadata = JSON.parse(options.body.get("metadata"));
       assert.deepEqual(metadata, {
         name,
@@ -250,6 +289,9 @@ async function fixture(t, mode = "apply") {
         created_at: previous?.created_at ?? 1,
         updated_at: 3,
       };
+      if (controls.replacementDrift === "version") next.version++;
+      if (controls.replacementDrift === "id") next.id = "different-id";
+      if (controls.replacementDrift === "created_at") next.created_at++;
       state.functions = [
         ...state.functions.filter((f) => f.slug !== name),
         next,
@@ -313,7 +355,6 @@ async function fixture(t, mode = "apply") {
     SUPABASE_DB_URL:
       `postgresql://postgres.${REF}:synthetic-secret@aws-0-us-west-2.pooler.supabase.com:5432/postgres`,
   };
-  const receipts = [];
   return {
     state,
     controls,
@@ -327,7 +368,9 @@ async function fixture(t, mode = "apply") {
     fetchImpl,
     gitCmd,
     receipts,
-    run() {
+    run(onProgress = (receipt) => {
+      receipts.push(receipt);
+    }) {
       return runQaFunctionOperation({
         plan,
         env,
@@ -337,7 +380,7 @@ async function fixture(t, mode = "apply") {
         exec,
         fetchImpl,
         platform: "linux",
-        onProgress: (receipt) => receipts.push(receipt),
+        onProgress,
       });
     },
   };
@@ -382,6 +425,23 @@ test("QA no-receipt closing record preserves unknown function outcome", async ()
   assert.match(output, /function outcome unknown/i);
   assert.match(output, /fix-forward/i);
   assert.doesNotMatch(output, /check.*migration history/i);
+});
+
+test("skipped QA apply without a receipt is definitely before any function write", async () => {
+  let output = "";
+  await main(["final-summary", "--receipt", "/nonexistent/qa-receipt.json"], {
+    DEPLOY_OPERATION: "qa-sandbox-functions",
+    APPLY_OUTCOME: "skipped",
+    JOB_STATUS: "failure",
+  }, {
+    out: {
+      write(text) {
+        output += text;
+      },
+    },
+  });
+  assert.match(output, /stopped-before-write/);
+  assert.doesNotMatch(output, /outcome unknown|partial upload|fix-forward/i);
 });
 
 test("interrupted receipt after a verified subset still needs fix-forward", async (t) => {
@@ -430,10 +490,11 @@ test("fixed QA upload verifies all eight source bytes and preserves production, 
   );
   assert.deepEqual(f.state.secrets, before.secrets);
   assert.deepEqual(f.state.roles, before.roles);
-  assert.ok(
-    f.receipts.filter((r) => r.status === "uploading").every((r) =>
-      r.writeAttempted && r.attemptedRoute
-    ),
+  assert.deepEqual(
+    f.receipts.filter(({ status }) => status === "uploading").map((
+      { attemptedRoute },
+    ) => attemptedRoute),
+    QA_FUNCTIONS.map(({ name }) => name),
   );
   assert.doesNotMatch(
     JSON.stringify(receipt),
@@ -497,6 +558,90 @@ for (
     assert.equal(receipt.status, "stopped-before-write");
     assert.equal(receipt.writeAttempted, false);
     assert.equal(f.controls.postCount, 0);
+  });
+}
+
+test("existing fixed QA routes retain identity and advance exactly one version", async (t) => {
+  const f = await fixture(t, "apply", { existingQa: true });
+  const previous = structuredClone(f.state.functions);
+  const receipt = await f.run();
+  assert.equal(receipt.status, "verified", JSON.stringify(receipt));
+  assert.equal(f.controls.postCount, 8);
+  for (const { name } of QA_FUNCTIONS) {
+    const before = previous.find(({ slug }) => slug === name);
+    const after = f.state.functions.find(({ slug }) => slug === name);
+    assert.equal(after.id, before.id);
+    assert.equal(after.created_at, before.created_at);
+    assert.equal(after.version, before.version + 1);
+  }
+});
+
+for (const field of ["version", "id", "created_at"]) {
+  test(`existing QA replacement ${field} drift stops after the first ambiguous write`, async (t) => {
+    const f = await fixture(t, "apply", { existingQa: true });
+    f.controls.replacementDrift = field;
+    const receipt = await f.run();
+    assert.equal(receipt.status, "function-outcome-unknown");
+    assert.deepEqual(receipt.issues, ["qa-deployed-version-differs"]);
+    assert.equal(receipt.completed.length, 0);
+    assert.equal(f.controls.postCount, 1);
+  });
+}
+
+test("pending durable attempt blocks POST and a rejected attempt never uploads", async (t) => {
+  for (const rejected of [false, true]) {
+    const f = await fixture(t);
+    let release;
+    let arrived;
+    const reached = new Promise((resolve) => {
+      arrived = resolve;
+    });
+    const pending = new Promise((resolve, reject) => {
+      release = rejected
+        ? () => reject(new Error("fixture persistence refused"))
+        : resolve;
+    });
+    const operation = f.run((receipt) => {
+      f.receipts.push(receipt);
+      if (receipt.status === "uploading" && f.controls.postCount === 0) {
+        arrived();
+        return pending;
+      }
+    });
+    await reached;
+    assert.equal(f.controls.postCount, 0);
+    release();
+    const receipt = await operation;
+    assert.equal(f.controls.postCount, rejected ? 0 : 8);
+    assert.equal(
+      receipt.status,
+      rejected ? "function-outcome-unknown" : "verified",
+    );
+  }
+});
+
+for (
+  const control of [
+    "plaintext",
+    "missing-value",
+    "duplicate",
+    "ambiguous-digest",
+  ]
+) {
+  test(`QA secrets ${control} wire response stops before uploads without exposing content`, async (t) => {
+    const f = await fixture(t);
+    f.controls.secretResponse = (wire) => {
+      if (control === "plaintext") wire[0].value = "synthetic-private-value";
+      if (control === "missing-value") delete wire[0].value;
+      if (control === "duplicate") wire.push({ ...wire[0] });
+      if (control === "ambiguous-digest") wire[0].digest = "c".repeat(64);
+      return wire;
+    };
+    const receipt = await f.run();
+    assert.equal(receipt.status, "stopped-before-write");
+    assert.deepEqual(receipt.issues, ["qa-secret-inventory-invalid"]);
+    assert.equal(f.controls.postCount, 0);
+    assert.doesNotMatch(JSON.stringify(receipt), /synthetic-private-value/);
   });
 }
 
@@ -582,6 +727,14 @@ test(
       const [mutation, issue] of [
         ["alter role still_settings_writer inherit;", /^unsafe_role:/],
         [
+          "alter role still_qa_sandbox_writer in database postgres set log_parameter_max_length_on_error='-1';",
+          /^QA_database_role_setting:/,
+        ],
+        [
+          "alter role still_qa_sandbox_writer in database postgres set statement_timeout='0';",
+          /^QA_database_role_setting:/,
+        ],
+        [
           "grant still_settings_writer to still_entitlement_writer;",
           /^role_membership:/,
         ],
@@ -614,6 +767,27 @@ test(
       );
     }
     const healthy = await query();
+    const safeDatabaseSetting = await query(
+      "alter role still_qa_sandbox_writer in database postgres set statement_timeout='2s';",
+    );
+    assert.deepEqual(
+      safeDatabaseSetting.issues,
+      [],
+      "an identical safety setting remains valid",
+    );
+    assert.notDeepEqual(
+      safeDatabaseSetting.facts,
+      healthy.facts,
+      "database-specific role settings are bound even when safe",
+    );
+    const allRoleDatabaseSetting = await query(
+      "alter database postgres set application_name='fixture-preservation-drift';",
+    );
+    assert.notDeepEqual(
+      allRoleDatabaseSetting.facts,
+      healthy.facts,
+      "database ALL-role defaults are also bound",
+    );
     const columnDrift = await query(
       "alter table private.settings_anchors alter column modern_used drop not null;",
     );

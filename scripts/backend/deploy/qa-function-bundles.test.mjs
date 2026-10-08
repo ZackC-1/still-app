@@ -16,7 +16,7 @@ import { defaultExec } from "./deploy.mjs";
 import {
   buildQaFunctionBundles,
   QA_FUNCTIONS,
-  sealRuntimeRequires,
+  sealQaRuntime,
   verifyQaFunctionBundles,
 } from "./qa-function-bundles.mjs";
 
@@ -274,7 +274,7 @@ test("CommonJS runtime resolves builtins and refuses out-of-band files and optio
   const module = join(root, "closed.mjs");
   await writeFile(
     module,
-    sealRuntimeRequires(REQUIRE_PROLOGUE + "export { __require as load };\n"),
+    sealQaRuntime(REQUIRE_PROLOGUE + "export { __require as load };\n"),
   );
   const { load } = await import(pathToFileURL(module).href);
   assert.equal(typeof load("node:crypto").createHash, "function");
@@ -285,7 +285,7 @@ test("CommonJS runtime resolves builtins and refuses out-of-band files and optio
 test("CommonJS compiler prologue drift fails before sealing arbitrary source", () => {
   assert.throws(
     () =>
-      sealRuntimeRequires(
+      sealQaRuntime(
         REQUIRE_PROLOGUE.replace("import.meta.url", '"unbound.js"') +
           "export const x=1;",
       ),
@@ -351,7 +351,7 @@ test(
     assert.equal(sdkCompiled.code, 0, sdkCompiled.stderr);
     await writeFile(
       sdkBundle,
-      sealRuntimeRequires(await readFile(sdkBundle, "utf8")),
+      sealQaRuntime(await readFile(sdkBundle, "utf8")),
     );
     await put(copiedSource, sdkEntry, sdkSource);
 
@@ -360,6 +360,7 @@ test(
       probe,
       `
     import assert from 'node:assert/strict';
+    delete globalThis.Buffer;
     Deno.env.get = () => undefined;
     let networkCalls = 0;
     globalThis.fetch = () => { networkCalls++; throw new Error('Network forbidden'); };

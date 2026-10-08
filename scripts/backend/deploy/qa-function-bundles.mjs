@@ -65,8 +65,11 @@ var __deno_internal_createRequire = (url) => {
 // Deno's ESM graph does not include CommonJS optional require('encoding') in
 // node-fetch. Seal its generated loader so runtime discovery cannot add source
 // beyond the uploaded bytes. Accept only the characterized pinned prologue.
-export function sealRuntimeRequires(source) {
-  if (!source.includes("createRequire")) return source;
+export function sealQaRuntime(source) {
+  // Closed ESM uploads lose Deno npm's automatic Node globals. Bind the builtin
+  // explicitly, so PostgreSQL/SDK code works in Edge workers without ambient Buffer.
+  const buffer = 'import { Buffer } from "node:buffer";\n';
+  if (!source.includes("createRequire")) return buffer + source;
   const start = source.indexOf(REQUIRE_IMPORT);
   const end = start + REQUIRE_IMPORT.length;
   const loader = source.slice(end, source.indexOf(";", end) + 1);
@@ -81,7 +84,7 @@ export function sealRuntimeRequires(source) {
   ) {
     refuse("Unrecognized CommonJS compiler prologue");
   }
-  return source.slice(0, start) + SEALED_REQUIRE + source.slice(end);
+  return buffer + source.slice(0, start) + SEALED_REQUIRE + source.slice(end);
 }
 
 // Check every component, not only the leaf: an ancestor symlink can escape an
@@ -127,6 +130,7 @@ async function toolchain(exec, cwd) {
     identity,
     flags: [...FLAGS],
     runtimeRequire: "node-builtins-only-v1",
+    runtimeGlobals: "node-buffer-v1",
   };
 }
 
@@ -321,7 +325,7 @@ export async function buildQaFunctionBundles(
     ], sourceDir);
     await writeFile(
       join(artifactDir, file),
-      sealRuntimeRequires(
+      sealQaRuntime(
         await readFile(await regularFile(artifactDir, file), "utf8"),
       ),
     );

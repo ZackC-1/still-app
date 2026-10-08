@@ -1,12 +1,6 @@
 // One protected operation: deploy the eight sealed sandbox functions. No migrations,
 // secrets, provider settings, registry rows or production function bodies are written.
-import {
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-} from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   assertSamePlan,
@@ -257,6 +251,9 @@ function inventory(value) {
   }).sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
+// Management GET /secrets calls the SHA256 digest "value" (also the pinned CLI
+// DIGEST column). Normalize only validated hashes; never retain a secret plaintext.
+// https://supabase.com/docs/reference/api/v1-list-all-secrets
 function secretInventory(value) {
   if (!Array.isArray(value)) refuse("qa-secret-inventory-invalid");
   const seen = new Set();
@@ -264,12 +261,12 @@ function secretInventory(value) {
     if (
       !item || typeof item.name !== "string" ||
       !/^[A-Z][A-Z0-9_]*$/.test(item.name) ||
-      seen.has(item.name) || !validHash(item.digest) || "value" in item
+      seen.has(item.name) || !validHash(item.value) || "digest" in item
     ) {
       refuse("qa-secret-inventory-invalid");
     }
     seen.add(item.name);
-    return { name: item.name, digest: item.digest };
+    return { name: item.name, digest: item.value };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -588,8 +585,11 @@ export function renderQaPlan(plan) {
     `- Source preparation does not establish hosted or installed-device acceptance.\n`;
 }
 
-export function renderQaFinal(receipt) {
+export function renderQaFinal(receipt, { applyOutcome } = {}) {
   if (!receipt) {
+    if (applyOutcome === "skipped") {
+      return "## QA function closing record\n\n- Status: stopped-before-write.\n- Apply step was skipped; no function upload was attempted.\n- Correct the prerequisite failure before creating a new plan.\n";
+    }
     return "## QA function closing record\n\nFunction outcome unknown: no durable receipt. Stop and inspect the attempted QA routes privately before a reviewed fix-forward. Never blindly retry.\n";
   }
   if (

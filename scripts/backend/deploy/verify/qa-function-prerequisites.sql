@@ -57,6 +57,12 @@ client_reach(oid) as (
     and m.admin_option and not m.inherit_option and not m.set_option)
  union all select 'role_not_login:'||r.rolname from pg_catalog.pg_roles r
   where r.rolname in ('still_settings_writer','still_policy_reader','still_qa_sandbox_writer') and not r.rolcanlogin
+ union all select 'QA_database_role_setting:'||split_part(setting,'=',1)
+  from pg_catalog.pg_db_role_setting s cross join lateral unnest(s.setconfig) setting
+  where s.setrole=(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_writer')
+   and s.setdatabase=(select oid from pg_catalog.pg_database where datname=current_database())
+   and split_part(setting,'=',1) in ('lock_timeout','statement_timeout','idle_in_transaction_session_timeout','log_parameter_max_length','log_parameter_max_length_on_error')
+   and setting<>all(array['lock_timeout=1s','statement_timeout=2s','idle_in_transaction_session_timeout=5s','log_parameter_max_length=0','log_parameter_max_length_on_error=0'])
  union all select 'private_schema' where not exists(select 1 from pg_catalog.pg_namespace
   where nspname='private' and nspowner=(select oid from pg_catalog.pg_roles where rolname='postgres'))
  union all select 'missing_private_usage:'||r.rolname from pg_catalog.pg_roles r
@@ -98,6 +104,14 @@ relations as (
   where n.nspname in ('public','private') and c.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
 ),
 facts(fact) as (
+  select 'database role config ' || coalesce(r.rolname::text,'ALL') || ' in ' ||
+    coalesce(d.datname::text,'ALL') || ' | ' || setting
+  from pg_catalog.pg_db_role_setting s
+  left join pg_catalog.pg_roles r on r.oid=s.setrole
+  left join pg_catalog.pg_database d on d.oid=s.setdatabase
+  cross join lateral unnest(s.setconfig) setting
+  where s.setdatabase=0 or d.datname=current_database()
+  union all
   select 'function ' || r.sig || ' | security ' ||
          case when r.prosecdef then 'definer' else 'invoker' end
   from routines r
