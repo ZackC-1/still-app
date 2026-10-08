@@ -361,6 +361,7 @@ test(
       `
     import assert from 'node:assert/strict';
     delete globalThis.Buffer;
+    delete globalThis.global;
     Deno.env.get = () => undefined;
     let networkCalls = 0;
     globalThis.fetch = () => { networkCalls++; throw new Error('Network forbidden'); };

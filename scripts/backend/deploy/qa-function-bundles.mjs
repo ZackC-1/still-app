@@ -67,8 +67,9 @@ var __deno_internal_createRequire = (url) => {
 // beyond the uploaded bytes. Accept only the characterized pinned prologue.
 export function sealQaRuntime(source) {
   // Closed ESM uploads lose Deno npm's automatic Node globals. Bind the builtin
-  // explicitly, so PostgreSQL/SDK code works in Edge workers without ambient Buffer.
-  const buffer = 'import { Buffer } from "node:buffer";\n';
+  // explicitly, so PostgreSQL/SDK code works without ambient Buffer/global.
+  // Keep these module-local; never mutate the Edge worker's global namespace.
+  const buffer = 'import { Buffer } from "node:buffer";\nconst global = globalThis;\n';
   if (!source.includes("createRequire")) return buffer + source;
   const start = source.indexOf(REQUIRE_IMPORT);
   const end = start + REQUIRE_IMPORT.length;
@@ -130,7 +131,7 @@ async function toolchain(exec, cwd) {
     identity,
     flags: [...FLAGS],
     runtimeRequire: "node-builtins-only-v1",
-    runtimeGlobals: "node-buffer-v1",
+    runtimeGlobals: "node-buffer-global-v2",
   };
 }
 
