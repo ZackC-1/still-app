@@ -66,6 +66,14 @@ provider latency; compare ownership revision and operation scope in the server l
 current ledger state after signing. Account failures must leave independently verified local
 purchase rights intact. Ordinary settings sign-in must not initiate purchase linking.
 
+Capture each verified account token's expiry before starting asynchronous work. Recheck it after
+the live Auth response and synchronously after the final database confirmation before publishing
+proofs. During a transfer, the destination token must remain current while the source account is
+being confirmed too. Checking expiry only before an awaited call lets that call return positive
+authority after the token has expired. Public-handler regressions cover these Auth and database
+latency boundaries, alongside healthy controls; independently verified accountless Apple access
+retains its own authority.
+
 Current Apple Pro transactions have one Apple original-transaction authority. RevenueCat's
 `purchase.id` is a separate identity; do not mint another current Apple right from it. A RevenueCat
 account snapshot cannot revoke independently verified Apple rows or renew their verification

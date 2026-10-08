@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { assertSettingsRuntimeClosure } from "./plan.mjs";
@@ -40,6 +40,38 @@ const functions = [
   "link-apple-access",
   "reconcile-entitlement",
 ];
+
+test("every enabled sandbox entrypoint resolves CLI raw imports to its Deno graph", async (t) => {
+  const source = await readFile(join(checkout, "supabase/config.toml"), "utf8");
+  for (const name of [
+    "verify-apple-access", "link-apple-access", "reconcile-entitlement", "product-policy",
+    "sync-settings", "create-web-checkout", "complete-web-checkout", "stripe-webhook",
+  ]) {
+    await t.test(name, async () => {
+      const route = `qa-sandbox-${name}`;
+      const block = source.split(`[functions.${route}]\n`)[1]?.split("\n[")[0];
+      assert.ok(block, `Missing enabled ${route}`);
+      const selected = block.match(/^import_map = "([^"]+)"$/m)?.[1];
+      assert.ok(selected, `Missing ${route} import map`);
+      const mapPath = join(checkout, "supabase", selected);
+      const imports = JSON.parse(await readFile(mapPath, "utf8")).imports;
+      // Deno supplies the independent resolved target; the pinned CLI instead looks up
+      // each raw specifier in the selected map before walking every enabled route.
+      const graph = JSON.parse(execFileSync("deno", [
+        "info", "--json", "--frozen", "--config",
+        join(checkout, `supabase/functions/${route}/deno.json`),
+        join(checkout, `supabase/functions/${route}/index.ts`),
+      ], { encoding: "utf8", stdio: "pipe" }));
+      assert.ok(graph.modules.every(module => !module.error));
+      const sources = graph.modules.filter(module => module.local &&
+        relative(checkout, module.local).startsWith("packages/"))
+        .map(module => relative(checkout, module.local));
+      assert.doesNotThrow(() => assertSettingsRuntimeClosure(
+        graph, checkout, imports, mapPath, sources,
+      ));
+    });
+  }
+});
 
 test("three actual access entrypoints have frozen cold Deno and pinned CLI raw closure", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "still-access-cold-"));

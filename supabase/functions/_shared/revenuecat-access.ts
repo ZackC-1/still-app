@@ -6,14 +6,24 @@ export type ProviderAccess = { readonly status: "verified"; readonly rights: rea
 export interface RevenueCatAccessClient {
   getRights(holder: string, environment: AccessEnvironment): Promise<ProviderAccess>;
 }
-export interface AccessProductMapping {
+interface LegacyAccessProductMapping {
   readonly product_id: string;
   readonly app_id: string;
   readonly store_identifier: "still_pro_v3" | "still_sync";
   readonly entitlement_lookup_key: "still_pro_v3" | "still_sync";
   readonly store: "app_store" | "mac_app_store" | "rc_billing";
 }
+interface StripeAccessProductMapping {
+  readonly product_id: string;
+  readonly app_id: string;
+  readonly store_identifier: string;
+  readonly entitlement_lookup_key: "still_pro_v3";
+  readonly store: "stripe";
+  readonly benefit_product: "still_pro_v3";
+}
+export type AccessProductMapping = LegacyAccessProductMapping | StripeAccessProductMapping;
 const ID = /^[A-Za-z0-9_-]{1,96}$/;
+const STRIPE_STORE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
 export function parseAccessProductMappings(text: string): readonly AccessProductMapping[] | null {
@@ -21,12 +31,17 @@ export function parseAccessProductMappings(text: string): readonly AccessProduct
     const parsed: unknown = JSON.parse(text);
     if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 16) return null;
     for (const mapping of parsed) {
-      if (!object(mapping) || Object.keys(mapping).length !== 5 ||
+      if (!object(mapping) ||
           typeof mapping.product_id !== "string" || !ID.test(mapping.product_id) ||
-          typeof mapping.app_id !== "string" || !ID.test(mapping.app_id) ||
-          !["still_pro_v3", "still_sync"].includes(mapping.store_identifier as string) ||
-          mapping.entitlement_lookup_key !== mapping.store_identifier ||
-          !["app_store", "mac_app_store", "rc_billing"].includes(mapping.store as string)) return null;
+          typeof mapping.app_id !== "string" || !ID.test(mapping.app_id)) return null;
+      if (mapping.store === "stripe") {
+        if (Object.keys(mapping).length !== 6 || typeof mapping.store_identifier !== "string" ||
+            !STRIPE_STORE_ID.test(mapping.store_identifier) || mapping.entitlement_lookup_key !== "still_pro_v3" ||
+            mapping.benefit_product !== "still_pro_v3") return null;
+      } else if (Object.keys(mapping).length !== 5 ||
+                 !["still_pro_v3", "still_sync"].includes(mapping.store_identifier as string) ||
+                 mapping.entitlement_lookup_key !== mapping.store_identifier ||
+                 !["app_store", "mac_app_store", "rc_billing"].includes(mapping.store as string)) return null;
     }
     if (new Set(parsed.map(mapping => mapping.product_id)).size !== parsed.length) return null;
     return parsed as AccessProductMapping[];
@@ -44,7 +59,8 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
 
   async getRights(holder: string, environment: AccessEnvironment): Promise<ProviderAccess> {
     const unavailable = { status: "unavailable" } as const;
-    if (!this.secret || !ID.test(this.project) || !this.mappings.length) return unavailable;
+    if (!this.secret || !ID.test(this.project) || !this.mappings.length ||
+        environment !== "sandbox" && this.mappings.some(mapping => mapping.store === "stripe")) return unavailable;
     const path = `/v2/projects/${this.project}/customers/${encodeURIComponent(holder)}/purchases`;
     let next = `${path}?environment=${environment}&limit=100`;
     const rights: ProviderRight[] = [];
@@ -69,6 +85,8 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
               purchase.environment !== environment || typeof purchase.product_id !== "string") return unavailable;
           const mapping = this.mappings.find(candidate => candidate.product_id === purchase.product_id);
           if (!mapping) continue;
+          // The provider store identity is not the benefit written to Still's rights ledger.
+          const benefit = mapping.store === "stripe" ? mapping.benefit_product : mapping.store_identifier;
           // Current Apple Pro has ONE canonical original-transaction ledger and explicit account link.
           // RevenueCat purchase.id is a second provider identifier, not proof of Apple's original ID.
           // Keep legacy purchased still_sync/web rights; do not mint duplicate current Apple rights.
@@ -79,8 +97,9 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           const key = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
           if (purchase.status === "refunded") {
             // No new paid classification: this negative observation only revokes an existing
-            // transaction. Its current revenue may already be zero after the refund.
-            rights.push({ key, product: mapping.store_identifier, state: "revoked" });
+            // transaction. Revenue may be zero and entitlement/product listings may disappear
+            // after refund; the ledger must restrict revocation to an already-known key/product.
+            rights.push({ key, product: benefit, state: "revoked" });
             continue;
           }
           if (purchase.status !== "owned" || purchase.ownership !== "purchased" || purchase.store !== mapping.store ||
@@ -100,7 +119,7 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           if (!object(product) || product.object !== "product" || product.state !== "active" ||
               product.app_id !== mapping.app_id || product.store_identifier !== mapping.store_identifier ||
               product.type !== "one_time" || !object(product.one_time) || product.one_time.is_consumable !== false) { complete = false; continue; }
-          rights.push({ key, product: mapping.store_identifier });
+          rights.push({ key, product: benefit });
           if (rights.length > 16) return unavailable;
         }
         if (list.next_page === null) {
