@@ -14,6 +14,7 @@
 //   * No identifier, analytics or notification. The request is the policy client's one plain read.
 
 import type { RatingAllowance } from "@still/core/invitations/rating-allowance";
+import type { BackendRouteProfile } from "@still/core/sync/backend-route-profile";
 import {
   createChromeProductPolicyRuntime, type ProductPolicyRuntime, type ProductPolicyRuntimeOptions,
 } from "./product-policy-runtime.js";
@@ -63,6 +64,7 @@ export interface BrowserRatingAllowanceOptions {
   /** The configured project URL, or undefined (then every check is Off, with no request). */
   readonly supabaseUrl: string | undefined;
   readonly production: boolean;
+  readonly routeProfile?: BackendRouteProfile | null;
   /** The packaged build identifier the policy allowlists (the manifest version). */
   readonly build: string;
   readonly runtime: PlatformInfoSource | undefined;
@@ -75,9 +77,12 @@ const OFF = (reason: string): RatingAllowance => ({ allowed: false, reason });
 
 /** One fresh rating allowance per call, for this build's own policy surface. Never throws. */
 export function browserRatingAllowance(options: BrowserRatingAllowanceOptions): () => Promise<RatingAllowance> {
+  const routeProfile = options.routeProfile;
+  if (routeProfile === null) return async () => OFF("context");
   const policyFor = options.policyFor ?? ((surface: ProductPolicySurface) => createChromeProductPolicyRuntime({
     supabaseUrl: options.supabaseUrl,
-    environment: options.production ? "production" : "sandbox",
+    environment: routeProfile === "shared-hosted-sandbox" ? "sandbox" : options.production ? "production" : "sandbox",
+    routeProfile,
     surface,
     build: options.build,
   }));

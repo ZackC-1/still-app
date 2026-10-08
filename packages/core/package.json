@@ -12,6 +12,7 @@
     "./entitlement": "./src/entitlement/index.ts",
     "./storage": "./src/storage/index.ts",
     "./sync": "./src/sync/index.ts",
+    "./sync/backend-route-profile": "./src/sync/backend-route-profile.ts",
     "./native": "./src/native/index.ts",
     "./ui": "./src/ui/index.ts",
     "./ui/email-consent": "./src/ui/email-consent.ts",

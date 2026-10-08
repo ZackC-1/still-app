@@ -13,11 +13,12 @@ import {
 import {
   OrdinaryPolicyCache, type PolicyCacheRead, type PolicyCacheRecord,
 } from "@still/core/entitlement/product-policy-cache";
+import { backendRoutes, backendRouteEnvironmentMatches, type BackendRouteProfile } from "@still/core/sync/backend-route-profile";
 
-// Chrome and Firefox client for the remote product policy (U6). Its only consumer is the rating
+// Chrome and Firefox client for the remote product policy (U6). Production uses the rating
 // path (U13-P3): lib/rating-invitation.ts, which background.ts loads behind the inline V3 build
 // gate, asks `freshCheck("rating")` once per locally eligible popup opening. Configured 2.x builds
-// do not contain it. Nothing asks it about sales.
+// do not contain it. The explicit QA profile also checks sales before a managed checkout opens.
 //
 // What it is for. Before a purchase may start or a review prompt may be requested, the background
 // asks the public `product-policy` function one fresh question and evaluates the answer with the
@@ -69,6 +70,7 @@ export interface ProductPolicyRuntimeOptions {
    * request is ever made and every check is Off. Only its origin is used. */
   readonly supabaseUrl: string | undefined;
   readonly environment: ProductPolicyEnvironment;
+  readonly routeProfile?: BackendRouteProfile;
   readonly surface: ProductPolicySurface;
   /** This packaged build's identifier, as the policy's build allowlist names it. */
   readonly build: string;
@@ -89,13 +91,14 @@ export interface ProductPolicyRuntime {
 }
 
 /** The function URL on the configured project's origin, or null when the build has none. */
-export function productPolicyEndpoint(supabaseUrl: string | undefined): string | null {
+export function productPolicyEndpoint(supabaseUrl: string | undefined, routeProfile: BackendRouteProfile = "production"): string | null {
   const trimmed = supabaseUrl?.trim() ?? "";
   if (!trimmed) return null;
   let url: URL;
   try { url = new URL(trimmed); } catch { return null; }
   if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) return null;
-  return `${url.origin}${PRODUCT_POLICY_PATH}`;
+  try { return `${url.origin}/functions/v1/${backendRoutes(routeProfile).policy}`; }
+  catch { return null; }
 }
 
 /** Read at most `max + 1` raw bytes. One byte past the grammar's cap is enough for the evaluator to
@@ -179,7 +182,9 @@ const off = (reason: ProductPolicyVerdict["reason"]): ProductPolicyVerdict => Ob
 const PACKAGED_ONLY: ReadonlySet<ProductPolicyVerdict["reason"]> = new Set(["context", "compiled_off", "deferred_surface"]);
 
 export function createProductPolicyRuntime(options: ProductPolicyRuntimeOptions): ProductPolicyRuntime {
-  const endpoint = productPolicyEndpoint(options.supabaseUrl);
+  const profile = options.routeProfile === undefined ? "production" : options.routeProfile;
+  const endpoint = backendRouteEnvironmentMatches(profile, options.environment)
+    ? productPolicyEndpoint(options.supabaseUrl, profile) : null;
   const fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
   const monotonicNow = options.monotonicNow ?? (() => Math.floor(performance.now()));
   const wallNow = options.wallNow ?? Date.now;

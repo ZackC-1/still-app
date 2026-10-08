@@ -110,6 +110,7 @@ async function start(
   vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", options.flag ?? "");
   vi.stubEnv("VITE_POSTHOG_KEY", "");
   vi.stubEnv("VITE_ACCESS_ENVIRONMENT", options.accessEnvironment ?? "sandbox");
+  vi.stubEnv("VITE_BACKEND_ROUTE_PROFILE", options.accessEnvironment === "production" ? "production" : "shared-hosted-sandbox");
   vi.stubEnv(
     "VITE_ACCESS_PUBLIC_KEYS",
     JSON.stringify([
@@ -247,7 +248,7 @@ async function start(
       if (url.pathname.endsWith("/profiles")) return respond(row());
       if (url.pathname.endsWith("/entitlements"))
         return respond({ still_sync: false });
-      if (url.pathname.endsWith("/reconcile-entitlement"))
+      if (url.pathname.endsWith("/reconcile-entitlement") || url.pathname.endsWith("/qa-sandbox-reconcile-entitlement"))
         return respond(options.scopedReply ?? {});
       if (url.pathname.endsWith("/write_profile_settings")) {
         cloudSettings = body!.p_settings as typeof cloudSettings;
@@ -404,6 +405,11 @@ const signed = () => ({
   },
 });
 describe("configured modern paid background scoped access", () => {
+  it("holds the QA session spine when modern settings are not enabled", async () => {
+    const h = await start({ signedIn: true, flag: "", scopedReply: signed() });
+    expect(h.spine).toBeUndefined();
+    expect(h.requests.some(r => /profiles|write_profile_settings|sync-settings|reconcile-entitlement/.test(r.path))).toBe(false);
+  });
   it("consumes signed account proof through the maintained backend/session and single writer", async () => {
     const h = await start({
       signedIn: true,
@@ -427,7 +433,7 @@ describe("configured modern paid background scoped access", () => {
     expect(projection.ok).toBe(true);
     expect(projection.snapshot.states["youtube.comments"]).toBe("purchased");
     expect(
-      h.requests.find((r) => r.path.endsWith("/reconcile-entitlement"))?.body,
+      h.requests.find((r) => r.path.endsWith("/qa-sandbox-reconcile-entitlement"))?.body,
     ).toEqual({ access_schema: 1 });
     expect(await h.spine!.backend.readEntitlement()).toBe("entitled");
     expect(

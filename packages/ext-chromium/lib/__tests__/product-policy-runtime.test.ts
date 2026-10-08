@@ -24,6 +24,27 @@ function runtime(overrides: Partial<ProductPolicyRuntimeOptions> & Pick<ProductP
 afterEach(() => { vi.useRealTimers(); });
 
 describe("the request: one plain, identity-free read", () => {
+  it("selects the fixed QA policy endpoint and keeps all identifying headers absent", async () => {
+    const net = scriptedFetch(() => ok(ratingBody({ environment: "sandbox" })));
+    await runtime({ area: memoryArea().area, fetchImpl: net.fetchImpl, environment: "sandbox", routeProfile: "shared-hosted-sandbox" }).freshCheck("rating");
+    expect(net.calls).toHaveLength(1);
+    expect(net.calls[0]?.url).toBe(`${new URL(SUPABASE_URL).origin}/functions/v1/qa-sandbox-product-policy`);
+    expect(new URL(net.calls[0]!.url).search).toBe("");
+    expect(net.calls[0]?.init.body).toBe('{"namespace":"rating","environment":"sandbox"}');
+    expect(net.calls[0]?.init.headers).toEqual({ "content-type": "application/json" });
+  });
+  it("profile/environment disagreement and unknown profiles never request the live policy", async () => {
+    for (const overrides of [
+      { environment: "sandbox" as const, routeProfile: "production" as const },
+      { environment: "production" as const, routeProfile: "shared-hosted-sandbox" as const },
+      { routeProfile: "unknown" as never }, { routeProfile: null as never },
+    ]) {
+      const net = scriptedFetch(() => ok(ratingBody()));
+      const verdict = await runtime({ area: memoryArea().area, fetchImpl: net.fetchImpl, ...overrides }).freshCheck("rating");
+      expect(verdict.allowed).toBe(false);
+      expect(net.calls).toHaveLength(0);
+    }
+  });
   it("posts only the namespace and environment to the project origin, with no token, key, cookie or query", async () => {
     const storage = memoryArea();
     const net = scriptedFetch(() => ok(ratingBody()));
@@ -317,14 +338,15 @@ function sources(dir: string): string[] {
 }
 
 describe("dormant, background-only and never on a free path", () => {
-  it("has one importer, the rating allowance: no content script, page, purchase or Restore path", () => {
+  it("has only background-owned rating and explicit QA checkout consumers", () => {
     const users = [...sources(join(root, "entrypoints")), ...sources(join(root, "lib"))]
       .filter(path => !path.endsWith("product-policy-runtime.ts"))
       .filter(path => /product-policy|ProductPolicy|evaluateSalesPolicy|evaluateRatingPolicy/.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
-    // U13-P3: the rating allowance asks only `freshCheck("rating")`; background.ts loads it on
-    // first use behind the inline V3 build gate. Nothing else may use the client.
-    expect(users).toEqual(["lib/rating-invitation.ts"]);
+    expect(users).toEqual(["entrypoints/background.ts", "lib/rating-invitation.ts"]);
+    const background = readFileSync(join(root, "entrypoints", "background.ts"), "utf8");
+    expect(background).toContain('canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () =>');
+    expect(background).toContain('policy.freshCheck("sales")');
     const allowance = readFileSync(join(root, "lib", "rating-invitation.ts"), "utf8");
     expect(allowance.match(/\.freshCheck\([^)]*\)/g)).toEqual(['.freshCheck("rating")']);
     // A cached allowance is never consulted: no ordinary-cache read, no sales, no evaluator.

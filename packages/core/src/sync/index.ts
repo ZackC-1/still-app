@@ -11,6 +11,7 @@ export type {
   BackendPort,
   EntitlementRead,
   WebCheckoutOutcome,
+  WebCheckoutCompletion,
   WebCheckoutPort,
   ReconcileCallOutcome,
   CheckedReconcilePort,
@@ -19,6 +20,8 @@ export type {
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";
 export { SupabaseBackendPort } from "./profile.js";
+export { backendRoutes, backendRouteEnvironmentMatches, readBackendRouteProfile,
+  type BackendRouteProfile, type BackendRoutes } from "./backend-route-profile.js";
 export { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
 export {
   createAppleSession,
@@ -45,6 +48,7 @@ export {
   type PersistedSlot,
   type PendingOtpRecord,
   type CheckoutPendingRecord,
+  type CheckoutOperationRecord,
   type SessionReconcileOutcome,
   type NudgeOutcome,
   type ResumeOutcome,
