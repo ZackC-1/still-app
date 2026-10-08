@@ -116,6 +116,7 @@ jobs:
             node scripts/backend/deploy/deploy.mjs protection --phase plan
           fi
       - name: Install pinned Supabase CLI (checksum verified)
+        if: inputs.operation != 'qa-sandbox-functions'
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
             https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
@@ -123,10 +124,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Verify pinned tools
-        run: |
-          test "$(supabase --version)" = '2.119.0'
-          psql --version
+      - name: Verify pinned Supabase CLI
+        if: inputs.operation != 'qa-sandbox-functions'
+        run: test "$(supabase --version)" = '2.119.0'
+      - name: Check the database client
+        run: psql --version
       # For an operation the rehearsal also proves its effect (login refused or allowed, open
       # connection closed) and that every other role, grant, row and migration is unchanged.
       - name: Rehearse the exact change on a throwaway database (no production access)
