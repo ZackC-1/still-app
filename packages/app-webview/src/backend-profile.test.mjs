@@ -87,6 +87,8 @@ test("explicit QA profile routes both Apple fulfillment requests and modern sync
 });
 
 for (const env of [
+  { VITE_BACKEND_ROUTE_PROFILE: "" },
+  { VITE_ACCESS_ENVIRONMENT: "" },
   { VITE_BACKEND_ROUTE_PROFILE: "unknown", VITE_ACCESS_ENVIRONMENT: "sandbox" },
   { VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox", VITE_ACCESS_ENVIRONMENT: "production" },
   { VITE_BACKEND_ROUTE_PROFILE: "production", VITE_ACCESS_ENVIRONMENT: "sandbox" },
@@ -109,6 +111,18 @@ test("absent profile and environment preserve ordinary production fulfillment", 
   await host.authority.fulfillLink({});
   assert.deepEqual(host.calls.map(call => call.name), ["verify-apple-access", "link-apple-access"]);
   assert.equal(host.backendOptions?.routeProfile ?? "production", "production");
+});
+
+test("copying the actual example preserves configured ordinary free sync", async () => {
+  const example = await readFile(new URL("../.env.example", import.meta.url), "utf8");
+  const env = Object.fromEntries(example.split(/\r?\n/)
+    .filter(line => /^[A-Z_]+=/.test(line))
+    .map(line => { const split = line.indexOf("="); return [line.slice(0, split), line.slice(split + 1)]; }));
+  const host = launch({...env, VITE_SUPABASE_URL: "https://example.invalid",
+    VITE_SUPABASE_ANON_KEY: "public-synthetic", VITE_MODERN_SETTINGS_SYNC_ENABLED: "true"});
+  assert.equal(host.clientCount, 1);
+  assert.equal(host.backendOptions?.routeProfile ?? "production", "production");
+  assert.equal(host.backendOptions.modernSettings, true);
 });
 
 test("ordinary legacy construction retains its legacy settings behavior", () => {

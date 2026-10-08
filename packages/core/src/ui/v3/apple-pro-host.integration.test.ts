@@ -79,6 +79,7 @@ async function compose(
     initial?: "locked" | "purchased" | "protected";
     accountOnly?: boolean;
     accountState?: "locked" | "purchased" | "verification_required";
+    accountUnavailable?: boolean;
     eligible?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -128,9 +129,9 @@ async function compose(
                 return writer.initialize("unknown");
               case "reconcileAccountAccess":
                 accountRequests.push(message);
-                rights = snapshot(options.accountState ?? "purchased");
-                return {schema: 1, status: "committed", generation: 2, accountId, sessionId,
-                  issuerTime: 1800000000000, proofIdentities: options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
+                if (!options.accountUnavailable) rights = snapshot(options.accountState ?? "purchased");
+                return {schema: 1, status: "committed", accountStatus: options.accountUnavailable ? "unavailable" : options.accountState === "locked" ? "none" : "verified", generation: 2, accountId, sessionId,
+                  issuerTime: 1800000000000, proofIdentities: options.accountUnavailable || options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
               case "getBenefitAccess":
                 return { ok: true, snapshot: rights };
               case "proOffering":
@@ -789,6 +790,19 @@ describe("mounted Apple account-only native authority", () => {
     f.setAccountState("purchased");
     await fireEvent.click(await screen.findByRole("button", {name: "Restore purchase"}));
     expect(await screen.findByText("Still Pro is restored on this device.")).toBeInTheDocument();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("unavailable native account authority keeps cached Pro but cannot confirm Restore", async () => {
+    const f = await compose({accountOnly: true, accountUnavailable: true});
+    // The native cache changes before the mounted screen receives its next observation.
+    f.setNativeAccess("purchased");
+    await fireEvent.click(await screen.findByRole("button", {name: "Restore purchase"}));
+    await waitFor(() => expect(f.restore).toHaveBeenCalledOnce());
+    await waitFor(() => expect(f.authority.entitlement.currentAccessSnapshot().states["youtube.related"]).toBe("purchased"));
+    expect(screen.queryByText("Still Pro is restored on this device.")).toBeNull();
+    expect(f.authority.entitlement.currentAccessSnapshot().states["youtube.related"]).toBe("purchased");
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
     expect(f.purchase).not.toHaveBeenCalled();
     expect(f.linkPurchase).not.toHaveBeenCalled();

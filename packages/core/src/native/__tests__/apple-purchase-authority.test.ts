@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createApplePurchaseAuthority } from "../apple-purchase-authority.js";
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { accessSigningBytes, canonicalAccessClaims, encodeAccessBase64, verifyAccessProof, type AccessTrust } from "../../entitlement/access-proof.js";
-import type { NativeAppleAccessObservation } from "../bridge.js";
+import type { NativeAppleAccessObservation, NativeAccountAccessCommit } from "../bridge.js";
 import type { AccessClaims } from "@still/shared-types";
 
 const vectors = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../../../tests/access-proof/vectors.json"), "utf8"));
@@ -32,7 +32,7 @@ async function setup() {
     observeAppleLinkAccess: vi.fn(async (): Promise<NativeAppleAccessObservation> => ({
       schema: 1, generation: 2, rights: [{ ...ack, status: "purchased" }],
     })),
-    reconcileAccountAccess: vi.fn(async () => ({schema: 1 as const, status: "committed" as const, generation: 3, accountId: vectors.account as string, sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: [account.proof.identity]})),
+    reconcileAccountAccess: vi.fn(async (): Promise<NativeAccountAccessCommit> => ({schema: 1, status: "committed", accountStatus: "verified", generation: 3, accountId: vectors.account as string, sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: [account.proof.identity]})),
     observeBenefits: vi.fn(async () => snapshot),
   };
   const response = {schema: 1, status: "verified", proofs: [localText], issuerTime: claims.verified_at, localRight: claims.right, nativeBinding: "signed-native-binding"};
@@ -242,8 +242,19 @@ describe("Apple account-only authority composition", () => {
   });
   it("an empty committed account result observes independent accepted local benefits", async () => {
     const h = await setup();
-    h.bridge.reconcileAccountAccess.mockResolvedValue({...await h.bridge.reconcileAccountAccess(), proofIdentities: []});
+    h.bridge.reconcileAccountAccess.mockResolvedValue({...await h.bridge.reconcileAccountAccess(), accountStatus: "none", proofIdentities: []});
     expect(await h.authority.refreshAccountAccess()).toBe(h.snapshot);
+    expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
+  });
+  it("unavailable account authority cannot confirm cached benefits after durable native removals", async () => {
+    const h = await setup();
+    const cached = {...h.snapshot, states: {...h.snapshot.states, "youtube.related": "purchased" as const}};
+    h.bridge.observeBenefits.mockResolvedValue(cached);
+    h.bridge.reconcileAccountAccess.mockResolvedValue({...await h.bridge.reconcileAccountAccess(),
+      accountStatus: "unavailable", proofIdentities: []});
+    await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
+    expect(h.bridge.observeBenefits).toHaveBeenCalledOnce();
+    expect(await h.bridge.observeBenefits()).toBe(cached);
     expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
   });
   it.each(["account", "session", "token", "epoch"])("rejects obsolete %s completion before observing benefits", async changed => {
@@ -251,7 +262,7 @@ describe("Apple account-only authority composition", () => {
     h.bridge.reconcileAccountAccess.mockImplementation(async () => {
       if (changed === "token") h.deps.readAccessToken.mockResolvedValue({accountId: vectors.account, accessToken: "replacement-token", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"});
       if (changed === "epoch") h.authority.invalidateAccount();
-      return {schema: 1, status: "committed", generation: 3, accountId: changed === "account" ? claims.right : vectors.account, sessionId: changed === "session" ? claims.right : "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: []};
+      return {schema: 1, status: "committed", accountStatus: "none", generation: 3, accountId: changed === "account" ? claims.right : vectors.account, sessionId: changed === "session" ? claims.right : "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: []};
     });
     await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
     expect(h.bridge.observeBenefits).not.toHaveBeenCalled();

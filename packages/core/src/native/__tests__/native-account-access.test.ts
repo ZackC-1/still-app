@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-const ack = { schema: 1, status: "committed", generation: 2, accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: 1800000000000, proofIdentities: ["synthetic-access:" + "ab".repeat(64)] };
+const ack = { schema: 1, status: "committed", accountStatus: "verified", generation: 2, accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: 1800000000000, proofIdentities: ["synthetic-access:" + "ab".repeat(64)] };
 function host(reply: unknown) {
   const post = vi.fn(async () => reply);
   return { post, bridge: new NativeBridge({ webkit: { messageHandlers: { still: { postMessage: post } } } } as StillBridgeWindow) };
@@ -20,5 +20,16 @@ describe("native account-only reconciliation", () => {
     await expect(h.bridge.reconcileAccountAccess("")).rejects.toThrow();
     await expect(h.bridge.reconcileAccountAccess("x".repeat(16385))).rejects.toThrow();
     expect(h.post).not.toHaveBeenCalled();
+  });
+  it.each(["none", "conflict", "unavailable"])("preserves %s authority independently of a committed removal", async accountStatus => {
+    const reply = {...ack, accountStatus, proofIdentities: []};
+    expect(await host(reply).bridge.reconcileAccountAccess("transient-token")).toEqual(reply);
+  });
+  it.each([
+    {...ack, accountStatus: undefined}, {...ack, accountStatus: "unknown"},
+    {...ack, proofIdentities: []}, {...ack, accountStatus: "none"},
+    {...ack, accountStatus: "unavailable"},
+  ])("rejects missing or inconsistent account authority %j", async reply => {
+    await expect(host(reply).bridge.reconcileAccountAccess("transient-token")).rejects.toThrow();
   });
 });

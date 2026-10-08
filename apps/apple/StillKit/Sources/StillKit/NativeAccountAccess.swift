@@ -3,6 +3,7 @@ import Foundation
 /// Produced only by native's compiled authenticated endpoint, never a JS-supplied snapshot.
 public struct NativeAccountAccessSnapshot {
   let holder: String
+  let accountStatus: String
   let issuerTime: Int
   let proofs: [VerifiedAccessProof]
   let revocations: [AccessRevocation]
@@ -38,13 +39,15 @@ public struct NativeAccountAccessSnapshot {
     guard Set(revocations.map { $0.right }).count == revocations.count,
       !proofs.contains(where: { proof in revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision } })
     else { throw AccessProofFailure.invalid }
-    return Self(holder: holder, issuerTime: issuer, proofs: proofs, revocations: revocations)
+    return Self(holder: holder, accountStatus: status, issuerTime: issuer, proofs: proofs, revocations: revocations)
   }
 }
 
 public struct NativeAccountAccessCommit: Codable {
   public let schema = 1
   public let status = "committed"
+  /// Durable removals can commit even when the account's current authority is unavailable.
+  public let accountStatus: String
   public let generation: Int
   public let accountId: String
   public let sessionId: String

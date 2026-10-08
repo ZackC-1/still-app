@@ -56,6 +56,26 @@ final class NativeAccountAccessTests: XCTestCase {
     _ = try store.installAccountAccess(snapshot([], removals: [["right": f.account, "revision": 2]], status: "none"), session: session, expectedGeneration: generation, wall: f.now)
     XCTAssertEqual(try store.observeAccess(wall: f.now).0.rights.count, 1)
   }
+  func testUnavailableCommitsKnownRemovalAndPreservesIndependentRightWithoutConfirmingAccount() throws {
+    let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: f.trust)
+    let session = try f.verifiedSession()
+    let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)
+    let other = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    let proofs = try [f.envelope(f.claims(holder: f.account).canonical()),
+      f.envelope(f.claims(id: other, holder: f.account).canonical())]
+    _ = try store.installAccountAccess(snapshot(proofs), session: session, expectedGeneration: generation, wall: f.now)
+    let ack = try store.installAccountAccess(snapshot([], removals: [["right": f.right, "revision": 2]], status: "unavailable"),
+      session: session, expectedGeneration: generation, wall: f.now)
+    let wire = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(ack)) as? [String: Any])
+    XCTAssertEqual(wire["accountStatus"] as? String, "unavailable")
+    XCTAssertEqual(wire["status"] as? String, "committed")
+    let reopened = SharedEntitlementStore(backing: backing, trust: f.trust)
+    let record = try reopened.observeAccess(wall: f.now).0
+    XCTAssertEqual(record.rights.count, 1)
+    XCTAssertEqual(record.rights.first?.envelope, proofs[1])
+    XCTAssertEqual(record.accountRevocations.first?.right, f.right)
+    XCTAssertEqual(record.accountRevocations.first?.revision, 2)
+  }
   func testForgedWrongHolderAndMalformedSnapshotsCannotWrite() throws {
     XCTAssertThrowsError(try snapshot(["unsigned"]))
     XCTAssertThrowsError(try snapshot([f.envelope(f.claims().canonical())]))

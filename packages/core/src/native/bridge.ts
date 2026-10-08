@@ -94,6 +94,7 @@ export interface NativeAppleAccessInstall {
 export interface NativeAccountAccessCommit {
   readonly schema: 1;
   readonly status: "committed";
+  readonly accountStatus: "verified" | "none" | "conflict" | "unavailable";
   readonly generation: number;
   readonly accountId: string;
   readonly sessionId: string;
@@ -701,12 +702,15 @@ export class NativeBridge {
       () => this.post({ kind: "reconcileAccountAccess", accessToken }), null, 30_000,
     ));
     if (!result || Array.isArray(result) || Object.keys(result).sort().join(",") !==
-      "accountId,generation,issuerTime,proofIdentities,schema,sessionId,status" || result.schema !== 1 ||
+      "accountId,accountStatus,generation,issuerTime,proofIdentities,schema,sessionId,status" || result.schema !== 1 ||
       result.status !== "committed" || !isSafeAccessInteger(result.generation) ||
+      !["verified", "none", "conflict", "unavailable"].includes(result.accountStatus as string) ||
       !isSafeAccessInteger(result.issuerTime) || !isAccessUUID(result.accountId) || !isAccessUUID(result.sessionId) ||
       !Array.isArray(result.proofIdentities) || result.proofIdentities.length > 16 ||
       result.proofIdentities.some(value => typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}:[0-9a-f]{128}$/.test(value)) ||
-      new Set(result.proofIdentities).size !== result.proofIdentities.length) {
+      new Set(result.proofIdentities).size !== result.proofIdentities.length ||
+      (result.accountStatus === "verified" && result.proofIdentities.length === 0) ||
+      (["none", "unavailable"].includes(result.accountStatus as string) && result.proofIdentities.length !== 0)) {
       throw new Error("Native account access requires verification");
     }
     return result as unknown as NativeAccountAccessCommit;

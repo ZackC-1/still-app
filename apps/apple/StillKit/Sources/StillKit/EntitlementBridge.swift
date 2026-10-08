@@ -331,7 +331,7 @@ public final class SharedEntitlementStore {
           proof.claims.verified_at <= snapshot.issuerTime, (proof.claims.expires_at ?? 0) > snapshot.issuerTime else { throw AccessProofFailure.invalid }
         try upsertAppleProof(proof, into: &record, issuerTime: snapshot.issuerTime, wall: wall)
       }
-      return NativeAccountAccessCommit(generation: record.generation, accountId: session.accountId, sessionId: session.sessionId,
+      return NativeAccountAccessCommit(accountStatus: snapshot.accountStatus, generation: record.generation, accountId: session.accountId, sessionId: session.sessionId,
         issuerTime: snapshot.issuerTime, proofIdentities: snapshot.proofs.map { $0.identity })
     }
   }
