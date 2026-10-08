@@ -14,6 +14,7 @@ import { clientIp, limiterAddress, type RateLimiter, tooManyRequests } from "../
 import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { constantTimeEqual } from "../_shared/token.ts";
 import { runErasureWorker } from "./worker.ts";
+import { readBoundedBody } from "../_shared/request-body.ts";
 
 // Device-slice erasure (U5-W2). Called by a device that has turned sharing off, with or without an
 // account (D144: stopping never needs a signup), and by the deletion worker.
@@ -75,30 +76,8 @@ const invalid = () => jsonResponse(400, { error: "invalid_request" });
 const unavailable = () => jsonResponse(503, { error: "unavailable" });
 
 async function readBody(req: Request): Promise<Record<string, unknown> | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
-  const reader = req.body?.getReader();
-  if (!reader) return null;
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
   try {
-    const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    const value = JSON.parse(await readBoundedBody(req, { maxBytes: MAX_BODY_BYTES }));
     return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch {
     return null;

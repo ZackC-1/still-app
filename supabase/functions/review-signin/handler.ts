@@ -6,6 +6,7 @@ import {
 } from "../_shared/rate-limit.ts";
 import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { constantTimeEqual } from "../_shared/token.ts";
+import { readBoundedBody } from "../_shared/request-body.ts";
 
 // Deterministic App Review sign-in (plan 2026-07-15-002, U3). Apple reviewers cannot receive OTP
 // email, so ONE designated review address may sign in with a fixed verification code disclosed in
@@ -85,7 +86,7 @@ export async function handleReviewSignin(req: Request, deps: ReviewSigninDeps): 
 
   let raw: unknown;
   try {
-    raw = await req.json();
+    raw = JSON.parse(await readBoundedBody(req, { maxBytes: 1024 }));
   } catch {
     return jsonResponse(400, { error: "bad_request" });
   }
