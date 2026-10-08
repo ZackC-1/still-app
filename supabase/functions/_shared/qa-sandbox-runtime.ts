@@ -1,6 +1,6 @@
 import type postgres from "postgres";
-import { authenticatedClaims, verifyJwt } from "./jwt.ts";
-import { withAuthenticatedUser, type AuthDeps } from "./auth.ts";
+import { authenticatedClaims } from "./jwt.ts";
+import { withAuthenticatedUser, confirmedAccountExpiry as confirmed, type AuthDeps } from "./auth.ts";
 import { type AppleAccessVerifier } from "./apple-access.ts";
 import { createAppleFulfillmentRuntimeFromConfig } from "./apple-access-runtime.ts";
 import { HttpConfirmedAppleAccounts, type AppleFulfillmentDeps, type ConfirmedAppleAccountPort } from "./apple-fulfillment.ts";
@@ -27,17 +27,6 @@ export interface QaSandboxRuntimePorts {
   readonly accounts?: ConfirmedAppleAccountPort;
   readonly appleVerifier?: AppleAccessVerifier;
   readonly provider?: RevenueCatAccessClient;
-}
-
-async function confirmed(token: string, holder: string, deps: AuthDeps & { readonly accounts?: ConfirmedAppleAccountPort }): Promise<number | null> {
-  try {
-    const claims = await verifyJwt(token, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
-    if (!(claims && claims.sub === holder && claims.role === "authenticated" && claims.aud === "authenticated" &&
-      claims.is_anonymous !== true && typeof claims.exp === "number" && Number.isFinite(claims.exp) && claims.exp * 1000 > Date.now() &&
-      deps.accounts)) return null;
-    const expiresAt = claims.exp * 1000;
-    return await deps.accounts.confirmed(token, holder) && expiresAt > Date.now() ? expiresAt : null;
-  } catch { return null; }
 }
 
 /** Preserve existing Apple fulfillment and fixed QA RPCs; local verification requires no account. */

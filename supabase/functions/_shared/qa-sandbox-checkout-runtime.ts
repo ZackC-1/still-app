@@ -1,7 +1,7 @@
 import type postgres from "postgres";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { withAuthenticatedUser, type AuthDeps } from "./auth.ts";
-import { authenticatedClaims, verifyJwt } from "./jwt.ts";
+import { withAuthenticatedUser, confirmedAccountExpiry as authorized, type AuthDeps } from "./auth.ts";
+import { authenticatedClaims } from "./jwt.ts";
 import { isUuid } from "./types.ts";
 import { jsonResponse } from "./store.ts";
 import { enforceRateLimit, type RateLimiter } from "./rate-limit.ts";
@@ -122,15 +122,6 @@ async function body(req: Request, complete: boolean): Promise<{ operation?: stri
     return { ...(typeof value.operation_id === "string" ? { operation: value.operation_id.toLowerCase() } : {}) };
   } catch { return null; }
   finally { clearTimeout(timer); reader.releaseLock(); }
-}
-async function authorized(token: string, holder: string, deps: QaSandboxCheckoutDeps): Promise<number | null> {
-  try {
-    const claims = await verifyJwt(token,{ hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
-    if (claims?.sub !== holder || claims.role !== "authenticated" || claims.aud !== "authenticated" || claims.is_anonymous === true ||
-      typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now()) return null;
-    // Check expiry after the live Auth response as well; its latency cannot extend a JWT.
-    return await deps.accounts.confirmed(token,holder) && claims.exp * 1000 > Date.now() ? claims.exp * 1000 : null;
-  } catch { return null; }
 }
 function identity(operation: QaPurchaseOperation): QaCheckoutOperation { return { operationId: operation.operation_id, holderId: operation.holder }; }
 function scoped(operation: QaPurchaseOperation, holder: string, deps: QaSandboxCheckoutDeps): boolean {

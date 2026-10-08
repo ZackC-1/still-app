@@ -1,7 +1,6 @@
 import { PAID_ACCESS_WINDOW_MS } from "@still/shared-types";
 import type { AuthDeps } from "./auth.ts";
-import { withAuthenticatedUser } from "./auth.ts";
-import { verifyJwt } from "./jwt.ts";
+import { withAuthenticatedUser, confirmedAccountExpiry as confirmed } from "./auth.ts";
 import { isUuid } from "./types.ts";
 import { clientIp, limiterAddress, tooManyRequests, type RateLimiter } from "./rate-limit.ts";
 import { jsonResponse, optionsResponse } from "./store.ts";
@@ -59,16 +58,6 @@ async function limited(req: Request, deps: AppleFulfillmentDeps, holder?: string
   }
   return null;
 }
-async function confirmed(reqToken: string, holder: string, deps: AppleFulfillmentDeps): Promise<number | null> {
-  const claims = await verifyJwt(reqToken, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
-  if (!(claims && claims.sub === holder && typeof claims.exp === "number" && Number.isFinite(claims.exp) &&
-    claims.exp * 1000 > Date.now() && claims.role === "authenticated" &&
-    claims.aud === "authenticated" && claims.is_anonymous !== true &&
-    deps.accounts)) return null;
-  const expiresAt = claims.exp * 1000;
-  return await deps.accounts.confirmed(reqToken, holder) && expiresAt > Date.now() ? expiresAt : null;
-}
-
 async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link?: AppleAccessLink, authorize?: () => Promise<boolean>, currentAuthority?: () => boolean): Promise<Response> {
   const access = deps.access;
   if (!access || !access.signer.signAppleBinding) return unavailable();
