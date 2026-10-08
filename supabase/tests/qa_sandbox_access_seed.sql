@@ -1,6 +1,12 @@
 -- TEST ONLY. Apply on disposable GitHub-hosted Linux Supabase after 0020 and BEFORE 0021.
 -- Clean-install test may run this after 0021; pre_state distinguishes its evidence honestly.
 begin;
+do $$
+begin
+ if current_user<>'postgres' or session_user<>'postgres' or not exists(select 1 from pg_roles where rolname=current_user and not rolsuper and rolcreaterole)
+  or current_setting('server_version_num')::integer<170000 then raise exception 'ordinary PostgreSQL17 postgres rehearsal required'; end if;
+end;
+$$;
 create schema qa_sandbox_fixture;
 revoke all on schema qa_sandbox_fixture from public;
 insert into auth.users(id,email,email_confirmed_at) values

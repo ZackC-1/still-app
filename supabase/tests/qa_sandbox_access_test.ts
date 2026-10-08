@@ -63,6 +63,14 @@ Deno.test({
       ),
     );
     try {
+      const operator =
+        (await admin`select current_user as actor,session_user as login,rolsuper,rolcreaterole from pg_roles where rolname=current_user`)[
+          0
+        ]!;
+      assertEquals(operator.actor, "postgres");
+      assertEquals(operator.login, "postgres");
+      assertEquals(operator.rolsuper, false);
+      assertEquals(operator.rolcreaterole, true);
       if (
         !(await admin`select to_regclass('qa_sandbox_fixture.baseline') as fixture`)[
           0
@@ -93,6 +101,35 @@ Deno.test({
             assertEquals(pre.absent_invocation_rejected, !pre.qa_present);
           }
           assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
+        },
+      );
+      await t.step(
+        "catalog gate rejects disabled/forced RLS, extra policy and noninternal trigger",
+        async () => {
+          const corruptions = [
+            "alter table private.access_rights disable row level security",
+            "alter table private.access_rights force row level security",
+            "create policy synthetic_broad on private.access_rights to public using(true)",
+            "create function qa_sandbox_fixture.synthetic_trigger() returns trigger language plpgsql as $$begin return new;end;$$; create trigger synthetic_qa_trigger before update on private.access_rights for each row execute function qa_sandbox_fixture.synthetic_trigger()",
+          ];
+          for (const corruption of corruptions) {
+            await assertRejects(
+              async () =>
+                admin.begin(async (tx) => {
+                  await tx.unsafe(corruption);
+                  const issues = (await tx.unsafe(gate))[0]!.coalesce;
+                  assert(issues.some((issue: string) =>
+                    issue.startsWith("QA_shared_RLS:") ||
+                    issue.startsWith("QA_extra_policy:") ||
+                    issue.startsWith("QA_shared_trigger:")
+                  ));
+                  throw new Error("catalog-drift-rehearsal");
+                }),
+              Error,
+              "catalog-drift-rehearsal",
+            );
+            assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
+          }
         },
       );
       await admin`alter role still_qa_sandbox_writer login password 'qa-sandbox-synthetic-only'`;
@@ -216,6 +253,36 @@ Deno.test({
           );
         },
       );
+      await t.step(
+        "QA negative/transfer cannot mutate a production-only key or right",
+        async () => {
+          const prod =
+            (await admin`select right_id from private.access_rights where environment='production' and provider_key=${
+              "21".repeat(32)
+            }`)[0]!.right_id;
+          const before = Array.from(
+            await admin`select to_jsonb(r) as row from private.access_rights r where environment='production' order by right_id`,
+          );
+          await assertRejects(async () =>
+            commit(A, await begin(), [{
+              key: "21".repeat(32),
+              product: "still_sync",
+              state: "revoked",
+            }])
+          );
+          const result =
+            (await q`select public.qa_sandbox_transfer_access_right(${crypto.randomUUID()}::uuid,${prod}::uuid,${A}::uuid,${B}::uuid,0) as result`)[
+              0
+            ]!.result;
+          assertEquals(result, { status: "unavailable" });
+          assertEquals(
+            Array.from(
+              await admin`select to_jsonb(r) as row from private.access_rights r where environment='production' order by right_id`,
+            ),
+            before,
+          );
+        },
+      );
       productionBefore = Array.from(
         await admin`select to_jsonb(r) as row from private.access_rights r where environment='production' order by right_id`,
       );
@@ -269,6 +336,80 @@ Deno.test({
         },
       );
       await t.step(
+        "banned former provider holder can persist only canonical known refund after transfer",
+        async () => {
+          const key = "f214".repeat(16),
+            purchase = [{ key, product: "still_pro_v3" }];
+          const first = await commit(A, await begin(), purchase),
+            right = first.observed_rights[0].right;
+          await q`select public.qa_sandbox_transfer_access_right(${crypto.randomUUID()}::uuid,${right}::uuid,${A}::uuid,${B}::uuid,0)`;
+          const before = await begin(B);
+          await commit(B, before, purchase);
+          await admin`update auth.users set banned_until=clock_timestamp()+interval '1 hour' where id=${A}::uuid`;
+          assertEquals(
+            (await q`select public.qa_sandbox_account_enabled(${A}::uuid) as enabled`)[
+              0
+            ]?.enabled,
+            false,
+          );
+          await assertRejects(
+            async () =>
+              commit(A, await begin(), [{
+                key: "f215".repeat(16),
+                product: "still_pro_v3",
+              }]),
+            Error,
+            "QA membership disabled",
+          );
+          await assertRejects(
+            async () =>
+              commit(A, await begin(), [{
+                key: "f215".repeat(16),
+                product: "still_pro_v3",
+                state: "revoked",
+              }]),
+            Error,
+            "unknown QA negative transaction",
+          );
+          const token = await begin(),
+            result = await commit(A, token, [{
+              ...purchase[0],
+              state: "revoked",
+            }]);
+          assertEquals(result.rights, []);
+          assertEquals(result.observed_rights, []);
+          assert(
+            (await q`select public.qa_sandbox_read_access_removals(${A}::uuid,${token}::uuid) as result`)[
+              0
+            ]!.result,
+          );
+          const current =
+            (await admin`select active,holder,ownership_revision::int as revision from private.access_rights where right_id=${right}::uuid`)[
+              0
+            ]!;
+          assertEquals(current.active, false);
+          assertEquals(current.holder, B);
+          assertEquals(current.revision, 2);
+          assertEquals(
+            (await q`select public.qa_sandbox_confirm_access_observation(${B}::uuid,${before}::uuid) as confirmed`)[
+              0
+            ]?.confirmed,
+            false,
+          );
+          assertEquals(
+            (await commit(B, await begin(B), purchase)).observed_rights,
+            [],
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.access_rights where provider_key=${
+              "f215".repeat(16)
+            }`)[0]?.count,
+            0,
+          );
+          await admin`update auth.users set banned_until=null where id=${A}::uuid`;
+        },
+      );
+      await t.step(
         "membership disable waits on common row lock and denies in-flight positive commit atomically",
         async () => {
           const token = await begin();
@@ -289,9 +430,9 @@ Deno.test({
             (result) => ({ result, error: null }),
             (error) => ({ result: null, error }),
           );
+          let blocked = false;
           try {
-            let blocked = false;
-            for (let i = 0; i < 100; i++) {
+            for (let i = 0; i < 20; i++) {
               blocked = Number(
                 (await admin`select count(*)::int as count from pg_stat_activity where usename='still_qa_sandbox_writer' and wait_event_type='Lock'`)[
                   0
@@ -300,15 +441,19 @@ Deno.test({
               if (blocked) break;
               await new Promise((resolve) => setTimeout(resolve, 20));
             }
-            assert(
-              blocked,
-              "actual positive commit did not wait on the operator membership transaction",
-            );
           } finally {
             release();
             await disabling;
           }
-          assert((await attempted).error instanceof Error);
+          const outcome = await attempted;
+          assert(outcome.error instanceof Error);
+          assert(
+            blocked ||
+              (outcome.error as Error & { code?: string }).code === "55P03",
+            "no actual lock wait or bounded lock-timeout denial observed",
+          );
+          const denialCode = (outcome.error as Error & { code?: string }).code;
+          assert(denialCode === "42501" || denialCode === "55P03");
           assertEquals(
             (await admin`select enabled from private.qa_sandbox_subjects where holder=${A}::uuid`)[
               0
@@ -459,9 +604,20 @@ Deno.test({
             (await prepare(crypto.randomUUID())).operation_id,
             first.operation_id,
           );
-          await assertRejects(async () => prepare(operation, B));
+          await admin`update private.qa_sandbox_subjects set enabled=true,revision=revision+1 where holder=${B}::uuid`;
+          await assertRejects(
+            async () => prepare(operation, B),
+            Error,
+            "checkout retry changed",
+          );
           await assertRejects(async () =>
             prepare(operation, A, "d".repeat(64))
+          );
+          await assertRejects(
+            async () =>
+              q`select public.qa_sandbox_record_checkout_status(${operation}::uuid,null,'recovery_required')`,
+            Error,
+            "unbound QA checkout Session",
           );
           const claim = async () =>
             (await q`select public.qa_sandbox_claim_checkout_creation(${operation}::uuid,${A}::uuid,${CONFIG}) as result`)[
@@ -534,21 +690,32 @@ Deno.test({
         "QA limiter uses exact separate quotas and never stores clear IP/subject",
         async () => {
           const bucket = "qa-sandbox-checkout:ip:198.51.100.212";
-          assertEquals(
-            (await q`select public.qa_sandbox_consume_rate_limit(${bucket},20,60) as retry`)[
-              0
-            ]?.retry,
-            0,
-          );
-          for (let i = 0; i < 20; i++) {
-            await q`select public.qa_sandbox_consume_rate_limit(${bucket},20,60)`;
+          let tested = false;
+          for (let round = 0; round < 2; round++) {
+            const initial =
+              (await admin`select floor(extract(epoch from clock_timestamp())/60)::bigint::text as window`)[
+                0
+              ]!.window;
+            let wait = 0;
+            for (let i = 0; i < 22; i++) {
+              wait = Number(
+                (await q`select public.qa_sandbox_consume_rate_limit(${bucket},20,60) as retry`)[
+                  0
+                ]?.retry,
+              );
+            }
+            const final =
+              (await admin`select floor(extract(epoch from clock_timestamp())/60)::bigint::text as window`)[
+                0
+              ]!.window;
+            if (initial !== final) continue;
+            assert(wait > 0);
+            tested = true;
+            break;
           }
           assert(
-            Number(
-              (await q`select public.qa_sandbox_consume_rate_limit(${bucket},20,60) as retry`)[
-                0
-              ]?.retry,
-            ) > 0,
+            tested,
+            "two bounded limiter attempts crossed window boundaries",
           );
           await assertRejects(async () =>
             q`select public.qa_sandbox_consume_rate_limit('checkout:ip:198.51.100.212',20,60)`
@@ -584,10 +751,40 @@ Deno.test({
             /commit;\s*$/,
             "",
           );
+          // Test-only, argument-free helper holds the exact frozen restore text. This lets the
+          // real writer login own the outer rollback transaction without granting it DDL authority.
+          await admin.unsafe(
+            `create function qa_sandbox_fixture.restore_exact_public_bodies() returns void language plpgsql security definer set search_path=pg_catalog,pg_temp as $qa_restore_fn$begin if session_user<>'still_entitlement_writer' then raise exception 'synthetic writer required' using errcode='42501';end if;execute $qa_restore_sql$${body}$qa_restore_sql$;end;$qa_restore_fn$;revoke all on function qa_sandbox_fixture.restore_exact_public_bodies() from public;grant usage on schema qa_sandbox_fixture to still_entitlement_writer;grant select on qa_sandbox_fixture.pre_state,qa_sandbox_fixture.live_routines to still_entitlement_writer;grant execute on function qa_sandbox_fixture.restore_exact_public_bodies() to still_entitlement_writer;`,
+          );
           await assertRejects(
             async () =>
-              admin.begin(async (tx) => {
-                await tx.unsafe(body);
+              live.begin(async (tx) => {
+                await tx`select qa_sandbox_fixture.restore_exact_public_bodies()`;
+                assertEquals(
+                  (await tx`select session_user as actor`)[0]?.actor,
+                  "still_entitlement_writer",
+                );
+                const restoredToken =
+                  (await tx`select public.begin_access_observation(${A}::uuid,'production') as token`)[
+                    0
+                  ]!.token;
+                const restored =
+                  (await tx`select public.commit_access_observation(${A}::uuid,'production',${restoredToken}::uuid,'[]'::jsonb) as result`)[
+                    0
+                  ]!.result;
+                assertEquals(restored.status, "committed");
+                assertEquals(
+                  (await tx`select public.confirm_access_observation(${A}::uuid,'production',${restoredToken}::uuid) as confirmed`)[
+                    0
+                  ]?.confirmed,
+                  true,
+                );
+                await assertRejects(
+                  async () =>
+                    q`select public.begin_access_observation(${A}::uuid,'production')`,
+                  Error,
+                  "permission denied",
+                );
                 for (
                   const row
                     of await tx`select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('begin_access_observation','commit_access_observation','confirm_access_observation','transfer_access_right','begin_apple_access_observation','commit_apple_access_observation','confirm_apple_access_observation','read_linked_apple_transactions','read_access_removals')`
@@ -639,6 +836,7 @@ Deno.test({
             before,
           );
           assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
+          await admin`drop function qa_sandbox_fixture.restore_exact_public_bodies()`;
         },
       );
     } finally {

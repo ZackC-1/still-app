@@ -3,8 +3,22 @@
 -- Exact prior definitions/ACL rollback lives in scripts/backend/deploy/rollback/0021_qa_sandbox_access.sql.
 -- No existing row, sales policy, legacy entitlement projection or historical provider mapping changes.
 begin;
+-- Rehearse/apply as the same ordinary PG17 postgres CREATEROLE operator as hosted Supabase.
+do $$
+begin
+ if current_user<>'postgres' or session_user<>'postgres' or current_setting('server_version_num')::integer<170000
+  or not exists(select 1 from pg_catalog.pg_roles where rolname=current_user and not rolsuper and rolcreaterole) then
+  raise exception 'ordinary PostgreSQL17 postgres operator required';
+ end if;
+end;
+$$;
 create role still_qa_sandbox_writer nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
 create role still_qa_sandbox_owner nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+alter role still_qa_sandbox_writer set lock_timeout='1s';
+alter role still_qa_sandbox_writer set statement_timeout='2s';
+alter role still_qa_sandbox_writer set idle_in_transaction_session_timeout='5s';
+alter role still_qa_sandbox_writer set log_parameter_max_length=0;
+alter role still_qa_sandbox_writer set log_parameter_max_length_on_error=0;
 grant usage on schema public to still_qa_sandbox_writer;
 grant usage on schema public, private, auth, extensions to still_qa_sandbox_owner;
 -- No login inherits or can SET ROLE to the wrapper owner. Provision only writer LOGIN later.
@@ -486,12 +500,12 @@ end;
 $$;
 
 -- Shared literal body from latest 0019/0020 read_access_removals; no catalog/body rewrite at apply.
-create function private.read_access_removals_core(p_holder uuid,p_environment text,p_token uuid) returns jsonb
+create function private.read_access_removals_core(p_holder uuid,p_environment text,p_token uuid,p_confirmed_required boolean default true) returns jsonb
 language plpgsql security invoker set search_path=pg_catalog,pg_temp as $$
 declare v_token uuid; v_revocations jsonb;
 begin
  if p_holder is null or p_environment is null or p_environment not in ('sandbox','production') or p_token is null then return null; end if;
- if not exists(select 1 from auth.users where id=p_holder and email_confirmed_at is not null and deleted_at is null
+ if p_confirmed_required and not exists(select 1 from auth.users where id=p_holder and email_confirmed_at is not null and deleted_at is null
    and (banned_until is null or banned_until<=clock_timestamp())) then return null; end if;
  select token into v_token from private.access_observations where holder=p_holder and environment=p_environment for share;
  if not found or v_token<>p_token then return null; end if;
@@ -504,8 +518,8 @@ begin
    'issuer_time',floor(extract(epoch from clock_timestamp())*1000)::bigint);
 end;
 $$;
-revoke all on function private.read_access_removals_core(uuid, text, uuid) from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer;
-grant execute on function private.read_access_removals_core(uuid, text, uuid) to still_qa_sandbox_owner;
+revoke all on function private.read_access_removals_core(uuid, text, uuid, boolean) from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer;
+grant execute on function private.read_access_removals_core(uuid, text, uuid, boolean) to still_qa_sandbox_owner;
 create or replace function public.read_access_removals(p_holder uuid,p_environment text,p_token uuid) returns jsonb
 language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
@@ -537,6 +551,7 @@ begin
  if session_user <> 'still_qa_sandbox_writer' then raise exception 'QA server role required' using errcode='42501'; end if;
  select email_confirmed_at is not null and deleted_at is null and (banned_until is null or banned_until<=clock_timestamp())
   into confirmed from auth.users where id=p_holder for share;
+ if not found then raise exception 'QA account unavailable' using errcode='42501'; end if;
  return coalesce(confirmed,false);
 end;
 $$;
@@ -545,15 +560,16 @@ grant execute on function private.qa_sandbox_confirmed_account(uuid) to still_qa
 
 create function private.qa_sandbox_subject(p_holder uuid,p_positive boolean) returns boolean
 language plpgsql security invoker set search_path=pg_catalog,pg_temp as $$
-declare admitted boolean;
+declare admitted boolean; confirmed boolean;
 begin
  perform private.qa_sandbox_session();
  -- Auth row before membership: deletion's auth FK cascades use the same order.
- if not private.qa_sandbox_confirmed_account(p_holder) then raise exception 'QA account unavailable' using errcode='42501'; end if;
+ confirmed:=private.qa_sandbox_confirmed_account(p_holder);
  select enabled into admitted from private.qa_sandbox_subjects where holder=p_holder for update;
  if not found then
   raise exception 'QA account unavailable' using errcode='42501';
  end if;
+ admitted:=admitted and confirmed;
  if p_positive and not admitted then raise exception 'QA membership disabled' using errcode='42501'; end if;
  return admitted;
 end;
@@ -627,7 +643,7 @@ create function public.qa_sandbox_read_access_removals(p_holder uuid,p_token uui
 language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
  perform private.qa_sandbox_subject(p_holder,false);
- return private.read_access_removals_core(p_holder,'sandbox',p_token);
+ return private.read_access_removals_core(p_holder,'sandbox',p_token,false);
 end;
 $$;
 create function public.qa_sandbox_transfer_access_right(p_operation uuid,p_right uuid,p_from uuid,p_to uuid,p_revision bigint) returns jsonb
@@ -765,7 +781,7 @@ begin
  perform private.qa_sandbox_session();
  select * into stored from private.qa_sandbox_purchase_operations where operation_id=p_operation and stripe_session_id is not distinct from p_session for update;
  if not found then raise exception 'unknown QA checkout Session'; end if;
- if p_session is null and p_status<>'recovery_required' then raise exception 'unbound QA checkout Session'; end if;
+ if p_session is null and (p_status<>'recovery_required' or stored.creation_started_at is null) then raise exception 'unbound QA checkout Session'; end if;
  if stored.status=p_status then return to_jsonb(stored); end if;
  if stored.status in ('refunded','closed_unpaid') then raise exception 'terminal QA checkout operation'; end if;
  if p_status='refunded' then null; -- Exact known Session canonical negative; disabled membership allowed.
@@ -877,15 +893,32 @@ revoke still_qa_sandbox_owner from postgres;
 
 -- Fail closed at apply if a QA credential can inherit privileged roles or reach live mutation.
 do $$
-declare role_name text; sig text; relation text;
+declare role_name text; sig text; relation text; setting text;
 begin
  if exists(select 1 from pg_catalog.pg_auth_members m join pg_catalog.pg_roles r on r.oid=m.member
    where r.rolname in ('still_qa_sandbox_writer','still_qa_sandbox_owner'))
   or exists(select 1 from pg_catalog.pg_auth_members m join pg_catalog.pg_roles r on r.oid=m.roleid
-   where r.rolname='still_qa_sandbox_owner') then raise exception 'unsafe QA role membership'; end if;
+   where r.rolname in ('still_qa_sandbox_writer','still_qa_sandbox_owner') and not (m.member=(select oid from pg_catalog.pg_roles where rolname='postgres')
+    and m.admin_option and not m.inherit_option and not m.set_option
+    and exists(select 1 from pg_catalog.pg_roles grantor where grantor.oid=m.grantor and grantor.rolsuper))) then raise exception 'unsafe QA role membership'; end if;
  foreach role_name in array array['still_qa_sandbox_writer','still_qa_sandbox_owner'] loop
   if not exists(select 1 from pg_catalog.pg_roles where rolname=role_name and not rolcanlogin and not rolinherit
    and not rolsuper and not rolcreaterole and not rolcreatedb and not rolreplication and not rolbypassrls) then raise exception 'unsafe QA role'; end if;
+ end loop;
+ if not exists(select 1 from pg_catalog.pg_proc p where p.oid='private.read_access_removals_core(uuid,text,uuid,boolean)'::regprocedure
+  and p.pronargdefaults=1 and pg_catalog.pg_get_expr(p.proargdefaults,0)='true') then raise exception 'unsafe production removal default'; end if;
+ foreach setting in array array['lock_timeout=1s','statement_timeout=2s','idle_in_transaction_session_timeout=5s','log_parameter_max_length=0','log_parameter_max_length_on_error=0'] loop
+  if not exists(select 1 from pg_catalog.pg_db_role_setting where setrole=(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_writer')
+   and setdatabase=0 and setting=any(setconfig)) then raise exception 'unsafe QA role settings'; end if;
+ end loop;
+ foreach relation in array array['access_observations','access_rights','access_revocations','access_transfer_operations','apple_access_observations','apple_access_link_operations'] loop
+  if not exists(select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname=relation and c.relrowsecurity and not c.relforcerowsecurity) then raise exception 'unsafe shared QA RLS'; end if;
+  if (select count(*) from pg_catalog.pg_policy p join pg_catalog.pg_class c on c.oid=p.polrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname=relation)<>1
+   or not exists(select 1 from pg_catalog.pg_policy p join pg_catalog.pg_class c on c.oid=p.polrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='private' and c.relname=relation and p.polname='qa_sandbox_owner' and p.polcmd='*' and p.polpermissive
+     and p.polroles=array[(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_owner')]
+     and pg_catalog.pg_get_expr(p.polqual,p.polrelid)='(environment = ''sandbox''::text)' and pg_catalog.pg_get_expr(p.polwithcheck,p.polrelid)='(environment = ''sandbox''::text)') then raise exception 'unsafe shared QA policy'; end if;
+  if exists(select 1 from pg_catalog.pg_trigger t join pg_catalog.pg_class c on c.oid=t.tgrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname=relation and not t.tgisinternal) then raise exception 'unsafe shared QA trigger'; end if;
  end loop;
  foreach sig in array array[
   'public.begin_access_observation(uuid,text)','public.commit_access_observation(uuid,text,uuid,jsonb)',
