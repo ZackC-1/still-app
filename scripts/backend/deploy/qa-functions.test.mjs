@@ -69,9 +69,8 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
   await put(
     cwd,
     "supabase/config.toml",
-    QA_FUNCTIONS.map(
-      ({ name, verifyJwt }) =>
-        `[functions.${name}]\nverify_jwt = ${verifyJwt}\nimport_map = "./functions/${name}/deno.json"\n`,
+    QA_FUNCTIONS.map(({ name, verifyJwt }) =>
+      `[functions.${name}]\nverify_jwt = ${verifyJwt}\nimport_map = "./functions/${name}/deno.json"\n`
     ).join("\n"),
   );
   await put(cwd, "supabase/functions/deno.json", "{}");
@@ -118,12 +117,10 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
   }));
   const state = {
     functions: [production, ...(existingQa ? existing : [])].sort((a, b) =>
-      a.slug.localeCompare(b.slug),
+      a.slug.localeCompare(b.slug)
     ),
-    secrets: REQUIRED_SECRETS.map((name) => ({
-      name,
-      digest: "b".repeat(64),
-    })).sort((a, b) => a.name.localeCompare(b.name)),
+    secrets: REQUIRED_SECRETS.map((name) => ({ name, digest: "b".repeat(64) }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
     roles: ["synthetic narrow roles"],
     catalog: {
       issues: [],
@@ -151,10 +148,10 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
       const output = file.endsWith("role-facts.sql")
         ? state.roles
         : file.endsWith("qa-function-prerequisites.sql")
-          ? [state.catalog]
-          : controls.missingGate
-            ? ["synthetic_missing_role"]
-            : [];
+        ? [state.catalog]
+        : controls.missingGate
+        ? ["synthetic_missing_role"]
+        : [];
       return {
         code: controls.schemaMissing ? 1 : 0,
         stdout: JSON.stringify(output),
@@ -214,13 +211,11 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
       if (url.endsWith("/approvals")) {
         return json(
           controls.approval
-            ? [
-                {
-                  state: "approved",
-                  user: { id: OWNER_REVIEWER_ID },
-                  environments: [{ id: 7 }],
-                },
-              ]
+            ? [{
+              state: "approved",
+              user: { id: OWNER_REVIEWER_ID },
+              environments: [{ id: 7 }],
+            }]
             : [],
         );
       }
@@ -228,12 +223,10 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
         id: 7,
         name: "supabase-production",
         can_admins_bypass: false,
-        protection_rules: [
-          {
-            type: "required_reviewers",
-            reviewers: [{ type: "User", reviewer: { id: OWNER_REVIEWER_ID } }],
-          },
-        ],
+        protection_rules: [{
+          type: "required_reviewers",
+          reviewers: [{ type: "User", reviewer: { id: OWNER_REVIEWER_ID } }],
+        }],
         deployment_branch_policy: {
           custom_branch_policies: true,
           protected_branches: false,
@@ -359,7 +352,8 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
     EXPECTED_PLAN_DIGEST: plan.digest,
     SUPABASE_PRODUCTION_PROJECT_REF: REF,
     SUPABASE_PRODUCTION_ACCESS_TOKEN: "synthetic-token",
-    SUPABASE_DB_URL: `postgresql://postgres.${REF}:synthetic-secret@aws-0-us-west-2.pooler.supabase.com:5432/postgres`,
+    SUPABASE_DB_URL:
+      `postgresql://postgres.${REF}:synthetic-secret@aws-0-us-west-2.pooler.supabase.com:5432/postgres`,
   };
   return {
     state,
@@ -374,11 +368,9 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
     fetchImpl,
     gitCmd,
     receipts,
-    run(
-      onProgress = (receipt) => {
-        receipts.push(receipt);
-      },
-    ) {
+    run(onProgress = (receipt) => {
+      receipts.push(receipt);
+    }) {
       return runQaFunctionOperation({
         plan,
         env,
@@ -396,52 +388,40 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
 
 test("baseline-only is a QA-only operation and never becomes a migration apply", async () => {
   await assert.rejects(
-    main(
-      ["plan"],
-      {
-        DEPLOY_MODE: "baseline-only",
-        DEPLOY_OPERATION: "migrations",
-        DEPLOY_SHA: "a".repeat(40),
-        DEPLOY_MIGRATIONS: "0021_qa_sandbox_access.sql",
-      },
-      { out: { write() {} } },
-    ),
+    main(["plan"], {
+      DEPLOY_MODE: "baseline-only",
+      DEPLOY_OPERATION: "migrations",
+      DEPLOY_SHA: "a".repeat(40),
+      DEPLOY_MIGRATIONS: "0021_qa_sandbox_access.sql",
+    }, { out: { write() {} } }),
     (error) => error.category === "mode-invalid",
   );
 });
 
 test("QA function plan rejects caller-selected functions before compiling", async () => {
   await assert.rejects(
-    main(
-      ["plan"],
-      {
-        DEPLOY_MODE: "plan-only",
-        DEPLOY_OPERATION: "qa-sandbox-functions",
-        DEPLOY_SHA: "a".repeat(40),
-        DEPLOY_FUNCTIONS: "reconcile-entitlement",
-      },
-      { out: { write() {} } },
-    ),
+    main(["plan"], {
+      DEPLOY_MODE: "plan-only",
+      DEPLOY_OPERATION: "qa-sandbox-functions",
+      DEPLOY_SHA: "a".repeat(40),
+      DEPLOY_FUNCTIONS: "reconcile-entitlement",
+    }, { out: { write() {} } }),
     (error) => error.category === "qa-input-invalid",
   );
 });
 
 test("QA no-receipt closing record preserves unknown function outcome", async () => {
   let output = "";
-  await main(
-    ["final-summary", "--receipt", "/nonexistent/qa-receipt.json"],
-    {
-      DEPLOY_OPERATION: "qa-sandbox-functions",
-      APPLY_OUTCOME: "cancelled",
-    },
-    {
-      out: {
-        write(text) {
-          output += text;
-        },
+  await main(["final-summary", "--receipt", "/nonexistent/qa-receipt.json"], {
+    DEPLOY_OPERATION: "qa-sandbox-functions",
+    APPLY_OUTCOME: "cancelled",
+  }, {
+    out: {
+      write(text) {
+        output += text;
       },
     },
-  );
+  });
   assert.match(output, /function outcome unknown/i);
   assert.match(output, /fix-forward/i);
   assert.doesNotMatch(output, /check.*migration history/i);
@@ -449,21 +429,17 @@ test("QA no-receipt closing record preserves unknown function outcome", async ()
 
 test("skipped QA apply without a receipt is definitely before any function write", async () => {
   let output = "";
-  await main(
-    ["final-summary", "--receipt", "/nonexistent/qa-receipt.json"],
-    {
-      DEPLOY_OPERATION: "qa-sandbox-functions",
-      APPLY_OUTCOME: "skipped",
-      JOB_STATUS: "failure",
-    },
-    {
-      out: {
-        write(text) {
-          output += text;
-        },
+  await main(["final-summary", "--receipt", "/nonexistent/qa-receipt.json"], {
+    DEPLOY_OPERATION: "qa-sandbox-functions",
+    APPLY_OUTCOME: "skipped",
+    JOB_STATUS: "failure",
+  }, {
+    out: {
+      write(text) {
+        output += text;
       },
     },
-  );
+  });
   assert.match(output, /stopped-before-write/);
   assert.doesNotMatch(output, /outcome unknown|partial upload|fix-forward/i);
 });
@@ -484,19 +460,15 @@ test("interrupted receipt after a verified subset still needs fix-forward", asyn
     }),
   );
   let output = "";
-  await main(
-    ["final-summary", "--receipt", path],
-    {
-      DEPLOY_OPERATION: "qa-sandbox-functions",
-    },
-    {
-      out: {
-        write(text) {
-          output += text;
-        },
+  await main(["final-summary", "--receipt", path], {
+    DEPLOY_OPERATION: "qa-sandbox-functions",
+  }, {
+    out: {
+      write(text) {
+        output += text;
       },
     },
-  );
+  });
   assert.match(output, /function-outcome-unknown/);
   assert.match(output, /fix-forward/);
   assert.doesNotMatch(output, /none needed/);
@@ -519,9 +491,9 @@ test("fixed QA upload verifies all eight source bytes and preserves production, 
   assert.deepEqual(f.state.secrets, before.secrets);
   assert.deepEqual(f.state.roles, before.roles);
   assert.deepEqual(
-    f.receipts
-      .filter(({ status }) => status === "uploading")
-      .map(({ attemptedRoute }) => attemptedRoute),
+    f.receipts.filter(({ status }) => status === "uploading").map((
+      { attemptedRoute },
+    ) => attemptedRoute),
     QA_FUNCTIONS.map(({ name }) => name),
   );
   assert.doesNotMatch(
@@ -530,25 +502,28 @@ test("fixed QA upload verifies all eight source bytes and preserves production, 
   );
 });
 
-for (const control of [
-  "approval",
-  "missingGate",
-  "schemaMissing",
-  "dependencyMissing",
-  "secret",
-  "target",
-  "history",
-  "catalog",
-  "digest",
-  "context",
-  "source",
-  "upload",
-]) {
+for (
+  const control of [
+    "approval",
+    "missingGate",
+    "schemaMissing",
+    "dependencyMissing",
+    "secret",
+    "target",
+    "history",
+    "catalog",
+    "digest",
+    "context",
+    "source",
+    "upload",
+  ]
+) {
   test(`QA ${control} failure stops before any upload`, async (t) => {
     const f = await fixture(t);
     if (control === "approval") f.controls.approval = false;
-    if (["missingGate", "schemaMissing", "dependencyMissing"].includes(control))
-      f.controls[control] = true;
+    if (
+      ["missingGate", "schemaMissing", "dependencyMissing"].includes(control)
+    ) f.controls[control] = true;
     if (control === "secret") {
       f.state.secrets.pop();
       f.plan.baselineSha256 = sha256(canonical(f.state));
@@ -645,12 +620,14 @@ test("pending durable attempt blocks POST and a rejected attempt never uploads",
   }
 });
 
-for (const control of [
-  "plaintext",
-  "missing-value",
-  "duplicate",
-  "ambiguous-digest",
-]) {
+for (
+  const control of [
+    "plaintext",
+    "missing-value",
+    "duplicate",
+    "ambiguous-digest",
+  ]
+) {
   test(`QA secrets ${control} wire response stops before uploads without exposing content`, async (t) => {
     const f = await fixture(t);
     f.controls.secretResponse = (wire) => {
@@ -746,37 +723,39 @@ test(
       [],
       "the legacy role keeps its original INHERIT attribute without receiving memberships",
     );
-    for (const [mutation, issue] of [
-      ["alter role still_settings_writer inherit;", /^unsafe_role:/],
-      [
-        "alter role still_qa_sandbox_writer in database postgres set log_parameter_max_length_on_error='-1';",
-        /^QA_database_role_setting:/,
-      ],
-      [
-        "alter role still_qa_sandbox_writer in database postgres set statement_timeout='0';",
-        /^QA_database_role_setting:/,
-      ],
-      [
-        "grant still_settings_writer to still_entitlement_writer;",
-        /^role_membership:/,
-      ],
-      [
-        "grant execute on function private.lock_settings(uuid,uuid,text) to anon;",
-        /^routine_acl:/,
-      ],
-      [
-        "alter function private.read_product_policy(text,text) security invoker;",
-        /^routine_definer:/,
-      ],
-      [
-        "delete from supabase_migrations.schema_migrations where version='0015';",
-        /^missing_history:/,
-      ],
-      [
-        "alter table private.product_policy_revisions disable trigger user; delete from private.product_policy_revisions where environment='sandbox';",
-        /^sandbox_sales_policy_missing$/,
-      ],
-    ]) {
+    for (
+      const [mutation, issue] of [
+        ["alter role still_settings_writer inherit;", /^unsafe_role:/],
+        [
+          "alter role still_qa_sandbox_writer in database postgres set log_parameter_max_length_on_error='-1';",
+          /^QA_database_role_setting:/,
+        ],
+        [
+          "alter role still_qa_sandbox_writer in database postgres set statement_timeout='0';",
+          /^QA_database_role_setting:/,
+        ],
+        [
+          "grant still_settings_writer to still_entitlement_writer;",
+          /^role_membership:/,
+        ],
+        [
+          "grant execute on function private.lock_settings(uuid,uuid,text) to anon;",
+          /^routine_acl:/,
+        ],
+        [
+          "alter function private.read_product_policy(text,text) security invoker;",
+          /^routine_definer:/,
+        ],
+        [
+          "delete from supabase_migrations.schema_migrations where version='0015';",
+          /^missing_history:/,
+        ],
+        [
+          "alter table private.product_policy_revisions disable trigger user; delete from private.product_policy_revisions where environment='sandbox';",
+          /^sandbox_sales_policy_missing$/,
+        ],
+      ]
+    ) {
       assert.ok(
         (await query(mutation)).issues.some((code) => issue.test(code)),
         `missing negative control ${issue}`,
@@ -851,26 +830,20 @@ test(
       }
       await rm(root, { recursive: true, force: true });
     });
-    const fixtureDir = join(root, "project"),
-      uploads = join(root, "uploads");
+    const fixtureDir = join(root, "project"), uploads = join(root, "uploads");
     const manifest = await buildQaFunctionBundles({
       sourceDir: cwd,
       artifactDir: uploads,
     });
-    const config = (
-      await readFile(join(cwd, "supabase/config.toml"), "utf8")
-    ).replace(/^\[functions\.[^\]]+\][\s\S]*?(?=^\[|$(?![\s\S]))/gm, "");
+    const config = (await readFile(join(cwd, "supabase/config.toml"), "utf8"))
+      .replace(/^\[functions\.[^\]]+\][\s\S]*?(?=^\[|$(?![\s\S]))/gm, "");
     await put(
       fixtureDir,
       "supabase/config.toml",
-      config +
-        "\n" +
-        manifest.functions
-          .map(
-            ({ name, verifyJwt }) =>
-              `[functions.${name}]\nverify_jwt = ${verifyJwt}\nentrypoint = "./functions/${name}/index.js"\n`,
-          )
-          .join("\n"),
+      config + "\n" +
+        manifest.functions.map(({ name, verifyJwt }) =>
+          `[functions.${name}]\nverify_jwt = ${verifyJwt}\nentrypoint = "./functions/${name}/index.js"\n`
+        ).join("\n"),
     );
     for (const upload of manifest.functions) {
       await put(
@@ -891,11 +864,14 @@ test(
     const capture = (chunk) => {
       runtimeLog = (runtimeLog + chunk.toString()).slice(-16_384);
     };
-    service = spawn(
-      "supabase",
-      ["functions", "serve", "--workdir", fixtureDir, "--env-file", envFile],
-      { cwd, stdio: ["ignore", "pipe", "pipe"] },
-    );
+    service = spawn("supabase", [
+      "functions",
+      "serve",
+      "--workdir",
+      fixtureDir,
+      "--env-file",
+      envFile,
+    ], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     service.stdout.on("data", capture);
     service.stderr.on("data", capture);
     let serviceError = false;
@@ -930,33 +906,22 @@ test(
       try {
         lastStatus = (await request("qa-sandbox-product-policy")).status;
         ready = lastStatus === 400;
-      } catch {
-        /* startup only */
-      }
+      } catch { /* startup only */ }
       if (ready) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     assert.ok(
       ready,
-      `actual sealed policy bundle never reached its handler (HTTP ${lastStatus}); local fixture diagnostics: ${runtimeLog.replaceAll(
-        anonKey,
-        "[local JWT]",
-      )}`,
+      `actual sealed policy bundle never reached its handler (HTTP ${lastStatus}); local fixture diagnostics: ${
+        runtimeLog.replaceAll(anonKey, "[local JWT]")
+      }`,
     );
     for (const { name, verifyJwt } of manifest.functions) {
       const response = await request(name);
-      const expectedStatus = verifyJwt
-        ? 401
-        : name === "qa-sandbox-verify-apple-access"
-          ? 200
-          : name === "qa-sandbox-stripe-webhook"
-            ? 503
-            : 400;
-      assert.equal(
-        response.status,
-        expectedStatus,
-        `${name}; local fixture diagnostics: ${runtimeLog.replaceAll(anonKey, "[local JWT]")}`,
-      );
+      const expectedStatus = verifyJwt ? 401 : name === "qa-sandbox-verify-apple-access" ? 200
+        : name === "qa-sandbox-stripe-webhook" ? 503 : 400;
+      assert.equal(response.status, expectedStatus,
+        `${name}; local fixture diagnostics: ${runtimeLog.replaceAll(anonKey, "[local JWT]")}`);
       if (verifyJwt) {
         const body = await response.json();
         assert.equal(response.status, 401, name);
