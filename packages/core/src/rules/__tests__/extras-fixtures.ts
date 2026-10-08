@@ -37,9 +37,12 @@ export const EXTRAS_CONTROLS: readonly ExtrasControl[] = [
   { feature: "youtube.autoplay", service: "youtube", pages: [
     { file: "yt-autoplay.html", url: `${yt}/watch?v=inv300001` },
     { file: "yt-autoplay.html", url: `${yt}/watch?v=inv300003&list=PLinvented03&index=2`, route: true },
+    { file: "yt-m-autoplay.html", url: "https://m.youtube.com/watch?v=inv300001" },
+    { file: "yt-m-autoplay.html", url: "https://m.youtube.com/watch?v=inv300003&list=PLinvented03&index=2", route: true },
   ] },
   { feature: "youtube.comments", service: "youtube", pages: [
     { file: "yt-watch-comments-chat.html", url: `${yt}/watch?v=inv400000` },
+    { file: "yt-m-watch-comments.html", url: "https://m.youtube.com/watch?v=inv400000" },
   ] },
   { feature: "youtube.livechat", service: "youtube", pages: [
     { file: "yt-watch-comments-chat.html", url: `${yt}/watch?v=inv400001` },

@@ -53,7 +53,7 @@ describe("extras fixture content", () => {
     for (const control of EXTRAS_CONTROLS) {
       const withTargets = control.pages.filter((p) => fixtureIds(extrasFixture(p.file), "target-").length > 0);
       // Route-only fixtures (live chat route, autoplay probe) legitimately carry no hide target.
-      const routeOnly = control.pages.every((p) => /yt-live-chat-route|yt-autoplay/.test(p.file));
+      const routeOnly = control.pages.every((p) => /yt-live-chat-route|yt-(?:m-)?autoplay/.test(p.file));
       expect(withTargets.length > 0 || routeOnly, control.feature).toBe(true);
     }
   });
