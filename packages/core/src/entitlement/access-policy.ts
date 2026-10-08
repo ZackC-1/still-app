@@ -115,6 +115,10 @@ type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: 
 // which every host's shared format-2 content engine runs the same way.
 const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"]);
 const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat"]);
+// The related-items section and dedicated comments entry/panel have observed mobile structures
+// and preservation regressions through Safari's shared content entry. This does not establish
+// mobile end-screen, live-chat or autoplay behavior.
+const YOUTUBE_SAFARI_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.comments"]);
 // YouTube's packaged content-handler control (no rule data): Chromium and Firefox only.
 const YOUTUBE_HANDLER_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.autoplay"]);
 // Facebook's Stories and Videos and Watch (rules/facebook-extras.ts) run in every host's shared
@@ -133,11 +137,10 @@ export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProF
   // matches the desktop right column: both are DESKTOP_ONLY_PRO, which a caller that passes the
   // runtime platform ("android" or "unknown") never receives.
   firefox: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
-  // Safari (macOS and iPhone/iPad share one host) lists no YouTube control: their mobile Safari
-  // layouts are gated on structural evidence that does not exist yet. Desktop sidebar ads stays
-  // off too: one Safari build serves macOS, iOS and iPadOS, and whether iPad's desktop-class
-  // Safari should hide sidebar ads is open owner question Q4.
-  safari: Object.freeze([...INSTAGRAM_PRO, ...FACEBOOK_PRO]),
+  // Safari (macOS and iPhone/iPad share one host) offers only the observed mobile YouTube
+  // controls. End-screen, live chat, autoplay and Facebook sponsored-feed/sidebar support still
+  // need their own mobile implementation and evidence before joining this set.
+  safari: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_SAFARI_PRO, ...FACEBOOK_PRO]),
 });
 
 /**

@@ -64,6 +64,10 @@ describe("accessCapabilities dormancy gate", () => {
     expect(sorted(accessCapabilitiesForTest({ paidMode: true, host: "chromium" }, odd))).toEqual([...FREE].sort());
   });
 
+  it("paid-on Safari capabilities match the shared native parity fixture", () => {
+    expect(sorted(accessCapabilities({ paidMode: true, host: "safari" }))).toEqual(parity.paidOnSafariSupported);
+  });
+
   it("the packaged implementation table lists only Pro features", () => {
     for (const host of ACCESS_HOSTS) for (const id of IMPLEMENTED_PRO_FEATURES[host]) expect(PRO).toContain(id);
   });
@@ -82,7 +86,7 @@ describe("accessCapabilities dormancy gate", () => {
       ],
       safari: [
         "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
-        "facebook.stories", "facebook.videos",
+        "youtube.related", "youtube.comments", "facebook.stories", "facebook.videos",
       ],
     });
   });
@@ -92,9 +96,9 @@ describe("accessCapabilities dormancy gate", () => {
       .filter((id) => PRO.includes(id as (typeof PRO)[number]));
     for (const host of ACCESS_HOSTS) expect(pro(host), host).toEqual([...IMPLEMENTED_PRO_FEATURES[host]].sort());
     // The host-less set is what a caller that forgot its host would offer: Chromium and Firefox
-    // would lose the YouTube extras, Autoplay and Desktop sidebar ads.
+    // would lose end-of-video suggestions, live chat, Autoplay and Desktop sidebar ads.
     expect(pro()).toEqual([...IMPLEMENTED_PRO_FEATURES.safari].sort());
-    for (const id of ["youtube.comments", "youtube.autoplay", "facebook.sponsored"] as const) {
+    for (const id of ["youtube.endscreen", "youtube.livechat", "youtube.autoplay", "facebook.sponsored"] as const) {
       expect(pro("chromium"), id).toContain(id);
       expect(pro(), id).not.toContain(id);
     }

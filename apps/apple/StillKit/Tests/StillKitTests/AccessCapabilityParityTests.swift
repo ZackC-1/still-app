@@ -11,6 +11,7 @@ final class AccessCapabilityParityTests: XCTestCase {
   struct Fixture: Decodable {
     let schema: Int
     let paidOffSupported: [String]
+    let paidOnSafariSupported: [String]
   }
 
   static func fixture() throws -> Fixture {
@@ -32,6 +33,13 @@ final class AccessCapabilityParityTests: XCTestCase {
     XCTAssertEqual(NativeAccessContext(paidMode: true).supported, expected)
     let free = PackagedFeatureRegistry.features.filter { $0.tier == "free" }.map(\.id) + [PackagedFeatureRegistry.tiktokAlias]
     XCTAssertEqual(Set(free), expected)
+  }
+
+  func testNativeSafariPaidOnSetMatchesTheSharedTypeScriptFixture() throws {
+    let fixture = try Self.fixture()
+    XCTAssertEqual(Set(fixture.paidOnSafariSupported).count, fixture.paidOnSafariSupported.count)
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: true), Set(fixture.paidOnSafariSupported))
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: false), Set(fixture.paidOffSupported))
   }
 
   func testEveryProFeatureResolvesUnsupportedFromTheDefaultContext() {

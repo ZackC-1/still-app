@@ -41,3 +41,15 @@ Safari capability registry, Safari execution, Firefox Android or real mobile pla
 
 Owner deferred Facebook sign-in; the private setup guide is prepared. Mobile sponsored-feed
 selectors and the corresponding all-twelve capability expansion remain unfinished.
+
+## Checkpoint: Safari capability composition
+
+The isolated Safari capability unit adds `youtube.related` and `youtube.comments` to the shared
+TypeScript and native paid-on registries, with one shared parity fixture. A composed modern Safari
+entry test exercises the packaged mobile rules, saved settings, cryptographically verified synthetic
+local access, unknown evidence, On/Off restoration, revocation, mixed-panel recycling, chosen
+playlist preservation, independent free Shorts and teardown. Missing capabilities failed the new
+TypeScript regressions before repair. All 150 focused TypeScript tests and 419 StillKit tests passed;
+the complete native run required permitted OS notification access. Core typecheck and touched-file
+lint passed. End-screen, live chat, autoplay and Facebook sponsored behavior remain unsupported
+on Safari. WebKit/device, Firefox Android and live provider acceptance remain outstanding.

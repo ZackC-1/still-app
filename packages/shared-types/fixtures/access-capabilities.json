@@ -1,5 +1,19 @@
 {
   "schema": 1,
   "description": "Owner decision 6 dormancy gate: the packaged host capabilities while the paid tier is off. Both packages/core (accessCapabilities) and StillKit (NativeAccessContext's default supported set) must equal this list exactly, so no Still Pro feature can resolve to an effective state while paid is off.",
-  "paidOffSupported": ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"]
+  "paidOffSupported": ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"],
+  "paidOnSafariSupported": [
+    "facebook.reels",
+    "facebook.stories",
+    "facebook.videos",
+    "instagram.explore",
+    "instagram.reels",
+    "instagram.stories",
+    "instagram.suggested",
+    "instagram.threads",
+    "tiktok.all",
+    "youtube.comments",
+    "youtube.related",
+    "youtube.shorts"
+  ]
 }
