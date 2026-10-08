@@ -289,7 +289,7 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
         // certify that host's trust. Apple targets verify the compiled app/extension plists
         // and bind their resources to this same cohort. The webview verifies proofs in its
         // inline module as well, so keep its JavaScript trust check alongside Chrome/Firefox.
-        if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config);
+        if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config, { sourceRoot: clone, inlineModules: target === "apple-webview" });
         const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
           sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, artifacts,
           paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });

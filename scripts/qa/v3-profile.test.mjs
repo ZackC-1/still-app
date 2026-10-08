@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   artifactManifest,
   paidSandboxMain,
@@ -335,13 +336,72 @@ test("webview trust check reads inline modules but refuses HTML, CSS and externa
       `<style><script type="module">${key}</script></style>`,
     ]) {
       await writeFile(path, text);
-      await assert.rejects(paid.assertCompiledSandboxTrust(root, config), /JavaScript lacks/);
+      await assert.rejects(paid.assertCompiledSandboxTrust(root, config, { inlineModules: true }), /JavaScript lacks/);
     }
     await writeFile(path, `<html><head><script type="module">const key = "${key}";</script></head></html>`);
-    await paid.assertCompiledSandboxTrust(root, config);
-    await writeFile(path, '<script type="module">const key = "production trust only";</script>');
     await assert.rejects(paid.assertCompiledSandboxTrust(root, config), /JavaScript lacks/);
+    await paid.assertCompiledSandboxTrust(root, config, { inlineModules: true });
+    await writeFile(path, '<script type="module">const key = "production trust only";</script>');
+    await assert.rejects(paid.assertCompiledSandboxTrust(root, config, { inlineModules: true }), /JavaScript lacks/);
+    await writeFile(join(root, "orphan.js"), key);
+    await assert.rejects(paid.assertCompiledSandboxTrust(root, config, { inlineModules: true }), /JavaScript lacks/);
+    await writeFile(join(root, "other.html"), `<script type="module">${key}</script>`);
+    await assert.rejects(paid.assertCompiledSandboxTrust(root, config, { inlineModules: true }), /JavaScript lacks/);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("inline trust resolves the installed candidate parser from a cold operator checkout", async () => {
+  const root = await mkdtemp(join(tmpdir(), "still-paid-cold-parser-test-"));
+  try {
+    const sourceRoot = fileURLToPath(new URL("../../", import.meta.url));
+    await mkdir(join(root, "apps/apple/scripts"), { recursive: true });
+    await mkdir(join(root, "scripts/qa"), { recursive: true });
+    await mkdir(join(root, "packages/core"), { recursive: true });
+    await mkdir(join(root, "artifact"));
+    await copyFile(join(sourceRoot, "apps/apple/scripts/paid-sandbox-qa.mjs"), join(root, "apps/apple/scripts/paid-sandbox-qa.mjs"));
+    await copyFile(join(sourceRoot, "scripts/qa/v3-profile.mjs"), join(root, "scripts/qa/v3-profile.mjs"));
+    await writeFile(join(root, "packages/core/package.json"), '{"name":"synthetic-uninstalled-operator"}');
+    await writeFile(join(root, "artifact/index.html"), `<script type="module">const key = "${sandboxKey.publicKeyHex}";</script>`);
+    const cold = await import(pathToFileURL(join(root, "apps/apple/scripts/paid-sandbox-qa.mjs")));
+    const config = paid.sandboxConfiguration(paidInputs);
+    await assert.rejects(cold.assertCompiledSandboxTrust(join(root, "artifact"), config, { inlineModules: true }), /local node check failed/);
+    await cold.assertCompiledSandboxTrust(join(root, "artifact"), config, { sourceRoot, inlineModules: true });
+    await assert.rejects(cold.assertCompiledSandboxTrust(join(root, "artifact"), config, { sourceRoot }), /JavaScript lacks/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("candidate parser receives no operator environment and cannot modify verifier globals", async () => {
+  const root = await mkdtemp(join(tmpdir(), "still-paid-parser-boundary-test-"));
+  const sentinel = process.env.STILL_QA_SYNTHETIC_PARSER_SENTINEL;
+  const includes = String.prototype.includes;
+  try {
+    process.env.STILL_QA_SYNTHETIC_PARSER_SENTINEL = "synthetic-secret-never-forward";
+    const core = join(root, "packages/core");
+    const jsdom = join(core, "node_modules/jsdom");
+    const parser = join(jsdom, "node_modules/parse5");
+    await mkdir(parser, { recursive: true });
+    await mkdir(join(root, "artifact"));
+    await writeFile(join(core, "package.json"), '{"name":"synthetic-parser-root"}');
+    await writeFile(join(jsdom, "package.json"), '{"name":"jsdom","main":"index.js"}');
+    await writeFile(join(jsdom, "index.js"), "");
+    await writeFile(join(parser, "package.json"), '{"name":"parse5","type":"module","main":"index.js"}');
+    await writeFile(join(parser, "index.js"), `
+      if (process.env.STILL_QA_SYNTHETIC_PARSER_SENTINEL) throw new Error("operator environment leaked");
+      String.prototype.includes = () => { throw new Error("candidate dependency escaped"); };
+      export function parse() { return { childNodes: [{ tagName: "script", namespaceURI: "http://www.w3.org/1999/xhtml",
+        attrs: [{name: "type", value: "module"}], childNodes: [{nodeName: "#text", value: "${sandboxKey.publicKeyHex}"}] }] }; }
+    `);
+    await writeFile(join(root, "artifact/index.html"), "<html></html>");
+    await paid.assertCompiledSandboxTrust(join(root, "artifact"), paid.sandboxConfiguration(paidInputs), { sourceRoot: root, inlineModules: true });
+    assert.equal(String.prototype.includes, includes);
+    assert.equal("verified".includes("verified"), true);
+  } finally {
+    String.prototype.includes = includes;
+    if (sentinel === undefined) delete process.env.STILL_QA_SYNTHETIC_PARSER_SENTINEL;
+    else process.env.STILL_QA_SYNTHETIC_PARSER_SENTINEL = sentinel;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("local all-target receipts refuse source edits during a build and retain coherent healthy results", async () => {

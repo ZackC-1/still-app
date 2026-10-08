@@ -3,8 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile, mkdir, rm, lstat, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 export const PAID_FLAGS = Object.freeze({
   js: "packages/shared-types/src/entitlement.ts",
@@ -174,35 +173,51 @@ export function assertPaidBuild(build) {
     !/^[a-f0-9]{64}$/.test(build.sourceSha256 ?? "") || !Array.isArray(build.targets) || !build.targets.length) refusal("mixed or incomplete paid build identity");
 }
 
-/** Establish key embedding in generated JavaScript, including the webview's inline modules.
- * Arbitrary HTML text cannot satisfy the check. Provider/device acceptance is separate. */
-export async function assertCompiledSandboxTrust(artifact, config) {
+/** Extract with the candidate's existing development parser in a separate, empty-env process.
+ * Candidate dependencies never enter the verifier's realm or receive operator credentials. */
+const INLINE_MODULE_EXTRACTOR = `
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const core = createRequire(join(process.argv[1], "packages/core/package.json"));
+const parser = createRequire(core.resolve("jsdom")).resolve("parse5");
+const { parse } = await import(pathToFileURL(parser).href);
+const html = readFileSync(process.argv[2], "utf8");
+if (Buffer.byteLength(html) > 8 * 1024 * 1024) throw new Error("HTML exceeds extraction bound");
+const scripts = [];
+const visit = node => {
+  if (node.tagName === "template") return;
+  if (node.tagName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+      node.attrs.some(attr => attr.name === "type" && attr.value === "module") &&
+      !node.attrs.some(attr => attr.name === "src")) {
+    scripts.push(node.childNodes.filter(child => child.nodeName === "#text").map(child => child.value).join(""));
+  }
+  for (const child of node.childNodes ?? []) visit(child);
+};
+visit(parse(html, { scriptingEnabled: true }));
+process.stdout.write(JSON.stringify(scripts));
+`;
+
+/** Establish key embedding in the executed webview entry or generated browser JavaScript.
+ * Provider/device acceptance remains separate. Orphan webview chunks never satisfy the check. */
+export async function assertCompiledSandboxTrust(artifact, config, {
+  sourceRoot = fileURLToPath(new URL("../../../", import.meta.url)), inlineModules = false,
+} = {}) {
   const { inventory } = await import("../../../scripts/qa/v3-profile.mjs");
-  const files = (await inventory(artifact)).files.filter(file => /\.(?:m?js|html)$/.test(file.path));
-  const scripts = [];
-  let parse;
-  for (const file of files) {
-    const text = await readFile(join(artifact, file.path), "utf8");
-    if (/\.(?:m?js)$/.test(file.path)) scripts.push(text);
-    else {
-      // Reuse jsdom's existing development parser; no new app dependency or script execution.
-      if (!parse) {
-        const core = createRequire(new URL("../../../packages/core/package.json", import.meta.url));
-        const parser = createRequire(core.resolve("jsdom")).resolve("parse5");
-        ({ parse } = await import(pathToFileURL(parser).href));
-      }
-      const visit = node => {
-        if (node.tagName === "template") return;
-        if (node.tagName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
-          node.attrs.some(attr => attr.name === "type" && attr.value === "module") &&
-          !node.attrs.some(attr => attr.name === "src")) {
-          scripts.push(node.childNodes.filter(child => child.nodeName === "#text").map(child => child.value).join(""));
-        }
-        for (const child of node.childNodes ?? []) visit(child);
-      };
-      // Match the scripting-enabled webview: noscript and raw-text contents are inert.
-      visit(parse(text, { scriptingEnabled: true }));
-    }
+  const files = (await inventory(artifact)).files;
+  let scripts;
+  if (inlineModules) {
+    if (!files.some(file => file.path === "index.html")) refusal("generated JavaScript lacks the selected sandbox public trust");
+    const result = runChecked(process.execPath, ["--input-type=module", "-e", INLINE_MODULE_EXTRACTOR,
+      sourceRoot, join(artifact, "index.html")], { cwd: sourceRoot, env: {}, capture: true,
+      maxBuffer: 16 * 1024 * 1024, timeout: 10_000 });
+    try { scripts = JSON.parse(result); } catch { refusal("invalid inline module extraction"); }
+    if (!Array.isArray(scripts) || scripts.length > 16 || scripts.some(text => typeof text !== "string") ||
+        scripts.reduce((bytes, text) => bytes + Buffer.byteLength(text), 0) > 8 * 1024 * 1024)
+      refusal("invalid inline module extraction");
+  } else {
+    scripts = await Promise.all(files.filter(file => /\.m?js$/.test(file.path)).map(file => readFile(join(artifact, file.path), "utf8")));
   }
   if (config.publicKeys.some(key => !scripts.some(text => text.includes(key.publicKeyHex))))
     refusal("generated JavaScript lacks the selected sandbox public trust");
