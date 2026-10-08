@@ -45,6 +45,11 @@ completion retains only recovery intent, and a current signed local read establi
 Confirmed cancellation releases the hold; a lost native reply retains verification rather than
 starting another purchase. Deferred Buy/Restore, cancellation and lost-reply tests cover these
 boundaries without granting rights or linking the replacement account from store feedback.
+The stale-completion path distinguishes confirmed pre-dispatch `unavailable` and conclusive
+empty Restore from unknown acquisition feedback, retaining any already-pending purchase intent.
+`failed/noSignal` must stay held: the bridge also uses it for malformed responses, so it cannot
+prove that no charge occurred. Regression controls cover retry after a confirmed refusal and
+continued hold after a lost or malformed reply.
 The repaired tree passed 437 StillKit tests and 4,766 core tests; synthetic tests do not establish
 provider or physical-device behavior.
 

@@ -738,6 +738,55 @@ describe("Apple account Restore ambiguity", () => {
 
 
 describe("Apple operation cleanup ownership", () => {
+  it("a failed/noSignal native reply after account replacement is unknown and cannot permit another charge", async () => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    finish({outcome:"failed", receipt:"noSignal"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+  });
+  it.each(["buy", "restore"] as const)("a confirmed unavailable native %s after account replacement releases an empty acquisition", async kind => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    const acquire = kind === "buy" ? h.deps.bridge.purchasePro : h.deps.bridge.restorePro;
+    vi.mocked(acquire).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    if (kind === "buy") h.host.props([]).native.onBuy?.();
+    else h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    finish({outcome:"unavailable", receipt:"noSignal"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"failed"});
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+  });
+  it("a conclusive empty native Restore after account replacement does not invent a purchase awaiting recovery", async () => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.restorePro).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    finish({outcome:"nothing", receipt:"verifiedNotEntitled"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"idle"});
+    expect(h.host.settings().restore?.state).toBe("verify");
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+  });
   it("an account change during native cancellation releases Buy only after Apple confirms cancellation", async () => {
     const h = await harness();
     let finish!: (value: NativeProResult) => void;

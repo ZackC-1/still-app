@@ -236,11 +236,22 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (generation !== epoch) {
         // Account replacement cannot discard a dispatched StoreKit completion. Retain
         // only its recovery intent; a current signed read must establish the rights.
-        if (result.outcome === "cancelled") {
+        if (result.outcome === "cancelled" && pendingKind === undefined) {
           purchase = { state: "idle" };
           restore = undefined;
+        } else if (result.outcome === "unavailable" && pendingKind === undefined) {
+          // The native port refused dispatch; unlike failed/noSignal this is not a
+          // lost or malformed reply from an acquisition that may have completed.
+          purchase = { state: "failed" };
+          restore = kind === "restore"
+            ? { state: "failed", onAction: () => void transact("restore") } : undefined;
+        } else if (result.outcome === "nothing" &&
+          result.receipt === "verifiedNotEntitled" && pendingKind === undefined) {
+          purchase = { state: "idle" };
+          // Local absence cannot conclude ownership for the replacement account.
+          restore = { state: "verify", onAction: () => void transact("restore") };
         } else {
-          pendingKind = kind;
+          pendingKind ??= kind;
           purchase = { state: "pending" };
           restore = undefined;
         }
