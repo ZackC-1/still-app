@@ -85,8 +85,8 @@ export interface ScopedReconcileAccess {
 /** Shared current-right engine. QA callers supply no legacy store/subscriber and add live gates. */
 export async function reconcileScopedAccess(userId: string, access: ScopedReconcileAccess | undefined,
   token: string | null, response: { readonly still_sync?: boolean } = {},
-  guards: { readonly authorize?: () => Promise<boolean>; readonly canGrant?: () => Promise<boolean> } = {}): Promise<Response> {
-  const authorized = async () => { try { return await (guards.authorize?.() ?? Promise.resolve(true)); } catch { return false; } };
+  guards: { readonly authorize?: () => Promise<boolean>; readonly canGrant?: () => Promise<boolean>; readonly current?: () => boolean } = {}): Promise<Response> {
+  const authorized = async () => { try { return await (guards.authorize?.() ?? Promise.resolve(true)) && guards.current?.() !== false; } catch { return false; } };
   const unavailable = async () => {
     if (!await authorized()) return jsonResponse(200, { ...response, access: { status: "unavailable" } });
     // A failed/stale positive lookup cannot suppress a separately committed refund.
@@ -134,12 +134,12 @@ export async function reconcileScopedAccess(userId: string, access: ScopedReconc
     if (!signable.length && (!appleReady || provider.status !== "verified" || provider.complete === false || result.rights.length > 0)) {
       if (!isAccountAccessRemovals({ holder: userId, environment: access.signer.environment, revocations: result.revocations,
         issuer_time: result.issuer_time }, userId, access.signer.environment) ||
-        !await authorized() || !await access.rights.confirm(userId, access.signer.environment, token)) return unavailable();
+        !await authorized() || !await access.rights.confirm(userId, access.signer.environment, token) || guards.current?.() === false) return unavailable();
       return jsonResponse(200, { ...response, access: { status: "unavailable", environment: access.signer.environment,
         proofs: [], revocations: result.revocations, issuer_time: result.issuer_time } });
     }
     const proofs = await Promise.all(signable.map(right => access.signer.sign(right)));
-    if (!await authorized() || !await access.rights.confirm(userId, access.signer.environment, token)) return unavailable();
+    if (!await authorized() || !await access.rights.confirm(userId, access.signer.environment, token) || guards.current?.() === false) return unavailable();
     return jsonResponse(200, { ...response, access: {
       status: result.status === "conflict" ? "conflict" : proofs.length ? "verified" : "none",
       environment: access.signer.environment, proofs, revocations: result.revocations, issuer_time: result.issuer_time,

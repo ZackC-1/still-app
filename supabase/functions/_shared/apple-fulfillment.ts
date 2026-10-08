@@ -59,15 +59,17 @@ async function limited(req: Request, deps: AppleFulfillmentDeps, holder?: string
   }
   return null;
 }
-async function confirmed(reqToken: string, holder: string, deps: AppleFulfillmentDeps): Promise<boolean> {
+async function confirmed(reqToken: string, holder: string, deps: AppleFulfillmentDeps): Promise<number | null> {
   const claims = await verifyJwt(reqToken, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
-  return !!claims && claims.sub === holder && typeof claims.exp === "number" && Number.isFinite(claims.exp) &&
+  if (!(claims && claims.sub === holder && typeof claims.exp === "number" && Number.isFinite(claims.exp) &&
     claims.exp * 1000 > Date.now() && claims.role === "authenticated" &&
     claims.aud === "authenticated" && claims.is_anonymous !== true &&
-    !!deps.accounts && await deps.accounts.confirmed(reqToken, holder);
+    deps.accounts)) return null;
+  const expiresAt = claims.exp * 1000;
+  return await deps.accounts.confirmed(reqToken, holder) && expiresAt > Date.now() ? expiresAt : null;
 }
 
-async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link?: AppleAccessLink, authorize?: () => Promise<boolean>): Promise<Response> {
+async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link?: AppleAccessLink, authorize?: () => Promise<boolean>, currentAuthority?: () => boolean): Promise<Response> {
   const access = deps.access;
   if (!access || !access.signer.signAppleBinding) return unavailable();
   const tx = await deadline(access.verifier.authenticate(evidence));
@@ -86,7 +88,7 @@ async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link
     return unavailable();
   }
   // Token expiry, bans/deletion and account confirmation are rechecked after provider latency.
-  if (authorize && !await authorize()) return unavailable();
+  if (authorize && !await authorize() || currentAuthority?.() === false) return unavailable();
   const result = await access.store.commit(current, token, link);
   if (result.status === "owned_elsewhere" || result.status === "stale") return jsonResponse(200, { status: result.status });
   if (!("right" in result)) return unavailable();
@@ -101,7 +103,7 @@ async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link
     expiresAt: right.verified_at + PAID_ACCESS_WINDOW_MS });
   const accountProof = link ? await access.signer.sign(right) : null;
   // Signing is async: live account authority may disappear before the final SQL fence.
-  if (authorize && !await authorize() || !await access.store.confirm(current, token, right)) return jsonResponse(200, { status: "stale" });
+  if (authorize && !await authorize() || !await access.store.confirm(current, token, right) || currentAuthority?.() === false) return jsonResponse(200, { status: "stale" });
   if (link) return jsonResponse(200, { status: result.status, ownershipRevision: right.revision,
     issuerTime: result.issuer_time, localProof, accountProof, nativeBinding });
   return jsonResponse(200, { schema: 1, status: "verified", proofs: [localProof],
@@ -133,18 +135,22 @@ export function handleLinkAppleAccess(req: Request, deps: AppleFulfillmentDeps):
       (typeof body.operationId !== "string" || !isUuid(body.operationId)) || !safe(body.expectedOwnershipRevision) || body.expectedOwnershipRevision >= Number.MAX_SAFE_INTEGER ||
       !isAppleEvidence(body.evidence)) return invalid();
     const bearer = req.headers.get("Authorization")!.slice(7);
-    if (!await confirmed(bearer, holder, deps)) return jsonResponse(403, { error: "confirmed_account_required" });
+    const expiresAt = await confirmed(bearer, holder, deps);
+    if (!expiresAt) return jsonResponse(403, { error: "confirmed_account_required" });
     const link: AppleAccessLink = { holder, operation: body.operationId, expectedRevision: body.expectedOwnershipRevision };
     if (keys === transfer) {
       if ((typeof body.sourceAccountId !== "string" || !isUuid(body.sourceAccountId)) || body.sourceAccountId === holder || typeof body.sourceAuthority !== "string" ||
-        body.sourceAuthority.length > 8_000 || !await confirmed(body.sourceAuthority, body.sourceAccountId, deps)) {
+        body.sourceAuthority.length > 8_000) {
         return jsonResponse(403, { error: "source_authority_required" });
       }
       const source = body.sourceAccountId, sourceToken = body.sourceAuthority;
+      const sourceExpiresAt = await confirmed(sourceToken, source, deps);
+      if (!sourceExpiresAt) return jsonResponse(403, { error: "source_authority_required" });
+      const currentAuthority = () => expiresAt > Date.now() && sourceExpiresAt > Date.now();
       return await fulfill(body.evidence, deps, { ...link, sourceHolder: source },
-        async () => await confirmed(bearer, holder, deps) && await confirmed(sourceToken, source, deps));
+        async () => !!await confirmed(bearer, holder, deps) && !!await confirmed(sourceToken, source, deps) && currentAuthority(), currentAuthority);
     }
-    return await fulfill(body.evidence, deps, link, () => confirmed(bearer, holder, deps));
+    return await fulfill(body.evidence, deps, link, async () => !!await confirmed(bearer, holder, deps), () => expiresAt > Date.now());
   });
 }
 

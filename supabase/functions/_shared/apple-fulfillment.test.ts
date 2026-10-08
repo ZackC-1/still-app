@@ -211,3 +211,31 @@ Deno.test("link JWT expires during signing and no authority escapes", async () =
   try { assertEquals(await (await handleLinkAppleAccess(request(body(), jwt), deps)).json(), { status: "stale" }); }
   finally { Date.now = originalNow; }
 });
+
+Deno.test("link and both transfer authorities remain current through final Auth and SQL latency", async t => {
+  for (const boundary of ["link-auth", "link-sql", "destination-auth", "source-auth", "destination-during-source", "transfer-sql"] as const) {
+    for (const expires of [false, true]) await t.step(`${boundary}: ${expires ? "expired" : "current"}`, async () => {
+      const s = setup(); const old = Date.now; const start = old(); const transfer = !boundary.startsWith("link");
+      const jwt = await token(A, { exp: start / 1000 + (boundary === "source-auth" ? 1200 : 600) });
+      const sourceAuthority = await token(B, { exp: start / 1000 + (boundary === "source-auth" ? 600 : 1200) });
+      let confirmations = 0;
+      const advance = () => { if (expires) Date.now = () => start + 601_000; };
+      const deps: AppleFulfillmentDeps = { ...s.deps,
+        accounts: { confirmed: async () => {
+          const call = ++confirmations;
+          if ((boundary === "link-auth" && call === 3) || (boundary === "destination-auth" && call === 5) ||
+            ((boundary === "source-auth" || boundary === "destination-during-source") && call === 6)) advance();
+          return true;
+        } },
+        access: { ...s.deps.access!, store: { ...s.deps.access!.store,
+          confirm: async (...args) => { const valid = await s.deps.access!.store.confirm(...args);
+            if (boundary.endsWith("sql")) advance(); return valid; } } } };
+      try {
+        const value = transfer ? { ...body(), sourceAccountId: B, sourceAuthority } : body();
+        const result = await (await handleLinkAppleAccess(request(value, jwt), deps)).json();
+        assertEquals(result.status, expires ? "stale" : "linked");
+        assertEquals("accountProof" in result, !expires); assertEquals("localProof" in result, !expires);
+      } finally { Date.now = old; }
+    });
+  }
+});

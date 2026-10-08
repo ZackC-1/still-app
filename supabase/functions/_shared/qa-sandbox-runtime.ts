@@ -29,13 +29,15 @@ export interface QaSandboxRuntimePorts {
   readonly provider?: RevenueCatAccessClient;
 }
 
-async function confirmed(token: string, holder: string, deps: AuthDeps & { readonly accounts?: ConfirmedAppleAccountPort }): Promise<boolean> {
+async function confirmed(token: string, holder: string, deps: AuthDeps & { readonly accounts?: ConfirmedAppleAccountPort }): Promise<number | null> {
   try {
     const claims = await verifyJwt(token, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
-    return !!claims && claims.sub === holder && claims.role === "authenticated" && claims.aud === "authenticated" &&
+    if (!(claims && claims.sub === holder && claims.role === "authenticated" && claims.aud === "authenticated" &&
       claims.is_anonymous !== true && typeof claims.exp === "number" && Number.isFinite(claims.exp) && claims.exp * 1000 > Date.now() &&
-      !!deps.accounts && await deps.accounts.confirmed(token, holder);
-  } catch { return false; }
+      deps.accounts)) return null;
+    const expiresAt = claims.exp * 1000;
+    return await deps.accounts.confirmed(token, holder) && expiresAt > Date.now() ? expiresAt : null;
+  } catch { return null; }
 }
 
 /** Preserve existing Apple fulfillment and fixed QA RPCs; local verification requires no account. */
@@ -76,11 +78,14 @@ export function handleQaSandboxReconcile(req: Request, deps: QaSandboxReconcileD
     if (limited) return limited;
     if (await accessRequest(req) !== "scoped") return jsonResponse(400, { error: "invalid_access_request" });
     const bearer = req.headers.get("Authorization")!.slice(7);
-    const authorize = () => confirmed(bearer, holder, deps);
-    if (!await authorize()) return jsonResponse(403, { error: "confirmed_account_required" });
+    const expiresAt = await confirmed(bearer, holder, deps);
+    if (!expiresAt) return jsonResponse(403, { error: "confirmed_account_required" });
+    const current = () => expiresAt > Date.now();
+    const authorize = async () => !!await confirmed(bearer, holder, deps) && current();
     let token: string | null = null;
     try { token = await deps.access?.rights.begin(holder, "sandbox") ?? null; } catch { /* No new authority. */ }
-    return reconcileScopedAccess(holder, deps.access, token, {}, { authorize, canGrant: async () => await authorize() && await deps.membership.enabled(holder) });
+    return reconcileScopedAccess(holder, deps.access, token, {}, { authorize, current,
+      canGrant: async () => await authorize() && await deps.membership.enabled(holder) && current() });
   });
 }
 

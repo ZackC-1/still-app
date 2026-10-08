@@ -224,3 +224,26 @@ Deno.test("unconfigured QA account routes still verify JWT while anonymous local
   }
   assertEquals(await (await handleQaSandboxUnavailable(request(), read, "apple-local")).json(), { status: "unavailable" });
 });
+
+Deno.test("QA final Auth and SQL latency cannot deliver proofs after JWT expiry", async t => {
+  for (const boundary of ["auth", "sql"] as const) for (const expires of [false, true]) {
+    await t.step(`${boundary}: ${expires ? "expired" : "current"}`, async () => {
+      const s = await setup(); const old = Date.now; const start = old(); const jwt = await token();
+      let confirmations = 0; const access = s.runtime.reconcile.access!;
+      const advance = () => { if (expires) Date.now = () => start + 601_000; };
+      const deps = { ...s.runtime.reconcile,
+        accounts: { confirmed: () => { if (++confirmations === 3 && boundary === "auth") advance(); return Promise.resolve(true); } },
+        access: { ...access, rights: { ...access.rights,
+          begin: access.rights.begin.bind(access.rights), commit: access.rights.commit.bind(access.rights),
+          removals: access.rights.removals?.bind(access.rights),
+          confirm: async (...args: Parameters<typeof access.rights.confirm>) => {
+            const valid = await access.rights.confirm(...args); if (boundary === "sql") advance(); return valid;
+          } } } };
+      try {
+        const result = await (await handleQaSandboxReconcile(request(jwt), deps)).json();
+        assertEquals(result.access.status, expires ? "unavailable" : "verified");
+        assertEquals(result.access.proofs?.length ?? 0, expires ? 0 : 1);
+      } finally { Date.now = old; }
+    });
+  }
+});
