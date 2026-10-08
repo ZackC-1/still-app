@@ -20,7 +20,7 @@ export default defineConfig({
           name: "popup",
           environment: "jsdom",
           globals: true,
-          include: ["entrypoints/{popup,options}/**/*.{test,spec}.ts"],
+          include: ["entrypoints/{popup,options,tiktok-blocked}/**/*.{test,spec}.ts"],
         },
       },
     ],

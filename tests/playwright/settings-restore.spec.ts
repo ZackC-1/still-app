@@ -148,7 +148,7 @@ test.describe("V3 build with sign-in: Restore purchase", () => {
     await expectNothingOffered(page);
     // Nothing extra unlocks while the paid flags are off: the Still Pro rows stay locked and inert.
     await page.getByRole("button", { name: "YouTube Blocker" }).click();
-    const lock = page.getByRole("button", { name: "Still Pro" }).first();
+    const lock = page.getByRole("button", { name: /\. Included in Still Pro\.$/ }).first();
     await expect(lock).toBeVisible();
     await expect(lock).toHaveAttribute("aria-disabled", "true");
     await lock.dispatchEvent("click");

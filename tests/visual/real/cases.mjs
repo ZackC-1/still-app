@@ -3,11 +3,11 @@
 // `reference` is the package PNG, relative to handoff/reference. Size and 2x come from the
 // reference itself. `blocked` records a frame that needs something this runner does not have yet;
 // it is reported as BLOCKED, never as a pass.
-const BACKEND = "needs the local backend recipe (a signed-in account and sync states)";
+const BACKEND = "needs a configured backend and dedicated signed-in QA account with the required sync state";
 const NO_GERMAN = "the build has no German strings";
 const SITE_ACCESS =
   "needs Chrome site access withdrawn; chrome.permissions.remove refuses required host permissions and the harness cannot drive chrome://extensions";
-const PAID = "needs a Pro purchase, which both paid flags keep off";
+const PAID = "needs a configured paid QA build and verified sandbox purchase; the local QA build keeps paid behavior off";
 
 export const cases = [
   { id: "d01-01", reference: "d01-desktop-popup/01-light-pro-not-owned-457px-tall.png", theme: "light", recipe: "popup-fresh" },

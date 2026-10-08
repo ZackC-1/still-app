@@ -248,7 +248,7 @@ describe("controlled D02 mobile presentation", () => {
       } else if (state === "locked") {
         await fireEvent.click(
           within(row).getByRole("button", {
-            name: "Still Pro",
+            name: /^.+\. Included in Still Pro\./,
             description: "Comments",
           }),
         );
@@ -294,7 +294,9 @@ describe("controlled D02 mobile presentation", () => {
     // Owner decision 24: the 11 mobile Pro rows show the existing locked design, inert.
     expect(screen.queryByText(/Not available/)).toBeNull();
     // Decision 40: each lock is named exactly "Still Pro" (every mobile row stays mounted).
-    const locks = screen.getAllByRole("button", { name: "Still Pro" });
+    const locks = screen.getAllByRole("button", {
+      name: /^.+\. Included in Still Pro\./,
+    });
     expect(locks).toHaveLength(11);
     for (const lock of locks) {
       expect(lock).toHaveAttribute("aria-disabled", "true");
@@ -372,7 +374,7 @@ describe("controlled D02 mobile presentation", () => {
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Still Pro",
+        name: /^.+\. Included in Still Pro\./,
         description: "Comments",
       }),
     );
@@ -388,7 +390,7 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "See Still Pro in the Still app" }),
     );
     const heldLock = screen.getByRole("button", {
-      name: "Still Pro",
+      name: /^.+\. Included in Still Pro\./,
       description: "Comments",
     });
     expect(heldLock).toHaveAttribute("aria-disabled", "true");
@@ -402,35 +404,32 @@ describe("controlled D02 mobile presentation", () => {
     const { props } = await fixture("locked");
     props.host = "firefox";
     props.onPurchase = vi.fn();
+    props.onSeePro = vi.fn();
     const view = render(MobilePopup, { props });
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     const lock = screen.getByRole("button", {
-      name: "Still Pro",
+      name: /^.+\. Included in Still Pro\./,
       description: "Comments",
     });
     await fireEvent.click(lock);
     expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(props.onSeePro).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByText("Purchase Still Pro")).toBeNull();
     expect(screen.queryByText("See Still Pro")).toBeNull();
     props.channelReady = true;
     await view.rerender(props);
-    // Decision 41: the lock opens the Still Pro sheet; only its explicit Purchase reaches the port.
+    // The lock goes directly to the supplied settings destination.
     await fireEvent.click(lock);
+    expect(props.onSeePro).toHaveBeenCalledTimes(2);
     expect(props.onPurchase).not.toHaveBeenCalled();
-    const sheet = screen.getByRole("dialog", { name: "Still Pro" });
-    await fireEvent.click(
-      within(sheet).getByRole("button", { name: "Purchase Still Pro" }),
-    );
-    expect(props.onPurchase).toHaveBeenCalledOnce();
-    await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     await fireEvent.click(
       screen.getByRole("button", { name: "Purchase Still Pro" }),
     );
-    expect(props.onPurchase).toHaveBeenCalledTimes(2);
+    expect(props.onPurchase).toHaveBeenCalledOnce();
     for (const state of ["checking", "verification_required"] as const) {
       props.access = {
         ...props.access,
@@ -440,12 +439,13 @@ describe("controlled D02 mobile presentation", () => {
       expect(screen.queryByText("Purchase Still Pro")).toBeNull();
       await fireEvent.click(
         screen.getByRole("button", {
-          name: "Still Pro",
+          name: /^.+\. Included in Still Pro\./,
           description: "Related videos",
         }),
       );
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(props.onPurchase).toHaveBeenCalledTimes(2);
+      expect(props.onPurchase).toHaveBeenCalledOnce();
+      expect(props.onSeePro).toHaveBeenCalledTimes(2);
     }
     view.unmount();
   });
@@ -753,6 +753,85 @@ describe("per-issued invitation claims through MobilePopup", () => {
       expect(props.onGlobalChange).not.toHaveBeenCalled();
       expect(props.onServiceChange).not.toHaveBeenCalled();
       expect(props.onFeatureChange).not.toHaveBeenCalled();
+    },
+  );
+});
+
+
+describe("informational Firefox destination without a payment channel", () => {
+  it("navigates a current lock while purchase and invitation remain unavailable", async () => {
+    const { props, storage } = await fixture("locked");
+    props.host = "firefox";
+    props.channelReady = false;
+    props.onSeePro = vi.fn();
+    props.onPurchase = vi.fn();
+    props.invitation = invitationSpecimen("rating", "firefox-android");
+    const saved = await storage.get();
+    const view = render(MobilePopup, { props });
+    await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    const lock = screen.getByRole("button", {
+      name: /^.+\. Included in Still Pro\. See Still Pro$/,
+      description: "Comments",
+    });
+    await fireEvent.click(lock);
+    expect(props.onSeePro).toHaveBeenCalledOnce();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await storage.get()).toEqual(saved);
+    const delivered = () => lock.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    props.onSeePro = undefined;
+    await view.rerender(props);
+    delivered();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+  });
+
+  it.each(["unsupported", "purchased", "protected", "checking", "verification_required"] as const)(
+    "holds an old lock action when current Firefox access becomes %s",
+    async state => {
+      const { props, storage } = await fixture("locked");
+      props.host = "firefox";
+      props.onSeePro = vi.fn();
+      props.onPurchase = vi.fn();
+      const saved = await storage.get();
+      const view = render(MobilePopup, { props });
+      await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+      const lock = screen.getByRole("button", { name: /^.+\. Included in Still Pro\. See Still Pro$/, description: "Comments" });
+      const delivered = () => lock.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      props.access = { ...props.access, states: Object.fromEntries(Object.entries(props.access.states).map(([id, prior]) => [id, FEATURE_REGISTRY.some(row => row.id === id && row.tier === "pro") ? state : prior])) as MobilePopupProps["access"]["states"] };
+      await view.rerender(props);
+      delivered();
+      expect(props.onSeePro).not.toHaveBeenCalled();
+      expect(props.onPurchase).not.toHaveBeenCalled();
+      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+      expect(await storage.get()).toEqual(saved);
+    },
+  );
+});
+
+
+describe("current mixed Firefox access blocks informational acquisition", () => {
+  it.each(["checking", "verification_required", "purchased", "protected"] as const)(
+    "keeps the current Comments lock inert when another benefit becomes %s",
+    async state => {
+      const { props, storage } = await fixture("locked");
+      props.host = "firefox";
+      props.onSeePro = vi.fn();
+      props.onPurchase = vi.fn();
+      const saved = await storage.get();
+      const view = render(MobilePopup, { props });
+      await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+      const lock = screen.getByRole("button", { name: /^.+\. Included in Still Pro\. See Still Pro$/, description: "Comments" });
+      props.access = { ...props.access, states: { ...props.access.states, "youtube.related": state } };
+      await view.rerender(props);
+      expect(lock.isConnected).toBe(true);
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(lock);
+      expect(props.onSeePro).not.toHaveBeenCalled();
+      expect(props.onPurchase).not.toHaveBeenCalled();
+      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+      expect(await storage.get()).toEqual(saved);
     },
   );
 });

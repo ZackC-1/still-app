@@ -136,6 +136,10 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
   };
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let stopped = false;
+  // Settings republishing must not invalidate work; deliberate workflow transitions must.
+  // A phase alone cannot identify an intent after cancel -> retry returns to that same phase.
+  let intent = 0;
+  const current = (token: number) => !stopped && token === intent;
 
   const ask = async (kind: string): Promise<unknown> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -155,10 +159,11 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
 
   const actions: TikTokBlockedHostActions = {
     requestConfirmation() {
-      if (state.phase !== "blocked") return;
+      if (stopped || state.phase !== "blocked") return;
+      const token = ++intent;
       publish("pending");
       void ask(TIKTOK_ROUTE.request).then((reply) => {
-        if (state.phase !== "pending") return;
+        if (!current(token) || state.phase !== "pending") return;
         const status = statusOf(reply);
         if (status === "confirming") publish("confirmation");
         else if (status === "granted") publish("granted");
@@ -166,34 +171,37 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       });
     },
     confirmOpen() {
-      if (state.phase !== "confirmation") return;
+      if (stopped || state.phase !== "confirmation") return;
+      const token = ++intent;
       // Any later cancel from the same observation is ignored: this page is now pending.
       publish("pending");
       void ask(TIKTOK_ROUTE.confirm).then((reply) => {
-        if (state.phase !== "pending") return;
+        if (!current(token) || state.phase !== "pending") return;
         if (statusOf(reply) === "granted") publish("granted");
         else fail();
       });
     },
     cancel() {
-      if (state.phase !== "confirmation") return;
+      if (stopped || state.phase !== "confirmation") return;
+      intent += 1;
       publish("blocked");
       void ask(TIKTOK_ROUTE.cancel);
     },
     settings() {
-      if (state.phase === "loading" || state.phase === "confirmation") return;
+      if (stopped || state.phase === "loading" || state.phase === "confirmation") return;
       void Promise.resolve()
-        .then(() => deps.openSettings())
+        .then(() => { if (!stopped) return deps.openSettings(); })
         .catch(() => {});
       // Same phase, fresh observation: the settings fence never holds the next deliberate action.
       // A failure line already on the page stays; settings opening elsewhere doesn't resolve it.
       publish(state.phase, undefined, state.failed);
     },
     reload() {
-      if (state.phase !== "granted") return;
+      if (stopped || state.phase !== "granted") return;
+      const token = ++intent;
       publish("pending");
       void ask(TIKTOK_ROUTE.open).then((reply) => {
-        if (state.phase !== "pending") return;
+        if (!current(token) || state.phase !== "pending") return;
         const url = reply && typeof reply === "object" ? (reply as { url?: unknown }).url : undefined;
         if (statusOf(reply) === "open" && typeof url === "string") deps.navigate(url);
         else fail();
@@ -214,10 +222,11 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
     clearInterval(heartbeat);
     heartbeat = undefined;
     if (phase === "confirmation") {
+      const token = intent;
       heartbeat = setInterval(() => {
         void ask(TIKTOK_ROUTE.confirming).then((reply) => {
           // The background let this confirmation go (timeout, restart): close the dialog.
-          if (state.phase === "confirmation" && statusOf(reply) !== "confirming") fail();
+          if (current(token) && state.phase === "confirmation" && statusOf(reply) !== "confirming") fail();
         });
       }, deps.heartbeatMs ?? TIKTOK_HEARTBEAT_MS);
     }
@@ -234,7 +243,10 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       return () => listeners.delete(listener);
     },
     async start(): Promise<void> {
+      if (stopped) return;
+      const token = ++intent;
       const reply = await ask(TIKTOK_ROUTE.screen);
+      if (!current(token)) return;
       const status = statusOf(reply);
       const tab = reply && typeof reply === "object" ? (reply as { tab?: unknown }).tab : undefined;
       publish(
@@ -242,8 +254,10 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
         typeof tab === "number" ? String(tab) : undefined,
       );
     },
-    stop(): void {
+    stop(unavailable = false): void {
+      if (unavailable) publish("unavailable");
       stopped = true;
+      intent += 1;
       clearInterval(heartbeat);
       listeners.clear();
     },

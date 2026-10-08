@@ -64,3 +64,14 @@ export function caseProblems(cases, map, tier = "T1") {
   }
   return problems;
 }
+
+/** The committed coverage map must describe the actual selected latest DOM inventory. */
+export function inventoryProblems(map, frames) {
+  const expected = new Set(frames.map((f) => f.file));
+  const actual = new Set(map.frames.map((f) => f.file));
+  return [
+    ...(map.designVersion !== "3.0.1" ? ["frame map must identify latest design version 3.0.1"] : []),
+    ...frames.filter((f) => !actual.has(f.file)).map((f) => `reference not mapped: ${f.file}`),
+    ...map.frames.filter((f) => !expected.has(f.file)).map((f) => `stale map reference: ${f.file}`),
+  ];
+}

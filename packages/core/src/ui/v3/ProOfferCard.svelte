@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { ProOfferCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import StaticProControlList from "./StaticProControlList.svelte";
   let {
     ownership,
+    controls = [],
     channel,
     offer,
     confirmedAccount,
@@ -65,6 +67,7 @@
       >
         {offer.priceNote}
       </p>{/if}
+    {#if controls.length}<StaticProControlList {controls} />{/if}
     {#if canBuy}
       <button
         type="button"

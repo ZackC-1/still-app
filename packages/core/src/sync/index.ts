@@ -3,6 +3,8 @@
 
 export type {
   AuthPort,
+  VerifiedAccount,
+  AccountConfirmationPort,
   CodeAuthPort,
   RequestCodeOutcome,
   VerifyCodeOutcome,

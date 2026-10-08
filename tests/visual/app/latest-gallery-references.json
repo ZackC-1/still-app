@@ -1,0 +1,232 @@
+{
+  "designVersion": "3.0.1",
+  "archiveSha256": "957c50516ff306b305f20b893105104bdd4512bf5fa7abaa06553287706fb3a3",
+  "source": "owner archive3.0.1; exact Chromium153 DSF2 rendered metadata, no PNG pixels; regenerated references require review",
+  "inventorySha256": "483d1a5d87c9e6912ae5aae2cee9e1e53f7c86dd771c4cbd9e4718cbf25088d7",
+  "sourceInputs": [
+    {
+      "path": "gallery/Gallery.babel",
+      "sha256": "79336634b2825ba2cd45c0a021ab0c4c5e8c45bb6cb6af6652c4d08572e53aa5"
+    },
+    {
+      "path": "gallery/Screens.babel",
+      "sha256": "e0b48e784441ba153814396c9edf0eb14c950ac7f61e243c57f3b7a192073720"
+    },
+    {
+      "path": "gallery/index.html",
+      "sha256": "b7fa1fa94728f963c921bcba459581993962792d0665bdc00a360fb2ab88ce1d"
+    },
+    {
+      "path": "_ds_bundle.js",
+      "sha256": "8ffd7b0d7f9db6a651ddd625af19d83f928b6bb7e4f92359c234b3c80263c281"
+    },
+    {
+      "path": "tokens/tokens.json",
+      "sha256": "eb7e00041233393902f9ecd050e59cf75fc41d1dee651e4f8e3dc92c5186df9f"
+    },
+    {
+      "path": "tokens/spacing.css",
+      "sha256": "0a2f84069f0ebd330ff163eec39ff15d8b604e2699ca0fd36917f2a35cae140d"
+    }
+  ],
+  "frames": [
+    {
+      "reference": "01-light.png",
+      "theme": "light",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "02-dark.png",
+      "theme": "dark",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "03-global-off-choices-kept.png",
+      "theme": "light",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "04-pro-not-owned-purchase-cta.png",
+      "theme": "light",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "05-safari-popup-pro-not-owned.png",
+      "theme": "dark",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "06-light.png",
+      "theme": "light",
+      "width": 432,
+      "textScale": 1.0
+    },
+    {
+      "reference": "07-dark.png",
+      "theme": "dark",
+      "width": 432,
+      "textScale": 1.0
+    },
+    {
+      "reference": "08-light.png",
+      "theme": "light",
+      "width": 420,
+      "textScale": 1.0
+    },
+    {
+      "reference": "09-dark.png",
+      "theme": "dark",
+      "width": 420,
+      "textScale": 1.0
+    },
+    {
+      "reference": "10-light.png",
+      "theme": "light",
+      "width": 400,
+      "textScale": 1.0
+    },
+    {
+      "reference": "11-dark.png",
+      "theme": "dark",
+      "width": 400,
+      "textScale": 1.0
+    },
+    {
+      "reference": "12-withdrawal-requested.png",
+      "theme": "light",
+      "width": 290,
+      "textScale": 1.0
+    },
+    {
+      "reference": "13-withdrawal-verifying.png",
+      "theme": "light",
+      "width": 290,
+      "textScale": 1.0
+    },
+    {
+      "reference": "14-withdrawal-deleted.png",
+      "theme": "light",
+      "width": 290,
+      "textScale": 1.0
+    },
+    {
+      "reference": "15-withdrawal-failed.png",
+      "theme": "light",
+      "width": 290,
+      "textScale": 1.0
+    },
+    {
+      "reference": "16-browser-failed.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "17-browser-signed-out.png",
+      "theme": "dark",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "18-channel-unverified.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "19-safari-popup.png",
+      "theme": "dark",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "20-apple-host-waiting-for-storekit.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "21-checking-rights.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "22-restore-outcomes.png",
+      "theme": "light",
+      "width": 460,
+      "textScale": 1.0
+    },
+    {
+      "reference": "23-linking-confirm-failed.png",
+      "theme": "dark",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "24-light.png",
+      "theme": "light",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "25-dark.png",
+      "theme": "dark",
+      "width": 380,
+      "textScale": 1.0
+    },
+    {
+      "reference": "26-draft-idle.png",
+      "theme": "light",
+      "width": 400,
+      "textScale": 1.0
+    },
+    {
+      "reference": "27-stale.png",
+      "theme": "dark",
+      "width": 400,
+      "textScale": 1.0
+    },
+    {
+      "reference": "28-browser.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "29-confirmation.png",
+      "theme": "dark",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "30-iphone-safari-reload-needed.png",
+      "theme": "light",
+      "width": 300,
+      "textScale": 1.0
+    },
+    {
+      "reference": "31-focus.png",
+      "theme": "light",
+      "width": 320,
+      "textScale": 1.0
+    },
+    {
+      "reference": "32-150-text-text-scale-320-wide.png",
+      "theme": "dark",
+      "width": 320,
+      "textScale": 1.0
+    },
+    {
+      "reference": "33-long-text.png",
+      "theme": "light",
+      "width": 320,
+      "textScale": 1.0
+    }
+  ]
+}

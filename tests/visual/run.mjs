@@ -8,16 +8,23 @@
 //   pnpm visual --self-test           # proves the gate: one frame PASSes, then FAILs when the
 //                                     # harness shifts its render by 2px (test-only, never product)
 //
-// The design package is private and gitignored (build/v3/still-design-system-v3.2). When it is
-// absent (CI) the run prints SKIPPED and exits 0. Nothing here masks pixels, edits references or
+// The latest owner source is under docs/design/Still v3.1 redesign/source. Exact generated
+// references stay outside shipped bundles; set STILL_VISUAL_REFERENCE_DIR to their directory.
+// Install comparator dependencies beside source/handoff/package.json. Explicit older packages
+// with a root package.json remain supported when they have no handoff/package.json.
+// Source token declarations and reference inventories must identify the owner's latest
+// internal design version, 3.0.1.
+// Missing comparator or reference inputs always fail; render references before comparing.
+// Nothing here masks pixels, edits references or
 // changes product source: a frame passes only when differing pixels * 200 <= total pixels, the
 // same unrounded 0.5% gate as the package's compare script.
 //
 // Output (gitignored): tests/visual/.output/{report.json,report.md,impl/*.png,diff/*.png}
-// Exit code: 0 when every mapped frame passes or the package is absent, 1 when any frame fails,
+// Exit code: 0 when every mapped frame passes, 1 when inputs are missing or any frame fails,
 // 2 for a usage error such as --only matching no case.
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -32,13 +39,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
 const PKG = resolve(
   process.env.STILL_DESIGN_PACKAGE ??
-    resolve(HERE, "../../build/v3/still-design-system-v3.2"),
+    resolve(REPO, "docs/design/Still v3.1 redesign/source"),
 );
 const OUT = resolve(process.env.STILL_VISUAL_OUTPUT ?? join(HERE, ".output"));
 const COMPARE = join(PKG, "handoff/compare.script");
-const INVENTORY = join(PKG, "handoff/reference/render-inventory.json");
-const CONTEXT = join(PKG, "handoff/reference/frame-context-inventory.json");
-const REFERENCES = join(PKG, "handoff/reference");
+const TOOLING = existsSync(join(PKG, "handoff/package.json"))
+  ? join(PKG, "handoff")
+  : PKG;
+const REFERENCES = resolve(
+  process.env.STILL_VISUAL_REFERENCE_DIR ?? join(PKG, "handoff/reference"),
+);
+const INVENTORY = join(REFERENCES, "render-inventory.json");
+const CONTEXT = join(REFERENCES, "frame-context-inventory.json");
+const SOURCE_TOKENS = join(PKG, "tokens/tokens.json");
+const SOURCE_SPACING = join(PKG, "tokens/spacing.css");
 
 const args = process.argv.slice(2);
 const only = args
@@ -49,15 +63,65 @@ const selfTest = args.includes("--self-test");
 const SELF_TEST_CASE = "d12-01";
 
 if (!existsSync(COMPARE) || !existsSync(INVENTORY)) {
-  console.log(
-    `SKIPPED: V3 design package not found at ${PKG} (set STILL_DESIGN_PACKAGE). No frames compared.`,
+  console.error(
+    `FAIL: V3 comparator or reference inventory missing at ${PKG} / ${REFERENCES}. Set STILL_DESIGN_PACKAGE and STILL_VISUAL_REFERENCE_DIR. No frames compared.`,
   );
-  process.exit(0);
+  process.exit(1);
 }
+let inventory;
+let inventoryText;
+try {
+  inventoryText = readFileSync(INVENTORY, "utf8");
+  inventory = JSON.parse(inventoryText);
+} catch {
+  console.error(
+    `FAIL: invalid reference inventory JSON at ${INVENTORY}. No frames compared.`,
+  );
+  process.exit(1);
+}
+if (inventory?.design_version !== "3.0.1") {
+  console.error(
+    `FAIL: reference inventory at ${INVENTORY} must identify the latest design version 3.0.1. No frames compared.`,
+  );
+  process.exit(1);
+}
+let sourceTokens;
+let sourceTokensText;
+let sourceSpacingText;
+try {
+  sourceTokensText = readFileSync(SOURCE_TOKENS, "utf8");
+  sourceTokens = JSON.parse(sourceTokensText);
+  sourceSpacingText = readFileSync(SOURCE_SPACING, "utf8");
+} catch {
+  console.error(
+    `FAIL: design source has missing or malformed token declarations at ${SOURCE_TOKENS} / ${SOURCE_SPACING}. No frames compared.`,
+  );
+  process.exit(1);
+}
+const sourceVersion = sourceTokens?.version;
+const sourceSpacing = sourceSpacingText.replace(/\/\*[\s\S]*?\*\//g, "");
+const cssVersions = [
+  ...sourceSpacing.matchAll(/--ds-version\s*:\s*(['"])([^'"]+)\1\s*;/g),
+];
+const sourceCssVersion = cssVersions[0]?.[2];
+if (
+  sourceVersion !== inventory.design_version ||
+  [...sourceSpacing.matchAll(/--ds-version\s*:/g)].length !== 1 ||
+  cssVersions.length !== 1 ||
+  sourceCssVersion !== sourceVersion
+) {
+  console.error(
+    `FAIL: design source token and CSS versions at ${SOURCE_TOKENS} / ${SOURCE_SPACING} must both match latest reference version ${inventory.design_version}. No frames compared.`,
+  );
+  process.exit(1);
+}
+const toolingRequire = createRequire(join(TOOLING, "package.json"));
 for (const dep of ["pngjs", "pixelmatch"]) {
-  if (!existsSync(join(PKG, "node_modules", dep))) {
+  try {
+    toolingRequire.resolve(dep);
+  } catch {
     console.error(
-      `The design package's compare script needs its own ${dep}; run "npm i" in ${PKG}.`,
+      `The design package's compare script needs its own ${dep}; run "npm i" in ${TOOLING}.`,
     );
     process.exit(2);
   }
@@ -72,7 +136,7 @@ const { svelte, vitePreprocess } = await importCore(
 );
 const { chromium } = await import("@playwright/test");
 // Read diff images with the package's own pngjs (no new repository dependency).
-const { PNG } = createRequire(join(PKG, "package.json"))("pngjs");
+const { PNG } = toolingRequire("pngjs");
 
 const server = await createViteServer({
   configFile: false,
@@ -80,9 +144,12 @@ const server = await createViteServer({
   logLevel: "error",
   plugins: [svelte({ configFile: false, preprocess: vitePreprocess() })],
   resolve: {
-    alias: {
-      "@still/shared-types": join(REPO, "packages/shared-types/src/index.ts"),
-    },
+    alias: [
+      {
+        find: /^@still\/shared-types$/,
+        replacement: join(REPO, "packages/shared-types/src/index.ts"),
+      },
+    ],
   },
   define: { __STILL_DESIGN_PACKAGE__: JSON.stringify(PKG) },
   server: { port: 0, host: "127.0.0.1", fs: { allow: [REPO, PKG] } },
@@ -90,7 +157,6 @@ const server = await createViteServer({
 await server.listen();
 const base = server.resolvedUrls.local[0];
 
-const inventory = JSON.parse(readFileSync(INVENTORY, "utf8"));
 const slug = (s) =>
   s
     .toLowerCase()
@@ -142,7 +208,7 @@ function compare(reference, implementation, diff) {
   const run = spawnSync(
     process.execPath,
     ["--input-type=module", "-", reference, implementation, diff],
-    { input: readFileSync(COMPARE), cwd: PKG, encoding: "utf8" },
+    { input: readFileSync(COMPARE), cwd: TOOLING, encoding: "utf8" },
   );
   const output = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
   const counted = /([\d.]+)% of pixels differ \((\d+)\)/.exec(output);
@@ -466,7 +532,24 @@ const outOfScope = inventory.inventory
 const summary = {
   generatedAt: new Date().toISOString(),
   designPackage: PKG,
+  referenceDirectory: REFERENCES,
+  referenceInventory: INVENTORY,
   designVersion: inventory.design_version,
+  sourceVersion,
+  sourceCssVersion,
+  sourceProvenance: {
+    tokens: {
+      path: SOURCE_TOKENS,
+      sha256: createHash("sha256").update(sourceTokensText).digest("hex"),
+    },
+    spacing: {
+      path: SOURCE_SPACING,
+      sha256: createHash("sha256").update(sourceSpacingText).digest("hex"),
+    },
+  },
+  referenceInventorySha256: createHash("sha256")
+    .update(inventoryText)
+    .digest("hex"),
   chromium: browser.version(),
   deviceScaleFactor: 2,
   gate: "differing pixels * 200 <= total pixels (pixelmatch threshold 0.1, includeAA false)",

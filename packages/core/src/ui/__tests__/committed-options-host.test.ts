@@ -1,4 +1,12 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   fireEvent,
   render,
@@ -22,6 +30,20 @@ import {
   gate,
   purchase,
 } from "./committed-popup-host.fixtures.js";
+
+const paidMode = vi.hoisted(() => ({ enabled: false }));
+vi.mock("@still/shared-types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@still/shared-types")>();
+  return {
+    ...actual,
+    get PAID_TIER_ENABLED() {
+      return paidMode.enabled;
+    },
+  };
+});
+afterEach(() => {
+  paidMode.enabled = false;
+});
 
 // The settings page is loaded lazily. In a fresh worker that first import pays Vite's on-demand Svelte
 // transform (0.3-0.6s, far more under CPU contention) inside the first test's 1s `waitFor` window.
@@ -595,7 +617,9 @@ describe("actual options sync and auth operations", () => {
     const before = await f.authority.get();
     // Owner decision 71: the exact approved wording, spelled out so a strings edit cannot drift it.
     expect(
-      screen.getByText("Sync didn't finish. Your settings are saved on this device."),
+      screen.getByText(
+        "Sync didn't finish. Your settings are saved on this device.",
+      ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     await fireEvent.click(
@@ -823,4 +847,113 @@ describe("options deletion attachment replacement safeguards", () => {
       }
     },
   );
+});
+
+describe("actual options account confirmation", () => {
+  beforeEach(() => {
+    paidMode.enabled = true;
+  });
+
+  it("retries confirmation on reconnect and foreground and releases listeners on unmount", async () => {
+    await browser();
+    const p = purchase();
+    const verified = {
+      id: "synthetic-account",
+      email: "verified@example.test",
+      emailConfirmed: true,
+    };
+    const currentVerifiedAccount = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(verified);
+    const state = capture({
+      purchase: { ...p.deps, auth: { ...p.auth, currentVerifiedAccount } },
+    });
+    await flush();
+    state.controller.userId = verified.id;
+    state.controller.accountEmail = verified.email;
+    const view = await options(state);
+    await waitFor(() => expect(currentVerifiedAccount).toHaveBeenCalledOnce());
+    expect(state.controller.accountConfirmed).toBe(false);
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy();
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(state.controller.accountConfirmed).toBe(true));
+    expect(currentVerifiedAccount).toHaveBeenCalledTimes(2);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(currentVerifiedAccount).toHaveBeenCalledTimes(2);
+    currentVerifiedAccount.mockResolvedValue({
+      ...verified,
+      emailConfirmed: false,
+    });
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(state.controller.accountConfirmed).toBe(false));
+    expect(currentVerifiedAccount).toHaveBeenCalledTimes(3);
+    view.unmount();
+    window.dispatchEvent(new Event("online"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(currentVerifiedAccount).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps dormant settings usable without server confirmation reads", async () => {
+    paidMode.enabled = false;
+    await browser();
+    const p = purchase();
+    const currentVerifiedAccount = vi.fn(async () => ({
+      id: "synthetic-account",
+      email: "verified@example.test",
+      emailConfirmed: true,
+    }));
+    const state = capture({
+      purchase: { ...p.deps, auth: { ...p.auth, currentVerifiedAccount } },
+    });
+    await flush();
+    state.controller.userId = "synthetic-account";
+    state.controller.accountEmail = "verified@example.test";
+    await options(state);
+    state.controller.accountRevision++;
+    state.controller.lastSyncedAt = 100;
+    await flush();
+    expect(currentVerifiedAccount).not.toHaveBeenCalled();
+    expect(state.controller.accountConfirmed).toBe(false);
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy();
+  });
+
+  it("loads server confirmation and refreshes it for a new account epoch", async () => {
+    await browser();
+    const p = purchase();
+    const currentVerifiedAccount = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "synthetic-account",
+        email: "verified@example.test",
+        emailConfirmed: true,
+      })
+      .mockResolvedValueOnce({
+        id: "synthetic-account",
+        email: "verified@example.test",
+        emailConfirmed: false,
+      });
+    const state = capture({
+      purchase: { ...p.deps, auth: { ...p.auth, currentVerifiedAccount } },
+    });
+    await flush();
+    state.controller.userId = "synthetic-account";
+    state.controller.accountEmail = "verified@example.test";
+    await options(state);
+    await waitFor(() => expect(state.controller.accountConfirmed).toBe(true));
+    expect(currentVerifiedAccount).toHaveBeenCalledOnce();
+    state.controller.accountRevision++;
+    state.controller.lastSyncedAt = 100;
+    await waitFor(() =>
+      expect(currentVerifiedAccount).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() => expect(state.controller.accountConfirmed).toBe(false));
+    expect(state.controller.userId).toBe("synthetic-account");
+  });
 });

@@ -86,6 +86,72 @@ test("blocked TikTok opens the extension page; Open TikTok this time allows this
   await expect.poll(() => sessionKeys(context)).toEqual([]);
 });
 
+test("the installed page retires a delayed reopen reply on pagehide", async ({ context }, testInfo) => {
+  test.skip(syncConfigured, V3_ONLY);
+  await serve(context);
+  const page = await context.newPage();
+  await openBlocked(page);
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("d29-blocked.png") });
+  await page.getByRole("button", { name: "Open TikTok this time" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("d29-confirmation.png") });
+  await dialog.getByRole("button", { name: "Open TikTok this time" }).click();
+  await expect(page.getByText("Reload this page to open TikTok.")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("d29-reload.png") });
+  await page.evaluate(() => {
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+    const w = window as unknown as { __releaseReopen?: () => void };
+    chrome.runtime.sendMessage = ((message: { kind?: string }) => {
+      if (message.kind !== "still:tiktok-open") return send(message);
+      return new Promise((resolve) => {
+        void send(message).then((reply: unknown) => { w.__releaseReopen = () => resolve(reply); });
+      });
+    }) as typeof chrome.runtime.sendMessage;
+  });
+  await page.getByRole("button", { name: "Reload page" }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __releaseReopen?: unknown }).__releaseReopen)).toBe("function");
+  // Deliver pagehide while this native document is still inspectable, then release the genuine
+  // background reply. This checks the actual installed entrypoint's disposal, not a fixture port.
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent("pagehide"));
+    (window as unknown as { __releaseReopen?: () => void }).__releaseReopen?.();
+  });
+  await page.waitForTimeout(250);
+  expect(page.url()).toMatch(BLOCKED);
+  await expect(page.locator("#tiktok-feed")).toHaveCount(0);
+});
+
+test("forged destination and another tab's blocked URL cannot confirm an allowance", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
+  await serve(context);
+  const page = await context.newPage();
+  await openBlocked(page);
+  const before = await savedSettings(context);
+  // An extension-owned document alone is insufficient: no real confirmation has been requested.
+  expect(await page.evaluate(() => chrome.runtime.sendMessage({ kind: "still:tiktok-confirm" }))).toEqual({ status: "failed" });
+  const forged = await page.evaluate(async () => {
+    try {
+      return await chrome.runtime.sendMessage({ kind: "still:tiktok-request", url: "https://www.tiktok.com/@forged" });
+    } catch { return null; }
+  });
+  expect(forged?.status).not.toBe("confirming");
+  expect((await sessionKeys(context)).filter((key) => key.startsWith("still:tiktok-tab:"))).toEqual([]);
+
+  await page.getByRole("button", { name: "Open TikTok this time" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  const duplicate = await context.newPage();
+  await duplicate.goto(page.url());
+  await expect(duplicate.getByRole("button", { name: "Open TikTok this time" })).toHaveAttribute("aria-disabled", "true");
+  expect(await duplicate.evaluate(() => chrome.runtime.sendMessage({ kind: "still:tiktok-confirm" }))).toEqual({ status: "failed" });
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Keep it closed" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect((await sessionKeys(context)).filter((key) => key.startsWith("still:tiktok-tab:"))).toEqual([]);
+  expect(await savedSettings(context)).toEqual(before);
+});
+
 test("Keep it closed grants nothing and a fresh tab or reload stays blocked", async ({ context }) => {
   test.skip(syncConfigured, V3_ONLY);
   test.setTimeout(60_000);

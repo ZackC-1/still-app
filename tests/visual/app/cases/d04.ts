@@ -4,7 +4,7 @@ import type { AppleSettingsProps } from "../../../../packages/core/src/ui/v3/app
 import type { ServiceId } from "@still/shared-types";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { FrameSpec, Rendered, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY } from "./shared.js";
+import { OWNER_SYNC_COPY, REFERENCE_DEMO_ACCOUNT } from "./shared.js";
 
 const screen = "d04-apple-app-settings";
 
@@ -122,9 +122,7 @@ const iphone15 = (scale?: number): FrameSpec => ({
 });
 const base = { screen, component: "AppleSettings", textScale: 1 } as const;
 const signedOut = [OWNER_SYNC_COPY];
-// d04-06's reference keeps the review-only label; only d04-07 was re-captured without it.
-const demoMark =
-  "reference draws the review-only demonstration label that the shipped screen never renders";
+const demoMark = REFERENCE_DEMO_ACCOUNT;
 
 const cases: VisualCase[] = [
   {
@@ -251,6 +249,7 @@ const cases: VisualCase[] = [
       link: "confirm",
       signedIn: true,
     }),
+    deviations: [demoMark],
   },
   {
     ...base,

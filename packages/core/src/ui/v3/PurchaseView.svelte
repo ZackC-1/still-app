@@ -2,6 +2,7 @@
   import type { PurchaseViewProps } from "./purchase-presentation.js";
   import type { OperationStatus } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import StaticProControlList from "./StaticProControlList.svelte";
   import "./design/styles.css";
 
   let props: PurchaseViewProps = $props();
@@ -66,15 +67,6 @@
   let restoreAllowed = $derived(
     !completed && props.purchase.state !== "success" && !restoreHeld,
   );
-  let groups = $derived.by(() => {
-    const result: [string, string[]][] = [];
-    for (const control of props.controls) {
-      let group = result.find(([site]) => site === control.site);
-      if (!group) result.push((group = [control.site, []]));
-      group[1].push(control.label);
-    }
-    return result;
-  });
   const restoreMessages = {
     checking: { tone: "pending", text: "Checking for Still Pro purchases…" },
     restored: {
@@ -175,14 +167,7 @@
         forever. No subscription
       </p>
       <section class="card card-stack">
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          {#each groups as [site, items] (site)}<div>
-              <p class="offer-site">{site} Blocking Options</p>
-              <ul class="offer-list">
-                {#each items as item, index (index)}<li>{item}</li>{/each}
-              </ul>
-            </div>{/each}
-        </div>
+        <StaticProControlList controls={props.controls} gap={10} />
       </section>
       {#if props.purchase.state === "failed"}{@render status({
           tone: "failed",

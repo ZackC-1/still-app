@@ -2,6 +2,7 @@ import "./still.css"; // packaged critical CSS (manifest content_scripts css, KT
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
 import { createShippingContentEntry } from "@still/core/content";
 import { createModernShippingContentEntry } from "@still/core/content/modern-entry";
+import { createTikTokBlockedNavigation, backForwardNavigation } from "@still/core/content/tiktok-blocked-navigation";
 import type { ContentScriptLifecycle } from "../../lib/reconcile-nudge.js";
 import { startSafariReconcileNudges } from "../../lib/reconcile-nudge.js";
 
@@ -40,6 +41,13 @@ export default defineContentScript({
       await createModernShippingContentEntry({
         // As below: Safari implements only the extras every host implements.
         host: "safari",
+        ...(window.top === window && /(^|\.)tiktok\.com$/.test(window.location.hostname) ? {
+          tiktokBlockedPage: createTikTokBlockedNavigation({
+            doc: document,
+            send: (message) => browser.runtime.sendMessage(message),
+            traversal: backForwardNavigation,
+          }),
+        } : {}),
         storage: browser.storage.local,
         prod: import.meta.env.PROD,
         earlyRedirect: true,

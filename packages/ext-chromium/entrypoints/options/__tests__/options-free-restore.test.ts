@@ -155,8 +155,9 @@ describe("V3 new-sync settings page: Restore purchase", () => {
     expectNoPurchase(f);
     // Nothing unlocks while paid is off: the Pro rows stay locked and inert.
     await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
-    const locks = screen.getAllByRole("button", { name: "Still Pro" });
+    const locks = screen.getAllByRole("button", { name: /\. Included in Still Pro\.$/ });
     expect(locks.length).toBeGreaterThan(0);
+    expect(locks[0]!.getAttribute("aria-disabled")).toBe("true");
     await fireEvent.click(locks[0]!);
     expectNoPurchase(f);
   });

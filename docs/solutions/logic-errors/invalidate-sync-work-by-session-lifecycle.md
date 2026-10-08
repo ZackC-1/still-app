@@ -6,6 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Async sync responses or cleanup can finish after sign-out or a later session entry
 date: 2026-09-08
+last_updated: 2026-10-07
 status: active
 tags: [sync, session, account-isolation, realtime, async]
 ---
@@ -82,3 +83,25 @@ delete presentation when identity changes, so the replacement account does not i
 controller-to-session wiring. `ui/__tests__/account-status.test.ts` covers a background account
 switch while an earlier sign-out is pending. Removing the Apple completion guards breaks both
 new teardown regressions while the other session controls still pass.
+
+
+## Refresh confirmation without replacing the account
+
+Account confirmation is an observation of the current session. A fresh read for the same account
+must not reset an open deletion dialog or its consent checkbox merely because a presentation object
+was rebuilt. Key dialog ownership to the account identity; invalidate it on an actual identity
+change. Authorization remains separate: the operation still requires current server confirmation,
+and an obsolete token or session generation cannot authorize a replacement account.
+
+`ui/v3/AppleSettings.test.ts` covers confirmation refresh while the deletion dialog remains open.
+`sync/__tests__/auth.test.ts` covers replacing a token while retaining the same UUID.
+`sync/__tests__/extension-session.test.ts` holds account deletion before its generation advances and
+checks both a verification begun during teardown and an earlier verification that resolves during
+teardown. Removing either corresponding production teardown guard makes its named regression fail;
+restoring source makes both pass.
+
+Browser and Apple confirmation effects share the paid-tier gate and visible/online recovery rules.
+Do not issue dormant confirmation requests when the host has no consumer. The host tests cover
+active recovery, hidden-page suppression and listener cleanup, plus dormant builds without reads.
+These are controlled host and transport tests; they do not establish hosted OTP, sandbox purchases
+or physical-device behavior.

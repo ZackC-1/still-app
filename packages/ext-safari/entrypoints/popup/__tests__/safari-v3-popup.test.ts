@@ -194,11 +194,11 @@ describe("Safari V3 popup: what is never offered", () => {
     for (const lock of locks) {
       expect(lock.getAttribute("aria-disabled")).toBe("true");
       expect(lock.textContent).toBe("Still Pro");
-      // Owner decision 40: the row label describes the lock; its name is the visible "Still Pro".
-      expect(lock.hasAttribute("aria-label")).toBe(false);
+      // A dormant lock names its feature without promising an unavailable destination.
+      expect(lock.getAttribute("aria-label")).toMatch(/^.+\. Included in Still Pro\.$/);
       expect(lock.getAttribute("aria-describedby")).toBeTruthy();
     }
-    expect(screen.getAllByRole("button", { name: "Still Pro" })).toEqual(locks);
+    expect(screen.getAllByRole("button", { name: /^.+\. Included in Still Pro\.$/ })).toEqual(locks);
     const outsideLocks = text().replaceAll("Still Pro", "").length;
     expect(text().length - outsideLocks).toBe(locks.length * "Still Pro".length);
     for (const word of ["$", "Purchase", "Open the Still app", "Restore"]) expect(text()).not.toContain(word);

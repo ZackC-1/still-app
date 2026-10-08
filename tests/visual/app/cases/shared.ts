@@ -11,3 +11,10 @@ export const OWNER_SYNC_COPY: Deviation = {
     'owner-approved copy (sync line "every supported surface"; reference says "every device and browser")',
   text: "every supported surface",
 };
+
+/** The latest reference restores demo banners; their omission also moves subsequent cards. */
+export const REFERENCE_DEMO_ACCOUNT: Deviation = {
+  reason:
+    "reference-only demonstration banner omitted from the real account card; account actions and subsequent cards flow upward",
+  selector: ".card:has(.synced), .card:has(.synced) ~ .card",
+};

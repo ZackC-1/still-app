@@ -6,6 +6,7 @@
   // keeps the dependency outside this package's rootDir: src. Keep this leaf out of @still/core/ui.
   import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
+  import { PAID_TIER_ENABLED } from "@still/shared-types";
   import {
     STRINGS,
     SignInSheet,
@@ -59,7 +60,42 @@
     return () => current.stop();
   });
   const syncFor = createAppleSettingsSync();
-  let sync = $derived(syncFor(c));
+  // The controller's revision is plain; its session/sync signals expose the current epoch.
+  // Derived equality prevents routine sync polling from issuing another account verification.
+  let accountRevision = $derived.by(() => {
+    void c.userId;
+    void c.accountEmail;
+    void c.authFlow;
+    void c.reconciling;
+    void c.cloudReachable;
+    void c.pendingUpload;
+    void c.lastSyncedAt;
+    return c.accountRevision;
+  });
+  let sync = $derived.by(() => {
+    void accountRevision;
+    return syncFor(c);
+  });
+  $effect(() => {
+    if (!PAID_TIER_ENABLED) return;
+    void c.userId;
+    void accountRevision;
+    void c.refreshAccountConfirmation();
+  });
+  $effect(() => {
+    if (!PAID_TIER_ENABLED) return;
+    const current = c;
+    const refresh = () => void current.refreshAccountConfirmation();
+    const foreground = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", foreground);
+    return () => {
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", foreground);
+    };
+  });
   // Free-period Restore (owner decision 17): its own status, or a controller-driven one.
   let restoreStatus = $state.raw<AppleSettingsProps["restore"]>(undefined);
   function nativeRestore(): AppleRestoreBridge {
@@ -149,7 +185,8 @@
         <button
           type="button"
           class="secondary"
-          onclick={() => c.dismissUsageNotice()}>{STRINGS.usage.noticeOk}</button
+          onclick={() => c.dismissUsageNotice()}
+          >{STRINGS.usage.noticeOk}</button
         >
       </div>
     </section>
@@ -206,7 +243,9 @@
     {help}
   />
   {#if view.settingsUnavailable && !reading}
-    <div class="still-ui app" data-host="apple">{@render settingsRecovery()}</div>
+    <div class="still-ui app" data-host="apple">
+      {@render settingsRecovery()}
+    </div>
   {/if}
 {:else}
   <!-- Held: no accepted committed choices yet. Never startup defaults or a saved Off. -->

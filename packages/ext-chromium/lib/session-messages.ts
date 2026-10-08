@@ -1,5 +1,6 @@
 import type {
   AccountSyncStatus,
+  VerifiedAccount,
   CheckoutPendingRecord,
   ExtensionSession,
   ExtensionSessionState,
@@ -37,6 +38,10 @@ export const SESSION_PROTOCOL = {
   ),
   getSyncStatus: defineSessionCapability<Record<never, never>, AccountSyncStatus | null | "unavailable">(
     (session) => session.getSyncStatus(),
+    "unavailable",
+  ),
+  getVerifiedAccount: defineSessionCapability<Record<never, never>, VerifiedAccount | null | "unavailable">(
+    (session) => session.getVerifiedAccount(),
     "unavailable",
   ),
   retrySync: defineSessionCapability(

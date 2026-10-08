@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
   import type {
     CommittedPopupBinding,
     CommittedPopupToggle,
   } from "@still/core/ui";
-  import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
+  import { PAID_TIER_ENABLED, SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     PRIVACY_POLICY_URL,
     SUPPORT_EMAIL,
@@ -21,6 +22,15 @@
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
   import { observeDirectControls } from "@still/core/ui/v3/direct-control-observer";
   import { reportDirectControl } from "../../lib/invitation-client.js";
+  import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
+
+  let optionsRoot: HTMLElement;
+  onMount(() => {
+    if (
+      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+    ) return bindProOptionsNavigation(optionsRoot);
+  });
 
   // An extension page like the popup, so it gets the same purchase-spine injection (plan U6):
   // message-closures over the background-owned session, present only when this build carries
@@ -73,7 +83,12 @@
       import.meta.env.VITE_SUPABASE_ANON_KEY &&
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
   );
-  const loadSettings = freeRestore
+  const loadSettings =
+    (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&
+    PAID_TIER_ENABLED && settingsRuntime.atomicLocal
+    ? () => import("./InformationalProSettings.svelte")
+    : freeRestore
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {
           module.bindSettingsRestore(purchase ? controller : undefined);
@@ -116,7 +131,7 @@
   };
 </script>
 
-<main class="options">
+<main class="options" bind:this={optionsRoot}>
   <App
     {controller}
     {onRestore}

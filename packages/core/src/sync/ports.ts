@@ -25,6 +25,17 @@ export interface AccountAuthPort {
   currentAccount(): Promise<{ id: string; email: string | null } | null>;
 }
 
+/** Confirmation read from the auth server, distinct from cached display metadata. */
+export interface VerifiedAccount {
+  readonly id: string;
+  readonly email: string | null;
+  readonly emailConfirmed: boolean;
+}
+
+export interface AccountConfirmationPort {
+  currentVerifiedAccount(): Promise<VerifiedAccount | null>;
+}
+
 // ── Email-OTP code flow (plan U2/R1) ──────────────────────────────────────────────────────────────
 // A separate capability interface, not extra methods on AuthPort: hosts advertise capabilities
 // (Apple keeps the magic link; the extension popup can't receive a redirect, so it verifies a
