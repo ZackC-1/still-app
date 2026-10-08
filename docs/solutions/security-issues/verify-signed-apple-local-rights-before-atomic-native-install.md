@@ -6,6 +6,7 @@ problem_type: authentication_error
 module: StillKit
 applies_when: Installing server-issued Apple local access proofs or linked account rights in the shared App Group
 date: 2026-10-07
+last_updated: 2026-10-08
 status: active
 tags:
   - entitlement
@@ -23,6 +24,40 @@ A paid Apple local proof uses a server-issued UUID as both right and holder. Nat
 [EntitlementBridge.swift](../../../apps/apple/StillKit/Sources/StillKit/EntitlementBridge.swift) commits the verified binding, local proof, clock and optional account proof under the existing transaction lock. Scope identity is right plus proof kind, so account and local proofs coexist. Failed replacement publishes no acknowledgment and preserves old bytes. Identical proof retries preserve the original receipt baseline and expiry/rollback latches. Signed-out reads derive local rights from persisted verified bindings, without needing JavaScript holder IDs.
 
 The bridge acknowledgment includes exact signature identities and signed right/revision/times. [apple-session.ts](../../../packages/core/src/sync/apple-session.ts) reports an explicit association only after validating that durable native acknowledgment. The native observation transport distinguishes purchased rights from verification-required rights and rejects unknown fields, malformed signatures and duplicate UUIDs.
+
+Account reconciliation has two independent outcomes: a durable cache commit and the hosted
+account authority's status. A removal-only `unavailable` response can successfully commit a
+known refund while leaving an unrelated cached purchase valid. Preserve both `status: committed`
+and `accountStatus: unavailable` across the Swift/TypeScript acknowledgment. Treating the commit
+as fresh account confirmation made Restore report success from those cached benefits without
+trying StoreKit. The Apple purchase authority now observes the updated cache, then rejects the
+unavailable reconciliation so Restore keeps accepted rights and still tries its independent local
+purchase path. Regression coverage includes durable removal and cold reopening, strict bridge
+status/proof combinations, and a mounted Restore with a purchase cached before the UI observes it.
+An ownership conflict with no accepted proofs is similarly unresolved. It must reject fresh
+account confirmation after the removal commit; accepted proofs in a partial conflict and a
+conclusive empty `none` result remain usable. Factory and mounted Buy/Restore regressions show
+that an empty conflict neither starts a charge nor reports cached rights as freshly restored.
+
+Account replacement also cannot discard a StoreKit request already dispatched. Keep a separate
+native acquisition generation until Apple replies, blocking overlapping Buy and Restore. A stale
+completion retains only recovery intent, and a current signed local read establishes rights.
+Confirmed cancellation releases the hold; a lost native reply retains verification rather than
+starting another purchase. Deferred Buy/Restore, cancellation and lost-reply tests cover these
+boundaries without granting rights or linking the replacement account from store feedback.
+The stale-completion path distinguishes confirmed pre-dispatch `unavailable` and conclusive
+empty Restore from unknown acquisition feedback, retaining any already-pending purchase intent.
+`failed/noSignal` must stay held: the bridge also uses it for malformed responses, so it cannot
+prove that no charge occurred. Regression controls cover retry after a confirmed refusal and
+continued hold after a lost or malformed reply.
+The repaired tree passed 437 StillKit tests and 4,766 core tests; synthetic tests do not establish
+provider or physical-device behavior.
+
+Modern account reconciliation starts after the queued native account-status write succeeds for
+the current session. Return a per-write success result from that queue: swallowing a failed write
+to let later writes recover must not make its purchase continuation run. Free settings sync and
+code verification complete independently. A regression reproduced the failed-write continuation;
+the repaired flow holds purchase reconciliation while the existing free sync still completes.
 
 Verification: 403 StillKit tests pass, including eleven new security cases in [AppleRightBindingTests.swift](../../../apps/apple/StillKit/Tests/StillKitTests/AppleRightBindingTests.swift). Thirty-one focused TypeScript tests pass for exact bridge input/readback and deliberate association. These tests use public synthetic keys. They establish local cryptographic, clock, storage and transport behavior; deployed provider trust configuration and physical StoreKit/device journeys require separate evidence. The ordinary free mode and disabled shipped paid flags retain their existing behavior.
 

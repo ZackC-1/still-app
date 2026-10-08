@@ -48,6 +48,7 @@
     proServices?: Pick<
       AppleProHostDeps,
       | "bridge"
+      | "refreshAccountAccess"
       | "verifyLocalPurchase"
       | "ownershipRevision"
       | "readLinkEligibility"
@@ -66,18 +67,29 @@
     proServices,
   }: Props = $props();
 
+  // Finish any older observation, then read the cache after the native commit. This is the same
+  // sequencing local purchase installation uses; refreshAccess coalesces an existing read.
+  async function readCommittedAccess() {
+    await authority.entitlement.refreshAccess();
+    return authority.entitlement.refreshAccess();
+  }
   let proRevision = $state(0);
   const proHost = untrack(() =>
     proServices
       ? createAppleProHost({
           ...proServices,
           readAccess: () => authority.entitlement.refreshAccess(),
+          ...(proServices.refreshAccountAccess ? {
+            refreshAccountAccess: async () => {
+              await proServices.refreshAccountAccess!();
+              return readCommittedAccess();
+            },
+          } : {}),
           verifyLocalPurchase: async () => {
             // The installer reads its signed binding back first. Refresh the same settings
             // authority afterward so rows and the purchase screen observe that committed cache.
             await proServices.verifyLocalPurchase();
-            await authority.entitlement.refreshAccess();
-            return authority.entitlement.refreshAccess();
+            return readCommittedAccess();
           },
           account: () =>
             c.userId && c.accountEmail
@@ -146,16 +158,19 @@
   $effect(() => {
     if (!proHost) return;
     const route = () => void proHost.route();
+    const accountAccess = () => void readCommittedAccess().catch(() => {});
     const refresh = () => {
       if (document.visibilityState === "visible") void proHost.refresh();
     };
     window.addEventListener("still:route", route);
+    window.addEventListener("still:accountAccess", accountAccess);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     route();
-    void proHost.refresh();
+    void untrack(() => proHost.refresh());
     return () => {
       window.removeEventListener("still:route", route);
+      window.removeEventListener("still:accountAccess", accountAccess);
       window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh);
       proHost.stop();

@@ -33,6 +33,8 @@ export interface AppleProHostDeps {
   /** Verifies and atomically installs signed local rights, then returns the current accepted
    * authority snapshot. A generic access read cannot fulfill this port. */
   verifyLocalPurchase(): Promise<BenefitAccessSnapshot>;
+  /** Fresh native account-only reconciliation; independent of StoreKit and local linking. */
+  refreshAccountAccess?(): Promise<BenefitAccessSnapshot>;
   account(): AppleProAccount | null;
   ownershipRevision(): number;
   /** Current native purchaser-only signed local provenance. Missing port holds linking closed. */
@@ -78,6 +80,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let linkingRequested = false;
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
+  let preflightGeneration: number | undefined;
+  let nativeAcquisitionGeneration: number | undefined;
   const changed = () => {
     if (!stopped) deps.publish();
   };
@@ -133,7 +137,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     const generation = ++epoch;
     const observed = accessEpoch;
     const [rights, offering] = await Promise.allSettled([
-      pendingKind ? deps.verifyLocalPurchase() : deps.readAccess(),
+      pendingKind ? deps.verifyLocalPurchase() :
+        deps.account()?.confirmed && deps.refreshAccountAccess ? deps.refreshAccountAccess() : deps.readAccess(),
       deps.bridge.proOffering(),
     ]);
     if (stopped || generation !== epoch) return;
@@ -162,6 +167,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     if (
       stopped ||
       busy ||
+      nativeAcquisitionGeneration !== undefined ||
       !deps.bridge.available ||
       (kind === "buy" &&
         (purchase.state === "pending" || pendingKind !== undefined))
@@ -170,16 +176,33 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // Re-read before charge: stale handles cannot offer a duplicate purchase.
     busy = true;
     const generation = ++epoch;
+    preflightGeneration = generation;
     let verifyingLocal = false;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
     restore = kind === "restore" ? { state: "checking" } : undefined;
     changed();
     try {
       const observed = accessEpoch;
-      const read = await deps.readAccess();
+      const account = deps.account();
+      if (kind === "buy" && account && !account.confirmed && deps.refreshAccountAccess)
+        throw new Error("Current account requires verification before purchase");
+      const accountCheck = account?.confirmed && deps.refreshAccountAccess;
+      let accountUnknown = Boolean(account && deps.refreshAccountAccess && !account.confirmed);
+      const read = accountCheck
+        ? await deps.refreshAccountAccess!().catch(error => {
+            if (kind === "buy") throw error;
+            accountUnknown = true;
+            return deps.readAccess();
+          })
+        : await deps.readAccess();
       if (stopped || generation !== epoch) return;
       if (observed === accessEpoch) access = read;
       if (kind === "buy" && owner() !== "none") {
+        purchase = { state: "idle" };
+        return;
+      }
+      if (kind === "restore" && accountCheck && !accountUnknown && owner() === "owned") {
+        restore = { state: "restored" };
         purchase = { state: "idle" };
         return;
       }
@@ -201,11 +224,40 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         purchase = { state: "failed" };
         return;
       }
+      preflightGeneration = undefined;
+      nativeAcquisitionGeneration = generation;
       const result =
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
-      if (stopped || generation !== epoch) return;
+      if (nativeAcquisitionGeneration === generation)
+        nativeAcquisitionGeneration = undefined;
+      if (stopped) return;
+      if (generation !== epoch) {
+        // Account replacement cannot discard a dispatched StoreKit completion. Retain
+        // only its recovery intent; a current signed read must establish the rights.
+        if (result.outcome === "cancelled" && pendingKind === undefined) {
+          purchase = { state: "idle" };
+          restore = undefined;
+        } else if (result.outcome === "unavailable" && pendingKind === undefined) {
+          // The native port refused dispatch; unlike failed/noSignal this is not a
+          // lost or malformed reply from an acquisition that may have completed.
+          purchase = { state: "failed" };
+          restore = kind === "restore"
+            ? { state: "failed", onAction: () => void transact("restore") } : undefined;
+        } else if (result.outcome === "nothing" &&
+          result.receipt === "verifiedNotEntitled" && pendingKind === undefined) {
+          purchase = { state: "idle" };
+          // Local absence cannot conclude ownership for the replacement account.
+          restore = { state: "verify", onAction: () => void transact("restore") };
+        } else {
+          pendingKind ??= kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+        }
+        changed();
+        return;
+      }
       if (result.outcome === "cancelled") {
         purchase = { state: "idle" };
         restore = undefined;
@@ -216,7 +268,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         result.receipt === "verifiedNotEntitled"
       ) {
         // A conclusive native Restore cannot remove unrelated account/protected rights.
-        restore = { state: "nothing" };
+        restore = accountUnknown
+          ? { state: "verify", onAction: () => void transact("restore") } : { state: "nothing" };
         purchase = { state: "idle" };
         return;
       }
@@ -252,6 +305,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       throw new Error("Native purchase did not complete");
     } catch {
+      if (nativeAcquisitionGeneration === generation) {
+        nativeAcquisitionGeneration = undefined;
+        if (!stopped && generation !== epoch) {
+          // An interrupted native response is an unknown acquisition, never a reason
+          // to charge again. Current local verification supplies the recovery path.
+          pendingKind ??= kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+          changed();
+        }
+      }
       if (stopped || generation !== epoch) return;
       purchase = { state: "failed" };
       if (kind === "restore")
@@ -261,6 +325,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           : { state: "failed", onAction: () => void transact("restore") };
     } finally {
       if (generation === epoch) {
+        preflightGeneration = undefined;
         busy = false;
         void refreshLinkEligibility();
         changed();
@@ -324,6 +389,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       owner() !== "owned"
     )
       return;
+    const operation = ++epoch;
     busy = true;
     link = { state: "pending", email: account.email };
     changed();
@@ -361,8 +427,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (!stopped && generation === linkGeneration && sameAccount(account))
         link = { state: "failed", email: account.email, onRetry: requestLink };
     } finally {
-      busy = false;
-      changed();
+      if (operation === epoch) {
+        busy = false;
+        changed();
+      }
     }
   }
   return {
@@ -378,6 +446,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       changed();
     },
     accountChanged() {
+      // Cancel only checks that have not reached native purchase/Restore. A dispatched
+      // purchase still needs its independent signed-rights recovery, never another charge.
+      if (preflightGeneration === epoch) {
+        preflightGeneration = undefined;
+        if (pendingKind === undefined) {
+          purchase = { state: "idle" };
+          restore = undefined;
+        }
+      }
+      epoch++;
+      busy = false;
       if (linkAccount && !sameAccount(linkAccount)) {
         linkGeneration++;
         link = undefined;
@@ -386,6 +465,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       if (linkingRequested && !linkAccount && deps.account()?.confirmed)
         requestLink();
+      if (deps.account()?.confirmed && deps.refreshAccountAccess) void refresh();
       changed();
     },
     async route() {

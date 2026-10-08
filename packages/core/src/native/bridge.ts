@@ -91,6 +91,16 @@ export interface NativeAppleAccessInstall {
   /** Used transiently by native's compiled auth endpoint; never stored or logged. */
   readonly accessToken?: string;
 }
+export interface NativeAccountAccessCommit {
+  readonly schema: 1;
+  readonly status: "committed";
+  readonly accountStatus: "verified" | "none" | "conflict" | "unavailable";
+  readonly generation: number;
+  readonly accountId: string;
+  readonly sessionId: string;
+  readonly issuerTime: number;
+  readonly proofIdentities: readonly string[];
+}
 export interface NativeAppleAccessCommit {
   readonly schema: 1;
   readonly status: "committed";
@@ -270,6 +280,7 @@ export type NativeMessage =
   | { readonly kind: "applePurchaseEvidence" }
   | { readonly kind: "appleLocalPurchaseEvidence" }
   | ({ readonly kind: "installAppleAccess" } & NativeAppleAccessInstall)
+  | { readonly kind: "reconcileAccountAccess"; readonly accessToken: string }
   | { readonly kind: "observeAppleAccess" }
   | { readonly kind: "observeAppleLinkAccess" }
   | { readonly kind: "pendingAppRoute" }
@@ -680,6 +691,29 @@ export class NativeBridge {
     const reply = asObject(await this.post({ kind: "getAccess" }));
     if (reply?.ok !== true) throw new Error("Native access requires verification");
     return parseAccessCacheRecord(reply.record);
+  }
+
+  /** Native independently obtains the server snapshot; JS supplies no proof, removal or endpoint. */
+  async reconcileAccountAccess(accessToken: string): Promise<NativeAccountAccessCommit> {
+    if (typeof accessToken !== "string" || !accessToken || new TextEncoder().encode(accessToken).length > 16384) {
+      throw new Error("Invalid account access token");
+    }
+    const result = asObject(await boundedNativeRead(
+      () => this.post({ kind: "reconcileAccountAccess", accessToken }), null, 30_000,
+    ));
+    if (!result || Array.isArray(result) || Object.keys(result).sort().join(",") !==
+      "accountId,accountStatus,generation,issuerTime,proofIdentities,schema,sessionId,status" || result.schema !== 1 ||
+      result.status !== "committed" || !isSafeAccessInteger(result.generation) ||
+      !["verified", "none", "conflict", "unavailable"].includes(result.accountStatus as string) ||
+      !isSafeAccessInteger(result.issuerTime) || !isAccessUUID(result.accountId) || !isAccessUUID(result.sessionId) ||
+      !Array.isArray(result.proofIdentities) || result.proofIdentities.length > 16 ||
+      result.proofIdentities.some(value => typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}:[0-9a-f]{128}$/.test(value)) ||
+      new Set(result.proofIdentities).size !== result.proofIdentities.length ||
+      (result.accountStatus === "verified" && result.proofIdentities.length === 0) ||
+      (["none", "unavailable"].includes(result.accountStatus as string) && result.proofIdentities.length !== 0)) {
+      throw new Error("Native account access requires verification");
+    }
+    return result as unknown as NativeAccountAccessCommit;
   }
 
   async installAppleAccess(value: NativeAppleAccessInstall): Promise<NativeAppleAccessCommit> {

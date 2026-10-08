@@ -12,6 +12,8 @@ import {
   SupabaseBackendPort,
   SyncService,
   createExtensionSession,
+  readBackendRouteProfile,
+  backendRouteEnvironmentMatches,
   type ExtensionSession,
 } from "@still/core/sync";
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
@@ -252,6 +254,7 @@ export default defineBackground(() => {
                   isFirefox: Boolean(import.meta.env.FIREFOX),
                   supabaseUrl: settingsRuntime.supabase?.url,
                   production: import.meta.env.PROD,
+                  routeProfile: readBackendRouteProfile(import.meta.env.VITE_BACKEND_ROUTE_PROFILE),
                   build: browser.runtime.getManifest().version,
                   runtime: chrome.runtime,
                 }),
@@ -589,6 +592,11 @@ function createSessionSpine(
   accessEvidenceDeadline: () => number | null } | null {
   const config = settingsRuntime.supabase;
   if (config === null) return null;
+  const routeProfile = readBackendRouteProfile(import.meta.env.VITE_BACKEND_ROUTE_PROFILE);
+  if (!routeProfile || !backendRouteEnvironmentMatches(routeProfile, accessTrust.environment)) return null;
+  // QA settings must use the registry-scoped modern route. An incomplete build cannot fall
+  // through to the production profile table, RPC or realtime subscription.
+  if (routeProfile === "shared-hosted-sandbox" && !settingsRuntime.modernCloud) return null;
 
   const client = createClient(config.url, config.anonKey, {
     auth: {
@@ -638,12 +646,13 @@ function createSessionSpine(
         authEpoch: () => accessAuthEpoch,
         invalidateEvidence: () => entitlements.invalidateBenefitSnapshot(),
         trust: accessTrust,
+        routeProfile,
         invoke: (name, options) => client.functions.invoke(name, { ...options, signal: AbortSignal.timeout(8_000) }),
         authRequired: error => error instanceof FunctionsHttpError && error.context instanceof Response && error.context.status === 401,
         commit: (verified, result, current, authCurrent) => entitlements.commitAccountAccess(verified, result, current, authCurrent),
       })
     : undefined;
-  const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud });
+  const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud, routeProfile });
   if (scoped) {
     backend.reconcileEntitlementChecked = () => scoped.reconcile();
     backend.reconcileEntitlement = async () => {
@@ -664,9 +673,19 @@ function createSessionSpine(
     records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
+    canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () => {
+      const { ratingPolicySurfaceFor } = await import("../lib/rating-invitation.js");
+      const surface = await ratingPolicySurfaceFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
+      if (!surface) return false;
+      const { createChromeProductPolicyRuntime } = await import("../lib/product-policy-runtime.js");
+      const policy = createChromeProductPolicyRuntime({ supabaseUrl: config.url, environment: "sandbox", routeProfile,
+        surface, build: browser.runtime.getManifest().version });
+      return (await policy.freshCheck("sales")).allowed;
+    } : undefined,
     stores: {
       pendingOtp: orderedSlot(sessionStores.pendingOtp),
       checkoutPending: orderedSlot(sessionStores.checkoutPending),
+      checkoutOperation: sessionStores.checkoutOperation ? orderedSlot(sessionStores.checkoutOperation) : undefined,
       nudgeStamp: orderedSlot(sessionStores.nudgeStamp),
     },
     // Best-effort teardown of a recorded checkout tab (it still carries the old identity); the

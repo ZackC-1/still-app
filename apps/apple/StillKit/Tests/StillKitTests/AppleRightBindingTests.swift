@@ -417,4 +417,48 @@ final class AppleRightBindingTests: XCTestCase {
     }
     XCTAssertNil(VerifiedNativeAccessSession.validated(userReply: try JSONSerialization.data(withJSONObject: ["id": account, "email_confirmed_at": "confirmed"]), acceptedToken: "{\"accountId\":true}"))
   }
+
+  func testCompiledRouteProfileRequiresExactSelectionAndMatchingTrustEnvironment() {
+    XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: [:]), .production)
+    XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: ["StillBackendRouteProfile": "production"]), .production)
+    XCTAssertNil(NativeAccessConfiguration.backendRouteProfile(info: ["StillAccessEnvironment": "sandbox"]))
+    for value: Any in ["", "sandbox", "Shared-hosted-sandbox", " shared-hosted-sandbox", "shared-hosted-sandbox ", true, 1, ["production"]] {
+      XCTAssertNil(NativeAccessConfiguration.backendRouteProfile(info: ["StillBackendRouteProfile": value]))
+    }
+    for value: Any in ["", "Sandbox", true, 1, ["sandbox"]] {
+      XCTAssertNil(NativeAccessConfiguration.backendRouteProfile(info: ["StillBackendRouteProfile": "production", "StillAccessEnvironment": value]))
+    }
+    XCTAssertNil(NativeAccessConfiguration.backendRouteProfile(info: ["StillBackendRouteProfile": "shared-hosted-sandbox"]))
+    XCTAssertNil(NativeAccessConfiguration.backendRouteProfile(info: ["StillBackendRouteProfile": "production", "StillAccessEnvironment": "sandbox"]))
+    let appInfo: [String: Any] = ["StillBackendRouteProfile": "shared-hosted-sandbox", "StillAccessEnvironment": "sandbox"]
+    let extensionInfo: [String: Any] = ["StillAccessEnvironment": "sandbox", "StillBackendRouteProfile": "shared-hosted-sandbox"]
+    XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: appInfo), .sharedHostedSandbox)
+    XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: appInfo), NativeAccessConfiguration.backendRouteProfile(info: extensionInfo))
+  }
+
+  func testOnlyCompleteCompiledQaConfigurationSuppliesTheRatingOrigin() {
+    let hex = key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined()
+    let row = ["kid": "synthetic-access", "publicKeyHex": hex, "environment": "sandbox", "purpose": "access"]
+    let valid: [String: Any] = ["StillBackendRouteProfile": "shared-hosted-sandbox", "StillAccessEnvironment": "sandbox",
+      "StillAccessTrustKeys": [row], "StillAccessSupabaseURL": "https://auth.example", "StillAccessSupabasePublishableKey": "sb_publishable_public"]
+    XCTAssertEqual(NativeAccessConfiguration.ratingPolicySupabaseURL(info: valid), "https://auth.example")
+    for field in ["StillBackendRouteProfile", "StillAccessEnvironment", "StillAccessTrustKeys", "StillAccessSupabaseURL", "StillAccessSupabasePublishableKey"] {
+      var missing = valid; missing.removeValue(forKey: field)
+      XCTAssertNil(NativeAccessConfiguration.ratingPolicySupabaseURL(info: missing), field)
+    }
+    for (field, value) in [("StillBackendRouteProfile", "production"), ("StillBackendRouteProfile", "unknown"),
+      ("StillAccessEnvironment", "production"), ("StillAccessSupabaseURL", "http://auth.example"),
+      ("StillAccessSupabaseURL", "https://auth.example/functions/v1/product-policy"),
+      ("StillAccessSupabasePublishableKey", "sb_secret_no")] {
+      var invalid = valid; invalid[field] = value
+      XCTAssertNil(NativeAccessConfiguration.ratingPolicySupabaseURL(info: invalid), field)
+    }
+    var ordinary = valid
+    ordinary["StillBackendRouteProfile"] = "production"
+    ordinary["StillAccessEnvironment"] = "production"
+    ordinary["StillAccessTrustKeys"] = [["kid": "synthetic-access", "publicKeyHex": hex, "environment": "production", "purpose": "access"]]
+    XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: ordinary), .production)
+    XCTAssertNil(NativeAccessConfiguration.ratingPolicySupabaseURL(info: ordinary))
+    XCTAssertNil(NativeAccessConfiguration.ratingPolicySupabaseURL(info: [:]))
+  }
 }

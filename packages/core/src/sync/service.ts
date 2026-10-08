@@ -7,10 +7,9 @@ import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 import type { AccountDeletionResult } from "./account-deletion.js";
 
 // Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
-//   - Having an account is the only thing settings sync requires. While the paid tier is dormant
-//     behind PAID_TIER_ENABLED the entitlement decides nothing here; turn that switch on and the
-//     old gate returns in one place, `settingsSyncAllowed` at the foot of this file.
-//   - Sync never waits on the entitlement round trip. Reconciling is a live purchase-service query
+//   - Modern V3 settings sync only requires an account, even when optional Pro features are sold.
+//     Legacy paid-tier behavior remains in `settingsSyncAllowed` at the foot of this file.
+//   - Free sync never waits on the entitlement round trip. Reconciling is a live purchase-service query
 //     on the server, so the cloud mirror starts first and the reconcile runs beside it. The
 //     reconcile itself stays: it is what makes a returning purchaser's entitlement reappear
 //     without anyone contacting support (U13/U14), and reconcile-before-read is still its order.
@@ -153,11 +152,9 @@ export class SyncService {
   /**
    * Run after a session is established (code verified, app launch, or restore).
    *
-   * The order of the two halves differs by tier, and that is the point. While the paid tier is
-   * dormant, settings sync is the one thing signing in buys, so the cloud mirror starts
-   * immediately and the entitlement reconcile runs alongside it: a slow or failing purchase
-   * service must never delay or abort sync. With the paid tier switched back on the entitlement
-   * decides again, so it settles first and an account without it never mirrors.
+   * Modern V3 and dormant paid-tier builds start the cloud mirror immediately, with entitlement
+   * reconciliation alongside it: a slow or failing purchase service never delays or aborts free
+   * sync. Legacy paid-tier builds retain their entitlement-first ordering.
    */
   async onSignedIn(userId: string): Promise<void> {
     const previousEntitled = this.state.userId === userId ? this.state.entitled : false;
@@ -174,7 +171,7 @@ export class SyncService {
       confirmed: false,
     });
 
-    if (PAID_TIER_ENABLED) {
+    if (PAID_TIER_ENABLED && !this.backend.modernSettingsEnabled) {
       const entitled = await this.reconcileAndReadEntitlement();
       // A sign-out that landed while the purchase service was answering makes this answer about a
       // session that no longer exists. Both writes below would put it back over the signed-out
@@ -239,10 +236,10 @@ export class SyncService {
    * entitled transition (e.g. a web purchase after signing in free) runs the initial cloud mirror
    * that `resume()` alone skips, so the buyer's settings sync immediately instead of waiting for
    * their next edit. When already syncing for this same user it just re-arms write-through
-   * (cheap, no network); a false answer stops sync only while the paid tier gates it.
+   * (cheap, no network); a false answer stops sync only in legacy paid-tier builds.
    */
   async onEntitlementConfirmed(userId: string, entitled: boolean): Promise<void> {
-    if (!settingsSyncAllowed(entitled)) {
+    if (!settingsSyncAllowed(entitled, this.backend.modernSettingsEnabled)) {
       await this.resume(userId, false);
       this.setState({ ...this.state, confirmed: true }); // the caller's reconcile settled it
       return;
@@ -579,7 +576,7 @@ export class SyncService {
    */
   resume(userId: string, entitled: boolean): Promise<void> {
     // Resume trusts the caller's CACHED entitlement (no network) — never confirmed.
-    if (!settingsSyncAllowed(entitled)) {
+    if (!settingsSyncAllowed(entitled, this.backend.modernSettingsEnabled)) {
       this.stopWriteThrough();
       this.stopRealtime();
       this.setState({
@@ -686,7 +683,7 @@ export class SyncService {
 
   /** The one client-side sync gate, read wherever a write is about to leave the device. */
   private get canSync(): boolean {
-    return settingsSyncAllowed(this.state.entitled);
+    return settingsSyncAllowed(this.state.entitled, this.backend.modernSettingsEnabled);
   }
 
   /**
@@ -977,13 +974,11 @@ export class SyncService {
 /**
  * Whether an account may sync its settings. This is the whole client-side sync gate, in one place.
  *
- * Having an account is the only requirement while the paid tier is dormant behind
- * PAID_TIER_ENABLED, and the server agrees: the settings write path stopped asking for an
- * entitlement in migration 0012. Turning the switch back on restores the gate here, and that
- * migration carries the matching server change as its recorded reverse.
+ * Modern V3 sync is free independently of optional Pro entitlements. Legacy builds retain their
+ * paid-tier compatibility gate; dormant builds also sync freely (migration 0012).
  */
-function settingsSyncAllowed(entitled: boolean): boolean {
-  return !PAID_TIER_ENABLED || entitled;
+function settingsSyncAllowed(entitled: boolean, modernSettings: boolean | undefined): boolean {
+  return modernSettings === true || !PAID_TIER_ENABLED || entitled;
 }
 
 function entitlementToBool(read: Exclude<EntitlementRead, "unknown">): boolean {

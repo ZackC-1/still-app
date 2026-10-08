@@ -142,9 +142,8 @@ final class ProductPolicyTests: XCTestCase {
   }
 
   /// Free blocking, free sync and Restore never consult this policy, and no production source
-  /// reaches the seam. The permitted users are the client, `ProductPolicyRuntime.swift`, which must
-  /// itself use only the public evaluators, and its one consumer, the rating path (see below). Any
-  /// other source naming it (it contains "ProductPolicy") fails below.
+  /// reaches the evaluator seam. The runtime uses public evaluators; approved rating and sales
+  /// consumers may ask fresh questions but cannot parse/evaluate policies or override flags.
   func testNoProductionSwiftUsesProductPolicy() throws {
     var root = URL(fileURLWithPath: #filePath)
     for _ in 0..<6 { root.deleteLastPathComponent() }
@@ -178,6 +177,20 @@ final class ProductPolicyTests: XCTestCase {
         if rest.contains("ProductPolicy") || rest.contains("freshCheck(") || forbidden.contains(where: source.contains) {
           users.append(url.lastPathComponent)
         }
+        continue
+      }
+      // V3's native charge boundary asks a fresh sales question. The executor only creates
+      // the compiled runtime; neither consumer may parse/evaluate a remote policy or override flags.
+      let consumerAllowlist: [String: [String]] = [
+        "PurchaseManager.swift": ["ProductPolicyRuntime", "ProductPolicyRevisionStore.appGroup()"],
+        "NativeSalesPurchaseBoundary.swift": ["ProductPolicyRuntime", "freshCheck(.sales)"],
+        "NativeAccountAccess.swift": ["ProductPolicyTransport", "URLSessionPolicyTransport"],
+      ]
+      if let allowed = consumerAllowlist[url.lastPathComponent] {
+        var rest = source
+        for token in allowed.sorted(by: { $0.count > $1.count }) { rest = rest.replacingOccurrences(of: token, with: "") }
+        if rest.contains("ProductPolicy") || rest.contains("freshCheck(") || rest.contains(".sales") ||
+          rest.contains("compiledPaidTierEnabled") || rest.contains("RestrictedJSON") { users.append(url.lastPathComponent) }
         continue
       }
       if source.contains("ProductPolicy") || source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") {

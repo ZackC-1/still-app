@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Async sync responses or cleanup can finish after sign-out or a later session entry
 date: 2026-09-08
-last_updated: 2026-10-07
+last_updated: 2026-10-08
 status: active
 tags: [sync, session, account-isolation, realtime, async]
 ---
@@ -105,3 +105,28 @@ Do not issue dormant confirmation requests when the host has no consumer. The ho
 active recovery, hidden-page suppression and listener cleanup, plus dormant builds without reads.
 These are controlled host and transport tests; they do not establish hosted OTP, sandbox purchases
 or physical-device behavior.
+
+## Serialize checkout recovery within a session
+
+Session ownership alone cannot order two requests from the same session. Two concurrent Restore
+calls can capture checkout operation A. After the first terminal response clears A, a new purchase
+can persist operation B. A delayed terminal response for A then clears B while every account and
+session guard still passes.
+
+The managed checkout path in `sync/extension-session.ts` uses one promise queue for creation and
+completion, including the operation read, terminal clear and new-operation persistence. Capture
+the caller's session before entering the queue and check it again inside; waiting must never adopt
+a replacement session. A rejection releases the queue. Run already-entitled reconciliation after
+the creation callback releases the queue, because reconciliation itself enters that queue.
+
+`sync/__tests__/sandbox-checkout-recovery.test.ts` covers overlapping Restore and purchase,
+replacement of a queued session, release after a storage rejection, and already-entitled
+reconciliation without nesting the queue. The overlapping regression failed before the queue
+repair; all 19 recovery tests and the related session/transport tests passed afterward, 94 tests
+in total. These checks establish local request ordering, not hosted payment settlement.
+
+Identity-switch cleanup also needs a hold before authentication can replace the account. A new
+account could previously open checkout while the old account's tab-close awaited, then lose its
+operation to the old purge. The managed code-verification path holds checkout and recovery from
+entry through cleanup, releasing the hold in `finally`. The controlled cleanup regression failed
+before that repair; tests cover both the delayed purge and release after authentication failure.

@@ -381,10 +381,10 @@ final class RatingPromptTests: XCTestCase {
     }
   }
 
-  private func ratingBody(master: Bool = true, revision: Int = 5, build: String = "3.0.0") -> Data {
+  private func ratingBody(master: Bool = true, revision: Int = 5, build: String = "3.0.0", environment: String = "production") -> Data {
     let surfaces = ["chrome_desktop", "edge_desktop", "firefox_desktop", "firefox_android", "apple_mobile_host", "apple_macos_host"]
       .map { "\"\($0)\":true" }.joined(separator: ",")
-    return Data(("{\"schema\":1,\"environment\":\"production\",\"revision\":\(revision),\"master\":\(master)," +
+    return Data(("{\"schema\":1,\"environment\":\"\(environment)\",\"revision\":\(revision),\"master\":\(master)," +
       "\"surfaces\":{\(surfaces)},\"builds\":[{\"surface\":\"\(RatingPrompt.appSurface)\",\"build\":\"\(build)\"}]}").utf8)
   }
 
@@ -430,6 +430,44 @@ final class RatingPromptTests: XCTestCase {
     eligible(clock, c)
     let outcome = await prompt(c, sheet)
     XCTAssertEqual(outcome, .notRequested(.policy))
+    XCTAssertEqual(transport.requests.count, 0)
+  }
+
+  func testQaRatingUsesTheFixedSandboxPolicyWithoutChangingInvitationEligibility() async throws {
+    let suite = "RatingPromptTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = Transport { (200, self.ratingBody(environment: "sandbox")) }
+    let runtime = ProductPolicyRuntime(supabaseURL: "https://project.example", environment: "sandbox",
+      surface: RatingPrompt.appSurface, build: "3.0.0", routeProfile: .sharedHostedSandbox,
+      store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+    let clock = Clock(), sheet = Sheet()
+    let c = coordinator(clock) { await runtime.freshCheck(.rating) }
+    eligible(clock, c)
+    let outcome = await prompt(c, sheet)
+    XCTAssertEqual(outcome, .requested)
+    XCTAssertEqual(sheet.calls, 1)
+    XCTAssertEqual(transport.requests.count, 1)
+    let request = try XCTUnwrap(transport.requests.first)
+    XCTAssertEqual(request.url?.absoluteString, "https://project.example/functions/v1/qa-sandbox-product-policy")
+    XCTAssertEqual(String(data: request.httpBody ?? Data(), encoding: .utf8), #"{"namespace":"rating","environment":"sandbox"}"#)
+    XCTAssertEqual(request.allHTTPHeaderFields, ["Content-Type": "application/json"])
+  }
+
+  func testUnknownCompiledRouteProfileKeepsRatingHeldWithoutNetwork() async throws {
+    let suite = "RatingPromptTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = Transport { (200, self.ratingBody()) }
+    let runtime = ProductPolicyRuntime(supabaseURL: "https://project.example", environment: "production",
+      surface: RatingPrompt.appSurface, build: "3.0.0", routeProfile: nil,
+      store: ProductPolicyRevisionStore(defaults: defaults), transport: transport)
+    let clock = Clock(), sheet = Sheet()
+    let c = coordinator(clock) { await runtime.freshCheck(.rating) }
+    eligible(clock, c)
+    let outcome = await prompt(c, sheet)
+    XCTAssertEqual(outcome, .notRequested(.policy))
+    XCTAssertEqual(sheet.calls, 0)
     XCTAssertEqual(transport.requests.count, 0)
   }
 

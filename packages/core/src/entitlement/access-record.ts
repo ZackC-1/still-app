@@ -15,6 +15,7 @@ export interface AccessCacheRecord {
   readonly rights: readonly CachedAccessRight[];
   readonly localProtection?: LocalProtectionRecord | null;
   readonly revocations: readonly { readonly right: string; readonly revision: number }[];
+  readonly accountRevocations?: readonly { readonly holder: string; readonly right: string; readonly revision: number }[];
 }
 export const EMPTY_ACCESS_RECORD: AccessCacheRecord = { schema: 1, accountId: null, generation: 0, rights: [], revocations: [] };
 
@@ -26,6 +27,9 @@ export function parseAccessCacheRecord(value: unknown): AccessCacheRecord {
       !Array.isArray(c.rights) || c.rights.length > 32 || !Array.isArray(c.revocations) || c.revocations.length > 64 ||
       !c.rights.every(r => r && typeof r === "object" && typeof r.envelope === "string" && r.envelope.length <= 6144 && (r.clock === null || typeof r.clock === "object") && (r.accountGeneration === undefined || r.accountGeneration === null || isSafeAccessInteger(r.accountGeneration))) ||
       !c.revocations.every(r => r && typeof r === "object" && isAccessUUID(r.right) && isSafeAccessInteger(r.revision))) throw new Error("Unreadable access record");
+  if (c.accountRevocations !== undefined && (!Array.isArray(c.accountRevocations) || c.accountRevocations.length > 64 ||
+      !c.accountRevocations.every(r => r && typeof r === "object" && !Array.isArray(r) && Object.keys(r).sort().join(",") === "holder,revision,right" && isAccessUUID(r.holder) && isAccessUUID(r.right) && isSafeAccessInteger(r.revision)) ||
+      new Set(c.accountRevocations.map(r => `${r.holder}:${r.right}`)).size !== c.accountRevocations.length)) throw new Error("Unreadable account revocations");
   if (c.sessionId !== undefined && c.sessionId !== null && !isAccessUUID(c.sessionId)) throw new Error("Unreadable access session");
   // Optional malformed protection is isolated by the resolver, retained verbatim, and never
   // interpreted as fresh absence. It must not erase independently valid signed rights.
@@ -68,16 +72,16 @@ export async function mutateAccessRecord(current: AccessCacheRecord, mutation: A
     // Recheck under this writer's actual trust bundle (not another caller's allowlist).
     const result = await verifyAccessProof(JSON.stringify(p.envelope), trust);
     if (result.status !== "verified") throw new Error("Untrusted access proof");
-    const prior = decoded.find(r => r.proof.claims.right === p.claims.right);
+    const prior = decoded.find(r => r.proof.claims.right === p.claims.right && r.proof.claims.kind === p.claims.kind);
     if (prior && (prior.proof.claims.ownership_revision > p.claims.ownership_revision ||
         prior.proof.claims.verified_at > p.claims.verified_at)) throw new Error("Stale access proof");
-    if (current.revocations.some(r => r.right === p.claims.right && r.revision >= p.claims.ownership_revision)) throw new Error("Known revoked access");
+    if (accountRevoked(p, current) || current.revocations.some(r => r.right === p.claims.right && r.revision >= p.claims.ownership_revision)) throw new Error("Known revoked access");
     // Re-read, retry, import, or cached SDK fetch never restamps the same proof's baseline.
     if (!prior || prior.proof.identity !== p.identity) {
       if (prior && prior.proof.claims.verified_at >= p.claims.verified_at) throw new Error("Validation did not advance");
       const account = p.claims.kind === "paid_account" || p.claims.kind === "protected_account";
       const replacement = { envelope: JSON.stringify(p.envelope), clock: isPaidAccess(p.claims) ? installPaidClock(p, mutation.issuerNow, mutation.wall) : null, accountGeneration: account ? current.generation : null };
-      const rights = [...unresolved, ...decoded.filter(r => r.proof.claims.right !== p.claims.right).map(r => r.cached)];
+      const rights = [...unresolved, ...decoded.filter(r => r.proof.claims.right !== p.claims.right || r.proof.claims.kind !== p.claims.kind).map(r => r.cached)];
       if (rights.length >= 32) throw new Error("Access record full");
       record = { ...record, rights: [...rights, replacement] };
     }
@@ -96,11 +100,16 @@ export async function mutateAccessRecord(current: AccessCacheRecord, mutation: A
     if (result.status !== "verified") { rights.push(cached); continue; }
     const p = result.proof;
     const account = p.claims.kind === "paid_account" || p.claims.kind === "protected_account";
-    const revoked = (account && cached.accountGeneration !== record.generation) || record.revocations.some(r => r.right === p.claims.right && r.revision >= p.claims.ownership_revision);
+    const revoked = accountRevoked(p, record) || (account && cached.accountGeneration !== record.generation) || record.revocations.some(r => r.right === p.claims.right && r.revision >= p.claims.ownership_revision);
     const observation = mutation.kind === "observe" && isPaidAccess(p.claims) ? observePaidClock(p, cached.clock, mutation.observation) : null;
     const clock = observation?.clock ?? cached.clock;
     rights.push({ ...cached, clock: clock && revoked ? { ...clock, revoked: true } : clock });
     evidence.push({ proof: p, revoked, paidState: observation?.state ?? "verification_required" });
   }
   return { record: { ...record, rights }, evidence };
+}
+
+function accountRevoked(proof: VerifiedAccessProof, record: AccessCacheRecord): boolean {
+  return proof.claims.kind === "paid_account" && (record.accountRevocations ?? []).some(r =>
+    r.holder === proof.claims.holder && r.right === proof.claims.right && r.revision >= proof.claims.ownership_revision);
 }
