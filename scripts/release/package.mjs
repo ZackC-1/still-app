@@ -41,6 +41,8 @@ export const PUBLIC_ENV_KEYS = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "
 // decides which list it belongs to.
 export const DELIBERATELY_UNPACKAGED = {
   VITE_APPLE_ATOMIC_SETTINGS: "developer opt-in for the Apple settings screens; store packages leave it unset",
+  VITE_ACCESS_ENVIRONMENT: "scoped access QA trust opt-in; store packages retain production empty-key defaults",
+  VITE_ACCESS_PUBLIC_KEYS: "scoped access QA trust material; supplied only by the separate paid-sandbox profile",
   VITE_REVIEW_SIGNIN_EMAIL: "store-review sign-in helper; must not ship in a public package",
 };
 const ENV_SCAN_DIRS = ["packages/ext-chromium", "packages/core/src", "packages/shared-types/src"];

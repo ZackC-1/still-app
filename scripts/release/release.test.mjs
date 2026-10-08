@@ -4,7 +4,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildPackages, cleanEnv, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
+import { amoInstructions, buildPackages, cleanEnv, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
 import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -164,15 +164,44 @@ test("unlisted VITE_ variables read by shipped source stop the build, and the re
   const root = mkdtempSync(join(tmpdir(), "still-env-"));
   try {
     mkdirSync(join(root, "packages/ext-chromium/entrypoints"), { recursive: true });
-    writeFileSync(join(root, "packages/ext-chromium/entrypoints/new.ts"), "const x = import.meta.env.VITE_BRAND_NEW_FLAG;\nconst y = import.meta.env.VITE_SUPABASE_URL;\n");
+    writeFileSync(join(root, "packages/ext-chromium/entrypoints/new.ts"), "const x = import.meta.env.VITE_BRAND_NEW_FLAG;\nconst y = import.meta.env.VITE_SUPABASE_URL;\nconst environment = import.meta.env.VITE_ACCESS_ENVIRONMENT;\nconst keys = import.meta.env.VITE_ACCESS_PUBLIC_KEYS;\nconst forbidden = import.meta.env.VITE_ACCESS_PRIVATE_KEY;\n");
     mkdirSync(join(root, "packages/ext-chromium/entrypoints/__tests__"), { recursive: true });
     writeFileSync(join(root, "packages/ext-chromium/entrypoints/__tests__/t.test.ts"), "VITE_ONLY_IN_TESTS");
     writeFileSync(join(root, "packages/ext-chromium/entrypoints/page.html"), "<title>%VITE_FROM_HTML%</title>");
     writeFileSync(join(root, "packages/ext-chromium/entrypoints/view.tsx"), "export const a = import.meta.env.WXT_TSX_FLAG;");
     for (const ext of ["jsx", "mts", "cts", "cjs"]) writeFileSync(join(root, `packages/ext-chromium/entrypoints/f.${ext}`), `x(VITE_IN_${ext.toUpperCase()});`);
-    assert.deepEqual(unlistedViteReferences(root), ["VITE_BRAND_NEW_FLAG", "VITE_FROM_HTML", "VITE_IN_CJS", "VITE_IN_CTS", "VITE_IN_JSX", "VITE_IN_MTS", "WXT_TSX_FLAG"]);
+    assert.deepEqual(unlistedViteReferences(root), ["VITE_ACCESS_PRIVATE_KEY", "VITE_BRAND_NEW_FLAG", "VITE_FROM_HTML", "VITE_IN_CJS", "VITE_IN_CTS", "VITE_IN_JSX", "VITE_IN_MTS", "WXT_TSX_FLAG"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("store packages refuse scoped QA trust inputs and omit them from rebuild instructions", () => {
+  const values = {
+    VITE_ACCESS_ENVIRONMENT: "sandbox",
+    VITE_ACCESS_PUBLIC_KEYS: JSON.stringify([{ kid: "qa", publicKeyHex: "a".repeat(64), purpose: "access", environment: "sandbox" }]),
+    VITE_ACCESS_PRIVATE_KEY: MARKER,
+  };
+  const keys = Object.keys(values);
+  const saved = keys.map((key) => [key, process.env[key]]);
+  const dir = mkdtempSync(join(tmpdir(), "still-qa-trust-env-"));
+  const out = join(dir, "out");
+  try {
+    for (const [key, value] of Object.entries(values)) process.env[key] = value;
+    const stripped = cleanEnv({});
+    const instructions = amoInstructions(readVersions(), JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")), values);
+    for (const key of keys) {
+      assert.equal(stripped[key], undefined, "ambient QA trust must be removed");
+      assert.ok(!instructions.includes(`${key}=`), "store rebuild instructions must omit QA trust");
+      assert.throws(() => buildPackages({ out, env: { [key]: values[key] }, allowDirty: true }), /not an allowed public build value/);
+    }
+    assert.equal(existsSync(out), false, "refused trust inputs must not create package output");
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
