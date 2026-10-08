@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { withAuthenticatedUser, type AuthDeps } from "./auth.ts";
 import { authenticatedClaims, verifyJwt } from "./jwt.ts";
 import { isUuid } from "./types.ts";
@@ -78,7 +79,7 @@ export async function readQaSandboxCheckoutConfig(read: (name: string) => string
     const bytes = new TextEncoder().encode(JSON.stringify(["still-qa-checkout-binding-v1", "sandbox", QA_STRIPE_API_VERSION, 999, values]));
     const digest = await crypto.subtle.digest("SHA-256", bytes);
     bytes.fill(0);
-    const configurationHash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,"0")).join("");
+    const configurationHash = bytesToHex(new Uint8Array(digest));
     return Object.freeze({ apple, billing, project: get("REVENUECAT_PROJECT_ID"), revenueCatSecret: get("REVENUECAT_ACCESS_SECRET_API_KEY"), mappings, configurationHash });
   } catch { return null; }
 }

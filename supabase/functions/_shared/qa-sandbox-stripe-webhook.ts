@@ -1,3 +1,4 @@
+import { hexToBytes } from "@noble/hashes/utils.js";
 import { jsonResponse } from "./store.ts";
 import { readQaSandboxCheckoutRuntime, processQaSandboxCheckout, type QaSandboxCheckoutDeps } from "./qa-sandbox-checkout-runtime.ts";
 import { QaSandboxManagedCheckout, type QaChargeRefund } from "./qa-sandbox-managed-checkout.ts";
@@ -61,7 +62,7 @@ async function verifiedSignature(raw: Uint8Array, header: string | null, secret:
     if (match[1] === "t") timestamps.push(match[2]!);
     if (match[1] === "v1") {
       if (!/^[a-f0-9]{64}$/.test(match[2]!) || signatures.length === 5) return false;
-      signatures.push(Uint8Array.from(match[2]!.match(/../g)!, byte => parseInt(byte, 16)));
+      signatures.push(hexToBytes(match[2]!));
     }
   }
   if (timestamps.length !== 1 || !/^[1-9][0-9]{0,12}$/.test(timestamps[0]!) || !signatures.length) return false;

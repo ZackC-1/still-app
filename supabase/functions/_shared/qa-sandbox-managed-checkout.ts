@@ -151,12 +151,13 @@ export class QaSandboxManagedCheckout {
             if (done) break;
             size += value.byteLength;
             if (size > MAX_RESPONSE_BYTES) { void reader.cancel().catch(() => {}); return null; }
-            chunks.push(value);
+            if (!acknowledge) chunks.push(value);
           }
+          if (acknowledge) return true;
           const bytes = new Uint8Array(size);
           let offset = 0;
           for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-          return acknowledge ? true : JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+          return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
         } finally { activeReader = undefined; reader.releaseLock(); }
       })()]);
     } catch { return null; }
