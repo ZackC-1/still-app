@@ -7,6 +7,7 @@ import type { UserStore } from "../_shared/user-store.ts";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long!!";
 const A = "11111111-1111-1111-1111-111111111111";
+const ALLOW_LIMITER = { consume: () => Promise.resolve(0) };
 
 function req(jwt: string | null, body: unknown = {}): Request {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -55,7 +56,7 @@ Deno.test("analytics-identify sets the verified account's own email, ignoring th
   const res = await handleAnalyticsIdentify(req(jwt, { userId: "someone-else", email: "x@evil" }), {
     jwtSecret: SECRET,
     expected: TEST_EXPECTED_CLAIMS,
-    accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: "2020-01-01T00:00:00Z", analyticsSeen: true } }).lookup,
+    limiter: ALLOW_LIMITER, accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: "2020-01-01T00:00:00Z", analyticsSeen: true } }).lookup,
     posthog: port,
   });
   assertEquals(res.status, 200);
@@ -68,7 +69,7 @@ Deno.test("analytics-identify refuses an unauthenticated caller", async () => {
   const res = await handleAnalyticsIdentify(req(null), {
     jwtSecret: SECRET,
     expected: TEST_EXPECTED_CLAIMS,
-    accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: null, analyticsSeen: true } }).lookup,
+    limiter: ALLOW_LIMITER, accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: null, analyticsSeen: true } }).lookup,
     posthog: port,
   });
   assertEquals(res.status, 401);
@@ -81,7 +82,7 @@ Deno.test("analytics-identify is a quiet no-op when PostHog is not configured", 
   const res = await handleAnalyticsIdentify(req(jwt), {
     jwtSecret: SECRET,
     expected: TEST_EXPECTED_CLAIMS,
-    accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: null, analyticsSeen: true } }).lookup,
+    limiter: ALLOW_LIMITER, accounts: accountsWith({ [A]: { email: "a@b.co", createdAt: null, analyticsSeen: true } }).lookup,
     posthog: port,
   });
   assertEquals(await res.json(), { identified: false });
@@ -138,7 +139,7 @@ Deno.test("a person who turns sharing on days after creating the account is stil
   const mark = accounts.lookup.markAnalyticsSeen;
   accounts.lookup.markAnalyticsSeen = (id: string) => (order.push("mark"), mark(id));
   const jwt = await mintHs256({ sub: A }, SECRET);
-  await handleAnalyticsIdentify(req(jwt), { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, accounts: accounts.lookup, posthog: port, now: () => now });
+  await handleAnalyticsIdentify(req(jwt), { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, limiter: ALLOW_LIMITER, accounts: accounts.lookup, posthog: port, now: () => now });
   assertEquals(order, ["mark", "send:created"]); // marker first: a failure can lose a count, never double it
 });
 
@@ -202,7 +203,7 @@ Deno.test("a new account is counted once, by the server, however many times it s
   const { port, calls } = fakePostHog();
   const accounts = accountsWith({ [A]: { email: "a@b.co", createdAt: "2026-09-23T17:50:00Z", analyticsSeen: false } });
   const jwt = await mintHs256({ sub: A }, SECRET);
-  const deps = { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, accounts: accounts.lookup, posthog: port, now: () => now };
+  const deps = { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, limiter: ALLOW_LIMITER, accounts: accounts.lookup, posthog: port, now: () => now };
   assertEquals(await (await handleAnalyticsIdentify(req(jwt), deps)).json(), { identified: true, accountCreated: true });
   assertEquals(await (await handleAnalyticsIdentify(req(jwt), deps)).json(), { identified: true, accountCreated: false });
   assertEquals(calls, [`email:${A}:a@b.co:created`, `email:${A}:a@b.co`]);
@@ -215,7 +216,7 @@ Deno.test("an account from before analytics, or with a future or missing creatio
     const { port, calls } = fakePostHog();
     const accounts = accountsWith({ [A]: { email: "a@b.co", createdAt, analyticsSeen: false } });
     const jwt = await mintHs256({ sub: A }, SECRET);
-    await handleAnalyticsIdentify(req(jwt), { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, accounts: accounts.lookup, posthog: port, now: () => now });
+    await handleAnalyticsIdentify(req(jwt), { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, limiter: ALLOW_LIMITER, accounts: accounts.lookup, posthog: port, now: () => now });
     assertEquals(calls, [`email:${A}:a@b.co`]);
     assertEquals(accounts.marked, [A]); // marked either way, so it can never count later
   }

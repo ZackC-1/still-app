@@ -4,6 +4,7 @@ import type { PostHogPort } from "../_shared/posthog.ts";
 import type { PostHogSubjectPort } from "../_shared/posthog-erasure.ts";
 import { enforceRateLimit, type RateLimiter, type RateLimitPolicy, tooManyRequests } from "../_shared/rate-limit.ts";
 import { jsonResponse } from "../_shared/store.ts";
+import { readBoundedBody } from "../_shared/request-body.ts";
 
 // Attach the signed-in account's email to analytics, and count a new account exactly once.
 // The app or extension calls this after it has identified the install (only while the person shares
@@ -62,6 +63,8 @@ export interface SubjectDeps {
 export interface AnalyticsIdentifyDeps extends AuthDeps {
   readonly accounts: AccountLookup;
   readonly posthog: PostHogPort;
+  /** Narrow persistent limiter for released clients, independent of per-device identity setup. */
+  readonly limiter?: RateLimiter | null;
   /** The explicit switch for the per-device path, independent of any credential. Default off. */
   readonly subjectsEnabled?: boolean;
   readonly subjects?: SubjectDeps | null;
@@ -73,8 +76,9 @@ export interface AnalyticsIdentifyDeps extends AuthDeps {
 /** The subject request's origin proof; null for a legacy body; "invalid" for anything else that
  * names one. */
 async function originProofOf(req: Request): Promise<string | null | "invalid"> {
-  const text = await req.text().catch(() => "");
-  if (text.length > MAX_BODY_BYTES) return text.includes("originProof") ? "invalid" : null;
+  let text: string;
+  try { text = await readBoundedBody(req, { maxBytes: MAX_BODY_BYTES }); }
+  catch { return "invalid"; }
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -105,6 +109,13 @@ export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDep
     if (proof === "invalid") return jsonResponse(400, { error: "invalid_request" });
     if (proof !== null) return await identifySubject(deps, userId, proof, request);
     if (!deps.posthog.canIdentify) return jsonResponse(200, { identified: false });
+    // The released body is client-selected: it cannot bypass the subject path's abuse budget.
+    const limiter = deps.limiter ?? deps.subjects?.limiter;
+    if (!limiter) return jsonResponse(503, { error: "unavailable" });
+    const limited = await enforceRateLimit(limiter, "analytics-identify", userId, request, SUBJECT_RATE_LIMIT, {
+      network: true,
+    });
+    if (limited) return limited;
     const account = await deps.accounts.account(userId);
     if (!account?.email) return jsonResponse(200, { identified: false });
     const accountCreated = await accountCreatedNow(deps, userId, account);

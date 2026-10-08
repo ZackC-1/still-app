@@ -17,6 +17,7 @@ severity: medium
 tags: [supabase, edge-functions, rate-limiting, webhook-idempotency, revenuecat, cloudflare, cron, x-forwarded-for]
 date: 2026-07-10
 status: active
+last_updated: 2026-10-07
 ---
 
 # Hardening Supabase Edge Function surfaces
@@ -152,3 +153,41 @@ The through-line of all four findings is **enforce the boundary, don't assume it
   the token gate was extracted into one shared helper instead of copied into the canary.
 - PR #70 (Codex security audit remediation); migrations `0010_rate_limits.sql`,
   `0011_webhook_event_claims.sql`.
+
+## Bound request ingestion before business controls (2026-10-07)
+
+A byte cap checked after `req.text()` does not bound memory, and a byte-counted stream without
+a deadline can still hold a worker before its account/IP limit. An awaited `reader.cancel()`
+can also hang indefinitely when the producer does not acknowledge cancellation.
+
+The shared [body reader](../../../supabase/functions/_shared/request-body.ts) bounds actual UTF-8
+bytes and the entire read duration, responds to aborts, rejects invalid UTF-8/transport errors,
+and starts cancellation without awaiting it. Review sign-in, device/account analytics erasure,
+and analytics identification use a 1,024-byte limit and a two-second absolute deadline. A
+trickle cannot renew that deadline. Complete, small released-client bodies retain their prior
+interpretation; oversized or failed transport input cannot become a legacy side-effecting call.
+
+Six actual-handler regressions failed on the original implementation and passed after the fix.
+Four reader cases additionally cover exact byte boundaries, a trickle, false Content-Length and
+cancellation that never resolves. The complete Deno run passed 374 tests and 125 steps, with
+one separately gated certificate integration case ignored; Deno lint and entrypoint checking
+also passed. See the [remediation plan](../../plans/2026-10-07-002-fix-vibe-security-audit.md).
+
+## Apply abuse budgets to every released request shape (2026-10-07)
+
+Analytics identification limited its newer per-device request while accepting the released
+2.1 `{}` request without consuming a slot. The client could choose the legacy shape to repeat
+privileged account reads, metadata work and PostHog ingestion, even with an exhausted limiter.
+
+Both paths now use the same `analytics-identify` budget: 30 requests per verified account and
+120 per network in ten minutes. IPv6 keys group the network's /64. The legacy path limits
+before account lookup or provider work and fails closed when the limiter is missing or fails;
+unconfigured analytics retains its existing no-op. The production entrypoint constructs its
+persistent limiter independently of the per-device switch, using the existing eraser or
+entitlement-writer connection. A client cannot obtain another budget by changing body shape.
+
+Four security regressions failed on the prior implementation. Six final limiter tests verify
+actual handler budgets, network grouping, missing/failed configuration, no-op/auth behavior,
+and the real `index.ts` composition with synthetic environment configuration. Test the actual
+entrypoint as well as dependency-injected handlers: otherwise a safe handler can still ship
+without its limiter dependency.
