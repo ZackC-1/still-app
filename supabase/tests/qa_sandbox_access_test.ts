@@ -140,6 +140,32 @@ Deno.test({
           }
         },
       );
+      await t.step(
+        "catalog gate rejects QA PUBLIC defaults and a stopped minute scheduler",
+        async () => {
+          const corruptions = [
+            "grant still_qa_sandbox_owner to postgres with inherit true,set true; alter default privileges for role still_qa_sandbox_owner grant execute on functions to public",
+            "update cron.job set active=false where jobname='still-qa-sandbox-rate-retention'",
+          ];
+          for (const corruption of corruptions) {
+            await assertRejects(
+              () =>
+                admin.begin(async (tx) => {
+                  await tx.unsafe(corruption);
+                  const issues = (await tx.unsafe(gate))[0]!.coalesce;
+                  assert(
+                    issues.includes("QA_owner_default_execute") ||
+                      issues.includes("QA_retention_schedule"),
+                  );
+                  throw new Error("QA-default-retention-drift");
+                }),
+              Error,
+              "QA-default-retention-drift",
+            );
+            assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
+          }
+        },
+      );
       await admin`alter role still_qa_sandbox_writer login password 'qa-sandbox-synthetic-only'`;
       await admin`alter role still_entitlement_writer login password 'qa-production-synthetic-only'`;
       qa = connection(
@@ -347,12 +373,17 @@ Deno.test({
           const before = Array.from(
             await admin`select to_jsonb(r) as row from private.access_rights r where environment='production' order by right_id`,
           );
-          await assertRejects(async () =>
-            commit(A, await begin(), [{
-              key: "21".repeat(32),
-              product: "still_sync",
-              state: "revoked",
-            }])
+          const ignored = await commit(A, await begin(), [{
+            key: "21".repeat(32),
+            product: "still_sync",
+            state: "revoked",
+          }]);
+          assertEquals(ignored.status, "committed");
+          assertEquals(
+            (await admin`select count(*)::int as count from private.access_rights where environment='sandbox' and provider_key=${
+              "21".repeat(32)
+            }`)[0]?.count,
+            0,
           );
           const result =
             (await q`select public.qa_sandbox_transfer_access_right(${crypto.randomUUID()}::uuid,${prod}::uuid,${A}::uuid,${B}::uuid,0) as result`)[
@@ -389,10 +420,24 @@ Deno.test({
             q`select public.qa_sandbox_transfer_access_right(${crypto.randomUUID()}::uuid,${right}::uuid,${B}::uuid,${C}::uuid,1)`
           );
           await admin`update private.qa_sandbox_subjects set enabled=false,revision=revision+1 where holder=${A}::uuid`;
-          const refund = await commit(A, await begin(), [{
-            ...purchase[0],
-            state: "revoked",
-          }]);
+          const unknown = "f216".repeat(16), positive = "f217".repeat(16);
+          const refund = await commit(A, await begin(), [
+            { ...purchase[0], state: "revoked" },
+            { key: unknown, product: "still_pro_v3", state: "revoked" },
+            { key: positive, product: "still_pro_v3" },
+          ]);
+          assertEquals(
+            (await admin`select count(*)::int as count from private.access_rights where environment='sandbox' and provider_key in (${unknown},${positive})`)[
+              0
+            ]?.count,
+            0,
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.qa_sandbox_negative_rights n join private.access_rights r using(right_id) where r.provider_key in (${unknown},${positive})`)[
+              0
+            ]?.count,
+            0,
+          );
           assertEquals(refund.rights, []);
           assertEquals(refund.observed_rights, []);
           const current =
@@ -436,25 +481,20 @@ Deno.test({
             ]?.enabled,
             false,
           );
-          await assertRejects(
-            async () =>
-              commit(A, await begin(), [{
-                key: "f215".repeat(16),
-                product: "still_pro_v3",
-              }]),
-            Error,
-            "QA membership disabled",
-          );
-          await assertRejects(
-            async () =>
-              commit(A, await begin(), [{
-                key: "f215".repeat(16),
-                product: "still_pro_v3",
-                state: "revoked",
-              }]),
-            Error,
-            "unknown QA negative transaction",
-          );
+          const ignored = await commit(A, await begin(), [
+            { key: "f215".repeat(16), product: "still_pro_v3" },
+          ]);
+          assertEquals(ignored.rights, []);
+          assertEquals(ignored.observed_rights, []);
+          const unknown = await commit(A, await begin(), [
+            {
+              key: "f215".repeat(16),
+              product: "still_pro_v3",
+              state: "revoked",
+            },
+          ]);
+          assertEquals(unknown.rights, []);
+          assertEquals(unknown.observed_rights, []);
           const token = await begin(),
             result = await commit(A, token, [{
               ...purchase[0],
@@ -494,7 +534,87 @@ Deno.test({
         },
       );
       await t.step(
-        "membership disable waits on common row lock and denies in-flight positive commit atomically",
+        "enabled mixed known and unknown refunds persist only the known fence",
+        async () => {
+          const known = "f218".repeat(16),
+            unknown = "f219".repeat(16),
+            unowned = "f220".repeat(16);
+          const other = await commit(B, await begin(B), [{
+            key: unowned,
+            product: "still_pro_v3",
+          }]);
+          const otherRight = other.observed_rights[0].right;
+          const first = await commit(A, await begin(), [{
+            key: known,
+            product: "still_pro_v3",
+          }]);
+          const right = first.observed_rights[0].right;
+          const result = await commit(A, await begin(), [
+            { key: known, product: "still_pro_v3", state: "revoked" },
+            { key: unknown, product: "still_pro_v3", state: "revoked" },
+            { key: unowned, product: "still_pro_v3", state: "revoked" },
+          ]);
+          assertEquals(
+            (await admin`select active from private.access_rights where right_id=${otherRight}::uuid`)[
+              0
+            ]?.active,
+            true,
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.qa_sandbox_negative_rights where right_id=${otherRight}::uuid`)[
+              0
+            ]?.count,
+            0,
+          );
+          assert(
+            result.revocations.some((r: { right: string }) =>
+              r.right === right
+            ),
+          );
+          assertEquals(
+            (await admin`select active from private.access_rights where right_id=${right}::uuid`)[
+              0
+            ]?.active,
+            false,
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.qa_sandbox_negative_rights where right_id=${right}::uuid`)[
+              0
+            ]?.count,
+            1,
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.access_rights where environment='sandbox' and provider_key=${unknown}`)[
+              0
+            ]?.count,
+            0,
+          );
+          await assertRejects(
+            async () =>
+              commit(A, await begin(), [
+                { key: known, product: "still_pro_v3", state: "revoked" },
+                {
+                  key: unknown,
+                  product: "still_pro_v3",
+                  state: "revoked",
+                  extra: true,
+                },
+              ]),
+            Error,
+            "invalid access transaction",
+          );
+          await assertRejects(
+            async () =>
+              commit(A, await begin(), [
+                { key: known, product: "still_sync", state: "revoked" },
+              ]),
+            Error,
+            "unknown QA negative transaction",
+          );
+        },
+      );
+      await t.step(
+        "membership disable waits on common row lock and excludes in-flight positive rights atomically",
         async () => {
           const token = await begin();
           let ready!: () => void, release!: () => void;
@@ -530,14 +650,21 @@ Deno.test({
             await disabling;
           }
           const outcome = await attempted;
-          assert(outcome.error instanceof Error);
           assert(
             blocked ||
-              (outcome.error as Error & { code?: string }).code === "55P03",
+              (outcome.error as (Error & { code?: string }) | null)?.code ===
+                "55P03",
             "no actual lock wait or bounded lock-timeout denial observed",
           );
-          const denialCode = (outcome.error as Error & { code?: string }).code;
-          assert(denialCode === "42501" || denialCode === "55P03");
+          if (outcome.error) {
+            assertEquals(
+              (outcome.error as Error & { code?: string }).code,
+              "55P03",
+            );
+          } else {
+            assertEquals(outcome.result.rights, []);
+            assertEquals(outcome.result.observed_rights, []);
+          }
           assertEquals(
             (await admin`select enabled from private.qa_sandbox_subjects where holder=${A}::uuid`)[
               0
@@ -570,12 +697,13 @@ Deno.test({
             ]!.result;
           assertEquals(removals.holder, A);
           assertEquals(removals.environment, "sandbox");
-          await assertRejects(async () =>
-            commit(A, await begin(), [{
+          assertEquals(
+            (await commit(A, await begin(), [{
               key: "8".repeat(64),
               product: "still_pro_v3",
               state: "revoked",
-            }])
+            }])).observed_rights,
+            [],
           );
           await admin`update private.qa_sandbox_subjects set enabled=true,revision=revision+1 where holder=${A}::uuid`;
           const late = await commit(A, await begin());
@@ -771,6 +899,47 @@ Deno.test({
         },
       );
       await t.step(
+        "claimed unpaid Session closure frees exactly one new checkout slot",
+        async () => {
+          await admin`update private.qa_sandbox_subjects set enabled=true,revision=revision+1 where holder=${B}::uuid`;
+          const operation = crypto.randomUUID(),
+            replacement = crypto.randomUUID(),
+            session = "cs_test_synthetic_unpaid_2121";
+          const prepare = async (op: string) =>
+            (await q`select public.qa_sandbox_prepare_checkout_operation(${op}::uuid,${B}::uuid,${CONFIG}) as result`)[
+              0
+            ]!.result;
+          await prepare(operation);
+          assertEquals(
+            (await q`select public.qa_sandbox_claim_checkout_creation(${operation}::uuid,${B}::uuid,${CONFIG}) as result`)[
+              0
+            ]!.result.claimed,
+            true,
+          );
+          await q`select public.qa_sandbox_record_checkout_status(${operation}::uuid,null,'recovery_required')`;
+          assertEquals((await prepare(replacement)).operation_id, operation);
+          await q`select public.qa_sandbox_bind_checkout_session(${operation}::uuid,${B}::uuid,${session},${CONFIG})`;
+          assertEquals((await prepare(replacement)).operation_id, operation);
+          const closed =
+            (await q`select public.qa_sandbox_record_checkout_status(${operation}::uuid,${session},'closed_unpaid') as result`)[
+              0
+            ]!.result;
+          assertEquals(closed.status, "closed_unpaid");
+          assertEquals(closed.paid_at, null);
+          assertEquals(
+            (await q`select public.qa_sandbox_read_checkout_operation(${operation}::uuid,${B}::uuid) as result`)[
+              0
+            ]!.result.status,
+            "closed_unpaid",
+          );
+          assertEquals((await prepare(replacement)).operation_id, replacement);
+          assertEquals(
+            (await prepare(crypto.randomUUID())).operation_id,
+            replacement,
+          );
+        },
+      );
+      await t.step(
         "QA limiter uses exact separate quotas and never stores clear IP/subject",
         async () => {
           const bucket = "qa-sandbox-checkout:ip:198.51.100.212";
@@ -921,6 +1090,89 @@ Deno.test({
           );
           assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
           await admin`drop function qa_sandbox_fixture.restore_exact_public_bodies()`;
+        },
+      );
+      await t.step(
+        "minute cleanup physically deletes idle expired QA counters after emergency stop",
+        async () => {
+          const job =
+            (await admin`select jobid,schedule,active,username,command from cron.job where jobname='still-qa-sandbox-rate-retention'`)[
+              0
+            ]!;
+          assertEquals(job.schedule, "* * * * *");
+          assertEquals(job.active, true);
+          assertEquals(job.username, "postgres");
+          const lastRun = Number(
+            (await admin`select coalesce(max(runid),0)::text as run from cron.job_run_details where jobid=${job.jobid}`)[
+              0
+            ]!.run,
+          );
+          const body = rollback.replace(/^([\s\S]*?)\bbegin;\n/, "").replace(
+            /commit;\s*$/,
+            "",
+          );
+          await admin.begin((tx) => tx.unsafe(body));
+          assertEquals(
+            (await admin`select has_function_privilege('still_qa_sandbox_writer','public.qa_sandbox_consume_rate_limit(text,integer,integer)','EXECUTE') as allowed`)[
+              0
+            ]?.allowed,
+            false,
+          );
+          assertEquals(
+            (await admin`select command from cron.job where jobid=${job.jobid}`)[
+              0
+            ]?.command,
+            job.command,
+          );
+          await admin.begin(async (tx) => {
+            await tx`insert into private.qa_sandbox_rate_windows values('2000-01-01T00:00:00Z',extensions.gen_random_bytes(32),'2000-01-01T00:01:00Z')`;
+            await tx`insert into private.qa_sandbox_rate_counters values(${
+              "qa-sandbox-checkout:ip:" + "f".repeat(64)
+            },'2000-01-01T00:00:00Z',1)`;
+          });
+          const fresh = String(
+            (await admin`insert into private.qa_sandbox_rate_windows values(clock_timestamp(),extensions.gen_random_bytes(32),clock_timestamp()+interval '2 minutes') returning window_start::text as window`)[
+              0
+            ]!.window,
+          );
+          await admin`insert into private.qa_sandbox_rate_counters values(${
+            "qa-sandbox-checkout:ip:" + "e".repeat(64)
+          },${fresh}::timestamptz,1)`;
+          const started = Date.now();
+          let remaining = 1, succeeded = false;
+          while (
+            (remaining > 0 || !succeeded) && Date.now() - started < 65000
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            remaining = Number(
+              (await admin`select count(*)::int as count from private.qa_sandbox_rate_windows where window_start='2000-01-01T00:00:00Z'`)[
+                0
+              ]!.count,
+            );
+            succeeded =
+              (await admin`select status from cron.job_run_details where jobid=${job.jobid} and runid>${lastRun} order by runid desc limit 1`)[
+                0
+              ]?.status === "succeeded";
+          }
+          assertEquals(
+            remaining,
+            0,
+            "real minute cron must delete an expired never-returning QA window",
+          );
+          assertEquals(
+            (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where window_start='2000-01-01T00:00:00Z'`)[
+              0
+            ]?.count,
+            0,
+          );
+          assertEquals(succeeded, true);
+          assertEquals(
+            (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where window_start=${fresh}::timestamptz`)[
+              0
+            ]?.count,
+            1,
+          );
+          await admin`delete from private.qa_sandbox_rate_windows where window_start=${fresh}::timestamptz`;
         },
       );
     } finally {

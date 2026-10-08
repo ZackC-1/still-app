@@ -613,18 +613,37 @@ begin
  select * into observation from private.access_observations where holder=p_holder and environment='sandbox' for update;
  if not found or p_token is null or observation.token<>p_token or observation.deadline<=clock_timestamp() then return '{"status":"stale"}'; end if;
  if jsonb_typeof(p_snapshot) is distinct from 'array' or jsonb_array_length(p_snapshot)>16 then raise exception 'invalid access snapshot'; end if;
+ -- Validate the entire provider listing before excluding ineligible rows. Filtering must
+ -- neither hide malformed input nor let an unknown refund create a right or a fence.
+ for item in select value from jsonb_array_elements(p_snapshot) loop
+  if jsonb_typeof(item) is distinct from 'object'
+   or (select count(*) from jsonb_object_keys(item)) not between 2 and 3
+   or exists(select 1 from jsonb_object_keys(item) k where k not in ('key','product','state'))
+   or (item ? 'state' and item->>'state' is distinct from 'revoked')
+   or jsonb_typeof(item->'key') is distinct from 'string'
+   or item->>'key' !~ '^[0-9a-f]{64}$'
+   or jsonb_typeof(item->'product') is distinct from 'string'
+   or item->>'product' not in ('still_pro_v3','still_sync') then
+   raise exception 'invalid access transaction';
+  end if;
+ end loop;
+ if (select count(distinct value->>'key') from jsonb_array_elements(p_snapshot))<>jsonb_array_length(p_snapshot) then
+  raise exception 'duplicate access transaction';
+ end if;
  for item in select value from jsonb_array_elements(p_snapshot) order by value->>'key' loop
   -- Lock existing transaction identity before checking the permanent QA-only negative fence.
   select * into stored from private.access_rights where environment='sandbox' and provider_key=item->>'key' for update;
   if item ? 'state' then
-   if item->>'state' is distinct from 'revoked' or stored.right_id is null or (stored.holder is distinct from p_holder and not exists(select 1 from private.access_transfer_operations transfer
-     where transfer.right_id=stored.right_id and transfer.environment='sandbox' and transfer.source_holder=p_holder))
-    or stored.provider_source<>'revenuecat' or stored.provider_product is distinct from item->>'product' then
+   if stored.right_id is null or (stored.holder is distinct from p_holder and not exists(select 1 from private.access_transfer_operations transfer
+     where transfer.right_id=stored.right_id and transfer.environment='sandbox' and transfer.source_holder=p_holder)) then
+    continue;
+   end if;
+   if stored.provider_source<>'revenuecat' or stored.provider_product is distinct from item->>'product' then
     raise exception 'unknown QA negative transaction' using errcode='42501';
    end if;
    insert into private.qa_sandbox_negative_rights(right_id) values(stored.right_id) on conflict do nothing;
   else
-   if not admitted then raise exception 'QA membership disabled' using errcode='42501'; end if;
+   if not admitted then continue; end if;
    if stored.right_id is not null and stored.holder=p_holder and exists(select 1 from private.qa_sandbox_negative_rights where right_id=stored.right_id) then
     -- A delayed verified-active listing cannot resurrect a canonical QA refund.
     item:=item||'{"state":"revoked"}'::jsonb;
@@ -838,9 +857,20 @@ begin
 end;
 $$;
 
+-- Independent physical expiry survives stopped QA traffic and emergency restore.
+-- Only the ordinary postgres scheduler/operator can invoke this maintenance routine.
+create function private.cleanup_qa_sandbox_rate_counters() returns void
+language sql security definer set search_path=pg_catalog,pg_temp as $$
+ delete from private.qa_sandbox_rate_windows where expires_at<=clock_timestamp();
+$$;
+revoke all on function private.cleanup_qa_sandbox_rate_counters() from public,anon,authenticated,service_role,still_entitlement_writer,still_qa_sandbox_writer,still_qa_sandbox_owner;
+select cron.schedule('still-qa-sandbox-rate-retention','* * * * *',
+ $$set lock_timeout = '1s'; set statement_timeout = '5s'; select private.cleanup_qa_sandbox_rate_counters();$$);
+
 -- Owner changes require temporary operator membership on non-superuser hosted postgres.
 -- Neither production writer nor QA writer inherits the wrapper owner.
 grant still_qa_sandbox_owner to postgres;
+alter default privileges for role still_qa_sandbox_owner revoke execute on functions from public;
 grant create on schema public to still_qa_sandbox_owner;
 alter function public.qa_sandbox_account_enabled(uuid) owner to still_qa_sandbox_owner;
 revoke all on function public.qa_sandbox_account_enabled(uuid) from public,anon,authenticated,service_role,still_entitlement_writer;

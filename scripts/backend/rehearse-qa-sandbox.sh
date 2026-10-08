@@ -28,6 +28,25 @@ qa_test() {
     --allow-read=supabase/tests/qa_sandbox_access_seed.sql,scripts/backend/deploy/verify/qa-sandbox-access.sql,scripts/backend/deploy/rollback/0021_qa_sandbox_access.sql \
     --allow-net=127.0.0.1:54322 supabase/tests/qa_sandbox_access_test.ts
 }
+head_creator_audit() {
+  # Reuse the reviewed U1 fixture only on this disposable database. QA's own gate has
+  # already checked its default ACL before generic creator hardening can repair anything.
+  docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
+do $$ begin
+  if not exists(select 1 from pg_roles where rolname='u1_catalog_fixture') then
+    create role u1_catalog_fixture login superuser password 'u1-synthetic-fixture-only';
+  end if;
+end $$;
+SQL
+  psql "$qa_database_url" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/catalog-reconciliation.sql
+  PGPASSWORD='u1-synthetic-fixture-only' psql -h 127.0.0.1 -p 54322 -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/synthetic-catalog-fixture.sql
+  psql "$qa_database_url" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/security-audit-candidate.sql
+  cat scripts/backend/sql/hardening-candidate.sql scripts/backend/sql/assert-security.sql | \
+    PGPASSWORD='u1-synthetic-fixture-only' psql -h 127.0.0.1 -p 54322 -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --single-transaction --file=-
+  psql "$qa_database_url" -X --set=ON_ERROR_STOP=1 --single-transaction \
+    --file=scripts/backend/sql/prepare-hardened-rls.sql \
+    --file=scripts/backend/sql/assert-security.sql
+}
 # Upgrade starts with real old RPCs, nonempty historical rows and an absent QA wrapper.
 supabase db reset --local --no-seed --version 0020 >/dev/null
 psql "$qa_database_url" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/qa_sandbox_access_seed.sql
@@ -41,8 +60,10 @@ for migration in supabase/migrations/*.sql; do
 done
 supabase migration up --local --workdir "$upgrade_root" >/dev/null
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=1 qa_test
+head_creator_audit
 # Clean-install evidence is distinct; it cannot satisfy the required pre-upgrade absence probe.
 supabase db reset --local --no-seed --version 0021 >/dev/null
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=0 qa_test
+head_creator_audit
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

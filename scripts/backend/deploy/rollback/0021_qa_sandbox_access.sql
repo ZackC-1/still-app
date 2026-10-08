@@ -371,6 +371,8 @@ revoke all on function public.read_access_removals(uuid, text, uuid) from public
 grant execute on function public.read_access_removals(uuid, text, uuid) to still_entitlement_writer;
 
 -- Stop new QA admission, preserve exact bound data for reviewed recovery/re-enable.
+-- Retain private.cleanup_qa_sandbox_rate_counters and its owner-only minute cron:
+-- disposable random window secrets/counters must expire even after all QA RPCs stop.
 -- PG17 creator ADMIN is inert; temporarily permit the postgres operator to manage QA-owner ACLs.
 -- Bound inherited owner authority to this transaction; no runtime actor receives membership.
 -- Revoke this operator grant below; preserve inert bootstrap ADMIN provenance.

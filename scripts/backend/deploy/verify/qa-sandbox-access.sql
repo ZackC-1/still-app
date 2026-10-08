@@ -24,7 +24,7 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
  ('private.qa_sandbox_subject(uuid,boolean)','postgres',false,'de995fb4afdd5fd53755364323c36fa3','still_qa_sandbox_owner'),
  ('public.qa_sandbox_account_enabled(uuid)','still_qa_sandbox_owner',true,'ecb062a6f59a838c2d5e6cc0ace21281','still_qa_sandbox_writer'),
  ('public.qa_sandbox_begin_access_observation(uuid)','still_qa_sandbox_owner',true,'716b02117e9d0ebfa35912d6ef2ef00f','still_qa_sandbox_writer'),
- ('public.qa_sandbox_commit_access_observation(uuid,uuid,jsonb)','still_qa_sandbox_owner',true,'b7f0b11ff56d4f569f0f25dce792639a','still_qa_sandbox_writer'),
+ ('public.qa_sandbox_commit_access_observation(uuid,uuid,jsonb)','still_qa_sandbox_owner',true,'d6c2dc8e69606bc3f8802efe873c7ac6','still_qa_sandbox_writer'),
  ('public.qa_sandbox_confirm_access_observation(uuid,uuid)','still_qa_sandbox_owner',true,'df573ca762862755efd4cda3a03fe45a','still_qa_sandbox_writer'),
  ('public.qa_sandbox_read_access_removals(uuid,uuid)','still_qa_sandbox_owner',true,'b546ee50304e2a3ed74f45b198690320','still_qa_sandbox_writer'),
  ('public.qa_sandbox_transfer_access_right(uuid,uuid,uuid,uuid,bigint)','still_qa_sandbox_owner',true,'789a948ef5af2ef0d83946cd893ae403','still_qa_sandbox_writer'),
@@ -39,6 +39,7 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
  ('public.qa_sandbox_bind_checkout_session(uuid,uuid,text,text)','still_qa_sandbox_owner',true,'ecdea1e4c5705c7afa219c40a66f847c','still_qa_sandbox_writer'),
  ('public.qa_sandbox_read_checkout_operation(uuid,uuid)','still_qa_sandbox_owner',true,'8586d443772ba39ceaf8317d4216237c','still_qa_sandbox_writer'),
  ('public.qa_sandbox_record_checkout_status(uuid,text,text)','still_qa_sandbox_owner',true,'f6d1374e0cd3b3efdf22178970836c39','still_qa_sandbox_writer'),
+ ('private.cleanup_qa_sandbox_rate_counters()','postgres',true,'21402f33fc29688820c560050ac6ace4','postgres'),
  ('public.qa_sandbox_consume_rate_limit(text,integer,integer)','still_qa_sandbox_owner',true,'de6233e1d69b0aa0971fed9303c0cd76','still_qa_sandbox_writer')
 ), routines as (
  select e.*,p.oid,p.proowner,p.prosecdef,p.proconfig,p.prosrc,p.proacl
@@ -70,6 +71,13 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
   where (select count(*) from pg_catalog.pg_policy p join pg_catalog.pg_class c on c.oid=p.polrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname=t.name)<>1
  union all select 'QA_shared_trigger:'||c.relname from pg_catalog.pg_trigger tr join pg_catalog.pg_class c on c.oid=tr.tgrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace
   where n.nspname='private' and c.relname in ('access_observations','access_rights','access_revocations','access_transfer_operations','apple_access_observations','apple_access_link_operations') and not tr.tgisinternal
+ union all select 'QA_owner_default_execute' where exists(
+  select 1 from pg_catalog.pg_roles r left join pg_catalog.pg_default_acl d on d.defaclrole=r.oid and d.defaclnamespace=0 and d.defaclobjtype='f',
+   lateral pg_catalog.aclexplode(coalesce(d.defaclacl,pg_catalog.acldefault('f',r.oid))) a
+  where r.rolname='still_qa_sandbox_owner' and a.privilege_type='EXECUTE' and a.grantee<>r.oid)
+ union all select 'QA_retention_schedule' where not exists(select 1 from cron.job
+  where jobname='still-qa-sandbox-rate-retention' and schedule='* * * * *' and active and username='postgres'
+   and database=current_database() and command='set lock_timeout = ''1s''; set statement_timeout = ''5s''; select private.cleanup_qa_sandbox_rate_counters();')
  union all select 'QA_owner_schema_create' where pg_catalog.has_schema_privilege('still_qa_sandbox_owner','public','CREATE')
  union all select 'QA_live_RPC:'||signature from expected where signature like 'public.%' and signature not like 'public.qa_sandbox_%'
   and pg_catalog.has_function_privilege('still_qa_sandbox_writer',signature,'EXECUTE')
