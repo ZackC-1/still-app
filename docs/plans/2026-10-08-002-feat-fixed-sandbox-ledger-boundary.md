@@ -71,6 +71,13 @@ execution still require a new clean/upgrade cloud run and follow-up review befor
 merge or CI result does not authorize hosted activation. No hosted migration, credential
 provisioning, QA account admission, provider call or payment was performed.
 
+At `3c49b0c9`, the new cloud upgrade rehearsal passed seventeen behavioral steps and failed two
+new test setups. The scheduler drift test attempted a direct update without scheduler-table
+permissions; it now uses the scheduler's owner API. The fresh retention fixture round-tripped a
+microsecond timestamp through the driver's timestamptz serializer and failed its foreign key; it
+now inserts the window and counter together in one SQL CTE and observes the counter by its synthetic
+bucket key. Production migration bytes remain unchanged. Corrected cloud execution is pending.
+
 ## Hosted gate and recovery
 
 Before any actual apply, verify current migration prerequisites through 0020, exact current production routine definitions/owners/ACLs, baseline behavior and row fingerprints. Missing prerequisites stop this operation and require a separate prerequisite scope. Review the exact target, source/config hashes, role/login actions, private QA membership and forward-restore packet before external writes. Never treat a source merge or successful cloud rehearsal as target deployment authorization.

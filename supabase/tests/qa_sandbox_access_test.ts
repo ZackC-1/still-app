@@ -145,7 +145,7 @@ Deno.test({
         async () => {
           const corruptions = [
             "grant still_qa_sandbox_owner to postgres with inherit true,set true; alter default privileges for role still_qa_sandbox_owner grant execute on functions to public",
-            "update cron.job set active=false where jobname='still-qa-sandbox-rate-retention'",
+            "select cron.alter_job(jobid,active:=false) from cron.job where jobname='still-qa-sandbox-rate-retention'",
           ];
           for (const corruption of corruptions) {
             await assertRejects(
@@ -1130,14 +1130,15 @@ Deno.test({
               "qa-sandbox-checkout:ip:" + "f".repeat(64)
             },'2000-01-01T00:00:00Z',1)`;
           });
-          const fresh = String(
-            (await admin`insert into private.qa_sandbox_rate_windows values(clock_timestamp(),extensions.gen_random_bytes(32),clock_timestamp()+interval '2 minutes') returning window_start::text as window`)[
-              0
-            ]!.window,
-          );
-          await admin`insert into private.qa_sandbox_rate_counters values(${
-            "qa-sandbox-checkout:ip:" + "e".repeat(64)
-          },${fresh}::timestamptz,1)`;
+          const freshBucket = "qa-sandbox-checkout:ip:" + "e".repeat(64);
+          // Keep the exact timestamp inside SQL: the driver's inferred timestamptz
+          // serializer can truncate sub-millisecond precision on a round trip.
+          await admin`with fresh as (
+            insert into private.qa_sandbox_rate_windows
+            values(clock_timestamp(),extensions.gen_random_bytes(32),clock_timestamp()+interval '2 minutes')
+            returning window_start
+          ) insert into private.qa_sandbox_rate_counters
+            select ${freshBucket},window_start,1 from fresh`;
           const started = Date.now();
           let remaining = 1, succeeded = false;
           while (
@@ -1167,12 +1168,12 @@ Deno.test({
           );
           assertEquals(succeeded, true);
           assertEquals(
-            (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where window_start=${fresh}::timestamptz`)[
+            (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where bucket_key=${freshBucket}`)[
               0
             ]?.count,
             1,
           );
-          await admin`delete from private.qa_sandbox_rate_windows where window_start=${fresh}::timestamptz`;
+          await admin`delete from private.qa_sandbox_rate_windows where window_start in (select window_start from private.qa_sandbox_rate_counters where bucket_key=${freshBucket})`;
         },
       );
     } finally {
