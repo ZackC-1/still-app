@@ -1,7 +1,6 @@
 # Sandbox client route profile and purchase recovery
 
-Status: combined client source integrated and locally verified; final independent specialist/Claude
-review, protected PR integration, hosted activation and complete QA packages remain pending.
+Status: combined client source integrated and locally verified; final independent repair review, protected PR integration, hosted activation and complete QA packages remain pending.
 
 Base: `da022966f405713beeebeb5c0c367bd3b051331b`.
 Branch: `feat/v31-client-cohort-integration-20261008`.
@@ -94,3 +93,31 @@ Combined cohort verification:
 - These checks do not certify hosted gateway/RPC permissions, OTP on devices, RevenueCat/Apple
   sandbox purchases, refunds, deliberate link/transfer or TestFlight/device behavior. Final combined
   source review and new-head CI are pending; the whole redesign is incomplete.
+
+## Independent review repairs and final client checks (8 October)
+
+The full independent review of `85256159` confirmed four concerns: native account
+verification availability was lost in a durable acknowledgment, copied Apple example
+configuration suppressed free sync, account changes could leave a canceled Buy preflight
+pending, and executable coverage did not exercise the maintained native reconciliation
+arm. Commits `a9d3f5f` and `7d99b667` retain the authority status across the bridge,
+represent optional production defaults accurately, reset only canceled preflights, and
+add executable native router regressions. Existing local rights and completed native
+purchases retain their recovery protection. Configured browser background tests also
+exercise sandbox sales gating and independent completion/Restore while sales are Off.
+
+Exact runtime head `7d99b667` passed the full workspace: core 4,770 with 39 existing
+skips; Chromium 585; Safari 286; WebView 15; owner-admin 58; visual harness 53 with
+one existing skip. Workspace lint, type checks and ordinary builds passed. Browser
+fixtures passed 307 with 21 existing skips; StillKit passed 437. Both updated unsigned
+iOS and macOS apps and Safari extensions built successfully. All eight GitHub checks
+on this head passed. One workspace repeat hit an existing five-second UI timeout
+while Xcode builds ran concurrently; its focused 56-test file and the subsequent full
+workspace run passed without changing the timeout.
+
+Claude exhausted its bounded review without a usable artifact. The owner-authorized
+Muse Spark source fallback and a bounded direct-read followup completed with no
+actionable findings; the followup resolved its initial truncated native span and
+test-body inspection limits. Separate independent repair-delta review remains in
+progress. These source/fixture/compiler checks do not certify hosted activation,
+provider purchases/refunds, signed packages or physical devices.
