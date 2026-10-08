@@ -13,6 +13,7 @@ import type {
 
 const PENDING_OTP_KEY = "still:pending-otp";
 const CHECKOUT_PENDING_KEY = "still:checkout-pending";
+const CHECKOUT_OPERATION_KEY = "still:qa-checkout-operation";
 const NUDGE_STAMP_KEY = "still:nudge-stamp";
 const LAST_IDENTITY_KEY = "still:last-identity";
 
@@ -32,6 +33,7 @@ export function createSessionStores(): ExtensionSessionStores {
   return {
     pendingOtp: slot(PENDING_OTP_KEY),
     checkoutPending: slot(CHECKOUT_PENDING_KEY),
+    checkoutOperation: slot(CHECKOUT_OPERATION_KEY),
     nudgeStamp: slot(NUDGE_STAMP_KEY),
   };
 }

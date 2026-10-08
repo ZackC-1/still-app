@@ -29,6 +29,7 @@ test("local profile removes inherited client/backend/trust and debug inputs", ()
   assert.deepEqual(env, {
     PATH: "/usr/bin",
     NODE_ENV: "production",
+    VITE_BACKEND_ROUTE_PROFILE: "production",
     VITE_MODERN_SETTINGS_SYNC_ENABLED: "true",
     VITE_APPLE_ATOMIC_SETTINGS: "true",
   });
@@ -96,6 +97,8 @@ test("manifest binds backend target without exporting endpoint/key or claiming p
   assert.equal(manifest.trust.sandboxProofAccepted, false);
   assert.equal(manifest.trust.buildMode, "production");
   assert.equal(manifest.backend.state, "configured-shared-hosted-unverified");
+  assert.equal(manifest.backend.routeProfile, "production");
+  assert.equal(manifest.backend.routeConsumption, "unverified");
   assert.equal(
     manifest.backend.accountScope,
     "dedicated-test-accounts-required",
@@ -130,13 +133,28 @@ test("artifact inventory records actual bytes/hashes and refuses symlink escape"
 });
 
 const sandboxKey = { kid: "sandbox-fixture", publicKeyHex: "12".repeat(32), environment: "sandbox", purpose: "access" };
-const paidInputs = { ...inputs, STILL_QA_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co",
+const paidInputs = { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox", STILL_QA_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co",
   STILL_QA_ACCESS_ENVIRONMENT: "sandbox", STILL_QA_ACCESS_PUBLIC_KEYS: JSON.stringify([sandboxKey]),
   STILL_QA_REVENUECAT_PUBLIC_API_KEY: "appl_public_fixture" };
 
 const paid = await import("../../apps/apple/scripts/paid-sandbox-qa.mjs");
 const { execFileSync } = await import("node:child_process");
 const { readFile } = await import("node:fs/promises");
+
+test("backend route profile is closed and paid sandbox requires an explicit isolated route selection", () => {
+  for (const profile of ["local", "test"]) {
+    assert.equal(profileEnvironment(profile, inputs).VITE_BACKEND_ROUTE_PROFILE, "production");
+    assert.equal(profileEnvironment(profile, { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: "production" }).VITE_BACKEND_ROUTE_PROFILE, "production");
+    assert.equal(profileEnvironment(profile, { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" }).VITE_BACKEND_ROUTE_PROFILE, "shared-hosted-sandbox");
+    for (const value of ["", "sandbox", "shared-hosted", " Production", "shared-hosted-sandbox ", null, 1])
+      assert.throws(() => profileEnvironment(profile, { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: value }), /route profile/);
+  }
+  assert.equal(paid.sandboxConfiguration(paidInputs).backendRouteProfile, "shared-hosted-sandbox");
+  for (const value of [undefined, "production", "sandbox", "", "shared-hosted-sandbox "])
+    assert.throws(() => paid.sandboxConfiguration({ ...paidInputs, STILL_QA_BACKEND_ROUTE_PROFILE: value }), /route profile/);
+  const env = profileEnvironment("paid-sandbox", { ...paidInputs, VITE_BACKEND_ROUTE_PROFILE: "production" });
+  assert.equal(env.VITE_BACKEND_ROUTE_PROFILE, "shared-hosted-sandbox");
+});
 
 test("local and test profiles refuse a paid-enabled source before building or issuing receipts", async () => {
   for (const profile of ["local", "test"]) {
@@ -484,9 +502,11 @@ test("isolation enables both constants and typed app/extension trust while sourc
       assert.match(await readFile(join(clone, paid.PAID_FLAGS.js), "utf8"), /PAID_TIER_ENABLED = true/);
       assert.match(await readFile(join(clone, paid.PAID_FLAGS.native), "utf8"), /paidTierEnabled = true/);
       assert.equal(overlay.overlayFiles.length, 6);
+      assert.equal(overlay.backendRouteProfile, "shared-hosted-sandbox");
       for (const file of overlay.overlayFiles) { assert.match(file.beforeSha256, /^[a-f0-9]{64}$/); assert.notEqual(file.beforeSha256, file.sha256); }
       for (const part of ["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"]) {
         const text = await readFile(join(clone, `apps/apple/Still/${part}/Info.plist`), "utf8");
+        assert.match(text, /<key>StillBackendRouteProfile<\/key><string>shared-hosted-sandbox<\/string>/);
         assert.match(text, /<key>StillAccessTrustKeys<\/key><array><dict>/);
         assert.match(text, /<key>environment<\/key><string>sandbox<\/string>/);
         assert.match(text, /<key>StillAccessSupabaseURL<\/key>/);
@@ -497,16 +517,23 @@ test("isolation enables both constants and typed app/extension trust while sourc
     assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
     await assert.rejects(readFile(join(runPath, "source", paid.PAID_FLAGS.js)), /ENOENT/);
     const manifest = artifactManifest({ profile: "paid-sandbox", surface: "safari", revision: before.revision, dirty: false,
-      sourceSha256: before.sha256, backendUrl: paidInputs.STILL_QA_SUPABASE_URL, artifacts: { totalBytes: 0, files: [] }, paidBuild: build });
+      sourceSha256: before.sha256, backendRouteProfile: "shared-hosted-sandbox", backendUrl: paidInputs.STILL_QA_SUPABASE_URL, artifacts: { totalBytes: 0, files: [] }, paidBuild: build });
     assert.equal(manifest.runtime.paidTierEnabled, true); assert.equal(manifest.trust.sandboxProofAccepted, null);
     assert.equal(manifest.trust.access, "sandbox-native-authority-unverified");
     assert.equal(manifest.trust.nativePackageVerification, "unverified-resource-only");
     assert.equal(manifest.paidBuild.flags.nativePaid, true);
-    assert.doesNotMatch(JSON.stringify(manifest), /abcdefghijklmnopqrst|appl_public_fixture|sb_publishable/);
+    assert.equal(manifest.backend.routeProfile, "shared-hosted-sandbox");
+    assert.equal(manifest.backend.routeConsumption, "unverified");
+    assert.equal(manifest.paidBuild.backendRouteProfile, "shared-hosted-sandbox");
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: before.sha256,
+      backendRouteProfile: "production", paidBuild: build }), /route profile/);
+    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: before.sha256,
+      backendRouteProfile: "shared-hosted-sandbox", paidBuild: { ...build, backendRouteProfile: "production" } }), /mixed/);
+    assert.doesNotMatch(JSON.stringify(manifest), /abcdefghijklmnopqrst|appl_public_fixture|sb_publishable/);
+    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: before.sha256, backendRouteProfile: "shared-hosted-sandbox",
       paidBuild: { ...build, flags: { ...build.flags, nativePaid: false } } }), /mixed/);
-    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "chrome", sourceSha256: before.sha256, paidBuild: build }), /identity/);
-    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: "0".repeat(64), paidBuild: build }), /identity/);
+    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "chrome", sourceSha256: before.sha256, backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
+    assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: "0".repeat(64), backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
     await assert.rejects(paid.isolatedSandboxSource(root, config, async () => { throw new Error("fixture build failed"); }), /fixture build failed/);
     assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -526,6 +553,38 @@ test("mixed original flags refuse without editing any source and incomplete base
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("paid sandbox refuses a missing or production route before candidate installation", async () => {
+  const root = await fixture();
+  try {
+    for (const value of [undefined, "production", "unknown"]) {
+      await assert.rejects(paidSandboxMain("chrome", { ...paidInputs, STILL_QA_BACKEND_ROUTE_PROFILE: value }, root), /route profile/);
+      await assert.rejects(readFile(join(root, ".output/v3-qa/paid-sandbox/chrome/artifact-manifest.json")), /ENOENT/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("complete paid builds require client and native route source prerequisites before installation", async () => {
+  const root = await fixture();
+  try {
+    const core = "packages/core/src/sync/backend-route-profile.ts";
+    const native = "apps/apple/StillKit/Sources/StillKit/NativeAccessConfiguration.swift";
+    for (const path of ["packages/core/src/entitlement/packaged-access-trust.ts", native]) {
+      await mkdir(join(root, path, ".."), { recursive: true });
+      await writeFile(join(root, path), "source fixture");
+    }
+    const catalog = "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift";
+    await writeFile(join(root, catalog), `public static let stillProV3 = ApplePurchaseProduct(
+      productID: "still_pro_v3", entitlementID: "still_pro_v3", offeringID: "still_pro_v3", packageID: "$rc_lifetime")
+      public static let historicalStillSync = ApplePurchaseProduct(productID: "still_sync")`);
+    await assert.rejects(paid.requireIntegratedPaidCandidate(root), /backend route profile source is missing/);
+    await mkdir(join(root, core, ".."), { recursive: true });
+    await writeFile(join(root, core), "route source fixture");
+    await assert.rejects(paid.requireIntegratedPaidCandidate(root), /native backend route profile source is missing/);
+    await writeFile(join(root, native), 'let key = "StillBackendRouteProfile"');
+    await paid.requireIntegratedPaidCandidate(root);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("packaged app and extension require the same typed sandbox trust, backend and bundle identity", () => {
   const config = paid.sandboxConfiguration(paidInputs), fields = paid.plistConfiguration(config);
   const app = { ...fields, CFBundleIdentifier: "com.chartash.still", RevenueCatPublicAPIKey: config.revenueCatKey };
@@ -541,6 +600,17 @@ test("packaged app and extension require the same typed sandbox trust, backend a
     { CFBundleIdentifier: "org.example.forged" },
   ]) assert.throws(() => paid.assertNativePlist({ ...ext, ...changed }, ext.CFBundleIdentifier, config), /mismatch/);
   assert.throws(() => paid.assertNativePlist({ ...app, RevenueCatPublicAPIKey: "appl_other" }, app.CFBundleIdentifier, config), /mismatch/);
+});
+
+test("packaged app and extension reject missing or mismatched backend route profiles", () => {
+  const config = paid.sandboxConfiguration(paidInputs), fields = paid.plistConfiguration(config);
+  assert.equal(fields.StillBackendRouteProfile, "shared-hosted-sandbox");
+  for (const bundleId of ["com.chartash.still", "com.chartash.still.Extension"]) {
+    const plist = { ...fields, CFBundleIdentifier: bundleId, ...(bundleId === "com.chartash.still" ? { RevenueCatPublicAPIKey: config.revenueCatKey } : {}) };
+    paid.assertNativePlist(plist, bundleId, config);
+    for (const value of [undefined, "production", "sandbox", "shared-hosted-sandbox "])
+      assert.throws(() => paid.assertNativePlist({ ...plist, StillBackendRouteProfile: value }, bundleId, config), /mismatch/);
+  }
 });
 
 test("changed clone paid flags cannot issue a receipt and original source is still preserved", async () => {

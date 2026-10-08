@@ -331,6 +331,37 @@ final class WebBridgeRouter {
         reply(Self.json(["evidence": evidence as Any? ?? NSNull()]), nil)
       }
 
+    case "reconcileAccountAccess":
+      guard MonetizationConfig.paidTierEnabled, frame.isTrusted, Set(dict.keys) == ["kind", "accessToken"],
+        let token = dict["accessToken"] as? String, !token.isEmpty, token.utf8.count <= 16_384,
+        let verifier = accessSessionVerifier, let runtime = NativeAccountAccessRuntime(),
+        let expectedGeneration = try? entitlement.prepareAppleAccessInstall(),
+        let accountAtStart = accountSyncStatus.peek()?.accountId
+      else { reply(nil, "still: account access unavailable"); return }
+      // Arrival order includes renewed sessions for the same UUID; display identity is lineage
+      // only. Authentication is independently checked at the code-signed Auth endpoint twice.
+      accessAccountLineage += 1
+      let lineage = accessAccountLineage
+      retryVerifiedRevocations()
+      let revocationLineage = accessRevocations.generation
+      Task {
+        guard self.accessRevocations.ready,
+          let session = await verifier.verify(accessToken: token), session.accountId == accountAtStart,
+          self.accessAccountLineage == lineage, self.accountSyncStatus.peek()?.accountId == accountAtStart,
+          let generation = try? self.entitlement.prepareAccountAccess(session, expectedGeneration: expectedGeneration)
+        else { reply(nil, "still: account session requires verification"); return }
+        do {
+          let snapshot = try await runtime.fetch(accessToken: token, session: session)
+          guard let current = await verifier.verify(accessToken: token), current.accountId == session.accountId,
+            current.sessionId == session.sessionId, self.accessAccountLineage == lineage,
+            self.accountSyncStatus.peek()?.accountId == accountAtStart,
+            self.accessRevocations.permitsInstall(revocationLineage)
+          else { reply(nil, "still: account access requires verification"); return }
+          let committed = try self.entitlement.installAccountAccess(snapshot, session: current, expectedGeneration: generation)
+          reply(String(data: try JSONEncoder().encode(committed), encoding: .utf8), nil)
+        } catch { reply(nil, "still: account access requires verification") }
+      }
+
     case "installAppleAccess":
       guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple access unavailable"); return }
       retryVerifiedRevocations()

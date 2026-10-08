@@ -1,5 +1,5 @@
 import { browser } from "wxt/browser";
-import { extensionSupabaseConfig, readAccountDeletionResult } from "@still/core/sync";
+import { extensionSupabaseConfig, readAccountDeletionResult, readBackendRouteProfile, type BackendRouteProfile } from "@still/core/sync";
 import { STRINGS, type ExtensionPurchaseDeps, type UiController } from "@still/core/ui";
 import {
   SESSION_MESSAGE_KIND,
@@ -61,13 +61,14 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
   );
   if (config === null) return undefined;
-  return createExtensionPurchaseDeps(send);
+  const routeProfile = readBackendRouteProfile(import.meta.env.VITE_BACKEND_ROUTE_PROFILE);
+  return routeProfile ? createExtensionPurchaseDeps(send, routeProfile) : undefined;
 }
 
 /** Build the UI capability injection from a session sender; exported for seam-level translation pins. */
-export function createExtensionPurchaseDeps(sendMessage: SessionSender): ExtensionPurchaseDeps {
+export function createExtensionPurchaseDeps(sendMessage: SessionSender, routeProfile: BackendRouteProfile = "production"): ExtensionPurchaseDeps {
   return {
-    displayPrice: WEB_DISPLAY_PRICE,
+    displayPrice: routeProfile === "shared-hosted-sandbox" ? "$9.99" : WEB_DISPLAY_PRICE,
     getState: () => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getState" }),
     readAccountStatus: async () => {
       const status = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getSyncStatus" });

@@ -406,6 +406,7 @@ describe("verified auth captured outside writer", () => {
     const commit = vi.fn(async () => "committed" as const);
     const r = createAccountAccessReconciler({
       trust,
+      routeProfile: "shared-hosted-sandbox",
       invoke,
       readSession,
       commit,
@@ -418,7 +419,7 @@ describe("verified auth captured outside writer", () => {
     expect(await h.r.reconcile()).toBe("ok");
     expect(h.r.read()).toBe("entitled");
     expect(h.commit).toHaveBeenCalledOnce();
-    expect(h.invoke).toHaveBeenCalledWith("reconcile-entitlement", {
+    expect(h.invoke).toHaveBeenCalledWith("qa-sandbox-reconcile-entitlement", {
       body: { access_schema: 1 },
     });
     expect(h.readSession.mock.invocationCallOrder[0]).toBeLessThan(
@@ -433,6 +434,7 @@ describe("verified auth captured outside writer", () => {
     }));
     const r = createAccountAccessReconciler({
       trust,
+      routeProfile: "shared-hosted-sandbox",
       invoke,
       readSession: async () => session,
       commit: async () => "committed",
@@ -456,6 +458,7 @@ describe("verified auth captured outside writer", () => {
     const commit = vi.fn(async () => "committed" as const);
     const r = createAccountAccessReconciler({
       trust,
+      routeProfile: "shared-hosted-sandbox",
       readSession: async () => session,
       commit,
       epoch: () => 0,

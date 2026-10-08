@@ -1,13 +1,13 @@
 import type { BenefitAccessSnapshot } from "@still/shared-types";
-import { isSafeAccessInteger, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "../entitlement/access-proof.js";
+import { isAccessUUID, isSafeAccessInteger, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "../entitlement/access-proof.js";
 import type { ApplePurchaseLinkAuthority, ApplePurchaseLinkCommit } from "../sync/apple-session.js";
 import type { NativeAppleAccessCommit, NativeApplePurchaseEvidence, NativeBridge } from "./bridge.js";
 
 export interface ApplePurchaseAuthorityDeps {
   readonly trust: AccessTrust;
-  readonly bridge: Pick<NativeBridge, "appleLocalPurchaseEvidence" | "installAppleAccess" | "observeAppleAccess" | "observeAppleLinkAccess" | "observeBenefits">;
+  readonly bridge: Pick<NativeBridge, "appleLocalPurchaseEvidence" | "installAppleAccess" | "observeAppleAccess" | "observeAppleLinkAccess" | "observeBenefits"> & Partial<Pick<NativeBridge, "reconcileAccountAccess">>;
   readonly readVerifiedAccount: ApplePurchaseLinkAuthority["readVerifiedAccount"];
-  readonly readAccessToken: () => Promise<{ readonly accountId: string; readonly accessToken: string } | null>;
+  readonly readAccessToken: () => Promise<{ readonly accountId: string; readonly accessToken: string; readonly sessionId?: string } | null>;
   readonly verifyLocal: (body: { readonly schema: 1; readonly transaction: NativeApplePurchaseEvidence }) => Promise<unknown>;
   readonly fulfillLink: ApplePurchaseLinkAuthority["fulfill"];
   readonly now?: () => number;
@@ -17,7 +17,8 @@ const unavailable = () => new Error("Apple purchase requires verification");
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
 /** App composition only: native verifies StoreKit identity and commits both lanes atomically.
- * Sign-in does not invoke either fulfillment route. The bearer token is never persisted here. */
+ * Sign-in reconciles account rights only; local fulfillment and linking remain deliberate.
+ * The bearer token is never persisted here. */
 export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
   let accountEpoch = 0;
   let ownershipEpoch = 0;
@@ -92,6 +93,34 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
     return deps.bridge.observeBenefits();
   }
 
+  /** Native obtains and verifies account proofs itself; JavaScript supplies only current Auth.
+   * Its acknowledgement is not an entitlement: benefits come from the same accepted cache. */
+  async function refreshAccountAccess(): Promise<BenefitAccessSnapshot> {
+    const epoch = accountEpoch;
+    const current = () => epoch === accountEpoch;
+    const before = await deps.readVerifiedAccount();
+    if (!current() || !before?.emailConfirmed || !deps.bridge.reconcileAccountAccess) throw unavailable();
+    const token = await deps.readAccessToken();
+    if (!current() || !token || token.accountId !== before.id || !token.accessToken ||
+      !isAccessUUID(token.sessionId)) throw unavailable();
+    const confirmed = await deps.readVerifiedAccount();
+    if (!current() || !confirmed?.emailConfirmed || confirmed.id !== before.id) throw unavailable();
+    const ack = await deps.bridge.reconcileAccountAccess(token.accessToken);
+    if (!current() || ack.accountId !== before.id || ack.sessionId !== token.sessionId) throw unavailable();
+    const fresh = await deps.readAccessToken();
+    const account = await deps.readVerifiedAccount();
+    if (!current() || !account?.emailConfirmed || account.id !== before.id ||
+      fresh?.accountId !== before.id || fresh.sessionId !== token.sessionId ||
+      fresh.accessToken !== token.accessToken) throw unavailable();
+    const snapshot = await deps.bridge.observeBenefits();
+    // Observe the committed removals without turning surviving cached rights into a fresh
+    // account confirmation. A conflict without accepted proofs is also unresolved;
+    // Restore can still independently verify a local Apple purchase.
+    if (!current() || ack.accountStatus === "unavailable" ||
+      (ack.accountStatus === "conflict" && ack.proofIdentities.length === 0)) throw unavailable();
+    return snapshot;
+  }
+
   const purchaseLink: ApplePurchaseLinkAuthority = {
     trust: deps.trust,
     readVerifiedAccount: deps.readVerifiedAccount,
@@ -117,5 +146,5 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
       return ack;
     },
   };
-  return { verifyLocalPurchase, ownershipRevision, purchaseLink, invalidateAccount, refreshOwnership, readLinkEligibility };
+  return { refreshAccountAccess, verifyLocalPurchase, ownershipRevision, purchaseLink, invalidateAccount, refreshOwnership, readLinkEligibility };
 }

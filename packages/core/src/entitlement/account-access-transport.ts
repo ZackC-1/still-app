@@ -1,4 +1,5 @@
 import { isAccessUUID, isSafeAccessInteger, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "./access-proof.js";
+import { backendRoutes, backendRouteEnvironmentMatches, type BackendRouteProfile } from "../sync/backend-route-profile.js";
 
 export type AccountAccessResult = {
   readonly status: "verified" | "none" | "conflict";
@@ -52,10 +53,11 @@ export async function verifyAccountAccessResponse(value: unknown, accountId: str
  * generation before invoking and commit the result only through the existing fenced writer. */
 export async function reconcileAccountAccess(
   invoke: (name: string, options: { body: { access_schema: 1 } }) => Promise<{ data: unknown; error: unknown }>,
-  accountId: string, trust: AccessTrust,
+  accountId: string, trust: AccessTrust, routeProfile: BackendRouteProfile = "production",
 ): Promise<AccountAccessResult> {
   try {
-    const result = await invoke("reconcile-entitlement", { body: { access_schema: 1 } });
+    if (!backendRouteEnvironmentMatches(routeProfile, trust.environment)) return { status: "unavailable" };
+    const result = await invoke(backendRoutes(routeProfile).reconcile, { body: { access_schema: 1 } });
     return result.error ? { status: "unavailable" } : await verifyAccountAccessResponse(result.data, accountId, trust);
   } catch { return { status: "unavailable" }; }
 }
@@ -66,6 +68,7 @@ export interface AccountAccessReconcilerDeps {
   readonly authEpoch?: () => number;
   readonly invalidateEvidence?: () => void;
   readonly trust: AccessTrust;
+  readonly routeProfile?: BackendRouteProfile;
   readonly invoke: Parameters<typeof reconcileAccountAccess>[0];
   readonly now?: () => number;
   readonly authRequired?: (error: unknown) => boolean;
@@ -93,7 +96,7 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
           const response = await deps.invoke(name, options);
           unauthorized = deps.authRequired?.(response.error) === true;
           return response;
-        }, session.userId, deps.trust);
+        }, session.userId, deps.trust, deps.routeProfile);
         if (unauthorized && current()) return "auth-required";
         if (!("revocations" in result) || !current()) return "unavailable";
         const committed = await deps.commit(session, result, current, () => authEpoch() === authBoundary);

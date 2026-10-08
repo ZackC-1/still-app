@@ -85,18 +85,26 @@ export interface CodeAuthPort {
 /** Outcome of asking the backend for a Web Billing checkout URL. */
 export type WebCheckoutOutcome =
   /** 200: open this RevenueCat-hosted checkout in a tab (the purchase happens there, R3). */
-  | { readonly kind: "checkout-url"; readonly url: string }
+  | { readonly kind: "checkout-url"; readonly url: string; readonly operationId?: string }
   /** 409: this account already owns Pro — the cross-device restore case. A SUCCESS path: the
    * caller reconciles and the entitled transition fires the payoff; never an error toast (R5). */
   | { readonly kind: "already-entitled" }
   /** 401: the session died. Remedy is re-sign-in — never teardown, never a cache downgrade. */
   | { readonly kind: "auth-required" }
   /** 502 / network / anything else: checkout can't start right now — one calm retry line. */
+  | { readonly kind: "unavailable"; readonly operationId?: string };
+
+export type WebCheckoutCompletion =
+  | { readonly kind: "observed"; readonly operationId: string; readonly terminal: boolean }
+  | { readonly kind: "auth-required" }
   | { readonly kind: "unavailable" };
 
 export interface WebCheckoutPort {
+  readonly managedCheckout?: boolean;
   /** Ask the create-web-checkout Edge Function for a checkout URL for the signed-in user. */
-  createWebCheckout(): Promise<WebCheckoutOutcome>;
+  createWebCheckout(operationId?: string): Promise<WebCheckoutOutcome>;
+  /** Import/recover an owned QA operation. An acknowledgement is never a paid grant. */
+  completeWebCheckout?(operationId: string): Promise<WebCheckoutCompletion>;
 }
 
 /** Transport outcome of invoking reconcile-entitlement, mapped MECHANICALLY by HTTP status like

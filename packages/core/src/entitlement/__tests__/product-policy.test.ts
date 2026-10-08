@@ -233,14 +233,14 @@ describe("dormancy", () => {
   it("has no client importer: free blocking, sync and Restore never consult it", () => {
     const importers = [...sources(join(root, "packages")), ...sources(join(root, "apps")), ...sources(join(root, "supabase"))]
       .filter(path => !/__tests__|\.test\.|\.spec\./.test(path))
-      .filter(path => /product-policy(\.js|\.ts)?["']/.test(readFileSync(path, "utf8")))
+      .filter(path => /\b(?:from\s*|import\s*\(\s*)["'][^"']*product-policy(?:\.js|\.ts)?["']/.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path))
       // Deno's `_test.ts` naming is excluded only for server tests, never for client code.
       .filter(path => !/^supabase\/.*_test\.ts$/.test(path))
       .filter(path => !SERVER_IMPORTERS.test(path))
       .filter(path => !OWNER_ADMIN_IMPORTERS.test(path));
-    // The one client importer is the dormant Chrome/Firefox runtime (U6-P3), which its own test
-    // proves nothing imports: no background wiring, content script, page or Restore path.
+    // A fixed route name is data, not an importer. The evaluator/runtime remain the only
+    // non-publisher grammar consumers; browser use is constrained separately below.
     expect(importers).toEqual([
       "packages/core/src/entitlement/product-policy.ts",
       "packages/ext-chromium/lib/product-policy-runtime.ts",
@@ -253,12 +253,15 @@ describe("dormancy", () => {
       .filter(path => pattern.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
 
-  it("the browser client has exactly one importer: the rating allowance, never a page, content script or Restore path", () => {
+  it("the browser client has only background-owned rating and explicit QA sales consumers", () => {
     // U13-P3: the rating card's allowance asks `freshCheck("rating")` for an opening the ledger
     // would offer it; background.ts loads it on first use behind the inline V3 build gate.
     expect(nonTestImporters(/product-policy-runtime(\.js|\.ts)?["']/)).toEqual([
+      "packages/ext-chromium/entrypoints/background.ts",
       "packages/ext-chromium/lib/rating-invitation.ts",
     ]);
+    const background = readFileSync(join(root, "packages/ext-chromium/entrypoints/background.ts"), "utf8");
+    expect(background).toContain('canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () =>');
   });
 
   it("the paid-cutoff adapter has no importer until a configuration-signing verifier exists", () => {

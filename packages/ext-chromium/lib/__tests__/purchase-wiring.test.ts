@@ -29,6 +29,11 @@ function controllerStub() {
 }
 
 describe("purchase wiring protocol translations", () => {
+  it("shows the QA lifetime price only for the explicit sandbox profile", () => {
+    const sender = senderFor(null);
+    expect(createExtensionPurchaseDeps(sender).displayPrice).toBe("$1.99");
+    expect(createExtensionPurchaseDeps(sender, "shared-hosted-sandbox").displayPrice).toBe("$9.99");
+  });
   it("distinguishes signed-out status from transport failure and retries through the background", async () => {
     const unavailable = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => undefined }));
     const signedOut = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => null }));

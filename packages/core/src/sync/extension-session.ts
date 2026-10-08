@@ -16,6 +16,7 @@ import type {
 } from "./ports.js";
 import type { LastSyncedIdentityStore, SyncService } from "./service.js";
 import { createTeardownGeneration } from "./teardown-generation.js";
+import { isAccessUUID } from "../entitlement/access-proof.js";
 
 // The extension-session orchestrator (plan U5) — the Chromium half of the entitlement lane
 // (CONTEXT.md): the background context owns the Supabase session, the authenticated reconcile→
@@ -106,6 +107,13 @@ export interface CheckoutPendingRecord {
   readonly tabId?: number;
 }
 
+/** Server-issued operation recovery is separate from disposable popup presentation. The account
+ * binding prevents a new account from completing the previous account's checkout. */
+export interface CheckoutOperationRecord {
+  readonly accountId: string;
+  readonly operationId: string;
+}
+
 /** One persisted slot (chrome.storage-backed in U6, in-memory in tests). `get` returns the RAW
  * stored value: the session parses defensively, so implementations stay dumb JSON get/set and a
  * corrupt write can never throw during boot. */
@@ -117,6 +125,7 @@ export interface PersistedSlot<T> {
 export interface ExtensionSessionStores {
   readonly pendingOtp: PersistedSlot<PendingOtpRecord>;
   readonly checkoutPending: PersistedSlot<CheckoutPendingRecord>;
+  readonly checkoutOperation?: PersistedSlot<CheckoutOperationRecord>;
   /** ms epoch of the last nudge-triggered reconcile — the NUDGE_THROTTLE_MS stamp. */
   readonly nudgeStamp: PersistedSlot<number>;
 }
@@ -148,6 +157,9 @@ export interface ExtensionSessionDeps {
   readonly sync: ExtensionSessionSync;
   readonly identity: ExtensionIdentityStore;
   readonly stores: ExtensionSessionStores;
+  /** Fresh sales allowance, required only when a managed QA checkout is about to open. Restore
+   * and completion never consult this policy. Missing/offline policy holds new purchases. */
+  readonly canCreateCheckout?: () => Promise<boolean>;
   /** Best-effort chrome.tabs.remove: teardown closes a recorded checkout tab — an open
    * pay.rev.cat tab still carries the previous identity. */
   readonly closeTab: (tabId: number) => Promise<void>;
@@ -264,6 +276,15 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
    * and two truly concurrent calls would both read the throttle stamp before either write lands.
    * The persisted stamp (written BEFORE the network await) covers cross-instance wakes. */
   let nudgeInFlight = false;
+  let checkoutInFlight = false;
+  // Creation and completion share one mutation queue. An older terminal completion cannot
+  // erase an operation persisted by a newer purchase in the same account/session.
+  let checkoutLifecycle: Promise<void> = Promise.resolve();
+  const serializeCheckout = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = checkoutLifecycle.then(operation, operation);
+    checkoutLifecycle = result.then(() => {}, () => {});
+    return result;
+  };
 
   const attempt = async (op: () => Promise<void>): Promise<void> => {
     try {
@@ -317,6 +338,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       await attempt(() => closeTab(tabId)); // the open checkout tab carries the old identity
     }
     await attempt(() => stores.checkoutPending.set(null));
+    if (stores.checkoutOperation) await attempt(() => stores.checkoutOperation!.set(null));
     stagedIntent = false;
     await attempt(() => stores.pendingOtp.set(null));
     await attempt(() => stores.nudgeStamp.set(null)); // the old user's throttle must not mute the next
@@ -348,7 +370,35 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       const userId = await auth.currentUserId();
       if (userId === null) return "signed-out";
       const generationAtStart = generations.capture();
+      let managedCurrent = async () => true;
+      if (backend.managedCheckout) {
+        if (!stores.checkoutOperation || !backend.completeWebCheckout || !auth.currentSettingsSession) return "unknown";
+        const session = await auth.currentSettingsSession();
+        if (!session || session.userId !== userId || !generations.isCurrent(generationAtStart)) return "unknown";
+        const current = async () => {
+          const latest = await auth.currentSettingsSession!();
+          return accountStatusTeardowns === 0 && generations.isCurrent(generationAtStart) &&
+            latest?.userId === session.userId && latest.sessionId === session.sessionId;
+        };
+        managedCurrent = current;
+        const recovery = await serializeCheckout(async () => {
+          if (!await current()) return "unknown" as const;
+          const operation = parseCheckoutOperation(await stores.checkoutOperation!.get());
+          if (!await current()) return "unknown" as const;
+          if (operation?.accountId === userId) {
+            const completion = await backend.completeWebCheckout!(operation.operationId);
+            if (!await current()) return "unknown" as const;
+            if (completion.kind === "auth-required") return "auth-required" as const;
+            if (completion.kind !== "observed" || completion.operationId !== operation.operationId) return "unknown" as const;
+            if (completion.terminal) await stores.checkoutOperation!.set(null);
+            if (!await current()) return "unknown" as const;
+          }
+          return null;
+        });
+        if (recovery !== null) return recovery;
+      }
       const call = await backend.reconcileEntitlementChecked();
+      if (!await managedCurrent()) return "unknown";
       if (call === "auth-required") return "auth-required";
       if (call === "unavailable") return "unknown";
       const read = await backend.readEntitlement();
@@ -360,6 +410,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       // moved or the current identity no longer matches the one we reconciled.
       if (!generations.isCurrent(generationAtStart)) return "signed-out";
       if ((await auth.currentUserId()) !== userId) return "signed-out";
+      if (!await managedCurrent()) return "unknown";
       await records.setRecord({ entitled, userId, updatedAt: now() });
       // A confirmed purchase ends the checkout-pending lifecycle background-side too — the popup
       // may never reopen (AE3); the plan's sequence is "write cache, clear pending". The tab is
@@ -462,48 +513,56 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     },
 
     async verifyCode(email: string, token: string): Promise<VerifyCodeOutcome> {
-      const outcome = await auth.verifyCode(email, token);
-      // A wrong/failed code leaves the persisted OTP record in place — retry and popup-death
-      // rehydration both need it (AE2).
-      if (outcome.kind !== "verified") return outcome;
-      const userId = outcome.userId;
+      // Authentication can replace the account before identity cleanup reaches its first
+      // await. Hold managed checkout for the whole transition, including failure cleanup.
+      const holdCheckout = backend.managedCheckout === true;
+      if (holdCheckout) accountStatusTeardowns += 1;
       try {
-        // Identity-switch check FIRST (AE5): purge the previous account's grant and pending state
-        // before anything of the new user's lands. "Previous" is the last-synced identity when one
-        // exists, else the identity bound into the stored record — an absent identity alone never
-        // triggers the purge, so a free (never-synced) user re-signing in after an involuntary 401
-        // keeps their own pending purchase (U4's one-continuous-flow rule).
-        const lastSynced = await identity.get();
-        const record = await records.getRecord();
-        const previous = lastSynced ?? record?.userId ?? null;
-        if (previous !== null && previous !== userId) await clearUserScopedState("identity-switch");
-        // The code is consumed: the persisted OTP record (and the intent riding it — the popup
-        // continues the purchase from its own in-memory flag now) is done.
-        stagedIntent = false;
-        await attempt(() => stores.pendingOtp.set(null));
-        // The full sign-in flow: the settings mirror and the entitlement reconcile, started
-        // together. Having an account is the whole sync gate now, so the mirror no longer waits
-        // on, or depends on, the entitlement answer (SyncService.onSignedIn).
-        const generationAtStart = generations.capture();
-        await sync.onSignedIn(userId);
-        // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
-        // `confirmed` means the reconcile+read round-trip settled the answer (explicit false
-        // included); unconfirmed/provisional means unknown — no write, the cache rides its TTL
-        // (AE6). The F2 guard also applies: a sign-out racing this sign-in must not have its
-        // `entitled: false` purge overwritten.
-        const state = sync.getState();
-        if (
-          state.confirmed &&
-          generations.isCurrent(generationAtStart) &&
-          (await auth.currentUserId()) === userId
-        ) {
-          await records.setRecord({ entitled: state.entitled, userId, updatedAt: now() });
+        const outcome = await auth.verifyCode(email, token);
+        // A wrong/failed code leaves the persisted OTP record in place — retry and popup-death
+        // rehydration both need it (AE2).
+        if (outcome.kind !== "verified") return outcome;
+        const userId = outcome.userId;
+        try {
+          // Identity-switch check FIRST (AE5): purge the previous account's grant and pending state
+          // before anything of the new user's lands. "Previous" is the last-synced identity when one
+          // exists, else the identity bound into the stored record — an absent identity alone never
+          // triggers the purge, so a free (never-synced) user re-signing in after an involuntary 401
+          // keeps their own pending purchase (U4's one-continuous-flow rule).
+          const lastSynced = await identity.get();
+          const record = await records.getRecord();
+          const previous = lastSynced ?? record?.userId ?? null;
+          if (previous !== null && previous !== userId) await clearUserScopedState("identity-switch");
+          // The code is consumed: the persisted OTP record (and the intent riding it — the popup
+          // continues the purchase from its own in-memory flag now) is done.
+          stagedIntent = false;
+          await attempt(() => stores.pendingOtp.set(null));
+          // The full sign-in flow: the settings mirror and the entitlement reconcile, started
+          // together. Having an account is the whole sync gate now, so the mirror no longer waits
+          // on, or depends on, the entitlement answer (SyncService.onSignedIn).
+          const generationAtStart = generations.capture();
+          await sync.onSignedIn(userId);
+          // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
+          // `confirmed` means the reconcile+read round-trip settled the answer (explicit false
+          // included); unconfirmed/provisional means unknown — no write, the cache rides its TTL
+          // (AE6). The F2 guard also applies: a sign-out racing this sign-in must not have its
+          // `entitled: false` purge overwritten.
+          const state = sync.getState();
+          if (
+            state.confirmed &&
+            generations.isCurrent(generationAtStart) &&
+            (await auth.currentUserId()) === userId
+          ) {
+            await records.setRecord({ entitled: state.entitled, userId, updatedAt: now() });
+          }
+        } catch {
+          // The session exists even when a sign-in side effect failed; the record write was skipped
+          // and the next reconcile (popup open / nudge) self-heals. Never throw at the popup.
         }
-      } catch {
-        // The session exists even when a sign-in side effect failed; the record write was skipped
-        // and the next reconcile (popup open / nudge) self-heals. Never throw at the popup.
+        return outcome;
+      } finally {
+        if (holdCheckout) accountStatusTeardowns -= 1;
       }
-      return outcome;
     },
 
     reconcile: runReconcile,
@@ -511,6 +570,40 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     restore: runReconcile,
 
     async createCheckout(): Promise<WebCheckoutOutcome> {
+      if (backend.managedCheckout) {
+        if (checkoutInFlight || accountStatusTeardowns > 0 || !stores.checkoutOperation || !auth.currentSettingsSession) return { kind: "unavailable" };
+        const operationStore = stores.checkoutOperation;
+        checkoutInFlight = true;
+        const generation = generations.capture();
+        try {
+          const session = await auth.currentSettingsSession();
+          if (!session || !isAccessUUID(session.userId) || !generations.isCurrent(generation)) return { kind: "auth-required" };
+          const current = async () => {
+            const latest = await auth.currentSettingsSession!();
+            return accountStatusTeardowns === 0 && generations.isCurrent(generation) &&
+              latest?.userId === session.userId && latest.sessionId === session.sessionId;
+          };
+          const outcome = await serializeCheckout(async (): Promise<WebCheckoutOutcome> => {
+            if (!await current()) return { kind: "unavailable" };
+            const previous = parseCheckoutOperation(await operationStore.get());
+            if (!await current()) return { kind: "unavailable" };
+            if (!deps.canCreateCheckout || !await deps.canCreateCheckout() || !await current()) return { kind: "unavailable" };
+            const outcome = await backend.createWebCheckout(previous?.accountId === session.userId ? previous.operationId : undefined);
+            if (!await current()) return { kind: "unavailable" };
+            if ("operationId" in outcome && isAccessUUID(outcome.operationId)) {
+              // A failed write prevents opening a payment tab. A subsequent create resumes the
+              // server-held operation; it must never synthesize a replacement client ID.
+              await operationStore.set({ accountId: session.userId, operationId: outcome.operationId });
+              if (!await current()) return { kind: "unavailable" };
+            } else if (outcome.kind === "checkout-url") return { kind: "unavailable" };
+            return await current() ? outcome : { kind: "unavailable" };
+          });
+          // Reconcile after releasing the checkout queue; nesting it would deadlock.
+          if (outcome.kind === "already-entitled") await runReconcile();
+          return await current() ? outcome : { kind: "unavailable" };
+        } catch { return { kind: "unavailable" }; }
+        finally { checkoutInFlight = false; }
+      }
       const outcome = await backend.createWebCheckout();
       // 409 is the cross-device restore SUCCESS path (R5/AE4): confirm via reconcile so the cache
       // write lands BEFORE this outcome returns — the popup's payoff renders only after the
@@ -661,6 +754,13 @@ function parseCheckoutPending(value: unknown): CheckoutPendingRecord | null {
 
 function parseStamp(value: unknown): number | null {
   return isFiniteNumber(value) ? value : null;
+}
+
+function parseCheckoutOperation(value: unknown): CheckoutOperationRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  return Object.keys(row).length === 2 && isAccessUUID(row.accountId) && isAccessUUID(row.operationId)
+    ? { accountId: row.accountId, operationId: row.operationId } : null;
 }
 
 function stripIntent(record: PendingOtpRecord): PendingOtpRecord {
