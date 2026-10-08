@@ -15,6 +15,12 @@ const statusConditions = new Map([
 ]);
 const statusCondition = (status: number) =>
   statusConditions.get(status) ?? "unexpected-http";
+// Supabase CLI v2.119.0 serve.main.ts defines these exact public worker codes.
+const workerConditions = new Map<string, string>([
+  ["BOOT_ERROR", "boot-error"],
+  ["WORKER_ERROR", "worker-error"],
+  ["WORKER_LIMIT", "worker-limit"],
+]);
 
 function requestCondition(error: unknown): string {
   if (error instanceof Error) {
@@ -48,7 +54,12 @@ export async function pollServedAccess<T extends ServedResponse>(
     try {
       const value = await run();
       if (accepted(value)) return value;
-      condition = `${statusCondition(value.status)}-unexpected-envelope`;
+      const worker = typeof value.data.code === "string"
+        ? workerConditions.get(value.data.code)
+        : undefined;
+      condition = `${statusCondition(value.status)}-${
+        worker ?? "unexpected-envelope"
+      }`;
     } catch (error) {
       condition = requestCondition(error);
     }

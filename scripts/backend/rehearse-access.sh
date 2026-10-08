@@ -44,11 +44,10 @@ served_test() {
     --allow-env --allow-read="$RUNNER_TEMP/access-state.json" --allow-net=127.0.0.1:54321 \
     supabase/tests/access_served_test.ts; then
     # Logs may contain credentials or payloads. Only fixed diagnostic categories are printed.
-    node --input-type=module - "$RUNNER_TEMP/access-serve.log" <<'DIAGNOSTICS'
-import { readFileSync } from 'node:fs';
-let text=''; try { text=readFileSync(process.argv[2], 'utf8').slice(-65536); } catch {}
-console.log(JSON.stringify({accessCliFailure: ['import-resolution','worker-boot','database-privilege'].filter((_,i)=>[/module not found|failed to resolve|import map/i,/worker boot|failed to create worker/i,/42501|28P01|rate limiter unavailable/i][i].test(text))}));
-DIAGNOSTICS
+    # Exact ephemeral container only; finite tail and bounded classifier buffer, never raw output.
+    # The diagnostic timeout is failure-only and does not change any request/retry deadline.
+    timeout 5s docker logs --tail 200 supabase_edge_runtime_still-app 2>&1 | \
+      node scripts/backend/access-cli-diagnostics.mjs "$RUNNER_TEMP/access-serve.log" "$STILL_ACCESS_SERVED_PHASE" || true
     exit 1
   fi
 }
