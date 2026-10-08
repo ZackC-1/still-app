@@ -738,6 +738,32 @@ describe("Apple account Restore ambiguity", () => {
 
 
 describe("Apple operation cleanup ownership", () => {
+  it.each(["lost", "failed", "cancelled", "unavailable", "nothing"] as const)("a later %s Restore reply after account replacement preserves an earlier pending Buy", async reply => {
+    const h = await harness();
+    vi.mocked(h.deps.verifyLocalPurchase).mockResolvedValueOnce(access("checking"));
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    let finish!: (value: NativeProResult) => void;
+    let fail!: (reason: Error) => void;
+    vi.mocked(h.deps.bridge.restorePro).mockImplementationOnce(() => new Promise((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    }));
+    h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    if (reply === "lost") fail(new Error("Restore reply lost"));
+    else finish({outcome:reply, receipt:reply === "nothing" ? "verifiedNotEntitled" : "noSignal"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    await h.host.refresh();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.bridge.restorePro).toHaveBeenCalledOnce();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
   it("a failed/noSignal native reply after account replacement is unknown and cannot permit another charge", async () => {
     const h = await harness();
     let finish!: (value: NativeProResult) => void;

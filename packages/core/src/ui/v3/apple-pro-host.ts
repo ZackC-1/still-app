@@ -310,7 +310,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (!stopped && generation !== epoch) {
           // An interrupted native response is an unknown acquisition, never a reason
           // to charge again. Current local verification supplies the recovery path.
-          pendingKind = kind;
+          pendingKind ??= kind;
           purchase = { state: "pending" };
           restore = undefined;
           changed();
