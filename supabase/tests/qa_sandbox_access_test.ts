@@ -52,7 +52,7 @@ Deno.test({
     );
     const gate = await Deno.readTextFile(
       new URL(
-        "../../scripts/backend/deploy/verify/qa-sandbox-access.sql",
+        "../../scripts/backend/deploy/verify/0021_qa_sandbox_access.sql",
         import.meta.url,
       ),
     );
