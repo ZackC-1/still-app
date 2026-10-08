@@ -34,6 +34,9 @@ Supabase CLI/Docker support local database work; Apple builds require macOS/Xcod
 | `VITE_REVIEW_SIGNIN_EMAIL` | Apple app-webview store build only; must match the private deployed reviewer configuration. Never put it in browser-extension builds. |
 | `REVENUECAT_PUBLIC_API_KEY` | Native Apple SDK through local xcconfig / `RevenueCatPublicAPIKey`. |
 | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | Package-local build configuration for ext-chromium, ext-safari and app-webview analytics. Blank → no analytics and no "Share usage data" switch. |
+| `VITE_MODERN_SETTINGS_SYNC_ENABLED` | Explicit configured modern settings/sync selection. Apple also needs the matching native authority; retain its one-way release constraints. |
+| `VITE_APPLE_ATOMIC_SETTINGS` | Apple developer-only local selection without Supabase configuration; keep Safari and app-webview builds aligned. Leave blank for store builds. |
+| `VITE_ACCESS_ENVIRONMENT`, `VITE_ACCESS_PUBLIC_KEYS` | Chromium/Firefox and Apple webview public scoped-access verifier inputs. No signing secrets; blank retains default production trust with no access keys. |
 | Production rule public-key allowlist | `packages/core/src/rules/trusted-keys.ts`; see [signing guide](production-rule-set-keys.md). |
 
 Blank public configuration keeps blocking local with the bundled seed and disables the associated
@@ -41,8 +44,12 @@ cloud capability. It does not introduce a paywall or restrict free blocking to Y
 sync release must contain the intended public configuration; synthetic CI values are not production.
 Build-time values cannot update an already exported package.
 
-The root and package `.env.example` files enumerate inputs; some comments preserve older purchase-era
-terminology. Use this guide for current behavior. Never copy an ignored `.env` wholesale into a
+The [root template](../.env.example) inventories current application and server inputs. Package
+examples cover [Chromium/Firefox](../packages/ext-chromium/.env.example),
+[Safari](../packages/ext-safari/.env.example) and [Apple webview](../packages/app-webview/.env.example).
+The [V3 QA profile guide](../scripts/qa/README.md) documents its separate `STILL_QA_*` tool inputs.
+Templates document names and boundaries; they do not activate flags or establish deployment state.
+Never copy an ignored `.env` wholesale into a
 public source archive: include only an explicit allowlist of public build values.
 
 ## Server secrets
@@ -53,6 +60,11 @@ The configured function dependencies use `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 secrets and the PostHog function secrets (`POSTHOG_PROJECT_KEY`, `POSTHOG_HOST`,
 `POSTHOG_API_HOST`, `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`) as applicable. The retained checkout uses `REVENUECAT_WEB_BILLING_CHECKOUT_URL`.
 `REVENUECAT_WEB_PRODUCT_ID` is not a current runtime input.
+
+The complete blank inventory in the root template also covers narrow settings/policy database
+connections, per-device analytics erasure, scoped-access issuance and Apple/provider verification.
+Actual values and product mappings belong in private deployment configuration; no new provider
+setup, grants or paid activation are authorized merely by documenting an existing variable.
 
 Keep elevated keys, database credentials, review codes and signing private keys outside tracked
 files and client bundles. Use private env files/secret management rather than inline CLI values.
