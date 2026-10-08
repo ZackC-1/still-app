@@ -14,7 +14,7 @@ These are outstanding implementation or verification obligations, not approved o
 | Safari Pro app route | Trusted fixed destination; native cold/warm routing, popup failure/recovery and unsupported-host behavior | U6 |
 | Platform setup/support destinations | Actual URLs and permission/setup behavior, including iOS uncertainty and Firefox Android capabilities | U8/U9/U10 |
 | Wordmark integration | Verified central artwork repair is in the merged foundation; confirm correct rendering in final packaged surfaces. Original corrupt asset remains excluded | U2/U11 |
-| Final visual acceptance | Portable capture has 144 primary DOM frames with engine/font/version and source hashes; startup repair passed bounded independent review; actual Claude coverage and raw shared/installed comparison failures remain open. References are mandatory for release gate | U2/U11 |
+| Final visual acceptance | Portable capture has 144 primary DOM frames with engine/font/version and source hashes; startup repair passed bounded independent review. The owner-authorized Muse fallback reviewed the host source scope with zero retained findings; raw shared/installed comparison failures remain open. References are mandatory for release gate | U2/U11 |
 | Physical device/surface coverage | Real iPhone/iPad/macOS Safari and Firefox Android evidence; simulator/Chromium framing does not replace device proof | U11 |
 | Persistent Firefox QA installation | Unlisted signed XPI, paired reproducible source/hashes, desktop/Android installation and restart/permission evidence; source ZIP alone is insufficient | U11 |
 

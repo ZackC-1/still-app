@@ -1,9 +1,9 @@
 ---
 title: Still v3.1 redesign Safari TikTok host continuation
-status: implemented and locally verified; exact review and physical Safari evidence pending
+status: implemented and source-reviewed; physical Safari evidence pending
 ---
 
-The approved redesign plan U10 requires the D29 extension-owned blocked page and confirmed current-tab action on Safari. The maintained Chromium/Firefox producer already exists; this continuation preserves it and its demonstrated lifecycle repairs. Safari background/content composition currently has no D29 producer. This plan proposes a narrow equivalent transport; it does not establish support or authorize weaker verification.
+The approved redesign plan U10 requires the D29 extension-owned blocked page and confirmed current-tab action on Safari. The maintained Chromium/Firefox producer already exists; this continuation preserves it and its demonstrated lifecycle repairs. At this unit's baseline, Safari background/content composition had no D29 producer. This plan defines a narrow equivalent transport; it does not establish support or authorize weaker verification.
 
 Prerequisite: current main3e02952a plus immutable host1dbc0415 and TikTok lifecycle e75f335e, staged tree98d9c0b3b94fb03a6c07aefc63c50a7f1f3eaa9b. Original review trees remain unchanged.
 
@@ -27,7 +27,7 @@ Meaningful regressions for foreign/content/subframe senders; absent native docum
 
 Build/type/lint and actual Safari bundle fixtures prove only source/bundle behavior. Signed Safari Mac and iPhone installation must separately prove native sender fields, connection identity/lifecycle, fresh current-tab allowance, disposal and restart. Old unsupported capabilities must be reported honestly; no feature parity or release PASS is claimed before that evidence. Physical iPad remains the owner's recorded exception. Include payload size and ordinary 2.x dead-code qualification.
 
-Review scope is the owned continuation delta; actual Claude review remains required before merge. The current weekly quota prevents a new Claude pass; independent source review is useful but does not satisfy that gate. No provider/store deployment or public publication is part of this implementation unit.
+Review scope is the owned continuation delta. Claude's weekly quota prevented a new pass; the owner subsequently authorized Muse when Claude reviews are unsuccessful. The completed Muse source review covers this continuation within the host integration scope and retained zero findings. Provider/store deployment is outside this implementation unit; host publication follows the protected PR workflow.
 
 ## Implemented continuation and recorded verification
 
@@ -41,4 +41,4 @@ Five removed-guard controls fail as expected: removing the native current-docume
 
 Safari V3 raw output is 1,083,311 bytes versus 1,043,125 in the prerequisite. An unsigned compression estimate is 577,802 bytes versus 562,638 (+15,164 bytes); this is not a signed store download or startup measurement. The packaged page reuses the existing shared components, font and assets. Permission and four-service host lists match the prerequisite.
 
-Remaining acceptance: real signed Safari Mac/iPhone observation of background native sender fields and Port disconnect/pagehide/new-document/replacement/wake/browser-restart behavior; latest reference comparison and accessibility/performance acceptance; cross-device/provider QA outside this unit; root integration and actual Claude review after its quota resets. Physical iPad remains the owner's exception. The Port equivalence premise is still conditional on real Safari evidence, and the all-surface U10 requirement remains open.
+Remaining acceptance: real signed Safari Mac/iPhone observation of background native sender fields and Port disconnect/pagehide/new-document/replacement/wake/browser-restart behavior; latest reference comparison and accessibility/performance acceptance; cross-device/provider QA outside this unit; protected host integration. Source review is complete through the owner-authorized Muse fallback. Physical iPad remains the owner's exception. The Port equivalence premise is still conditional on real Safari evidence, and the all-surface U10 requirement remains open.
