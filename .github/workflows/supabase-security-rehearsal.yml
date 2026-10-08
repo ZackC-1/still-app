@@ -17,6 +17,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  qa-sandbox:
+    name: Fixed sandbox SQL isolation and recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Separate disposable runner; no environment, provider credentials or deployment authority.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.3"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: "2.119.0"
+      - name: Verify pinned tooling and bind exact synthetic source
+        id: plan
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          revision=$(git rev-parse HEAD)
+          digest=$(node scripts/backend/plan.mjs create "$revision" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json")
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "QA SQL synthetic target; revision $revision; plan SHA-256 $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Rehearse upgrade, clean install and preserving emergency restore
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PLAN_DIGEST: ${{ steps.plan.outputs.digest }}
+        run: bash scripts/backend/rehearse-qa-sandbox.sh "$REVISION" "$PLAN_DIGEST"
+      - name: Verify existing production Edge composition against new SQL wrappers
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PLAN_DIGEST: ${{ steps.plan.outputs.digest }}
+          STILL_ACCESS_REHEARSAL_VERSION: "0021"
+        run: bash scripts/backend/rehearse-access.sh "$REVISION" "$PLAN_DIGEST"
+      - name: Failure/cancellation cleanup
+        if: always()
+        run: supabase stop --project-id still-app --no-backup
   rehearsal:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
