@@ -3,6 +3,41 @@ import Foundation
 /// Only code-signed native bundle configuration supplies endpoints and public-key trust.
 /// JS requests cannot choose an environment, endpoint, public key or paid mode.
 public enum NativeAccessConfiguration {
+  public enum BackendRouteProfile: String, Sendable {
+    case production
+    case sharedHostedSandbox = "shared-hosted-sandbox"
+
+    public var environment: String { self == .production ? "production" : "sandbox" }
+    public var policyPath: String {
+      self == .production ? "/functions/v1/product-policy" : "/functions/v1/qa-sandbox-product-policy"
+    }
+  }
+
+  /// Route selection is a separate code-signed build input. Missing selection is only the
+  /// ordinary production default; sandbox trust never silently selects production routes.
+  public static func backendRouteProfile(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> BackendRouteProfile? {
+    let environment: String
+    if let value = info["StillAccessEnvironment"] {
+      guard let text = value as? String, ["production", "sandbox"].contains(text) else { return nil }
+      environment = text
+    } else { environment = "production" }
+    let profile: BackendRouteProfile
+    if let value = info["StillBackendRouteProfile"] {
+      guard let text = value as? String, let parsed = BackendRouteProfile(rawValue: text) else { return nil }
+      profile = parsed
+    } else { profile = .production }
+    return profile.environment == environment ? profile : nil
+  }
+
+  /// The ordinary rating path remains unconfigured. Only a complete compiled QA trust/Auth
+  /// configuration supplies its public policy origin; this does not verify a provider or purchase.
+  public static func ratingPolicySupabaseURL(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> String? {
+    guard backendRouteProfile(info: info) == .sharedHostedSandbox,
+      !trust(info: info).keys.isEmpty, sessionVerifier(info: info) != nil
+    else { return nil }
+    return info["StillAccessSupabaseURL"] as? String
+  }
+
   public static func trust(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> AccessTrust {
     let environment = info["StillAccessEnvironment"] as? String ?? "production"
     guard ["production", "sandbox"].contains(environment)
