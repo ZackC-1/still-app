@@ -41,6 +41,7 @@ function setup() {
       bindSession: (_operation, holder, session, hash) => { assertEquals(holder,HOLDER); assertEquals(hash,HASH); assert(state.row?.creation_started_at);
         state.row = { ...state.row, stripe_session_id: session, status: state.row.status === "prepared" ? "session_bound" : state.row.status }; return Promise.resolve({ ...state.row }); },
       recordStatus: (_operation, session, status: QaPurchaseOperationStatus) => { assert(state.row); assertEquals(session,state.row.stripe_session_id);
+        if (["refunded", "closed_unpaid"].includes(state.row.status) && status !== state.row.status) throw new Error("terminal checkout state");
         if (status === "closed_unpaid") assertEquals(state.row.paid_at,null);
         const transitions = ["session_bound:paid_verified","recovery_required:paid_verified","paid_verified:import_pending","recovery_required:import_pending","import_pending:imported","recovery_required:imported","imported:access_observed"];
         assert(state.row.status === status || status === "refunded" || status === "recovery_required" ||
@@ -273,6 +274,50 @@ Deno.test("JWT expiry during live Auth latency cannot extend checkout authority"
     assertEquals(s.state.creates,0);
   } finally { Date.now = realNow; }
 });
+Deno.test("refund persisted after import admission prevents the receipt POST", async () => {
+  const s = setup(); s.state.paid = true;
+  s.state.row = { ...s.row(), creation_started_at: now(), stripe_session_id: SESSION, status: "session_bound" };
+  const record = s.deps.operations.recordStatus.bind(s.deps.operations);
+  s.deps.operations.recordStatus = async (...args) => {
+    const admitted = await record(...args);
+    if (args[2] === "import_pending") s.state.row = { ...admitted, status: "refunded" };
+    return admitted;
+  };
+  const result = await (await handleQaSandboxCompleteCheckout(request(await jwt(), { access_schema: 1, operation_id: OP }), s.deps)).json();
+  assertEquals(s.state.imports, 0); assertEquals(s.state.row.status, "refunded");
+  assertEquals(result.access?.proofs?.length ?? 0, 0);
+});
+Deno.test("refund during canonical provider latency prevents a positive rights commit", async () => {
+  const s = setup(); s.state.paid = true; s.state.proof = true;
+  s.state.row = { ...s.row(), creation_started_at: now(), stripe_session_id: SESSION, status: "session_bound" };
+  const getRights = s.deps.access!.provider.getRights.bind(s.deps.access!.provider);
+  s.deps.access!.provider.getRights = (...args) => {
+    assert(s.state.row); s.state.row = { ...s.state.row, status: "refunded" };
+    return getRights(...args);
+  };
+  let positives = 0;
+  const commit = s.deps.access!.rights.commit.bind(s.deps.access!.rights);
+  s.deps.access!.rights.commit = (...args) => {
+    if (args[3].some(right => right.state !== "revoked")) positives++;
+    return commit(...args);
+  };
+  const result = await (await handleQaSandboxCompleteCheckout(request(await jwt(), { access_schema: 1, operation_id: OP }), s.deps)).json();
+  assertEquals(positives, 0); assertEquals(s.state.row.status, "refunded");
+  assertEquals(result.access?.proofs?.length ?? 0, 0);
+});
+Deno.test("refund during an in-flight receipt import cannot publish a proof", async () => {
+  const s = setup(); s.state.paid = true; s.state.proof = true;
+  s.state.row = { ...s.row(), creation_started_at: now(), stripe_session_id: SESSION, status: "session_bound" };
+  const track = s.deps.billing.trackCompletedPurchase.bind(s.deps.billing);
+  s.deps.billing.trackCompletedPurchase = async (...args) => {
+    const result = await track(...args);
+    assert(s.state.row); s.state.row = { ...s.state.row, status: "refunded" };
+    return result;
+  };
+  const result = await (await handleQaSandboxCompleteCheckout(request(await jwt(), { access_schema: 1, operation_id: OP }), s.deps)).json();
+  assertEquals(s.state.imports, 1); assertEquals(s.state.row.status, "refunded");
+  assertEquals(s.state.commits, 0); assertEquals(result.access?.proofs?.length ?? 0, 0);
+});
 Deno.test("actual composed runtime uses fixed QA RPCs, managed readback, RC import and real signed sandbox proof", async () => {
   const values = await configurationInputs(); const originalFetch = globalThis.fetch;
   const rpcCalls: string[] = []; let operation: QaPurchaseOperation | null = null, paid = false, imported = false, creates = 0;
@@ -316,6 +361,8 @@ Deno.test("actual composed runtime uses fixed QA RPCs, managed readback, RC impo
       assertEquals(new Headers(init?.headers).get("Stripe-Version"),"2026-09-30.endive");
       assertEquals(new Headers(init?.headers).get("Authorization"),"Bearer sk_test_synthetic123");
       if (url.endsWith("/v1/account")) return respond({ object:"account",id:"acct_synthetic" });
+      if (url.endsWith("/v1/payment_intents/pi_synthetic")) return respond({ object:"payment_intent",id:"pi_synthetic",livemode:false,currency:"usd",amount:999,status:"succeeded",latest_charge:"ch_synthetic" });
+      if (url.endsWith("/v1/charges/ch_synthetic")) return respond({ object:"charge",id:"ch_synthetic",payment_intent:"pi_synthetic",livemode:false,currency:"usd",paid:true,status:"succeeded",amount:999,amount_refunded:0,refunded:false });
       assert(operation);
       if (init?.method === "POST") {
         creates++; const body = new URLSearchParams(init.body as string);
@@ -325,7 +372,7 @@ Deno.test("actual composed runtime uses fixed QA RPCs, managed readback, RC impo
         price:{ object:"price",id:"price_synthetic",currency:"usd",livemode:false,type:"one_time",recurring:null,unit_amount:999,
           product:{ object:"product",id:"prod_synthetic",livemode:false } } }] });
       return respond({ object:"checkout.session",id:SESSION,livemode:false,mode:"payment",managed_payments:{ enabled:true },client_reference_id:HOLDER,
-        metadata:{ operation_id:operation.operation_id },currency:"usd",amount_subtotal:999,amount_total:999,status:paid ? "complete" : "open",payment_status:paid ? "paid" : "unpaid",url:CHECKOUT });
+        metadata:{ operation_id:operation.operation_id },payment_intent:"pi_synthetic",currency:"usd",amount_subtotal:999,amount_total:999,status:paid ? "complete" : "open",payment_status:paid ? "paid" : "unpaid",url:CHECKOUT });
     }
     if (url === "https://api.revenuecat.com/v1/receipts") {
       assertEquals(JSON.parse(init?.body as string),{ fetch_token:SESSION,app_user_id:HOLDER });

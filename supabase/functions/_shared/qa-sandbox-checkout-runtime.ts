@@ -147,6 +147,16 @@ export async function processQaSandboxCheckout(operation: QaPurchaseOperation, r
   deps: QaSandboxCheckoutDeps, guards: { readonly authorize: () => Promise<boolean>; readonly canGrant: () => Promise<boolean>; readonly isCurrent?: () => boolean }): Promise<Response> {
   if (!scoped(operation,operation.holder,deps)) return unavailable();
   let current = operation;
+  const refresh = async () => {
+    const stored = await deps.operations.read(current.operation_id,current.holder);
+    if (!stored || !scoped(stored,current.holder,deps) || stored.stripe_session_id !== current.stripe_session_id) throw new Error("checkout binding changed");
+    current = stored;
+  };
+  const accessGuards = { ...guards, canGrant: async () => {
+    if (!await guards.canGrant()) return false;
+    await refresh();
+    return ["imported","access_observed"].includes(current.status) && current.paid_at !== null && guards.isCurrent?.() !== false;
+  } };
   try {
     if (recovery.status === "unavailable") return unavailable();
     if (recovery.sessionId) {
@@ -181,26 +191,34 @@ export async function processQaSandboxCheckout(operation: QaPurchaseOperation, r
     if (!["imported","access_observed"].includes(current.status)) {
       if (["session_bound","recovery_required"].includes(current.status)) current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"paid_verified");
       if (current.status === "paid_verified") current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"import_pending");
-      const tracked = await deps.billing.trackCompletedPurchase(identity(current),current.stripe_session_id!);
-      if (tracked.status !== "tracked") {
-        current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"recovery_required");
-        return await guards.authorize() ? statusResponse(current) : unavailable();
+      // A refund may have committed while admission or provider readback was pending.
+      // Read the same immutable operation before importing and before positive reconciliation.
+      await refresh();
+      if (!["imported","access_observed"].includes(current.status)) {
+        if (current.status !== "import_pending") return await guards.authorize() ? statusResponse(current) : unavailable();
+        const tracked = await deps.billing.trackCompletedPurchase(identity(current),current.stripe_session_id!);
+        await refresh();
+        if (["refunded","closed_unpaid"].includes(current.status)) return await guards.authorize() ? statusResponse(current) : unavailable();
+        if (tracked.status !== "tracked") {
+          current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"recovery_required");
+          return await guards.authorize() ? statusResponse(current) : unavailable();
+        }
+        if (!["imported","access_observed"].includes(current.status)) current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"imported");
       }
-      current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"imported");
     }
     // Begin before the current provider lookup. Keep canonical negative processing reachable
     // after membership disablement; positive commits and confirmation remain SQL fenced.
     const token = await deps.access?.rights.begin(current.holder,"sandbox") ?? null;
-    const response = await reconcileScopedAccess(current.holder,deps.access,token,{},guards);
+    const response = await reconcileScopedAccess(current.holder,deps.access,token,{},accessGuards);
     const result = await response.json();
     // This is ACCOUNT access observed after this import ACK, not an invented correlation
     // from a Stripe Session to a particular RevenueCat purchase/right identity.
-    if (current.status !== "access_observed" && result.access?.status === "verified" && await guards.canGrant()) {
+    if (current.status !== "access_observed" && result.access?.status === "verified" && await accessGuards.canGrant()) {
       current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"access_observed");
     }
     if (!await guards.authorize()) return unavailable();
     if (result.access?.proofs?.length) {
-      if (!await guards.canGrant() || !token || !await deps.access?.rights.confirm(current.holder,"sandbox",token)) {
+      if (!await accessGuards.canGrant() || !token || !await deps.access?.rights.confirm(current.holder,"sandbox",token)) {
         return statusResponse(current,{ access: { status: "unavailable" } });
       }
     }
@@ -208,6 +226,7 @@ export async function processQaSandboxCheckout(operation: QaPurchaseOperation, r
     return statusResponse(current,{ access: result.access ?? { status: "unavailable" } });
   } catch {
     // Retain an already dispatched or paid attempt. No replacement operation/POST follows.
+    try { await refresh(); } catch { return unavailable(); }
     if (current.creation_started_at !== null && !["refunded","closed_unpaid"].includes(current.status)) {
       try { current = await deps.operations.recordStatus(current.operation_id,current.stripe_session_id,"recovery_required"); } catch { /* Durable existing binding remains. */ }
     }
