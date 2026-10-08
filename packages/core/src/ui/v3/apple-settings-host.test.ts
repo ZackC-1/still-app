@@ -464,9 +464,9 @@ describe("Apple settings mode rule", () => {
       .join("\n");
     expect(code.match(/VITE_MODERN_SETTINGS_SYNC_ENABLED/g)).toHaveLength(2);
     // atomic-cloud alone constructs the modern backend; every other configured build keeps exactly
-    // the legacy construction.
+    // its legacy settings behavior with the same compiled route profile.
     expect(main).toMatch(
-      /appleSettingsMode === "atomic-cloud"\s*\?\s*new SupabaseBackendPort\(supabase, \{ modernSettings: true \}\)\s*:\s*new SupabaseBackendPort\(supabase\);/,
+      /appleSettingsMode === "atomic-cloud"\s*\?\s*new SupabaseBackendPort\(supabase, \{ modernSettings: true, routeProfile: backendRouteProfile \}\)\s*:\s*new SupabaseBackendPort\(supabase, \{ routeProfile: backendRouteProfile \}\);/,
     );
     expect(main.match(/new SupabaseBackendPort\(/g)).toHaveLength(2);
     expect(main).toContain(

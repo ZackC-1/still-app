@@ -1,4 +1,5 @@
 import { mount } from "svelte";
+import { readAppleBackendProfile, createAppleFulfillmentTransport } from "./backend-profile.js";
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import type { AppleProHostDeps } from "@still/core/ui/v3/apple-pro-host";
 import type { ApplePurchaseLinkAuthority } from "@still/core/sync";
@@ -82,6 +83,13 @@ const bridge = new NativeBridge();
 // builds → the screen stays local-only (the U17 behavior), so the build never needs secrets.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// The explicit route profile must agree with packaged proof trust. QA also requires modern sync;
+// a malformed bundle keeps local settings usable and never constructs a network client.
+const backendRouteProfile = readAppleBackendProfile(
+  import.meta.env.VITE_BACKEND_ROUTE_PROFILE,
+  import.meta.env.VITE_ACCESS_ENVIRONMENT,
+  appleSettingsMode === "atomic-cloud",
+);
 
 let controller: UiController;
 let identifyOnServer: (() => Promise<void>) | undefined;
@@ -109,7 +117,7 @@ let applePurchaseAuthority: {
 let appleProServices: Pick<AppleProHostDeps,
   "bridge" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
 
-if (supabaseUrl && supabaseAnonKey) {
+if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, storage: sessionStorage },
@@ -128,6 +136,10 @@ if (supabaseUrl && supabaseAnonKey) {
     reviewEmail ? { email: reviewEmail } : undefined,
   );
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && bridge.available) {
+    const fulfillment = createAppleFulfillmentTransport(
+      backendRouteProfile,
+      (name, options) => supabase.functions.invoke(name, options),
+    );
     const authority = createApplePurchaseAuthority({
       trust: packagedAccessTrust({
         environment: import.meta.env.VITE_ACCESS_ENVIRONMENT,
@@ -144,16 +156,8 @@ if (supabaseUrl && supabaseAnonKey) {
           after.data.session?.access_token !== before.data.session.access_token) return null;
         return { accountId: account.id, accessToken: before.data.session.access_token };
       },
-      verifyLocal: async body => {
-        const { data, error } = await supabase.functions.invoke("verify-apple-access", { body });
-        if (error) throw error;
-        return data;
-      },
-      fulfillLink: async body => {
-        const { data, error } = await supabase.functions.invoke("link-apple-access", { body });
-        if (error) throw error;
-        return data;
-      },
+      verifyLocal: fulfillment.verifyLocal,
+      fulfillLink: fulfillment.fulfillLink,
     });
     applePurchaseAuthority = authority;
     // This callback does no SDK work: Supabase holds its auth lock while notifying listeners.
@@ -168,8 +172,8 @@ if (supabaseUrl && supabaseAnonKey) {
   // other configured build keeps exactly the legacy whole-record construction.
   const backend =
     appleSettingsMode === "atomic-cloud"
-      ? new SupabaseBackendPort(supabase, { modernSettings: true })
-      : new SupabaseBackendPort(supabase);
+      ? new SupabaseBackendPort(supabase, { modernSettings: true, routeProfile: backendRouteProfile })
+      : new SupabaseBackendPort(supabase, { routeProfile: backendRouteProfile });
 
   // Cross-identity guard (AE5) — parity with the extension: a persisted last-synced Apple identity
   // so a Sign in with Apple that switches Apple IDs (→ a different Supabase UUID) never seeds or

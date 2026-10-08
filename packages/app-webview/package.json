@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test src/*.test.mjs",
     "build": "vite build && node ../../apps/apple/scripts/release-env-state.mjs --web-only . > dist/.env-state",
     "dev": "vite",
     "preview": "vite preview",
