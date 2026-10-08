@@ -2,6 +2,7 @@
 // Synthetic provider ports establish runtime composition, never actual Apple provider verification.
 import { assert, assertEquals } from "@std/assert";
 import { verifyServedAccessProof } from "./access_served_proof.ts";
+import { pollServedAccess } from "./access_served_readiness.ts";
 import { createSyntheticSettingsAuthSession } from "./synthetic_settings_helpers.ts";
 
 const cloud = Deno.env.get("GITHUB_ACTIONS") === "true" &&
@@ -38,21 +39,6 @@ async function request(name: string, body: unknown, bearer?: string) {
   assert(plain(data), `access-served-object:http-${response.status}`);
   return { status: response.status, data };
 }
-async function poll<T>(
-  run: () => Promise<T>,
-  accepted: (value: T) => boolean,
-): Promise<T> {
-  for (let i = 0; i < 25; i++) {
-    try {
-      const value = await run();
-      if (accepted(value)) return value;
-    } catch {
-      /* Bounded startup retry, never print raw body/log/token. */
-    }
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-  throw new Error("access-cli-current-worker-readiness-failed");
-}
 Deno.test({
   name:
     "actual CLI three access endpoints enforce anonymous-local and authenticated account envelopes",
@@ -72,11 +58,12 @@ Deno.test({
       operationId: crypto.randomUUID(),
       evidence,
     };
-    const ready = await poll(
+    const ready = await pollServedAccess(
       () => request("verify-apple-access", {}),
       (value) =>
         value.status === 400 &&
         value.data.error === "invalid_apple_access_request",
+      phase,
     );
     assertEquals(ready.status, 400); // Actual anonymous handler, rather than gateway JWT rejection.
     for (const name of ["link-apple-access", "reconcile-entitlement"]) {
@@ -136,10 +123,11 @@ Deno.test({
     evidence.signedTransaction = `${
       btoa(state.instance).replaceAll("=", "")
     }.fixture.signature`;
-    const local = await poll(
+    const local = await pollServedAccess(
       () =>
         request("verify-apple-access", { schema: 1, transaction: evidence }),
       (value) => value.status === 200 && value.data.status === "verified",
+      phase,
     );
     assert(
       Object.keys(local.data).sort().join(",") ===
