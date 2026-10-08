@@ -173,18 +173,21 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
   let accountAccessTicket = 0;
   let statusWrite: Promise<void> = Promise.resolve();
-  const publishStatus = (status: AccountSyncStatus | null): Promise<void> => {
+  const publishStatus = (status: AccountSyncStatus | null): Promise<boolean> => {
     const generation = generations.capture();
+    let published = false;
     statusWrite = statusWrite.catch(() => {}).then(async () => {
       if (!generations.isCurrent(generation)) return;
       if ((status?.accountId ?? null) !== activeSessionUserId) return;
       if (bridge.available && bridge.setAccountSyncStatus) {
         await bridge.setAccountSyncStatus(status);
-        if (generations.isCurrent(generation) && (status?.accountId ?? null) === activeSessionUserId)
+        if (generations.isCurrent(generation) && (status?.accountId ?? null) === activeSessionUserId) {
+          published = true;
           deps.onNativeAccountStatusPublished?.();
+        }
       }
     }).catch(() => { /* The next state change retries this local display mirror. */ });
-    return statusWrite;
+    return statusWrite.then(() => published);
   };
 
   const refreshAccountAccess = (): void => {
@@ -198,8 +201,8 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // independently; settings start immediately and never await this background job.
     void publishStatus({accountId: userId, email: controller.accountEmail,
       lastSyncedAt: controller.lastSyncedAt, pendingUpload: controller.pendingUpload,
-      cloudReachable: controller.cloudReachable, updatedAt: Date.now()}).then(async () => {
-      if (current()) await deps.refreshAccountAccess!();
+      cloudReachable: controller.cloudReachable, updatedAt: Date.now()}).then(async published => {
+      if (published && current()) await deps.refreshAccountAccess!();
     }).catch(() => { /* Keep accepted rights; the next foreground or Restore can verify again. */ });
   };
 

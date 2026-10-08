@@ -17,6 +17,15 @@ function compose() {
   return {session,controller,bridge,sync,refreshAccountAccess,onNativeAccountStatusPublished,finishStatus:()=>finishStatus()};
 }
 describe("modern Apple account entry",()=>{
+  it("a rejected native lineage write keeps purchase reconciliation held while free sync completes",async()=>{
+    const h=compose();
+    vi.mocked(h.bridge.setAccountSyncStatus!).mockRejectedValueOnce(new Error("Native identity write unavailable"));
+    await h.session.enterSession(account);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(h.sync.onSignedIn).toHaveBeenCalledExactlyOnceWith(account);
+    expect(h.onNativeAccountStatusPublished).not.toHaveBeenCalled();
+    expect(h.refreshAccountAccess).not.toHaveBeenCalled();
+  });
   it("publishes account lineage before purchase reconciliation without delaying free sync or code completion",async()=>{
     const h=compose();
     await h.session.onCodeVerified(account,"account@still.test");

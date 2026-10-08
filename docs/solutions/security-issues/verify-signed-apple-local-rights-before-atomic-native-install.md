@@ -24,6 +24,12 @@ A paid Apple local proof uses a server-issued UUID as both right and holder. Nat
 
 The bridge acknowledgment includes exact signature identities and signed right/revision/times. [apple-session.ts](../../../packages/core/src/sync/apple-session.ts) reports an explicit association only after validating that durable native acknowledgment. The native observation transport distinguishes purchased rights from verification-required rights and rejects unknown fields, malformed signatures and duplicate UUIDs.
 
+Modern account reconciliation starts after the queued native account-status write succeeds for
+the current session. Return a per-write success result from that queue: swallowing a failed write
+to let later writes recover must not make its purchase continuation run. Free settings sync and
+code verification complete independently. A regression reproduced the failed-write continuation;
+the repaired flow holds purchase reconciliation while the existing free sync still completes.
+
 Verification: 403 StillKit tests pass, including eleven new security cases in [AppleRightBindingTests.swift](../../../apps/apple/StillKit/Tests/StillKitTests/AppleRightBindingTests.swift). Thirty-one focused TypeScript tests pass for exact bridge input/readback and deliberate association. These tests use public synthetic keys. They establish local cryptographic, clock, storage and transport behavior; deployed provider trust configuration and physical StoreKit/device journeys require separate evidence. The ordinary free mode and disabled shipped paid flags retain their existing behavior.
 
 Current entitlement enumeration alone excludes refunded/revoked purchases, so the native absence observation also checks the latest catalog transaction history before declaring no purchases. A completed empty snapshot permits the first purchase offer; unverified, timed-out, or existing history keeps verification required. The observation stays within the web deadline. See Apple’s [current entitlements](https://developer.apple.com/documentation/storekit/transaction/currententitlements) and [latest transaction](https://developer.apple.com/documentation/storekit/transaction/latest(for:)) contracts. Native capability support separately matches the six implemented Safari extras; a signed twelve-benefit purchase never enables unsupported controls.
