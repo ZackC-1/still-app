@@ -72,6 +72,17 @@ The webhook compares the complete Authorization header with its configured token
 unconfigured prefix. Follow the [RevenueCat](release/04-revenuecat.md) and
 [auth deployment](release/extension-purchase-deploy-checklist.md) references.
 
+## Shared-hosted sandbox source preparation
+
+The [shared-hosted QA plan](plans/2026-10-08-001-feat-shared-hosted-paid-sandbox-qa.md)
+records the fixed sandbox route and provider contract. The server-only
+[blank input example](../supabase/functions/qa-sandbox.env.example) names the dedicated
+`STILL_QA_SANDBOX_` authority/provider inputs and the separate existing Auth, policy-reader
+and free-settings inputs. Populate a private operational file after review; source presence
+and local tests do not establish deployed routes, provider permissions or purchase readiness.
+Keep existing live secrets and routes intact. Hosted migration, secret installation, function
+deployment and provider configuration remain held for the plan's concrete approval packet.
+
 ## Operational evidence and remaining work
 
 The September 14 record credits verified SMTP delivery from the new domain, successful forwarding

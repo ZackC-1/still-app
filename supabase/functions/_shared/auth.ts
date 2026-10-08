@@ -19,6 +19,22 @@ export interface AuthDeps {
   readonly expected?: ExpectedClaims;
 }
 
+/** Current confirmed account authority, with the verified deadline retained across live Auth.
+ * Membership remains a separate route/SQL gate; this helper never grants purchase rights. */
+export async function confirmedAccountExpiry(token: string, holder: string,
+  deps: AuthDeps & { readonly accounts?: { confirmed(token: string, holder: string): Promise<boolean> } },
+): Promise<number | null> {
+  try {
+    if (!isUuid(holder)) return null;
+    const claims = await verifyJwt(token, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl, expected: deps.expected });
+    if (!(claims && claims.sub === holder && claims.role === "authenticated" && claims.aud === "authenticated" &&
+      claims.is_anonymous !== true && typeof claims.exp === "number" && Number.isFinite(claims.exp) &&
+      claims.exp * 1000 > Date.now() && deps.accounts)) return null;
+    const expiresAt = claims.exp * 1000;
+    return await deps.accounts.confirmed(token, holder) && expiresAt > Date.now() ? expiresAt : null;
+  } catch { return null; }
+}
+
 /**
  * Run the shared gate, then hand the VERIFIED subject UUID to the handler body. Responses:
  * OPTIONS → 204 preflight; non-POST → 405; missing/invalid/foreign token or non-UUID subject →

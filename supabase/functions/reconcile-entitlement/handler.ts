@@ -19,7 +19,7 @@ export interface ReconcileDeps extends AuthDeps {
   readonly store: EntitlementStore;
   readonly rc: RevenueCatClient;
   readonly limiter: RateLimiter;
-  readonly access?: { readonly signer: AccessSigner; readonly rights: AccessRightStore; readonly provider: RevenueCatAccessClient; readonly apple?: AppleAccountAccessRefresher };
+  readonly access?: ScopedReconcileAccess;
 }
 
 export function handleReconcile(req: Request, deps: ReconcileDeps): Promise<Response> {
@@ -41,64 +41,12 @@ export function handleReconcile(req: Request, deps: ReconcileDeps): Promise<Resp
     await deps.store.setEntitlement(userId, active, "reconcile", subscriber?.original_app_user_id ?? null);
 
     if (request === "legacy") return jsonResponse(200, { still_sync: active });
-    const unavailable = async () => {
-      // A failed/stale positive lookup cannot suppress a separately committed refund.
-      // This read changes no clock/row and requires this account/environment's current token.
-      if (access?.rights.removals && token) {
-        try {
-          const removals = await access.rights.removals(userId, access.signer.environment, token);
-          if (isAccountAccessRemovals(removals, userId, access.signer.environment)) {
-            return jsonResponse(200, { still_sync: active, access: { status: "unavailable", environment: access.signer.environment,
-              proofs: [], revocations: removals.revocations, issuer_time: removals.issuer_time } });
-          }
-        } catch { /* No authenticated removal receipt: keep prior rights. */ }
-      }
-      return jsonResponse(200, { still_sync: active, access: { status: "unavailable" } });
-    };
-    if (!access || !token) return unavailable();
-    try {
-      // Sources settle independently. A thrown lookup must not return before a
-      // different linked transaction has persisted its cryptographically verified refund.
-      const [provider, apple] = await Promise.all([
-        access.provider.getRights(userId, access.signer.environment).catch(() => ({ status: "unavailable" as const })),
-        access.apple ? access.apple.refresh(userId, access.signer.environment).catch(() => ({ ready: false, rights: [] })) : Promise.resolve(true),
-      ]);
-      // An RC refresh cannot renew Apple rows. Only the canonical Apple API can advance that clock.
-      const appleReady = typeof apple === "boolean" ? apple : apple.ready;
-      const freshApple = typeof apple === "boolean" ? [] : apple.rights;
-      if (!appleReady && !freshApple.length && provider.status !== "verified") return unavailable();
-      const result = await access.rights.commit(userId, access.signer.environment, token, provider.status === "verified" ? provider.rights : []);
-      if (result.status === "stale") return unavailable();
-      // Validate store scope even though only the narrow RPC is expected to produce it.
-      if (result.rights.some(right => right.holder !== userId)) return unavailable();
-      // Sign only independently current rows. RC failure/404 must not block an explicit Apple
-      // association or reissue unrelated historical RC rows with their old/expired deadline.
-      const current = [...(provider.status === "verified" ? result.observed_rights ?? [] : []), ...freshApple].filter(right =>
-        right.holder === userId && result.rights.some(stored => stored.right === right.right && stored.holder === userId &&
-          stored.revision === right.revision && stored.verified_at === right.verified_at));
-      const rightIds = new Set<string>();
-      const signable = current.filter(right => { if (rightIds.has(right.right)) return false; rightIds.add(right.right); return true; });
-      // Confirmed removals still reach the cache when another provider observation is unknown.
-      // This variant NEVER grants, establishes verified-none, or removes unobserved rights.
-      if (!signable.length && (!appleReady || provider.status !== "verified" || provider.complete === false || result.rights.length > 0)) {
-        if (!isAccountAccessRemovals({ holder: userId, environment: access.signer.environment, revocations: result.revocations,
-          issuer_time: result.issuer_time }, userId, access.signer.environment) ||
-          !await access.rights.confirm(userId, access.signer.environment, token)) return unavailable();
-        return jsonResponse(200, { still_sync: active, access: { status: "unavailable", environment: access.signer.environment,
-          proofs: [], revocations: result.revocations, issuer_time: result.issuer_time } });
-      }
-      const proofs = await Promise.all(signable.map(right => access.signer.sign(right)));
-      if (!await access.rights.confirm(userId, access.signer.environment, token)) return unavailable();
-      return jsonResponse(200, { still_sync: active, access: {
-        status: result.status === "conflict" ? "conflict" : proofs.length ? "verified" : "none",
-        environment: access.signer.environment, proofs, revocations: result.revocations, issuer_time: result.issuer_time,
-      } });
-    } catch { return unavailable(); }
+    return reconcileScopedAccess(userId, access, token, { still_sync: active });
   });
 }
 
 /** Completed legacy bodies remain ignored. Incomplete/errored input never falls through. */
-async function accessRequest(req: Request): Promise<"legacy" | "scoped" | "invalid"> {
+export async function accessRequest(req: Request): Promise<"legacy" | "scoped" | "invalid"> {
   const reader = req.body?.getReader();
   if (!reader) return "legacy";
   const chunks: Uint8Array[] = [];
@@ -125,4 +73,76 @@ async function accessRequest(req: Request): Promise<"legacy" | "scoped" | "inval
     return (body as { access_schema: unknown }).access_schema === 1 && Object.keys(body).length === 1 ? "scoped" : "invalid";
   } catch { return "invalid"; }
   finally { clearTimeout(bodyTimer); reader.releaseLock(); }
+}
+
+export interface ScopedReconcileAccess {
+  readonly signer: AccessSigner;
+  readonly rights: AccessRightStore;
+  readonly provider: RevenueCatAccessClient;
+  readonly apple?: AppleAccountAccessRefresher;
+}
+
+/** Shared current-right engine. QA callers supply no legacy store/subscriber and add live gates. */
+export async function reconcileScopedAccess(userId: string, access: ScopedReconcileAccess | undefined,
+  token: string | null, response: { readonly still_sync?: boolean } = {},
+  guards: { readonly authorize?: () => Promise<boolean>; readonly canGrant?: () => Promise<boolean>; readonly current?: () => boolean } = {}): Promise<Response> {
+  const authorized = async () => { try { return await (guards.authorize?.() ?? Promise.resolve(true)) && guards.current?.() !== false; } catch { return false; } };
+  const unavailable = async () => {
+    if (!await authorized()) return jsonResponse(200, { ...response, access: { status: "unavailable" } });
+    // A failed/stale positive lookup cannot suppress a separately committed refund.
+    // This read changes no clock/row and requires this account/environment's current token.
+    if (access?.rights.removals && token) {
+      try {
+        const removals = await access.rights.removals(userId, access.signer.environment, token);
+        if (isAccountAccessRemovals(removals, userId, access.signer.environment) && await authorized()) {
+          return jsonResponse(200, { ...response, access: { status: "unavailable", environment: access.signer.environment,
+            proofs: [], revocations: removals.revocations, issuer_time: removals.issuer_time } });
+        }
+      } catch { /* No authenticated removal receipt: keep prior rights. */ }
+    }
+    return jsonResponse(200, { ...response, access: { status: "unavailable" } });
+  };
+  if (!access || !token) return unavailable();
+  try {
+    // Sources settle independently. A thrown lookup must not return before a
+    // different linked transaction has persisted its cryptographically verified refund.
+    const [provider, apple] = await Promise.all([
+      access.provider.getRights(userId, access.signer.environment).catch(() => ({ status: "unavailable" as const })),
+      access.apple ? access.apple.refresh(userId, access.signer.environment).catch(() => ({ ready: false, rights: [] })) : Promise.resolve(true),
+    ]);
+    // An RC refresh cannot renew Apple rows. Only the canonical Apple API can advance that clock.
+    const appleReady = typeof apple === "boolean" ? apple : apple.ready;
+    const freshApple = typeof apple === "boolean" ? [] : apple.rights;
+    if (!appleReady && !freshApple.length && provider.status !== "verified") return unavailable();
+    let granting = true;
+    try { granting = await (guards.canGrant?.() ?? Promise.resolve(true)); } catch { granting = false; }
+    const observations = provider.status === "verified" ? provider.rights.filter(right => granting || right.state === "revoked") : [];
+    const result = await access.rights.commit(userId, access.signer.environment, token, observations);
+    if (result.status === "stale") return unavailable();
+    // Validate store scope even though only the narrow RPC is expected to produce it.
+    if (result.rights.some(right => right.holder !== userId)) return unavailable();
+    // Sign only independently current rows. RC failure/404 must not block an explicit Apple
+    // association or reissue unrelated historical RC rows with their old/expired deadline.
+    if (!granting) return unavailable();
+    const current = [...(provider.status === "verified" ? result.observed_rights ?? [] : []), ...freshApple].filter(right =>
+      right.holder === userId && result.rights.some(stored => stored.right === right.right && stored.holder === userId &&
+        stored.revision === right.revision && stored.verified_at === right.verified_at));
+    const rightIds = new Set<string>();
+    const signable = current.filter(right => { if (rightIds.has(right.right)) return false; rightIds.add(right.right); return true; });
+    // Confirmed removals still reach the cache when another provider observation is unknown.
+    // This variant NEVER grants, establishes verified-none, or removes unobserved rights.
+    if (!signable.length && (!appleReady || provider.status !== "verified" || provider.complete === false || result.rights.length > 0)) {
+      if (!isAccountAccessRemovals({ holder: userId, environment: access.signer.environment, revocations: result.revocations,
+        issuer_time: result.issuer_time }, userId, access.signer.environment) ||
+        !await authorized() || !await access.rights.confirm(userId, access.signer.environment, token) || guards.current?.() === false) return unavailable();
+      return jsonResponse(200, { ...response, access: { status: "unavailable", environment: access.signer.environment,
+        proofs: [], revocations: result.revocations, issuer_time: result.issuer_time } });
+    }
+    const proofs = await Promise.all(signable.map(right => access.signer.sign(right)));
+    if (!await authorized() || !await access.rights.confirm(userId, access.signer.environment, token) || guards.current?.() === false) return unavailable();
+    return jsonResponse(200, { ...response, access: {
+      status: result.status === "conflict" ? "conflict" : proofs.length ? "verified" : "none",
+      environment: access.signer.environment, proofs, revocations: result.revocations, issuer_time: result.issuer_time,
+    } });
+  } catch { return unavailable(); }
 }

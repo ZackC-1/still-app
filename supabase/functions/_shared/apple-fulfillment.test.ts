@@ -84,7 +84,7 @@ Deno.test("transfer needs two distinct fresh confirmed project account authoriti
   await t.step("both authenticated accounts reach explicit CAS transfer", async () => {
     const s = setup(); await handleLinkAppleAccess(request({ ...first, sourceAccountId: B, sourceAuthority: await token(B) }, await token()), s.deps);
     assertEquals(s.link()?.sourceHolder, B);
-    assertEquals(s.calls.filter(c => c === "account").length, 4);
+    assertEquals(s.calls.filter(c => c === "account").length, 6);
   });
   for (const sourceAuthority of [await token(A), await token(B, { iss: "https://other.example/auth/v1" }), await token(B, { exp: 1 }), "forged"]) {
     await t.step("invalid source token", async () => {
@@ -187,5 +187,55 @@ Deno.test("Apple issuer clock must equal the freshly verified right clock before
       const result = link ? await handleLinkAppleAccess(request(body(), await token()), s.deps) : await handleVerifyAppleAccess(request({ schema: 1, transaction: evidence }), s.deps);
       assertEquals(await result.json(), { status: "unavailable" }); assertEquals(s.calls.includes("sign"), false);
     }
+  }
+});
+
+
+Deno.test("link and transfer authority lost while signing cannot return either proof", async t => {
+  for (const lost of [A, B]) await t.step(lost === A ? "destination" : "source", async () => {
+    const s = setup(); let lostDuringSigning = false;
+    const deps: AppleFulfillmentDeps = { ...s.deps,
+      accounts: { confirmed: async (_token, holder) => !(lostDuringSigning && holder === lost) },
+      access: { ...s.deps.access!, signer: { ...s.deps.access!.signer,
+        signAppleBinding: async binding => { lostDuringSigning = true; return JSON.stringify(binding); } } } };
+    const result = await (await handleLinkAppleAccess(request({ ...body(), sourceAccountId: B, sourceAuthority: await token(B) }, await token()), deps)).json();
+    assertEquals(result, { status: "stale" });
+    assertEquals(s.calls.includes("confirm"), false);
+  });
+});
+Deno.test("link JWT expires during signing and no authority escapes", async () => {
+  const s = setup(); const originalNow = Date.now; const start = originalNow();
+  const jwt = await token(A, { exp: Math.floor(start / 1000) + 600 });
+  const deps: AppleFulfillmentDeps = { ...s.deps, access: { ...s.deps.access!, signer: { ...s.deps.access!.signer,
+    signAppleBinding: async binding => { Date.now = () => start + 601_000; return JSON.stringify(binding); } } } };
+  try { assertEquals(await (await handleLinkAppleAccess(request(body(), jwt), deps)).json(), { status: "stale" }); }
+  finally { Date.now = originalNow; }
+});
+
+Deno.test("link and both transfer authorities remain current through final Auth and SQL latency", async t => {
+  for (const boundary of ["link-auth", "link-sql", "destination-auth", "source-auth", "destination-during-source", "transfer-sql"] as const) {
+    for (const expires of [false, true]) await t.step(`${boundary}: ${expires ? "expired" : "current"}`, async () => {
+      const s = setup(); const old = Date.now; const start = old(); const transfer = !boundary.startsWith("link");
+      const jwt = await token(A, { exp: start / 1000 + (boundary === "source-auth" ? 1200 : 600) });
+      const sourceAuthority = await token(B, { exp: start / 1000 + (boundary === "source-auth" ? 600 : 1200) });
+      let confirmations = 0;
+      const advance = () => { if (expires) Date.now = () => start + 601_000; };
+      const deps: AppleFulfillmentDeps = { ...s.deps,
+        accounts: { confirmed: async () => {
+          const call = ++confirmations;
+          if ((boundary === "link-auth" && call === 3) || (boundary === "destination-auth" && call === 5) ||
+            ((boundary === "source-auth" || boundary === "destination-during-source") && call === 6)) advance();
+          return true;
+        } },
+        access: { ...s.deps.access!, store: { ...s.deps.access!.store,
+          confirm: async (...args) => { const valid = await s.deps.access!.store.confirm(...args);
+            if (boundary.endsWith("sql")) advance(); return valid; } } } };
+      try {
+        const value = transfer ? { ...body(), sourceAccountId: B, sourceAuthority } : body();
+        const result = await (await handleLinkAppleAccess(request(value, jwt), deps)).json();
+        assertEquals(result.status, expires ? "stale" : "linked");
+        assertEquals("accountProof" in result, !expires); assertEquals("localProof" in result, !expires);
+      } finally { Date.now = old; }
+    });
   }
 });
