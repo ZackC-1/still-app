@@ -178,7 +178,7 @@ test("unlisted VITE_ variables read by shipped source stop the build, and the re
 
 test("store packages refuse scoped QA trust inputs and omit them from rebuild instructions", () => {
   const values = {
-    VITE_BACKEND_ROUTE_PROFILE: "qa-sandbox",
+    VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox",
     VITE_ACCESS_ENVIRONMENT: "sandbox",
     VITE_ACCESS_PUBLIC_KEYS: JSON.stringify([{ kid: "qa", publicKeyHex: "a".repeat(64), purpose: "access", environment: "sandbox" }]),
     VITE_ACCESS_PRIVATE_KEY: MARKER,
