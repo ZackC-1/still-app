@@ -65,9 +65,9 @@ source repairs are now prepared:
   counters. Preserve this retention job after emergency authority stop and assert actual cron
   deletion of expired data while unexpired data survives.
 
-These five-path repairs preserve the production wrappers and shared core bodies. Their typed and
-static checks pass, but the changed SQL, expanded regression steps, creator audit and real cron
-execution still require a new clean/upgrade cloud run and follow-up review before merge. A source
+These five-path repairs preserve the production wrappers and shared core bodies. Their typed,
+static and subsequent disposable clean/upgrade checks passed; follow-up source review identified
+the additional verification repairs described below. A source
 merge or CI result does not authorize hosted activation. No hosted migration, credential
 provisioning, QA account admission, provider call or payment was performed.
 
@@ -76,7 +76,23 @@ new test setups. The scheduler drift test attempted a direct update without sche
 permissions; it now uses the scheduler's owner API. The fresh retention fixture round-tripped a
 microsecond timestamp through the driver's timestamptz serializer and failed its foreign key; it
 now inserts the window and counter together in one SQL CTE and observes the counter by its synthetic
-bucket key. Production migration bytes remain unchanged. Corrected cloud execution is pending.
+bucket key. Production migration bytes remain unchanged.
+
+Corrected head `9fd58a714fda0d7825c92df3fc65a9e46fe9929c` passed run `37838074907`,
+job `113520541275`, on the disposable GitHub-hosted Linux runner: nineteen behavioral steps
+each for upgrade and clean install, selected-creator permission audits, actual minute retention
+after emergency stop and the existing production served characterization in both gateway modes.
+All thirteen PR checks passed. The thirty-three pgTAP assertions passed after synthetic hardening
+and emergency restoration; that result does not establish the unmodified 0021 catalog's RLS.
+
+The repaired-head full specialist/Claude review confirmed that pgTAP must run before fixture
+hardening and emergency restore. The harness now runs it directly after both the upgrade and
+clean migration. A new disabled-member test rejects malformed and duplicate positives before
+a known refund changes rights, observation state or negative fences; a valid known-refund control
+still commits. These new checks require another actual clean/upgrade cloud run before merge.
+The review's 1,000-line test-file threshold is treated as a maintenance advisory: it establishes
+no high-impact defect, and splitting the shared sequential fixture solely for a line count would
+add indirection without changing the authority or verification contract.
 
 ## Hosted gate and recovery
 

@@ -614,6 +614,93 @@ Deno.test({
         },
       );
       await t.step(
+        "disabled batches reject malformed or duplicate positives before known refund mutation",
+        async () => {
+          const key = "f221".repeat(16), unknown = "f222".repeat(16);
+          const purchase = [{ key, product: "still_pro_v3" }];
+          const first = await commit(A, await begin(), purchase);
+          const right = first.observed_rights[0].right;
+          await admin`update private.qa_sandbox_subjects set enabled=false,revision=revision+1 where holder=${A}::uuid`;
+          try {
+            const negative = { ...purchase[0], state: "revoked" };
+            const positive = { key: unknown, product: "still_pro_v3" };
+            for (
+              const [batch, message] of [
+                [
+                  [negative, { ...positive, extra: true }],
+                  "invalid access transaction",
+                ],
+                [
+                  [negative, positive, positive],
+                  "duplicate access transaction",
+                ],
+              ] as const
+            ) {
+              const token = await begin();
+              const before = {
+                right: Array.from(
+                  await admin`select to_jsonb(r) as row from private.access_rights r where right_id=${right}::uuid`,
+                ),
+                observation: Array.from(
+                  await admin`select to_jsonb(o) as row from private.access_observations o where holder=${A}::uuid and environment='sandbox'`,
+                ),
+                negatives: Array.from(
+                  await admin`select * from private.qa_sandbox_negative_rights where right_id=${right}::uuid`,
+                ),
+                revocations: Array.from(
+                  await admin`select * from private.access_revocations where right_id=${right}::uuid`,
+                ),
+              };
+              assertEquals(before.right[0].row.active, true);
+              assertEquals(before.negatives, []);
+              assertEquals(before.revocations, []);
+              await assertRejects(
+                () => commit(A, token, [...batch]),
+                Error,
+                message,
+              );
+              assertEquals({
+                right: Array.from(
+                  await admin`select to_jsonb(r) as row from private.access_rights r where right_id=${right}::uuid`,
+                ),
+                observation: Array.from(
+                  await admin`select to_jsonb(o) as row from private.access_observations o where holder=${A}::uuid and environment='sandbox'`,
+                ),
+                negatives: Array.from(
+                  await admin`select * from private.qa_sandbox_negative_rights where right_id=${right}::uuid`,
+                ),
+                revocations: Array.from(
+                  await admin`select * from private.access_revocations where right_id=${right}::uuid`,
+                ),
+              }, before);
+              assertEquals(
+                (await admin`select count(*)::int as count from private.access_rights where environment='sandbox' and provider_key=${unknown}`)[
+                  0
+                ]?.count,
+                0,
+              );
+            }
+            const result = await commit(A, await begin(), [negative]);
+            assertEquals(result.rights, []);
+            assertEquals(result.observed_rights, []);
+            assertEquals(
+              (await admin`select active from private.access_rights where right_id=${right}::uuid`)[
+                0
+              ]?.active,
+              false,
+            );
+            assertEquals(
+              (await admin`select count(*)::int as count from private.qa_sandbox_negative_rights where right_id=${right}::uuid`)[
+                0
+              ]?.count,
+              1,
+            );
+          } finally {
+            await admin`update private.qa_sandbox_subjects set enabled=true,revision=revision+1 where holder=${A}::uuid`;
+          }
+        },
+      );
+      await t.step(
         "membership disable waits on common row lock and excludes in-flight positive rights atomically",
         async () => {
           const token = await begin();

@@ -59,11 +59,12 @@ for migration in supabase/migrations/*.sql; do
   if (( 10#${name%%_*} <= 10#0021 )); then cp "$migration" "$upgrade_root/supabase/migrations/"; fi
 done
 supabase migration up --local --workdir "$upgrade_root" >/dev/null
+supabase test db supabase/tests/rls_test.sql
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=1 qa_test
 head_creator_audit
 # Clean-install evidence is distinct; it cannot satisfy the required pre-upgrade absence probe.
 supabase db reset --local --no-seed --version 0021 >/dev/null
+supabase test db supabase/tests/rls_test.sql
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=0 qa_test
 head_creator_audit
-supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
