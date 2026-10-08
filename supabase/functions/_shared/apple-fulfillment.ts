@@ -100,7 +100,8 @@ async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link
     right: right.right, ownershipRevision: right.revision, verifiedAt: right.verified_at,
     expiresAt: right.verified_at + PAID_ACCESS_WINDOW_MS });
   const accountProof = link ? await access.signer.sign(right) : null;
-  if (!await access.store.confirm(current, token, right)) return jsonResponse(200, { status: "stale" });
+  // Signing is async: live account authority may disappear before the final SQL fence.
+  if (authorize && !await authorize() || !await access.store.confirm(current, token, right)) return jsonResponse(200, { status: "stale" });
   if (link) return jsonResponse(200, { status: result.status, ownershipRevision: right.revision,
     issuerTime: result.issuer_time, localProof, accountProof, nativeBinding });
   return jsonResponse(200, { schema: 1, status: "verified", proofs: [localProof],

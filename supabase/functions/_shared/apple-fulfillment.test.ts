@@ -84,7 +84,7 @@ Deno.test("transfer needs two distinct fresh confirmed project account authoriti
   await t.step("both authenticated accounts reach explicit CAS transfer", async () => {
     const s = setup(); await handleLinkAppleAccess(request({ ...first, sourceAccountId: B, sourceAuthority: await token(B) }, await token()), s.deps);
     assertEquals(s.link()?.sourceHolder, B);
-    assertEquals(s.calls.filter(c => c === "account").length, 4);
+    assertEquals(s.calls.filter(c => c === "account").length, 6);
   });
   for (const sourceAuthority of [await token(A), await token(B, { iss: "https://other.example/auth/v1" }), await token(B, { exp: 1 }), "forged"]) {
     await t.step("invalid source token", async () => {
@@ -188,4 +188,26 @@ Deno.test("Apple issuer clock must equal the freshly verified right clock before
       assertEquals(await result.json(), { status: "unavailable" }); assertEquals(s.calls.includes("sign"), false);
     }
   }
+});
+
+
+Deno.test("link and transfer authority lost while signing cannot return either proof", async t => {
+  for (const lost of [A, B]) await t.step(lost === A ? "destination" : "source", async () => {
+    const s = setup(); let lostDuringSigning = false;
+    const deps: AppleFulfillmentDeps = { ...s.deps,
+      accounts: { confirmed: async (_token, holder) => !(lostDuringSigning && holder === lost) },
+      access: { ...s.deps.access!, signer: { ...s.deps.access!.signer,
+        signAppleBinding: async binding => { lostDuringSigning = true; return JSON.stringify(binding); } } } };
+    const result = await (await handleLinkAppleAccess(request({ ...body(), sourceAccountId: B, sourceAuthority: await token(B) }, await token()), deps)).json();
+    assertEquals(result, { status: "stale" });
+    assertEquals(s.calls.includes("confirm"), false);
+  });
+});
+Deno.test("link JWT expires during signing and no authority escapes", async () => {
+  const s = setup(); const originalNow = Date.now; const start = originalNow();
+  const jwt = await token(A, { exp: Math.floor(start / 1000) + 600 });
+  const deps: AppleFulfillmentDeps = { ...s.deps, access: { ...s.deps.access!, signer: { ...s.deps.access!.signer,
+    signAppleBinding: async binding => { Date.now = () => start + 601_000; return JSON.stringify(binding); } } } };
+  try { assertEquals(await (await handleLinkAppleAccess(request(body(), jwt), deps)).json(), { status: "stale" }); }
+  finally { Date.now = originalNow; }
 });
