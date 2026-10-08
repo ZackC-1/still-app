@@ -33,6 +33,8 @@ export interface AppleProHostDeps {
   /** Verifies and atomically installs signed local rights, then returns the current accepted
    * authority snapshot. A generic access read cannot fulfill this port. */
   verifyLocalPurchase(): Promise<BenefitAccessSnapshot>;
+  /** Fresh native account-only reconciliation; independent of StoreKit and local linking. */
+  refreshAccountAccess?(): Promise<BenefitAccessSnapshot>;
   account(): AppleProAccount | null;
   ownershipRevision(): number;
   /** Current native purchaser-only signed local provenance. Missing port holds linking closed. */
@@ -133,7 +135,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     const generation = ++epoch;
     const observed = accessEpoch;
     const [rights, offering] = await Promise.allSettled([
-      pendingKind ? deps.verifyLocalPurchase() : deps.readAccess(),
+      pendingKind ? deps.verifyLocalPurchase() :
+        deps.account()?.confirmed && deps.refreshAccountAccess ? deps.refreshAccountAccess() : deps.readAccess(),
       deps.bridge.proOffering(),
     ]);
     if (stopped || generation !== epoch) return;
@@ -176,10 +179,26 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     changed();
     try {
       const observed = accessEpoch;
-      const read = await deps.readAccess();
+      const account = deps.account();
+      if (kind === "buy" && account && !account.confirmed && deps.refreshAccountAccess)
+        throw new Error("Current account requires verification before purchase");
+      const accountCheck = account?.confirmed && deps.refreshAccountAccess;
+      let accountUnknown = Boolean(account && deps.refreshAccountAccess && !account.confirmed);
+      const read = accountCheck
+        ? await deps.refreshAccountAccess!().catch(error => {
+            if (kind === "buy") throw error;
+            accountUnknown = true;
+            return deps.readAccess();
+          })
+        : await deps.readAccess();
       if (stopped || generation !== epoch) return;
       if (observed === accessEpoch) access = read;
       if (kind === "buy" && owner() !== "none") {
+        purchase = { state: "idle" };
+        return;
+      }
+      if (kind === "restore" && accountCheck && !accountUnknown && owner() === "owned") {
+        restore = { state: "restored" };
         purchase = { state: "idle" };
         return;
       }
@@ -216,7 +235,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         result.receipt === "verifiedNotEntitled"
       ) {
         // A conclusive native Restore cannot remove unrelated account/protected rights.
-        restore = { state: "nothing" };
+        restore = accountUnknown
+          ? { state: "verify", onAction: () => void transact("restore") } : { state: "nothing" };
         purchase = { state: "idle" };
         return;
       }
@@ -324,6 +344,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       owner() !== "owned"
     )
       return;
+    const operation = ++epoch;
     busy = true;
     link = { state: "pending", email: account.email };
     changed();
@@ -361,8 +382,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (!stopped && generation === linkGeneration && sameAccount(account))
         link = { state: "failed", email: account.email, onRetry: requestLink };
     } finally {
-      busy = false;
-      changed();
+      if (operation === epoch) {
+        busy = false;
+        changed();
+      }
     }
   }
   return {
@@ -378,6 +401,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       changed();
     },
     accountChanged() {
+      epoch++;
+      busy = false;
       if (linkAccount && !sameAccount(linkAccount)) {
         linkGeneration++;
         link = undefined;
@@ -386,6 +411,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       if (linkingRequested && !linkAccount && deps.account()?.confirmed)
         requestLink();
+      if (deps.account()?.confirmed && deps.refreshAccountAccess) void refresh();
       changed();
     },
     async route() {

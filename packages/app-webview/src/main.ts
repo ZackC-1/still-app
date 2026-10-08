@@ -21,7 +21,7 @@ import {
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
-import { packagedAccessTrust } from "@still/core/entitlement";
+import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
@@ -109,13 +109,14 @@ let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
 // Configured modern builds use issuer proofs and the native atomic installer.
 let applePurchaseAuthority: {
+  refreshAccountAccess: NonNullable<AppleProHostDeps["refreshAccountAccess"]>;
   verifyLocalPurchase: AppleProHostDeps["verifyLocalPurchase"];
   readLinkEligibility: AppleProHostDeps["readLinkEligibility"];
   ownershipRevision: AppleProHostDeps["ownershipRevision"];
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "bridge" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
+  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
 
 if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
@@ -154,7 +155,13 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
         const after = await supabase.auth.getSession();
         if (after.error || !account?.emailConfirmed || account.id !== before.data.session.user.id ||
           after.data.session?.access_token !== before.data.session.access_token) return null;
-        return { accountId: account.id, accessToken: before.data.session.access_token };
+        // Consistency hint only: native verifies the bearer against hosted Auth twice.
+        let sessionId: string | undefined;
+        try {
+          const payload = JSON.parse(atob(before.data.session.access_token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as {session_id?: unknown};
+          if (isAccessUUID(payload.session_id)) sessionId = payload.session_id;
+        } catch { /* An unreadable session remains unavailable to account proof reconciliation. */ }
+        return { accountId: account.id, accessToken: before.data.session.access_token, sessionId };
       },
       verifyLocal: fulfillment.verifyLocal,
       fulfillLink: fulfillment.fulfillLink,
@@ -162,7 +169,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     applePurchaseAuthority = authority;
     // This callback does no SDK work: Supabase holds its auth lock while notifying listeners.
     supabase.auth.onAuthStateChange(event => {
-      if (event !== "TOKEN_REFRESHED" && event !== "INITIAL_SESSION") authority.invalidateAccount();
+      if (event !== "INITIAL_SESSION") authority.invalidateAccount();
     });
     void authority.refreshOwnership().catch(() => {});
     // This refresh issues device-local proofs only; it never links an account on launch.
@@ -249,6 +256,12 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     bridge,
     purchaseLinkMode: appleSettingsMode === "legacy" ? "legacy" : "explicit",
     purchaseLink: applePurchaseAuthority?.purchaseLink,
+    onNativeAccountStatusPublished: applePurchaseAuthority
+      ? () => window.dispatchEvent(new Event("still:accountAccess")) : undefined,
+    refreshAccountAccess: applePurchaseAuthority ? async () => {
+      await applePurchaseAuthority!.refreshAccountAccess();
+      window.dispatchEvent(new Event("still:accountAccess"));
+    } : undefined,
     exchangeAppleCredential: async (cred) => {
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: "apple",
@@ -265,6 +278,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && applePurchaseAuthority) {
     appleProServices = {
       bridge,
+      refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
       verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,

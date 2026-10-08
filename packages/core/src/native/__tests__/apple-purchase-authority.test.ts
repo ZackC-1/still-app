@@ -32,6 +32,7 @@ async function setup() {
     observeAppleLinkAccess: vi.fn(async (): Promise<NativeAppleAccessObservation> => ({
       schema: 1, generation: 2, rights: [{ ...ack, status: "purchased" }],
     })),
+    reconcileAccountAccess: vi.fn(async () => ({schema: 1 as const, status: "committed" as const, generation: 3, accountId: vectors.account as string, sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: [account.proof.identity]})),
     observeBenefits: vi.fn(async () => snapshot),
   };
   const response = {schema: 1, status: "verified", proofs: [localText], issuerTime: claims.verified_at, localRight: claims.right, nativeBinding: "signed-native-binding"};
@@ -39,7 +40,7 @@ async function setup() {
     verifyLocal: vi.fn(async (): Promise<unknown> => response),
     fulfillLink: vi.fn(async () => ({status: "unavailable"})),
     readVerifiedAccount: vi.fn(async () => ({id: vectors.account as string, emailConfirmed: true})),
-    readAccessToken: vi.fn(async () => ({accountId: vectors.account as string, accessToken: "transient-bearer"})),
+    readAccessToken: vi.fn(async () => ({accountId: vectors.account as string, accessToken: "transient-bearer", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"})),
   };
   const authority = createApplePurchaseAuthority(deps);
   const commit = {accountId: vectors.account as string, accountRevision: 1, localProof: local.proof, accountProof: account.proof, issuerTime: claims.verified_at, ownershipRevision: claims.ownership_revision, nativeBinding: "signed-native-binding"};
@@ -109,7 +110,7 @@ describe("actual Apple signed purchase authority composition", () => {
   });
   it("fences same-account sign-out/re-login during token retrieval before install", async () => {
     const h = await setup();
-    h.deps.readAccessToken.mockImplementation(async () => {h.authority.invalidateAccount(); return {accountId: vectors.account, accessToken: "transient-bearer"};});
+    h.deps.readAccessToken.mockImplementation(async () => {h.authority.invalidateAccount(); return {accountId: vectors.account, accessToken: "transient-bearer", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"};});
     await expect(h.authority.purchaseLink.commit(h.commit)).rejects.toThrow("requires verification");
     expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
   });
@@ -120,7 +121,7 @@ describe("actual Apple signed purchase authority composition", () => {
   });
   it("refuses another account token despite a confirmed display account", async () => {
     const h = await setup();
-    h.deps.readAccessToken.mockResolvedValue({accountId: claims.right, accessToken: "another-bearer"});
+    h.deps.readAccessToken.mockResolvedValue({accountId: claims.right, accessToken: "another-bearer", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"});
     await expect(h.authority.purchaseLink.commit(h.commit)).rejects.toThrow("requires verification");
     expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
   });
@@ -224,5 +225,46 @@ describe("native purchaser-only local link eligibility", () => {
       rights: [{ ...h.ack, status: "purchased" }],
     });
     expect(await old).toBeNull();
+  });
+});
+
+
+describe("Apple account-only authority composition", () => {
+  it("reconciles current confirmed account natively then observes the accepted cache without local receipt or linking", async () => {
+    const h = await setup();
+    expect(await h.authority.refreshAccountAccess()).toBe(h.snapshot);
+    expect(h.bridge.reconcileAccountAccess).toHaveBeenCalledExactlyOnceWith("transient-bearer");
+    expect(h.bridge.observeBenefits).toHaveBeenCalledOnce();
+    expect(h.bridge.appleLocalPurchaseEvidence).not.toHaveBeenCalled();
+    expect(h.deps.verifyLocal).not.toHaveBeenCalled();
+    expect(h.deps.fulfillLink).not.toHaveBeenCalled();
+    expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
+  });
+  it("an empty committed account result observes independent accepted local benefits", async () => {
+    const h = await setup();
+    h.bridge.reconcileAccountAccess.mockResolvedValue({...await h.bridge.reconcileAccountAccess(), proofIdentities: []});
+    expect(await h.authority.refreshAccountAccess()).toBe(h.snapshot);
+    expect(h.bridge.installAppleAccess).not.toHaveBeenCalled();
+  });
+  it.each(["account", "session", "token", "epoch"])("rejects obsolete %s completion before observing benefits", async changed => {
+    const h = await setup();
+    h.bridge.reconcileAccountAccess.mockImplementation(async () => {
+      if (changed === "token") h.deps.readAccessToken.mockResolvedValue({accountId: vectors.account, accessToken: "replacement-token", sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"});
+      if (changed === "epoch") h.authority.invalidateAccount();
+      return {schema: 1, status: "committed", generation: 3, accountId: changed === "account" ? claims.right : vectors.account, sessionId: changed === "session" ? claims.right : "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: []};
+    });
+    await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
+    expect(h.bridge.observeBenefits).not.toHaveBeenCalled();
+  });
+  it("refuses unconfirmed or absent account before native requests", async () => {
+    const h = await setup();
+    h.deps.readVerifiedAccount.mockResolvedValue({id: vectors.account, emailConfirmed: false});
+    await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
+    expect(h.bridge.reconcileAccountAccess).not.toHaveBeenCalled();
+  });
+  it("does not publish a benefit read that finishes after a same-account replacement", async () => {
+    const h = await setup();
+    h.bridge.observeBenefits.mockImplementation(async () => { h.authority.invalidateAccount(); return h.snapshot; });
+    await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
   });
 });

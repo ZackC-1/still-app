@@ -29,9 +29,14 @@ function launch(env = {}, responseError = null) {
   let clientCount = 0;
   let backendOptions;
   let authority;
+  let sessionDeps;
+  let authEvent;
+  let invalidations = 0;
+  let accountRefreshes = 0;
+  const events = [];
   const client = {
     functions: { invoke: async (name, options) => { calls.push({ name, options }); return { data: { synthetic: true }, error: responseError }; } },
-    auth: { onAuthStateChange() {}, getSession: async () => ({ data: { session: null } }) },
+    auth: { onAuthStateChange(callback) { authEvent = callback; }, getSession: async () => ({ data: { session: null } }) },
   };
   class Bridge {
     available = true;
@@ -51,19 +56,20 @@ function launch(env = {}, responseError = null) {
     createClient() { clientCount++; return client; },
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },
     packagedAccessTrust: config => ({ environment: config.environment === "sandbox" ? "sandbox" : "production", keys: [] }),
-    createApplePurchaseAuthority(deps) { authority = deps; return { verifyLocalPurchase: async () => ({}), refreshOwnership: async () => {}, ownershipRevision: () => 0, purchaseLink: {}, readLinkEligibility: async () => null }; },
+    createApplePurchaseAuthority(deps) { authority = deps; return { invalidateAccount: () => {invalidations++;}, refreshAccountAccess: async () => {accountRefreshes++;}, verifyLocalPurchase: async () => ({}), refreshOwnership: async () => {}, ownershipRevision: () => 0, purchaseLink: {}, readLinkEligibility: async () => null }; },
     SupabaseBackendPort: class { constructor(_client, options) { backendOptions = options; } },
     SyncService: class {},
     UiController: class { rehydrateCodeEntry() {} },
-    createAppleSession: () => ({ resumeAccount: async () => {}, refreshReceipt: async () => {} }),
+    createAppleSession: deps => {sessionDeps = deps; return { resumeAccount: async () => {}, refreshReceipt: async () => {} };},
     document: { addEventListener() {}, getElementById: () => ({}), visibilityState: "visible" },
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, dispatchEvent(event) {events.push(event.type);} },
     bindTextScale() {},
     SAFARI_SURFACE_GUIDANCE: {},
-    AbortSignal,
+    AbortSignal, atob, Event,
+    isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { calls, clientCount, backendOptions, authority };
+  return { calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
 
 test("explicit QA profile routes both Apple fulfillment requests and modern sync to QA", async () => {
@@ -122,4 +128,25 @@ test("QA fulfillment errors remain on the selected route without a production re
   assert.deepEqual(host.calls.map(call => call.name), ["qa-sandbox-verify-apple-access", "qa-sandbox-link-apple-access"]);
   assert.equal(host.calls.length, 2);
   assert.ok(host.calls.every(call => call.options.signal instanceof AbortSignal));
+});
+
+
+test("modern entry wires account reconciliation separately and notifies accepted native cache", async () => {
+  const host = launch({ VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox", VITE_ACCESS_ENVIRONMENT: "sandbox" });
+  assert.equal(typeof host.sessionDeps.refreshAccountAccess, "function");
+  await host.sessionDeps.refreshAccountAccess();
+  assert.equal(host.accountRefreshes(), 1);
+  assert.deepEqual(host.events, ["still:accountAccess"]);
+  host.sessionDeps.onNativeAccountStatusPublished();
+  assert.deepEqual(host.events, ["still:accountAccess", "still:accountAccess"]);
+  host.authEvent("TOKEN_REFRESHED");
+  host.authEvent("SIGNED_OUT");
+  assert.equal(host.invalidations(), 2);
+  assert.equal(host.calls.length, 0);
+});
+
+test("legacy entry omits the account-only purchase authority hooks", () => {
+  const host = launch({VITE_MODERN_SETTINGS_SYNC_ENABLED: "false"});
+  assert.equal(host.sessionDeps.refreshAccountAccess, undefined);
+  assert.equal(host.sessionDeps.onNativeAccountStatusPublished, undefined);
 });

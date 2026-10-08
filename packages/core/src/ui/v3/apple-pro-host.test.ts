@@ -657,3 +657,106 @@ it("settings exposes only pending verification and reopening never dispatches a 
   expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
   expect(deps.linkPurchase).not.toHaveBeenCalled();
 });
+
+
+describe("Apple web-purchased account recovery", () => {
+  it("freshly reconciles a confirmed account before any new charge", async () => {
+    const h = await harness();
+    const refreshAccountAccess = vi.fn(async () => access("purchased"));
+    Object.assign(h.deps, {refreshAccountAccess});
+    h.setAccount(user);
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(refreshAccountAccess).toHaveBeenCalled());
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Restore finds an account purchase even with conclusive empty StoreKit and no sales offer", async () => {
+    const h = await harness();
+    Object.assign(h.deps, {refreshAccountAccess: vi.fn(async () => access("purchased"))});
+    h.setAccount(user);
+    vi.mocked(h.deps.bridge.restorePro).mockResolvedValue({outcome:"nothing",receipt:"verifiedNotEntitled"});
+    vi.mocked(h.deps.bridge.proOffering).mockResolvedValue(null);
+    await h.host.refresh();
+    h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("restored"));
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("ambiguous account check keeps accepted benefits and holds a new charge", async () => {
+    const h = await harness();
+    Object.assign(h.deps, {refreshAccountAccess: vi.fn(async () => {throw new Error("unknown account");})});
+    h.setAccount(user);
+    h.host.observeAccess(access("purchased"));
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.host.props([]).access.state).toBe("owned");
+  });
+  it("an old account refresh cannot publish after A to B to A", async () => {
+    const h = await harness();
+    const finishes: Array<(value: BenefitAccessSnapshot) => void> = [];
+    Object.assign(h.deps, {refreshAccountAccess: vi.fn(() => new Promise(resolve => {finishes.push(resolve);} ))});
+    h.setAccount(user);
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finishes.length).toBeGreaterThan(0));
+    h.setAccount({...user,id:"dddddddd-dddd-4ddd-8ddd-dddddddddddd",revision:2});
+    h.setAccount({...user,revision:3});
+    finishes[0]!(access("purchased"));
+    await h.settle();
+    expect(h.host.props([]).access.state).toBe("none");
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Apple account Restore ambiguity", () => {
+  it("an unknown account and empty StoreKit preserve accepted benefits while Restore stays unverified", async () => {
+    const h = await harness();
+    Object.assign(h.deps, {refreshAccountAccess: vi.fn(async () => {throw new Error("Unknown account");})});
+    h.setAccount(user);
+    vi.mocked(h.deps.readAccess).mockResolvedValue(access("purchased"));
+    h.host.observeAccess(access("purchased"));
+    vi.mocked(h.deps.bridge.restorePro).mockResolvedValue({outcome: "nothing", receipt: "verifiedNotEntitled"});
+    h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("verify"));
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+  });
+  it("an unknown account does not stop a verified independent local Restore", async () => {
+    const h = await harness();
+    Object.assign(h.deps, {refreshAccountAccess: vi.fn(async () => {throw new Error("Unknown account");})});
+    h.setAccount(user);
+    h.host.props([]).native.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("restored"));
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Apple operation cleanup ownership", () => {
+  it("an earlier account link completion cannot release a replacement account's purchase", async () => {
+    const h = await harness();
+    h.host.observeAccess(access("purchased"));
+    h.setAccount(user);
+    await h.settle();
+    await h.host.requestLink();
+    let finishLink!: (value: {status: "linked"; ownershipRevision: number}) => void;
+    vi.mocked(h.deps.linkPurchase).mockImplementation(() => new Promise(resolve => {finishLink = resolve;}));
+    h.host.settings().link?.onConfirm?.();
+    await vi.waitFor(() => expect(finishLink).toBeTypeOf("function"));
+    h.setAccount({...user,id:"dddddddd-dddd-4ddd-8ddd-dddddddddddd", revision:2});
+    h.host.observeAccess(access("locked"));
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementation(() => new Promise(() => {}));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce());
+    finishLink({status:"linked",ownershipRevision:1});
+    await h.settle();
+    h.host.props([]).native.onRestore?.();
+    await h.settle();
+    expect(h.deps.bridge.restorePro).not.toHaveBeenCalled();
+  });
+});

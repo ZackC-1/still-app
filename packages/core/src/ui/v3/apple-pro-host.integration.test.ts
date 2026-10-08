@@ -27,6 +27,7 @@ import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { WKWebViewStorageAdapter } from "../../storage/wkwebview-adapter.js";
+import { createApplePurchaseAuthority } from "../../native/apple-purchase-authority.js";
 import { NativeBridge, type NativeProResult } from "../../native/bridge.js";
 import {
   ACCESS_BENEFITS,
@@ -76,6 +77,8 @@ function snapshot(
 async function compose(
   options: {
     initial?: "locked" | "purchased" | "protected";
+    accountOnly?: boolean;
+    accountState?: "locked" | "purchased" | "verification_required";
     eligible?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -105,6 +108,9 @@ async function compose(
     ownershipRevision: 1,
   }));
   const acknowledgments: number[] = [];
+  const accountRequests: unknown[] = [];
+  const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const native = new NativeBridge({
     webkit: {
       messageHandlers: {
@@ -120,6 +126,11 @@ async function compose(
                 return (await storage.get()) ?? "";
               case "settingsAtomic":
                 return writer.initialize("unknown");
+              case "reconcileAccountAccess":
+                accountRequests.push(message);
+                rights = snapshot(options.accountState ?? "purchased");
+                return {schema: 1, status: "committed", generation: 2, accountId, sessionId,
+                  issuerTime: 1800000000000, proofIdentities: options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
               case "getBenefitAccess":
                 return { ok: true, snapshot: rights };
               case "proOffering":
@@ -178,7 +189,21 @@ async function compose(
     hydration: cache.whenHydrated(),
   });
   authorities.push(authority);
-  const controller = new UiController({ cache, host: { canPurchase: true } });
+  const controller = new UiController({ cache, host: { canPurchase: true },
+    ...(options.accountOnly ? {auth: {signOut: async () => {}, currentVerifiedAccount: async () => ({id: accountId, email: "account@still.test", emailConfirmed: true})}} : {}),
+  });
+  const accountAuthority = options.accountOnly ? createApplePurchaseAuthority({
+    trust: {environment: "sandbox", keys: []}, bridge: native,
+    readVerifiedAccount: async () => controller.userId ? {id: controller.userId, emailConfirmed: true} : null,
+    readAccessToken: async () => controller.userId ? {accountId: controller.userId, accessToken: "synthetic-transient-token", sessionId} : null,
+    verifyLocal: async () => {throw new Error("Account-only cannot verify a local receipt");},
+    fulfillLink: async () => {throw new Error("Account-only cannot link a receipt");},
+  }) : undefined;
+  if (accountAuthority) {
+    controller.userId = accountId;
+    controller.accountEmail = "account@still.test";
+    await controller.refreshAccountConfirmation();
+  }
   const openSignIn = vi.spyOn(controller, "openSignIn");
   const verifyLocalPurchase = vi.fn(async () => {
     if (options.verificationFails)
@@ -200,6 +225,7 @@ async function compose(
       proServices: {
         bridge: native,
         verifyLocalPurchase,
+        ...(accountAuthority ? {refreshAccountAccess: accountAuthority.refreshAccountAccess} : {}),
         ownershipRevision: () => 0,
         readLinkEligibility: async () =>
           options.eligible === false ? null : { ownershipRevision: 0 },
@@ -211,6 +237,10 @@ async function compose(
   return {
     view,
     authority,
+    controller,
+    accountRequests,
+    setAccountState: (state: typeof options.accountState) => {options.accountState = state;},
+    setNativeAccess: (state: "locked" | "purchased" | "protected") => {rights = snapshot(state);},
     openSignIn,
     verificationAvailable() {
       options.verificationFails = false;
@@ -739,4 +769,60 @@ describe("Restore signed-verifier progress survives accepted cache publications"
       }
     },
   );
+});
+
+
+describe("mounted Apple account-only native authority", () => {
+  it("launch recovers a web purchase through typed native commit and renders accepted Pro", async () => {
+    const f = await compose({accountOnly: true});
+    f.setRoute(91);
+    window.dispatchEvent(new Event("still:route"));
+    expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
+    expect(f.accountRequests.length).toBeGreaterThan(0);
+    expect(f.accountRequests[0]).toEqual({kind:"reconcileAccountAccess",accessToken:"synthetic-transient-token"});
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Restore unlocks account-only access through the real native bridge without local verification", async () => {
+    const f = await compose({accountOnly: true, accountState: "locked"});
+    f.setAccountState("purchased");
+    await fireEvent.click(await screen.findByRole("button", {name: "Restore purchase"}));
+    expect(await screen.findByText("Still Pro is restored on this device.")).toBeInTheDocument();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("native lineage notification refreshes the existing cache on sign-out and preserves local Pro", async () => {
+    const f = await compose({accountOnly: true});
+    f.setRoute(92);
+    window.dispatchEvent(new Event("still:route"));
+    await screen.findByText("You have Still Pro.");
+    f.controller.userId = null;
+    f.controller.accountEmail = null;
+    // Native already committed account removal while preserving its independent local lane.
+    f.setNativeAccess("protected");
+    window.dispatchEvent(new Event("still:accountAccess"));
+    await waitFor(() => expect(f.authority.entitlement.currentAccessSnapshot().independentProtection.length).toBeGreaterThan(0));
+    expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
+    expect(f.purchase).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("mounted Apple known account removal", () => {
+  it("native account-only removal after sign-out updates an already open purchase view", async () => {
+    const f = await compose({accountOnly: true});
+    f.setRoute(93);
+    window.dispatchEvent(new Event("still:route"));
+    await screen.findByText("You have Still Pro.");
+    f.controller.userId = null;
+    f.controller.accountEmail = null;
+    f.setNativeAccess("locked");
+    window.dispatchEvent(new Event("still:accountAccess"));
+    await waitFor(() => expect(screen.queryByText("You have Still Pro.")).toBeNull());
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
 });

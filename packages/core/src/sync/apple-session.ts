@@ -70,6 +70,10 @@ export interface AppleSessionDeps {
   /** Only modern V3 composition opts in. The shipped 2.x identity/Restore flow stays legacy. */
   readonly purchaseLinkMode?: "legacy" | "explicit";
   readonly purchaseLink?: ApplePurchaseLinkAuthority;
+  /** Modern account authority, started after native account-lineage publication. It never
+   * participates in free sync completion or automatically associates a local purchase. */
+  readonly refreshAccountAccess?: () => Promise<unknown>;
+  readonly onNativeAccountStatusPublished?: () => void;
   /** Exchange the native Apple credential for a Supabase session (signInWithIdToken); returns the
    * Supabase user id, or the error message to surface. */
   readonly exchangeAppleCredential: (
@@ -167,15 +171,36 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     }
   };
 
+  let accountAccessTicket = 0;
   let statusWrite: Promise<void> = Promise.resolve();
   const publishStatus = (status: AccountSyncStatus | null): Promise<void> => {
     const generation = generations.capture();
     statusWrite = statusWrite.catch(() => {}).then(async () => {
       if (!generations.isCurrent(generation)) return;
       if ((status?.accountId ?? null) !== activeSessionUserId) return;
-      if (bridge.available) await bridge.setAccountSyncStatus?.(status);
+      if (bridge.available && bridge.setAccountSyncStatus) {
+        await bridge.setAccountSyncStatus(status);
+        if (generations.isCurrent(generation) && (status?.accountId ?? null) === activeSessionUserId)
+          deps.onNativeAccountStatusPublished?.();
+      }
     }).catch(() => { /* The next state change retries this local display mirror. */ });
     return statusWrite;
+  };
+
+  const refreshAccountAccess = (): void => {
+    if (!explicitLink || !deps.refreshAccountAccess || !bridge.available || !activeSessionUserId) return;
+    const ticket = ++accountAccessTicket;
+    const generation = generations.capture();
+    const userId = activeSessionUserId;
+    const current = () => ticket === accountAccessTicket && generations.isCurrent(generation) &&
+      activeSessionUserId === userId;
+    // Queue the identity first. A stalled or rejected native write holds purchase verification
+    // independently; settings start immediately and never await this background job.
+    void publishStatus({accountId: userId, email: controller.accountEmail,
+      lastSyncedAt: controller.lastSyncedAt, pendingUpload: controller.pendingUpload,
+      cloudReachable: controller.cloudReachable, updatedAt: Date.now()}).then(async () => {
+      if (current()) await deps.refreshAccountAccess!();
+    }).catch(() => { /* Keep accepted rights; the next foreground or Restore can verify again. */ });
   };
 
   const refreshReceipt = async (): Promise<ReceiptStatusValue> => {
@@ -224,6 +249,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     activeSessionGeneration = generationAtEntry;
     activeSessionUserId = userId;
     controller.reconciling = true;
+    refreshAccountAccess();
     try {
       // Re-keying the purchase SDK to this account and mirroring the account's settings are two
       // independent jobs, so they start together. Settings sync is what signing in buys and it
@@ -292,6 +318,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       if (state.userId === null) {
         // Only a session that really ended: the service can report "no user" before a resume.
         if (activeSessionUserId !== null) notifyAbsent();
+        accountAccessTicket++;
         activeSessionUserId = null;
         controller.accountRevision++;
         controller.accountEmail = null;
@@ -509,6 +536,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
     onVisibilityChange(visibility: DocumentVisibilityState): void {
       if (visibility !== "visible") return;
+      refreshAccountAccess();
       if (controller.userId) void sync.retryNow?.().catch(() => {});
       // Always refresh the receipt on foreground (R18): a signed-out Ask-to-Buy approval or a
       // refund that landed while backgrounded is observed here; refreshReceipt itself resolves a
