@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
+  import { PAID_TIER_ENABLED, SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     App,
     OpenSettingsButton,
@@ -14,6 +14,7 @@
     popupPresentationLoader,
     type RuntimePlatform,
   } from "../../lib/runtime-platform.js";
+  import { canNavigateToPro, openBrowserPro } from "../../lib/pro-navigation.js";
 
   interface Props {
     controller: UiController;
@@ -27,6 +28,8 @@
     surfaceGuidance: SurfaceGuidance;
     /** The browser's own platform answer (lib/runtime-platform.ts). Absent means desktop. */
     platform?: Promise<RuntimePlatform>;
+    /** Supplied only when the actual informational options destination can mount. */
+    proDestinationReady?: boolean;
   }
   let {
     controller,
@@ -37,6 +40,7 @@
     onRestore,
     surfaceGuidance,
     platform = Promise.resolve("desktop"),
+    proDestinationReady = false,
   }: Props = $props();
 
   // Keep V3 global styles out of shared default/native/options build graphs.
@@ -58,8 +62,20 @@
         )
       : () => import("@still/core/ui/v3/DesktopPopup.svelte");
 
+  let destinationReady = $derived(
+    PAID_TIER_ENABLED && proDestinationReady &&
+      (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+        import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"),
+  );
+
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
+  }
+  function openPro(): void {
+    if (
+      destinationReady &&
+      committedPopupBinding?.current().reason !== "stopped"
+    ) void openBrowserPro();
   }
   // Presentation-only: this origin-local choice never enters the blocking document or sync.
   const sectionMemory = {
@@ -90,7 +106,13 @@
     {onCommittedPopupToggle}
     {onRestore}
     popupPresentation={committedPopupBinding
-      ? { browser, onSettings: openOptions, loadDesktop, sectionMemory }
+      ? {
+          browser,
+          onSettings: openOptions,
+          onSeePro: destinationReady && canNavigateToPro() ? openPro : undefined,
+          loadDesktop,
+          sectionMemory,
+        }
       : undefined}
     compact
   />

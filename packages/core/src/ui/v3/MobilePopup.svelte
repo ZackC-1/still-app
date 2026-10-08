@@ -8,7 +8,6 @@
   import { invitationVisible } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
-  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
 
@@ -84,14 +83,14 @@
       ),
   );
   let dormant = $derived(proRowsDormant(access));
-  // Owner decision 41: where this popup has a purchase entry (Firefox for Android), a locked row
-  // opens a sheet holding it. Safari's lock keeps its reference action: the Still app is the offer.
-  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
   let offer = $derived(
     host === "firefox" && channelReady && Boolean(onPurchase) && knownMissing,
   );
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
+  );
+  let browserActionReady = $derived(
+    host === "firefox" && Boolean(onSeePro) && knownMissing,
   );
   let invitationReady = $derived(
     invitation?.identity.surface ===
@@ -101,16 +100,8 @@
       !setup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
-  $effect(() => {
-    if (paywall && !offer) paywall = null;
-  });
   function openPro() {
-    if (appActionReady) onSeePro?.();
-    else if (offer) onPurchase?.();
-  }
-  function lockAction(opener: HTMLElement) {
-    if (appActionReady) onSeePro?.();
-    else if (offer) paywall = { opener };
+    if (appActionReady || browserActionReady) onSeePro?.();
   }
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
@@ -240,7 +231,8 @@
                       )
                         onFeatureChange(row.id, next);
                     }}
-                    onLock={appActionReady || offer ? lockAction : undefined}
+                    host={host === "safari" ? "safari" : "browser"}
+                      onLock={appActionReady || browserActionReady ? openPro : undefined}
                   />
                 {/each}
               </div>
@@ -253,23 +245,6 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
-  {#if paywall && offer}
-    <ProPaywallSheet
-      opener={paywall.opener}
-      onDismiss={() => {
-        paywall = null;
-      }}
-    >
-      <h2>Still Pro</h2>
-      <button
-        type="button"
-        class="secondary block"
-        onclick={() => {
-          if (offer) onPurchase?.();
-        }}>Purchase Still Pro</button
-      >
-    </ProPaywallSheet>
-  {/if}
   {#if host === "safari" && knownMissing}
     <button
       type="button"

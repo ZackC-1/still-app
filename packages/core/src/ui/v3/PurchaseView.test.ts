@@ -41,6 +41,33 @@ function apple(overrides: Partial<AppleProps> = {}): AppleProps {
 }
 const buy = () => screen.queryByRole("button", { name: "Get Still Pro" });
 describe("controlled D18 purchase view", () => {
+  it("preserves the caller's capability-filtered grouping, order and empty inventory across rerenders", async () => {
+    const input = browser({
+      controls: [
+        { site: "YouTube", label: "Localized comments" },
+        { site: "Instagram", label: "Localized stories" },
+        { site: "YouTube", label: "Localized live chat" },
+      ],
+    });
+    const view = render(PurchaseView, { props: input });
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual([
+      "Localized comments",
+      "Localized live chat",
+      "Localized stories",
+    ]);
+    expect(screen.getByText("YouTube Blocking Options")).toBeTruthy();
+    expect(screen.queryByText("Facebook Blocking Options")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    await view.rerender({ ...input, controls: [] });
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(screen.queryByText("YouTube Blocking Options")).toBeNull();
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
+    if (input.host === "browser")
+      expect(input.checkout.onRequest).not.toHaveBeenCalled();
+  });
+
   it("requests purchase sign-in without starting checkout or inventing success", async () => {
     const props = browser();
     render(PurchaseView, { props });

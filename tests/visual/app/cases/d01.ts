@@ -157,6 +157,21 @@ const cases: VisualCase[] = [
   },
   {
     ...base,
+    id: "d01-08",
+    reference: "08-firefox-autoplay-unavailable-522px-tall.png",
+    caption: "Firefox · Autoplay unavailable",
+    theme: "light",
+    frame: { kind: "popup" },
+    render: popup({
+      browser: "Firefox",
+      access: accessAll("purchased", { yt_autoplay: "unsupported" }),
+      open: "youtube",
+      settings: settingsFor({ values: { yt_autoplay: true } }),
+    }),
+    deviations: signedOut,
+  },
+  {
+    ...base,
     id: "d01-09",
     reference: "09-150-text-text-scale-scrolls-inside-582px-tall.png",
     caption: "150% text (--text-scale) · scrolls inside",

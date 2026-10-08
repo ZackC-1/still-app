@@ -24,3 +24,9 @@ if (
   bindTextScale(document, "browser");
 mount(BlockedPage, { target: document.getElementById("app")!, props: { host } });
 void host.start();
+// Retire pending replies as soon as this native document leaves. A restored cached document must
+// rebind through a fresh load, rather than revive callbacks belonging to the document it left.
+window.addEventListener("pagehide", () => host.stop(), { once: true });
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) window.location.reload();
+});

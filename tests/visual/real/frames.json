@@ -2,7 +2,7 @@
  "version": 1,
  "designVersion": "3.0.1",
  "scale": 2,
- "count": 143,
+ "count": 144,
  "frames": [
   {
    "id": "gallery-01",
@@ -1108,6 +1108,35 @@
    ],
    "twin": null,
    "v1Case": "d01-07"
+  },
+  {
+   "id": "d01-08",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/08-firefox-autoplay-unavailable-522px-tall.png",
+   "frame": 8,
+   "cssWidth": 380,
+   "cssHeight": 522.078125,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1044,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "none.firefox-capability.d01-08.t1"
+   },
+   "blockedBy": [
+    "Firefox autoplay is unavailable; requires a real Firefox capability-state capture"
+   ],
+   "twin": null,
+   "v1Case": null
   },
   {
    "id": "d01-09",

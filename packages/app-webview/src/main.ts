@@ -173,6 +173,7 @@ if (supabaseUrl && supabaseAnonKey) {
       // on this host: the link completes in the default browser, which can never hand the session
       // back to this WKWebView.
       requestCode: (email) => authPort.requestCode(email),
+      currentVerifiedAccount: () => authPort.currentVerifiedAccount(),
       // Session side effects belong in the host closure (UiAuth contract), but the orchestration
       // lives in the TESTED AppleSession module (this file is thin wiring): a verified code AWAITS
       // the full session entry — RevenueCat keyed to the Supabase UUID (KTD5), reconcile,

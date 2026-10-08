@@ -13,7 +13,7 @@
     "build:v3:test": "node scripts/qa/v3-profile.mjs test",
     "test:build-profiles": "node --test scripts/qa/v3-profile.test.mjs",
     "perf:sustained": "node tests/sustained/run.mjs",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present test && node --test tests/visual/run.test.mjs tests/visual/real/inputs.test.mjs tests/visual/real/frames.test.mjs tests/visual/app/gallery-coverage.test.mjs tests/visual/reference/capture.test.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "test:firefox": "playwright test -c tests/firefox/playwright.config.ts --project=lane",
     "test:firefox:qa": "playwright test -c tests/firefox/playwright.config.ts --project=qa",

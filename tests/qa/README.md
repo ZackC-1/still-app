@@ -26,6 +26,14 @@ pnpm visual:real -- --self-test                  # proves the gate fails a 2px s
 `tests/visual/real/run.mjs` captures the popup (opened as a page at the popup size), options,
 first-run and TikTok blocked pages at deviceScaleFactor 2 and compares each with the package's 2x
 reference using the package's own `compare.script`: pass only when differing pixels x 200 <= total
-pixels. No masks, no reference edits. It prints `SKIPPED` and exits 0 when the private design package
-(`STILL_DESIGN_PACKAGE`) is absent. Frames whose state cannot be reached yet are reported `BLOCKED`
-with the reason, never as passes. Reports: `tests/visual/real/.output/report.md`.
+pixels. No masks, no reference edits. It exits 1 before browser launch when the comparator, references, or latest `3.0.1` inventory
+are missing or invalid. The default source is `docs/design/Still v3.1 redesign/source`; set
+`STILL_VISUAL_REFERENCE_DIR` to the generated reference directory. Comparator dependencies
+resolve from `source/handoff/package.json` (including dependencies installed in its parent). Frames whose state cannot be reached yet are reported `BLOCKED`
+with the reason and a non-passing aggregate, never as passes. Reports include selected
+source/reference paths, comparator and inventory hashes, the built artifact digest, and a
+coverage ledger for all 144 DOM frames. Preflight decodes every PNG and checks the renderer’s
+outward-rounded CSS bounds at 2x. Reports pin all reference PNG paths/hashes and reject reference
+or shipped-artifact changes throughout capture. Verified QA receipts supply the build revision and
+dirty state; the checkout running capture is reported separately. Unreceipted build source is unknown. Store/icon assets (14 frames) require separate artifact
+review; unselected, unmapped, recorded-native WebKit, and physical-device evidence remain distinct. Reports: `tests/visual/real/.output/report.md`.

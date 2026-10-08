@@ -77,7 +77,9 @@ describe("controlled D01 presentation", () => {
       const { props } = await fixture();
       const view = render(DesktopPopup, { props: { ...props, browser } });
       expect(
-        screen.getByRole("button", { name: `Settings. Find Still in ${browser}.` }),
+        screen.getByRole("button", {
+          name: `Settings. Find Still in ${browser}.`,
+        }),
       ).toBeInTheDocument();
       view.unmount();
     }
@@ -160,7 +162,7 @@ describe("controlled D01 presentation", () => {
           expect(row).toHaveAttribute("data-access", "locked");
           expect(within(row).getByText("Still Pro")).toBeTruthy();
           const lock = within(row).getByRole("button", {
-            name: "Still Pro",
+            name: /^.+\. Included in Still Pro\./,
             description: label,
           });
           expect(lock).toHaveAttribute("aria-disabled", "true");
@@ -262,7 +264,7 @@ describe("controlled D01 presentation", () => {
           ).toBeTruthy();
         } else {
           const locked = within(row).getByRole("button", {
-            name: "Still Pro",
+            name: /^.+\. Included in Still Pro\./,
             description: "Comments",
           });
           expect(locked).toHaveAttribute("aria-disabled", "true");
@@ -570,7 +572,10 @@ describe("controlled D01 presentation", () => {
       ),
     ).toBeTruthy();
     await fireEvent.click(
-      screen.getByRole("button", { name: "Still Pro", description: "Comments" }),
+      screen.getByRole("button", {
+        name: /^.+\. Included in Still Pro\./,
+        description: "Comments",
+      }),
     );
     expect(props.onFeatureChange).not.toHaveBeenCalled();
     expect(screen.queryByText("Purchase Still Pro")).toBeNull();
@@ -588,6 +593,27 @@ describe("controlled D01 presentation", () => {
       requireModernSettings(cache.currentRecord()).sites["youtube.autoplay"],
     ).toBe(true);
   });
+  it("routes an eligible feature lock directly to its host destination without a sheet or settings write", async () => {
+    const { props, storage } = await fixture("locked");
+    props.onPurchase = vi.fn();
+    props.onSeePro = vi.fn();
+    const saved = await storage.get();
+    render(DesktopPopup, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", {
+        name: "Comments. Included in Still Pro. See Still Pro",
+      }),
+    );
+    expect(props.onSeePro).toHaveBeenCalledOnce();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+  });
+
   it("offers only a trusted eligible purchase and removes it when current access becomes uncertain", async () => {
     const { props } = await fixture("locked");
     const buy = vi.fn();
@@ -608,7 +634,7 @@ describe("controlled D01 presentation", () => {
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Still Pro",
+        name: /^.+\. Included in Still Pro\./,
         description: "Related videos",
       }),
     );

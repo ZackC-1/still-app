@@ -1,4 +1,5 @@
 import { mount } from "svelte";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { browser } from "wxt/browser";
 import "@still/core/ui/tokens.css";
 import {
@@ -101,6 +102,10 @@ function init(): void {
       // Asked once at open; the popup waits for it before choosing a presentation. The Chromium
       // build never asks (always desktop).
       platform: runtimePlatformFor(isFirefox, browser.runtime),
+      ...(!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+        ? { proDestinationReady: PAID_TIER_ENABLED && settingsRuntime.atomicLocal }
+        : {}),
     },
   });
 }

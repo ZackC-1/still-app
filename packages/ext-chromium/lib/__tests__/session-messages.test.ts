@@ -22,6 +22,7 @@ function sessionStub(): ExtensionSession {
       accountId: "11111111-1111-4111-8111-111111111111", email: "verified@example.test",
       lastSyncedAt: 100, pendingUpload: true, cloudReachable: false, updatedAt: 200,
     })),
+    getVerifiedAccount: vi.fn(async () => ({ id: "user", email: "verified@example.test", emailConfirmed: true })),
     retrySync: vi.fn(async () => {}),
     requestCode: vi.fn(async () => ({ kind: "sent" as const })),
     verifyCode: vi.fn(async () => ({ kind: "verified" as const, userId: "user" })),
@@ -42,6 +43,7 @@ function sessionStub(): ExtensionSession {
 const requests: SessionRequest[] = [
   { kind: SESSION_MESSAGE_KIND, action: "getState" },
   { kind: SESSION_MESSAGE_KIND, action: "getSyncStatus" },
+  { kind: SESSION_MESSAGE_KIND, action: "getVerifiedAccount" },
   { kind: SESSION_MESSAGE_KIND, action: "retrySync" },
   { kind: SESSION_MESSAGE_KIND, action: "requestCode", email: "a@example.com" },
   { kind: SESSION_MESSAGE_KIND, action: "verifyCode", email: "a@example.com", token: "123456" },
@@ -73,6 +75,7 @@ describe("session protocol registry", () => {
         accountId: "11111111-1111-4111-8111-111111111111", email: "verified@example.test",
         lastSyncedAt: 100, pendingUpload: true, cloudReachable: false, updatedAt: 200,
       },
+      { id: "user", email: "verified@example.test", emailConfirmed: true },
       "ok",
       { kind: "sent" },
       { kind: "verified", userId: "user" },
@@ -88,6 +91,7 @@ describe("session protocol registry", () => {
     ]);
     expect(session.getState).toHaveBeenCalledOnce();
     expect(session.getSyncStatus).toHaveBeenCalledOnce();
+    expect(session.getVerifiedAccount).toHaveBeenCalledOnce();
     expect(session.retrySync).toHaveBeenCalledOnce();
     expect(session.requestCode).toHaveBeenCalledWith("a@example.com");
     expect(session.verifyCode).toHaveBeenCalledWith("a@example.com", "123456");
@@ -132,13 +136,14 @@ describe("session protocol registry", () => {
   it("never reveals account email or starts a sync retry for content-script senders", async () => {
     const session = sessionStub();
     const router = createSessionMessageRouter(session, "still", "chrome-extension://still/");
-    for (const action of ["getSyncStatus", "retrySync"] as const) {
+    for (const action of ["getSyncStatus", "getVerifiedAccount", "retrySync"] as const) {
       for (const url of ["https://www.youtube.com/", "https://www.instagram.com/", "https://www.tiktok.com/", "https://www.facebook.com/"]) {
         await expect(sendThrough(router, { kind: SESSION_MESSAGE_KIND, action }, { id: "still", url, tab: {} }))
           .resolves.toBeUndefined();
       }
     }
     expect(session.getSyncStatus).not.toHaveBeenCalled();
+    expect(session.getVerifiedAccount).not.toHaveBeenCalled();
     expect(session.retrySync).not.toHaveBeenCalled();
   });
 

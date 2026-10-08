@@ -88,7 +88,7 @@ async function tapEveryLock(expected: readonly FeatureId[]) {
       ).toBeNull();
       expect(within(rowElement).getByText("Still Pro"), row.id).toBeVisible();
       const lock = within(rowElement).getByRole("button", {
-        name: "Still Pro",
+        name: /^.+\. Included in Still Pro\./,
       });
       expect(lock, row.id).toHaveAccessibleDescription(describedBy(row.name));
       expect(lock, row.id).toHaveAttribute("aria-disabled", "true");
@@ -151,7 +151,9 @@ describe("decision 24: dormant Still Pro rows", () => {
         onLock,
       },
     });
-    const lock = screen.getByRole("button", { name: "Still Pro" });
+    const lock = screen.getByRole("button", {
+      name: /^.+\. Included in Still Pro\./,
+    });
     expect(lock).toHaveAccessibleDescription("Comments");
     expect(lock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(lock);
@@ -304,7 +306,7 @@ describe("decision 24: dormant Still Pro rows", () => {
       );
     for (const row of PRO) {
       const lock = screen.getByRole("button", {
-        name: "Still Pro",
+        name: /^.+\. Included in Still Pro\./,
         description: describedBy(row.name),
       });
       expect(lock).toHaveAttribute("aria-disabled", "true");
@@ -316,8 +318,7 @@ describe("decision 24: dormant Still Pro rows", () => {
 
   it("the same components still render a paid-world locked row as an offer port (the gate is dormancy, not the design)", async () => {
     // Control: an injected paid-world snapshot (some Pro feature `locked`) is not dormant, so a
-    // supplied purchase port stays reachable: the lock opens the paywall sheet (decision 41) and
-    // its explicit Purchase button is the only way to the port.
+    // navigation reaches the real Pro destination and only explicit Purchase starts checkout.
     const { props } = await desktopFixture();
     props.access = {
       ...props.access,
@@ -329,21 +330,21 @@ describe("decision 24: dormant Still Pro rows", () => {
       ) as typeof props.access.states,
     };
     props.onPurchase = vi.fn();
+    props.onSeePro = vi.fn();
     const view = render(DesktopPopup, { props });
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Still Pro",
+        name: /^.+\. Included in Still Pro\./,
         description: "Comments",
       }),
     );
-    const sheet = screen.getByRole("dialog", { name: "Still Pro" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(props.onSeePro).toHaveBeenCalledOnce();
     expect(props.onPurchase).not.toHaveBeenCalled();
-    await fireEvent.click(
-      within(sheet).getByRole("button", { name: "Purchase Still Pro" }),
-    );
+    await fireEvent.click(screen.getByRole("button", { name: "Purchase Still Pro" }));
     expect(props.onPurchase).toHaveBeenCalledOnce();
     view.unmount();
   });

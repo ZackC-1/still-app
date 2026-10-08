@@ -7,9 +7,8 @@
   // from the browser's own platform answer). It receives exactly what the desktop popup receives.
   // `browser` and `heroTitle` are desktop-only presentation details MobilePopup does not take.
   //
-  // No purchase channel and no setup card are supplied: `channelReady` stays false until the actual
-  // Firefox Android managed channel is verified, and the permission request lives on the first-run
-  // page. Every visible word comes from MobilePopup's existing `host: "firefox"` presentation.
+  // The real options destination is informational; navigation does not verify a payment channel.
+  // Permission requests stay on first-run; navigation never invokes a purchase callback.
   let {
     browser: _browser,
     heroTitle: _heroTitle,

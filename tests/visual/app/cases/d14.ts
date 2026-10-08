@@ -77,7 +77,7 @@ function firstRun({
           : undefined,
         onSignIn: noop,
       },
-      // "none" draws no consent card at all (reference d14-03, redrawn 2026-10-05).
+      // Missing verified purposes may hold the real host question; reference cases supply its state.
       consent:
         consent === "none"
           ? undefined
@@ -140,15 +140,9 @@ const cases: VisualCase[] = [
     caption: "Firefox · permission needed",
     theme: "light",
     width: 420,
-    // Redrawn 2026-10-05 (owner decision 58): no browser tab header, no combined consent card, and
-    // the approved sync wording, so there is no deviation left to declare. `r-bare` hides the
-    // simulated tab bar through the package's review.css.
-    frame: { ...tab(420, 960), cls: "r-bare" },
-    render: firstRun({
-      browser: "firefox",
-      permission: "needed",
-      consent: "none",
-    }),
+    frame: tab(420, 960),
+    render: firstRun({ browser: "firefox", permission: "needed" }),
+    deviations: [OWNER_SYNC_COPY],
   },
   {
     ...base,

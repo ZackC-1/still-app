@@ -7,23 +7,20 @@ import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
 
-/**
- * Owner decision 41: a locked row opens the Still Pro sheet; only the sheet's own explicit
- * "Get Still Pro" reaches a purchase or sign-in port. The sheet is closed again with its X.
- */
+/** A lock reveals the existing Pro card; only its explicit Buy requests a purchase. */
 async function requestThroughLock(feature = "Comments") {
   const row = screen.queryByRole("button", {
-    name: "Still Pro",
+    name: /^.+\. Included in Still Pro\./,
     description: feature,
   });
   if (!row) return;
   await fireEvent.click(row);
-  const sheet = screen.queryByRole("dialog", { name: "Still Pro" });
-  if (!sheet) return;
-  const buy = within(sheet).queryByRole("button", { name: "Get Still Pro" });
-  if (buy) await fireEvent.click(buy);
-  await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog", { name: "Still Pro" })).toBeNull();
+  const card = screen.queryByRole("region", { name: "Still Pro" });
+  if (!card || row.getAttribute("aria-disabled") === "true") return;
+  expect(card).toHaveFocus();
+  const buy = within(card).queryByRole("button", { name: "Get Still Pro" });
+  if (buy) await fireEvent.click(buy);
 }
 
 describe("controlled D03 extension settings", () => {
@@ -906,7 +903,7 @@ describe("controlled D03 extension settings", () => {
       if (pending) await fireEvent.click(pending);
       expect(
         screen.getByRole("button", {
-          name: "Still Pro",
+          name: /^.+\. Included in Still Pro\./,
           description: "Comments",
         }),
       ).toBeInTheDocument();
@@ -974,21 +971,26 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
   it("is absent unless the host supplies a Restore port", async () => {
     const props = await freeProps();
     const view = render(ExtensionSettings, { props });
-    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Restore purchase" }),
+    ).toBeNull();
     view.unmount();
   });
 
   it("adds nothing whenever a paid producer is supplied, even with a Restore port", async () => {
     // The paid card keeps its own Restore control; the free-period link must not be added to it.
     const { props } = await fixture("locked");
-    const count = () => screen.queryAllByRole("button", { name: "Restore purchase" }).length;
+    const count = () =>
+      screen.queryAllByRole("button", { name: "Restore purchase" }).length;
     const without = render(ExtensionSettings, { props });
     const paidCardOnly = count();
     without.unmount();
     const onRestore = vi.fn();
     const view = render(ExtensionSettings, { props: { ...props, onRestore } });
     expect(count()).toBe(paidCardOnly);
-    for (const button of screen.queryAllByRole("button", { name: "Restore purchase" }))
+    for (const button of screen.queryAllByRole("button", {
+      name: "Restore purchase",
+    }))
       await fireEvent.click(button);
     expect(onRestore).not.toHaveBeenCalled();
     view.unmount();
@@ -1031,13 +1033,18 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
       ],
     ],
     ["checking", ["Checking for Still Pro purchases…"]],
-  ] as const)("shows the existing %s wording beside the link", async (state, lines) => {
-    const props = await freeProps();
-    const view = render(ExtensionSettings, {
-      props: { ...props, onRestore: vi.fn(), restore: { state } },
-    });
-    for (const line of lines) expect(screen.getByText(line)).toBeVisible();
-    expect(document.body.textContent ?? "").not.toMatch(/Get Still Pro|Buy|\$|€|£/);
-    view.unmount();
-  });
+  ] as const)(
+    "shows the existing %s wording beside the link",
+    async (state, lines) => {
+      const props = await freeProps();
+      const view = render(ExtensionSettings, {
+        props: { ...props, onRestore: vi.fn(), restore: { state } },
+      });
+      for (const line of lines) expect(screen.getByText(line)).toBeVisible();
+      expect(document.body.textContent ?? "").not.toMatch(
+        /Get Still Pro|Buy|\$|€|£/,
+      );
+      view.unmount();
+    },
+  );
 });

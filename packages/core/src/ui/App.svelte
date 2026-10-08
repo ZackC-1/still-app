@@ -33,6 +33,7 @@
     popupPresentation?: {
       browser: "Chrome" | "Firefox";
       onSettings: () => void;
+      onSeePro?: () => void;
       loadDesktop: () => Promise<{ default: Component<DesktopPopupProps> }>;
       sectionMemory?: DesktopPopupProps["sectionMemory"];
     };
@@ -100,7 +101,10 @@
     // An ownership pause clears only through this account's own settings read, never a local
     // reread, so Try again also asks sync to read the account again (it shares any read in flight).
     const reason = committedPopupBinding?.current().reason;
-    if (c.userId && (reason === "ownership-hold" || reason === "ownership-unconfirmed"))
+    if (
+      c.userId &&
+      (reason === "ownership-hold" || reason === "ownership-unconfirmed")
+    )
       runSyncRetry();
     popupView.recoverSettings();
   }
@@ -303,6 +307,26 @@
     void c.userId;
     void c.loadSharedData();
   });
+  $effect(() => {
+    if (!settingsHost || !PAID_TIER_ENABLED) return;
+    void c.userId;
+    void optionsAccountRevision;
+    void c.refreshAccountConfirmation();
+  });
+  $effect(() => {
+    if (!settingsHost || !PAID_TIER_ENABLED) return;
+    const current = c;
+    const refresh = () => void current.refreshAccountConfirmation();
+    const foreground = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", foreground);
+    return () => {
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", foreground);
+    };
+  });
   let optionsSync = $derived.by((): ExtensionSettingsProps["sync"] => {
     const controller = c;
     const operations = optionsOperations;
@@ -313,7 +337,7 @@
         address: controller.accountEmail ?? undefined,
         identity,
         revision: optionsAccountRevision,
-        confirmed: false,
+        confirmed: controller.accountConfirmed,
         status: !controller.cloudReachable
           ? {
               tone: "failed",
@@ -444,6 +468,7 @@
       onFeatureChange={desktopCommands.feature}
       onSignIn={!c.userId && c.canSignIn ? () => c.openSignIn() : undefined}
       onSettings={desktopPresentation.onSettings}
+      onSeePro={desktopPresentation.onSeePro}
       sectionMemory={desktopPresentation.sectionMemory}
       privacyUrl={PRIVACY_POLICY_URL}
       account={desktopAccount}

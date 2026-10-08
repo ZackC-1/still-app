@@ -8,6 +8,18 @@ import { defineConfig } from "wxt";
 // Safari does not reliably support declarativeNetRequest regexSubstitution redirects, so the
 // Shorts redirect uses a document_start content-script location.replace here (KTD1), not DNR.
 export default defineConfig({
+  hooks: {
+    "entrypoints:found": (_wxt, infos) => {
+      // WXT loads mode/browser-specific environment files before discovering entrypoints.
+      const env = process.env;
+      const configured = !!env.VITE_SUPABASE_URL && !!env.VITE_SUPABASE_ANON_KEY;
+      const modern = (env.VITE_APPLE_ATOMIC_SETTINGS === "true" && !configured) ||
+        (env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && configured);
+      if (modern) return;
+      const index = infos.findIndex((entry) => entry.name === "tiktok-blocked");
+      if (index >= 0) infos.splice(index, 1);
+    },
+  },
   modules: ["@wxt-dev/module-svelte"],
   svelte: {
     vite: {

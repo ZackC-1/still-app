@@ -212,9 +212,14 @@ const SIGN_IN_DEVIATIONS: Deviation[] = [
       "owner decision 16: inert background, so Back to settings renders disabled (grey) where the reference link is blue",
     selector: ".ob-top .link",
   },
+  {
+    reason:
+      "latest reference includes a demonstration-only code banner; its omission reduces and repositions the real sign-in sheet",
+    selector: ".sheet",
+    pad: 48,
+  },
 ];
-// The return pages' references keep the review-only demonstration label (only the sign-in and
-// account frames were re-captured without it); the shipped page never draws it.
+// The latest references retain review-only demonstration labels; shipped pages never draw them.
 const DEMO_MARK =
   "reference draws the review-only demonstration label that the shipped page never renders";
 

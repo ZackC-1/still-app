@@ -8,7 +8,7 @@ export interface MobilePopupProps extends Omit<
   host: "safari" | "firefox";
   /** Supplied only after the actual Firefox Android managed channel is verified. */
   channelReady?: boolean;
-  /** Supplied only when the Safari-to-app route has been verified. */
+  /** Supplied only when the Safari app or Firefox settings Pro destination is verified. */
   onSeePro?: () => void;
   /** Reference setup wording remains unverified; this does not request permissions. */
   setup?: { onAction?: () => void };

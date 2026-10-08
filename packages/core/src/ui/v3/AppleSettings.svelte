@@ -6,7 +6,6 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
-  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
@@ -43,7 +42,7 @@
   let confirming = $state(false);
   type DeleteTarget = Pick<
     NonNullable<AppleSettingsProps["sync"]["account"]>,
-    "address" | "confirmed" | "identity" | "revision" | "onDeleteAccount"
+    "address" | "identity" | "revision" | "onDeleteAccount"
   >;
   let deleteTarget = $state.raw<DeleteTarget>();
   let deleteConfirmation = $state.raw<(() => void) | undefined>();
@@ -70,7 +69,6 @@
       validDeleteAccount(account) &&
       account &&
       account.address === target.address &&
-      account.confirmed === target.confirmed &&
       account.identity === target.identity &&
       account.revision === target.revision &&
       account.onDeleteAccount === target.onDeleteAccount,
@@ -92,7 +90,6 @@
     deleteOpening = opening;
     deleteTarget = {
       address: account.address,
-      confirmed: account.confirmed,
       identity: account.identity,
       revision: account.revision,
       onDeleteAccount: account.onDeleteAccount,
@@ -181,22 +178,23 @@
       (!sharing?.withdrawal || sharing.withdrawal === "none") &&
       sync.account?.status?.tone !== "failed",
   );
-  // Owner decision 41: a locked row opens the native offer in a sheet; only its own Buy (handed to
-  // Apple) starts a purchase.
-  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
-  let paywallShown = $derived(
-    paywall !== null && pro !== undefined && pro.ownership !== "owned",
-  );
-  $effect(() => {
-    if (paywall && !paywallShown) paywall = null;
-  });
-  function openPaywall(opener: HTMLElement) {
-    if (proActionReady) paywall = { opener };
+  let proSection: HTMLDivElement | undefined = $state();
+  function revealPro() {
+    if (!proActionReady) return;
+    const card = proSection?.querySelector<HTMLElement>(
+      '[aria-label="Still Pro"]',
+    );
+    if (!card) return;
+    card.setAttribute("tabindex", "-1");
+    card.scrollIntoView?.({ block: "center" });
+    card.focus({ preventScroll: true });
   }
   // Free period only: the compiled paid flag is off and no paid producer is supplied. With paid on
   // and no producer there is nothing to show, never this link. Inert while a Restore is held, as
   // the native card's Restore link is.
-  let freeRestoreShown = $derived(!PAID_TIER_ENABLED && !pro && Boolean(onRestore));
+  let freeRestoreShown = $derived(
+    !PAID_TIER_ENABLED && !pro && Boolean(onRestore),
+  );
   let freeRestoreReady = $derived(freeRestoreShown && !restoreHeld);
   function requestFreeRestore() {
     if (mounted && freeRestoreReady) onRestore?.();
@@ -260,7 +258,7 @@
     {services}
     {labels}
     features={supportedRows}
-    onProAction={proActionReady ? openPaywall : undefined}
+    onProAction={proActionReady ? revealPro : undefined}
   />
   <SyncCard
     owned={pro?.ownership === "owned"}
@@ -307,13 +305,15 @@
   {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <!-- Checking and verify stay separate so the card shows the matching presentation;
       accessHeld covers only rights not known missing for any other reason. -->
-    <NativeProOfferCard
-      {...pro}
-      {accessChecking}
-      {accessVerify}
-      accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
-      {restoreHeld}
-    />
+    <div bind:this={proSection} style="display:contents;">
+      <NativeProOfferCard
+        {...pro}
+        {accessChecking}
+        {accessVerify}
+        accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
+        {restoreHeld}
+      />
+    </div>
   {/if}
   {#if proActionReady}<p
       class="caption"
@@ -366,25 +366,6 @@
       >
     </div>
   </section>
-  {#if paywallShown && pro}
-    <ProPaywallSheet
-      opener={paywall?.opener}
-      onDismiss={() => {
-        paywall = null;
-      }}
-    >
-      <NativeProOfferCard
-        {...pro}
-        {accessChecking}
-        {accessVerify}
-        accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
-        {restoreHeld}
-      />
-      {#if proActionReady}<p class="caption">
-          No account needed. Payment is handled by Apple.
-        </p>{/if}
-    </ProPaywallSheet>
-  {/if}
   <ConfirmationDialog
     open={confirming}
     title="Delete your account?"

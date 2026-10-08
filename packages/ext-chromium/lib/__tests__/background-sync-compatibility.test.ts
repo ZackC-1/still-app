@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 import {
   DEFAULT_SETTINGS,
   PAID_TIER_ENABLED,
@@ -16,11 +16,18 @@ import type { ExtensionSession, ExtensionSessionDeps } from "@still/core/sync";
 // session, SyncService, SupabaseBackendPort, SDK HTTP, cache and writer remain real.
 // No tokens, hosted cryptography, outbound requests or provider activation are evidence here.
 const boundary = vi.hoisted(() => ({
+  paidMode: false,
   browser: {} as typeof chrome,
   clients: [] as SupabaseClient[],
   configure: null as ((client: SupabaseClient) => void) | null,
   spines: [] as ExtensionSessionDeps[],
   sessions: [] as ExtensionSession[],
+}));
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  get PAID_TIER_ENABLED() {
+    return boundary.paidMode;
+  },
 }));
 vi.mock("wxt/browser", () => ({
   get browser() {
@@ -80,6 +87,7 @@ const record = (store: Record<string, unknown>) =>
 
 async function start(
   options: {
+    paid?: boolean;
     initial?: Record<string, unknown>;
     signedIn?: boolean;
     flag?: string;
@@ -87,6 +95,7 @@ async function start(
     configured?: boolean;
   } = {},
 ) {
+  boundary.paidMode = options.paid ?? false;
   vi.resetModules();
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
@@ -172,6 +181,7 @@ async function start(
   vi.stubGlobal("chrome", boundary.browser);
   let signedIn = options.signedIn ?? false;
   const session = {
+    access_token: "synthetic-session-token",
     user: { id: USER, email: "synthetic@example.test" },
   } as Session;
   // A current cloud row is deliberately newer than the retained local timestamp.
@@ -267,7 +277,18 @@ async function start(
     },
   );
   vi.stubGlobal("fetch", network);
+  const verifiedUser = vi.fn(async () => ({
+    data: {
+      user: {
+        id: USER,
+        email: "server@example.test",
+        email_confirmed_at: "2026-10-07T00:00:00Z",
+      } as User,
+    },
+    error: null,
+  }));
   boundary.configure = (client) => {
+    vi.spyOn(client.auth, "getUser").mockImplementation(verifiedUser);
     vi.spyOn(client.auth, "getSession").mockImplementation(async () =>
       signedIn
         ? { data: { session }, error: null }
@@ -300,17 +321,16 @@ async function start(
     if (options.install) install();
   });
   await import("../../entrypoints/background.js");
-  const message = (payload: unknown) =>
+  const message = (
+    payload: unknown,
+    sender: chrome.runtime.MessageSender = {
+      id: "compatibility",
+      url: origin + "popup.html",
+    },
+  ) =>
     new Promise<unknown>((resolve) => {
       for (const listener of messages)
-        if (
-          listener(
-            payload,
-            { id: "compatibility", url: origin + "popup.html" },
-            resolve,
-          ) === true
-        )
-          return;
+        if (listener(payload, sender, resolve) === true) return;
       resolve(undefined);
     });
   const barrier = () =>
@@ -328,6 +348,10 @@ async function start(
     store,
     writes,
     requests,
+    verifiedUser,
+    setSignedIn(value: boolean) {
+      signedIn = value;
+    },
     install,
     message,
     barrier,
@@ -350,6 +374,7 @@ afterEach(async () => {
     boundary.sessions.length =
       0;
   boundary.configure = null;
+  boundary.paidMode = false;
   vi.restoreAllMocks();
   vi.clearAllTimers();
   vi.useRealTimers();
@@ -572,5 +597,90 @@ describe("maintained configured default free legacy sync compatibility", () => {
       sequence: 0,
     });
     expect(h.requests).toEqual([]);
+  });
+});
+
+describe("maintained background account-confirmation composition", () => {
+  const request = { kind: "still:session", action: "getVerifiedAccount" };
+
+  it("delegates the real message route through the session and AuthPort to server verification", async () => {
+    const h = await start({ signedIn: true, paid: true });
+    expect(PAID_TIER_ENABLED).toBe(true);
+    h.verifiedUser.mockClear();
+    expect(await h.message(request)).toEqual({
+      id: USER,
+      email: "server@example.test",
+      emailConfirmed: true,
+    });
+    expect(h.verifiedUser).toHaveBeenCalledExactlyOnceWith(
+      "synthetic-session-token",
+    );
+    expect(await h.spine!.auth.currentAccount!()).toEqual({
+      id: USER,
+      email: "synthetic@example.test",
+    });
+  });
+
+  it("does not promote an unconfirmed server email from cached display metadata", async () => {
+    const h = await start({ signedIn: true, paid: true });
+    h.verifiedUser.mockResolvedValue({
+      data: { user: { id: USER, email: "server@example.test" } as User },
+      error: null,
+    });
+    expect(await h.message(request)).toEqual({
+      id: USER,
+      email: "server@example.test",
+      emailConfirmed: false,
+    });
+  });
+
+  it("returns unavailable on failed server verification while retaining offline local identity", async () => {
+    const h = await start({ signedIn: true, paid: true });
+    h.verifiedUser.mockRejectedValue(new Error("synthetic offline"));
+    expect(await h.message(request)).toBe("unavailable");
+    expect(await h.spine!.auth.currentUserId()).toBe(USER);
+    expect(await h.spine!.auth.currentAccount!()).toEqual({
+      id: USER,
+      email: "synthetic@example.test",
+    });
+  });
+
+  it("returns signed-out absence without contacting the server", async () => {
+    const h = await start({ paid: true });
+    h.verifiedUser.mockClear();
+    expect(await h.message(request)).toBeNull();
+    expect(h.verifiedUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects content scripts before account verification", async () => {
+    const h = await start({ signedIn: true, paid: true });
+    h.verifiedUser.mockClear();
+    expect(
+      await h.message(request, {
+        id: "compatibility",
+        url: "https://www.youtube.com/watch?v=synthetic",
+        tab: { id: 1 } as chrome.tabs.Tab,
+      }),
+    ).toBeUndefined();
+    expect(h.verifiedUser).not.toHaveBeenCalled();
+  });
+
+  it("discards confirmation when the local session leaves during verification", async () => {
+    const h = await start({ signedIn: true, paid: true });
+    h.verifiedUser.mockImplementation(async () => {
+      h.setSignedIn(false);
+      return {
+        data: {
+          user: {
+            id: USER,
+            email: "server@example.test",
+            email_confirmed_at: "2026-10-07T00:00:00Z",
+          } as User,
+        },
+        error: null,
+      };
+    });
+    expect(await h.message(request)).toBeNull();
+    expect(await h.spine!.auth.currentUserId()).toBeNull();
   });
 });

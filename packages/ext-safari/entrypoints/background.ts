@@ -13,6 +13,8 @@ import {
 } from "../lib/reinstall-reconcile.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -112,6 +114,18 @@ export default defineBackground(() => {
     (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
       import.meta.env.VITE_SUPABASE_URL &&
       import.meta.env.VITE_SUPABASE_ANON_KEY);
+  if (reinstallAware) wireSafariTiktokHost({
+    browser,
+    randomId: () => crypto.randomUUID(),
+    readCommitted: async () => {
+      // The mirrored browser projection may be stale. Confirmation reads the existing native
+      // committed authority, and fails closed when the app's reply is unavailable.
+      const record = await adapter.readNativeAuthority();
+      if (!record) return null;
+      const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
+      return { settings: record.settings, options: { pro } };
+    },
+  });
   const reconciler = reinstallAware
     ? createReinstallAwareReconciler({
         pullFromApp, pushToApp: pushSettingsToApp, local: adapter, adoptIntoApp,

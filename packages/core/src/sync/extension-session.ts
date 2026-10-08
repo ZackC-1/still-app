@@ -3,6 +3,8 @@ import type { AccountSyncStatus } from "./account-status.js";
 import { readAccountDeletionResult, type AccountDeletionResult } from "./account-deletion.js";
 import type {
   AccountAuthPort,
+  AccountConfirmationPort,
+  VerifiedAccount,
   AuthPort,
   BackendPort,
   CheckedReconcilePort,
@@ -139,7 +141,7 @@ export type ExtensionSessionSync = Pick<
 > & Partial<Pick<SyncService, "retryNow">>;
 
 export interface ExtensionSessionDeps {
-  readonly auth: AuthPort & CodeAuthPort & Partial<AccountAuthPort>;
+  readonly auth: AuthPort & CodeAuthPort & Partial<AccountAuthPort & AccountConfirmationPort>;
   readonly backend: BackendPort & WebCheckoutPort & CheckedReconcilePort;
   /** U1's record-level store (identity binding + staleness), not the boolean adapter. */
   readonly records: EntitlementRecordStore;
@@ -206,6 +208,7 @@ export interface ExtensionSession {
   getState(): Promise<ExtensionSessionState>;
   /** Privileged account display: authenticated identity plus this session's actual sync state. */
   getSyncStatus(): Promise<AccountSyncStatus | null>;
+  getVerifiedAccount(): Promise<VerifiedAccount | null>;
   retrySync(): Promise<void>;
   requestCode(email: string): Promise<RequestCodeOutcome>;
   verifyCode(email: string, token: string): Promise<VerifyCodeOutcome>;
@@ -400,6 +403,14 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
   };
 
   return {
+    async getVerifiedAccount(): Promise<VerifiedAccount | null> {
+      if (accountStatusTeardowns > 0) return null;
+      if (!auth.currentVerifiedAccount) throw new Error("Account confirmation unavailable");
+      const generation = generations.capture();
+      const account = await auth.currentVerifiedAccount();
+      if (accountStatusTeardowns > 0 || !generations.isCurrent(generation)) return null;
+      return account;
+    },
     async getSyncStatus(): Promise<AccountSyncStatus | null> {
       if (accountStatusTeardowns > 0) return null;
       const generation = generations.capture();
