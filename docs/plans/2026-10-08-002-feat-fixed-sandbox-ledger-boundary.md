@@ -37,7 +37,7 @@ Typed SQL compilation passed with the database test intentionally ignored on mac
 
 The second disposable Linux run at `93d56fa8` applied the migration and passed seven behavioral steps, but failed seven others. Corrections use driver-native JSONB fixtures, reuse a private postgres account reader rather than granting access to managed Auth, and temporarily acquire only the QA owner ACL authority inside the emergency rollback transaction before removing that explicit edge. The two original catalog rehearsal baselines remain pinned at 0020 so their selected-creator refusal assertion continues to characterize its original boundary; the separate QA job tests 0021.
 
-Corrected cloud upgrade and clean install, production Edge/new-SQL compatibility and emergency rollback execution remain unverified. No hosted migration, credential provisioning, provider call or payment was performed.
+At `f3444365`, actual disposable Linux upgrade tests passed all fifteen steps, including production characterization, member-lock races and emergency rollback. Clean migration apply passed but its test fixture failed before the cases because a pooled driver received top-level BEGIN/COMMIT. The test now reserves one transaction connection with `admin.begin` and executes the unchanged seed body. Corrected clean-install execution, final source review and the complete compatibility run remain pending. No hosted migration, credential provisioning, provider call or payment was performed.
 
 ## Hosted gate and recovery
 

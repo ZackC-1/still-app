@@ -76,7 +76,15 @@ Deno.test({
           0
         ]?.fixture
       ) {
-        await admin.unsafe(seed);
+        // The CLI seed has its own transaction wrapper. On this pooled client,
+        // let begin reserve the connection and execute only the unchanged body.
+        const seedBegin = "\nbegin;\n", seedCommit = "\ncommit;";
+        const start = seed.indexOf(seedBegin),
+          end = seed.lastIndexOf(seedCommit);
+        assert(start >= 0 && end > start);
+        assertEquals(seed.slice(end).trimEnd(), seedCommit);
+        const body = seed.slice(start + seedBegin.length, end);
+        await admin.begin((tx) => tx.unsafe(body));
       }
       await t.step(
         "upgrade changes no existing rows, prior fixture records actual absent QA path",
