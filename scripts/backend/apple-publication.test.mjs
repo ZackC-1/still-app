@@ -257,3 +257,23 @@ test("every0020SECURITYDEFINER keeps the maintained0015+ catalog/pg_temp-last co
     }
   }
 });
+
+
+test("actual JSONB codec regression has a dedicated bounded CI gate while handler tests stay environment-free", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  const allowed = "PGAPPNAME";
+  const expected = `deno test --frozen --allow-env=${allowed} _shared/pg-access-store.driver.ts`;
+  assert.ok(workflow.includes(`run: ${expected}`), "real driver codec test must have an explicit required CI invocation");
+  assert.ok(workflow.includes(`      - name: Test actual pinned JSONB codec without database or network access\n        working-directory: supabase/functions\n        run: ${expected}\n\n      - name: Test handlers`), "codec step must run unconditionally without continue-on-error or extra permissions");
+  assert.match(workflow, /run: deno test --allow-read=\.\.\/migrations\/0013_counter_retention.sql,\.\.\/migrations\/0015_settings_sync_per_field.sql\n/);
+  const options = { cwd: new URL("supabase/functions/", root), encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 30000 };
+  const logic = spawnSync("deno", ["test", "--frozen", "_shared/pg-access-store.test.ts"], options);
+  assert.equal(logic.status, 0, logic.stderr);
+  assert.match(logic.stdout, /5 passed/);
+  const codec = spawnSync("deno", expected.split(" ").slice(1), options);
+  assert.equal(codec.status, 0, codec.stderr);
+  assert.match(codec.stdout, /1 passed/);
+  const denied = spawnSync("deno", ["test", "--frozen", "_shared/pg-access-store.driver.ts"], options);
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stdout + denied.stderr, /Requires env access to "PGAPPNAME"/);
+});

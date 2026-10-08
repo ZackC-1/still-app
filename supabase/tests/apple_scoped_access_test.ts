@@ -126,7 +126,7 @@ Deno.test({ name: "Apple ledger runtime: anonymous right, explicit ownership, ex
    assertEquals(await local.commit({ ...revokedFirst, active: true }, await local.begin(revokedFirst)), { status: "revoked" });
    assertEquals(await local.commit(revokedFirst, await local.begin(revokedFirst)), { status: "revoked" });
    const after = await admin`select right_id,active,ownership_revision,verified_at from private.access_rights where provider_key=${revokedFirst.key}`;
-   assertEquals(after, row);
+   assertEquals(Array.from(after), Array.from(row));
   });
   await t.step("explicit first association returns both scopes at incremented revision and exact retry succeeds", async () => {
    const token = await local.begin(tx), link = { holder: A, operation, expectedRevision: 0 };
@@ -158,7 +158,7 @@ Deno.test({ name: "Apple ledger runtime: anonymous right, explicit ownership, ex
    assert(absent.status === "committed"); assertEquals(absent.rights.length, 3); assertEquals(absent.revocations, []);
    assertEquals(absent.observed_rights, []);
    const after = await admin`select provider_key,right_id,ownership_revision,verified_at from private.access_rights where provider_key in (${rcKeys[0]},${rcKeys[1]}) order by provider_key`;
-   assertEquals(after, before);
+   assertEquals(Array.from(after), Array.from(before));
    const refunded = await account.commit(A, "sandbox", await account.begin(A, "sandbox"), [{ ...snapshot[0]!, state: "revoked" }]);
    assert(refunded.status === "committed"); assertEquals(refunded.rights.length, 2);
    assertEquals(refunded.observed_rights, []);
@@ -181,8 +181,8 @@ Deno.test({ name: "Apple ledger runtime: anonymous right, explicit ownership, ex
    try {
     assertEquals((await writer`select public.transfer_access_right(${bypass}::uuid,${rightId}::uuid,'sandbox',${A}::uuid,${B}::uuid,1) as result`)[0]?.result, { status: "unavailable" });
     await assertRejects(() => writer`select public.transfer_access_right(${bypass}::uuid,${rightId}::uuid,'sandbox',${B}::uuid,${A}::uuid,1)`);
-    assertEquals(await admin`select to_jsonb(r) as row from private.access_rights r where right_id=${rightId}::uuid`, before);
-    assertEquals(await admin`select to_jsonb(o) as row from private.apple_access_observations o where provider_key=${tx.key} and environment='sandbox'`, appleBefore);
+    assertEquals(Array.from(await admin`select to_jsonb(r) as row from private.access_rights r where right_id=${rightId}::uuid`), Array.from(before));
+    assertEquals(Array.from(await admin`select to_jsonb(o) as row from private.apple_access_observations o where provider_key=${tx.key} and environment='sandbox'`), Array.from(appleBefore));
     assertEquals((await admin`select count(*)::int as count from private.access_revocations where right_id=${rightId}::uuid`)[0]?.count, 0);
    } finally { await admin`delete from private.access_transfer_operations where operation_id=${bypass}::uuid`; }
   });
@@ -233,7 +233,7 @@ Deno.test({ name: "Apple ledger runtime: anonymous right, explicit ownership, ex
    assertEquals(await account.removals(B, "production", token), null);
    await account.begin(B, "sandbox"); assertEquals(await account.removals(B, "sandbox", token), null);
    const after = await admin`select right_id,active,ownership_revision,verified_at from private.access_rights where right_id=${rightId}::uuid`;
-   assertEquals(after, before);
+   assertEquals(Array.from(after), Array.from(before));
   });
   await t.step("account deletion preserves the transaction row and prevents silent adopted ownership", async () => {
    await admin`delete from auth.users where id=${B}::uuid`;

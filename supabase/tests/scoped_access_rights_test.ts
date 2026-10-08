@@ -50,8 +50,8 @@ Deno.test({ name: "real private access ledger: idempotency, ownership, refund, s
       const transfer = () => writer`select public.transfer_access_right(${operation}::uuid,${right.right}::uuid,'sandbox',${A}::uuid,${B}::uuid,2) as result`;
       const [transferred, concurrentRetry] = await Promise.all([transfer(), transfer()]);
       assertEquals(transferred[0]?.result, { status: "transferred", revision: 3 });
-      assertEquals(concurrentRetry, transferred);
-      assertEquals(await transfer(), transferred);
+      assertEquals(Array.from(concurrentRetry), Array.from(transferred));
+      assertEquals(Array.from(await transfer()), Array.from(transferred));
       await assertRejects(() => writer`select public.transfer_access_right(${operation}::uuid,${right.right}::uuid,'sandbox',${B}::uuid,${A}::uuid,3)`);
       const current = await store.commit(B, "sandbox", await store.begin(B, "sandbox"), snapshot);
       assert(current.status === "committed");
@@ -73,7 +73,7 @@ Deno.test({ name: "real private access ledger: idempotency, ownership, refund, s
       assertEquals(newResult.status, "committed");
       const invalidToken = await store.begin(B, "sandbox");
       await assertRejects(() => writer`select public.commit_access_observation(${B}::uuid,'sandbox',${invalidToken}::uuid,'[{"key":"bad","product":"still_pro_v3"}]'::jsonb)`);
-      assertEquals((await admin`select still_sync from public.entitlements where user_id = ${A}::uuid`), before);
+      assertEquals(Array.from(await admin`select still_sync from public.entitlements where user_id = ${A}::uuid`), Array.from(before));
       await assertRejects(() => writer`select * from private.access_rights`);
       for (const role of ["anon", "authenticated", "service_role"]) {
         const allowed = await admin`select has_function_privilege(${role},'public.begin_access_observation(uuid,text)','EXECUTE') as allowed`;
