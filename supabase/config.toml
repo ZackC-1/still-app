@@ -487,38 +487,38 @@ verify_jwt = true
 [functions.qa-sandbox-verify-apple-access]
 # Dedicated sandbox transaction authority; local possession requires no Still account.
 verify_jwt = false
-import_map = "./functions/qa-sandbox-verify-apple-access/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-link-apple-access]
 # Explicit account link/transfer additionally requires live Auth and enabled QA subjects.
 verify_jwt = true
-import_map = "./functions/qa-sandbox-link-apple-access/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-reconcile-entitlement]
 # Sandbox account rights only; fixed QA SQL never bridges the legacy Boolean entitlement lane.
 verify_jwt = true
-import_map = "./functions/qa-sandbox-reconcile-entitlement/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-product-policy]
 # Public fixed-sandbox read through the existing read-only policy role.
 verify_jwt = false
-import_map = "./functions/qa-sandbox-product-policy/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-sync-settings]
 # Existing subject-owned free sync; purchase and QA paid membership are never required.
 verify_jwt = true
-import_map = "./functions/qa-sandbox-sync-settings/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-create-web-checkout]
 # Verified account subject and fixed sandbox operation ledger; no live payment fallback.
 verify_jwt = true
-import_map = "./functions/qa-sandbox-create-web-checkout/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-complete-web-checkout]
 # Verified account subject and fixed sandbox operation ledger; no live payment fallback.
 verify_jwt = true
-import_map = "./functions/qa-sandbox-complete-web-checkout/deno.json"
+import_map = "./functions/deno.json"
 
 [functions.qa-sandbox-stripe-webhook]
 verify_jwt = false
-import_map = "./functions/qa-sandbox-stripe-webhook/deno.json"
+import_map = "./functions/deno.json"
