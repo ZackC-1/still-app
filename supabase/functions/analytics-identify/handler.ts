@@ -4,6 +4,7 @@ import type { PostHogPort } from "../_shared/posthog.ts";
 import type { PostHogSubjectPort } from "../_shared/posthog-erasure.ts";
 import { enforceRateLimit, type RateLimiter, type RateLimitPolicy, tooManyRequests } from "../_shared/rate-limit.ts";
 import { jsonResponse } from "../_shared/store.ts";
+import { readBoundedBody } from "../_shared/request-body.ts";
 
 // Attach the signed-in account's email to analytics, and count a new account exactly once.
 // The app or extension calls this after it has identified the install (only while the person shares
@@ -75,8 +76,9 @@ export interface AnalyticsIdentifyDeps extends AuthDeps {
 /** The subject request's origin proof; null for a legacy body; "invalid" for anything else that
  * names one. */
 async function originProofOf(req: Request): Promise<string | null | "invalid"> {
-  const text = await req.text().catch(() => "");
-  if (text.length > MAX_BODY_BYTES) return text.includes("originProof") ? "invalid" : null;
+  let text: string;
+  try { text = await readBoundedBody(req, { maxBytes: MAX_BODY_BYTES }); }
+  catch { return "invalid"; }
   let body: unknown;
   try {
     body = JSON.parse(text);
