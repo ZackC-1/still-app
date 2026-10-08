@@ -33,12 +33,35 @@ vi.mock("svelte", async (importOriginal) => {
   };
 });
 const stops: (() => void)[] = [];
-afterEach(async () => {
+const pageIntervals = new Set<ReturnType<typeof setInterval>>();
+let trackingPageIntervals = false;
+function trackPageIntervals() {
+  if (trackingPageIntervals) return;
+  trackingPageIntervals = true;
+  const startInterval = globalThis.setInterval;
+  vi.spyOn(globalThis, "setInterval").mockImplementation((...args) => {
+    const handle = startInterval(...args);
+    pageIntervals.add(handle);
+    return handle;
+  });
+}
+
+// The browser adapter may retain an earlier fixture transport; count actual reads on every port.
+let accountStatusReads = 0;
+async function closeFixturePage() {
+  // Production owns these timers until the browser page closes. Node outlives this jsdom page.
+  for (const handle of pageIntervals) clearInterval(handle);
+  pageIntervals.clear();
   for (const instance of mounted.instances.splice(0)) await unmount(instance);
   cleanup();
   for (const stop of stops.splice(0)) stop();
+}
+afterEach(async () => {
+  await closeFixturePage();
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  trackingPageIntervals = false;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   localStorage.clear();
@@ -124,7 +147,10 @@ async function installBrowser(
         pendingOtp: null,
         checkoutPending: null,
       });
-    if (message.action === "getSyncStatus") return Promise.resolve(null);
+    if (message.action === "getSyncStatus") {
+      accountStatusReads++;
+      return Promise.resolve(null);
+    }
     return new Promise<unknown>((resolve, reject) => {
       router(
         message,
@@ -204,6 +230,7 @@ function configured() {
   vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
 }
 async function main(tag: string) {
+  trackPageIntervals();
   document.body.innerHTML = '<div id="app"></div>';
   const path = `../main.js?legacy-receipt-${tag}`;
   await import(path);
@@ -576,5 +603,37 @@ describe("actual main recovery regression", () => {
     ).toBe("true");
     expect(f.local.set).toHaveBeenCalledTimes(1);
     expect(toggles(f)).toHaveLength(1);
+  });
+});
+
+
+describe("actual main page timer ownership", () => {
+  it("teardown cancels page polling while preserving an unrelated interval", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // This interval belongs to another owner and exists before the page mounts.
+    const unrelated = vi.fn();
+    const otherTimer = setInterval(unrelated, 2_000);
+    try {
+      await installBrowser();
+      configured();
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      await main("page-timer-owner");
+      await waitFor(() =>
+        expect(screen.getByRole("switch", { name: "Still on/off" })).toBeTruthy(),
+      );
+      const accountReads = () => accountStatusReads;
+      const mountedReads = accountReads();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(accountReads()).toBeGreaterThan(mountedReads);
+      expect(unrelated).toHaveBeenCalledTimes(1);
+      await closeFixturePage();
+      expect(document.querySelector(".still-ui")).toBeNull();
+      const closedReads = accountReads();
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(unrelated).toHaveBeenCalledTimes(4);
+      expect(accountReads()).toBe(closedReads);
+    } finally {
+      clearInterval(otherTimer);
+    }
   });
 });
