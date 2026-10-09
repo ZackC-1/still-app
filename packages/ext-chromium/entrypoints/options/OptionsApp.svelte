@@ -23,7 +23,8 @@
   import { observeDirectControls } from "@still/core/ui/v3/direct-control-observer";
   import { reportDirectControl } from "../../lib/invitation-client.js";
   import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
-  import { runtimePlatformFor } from "../../lib/runtime-platform.js";
+  import { runtimePlatformFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
+  import { settingsFeatures } from "../../lib/settings-features.js";
   import { browser } from "wxt/browser";
 
   let optionsRoot: HTMLElement;
@@ -45,6 +46,7 @@
   );
   const analytics = createPageAnalytics(Boolean(import.meta.env.FIREFOX));
   let committedPopupBinding: CommittedPopupBinding | undefined;
+  const platform = runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
   const controller = createExtensionUiController(purchase, {
     emailConsent,
     analytics,
@@ -61,8 +63,15 @@
       : undefined,
     openedWhere: "options",
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
-    accessPlatform: runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime),
+    accessPlatform: platform,
   });
+  // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
+  // phone rows until Firefox's own answer says desktop. Chromium always draws every row.
+  let platformAnswer = $state<RuntimePlatform | null>(null);
+  void platform.then((answer) => {
+    platformAnswer = answer;
+  });
+  let features = $derived(settingsFeatures(Boolean(import.meta.env.FIREFOX), platformAnswer));
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({
     service,
@@ -147,6 +156,7 @@
           loadSettings,
           help,
           sectionMemory,
+          features,
         }
       : undefined}
   />
