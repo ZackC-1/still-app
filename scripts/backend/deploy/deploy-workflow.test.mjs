@@ -558,10 +558,10 @@ test("the pull-request operation rehearsal has no environment or secret and cove
   const tests = foundation.jobs.preview.steps.find((s) =>
     (s.run ?? "").includes("node --test"),
   );
-  for (const file of [
-    "operations.test.mjs",
-    "qa-secrets.test.mjs",
-    "qa-secrets-operation.test.mjs",
-  ])
-    assert.ok(tests.run.includes(`scripts/backend/deploy/${file}`), file);
+  assert.match(tests.run, /scripts\/backend\/deploy\/operations\.test\.mjs/);
+  // A glob covers qa-secrets.test.mjs and qa-secrets-operation.test.mjs (the foundation workflow
+  // must never spell a secrets reference, so the file names are not written out).
+  assert.ok(
+    tests.run.includes('"scripts/backend/deploy/qa-secrets*.test.mjs"'),
+  );
 });

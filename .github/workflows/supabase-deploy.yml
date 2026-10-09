@@ -46,7 +46,7 @@ jobs:
       - name: Install existing workflow parser dependency
         run: pnpm install --frozen-lockfile --ignore-scripts --filter .
       - name: Verify exact-operation negative controls
-        run: node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs scripts/backend/deploy/deploy.test.mjs scripts/backend/deploy/deploy-workflow.test.mjs scripts/backend/deploy/operations.test.mjs scripts/backend/deploy/qa-secrets.test.mjs scripts/backend/deploy/qa-secrets-operation.test.mjs
+        run: node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs scripts/backend/deploy/deploy.test.mjs scripts/backend/deploy/deploy-workflow.test.mjs scripts/backend/deploy/operations.test.mjs "scripts/backend/deploy/qa-secrets*.test.mjs"
       - name: Fail closed before scheduling any production environment
         id: authority
         env:
