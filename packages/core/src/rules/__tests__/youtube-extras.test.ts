@@ -283,11 +283,11 @@ describe("youtube.livechat top-level route", () => {
 });
 
 describe("YouTube extras capability table and selector boundaries", () => {
-  it("the four are implemented on the Chromium and Firefox hosts only, and count only with paid on and a known host", () => {
+  it("Safari implements observed Related and Comments; other YouTube extras remain held there", () => {
     // The four hide controls plus Autoplay prevention (a content handler, youtube-autoplay.ts).
     for (const host of ["chromium", "firefox"] as const)
       expect([...IMPLEMENTED_PRO_FEATURES[host]].filter((id) => id.startsWith("youtube.")).sort()).toEqual([...YT_PRO, "youtube.autoplay"].sort());
-    expect(IMPLEMENTED_PRO_FEATURES.safari.filter((id) => id.startsWith("youtube."))).toEqual([]);
+    expect(IMPLEMENTED_PRO_FEATURES.safari.filter((id) => id.startsWith("youtube."))).toEqual(["youtube.related", "youtube.comments"]);
     for (const host of [undefined, ...ACCESS_HOSTS]) {
       const off = accessCapabilities({ paidMode: PAID_TIER_ENABLED, host });
       for (const id of YT_PRO) expect(off.has(id), `${host}:${id}`).toBe(false);
@@ -296,8 +296,8 @@ describe("YouTube extras capability table and selector boundaries", () => {
     for (const id of YT_PRO) {
       expect(on("chromium").has(id)).toBe(true);
       expect(on("firefox").has(id)).toBe(true);
-      expect(on("safari").has(id)).toBe(false);
-      expect(on().has(id), "an unknown host needs every host, Safari included").toBe(false);
+      expect(on("safari").has(id)).toBe(id === "youtube.related" || id === "youtube.comments");
+      expect(on().has(id), "an unknown host needs every host, Safari included").toBe(id === "youtube.related" || id === "youtube.comments");
     }
     const autoplay: BenefitId = "youtube.autoplay";
     expect(on("chromium").has(autoplay)).toBe(true);
@@ -314,9 +314,17 @@ describe("YouTube extras capability table and selector boundaries", () => {
   });
 
   it("no selector names a wrapper that also holds the playlist, live chat, comments or player controls", () => {
-    const wrappers = /#secondary\b|#related\b|#primary\b|#columns\b|#below\b|ytd-watch-flexy|ytm-app|#movie_player|html5-video-player|ytp-chrome|ytp-player-content|html5-endscreen|ytp-autonav|ytd-watch-metadata|ytd-item-section-renderer|ytd-engagement-panel-section-list-renderer(?!\[target-id=)|ytm-item-section-renderer(?!\[section-identifier=)|:has\(/;
+    const wrappers = /#secondary\b|#related\b|#primary\b|#columns\b|#below\b|ytd-watch-flexy|ytm-app|#movie_player|html5-video-player|ytp-chrome|ytp-player-content|html5-endscreen|ytp-autonav|ytd-watch-metadata|ytd-item-section-renderer|ytd-engagement-panel-section-list-renderer(?!\[target-id=)|ytm-item-section-renderer(?!\[section-identifier=)/;
     for (const surface of YOUTUBE_EXTRAS.surfaces) for (const selector of surface.selectors) expect(selector, surface.id).not.toMatch(wrappers);
+    // A mobile modal's own scrim belongs to its sole comments-section child. No generic
+    // ancestor or shared carousel gains a :has() rule.
+    expect(extrasSelectors.filter(selector => selector.includes(":has("))).toEqual([
+      "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))",
+    ]);
     expect(YOUTUBE_EXTRAS.surfaces.map((surface) => surface.feature)).toEqual(YT_PRO);
-    expect(YOUTUBE_EXTRAS.markers).toEqual([]);
+    expect(YOUTUBE_EXTRAS.markers).toHaveLength(1);
+    expect(YOUTUBE_EXTRAS.markers[0]).toMatchObject({ feature: "youtube.comments",
+      candidates: "ytm-engagement-panel", ruleSelector: "ytm-engagement-panel[data-still-youtube-comments-panel]",
+      structuralFallback: extrasSelectors.find(selector => selector.includes(":has(")) });
   });
 });

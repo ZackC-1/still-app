@@ -206,7 +206,7 @@ final class AppleRightBindingTests: XCTestCase {
       XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states[benefit], "locked")
       XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .unknown, paidMode: true).states[benefit], "verification_required")
     }
-    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states["youtube.comments"], "unsupported")
+    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states["youtube.endscreen"], "unsupported")
     XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states["facebook.sponsored"], "unsupported")
     store.save(.init(entitled: true, updatedAt: now, source: .receipt))
     XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states["instagram.explore"], "verification_required")
@@ -214,6 +214,29 @@ final class AppleRightBindingTests: XCTestCase {
     // History without independently verified revocation does not erase the cached signed right.
     XCTAssertEqual(try store.observeAppleBenefits(wall: now + 1, ownership: .purchaseHistory, paidMode: true).states["instagram.explore"], "purchased")
     XCTAssertEqual(try store.observeAppleBenefits(wall: now + paidAccessWindowMilliseconds, ownership: .noPurchases, paidMode: true).states["instagram.explore"], "verification_required")
+  }
+
+  func testObservedSafariYouTubeCapabilitiesRequireNativeScopedProofAndStayDormantWhenPaidOff() throws {
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
+    let supported = ["youtube.related", "youtube.comments"]
+    let unsupported = ["youtube.endscreen", "youtube.livechat", "youtube.autoplay", "facebook.sponsored"]
+    for benefit in supported {
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .unknown, paidMode: true).states[benefit], "verification_required", benefit)
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states[benefit], "locked", benefit)
+    }
+    _ = try store.installAppleAccess(request(), nativePurchase: native(), wall: now)
+    for benefit in supported {
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states[benefit], "purchased", benefit)
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: false).states[benefit], "unsupported", benefit)
+    }
+    for benefit in unsupported {
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states[benefit], "unsupported", benefit)
+    }
+    let revoked = try store.observeAppleBenefits(wall: now + 1,
+      ownership: .verifiedRevocations([.init(identity: native(), revokedAt: now + 1)]), paidMode: true)
+    for benefit in supported { XCTAssertEqual(revoked.states[benefit], "verification_required", benefit) }
+    XCTAssertEqual(revoked.states["youtube.shorts"], "free")
+    XCTAssertEqual(revoked.states["tiktok.all"], "free")
   }
 
   func testVerifiedNativeRefundImmediatelyRevokesBothScopesAndPersistsAcrossColdReadsAndReplay() throws {
