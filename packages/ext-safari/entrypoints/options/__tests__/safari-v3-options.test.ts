@@ -90,6 +90,57 @@ describe("Safari V3 settings page", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
+  it.each([
+    ["ios", "phone rows only"],
+    ["mac", "every row"],
+    [undefined, "phone rows only (unknown)"],
+  ] as const)("platform %s draws %s; a phone never gets an end screen, live chat or sidebar ads switch", async (os, _name) => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    let drawn: readonly string[] | undefined | "unset" = "unset";
+    let stop = () => {};
+    const mode = await startSafariV3Options({
+      env: ENV,
+      platform: async () => os,
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { stop(): void }, features?: readonly string[]) {
+          drawn = features;
+          stop = () => composition.stop();
+        },
+      }),
+    });
+    expect(mode).toBe("v3");
+    if (os === "mac") expect(drawn).toBeUndefined();
+    else {
+      expect(drawn).toBeInstanceOf(Array);
+      for (const id of ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]) expect(drawn, id).not.toContain(id);
+      for (const id of ["youtube.shorts", "instagram.reels", "facebook.reels", "youtube.autoplay", "youtube.comments"]) expect(drawn, id).toContain(id);
+    }
+    stop();
+  });
+
+  it("a platform answer that never comes does not hold the page: it mounts as unknown within the bound", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    let drawn: readonly string[] | undefined;
+    let stop = () => {};
+    const started = Date.now();
+    const mode = await startSafariV3Options({
+      env: ENV,
+      platform: () => new Promise(() => {}),
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { stop(): void }, features?: readonly string[]) {
+          drawn = features;
+          stop = () => composition.stop();
+        },
+      }),
+    });
+    expect(mode).toBe("v3");
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(drawn).not.toContain("youtube.endscreen");
+    stop();
+  });
+
   it("a failed mount stops what it started, clears the page and hands over to legacy", async () => {
     const f = await installSafari({ saved: "atomic", signedIn: true });
     document.body.innerHTML = '<div id="app"></div>';

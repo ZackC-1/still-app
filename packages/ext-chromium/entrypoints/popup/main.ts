@@ -34,6 +34,8 @@ function init(): void {
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED as string | undefined,
   );
   const isFirefox = Boolean(import.meta.env.FIREFOX);
+  // Asked once at open: the access seed and the presentation share one answer.
+  const platform = runtimePlatformFor(isFirefox, browser.runtime);
   const purchase = extensionPurchaseDeps();
   const analytics = createPageAnalytics(isFirefox);
   let committedPopupBinding: CommittedPopupBinding | undefined;
@@ -68,6 +70,7 @@ function init(): void {
       : undefined,
     openedWhere: "popup",
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
+    accessPlatform: platform,
   });
   // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
   // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
@@ -101,7 +104,7 @@ function init(): void {
       surfaceGuidance,
       // Asked once at open; the popup waits for it before choosing a presentation. The Chromium
       // build never asks (always desktop).
-      platform: runtimePlatformFor(isFirefox, browser.runtime),
+      platform,
       ...(!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
         ? { proDestinationReady: PAID_TIER_ENABLED && settingsRuntime.atomicLocal }

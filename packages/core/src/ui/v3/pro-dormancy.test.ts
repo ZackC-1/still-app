@@ -20,6 +20,7 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import {
   ACCESS_BENEFITS,
+  DESKTOP_LAYOUT_ONLY_PRO,
   initialAccessSnapshot,
 } from "../../entitlement/access-policy.js";
 import { proRowsDormant } from "./presentation.js";
@@ -34,6 +35,8 @@ import type { MobilePopupProps } from "./mobile-presentation.js";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 const PRO = FEATURE_REGISTRY.filter((row) => row.tier === "pro");
+/** Rows phone surfaces never draw (owner decision: hide Pro switches that cannot act there). */
+const DESKTOP_LAYOUT_ONLY: readonly string[] = DESKTOP_LAYOUT_ONLY_PRO;
 const SERVICES = ["youtube", "instagram", "facebook"] as const;
 const TITLES = {
   youtube: "YouTube Blocker",
@@ -210,11 +213,12 @@ describe("decision 24: dormant Still Pro rows", () => {
       };
       const saved = await storage.get();
       const view = render(MobilePopup, { props });
-      const mobile = PRO.filter((row) => row.id !== "facebook.sponsored").map(
+      const mobile = PRO.filter((row) => !DESKTOP_LAYOUT_ONLY.includes(row.id)).map(
         (row) => row.id,
       );
-      expect(await tapEveryLock(mobile)).toBe(11);
-      expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
+      expect(await tapEveryLock(mobile)).toBe(9);
+      for (const name of ["Desktop sidebar ads", "End-of-video suggestions", "Live chat"])
+        expect(screen.queryByText(name), name).toBeNull();
       expect(props.onSeePro).not.toHaveBeenCalled();
       expect(props.onPurchase).not.toHaveBeenCalled();
       expect(await storage.get()).toEqual(saved);
@@ -267,7 +271,7 @@ describe("decision 24: dormant Still Pro rows", () => {
       const saved = await storage.get();
       const view = render(AppleSettings, { props });
       const rows = PRO.filter(
-        (row) => platform === "mac" || row.id !== "facebook.sponsored",
+        (row) => platform === "mac" || !DESKTOP_LAYOUT_ONLY.includes(row.id),
       ).map((row) => row.id);
       expect(await tapEveryLock(rows)).toBe(rows.length);
       expect(onRestore).not.toHaveBeenCalled();

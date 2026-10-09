@@ -140,6 +140,30 @@ describe("controlled D04 Apple settings", () => {
   });
 
   it.each(["ios", "mac"] as const)(
+    "%s, paid on and purchased: iPhone/iPad hide end screen, live chat and sidebar ads; the Mac shows all twelve",
+    async (platform) => {
+      const { props, storage } = await fixture("purchased");
+      props.platform = platform;
+      const saved = await storage.get();
+      const view = render(AppleSettings, { props });
+      const sections = {
+        "YouTube Blocker": { desktopOnly: ["End-of-video suggestions", "Live chat"], always: ["Related videos", "Autoplay prevention", "Comments"] },
+        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Videos and Watch"] },
+      };
+      for (const [section, { desktopOnly, always }] of Object.entries(sections)) {
+        const button = screen.getByRole("button", { name: section });
+        if (button.getAttribute("aria-expanded") !== "true") await fireEvent.click(button);
+        for (const name of always) expect(screen.queryByText(name), `${platform} ${name}`).not.toBeNull();
+        for (const name of desktopOnly) expect(screen.queryByText(name) !== null, `${platform} ${name}`).toBe(platform === "mac");
+      }
+      // Hiding a row never writes or changes its saved choice.
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it.each(["ios", "mac"] as const)(
     "keeps one local section and the %s feature inventory without saving on expansion",
     async (platform) => {
       const { props, storage } = await fixture();

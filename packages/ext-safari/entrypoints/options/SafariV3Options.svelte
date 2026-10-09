@@ -17,15 +17,17 @@
     STRINGS,
     createPopupViewBinding,
   } from "@still/core/ui";
-  import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
+  import { SERVICE_IDS, type FeatureId, type ServiceId } from "@still/shared-types";
   import { appManagedSettingsSync } from "../../lib/safari-v3.js";
   import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
 
   interface Props {
     /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
     composition: SafariV3Composition;
+    /** The rows to draw (iPhone/iPad omit the desktop-layout-only extras); omitted draws all. */
+    features?: readonly FeatureId[];
   }
-  let { composition }: Props = $props();
+  let { composition, features }: Props = $props();
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -120,6 +122,7 @@
       onServiceChange={ready.commands.service}
       onFeatureChange={ready.commands.feature}
       {sectionMemory}
+      {features}
       sync={{
         ...sync,
         accountActions: unavailable ? recovery : undefined,

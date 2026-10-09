@@ -1,6 +1,6 @@
 import type { AccessCacheRecord } from "./access-record.js";
 import { parseLocalProtection } from "./local-protection.js";
-import { PAID_ACCESS_WINDOW_MS, type AccessState, type BenefitAccessSnapshot, type SettingsV2, FEATURE_IDS, FEATURE_REGISTRY, PAID_TIER_ENABLED, type LocalProtectionRecord, type BenefitId, type PaidAccessClock } from "@still/shared-types";
+import { PAID_ACCESS_WINDOW_MS, type AccessState, type BenefitAccessSnapshot, type SettingsV2, FEATURE_IDS, FEATURE_REGISTRY, PAID_TIER_ENABLED, type LocalProtectionRecord, type BenefitId, type FeatureId, type PaidAccessClock } from "@still/shared-types";
 import { isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, type VerifiedAccessProof } from "./access-proof.js";
 
 export interface AccessObservation {
@@ -156,7 +156,13 @@ export type AccessPlatform = "android" | "ios" | "desktop" | "unknown";
  * - facebook.sponsored: it only ever matches the desktop right column, which phones do not have.
  * Autoplay prevention is NOT here: the guard handles the observed m.youtube.com countdown.
  */
-const DESKTOP_LAYOUT_ONLY_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]);
+export const DESKTOP_LAYOUT_ONLY_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]);
+
+/** Every feature row a phone surface draws: the registry minus DESKTOP_LAYOUT_ONLY_PRO (free rows
+ * always stay). Owner decision: phones hide, rather than disable, a switch that cannot act. */
+export function phoneLayoutFeatures(): FeatureId[] {
+  return FEATURE_REGISTRY.map(feature => feature.id).filter(id => !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(id));
+}
 
 export interface AccessCapabilityInput {
   readonly paidMode: boolean;

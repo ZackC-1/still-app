@@ -16,7 +16,7 @@ import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, reque
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
-import { safariAccessPlatform } from "../lib/access-platform.js";
+import { safariPlatformAnswer } from "../lib/access-platform.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -50,9 +50,7 @@ export default defineBackground(() => {
   // same split at compile time and its snapshot is the authority while paid is on.
   // Paid off never asks: the context is the free features on every platform.
   let accessPlatform: Promise<AccessPlatform> | null = null;
-  const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= Promise.resolve()
-    .then(() => browser.runtime.getPlatformInfo())
-    .then((info) => safariAccessPlatform(info?.os), () => "unknown" as const));
+  const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= safariPlatformAnswer());
   const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", PAID_TIER_ENABLED ? await devicePlatform() : undefined), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
+  import { DESKTOP_LAYOUT_ONLY_PRO } from "../../entitlement/access-policy.js";
   import { onDestroy } from "svelte";
   import type { AppleSettingsProps } from "./apple-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
@@ -118,7 +119,9 @@
   let supportedRows = $derived(
     FEATURE_REGISTRY.filter(
       (row) =>
-        (platform === "mac" || row.id !== "facebook.sponsored") &&
+        // iPhone/iPad never show a Still Pro switch that cannot act in a phone layout (owner
+        // decision); the saved choice is kept. Free rows are never in this list.
+        (platform === "mac" || !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(row.id)) &&
         (!features || features.includes(row.id)),
     ).map((row) => row.id),
   );

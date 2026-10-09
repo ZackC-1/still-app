@@ -23,6 +23,8 @@
   import { observeDirectControls } from "@still/core/ui/v3/direct-control-observer";
   import { reportDirectControl } from "../../lib/invitation-client.js";
   import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
+  import { runtimePlatformFor } from "../../lib/runtime-platform.js";
+  import { browser } from "wxt/browser";
 
   let optionsRoot: HTMLElement;
   onMount(() => {
@@ -59,6 +61,7 @@
       : undefined,
     openedWhere: "options",
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
+    accessPlatform: runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime),
   });
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({

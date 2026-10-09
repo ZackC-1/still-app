@@ -1,4 +1,5 @@
 import type { StoredSettingsRecord } from "@still/core/storage";
+import type { FeatureId } from "@still/shared-types";
 import {
   composeSafariV3,
   decideSafariV3,
@@ -6,13 +7,15 @@ import {
   type SafariV3Composition,
 } from "../../lib/safari-v3-runtime.js";
 import type { SafariV3BuildInput } from "../../lib/safari-v3.js";
-import { safariAccessPlatform } from "../../lib/access-platform.js";
+import { boundedSafariOs, safariAccessPlatform } from "../../lib/access-platform.js";
+import { phoneLayoutFeatures } from "@still/core/entitlement";
 
 // The V3 settings-page gate. Like the popup's, it imports no component or stylesheet; those live in
 // ./v3-mount and load only after the record gate has chosen V3.
 
 export interface SafariV3OptionsView {
-  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition): void;
+  /** `features`: the rows to draw; omitted draws every row (macOS). */
+  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[]): void;
 }
 
 export interface SafariV3OptionsDeps {
@@ -36,18 +39,21 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
     dropV3Styles();
     return "legacy";
   }
-  const os = await (deps.platform ?? (async () => (await browser.runtime.getPlatformInfo()).os))()
-    .catch(() => undefined);
+  // Bounded: a missing or late answer is unknown and never delays mounting by more than a second.
+  const os = await boundedSafariOs(deps.platform && (async () => ({ os: await deps.platform!() })));
+  const platform = safariAccessPlatform(os);
   const target = document.getElementById("app")!;
   let composition: SafariV3Composition;
   try {
-    composition = composeSafariV3("options", safariAccessPlatform(os));
+    composition = composeSafariV3("options", platform);
   } catch {
     dropV3Styles();
     return "legacy";
   }
   try {
-    view.mountSafariV3Options(target, composition);
+    // iPhone, iPad and an unknown answer never draw a Still Pro switch that cannot act in a phone
+    // layout (owner decision); the saved choice is kept.
+    view.mountSafariV3Options(target, composition, platform === "desktop" ? undefined : phoneLayoutFeatures());
   } catch {
     composition.stop();
     target.replaceChildren();

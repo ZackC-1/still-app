@@ -83,8 +83,13 @@ export interface ExtensionUiOptions {
    * resolves to exactly the free features. Omitted: only features every host implements count.
    */
   readonly accessHost?: AccessHost;
-  /** The runtime platform when the page knows it; see packagedAccessContext. */
-  readonly accessPlatform?: AccessPlatform;
+  /**
+   * The browser's own platform answer for this page, or the pending answer. On a host that spans
+   * phones (Firefox, Safari) the page seeds its snapshot as an unknown platform until the answer
+   * arrives, so a desktop-layout-only extra is never shown as verifiable on a phone, even when
+   * the background never answers; see packagedAccessContext. Chromium omits it (desktop).
+   */
+  readonly accessPlatform?: AccessPlatform | Promise<AccessPlatform>;
 }
 
 export function createExtensionUiController(
@@ -123,9 +128,20 @@ export function createExtensionUiController(
   controller.retrySync = purchase?.retrySync;
   if (purchase) controller.paywallPrice = purchase.displayPrice;
 
+  const host = options?.accessHost;
+  const pending = options?.accessPlatform;
+  const seedPlatform: AccessPlatform | undefined = typeof pending === "string" ? pending
+    : host === "firefox" || host === "safari" ? "unknown" : undefined;
   const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), {
-    access: packagedAccessContext(options?.accessHost, options?.accessPlatform),
+    access: packagedAccessContext(host, seedPlatform),
   });
+  if (pending !== undefined && typeof pending !== "string")
+    void Promise.resolve(pending).then(
+      (platform) => entitlement.seedAccess(packagedAccessContext(host, platform)),
+      () => {
+        /* No answer: the unknown-platform seed stays. */
+      },
+    );
   entitlement.subscribe((entitled) => {
     controller.entitled = entitled;
   });

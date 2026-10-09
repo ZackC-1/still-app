@@ -10,7 +10,7 @@ import {
   type SafariPopupSurface,
   type SafariV3BuildInput,
 } from "../../lib/safari-v3.js";
-import { safariAccessPlatform } from "../../lib/access-platform.js";
+import { boundedSafariOs, safariAccessPlatform } from "../../lib/access-platform.js";
 
 // The V3 popup gate. This module deliberately imports no component and no stylesheet: the V3
 // components and their global CSS live in ./v3-mount, which is loaded only after the record gate
@@ -49,8 +49,8 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
     dropV3Styles();
     return "legacy";
   }
-  const os = await (deps.platform ?? (async () => (await browser.runtime.getPlatformInfo()).os))()
-    .catch(() => undefined);
+  // Bounded: a missing or late answer is unknown (the phone popup, no desktop-layout extras).
+  const os = await boundedSafariOs(deps.platform && (async () => ({ os: await deps.platform!() })));
   const target = document.getElementById("app")!;
   let composition: SafariV3Composition;
   try {

@@ -61,6 +61,50 @@ async function fixture(state: AccessState = "purchased") {
   return { storage, cache, props, settled: () => pending };
 }
 
+describe("phone surfaces hide Still Pro switches that cannot act in a phone layout", () => {
+  const SECTIONS = {
+    "YouTube Blocker": { hidden: ["End-of-video suggestions", "Live chat"], shown: ["Related videos", "Autoplay prevention", "Comments"] },
+    "Facebook Blocker": { hidden: ["Desktop sidebar ads"], shown: ["Facebook Stories", "Videos and Watch"] },
+  } as const;
+  /** Opens each service section in turn (one is open at a time) and reports its drawn rows. */
+  const rowsIn = async (section: keyof typeof SECTIONS) => {
+    const button = screen.getByRole("button", { name: section });
+    if (button.getAttribute("aria-expanded") !== "true") await fireEvent.click(button);
+    return (name: string) => screen.queryByText(name) !== null;
+  };
+
+  it.each(["safari", "firefox"] as const)(
+    "%s phone popup, paid on and purchased: no end screen, live chat or sidebar ads row; saved choices kept",
+    async (host) => {
+      const { props, storage } = await fixture("purchased");
+      props.host = host;
+      const saved = await storage.get();
+      const view = render(MobilePopup, { props });
+      for (const [section, { hidden, shown }] of Object.entries(SECTIONS)) {
+        const drawn = await rowsIn(section as keyof typeof SECTIONS);
+        for (const name of shown) expect(drawn(name), `${section}: ${name}`).toBe(true);
+        for (const name of hidden) expect(drawn(name), `${section}: ${name}`).toBe(false);
+      }
+      // Free rows never disappear; hiding a row never writes or changes its saved choice.
+      expect(screen.getAllByRole("switch", { name: "Reels" }).length).toBeGreaterThan(0);
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("the desktop popup still renders every extra, including the desktop-layout ones", async () => {
+    const { props } = await fixture("purchased");
+    const { host: _host, ...rest } = props;
+    const view = render(DesktopPopup, { props: { ...rest, browser: "Chrome" } });
+    for (const [section, { hidden, shown }] of Object.entries(SECTIONS)) {
+      const drawn = await rowsIn(section as keyof typeof SECTIONS);
+      for (const name of [...hidden, ...shown]) expect(drawn(name), `${section}: ${name}`).toBe(true);
+    }
+    view.unmount();
+  });
+});
+
 describe("controlled D02 mobile presentation", () => {
   it("holds already rendered controls while the committed authority is unavailable, keeping saved choices", async () => {
     const { props, storage } = await fixture();
@@ -291,13 +335,13 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
-    // Owner decision 24: the 11 mobile Pro rows show the existing locked design, inert.
+    // Owner decision 24: the 9 phone-layout Pro rows show the existing locked design, inert.
     expect(screen.queryByText(/Not available/)).toBeNull();
     // Decision 40: each lock is named exactly "Still Pro" (every mobile row stays mounted).
     const locks = screen.getAllByRole("button", {
       name: /^.+\. Included in Still Pro\./,
     });
-    expect(locks).toHaveLength(11);
+    expect(locks).toHaveLength(9);
     for (const lock of locks) {
       expect(lock).toHaveAttribute("aria-disabled", "true");
       expect(lock.closest(".option-row")).toHaveAttribute(
