@@ -902,7 +902,9 @@ Deno.serve(async (request) => {
     return new Response(null, { status: 503 });
   }
   const sql = postgres({
-    host: "supabase_db_still-app", port: 5432, database: "postgres",
+    // The pinned CLI serves through Docker's db alias: the Edge runtime cannot
+    // resolve underscores in the full local container name.
+    host: "db", port: 5432, database: "postgres",
     username: "postgres", password: "postgres", ssl: false, max: 1,
     // Match createWriterSql's prepare:false and default type discovery; only
     // fixture connection limits differ from the maintained writer recipe.
