@@ -77,3 +77,27 @@ require the shared-hosted public inputs listed above and three additional shell 
 Keep actual values in private local configuration. These are additional inputs to the separate
 sandbox tooling; ordinary `local` and `test` profiles retain their configuration above. Documenting
 them does not run a purchase, sign/publish an artifact or establish hosted/provider/device readiness.
+
+## Installable sandbox QA packages
+
+Paid-sandbox browser packages carry their own identity: Chrome and Firefox show the name
+"Still QA Sandbox (not for release)", and Firefox uses the separate add-on id
+`still-qa-sandbox@chartash.com`. A listed store update can never replace an installed QA build, and
+the QA build is never uploaded through the public listing. Store packaging never forwards
+`VITE_PACKAGE_IDENTITY`.
+
+- **Firefox desktop and Android.** `node scripts/qa/firefox-qa-sign.mjs <firefox-mv3 dir> <out>` checks
+  the built QA package and prints the upload plan without contacting Mozilla. Adding `--submit` signs
+  it on AMO's unlisted (self-distribution) channel using the private 0600 credentials file named by
+  `STILL_QA_AMO_CREDENTIALS_FILE`. It refuses the store id, never retries a write after an upload, and
+  verifies that the signed XPI is the uploaded files plus Mozilla's signature. Each signing needs an
+  unused QA version. Submitting is an external action that needs the owner's approval.
+- **iPhone and Mac.** The `apple-ios-device` and `apple-macos-device` targets archive, then export a
+  development-signed `Still.ipa` or `Still-mac.zip` locally, without provisioning updates or upload.
+  The receipt requires the reviewed team's unexpired, device-limited profile and the shared App Group
+  in both the app and its Safari extension. Such a build cannot be submitted to the App Store, and
+  StoreKit uses the sandbox. It shares the store app's bundle id, so installing it replaces the store
+  app on that device until the store app is reinstalled.
+
+These packages establish signing and identity only. Hosted sandbox configuration, provider
+readback and installed-device journeys remain separate gates.
