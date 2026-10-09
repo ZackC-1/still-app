@@ -53,6 +53,32 @@ Deno.test("wrong app, subscription/consumable product and wrong entitlement/proj
     const p = purchase(); mutate(p); assertEquals(await read([p]), { status: "verified", rights: [], complete: false });
   }
 });
+Deno.test("RevenueCat's non_consumable product type grants only with an explicit non-consumable flag", async () => {
+  // Observed RevenueCat v2 shape for App Store lifetime products: type non_consumable, is_consumable false.
+  const nonConsumable = purchase();
+  (nonConsumable.entitlements.items[0]!.products.items[0]! as { type: string }).type = "non_consumable";
+  const granted = await read([nonConsumable]);
+  assertEquals(granted.status, "verified");
+  if (granted.status !== "verified") throw new Error("Expected verified");
+  assertEquals(granted.rights.map(right => right.product), ["still_pro_v3"]);
+  assertEquals(granted.complete, true);
+  // The flag must still say non-consumable: unknown (null), missing or consumable never grants,
+  // and neither does RevenueCat's separate consumable type.
+  for (const mutate of [
+    (p: ReturnType<typeof purchase>) => { (p.entitlements.items[0]!.products.items[0]!.one_time as { is_consumable: unknown }).is_consumable = null; },
+    (p: ReturnType<typeof purchase>) => { (p.entitlements.items[0]!.products.items[0]! as { one_time: unknown }).one_time = null; },
+    (p: ReturnType<typeof purchase>) => { p.entitlements.items[0]!.products.items[0]!.one_time.is_consumable = true; },
+  ]) {
+    for (const type of ["non_consumable", "one_time"]) {
+      const p = purchase(); (p.entitlements.items[0]!.products.items[0]! as { type: string }).type = type; mutate(p);
+      assertEquals(await read([p]), { status: "verified", rights: [], complete: false }, type);
+    }
+  }
+  for (const type of ["consumable", "non_renewing_subscription", "subscription"]) {
+    const p = purchase(); (p.entitlements.items[0]!.products.items[0]! as { type: string }).type = type;
+    assertEquals(await read([p]), { status: "verified", rights: [], complete: false }, type);
+  }
+});
 Deno.test("duplicate transaction or incomplete/hostile pagination cannot produce verified absence", async () => {
   assertEquals(await read([purchase(), purchase()]), { status: "unavailable" });
   assertEquals(await read([], { next_page: "https://evil.test/collect" }), { status: "unavailable" });
