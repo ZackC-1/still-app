@@ -835,9 +835,18 @@ export function failureFacts(text, plannedFiles = []) {
   return { sqlstate: codes.at(-1) ?? "unknown", migration };
 }
 
-/** Runs one bound read-only query file; returns the last output line. */
-export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
+/**
+ * Runs one bound read-only query file; returns the last output line. `vars` (environment name to
+ * value) reach the query only through psql's environment, as psql variables named after the
+ * lower-cased environment name; they never appear in argv.
+ */
+export async function runReadOnlySql({ exec, conn, target, file, cwd, vars = {} }) {
   const raw = showsRawOutput(target);
+  const getenv = Object.keys(vars).flatMap((name) => {
+    if (!/^STILL_OPERATION_[A-Z_]+$/.test(name))
+      throw new Refusal("input-invalid", "Unexpected query input name");
+    return ["-c", `\\getenv ${name.toLowerCase()} ${name}`];
+  });
   const result = await exec(
     "psql",
     [
@@ -850,6 +859,7 @@ export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
       // Production errors carry only the SQLSTATE: no message, DETAIL or row values.
       "-v",
       `VERBOSITY=${raw ? "default" : "sqlstate"}`,
+      ...getenv,
       "-c",
       "set session characteristics as transaction read only",
       "-c",
@@ -859,7 +869,7 @@ export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
       "-f",
       file,
     ],
-    { cwd, env: pgEnv(conn, target) },
+    { cwd, env: { ...pgEnv(conn, target), ...vars } },
   );
   if (result.code !== 0) {
     const { sqlstate } = failureFacts(result.stderr);
@@ -1847,6 +1857,7 @@ export async function main(
     // Test seams for operations only: the settle wait and the rehearsal's held connection.
     settleMs,
     spawnHeld,
+    stdin = process.stdin,
   } = {},
 ) {
   const [command, ...args] = argv;
@@ -1870,6 +1881,22 @@ export async function main(
       operation === "" || operation === "migrations" || operation === "qa-sandbox-functions"
         ? null
         : await operations();
+    // The QA sales-policy and subjects inputs belong to those operations only.
+    const operationInputs = {
+      policyMode: String(env.DEPLOY_POLICY_MODE ?? "").trim(),
+      expectedRevision: String(env.DEPLOY_POLICY_EXPECTED_REVISION ?? "").trim(),
+      subjectsSha256: String(env.DEPLOY_SUBJECTS_SHA256 ?? "").trim(),
+    };
+    if (
+      !ops &&
+      (!["", "none"].includes(operationInputs.policyMode) ||
+        operationInputs.expectedRevision !== "" ||
+        operationInputs.subjectsSha256 !== "")
+    )
+      throw new Refusal(
+        "operation-input-invalid",
+        "policy_mode, policy_expected_revision and subjects_sha256 apply only to an owner-approved operation; leave them at none and empty",
+      );
     const qa = operation === "qa-sandbox-functions" ? await import("./qa-functions.mjs") : null;
     const plan = qa
       ? await qa.createQaFunctionPlan({ ...request, cwd, exec,
@@ -1877,7 +1904,8 @@ export async function main(
           projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF,
           baselineSha256: env.DEPLOY_BASELINE_SHA256, mode: env.DEPLOY_MODE ?? "plan-only" })
       : ops
-      ? await ops.createOperationPlan({ ...request, operation })
+      ? await ops.createOperationPlan({ ...request, operation, ...operationInputs,
+          mode: env.DEPLOY_MODE ?? "plan-only" })
       : await createDeployPlan(request);
     const render = qa ? qa.renderQaPlan : ops ? ops.renderOperationPlan : renderPlan;
     const expect = option(args, "--expect-digest");
@@ -2011,6 +2039,8 @@ export async function main(
             await writeFile(option(args, "--receipt"), JSON.stringify(r));
         },
         ...(settleMs !== undefined ? { settleMs } : {}),
+        // Only the qa-sandbox-subjects apply step receives this environment secret.
+        subjectEmails: env.QA_SANDBOX_SUBJECT_EMAILS_JSON,
       });
       await writeSummary(ops.renderOperationReceipt(receipt), env);
       say(JSON.stringify(receipt));
@@ -2093,9 +2123,20 @@ export async function main(
     say(JSON.stringify({ receipt, diff }));
     return receipt.status === "verified" ? 0 : 1;
   }
+  if (command === "subjects-digest") {
+    // Local helper for staging QA_SANDBOX_SUBJECT_EMAILS_JSON: reads the list on stdin and prints
+    // only the subjects_sha256 the owner approves and the account count, never the list.
+    const chunks = [];
+    for await (const chunk of stdin) chunks.push(Buffer.from(chunk));
+    const list = (await operations()).canonicalSubjects(
+      Buffer.concat(chunks).toString("utf8"),
+    );
+    say(`subjects_sha256=${list.binding} accounts=${list.count}`);
+    return 0;
+  }
   throw new Refusal(
     "input-invalid",
-    "Use plan, protection, workdir, freshness, apply, final-summary or replay",
+    "Use plan, protection, workdir, freshness, apply, final-summary, replay or subjects-digest",
   );
 }
 

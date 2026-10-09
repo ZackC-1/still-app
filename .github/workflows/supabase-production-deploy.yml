@@ -4,7 +4,11 @@ name: Supabase production deploy
 # Manual dispatch from main only; never runs on push, pull request or schedule.
 # One run deploys one exact change: a commit on main plus EITHER the exact list of pending
 # migrations OR one owner-approved operation (pause/resume-settings-sync, pause/resume-qa-sandbox,
-# see scripts/backend/deploy/operations.mjs), or the closed qa-sandbox-functions operation.
+# qa-sandbox-sales-policy, qa-sandbox-subjects; see scripts/backend/deploy/operations.mjs), or the
+# closed qa-sandbox-functions operation. policy_mode, policy_expected_revision and subjects_sha256
+# belong only to the two QA sandbox operations; every other run leaves them at none and empty.
+# The QA_SANDBOX_SUBJECT_EMAILS_JSON environment secret reaches only the apply step, and only for
+# qa-sandbox-subjects; the run checks it against the approved subjects_sha256 before any write.
 # QA targets use the NONSECRET REPOSITORY variable SUPABASE_PRODUCTION_PROJECT_REF
 # (available to the plan job before environment approval), never an environment-only variable.
 # Protected apply binds/checks that same target against the protected database credential.
@@ -18,7 +22,7 @@ name: Supabase production deploy
 #                       the one operation), then runs read-only verification queries and fails loudly.
 # No automatic rollback. Failures stop and need a reviewed fix-forward (see deploy.mjs); an
 # operation is safe to repeat and is undone by its counterpart.
-run-name: "Supabase production ${{ inputs.operation }} (${{ inputs.mode }})"
+run-name: "Supabase production ${{ inputs.operation }} ${{ inputs.policy_mode }} (${{ inputs.mode }})"
 on:
   workflow_dispatch:
     inputs:
@@ -37,7 +41,30 @@ on:
           - resume-settings-sync
           - pause-qa-sandbox
           - resume-qa-sandbox
+          - qa-sandbox-sales-policy
+          - qa-sandbox-subjects
           - qa-sandbox-functions
+      policy_mode:
+        description: "qa-sandbox-sales-policy: off or on; qa-sandbox-subjects: enable or disable; none for every other operation"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - "off"
+          - "on"
+          - enable
+          - disable
+      policy_expected_revision:
+        description: "qa-sandbox-sales-policy only: the current sandbox sales revision the change must start from (compare-and-set; 0 for the first entry)"
+        required: false
+        default: ""
+        type: string
+      subjects_sha256:
+        description: "qa-sandbox-subjects enable only: <account count>:<salted SHA-256> of the QA_SANDBOX_SUBJECT_EMAILS_JSON secret, as printed by deploy.mjs subjects-digest"
+        required: false
+        default: ""
+        type: string
       migrations:
         description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql); empty for an operation"
         required: false
@@ -87,6 +114,9 @@ jobs:
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
       DEPLOY_BASELINE_SHA256: ${{ inputs.baseline_sha256 }}
+      DEPLOY_POLICY_MODE: ${{ inputs.policy_mode }}
+      DEPLOY_POLICY_EXPECTED_REVISION: ${{ inputs.policy_expected_revision }}
+      DEPLOY_SUBJECTS_SHA256: ${{ inputs.subjects_sha256 }}
       SUPABASE_PRODUCTION_PROJECT_REF: ${{ vars.SUPABASE_PRODUCTION_PROJECT_REF }}
       DEPLOY_MODE: ${{ inputs.mode }}
     steps:
@@ -164,6 +194,9 @@ jobs:
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
       DEPLOY_BASELINE_SHA256: ${{ inputs.baseline_sha256 }}
+      DEPLOY_POLICY_MODE: ${{ inputs.policy_mode }}
+      DEPLOY_POLICY_EXPECTED_REVISION: ${{ inputs.policy_expected_revision }}
+      DEPLOY_SUBJECTS_SHA256: ${{ inputs.subjects_sha256 }}
       SUPABASE_PRODUCTION_PROJECT_REF: ${{ vars.SUPABASE_PRODUCTION_PROJECT_REF }}
       DEPLOY_MODE: ${{ inputs.mode }}
       EXPECTED_PLAN_DIGEST: ${{ needs.plan.outputs.plan-digest }}
@@ -215,6 +248,7 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
           SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}
+          QA_SANDBOX_SUBJECT_EMAILS_JSON: ${{ inputs.operation == 'qa-sandbox-subjects' && secrets.QA_SANDBOX_SUBJECT_EMAILS_JSON || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" \

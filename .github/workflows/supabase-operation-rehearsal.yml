@@ -1,10 +1,13 @@
 name: Supabase operation rehearsal
 
-# Runs the production deploy job's own rehearsal of the owner-approved operations
-# (pause/resume-settings-sync, pause/resume-qa-sandbox) on a throwaway database inside this runner,
-# from the pull request's code. It proves the target writer's sign-in is refused or allowed, its
-# open connection is closed, every other function role still signs in, and no other role, grant,
-# row or migration changes. No environment, secret or production access; it never deploys anything.
+# Runs the production deploy job's own rehearsal of every owner-approved operation and mode on a
+# throwaway database inside this runner, from the pull request's code. A login switch proves the
+# target writer's sign-in is refused or allowed, its open connection is closed, every other function
+# role still signs in, and no other role, grant, row or migration changes. The QA sales-policy and
+# subjects operations prove their negative controls write nothing, production rows stay unchanged,
+# revisions are only appended, the cutoff is written once, and memberships are never deleted (the
+# subjects rehearsal uses its own synthetic accounts; the subjects_sha256 below is a placeholder).
+# No environment, secret or production access; it never deploys anything.
 on:
   pull_request:
     paths:
@@ -29,11 +32,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        operation:
-          - pause-settings-sync
-          - resume-settings-sync
-          - pause-qa-sandbox
-          - resume-qa-sandbox
+        include:
+          - operation: pause-settings-sync
+            policy_mode: none
+          - operation: resume-settings-sync
+            policy_mode: none
+          - operation: pause-qa-sandbox
+            policy_mode: none
+          - operation: resume-qa-sandbox
+            policy_mode: none
+          - operation: qa-sandbox-sales-policy
+            policy_mode: "off"
+            expected_revision: "0"
+          - operation: qa-sandbox-sales-policy
+            policy_mode: "on"
+            expected_revision: "1"
+          - operation: qa-sandbox-subjects
+            policy_mode: enable
+            subjects_sha256: "1:0000000000000000000000000000000000000000000000000000000000000000"
+          - operation: qa-sandbox-subjects
+            policy_mode: disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +74,9 @@ jobs:
       - name: Plan the operation from this commit (no secrets)
         env:
           DEPLOY_OPERATION: ${{ matrix.operation }}
+          DEPLOY_POLICY_MODE: ${{ matrix.policy_mode }}
+          DEPLOY_POLICY_EXPECTED_REVISION: ${{ matrix.expected_revision }}
+          DEPLOY_SUBJECTS_SHA256: ${{ matrix.subjects_sha256 }}
           DEPLOY_MIGRATIONS: ""
           DEPLOY_FUNCTIONS: ""
         run: |
