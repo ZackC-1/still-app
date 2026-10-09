@@ -254,7 +254,7 @@ function inventory(value) {
 // Management GET /secrets calls the SHA256 digest "value" (also the pinned CLI
 // DIGEST column). Normalize only validated hashes; never retain a secret plaintext.
 // https://supabase.com/docs/reference/api/v1-list-all-secrets
-function secretInventory(value) {
+export function secretInventory(value) {
   if (!Array.isArray(value)) refuse("qa-secret-inventory-invalid");
   const seen = new Set();
   return value.map((item) => {
