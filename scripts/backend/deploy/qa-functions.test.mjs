@@ -727,6 +727,17 @@ test("protected baseline-only obtains private fingerprint without any upload", a
     receipt.issues,
     REQUIRED_SECRETS.map((name) => `missing_secret:${name}`),
   );
+  assert.match(receipt.recovery, /^Resolve the listed readiness issues, then run baseline-only again/);
+  assert.match(renderQaFinal(receipt), /- Recovery: Resolve the listed readiness issues/);
+  assert.doesNotMatch(renderQaFinal(receipt), /none needed/);
+});
+
+test("baseline-only with every required secret and a clean gate needs no recovery", async (t) => {
+  const f = await fixture(t, "baseline-only");
+  const receipt = await f.run();
+  assert.equal(receipt.status, "baseline-read-only");
+  assert.deepEqual(receipt.issues, []);
+  assert.equal(receipt.recovery, "none needed");
 });
 
 test("readable readiness lists sorted fixed gate codes and missing secret names only", async (t) => {
@@ -747,6 +758,7 @@ test("readable readiness lists sorted fixed gate codes and missing secret names 
     "QA_missing_role_setting:lock_timeout=1s",
     "routine_body:public.qa_sandbox_account_enabled(uuid)",
     "role_not_login:still_qa_sandbox_writer",
+    "routine_acl:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])",
   ];
   const receipt = await f.run();
   assert.equal(receipt.status, "stopped-before-write");
@@ -758,16 +770,19 @@ test("readable readiness lists sorted fixed gate codes and missing secret names 
     "QA_missing_role_setting:lock_timeout=1s",
     "role_membership:still_policy_reader",
     "role_not_login:still_qa_sandbox_writer",
+    "routine_acl:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])",
     "routine_body:public.qa_sandbox_account_enabled(uuid)",
     "sandbox_sales_policy_missing",
   ]);
+  assert.match(receipt.recovery, /^Resolve the listed readiness issues, then run baseline-only again/);
   const text = JSON.stringify(receipt) + renderQaFinal(receipt);
   assert.doesNotMatch(
     text,
     /synthetic exact catalog|fixed-policy|synthetic-secret|b{64}/,
   );
   assert.match(text, /Fixed issue codes: qa-prerequisite-gate-failed\./);
-  assert.match(text, /Readiness issues \(7;/);
+  assert.match(text, /Readiness issues \(8;/);
+  assert.match(text, /- Recovery: Resolve the listed readiness issues/);
   assert.match(text, /- `missing_secret:PRODUCT_POLICY_READER_DB_URL`/);
 });
 
@@ -848,6 +863,10 @@ test("readiness codes are bounded and secret names come from the fixed list", ()
   assert.deepEqual(readinessCodes(["private_schema", "private_schema"]), [
     "private_schema",
   ]);
+  // Array argument types appear in fixed prerequisite signatures and must stay readable.
+  const arraySignature =
+    "missing_routine:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])";
+  assert.deepEqual(readinessCodes([arraySignature]), [arraySignature]);
   assert.deepEqual(missingSecretCodes(REQUIRED_SECRETS.map((name) => ({ name }))), []);
 });
 

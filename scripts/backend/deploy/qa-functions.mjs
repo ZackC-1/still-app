@@ -115,8 +115,10 @@ export const READINESS_ISSUE_PREFIXES = Object.freeze([
   "unsafe_QA_role",
   "unsafe_role",
 ]);
-const ISSUE_CODE = /^([A-Za-z_]{1,48})(?::([a-z0-9_.,()=]{1,160}))?$/;
+const ISSUE_CODE = /^([A-Za-z_]{1,48})(?::([a-z0-9_.,()=[\]]{1,160}))?$/;
 const MAX_READINESS_CODES = 200;
+const READINESS_RECOVERY =
+  "Resolve the listed readiness issues, then run baseline-only again before creating an apply plan";
 const same = (a, b) => canonical(a) === canonical(b);
 const refuse = (category, codes) => {
   const refusal = new Refusal(category);
@@ -587,6 +589,7 @@ export async function runQaFunctionOperation({
       // Read-only readiness: the baseline still succeeds, and any absent required secret is
       // listed by name because an apply against this state would refuse.
       receipt.issues = missingSecrets;
+      if (missingSecrets.length) receipt.recovery = READINESS_RECOVERY;
       receipt.status = "baseline-read-only";
       await progress();
       return receipt;
@@ -666,6 +669,8 @@ export async function runQaFunctionOperation({
       : ["qa-operation-failed"];
     receipt.recovery = receipt.writeAttempted
       ? "Stop; inspect only the attempted QA routes privately; obtain a reviewed fix-forward or separately approved QA disable. Never blindly retry, delete or roll back."
+      : receipt.issues.length > 1
+      ? READINESS_RECOVERY
       : "Correct the fixed readiness failure and create a new exact plan before approval.";
     await progress();
     return receipt;
