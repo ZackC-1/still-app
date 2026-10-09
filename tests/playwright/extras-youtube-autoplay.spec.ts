@@ -12,7 +12,7 @@ import { extrasFixture } from "../../packages/core/src/rules/__tests__/extras-fi
 // are unverified candidates (content/youtube-autoplay.ts); the fixture is synthetic.
 
 const expect = test.expect;
-type Probe = { toggleClicks: number; cancelClicks: number; ended: number; loads: number; token: string };
+type Probe = { toggleClicks: number; cancelClicks: number; playClicks?: number; dismissClicks?: number; ended: number; loads: number; token: string };
 
 async function commit(authority: Worker, path: string, value: boolean) {
   await authority.evaluate(async ({ path, value }) => {
@@ -58,15 +58,16 @@ async function playerState(page: Page) {
   return page.evaluate(() => ({
     paused: (document.getElementById("player-video") as HTMLVideoElement).paused,
     pauses: (window as unknown as { pauses: number }).pauses,
-    toggle: document.getElementById("keep-autoplay-toggle")!.getAttribute("aria-checked"),
+    toggle: document.getElementById("keep-autoplay-toggle")!.getAttribute("aria-checked")
+      ?? document.getElementById("keep-autoplay-toggle")!.getAttribute("aria-label"),
   }));
 }
 
-// Chromium extension fixture evidence, including mobile URL/player preservation. The mobile
-// countdown remains a candidate until real Safari and Firefox Android devices verify it.
-for (const { name, origin, file } of [
-  { name: "desktop", origin: "https://www.youtube.com", file: "yt-autoplay.html" },
-  { name: "mobile candidate countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html" },
+// Chromium extension fixture evidence for both layouts. The phone countdown structure was observed
+// in emulation; real Safari and Firefox Android devices still have to confirm the behavior.
+for (const { name, origin, file, toggle } of [
+  { name: "desktop", origin: "https://www.youtube.com", file: "yt-autoplay.html", toggle: "true" },
+  { name: "mobile observed countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html", toggle: "Autoplay is on" },
 ]) test.describe(name, () => {
   const WATCH = `${origin}/watch?v=inv300001`;
   const PLAYLIST = `${origin}/watch?v=inv300003&list=PLinvented03&index=2`;
@@ -82,13 +83,15 @@ test("paid on: the up-next countdown is cancelled once, with the autoplay toggle
   const after = await probe(page);
   expect(after.cancelClicks, "exactly once for this countdown").toBe(1);
   expect(after.toggleClicks, "YouTube's own autoplay toggle is never clicked").toBe(0);
+  expect(after.playClicks ?? 0, "Play now is never pressed").toBe(0);
+  expect(after.dismissClicks ?? 0, "only the action row's Cancel is pressed").toBe(0);
   expect(after.ended).toBe(1);
   // Same document, no reload, no bounce, same address.
   expect(after.token).toBe(before.token);
   expect(after.loads).toBe(1);
   expect(page.url()).toBe(WATCH);
   // The current video is never paused (nor started) by Still; the native toggle state is unchanged.
-  expect(await playerState(page)).toEqual({ paused: false, pauses: 0, toggle: "true" });
+  expect(await playerState(page)).toEqual({ paused: false, pauses: 0, toggle });
   await expect(page.locator("#keep-autonav-overlay")).toBeVisible();
   await expect(page.locator("#keep-playlist-panel")).toBeVisible();
 });
