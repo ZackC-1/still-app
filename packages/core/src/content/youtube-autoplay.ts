@@ -86,13 +86,20 @@ const LAYOUTS: readonly CountdownLayout[] = [
     scope: (player) => player.closest(MOBILE_AUTOPLAY_CONTAINER),
     countdown: MOBILE_AUTOPLAY_COUNTDOWN,
     cancel: (countdown) => {
-      // The row's only button is Cancel; Play now is a link. Any other shape (no button, or a
-      // second button that could be Play now redrawn) is ambiguous and is left to YouTube.
+      // Positive identification, exactly the observed shape: the row holds one Play now LINK to a
+      // watch page and one <button> that is not inside it. The button is Cancel only because its
+      // Play now sibling is present as a link. Any other shape (no button, a second button, a
+      // missing Play now link, or a lone button that could be Play now redrawn) is ambiguous and
+      // is left to YouTube.
       const rows = countdown.querySelectorAll(MOBILE_AUTOPLAY_ACTIONS);
       if (rows.length !== 1) return null;
-      const buttons = rows[0]!.querySelectorAll("button");
-      if (buttons.length !== 1) return null;
-      return isCancelButton(buttons[0]!, countdown) ? buttons[0]! : null;
+      const row = rows[0]!;
+      const buttons = row.querySelectorAll("button");
+      const playNow = row.querySelectorAll('a[href*="/watch"]');
+      if (buttons.length !== 1 || playNow.length !== 1) return null;
+      const button = buttons[0]!;
+      if (playNow[0]!.contains(button) || button.contains(playNow[0]!)) return null;
+      return isCancelButton(button, countdown) ? button : null;
     },
   },
 ];

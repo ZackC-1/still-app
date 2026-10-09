@@ -250,17 +250,21 @@ describe.each([
     const mobile = file === "yt-m-autoplay.html";
     // Each variant replaces the real Cancel. On the phone card the Cancel is the action row's only
     // button; a second button there could be Play now redrawn, so the whole row is ambiguous.
-    const variants: Array<[string, string]> = mobile ? [
+    const variants: Array<[string, string, string?]> = mobile ? [
       ["a non-button in the action row", '<div role="button" id="probe">Cancel</div>'],
       ["a Cancel button inside a link", '<a href="/watch?v=inv300002"><button id="probe">Cancel</button></a>'],
       ["a second button in the action row", '<button id="probe">Cancel</button></ytm-button-renderer><ytm-button-renderer><button id="probe-second">Play now</button>'],
+      // Play now redrawn as a button while Cancel is gone: the lone button must not be pressed.
+      ["a lone Play-now-like button with no Play now link", '<button id="probe">Play now</button>', "drop-play-link"],
+      ["a Cancel button holding the Play now link", '<button id="probe">Cancel<a href="/watch?v=inv300002">x</a></button>', "drop-play-link"],
     ] : [
       ["a non-button with the Cancel class", '<div class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</div>'],
       ["a Cancel button inside a link", '<a href="/watch?v=inv300002"><button class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</button></a>'],
       ["the Play button wearing the Cancel class", '<button class="ytp-autonav-endscreen-upnext-cancel-button ytp-autonav-endscreen-upnext-play-button" id="probe">Play</button>'],
     ];
-    for (const [name, markup] of variants) {
+    for (const [name, markup, variant] of variants) {
       render(file);
+      if (variant === "drop-play-link") document.getElementById("keep-autonav-play")!.parentElement!.remove();
       const cancel = document.getElementById("keep-autonav-cancel")!;
       if (mobile) cancel.outerHTML = markup;
       else { cancel.remove(); overlay().insertAdjacentHTML("afterbegin", markup); }
