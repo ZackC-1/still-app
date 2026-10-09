@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_POSTHOG_KEY?: string;
   /** PostHog ingestion host, e.g. https://us.i.posthog.com. */
   readonly VITE_POSTHOG_HOST?: string;
+  /** "test" only in QA profiles: labels every analytics event build_channel "test". */
+  readonly VITE_ANALYTICS_BUILD_CHANNEL?: string;
   /** Hosted Supabase project URL (publishable). Absent → the screen stays local-only. */
   readonly VITE_SUPABASE_URL?: string;
   /** Supabase anon/publishable key (client-side by design). */

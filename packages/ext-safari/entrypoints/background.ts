@@ -12,7 +12,7 @@ import {
   replaceProjection,
 } from "../lib/reinstall-reconcile.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
-import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
@@ -67,6 +67,7 @@ export default defineBackground(() => {
       key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
       host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
     },
+    envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
     appVersion: browser.runtime.getManifest().version,
     sendNative: (message) => browser.runtime.sendNativeMessage(NATIVE_APP, message),
     platform: async () => (await browser.runtime.getPlatformInfo()).os,

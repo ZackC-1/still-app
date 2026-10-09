@@ -717,3 +717,27 @@ test("development device packages require the reviewed team, a device-limited li
   assert.throws(() => verify({}, () => ({})), /App Group/);
   assert.throws(() => verify({}, entitlements, "apple-ios-archive"), /not a development device target/);
 });
+
+test("QA builds always label analytics as test and only ever send to the separate QA project", async () => {
+  const { qaAnalyticsEnvironment, PRODUCTION_POSTHOG_KEY_SHA256 } = await import("./v3-profile.mjs");
+  assert.deepEqual(qaAnalyticsEnvironment({}), { VITE_ANALYTICS_BUILD_CHANNEL: "test" });
+  const key = "phc_" + "q".repeat(43);
+  assert.deepEqual(qaAnalyticsEnvironment({ STILL_QA_POSTHOG_KEY: key, STILL_QA_POSTHOG_REGION: "eu" }),
+    { VITE_ANALYTICS_BUILD_CHANNEL: "test", VITE_POSTHOG_KEY: key, VITE_POSTHOG_HOST: "https://eu.i.posthog.com" });
+  assert.throws(() => qaAnalyticsEnvironment({ STILL_QA_POSTHOG_KEY: key }), /both/);
+  assert.throws(() => qaAnalyticsEnvironment({ STILL_QA_POSTHOG_REGION: "us" }), /both/);
+  assert.throws(() => qaAnalyticsEnvironment({ STILL_QA_POSTHOG_KEY: "phx_personal", STILL_QA_POSTHOG_REGION: "us" }), /phc_/);
+  assert.throws(() => qaAnalyticsEnvironment({ STILL_QA_POSTHOG_KEY: key, STILL_QA_POSTHOG_REGION: "mars" }), /us or eu/);
+  // The store project is refused by fingerprint, whatever region is given.
+  const { createHash } = await import("node:crypto");
+  const fakeStore = "phc_" + "s".repeat(43);
+  assert.notEqual(createHash("sha256").update(fakeStore).digest("hex"), PRODUCTION_POSTHOG_KEY_SHA256);
+  assert.match(PRODUCTION_POSTHOG_KEY_SHA256, /^[a-f0-9]{64}$/);
+  // Inherited VITE_POSTHOG_* never reach a QA build: only the QA inputs above can supply analytics.
+  const env = profileEnvironment("test", { STILL_QA_BACKEND_ENVIRONMENT: "shared-hosted", STILL_QA_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co",
+    STILL_QA_SUPABASE_ANON_KEY: "sb_publishable_fixture", VITE_POSTHOG_KEY: "phc_inherited", VITE_POSTHOG_HOST: "https://us.i.posthog.com" });
+  assert.equal(env.VITE_ANALYTICS_BUILD_CHANNEL, "test");
+  assert.equal(env.VITE_POSTHOG_KEY, undefined);
+  assert.equal(env.VITE_POSTHOG_HOST, undefined);
+  assert.equal(profileEnvironment("local", {}).VITE_ANALYTICS_BUILD_CHANNEL, undefined);
+});
