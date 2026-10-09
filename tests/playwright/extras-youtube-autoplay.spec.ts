@@ -12,8 +12,6 @@ import { extrasFixture } from "../../packages/core/src/rules/__tests__/extras-fi
 // are unverified candidates (content/youtube-autoplay.ts); the fixture is synthetic.
 
 const expect = test.expect;
-const WATCH = "https://www.youtube.com/watch?v=inv300001";
-const PLAYLIST = "https://www.youtube.com/watch?v=inv300003&list=PLinvented03&index=2";
 type Probe = { toggleClicks: number; cancelClicks: number; ended: number; loads: number; token: string };
 
 async function commit(authority: Worker, path: string, value: boolean) {
@@ -23,11 +21,11 @@ async function commit(authority: Worker, path: string, value: boolean) {
     }).fixtureAuthority.commitIntent({ path, value, updatedAt: Date.now() });
   }, { path, value });
 }
-async function open(page: Page, url: string) {
+async function openFixture(page: Page, url: string, file: string) {
   await page.context().route(/^https?:/, (route) => {
     const target = new URL(route.request().url());
     if (!target.hostname.endsWith("youtube.com")) return route.abort();
-    return route.fulfill({ contentType: "text/html; charset=utf-8", body: extrasFixture("yt-autoplay.html") });
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: extrasFixture(file) });
   });
   await page.goto(url);
   // The engine ran: the free Shorts class is the proof of life (Autoplay itself adds no class).
@@ -64,6 +62,15 @@ async function playerState(page: Page) {
   }));
 }
 
+// Chromium extension fixture evidence, including mobile URL/player preservation. The mobile
+// countdown remains a candidate until real Safari and Firefox Android devices verify it.
+for (const { name, origin, file } of [
+  { name: "desktop", origin: "https://www.youtube.com", file: "yt-autoplay.html" },
+  { name: "mobile candidate countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html" },
+]) test.describe(name, () => {
+  const WATCH = `${origin}/watch?v=inv300001`;
+  const PLAYLIST = `${origin}/watch?v=inv300003&list=PLinvented03&index=2`;
+  const open = (page: Page, url: string) => openFixture(page, url, file);
 test("paid on: the up-next countdown is cancelled once, with the autoplay toggle, the playing video and the page untouched", async ({ page, authority }) => {
   await commit(authority, "sites.youtube.autoplay", true);
   await open(page, WATCH);
@@ -129,8 +136,10 @@ test("paid on: the free Shorts path is unchanged with Autoplay prevention On", a
   await page.context().route(/^https?:/, (route) => {
     const target = new URL(route.request().url());
     if (!target.hostname.endsWith("youtube.com")) return route.abort();
-    return route.fulfill({ contentType: "text/html; charset=utf-8", body: extrasFixture("yt-autoplay.html") });
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: extrasFixture(file) });
   });
-  await page.goto("https://www.youtube.com/shorts/inv300050", { waitUntil: "commit" });
+  await page.goto(`${origin}/shorts/inv300050`, { waitUntil: "commit" });
   await expect(page).toHaveURL(/\/watch\?v=inv300050$/);
+});
+
 });

@@ -23,7 +23,7 @@ export interface ExtrasRoute {
 }
 
 /**
- * A JavaScript marker for a structural boundary CSS cannot express. While the feature is
+ * A JavaScript marker for a structural boundary CSS cannot express on the current browser. While the feature is
  * effective the content script sets `attribute` on every `candidates` element that `owns` accepts
  * (and clears it from the rest); the rule set hides `ruleSelector` under the same feature gate.
  * Off, another service, or teardown removes every attribute the hook owns. Never text or
@@ -36,6 +36,8 @@ export interface MarkerAdapter {
   /** The exact hide selector, in the same feature's surface, that consumes the marker. */
   readonly ruleSelector: string;
   readonly owns: (element: Element) => boolean;
+  /** Primary structural selector; this adapter runs only if the browser cannot parse it. */
+  readonly structuralFallback?: string;
   /**
    * True when `owns` reads the page ADDRESS rather than structure (Instagram's search-entry mark).
    * Without the Navigation API the content script sees the page's own moves only through a URL

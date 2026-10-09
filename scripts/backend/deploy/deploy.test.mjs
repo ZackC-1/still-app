@@ -2,7 +2,15 @@
 // against throwaway repositories and every database/CLI call goes to an in-memory fake.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -100,6 +108,50 @@ const plan = (root, sha, migrations = "0002_harden.sql", extra = {}) =>
     ...extra,
   });
 
+/** Actual reviewed source through 0021, published only inside an owned disposable Git repo. */
+async function qaMigrationRepo(t) {
+  const { root } = await repo(t);
+  await rm(join(root, "supabase/migrations"), { recursive: true });
+  const migrations = new URL("../../../supabase/migrations/", import.meta.url);
+  for (const filename of await readdir(migrations)) {
+    if (
+      /^\d+_[a-z0-9_]+\.sql$/.test(filename) &&
+      Number(filename.split("_")[0]) <= 21
+    ) {
+      await put(
+        root,
+        `supabase/migrations/${filename}`,
+        await readFile(new URL(filename, migrations)),
+      );
+    }
+  }
+  await cp(
+    new URL("./verify/", import.meta.url),
+    join(root, "scripts/backend/deploy/verify"),
+    { recursive: true },
+  );
+  await cp(
+    new URL("../../../supabase/config.toml", import.meta.url),
+    join(root, "supabase/config.toml"),
+  );
+  for (const path of TOOLING_PATHS) {
+    await put(
+      root,
+      path,
+      await readFile(new URL(`../../../${path}`, import.meta.url)),
+    );
+  }
+  git(root, "add", "-A");
+  git(
+    root,
+    "commit",
+    "-q",
+    "-m",
+    "publish actual reviewed QA migration fixture",
+  );
+  return { root, head: git(root, "rev-parse", "HEAD") };
+}
+
 async function refuses(promise, category) {
   await assert.rejects(promise, (error) => {
     assert.ok(error instanceof Refusal, `expected a Refusal, got ${error}`);
@@ -142,6 +194,41 @@ test("inputs: exact SHA, bare migration names, no duplicates, functions refused"
 });
 
 // ── Plan ─────────────────────────────────────────────────────────────────────────────────────
+
+test("actual 0021 plan binds the exact QA catalog gate and complete-row preservation invariant", async (t) => {
+  const { root, head } = await qaMigrationRepo(t);
+  const p = await plan(root, head, "0021_qa_sandbox_access.sql");
+  assert.equal(p.priorMigrations.length, 20);
+  assert.equal(p.expectedHistoryBefore.at(-1).version, "0020");
+  assert.deepEqual(p.expectedHistoryAfter.at(-1), {
+    version: "0021",
+    name: "qa_sandbox_access",
+  });
+  const [migration] = p.migrations;
+  for (const [kind, filename] of [
+    ["verification", "0021_qa_sandbox_access.sql"],
+    ["invariant", "0021_qa_sandbox_access.invariant.sql"],
+  ]) {
+    const bytes = await readFile(
+      new URL(`./verify/${filename}`, import.meta.url),
+    );
+    assert.deepEqual(migration[kind], {
+      path: `scripts/backend/deploy/verify/${filename}`,
+      sha256: sha256(bytes),
+    });
+    assert.equal(lintVerificationSql(bytes.toString()), true);
+    assert.ok(renderPlan(p).includes(sha256(bytes)));
+  }
+  const gate = await readFile(
+    new URL("./verify/0021_qa_sandbox_access.sql", import.meta.url),
+    "utf8",
+  );
+  assert.equal(routinesPinned(gate).size, 40);
+  assert.equal(
+    (await plan(root, head, "0021_qa_sandbox_access.sql")).digest,
+    p.digest,
+  );
+});
 
 test("plan binds commit, hashes, verification, tooling and exact expected history", async (t) => {
   const { root, head } = await repo(t);
@@ -813,6 +900,7 @@ test("dry-run output is parsed from text or JSON and never guessed", () => {
 for (const version of [
   "0019_scoped_access_rights",
   "0020_apple_scoped_access",
+  "0021_qa_sandbox_access",
 ]) {
   test(`private row invariants accept exact ${version} count and fingerprint shape`, async (t) => {
     let sql;
@@ -833,7 +921,10 @@ for (const version of [
     const entries = [
       ...sql.matchAll(/'([^']+)'\s*,\s*\(select pg_catalog\.(count|md5)/g),
     ];
-    assert.equal(entries.length, version.startsWith("0019") ? 30 : 34);
+    assert.equal(
+      entries.length,
+      version.startsWith("0019") ? 30 : version.startsWith("0020") ? 34 : 42,
+    );
     const values = Object.fromEntries(
       entries.map(([, key, kind]) => [
         key,
@@ -848,6 +939,34 @@ for (const version of [
     );
   });
 }
+
+test("0021 preservation fingerprints include complete rows from all six existing ledgers", async () => {
+  const sql = await readFile(
+    new URL("./verify/0021_qa_sandbox_access.invariant.sql", import.meta.url),
+    "utf8",
+  );
+  assert.equal(lintVerificationSql(sql), true);
+  // A whole-row JSON projection includes provider_source and every Apple field, unlike the
+  // deliberately older 0020 projection that predates those columns and tables.
+  const fullRowTables = [
+    ...sql.matchAll(
+      /jsonb_agg\(pg_catalog\.to_jsonb\(r\) order by pg_catalog\.to_jsonb\(r\)::text\)::text,'\[\]'\)\) from ([a-z_]+\.[a-z_]+) r/g,
+    ),
+  ].map((match) => match[1]);
+  for (const table of [
+    "private.access_observations",
+    "private.access_rights",
+    "private.access_revocations",
+    "private.access_transfer_operations",
+    "private.apple_access_observations",
+    "private.apple_access_link_operations",
+  ])
+    assert.ok(
+      fullRowTables.includes(table),
+      `complete existing rows must be preserved: ${table}`,
+    );
+  assert.doesNotMatch(sql, /from private\.qa_sandbox_/);
+});
 
 test("private row invariants reject malformed or unbounded fingerprints and non-count values", () => {
   for (const value of [
@@ -1564,6 +1683,51 @@ test("deploy accepts private fingerprint invariants without publishing their con
   assert.equal(pushes(db.state).length, 1);
   assert.ok(!renderReceipt(receipt).includes(fingerprint));
   assert.ok(!JSON.stringify(receipt).includes(fingerprint));
+});
+
+test("actual 0021 deployment reports ledger value drift privately even when row counts stay unchanged", async (t) => {
+  const { root, head } = await qaMigrationRepo(t);
+  const p = await plan(root, head, "0021_qa_sandbox_access.sql");
+  const dir = join(root, ".deploy");
+  await prepareWorkdir({
+    exec: defaultExec,
+    cwd: root,
+    plan: p,
+    dir,
+    stage: "full",
+  });
+  const original = "0123456789abcdef0123456789abcdef";
+  const changed = "fedcba9876543210fedcba9876543210";
+  for (const table of [
+    "private.access_rights",
+    "private.apple_access_observations",
+    "private.apple_access_link_operations",
+  ]) {
+    await t.test(table, async () => {
+      const before = { [table]: 7, [`${table}.fingerprint`]: original };
+      const db = fakeDb(p, {
+        countsAfterPush: { ...before, [`${table}.fingerprint`]: changed },
+      });
+      db.state.counts = before;
+      const receipt = await runDeploy({
+        exec: db.exec,
+        plan: p,
+        dir,
+        conn: parseDbUrl(PROD_URL),
+        target: "production",
+        cwd: root,
+      });
+      assert.equal(receipt.status, "applied-verified-counts-changed");
+      assert.deepEqual(receipt.warnings, [
+        "row-count-changed:0021_qa_sandbox_access.sql",
+      ]);
+      assert.equal(pushes(db.state).length, 1);
+      const shown = JSON.stringify(receipt) + renderReceipt(receipt);
+      for (const value of [original, changed, JSON.stringify(before)])
+        assert.ok(!shown.includes(value));
+      assert.ok(shown.includes("0021_qa_sandbox_access.invariant.sql"));
+    });
+  }
 });
 
 test("an unreadable baseline row-count read refuses before any write", async (t) => {

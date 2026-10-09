@@ -25,7 +25,7 @@ supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postg
 qa_test() {
   deno test --frozen --config supabase/functions/deno.json \
     --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,STILL_QA_SANDBOX_UPGRADE_REQUIRED,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
-    --allow-read=supabase/tests/qa_sandbox_access_seed.sql,scripts/backend/deploy/verify/qa-sandbox-access.sql,scripts/backend/deploy/rollback/0021_qa_sandbox_access.sql \
+    --allow-read=supabase/tests/qa_sandbox_access_seed.sql,scripts/backend/deploy/verify/0021_qa_sandbox_access.sql,scripts/backend/deploy/rollback/0021_qa_sandbox_access.sql \
     --allow-net=127.0.0.1:54322 supabase/tests/qa_sandbox_access_test.ts
 }
 head_creator_audit() {
@@ -58,12 +58,29 @@ for migration in supabase/migrations/*.sql; do
   name=${migration##*/}
   if (( 10#${name%%_*} <= 10#0021 )); then cp "$migration" "$upgrade_root/supabase/migrations/"; fi
 done
+# Execute the actual private deployment invariant against the seeded pre-upgrade rows.
+# Never send its full-row fingerprints to CI output or retained artifacts.
+umask 077
+psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0021_qa_sandbox_access.invariant.sql > "$upgrade_root/invariant-before.json"
 supabase migration up --local --workdir "$upgrade_root" >/dev/null
+psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0021_qa_sandbox_access.invariant.sql > "$upgrade_root/invariant-after.json"
+if [[ ! -s $upgrade_root/invariant-before.json ]] || ! cmp -s "$upgrade_root/invariant-before.json" "$upgrade_root/invariant-after.json"; then
+  echo 'QA migration changed an existing private row invariant.' >&2; exit 1
+fi
+rm "$upgrade_root/invariant-before.json" "$upgrade_root/invariant-after.json"
+echo 'QA migration private full-row preservation invariant: PASS.'
 supabase test db supabase/tests/rls_test.sql
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=1 qa_test
 head_creator_audit
 # Clean-install evidence is distinct; it cannot satisfy the required pre-upgrade absence probe.
 supabase db reset --local --no-seed --version 0021 >/dev/null
+psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0021_qa_sandbox_access.invariant.sql >/dev/null
 supabase test db supabase/tests/rls_test.sql
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=0 qa_test
 head_creator_audit

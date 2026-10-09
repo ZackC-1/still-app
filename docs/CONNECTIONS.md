@@ -83,6 +83,21 @@ and local tests do not establish deployed routes, provider permissions or purcha
 Keep existing live secrets and routes intact. Hosted migration, secret installation, function
 deployment and provider configuration remain held for the plan's concrete approval packet.
 
+The fixed `qa-sandbox-functions` deployment operation uses the nonsecret repository variable
+`SUPABASE_PRODUCTION_PROJECT_REF` in both its plan and protected apply jobs. A variable defined
+only inside the approval environment is unavailable to the earlier plan job. The protected
+`supabase-production` environment separately holds `SUPABASE_PRODUCTION_DB_URL` and
+`SUPABASE_PRODUCTION_ACCESS_TOKEN`; no values belong in application build configuration.
+`DEPLOY_BASELINE_SHA256` binds the fresh private catalog, role, history, function and secret-name
+fingerprint. These names describe tooling under preparation, not installed configuration.
+
+Owner-only protection must be verified before either `baseline-only` or `apply` reaches that
+environment. A baseline read writes no functions or settings, and does not require every QA secret
+to be present. Apply requires all fixed input names and an approved baseline collected after setup;
+name/digest presence does not verify the values or establish purchase acceptance. Follow the
+[sandbox activation runbook](release/shared-hosted-sandbox-qa.md) for the separate reviewed setup,
+source deployment and hosted/device acceptance gates.
+
 ## Operational evidence and remaining work
 
 The September 14 record credits verified SMTP delivery from the new domain, successful forwarding
