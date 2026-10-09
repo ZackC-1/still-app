@@ -46,6 +46,7 @@ export const DELIBERATELY_UNPACKAGED = {
   VITE_BACKEND_ROUTE_PROFILE: "sandbox backend route opt-in; store packages retain the production route default",
   VITE_ANALYTICS_BUILD_CHANNEL: "QA analytics label; set only by the QA profiles, store events stay unlabelled",
   VITE_PACKAGE_IDENTITY: "sandbox QA package identity; set only by the paid-sandbox profile, never in a store package",
+  VITE_QA_BUILD_SEQUENCE: "sandbox QA package version suffix; set only by the paid-sandbox profile",
   VITE_REVIEW_SIGNIN_EMAIL: "store-review sign-in helper; must not ship in a public package",
 };
 const ENV_SCAN_DIRS = ["packages/ext-chromium", "packages/core/src", "packages/shared-types/src"];
