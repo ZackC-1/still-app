@@ -45,9 +45,32 @@ export function runsV3Interface(env: ManifestBuildEnv): boolean {
 
 /** `gecko` always; `gecko_android` only for a V3 build. */
 export function firefoxSettingsFor(env: ManifestBuildEnv) {
-  return runsV3Interface(env)
-    ? { ...firefoxBrowserSpecificSettings, gecko_android: firefoxAndroidSettings }
+  const settings = qaSandboxPackage(env)
+    ? { gecko: { ...firefoxBrowserSpecificSettings.gecko, id: QA_SANDBOX_PACKAGE.firefoxId } }
     : firefoxBrowserSpecificSettings;
+  return runsV3Interface(env) ? { ...settings, gecko_android: firefoxAndroidSettings } : settings;
+}
+
+/**
+ * Sandbox QA packages carry their own identity. A separate, never-listed Firefox add-on id means
+ * a listed AMO update can never replace an installed QA build (or the reverse), and the QA build
+ * is never uploaded through the public listing. Only the paid-sandbox profile in
+ * scripts/qa/v3-profile.mjs sets VITE_PACKAGE_IDENTITY; store packaging never forwards it
+ * (scripts/release/package.mjs DELIBERATELY_UNPACKAGED).
+ */
+export const QA_SANDBOX_PACKAGE = {
+  firefoxId: "still-qa-sandbox@chartash.com",
+  name: "Still QA Sandbox (not for release)",
+} as const;
+
+/** Whether this is a sandbox QA package; refuses a QA identity without the sandbox route and trust. */
+export function qaSandboxPackage(env: ManifestBuildEnv): boolean {
+  const identity = env.VITE_PACKAGE_IDENTITY;
+  if (identity === undefined || identity === "") return false;
+  if (identity !== "paid-sandbox-qa") throw new Error("VITE_PACKAGE_IDENTITY must be unset or paid-sandbox-qa");
+  if (env.VITE_BACKEND_ROUTE_PROFILE !== "shared-hosted-sandbox" || env.VITE_ACCESS_ENVIRONMENT !== "sandbox")
+    throw new Error("A sandbox QA package requires the shared-hosted-sandbox route and sandbox access trust");
+  return true;
 }
 
 /** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
@@ -80,7 +103,7 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
     // Store-search copy (docs/release/store-listing-copy.md): the stores read the listing's name and
     // summary from here. Firefox's validator caps the name at 45 characters; Chrome caps the
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
-    name: "Still: Remove Shorts & Reels, Stop Scrolling",
+    name: qaSandboxPackage(env) ? QA_SANDBOX_PACKAGE.name : "Still: Remove Shorts & Reels, Stop Scrolling",
     description: isFirefox
       ? firefoxDescriptionFor(env)
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",

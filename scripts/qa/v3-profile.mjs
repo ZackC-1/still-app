@@ -98,6 +98,8 @@ export function profileEnvironment(profile, input = process.env) {
     for (const key of Object.keys(env)) if (!allowed.has(key) && !key.startsWith("VITE_") && key !== "NODE_ENV") delete env[key];
     env.VITE_ACCESS_ENVIRONMENT = "sandbox";
     env.VITE_ACCESS_PUBLIC_KEYS = config.publicKeysJson;
+    // Separate Firefox add-on id and visible name (packages/ext-chromium/wxt.config.ts).
+    env.VITE_PACKAGE_IDENTITY = "paid-sandbox-qa";
   }
   return env;
 }
