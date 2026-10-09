@@ -28,6 +28,12 @@ qa_test() {
     --allow-read=supabase/tests/qa_sandbox_access_seed.sql,scripts/backend/deploy/verify/0021_qa_sandbox_access.sql,scripts/backend/deploy/rollback/0021_qa_sandbox_access.sql \
     --allow-net=127.0.0.1:54322 supabase/tests/qa_sandbox_access_test.ts
 }
+subjects_test() {
+  deno test --frozen --config supabase/functions/deno.json \
+    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+    --allow-read=scripts/backend/deploy/operations/qa-sandbox-subjects-enable.sql,scripts/backend/deploy/operations/qa-sandbox-subjects-disable.sql \
+    --allow-net=127.0.0.1:54322 supabase/tests/qa_sandbox_subjects_operation_test.ts
+}
 head_creator_audit() {
   # Reuse the reviewed U1 fixture only on this disposable database. QA's own gate has
   # already checked its default ACL before generic creator hardening can repair anything.
@@ -93,4 +99,9 @@ psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
 supabase test db supabase/tests/rls_test.sql
 STILL_QA_SANDBOX_UPGRADE_REQUIRED=0 qa_test
 head_creator_audit
+# The qa-sandbox-subjects operation's pinned transaction bodies against the real wrappers (refusals,
+# admission, disable racing in-flight grants), on a fresh 0021 database: the tests above end with
+# the emergency restore, which removes the wrappers.
+supabase db reset --local --no-seed --version 0021 >/dev/null
+subjects_test
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
