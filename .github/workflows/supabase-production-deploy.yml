@@ -1,10 +1,14 @@
 name: Supabase production deploy
 
-# The ONLY path for database changes to reach production (owner decision 9, CP-033).
+# The protected path for database and fixed QA function changes to reach production (owner decision 9, CP-033).
 # Manual dispatch from main only; never runs on push, pull request or schedule.
 # One run deploys one exact change: a commit on main plus EITHER the exact list of pending
 # migrations OR one owner-approved operation (pause-settings-sync / resume-settings-sync, see
-# scripts/backend/deploy/operations.mjs), never both. Operations add no migration history.
+# scripts/backend/deploy/operations.mjs), or the closed qa-sandbox-functions operation.
+# QA targets use the NONSECRET REPOSITORY variable SUPABASE_PRODUCTION_PROJECT_REF
+# (available to the plan job before environment approval), never an environment-only variable.
+# Protected apply binds/checks that same target against the protected database credential.
+# QA deployments add no migration history and never alter providers, secrets or admissions.
 #   plan  (no secrets): binds commit + file hashes + expected history into a digest and rehearses
 #                       the change on a throwaway database inside the runner; shows what changes.
 #                       An operation's SQL must also equal the hash pinned in operations.mjs, and
@@ -31,24 +35,31 @@ on:
           - migrations
           - pause-settings-sync
           - resume-settings-sync
+          - qa-sandbox-functions
       migrations:
         description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql); empty for an operation"
         required: false
         default: ""
         type: string
       functions:
-        description: "Edge Functions to deploy (not supported yet; leave empty)"
+        description: "Arbitrary Edge Function lists are unsupported; leave empty, including for the fixed QA operation"
+        required: false
+        default: ""
+        type: string
+      baseline_sha256:
+        description: "QA apply only: exact private hosted baseline SHA256 from an approved baseline-only run"
         required: false
         default: ""
         type: string
       mode:
-        description: "plan-only shows the plan and rehearsal; apply also asks for owner approval and deploys"
+        description: "plan-only shows the plan; apply deploys after owner approval; baseline-only is the protected read-only QA operation"
         required: true
         default: plan-only
         type: choice
         options:
           - plan-only
           - apply
+          - baseline-only
 
 permissions:
   contents: read
@@ -73,6 +84,8 @@ jobs:
       DEPLOY_OPERATION: ${{ inputs.operation }}
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
+      DEPLOY_BASELINE_SHA256: ${{ inputs.baseline_sha256 }}
+      SUPABASE_PRODUCTION_PROJECT_REF: ${{ vars.SUPABASE_PRODUCTION_PROJECT_REF }}
       DEPLOY_MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,20 +96,27 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        if: inputs.operation == 'qa-sandbox-functions'
+        with:
+          deno-version: "2.8.3"
       - name: Bind the exact change (commit on main, file hashes, expected history)
         id: plan
-        run: node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --summary
+        run: |
+          node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --summary \
+            --source-dir "$RUNNER_TEMP/qa-source" --artifact-dir "$RUNNER_TEMP/qa-uploads"
       - name: Check the approval environment's protection (read-only)
         id: protection
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$DEPLOY_MODE" = apply ]; then
+          if [ "$DEPLOY_MODE" = apply ] || [ "$DEPLOY_MODE" = baseline-only ]; then
             node scripts/backend/deploy/deploy.mjs protection --phase plan --require
           else
             node scripts/backend/deploy/deploy.mjs protection --phase plan
           fi
       - name: Install pinned Supabase CLI (checksum verified)
+        if: inputs.operation != 'qa-sandbox-functions'
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
             https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
@@ -104,14 +124,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Verify pinned tools
-        run: |
-          test "$(supabase --version)" = '2.119.0'
-          psql --version
+      - name: Verify pinned Supabase CLI
+        if: inputs.operation != 'qa-sandbox-functions'
+        run: test "$(supabase --version)" = '2.119.0'
+      - name: Check the database client
+        run: psql --version
       # For an operation the rehearsal also proves its effect (login refused or allowed, open
       # connection closed) and that every other role, grant, row and migration is unchanged.
       - name: Rehearse the exact change on a throwaway database (no production access)
+        if: inputs.operation != 'qa-sandbox-functions'
         run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/deploy-plan.json" "$RUNNER_TEMP/replay"
+      - name: Verify fixed QA operation and compiler boundary (no production access)
+        if: inputs.operation == 'qa-sandbox-functions'
+        run: node --test scripts/backend/deploy/qa-functions.test.mjs scripts/backend/deploy/qa-function-bundles.test.mjs scripts/backend/deploy/deploy.test.mjs
       - name: Publish the plan
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -123,7 +148,7 @@ jobs:
 
   apply:
     needs: plan
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'apply' && needs.plan.outputs.environment-ready == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions')) && needs.plan.outputs.environment-ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # Secrets live ONLY in this environment and are released only after the owner approves.
@@ -136,6 +161,9 @@ jobs:
       DEPLOY_OPERATION: ${{ inputs.operation }}
       DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
       DEPLOY_FUNCTIONS: ${{ inputs.functions }}
+      DEPLOY_BASELINE_SHA256: ${{ inputs.baseline_sha256 }}
+      SUPABASE_PRODUCTION_PROJECT_REF: ${{ vars.SUPABASE_PRODUCTION_PROJECT_REF }}
+      DEPLOY_MODE: ${{ inputs.mode }}
       EXPECTED_PLAN_DIGEST: ${{ needs.plan.outputs.plan-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,13 +174,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        if: inputs.operation == 'qa-sandbox-functions'
+        with:
+          deno-version: "2.8.3"
       - name: Confirm owner approval and environment protection (read-only)
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/backend/deploy/deploy.mjs protection --phase apply --require
       - name: Re-derive the plan and refuse if it differs from the approved one
-        run: node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --expect-digest "$EXPECTED_PLAN_DIGEST"
+        run: |
+          node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --expect-digest "$EXPECTED_PLAN_DIGEST" \
+            --source-dir "$RUNNER_TEMP/qa-source" --artifact-dir "$RUNNER_TEMP/qa-uploads"
       - name: Install pinned Supabase CLI (checksum verified)
+        if: inputs.operation != 'qa-sandbox-functions'
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
             https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
@@ -160,11 +195,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Verify pinned tools
-        run: |
-          test "$(supabase --version)" = '2.119.0'
-          psql --version
+      - name: Verify pinned Supabase CLI
+        if: inputs.operation != 'qa-sandbox-functions'
+        run: test "$(supabase --version)" = '2.119.0'
+      - name: Check the database client
+        run: psql --version
       - name: Extract the exact commit and re-verify every hash
+        if: inputs.operation != 'qa-sandbox-functions'
         run: node scripts/backend/deploy/deploy.mjs workdir --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --stage full
       - name: Refuse if main moved and changed any planned file while approval was pending
         run: |
@@ -175,7 +212,11 @@ jobs:
         timeout-minutes: 10
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
-        run: node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --receipt "$RUNNER_TEMP/deploy-receipt.json"
+          SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" \
+            --source-dir "$RUNNER_TEMP/qa-source" --artifact-dir "$RUNNER_TEMP/qa-uploads" --receipt "$RUNNER_TEMP/deploy-receipt.json"
       - name: Closing record (always; no secret)
         if: always()
         env:

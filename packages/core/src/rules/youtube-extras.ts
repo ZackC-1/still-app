@@ -1,4 +1,4 @@
-import type { ExtrasRoute, ServiceExtras } from "./extras.js";
+import type { ExtrasRoute, MarkerAdapter, ServiceExtras } from "./extras.js";
 
 /**
  * YouTube's Still Pro extras: hide surfaces (copied into the packaged rule set by sign-format2.mjs),
@@ -7,11 +7,11 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * Surface ids must never reuse a free surface id, and surfaces may target only this service's
  * Still Pro features (rules/__tests__/extras-free-protection.test.ts).
  *
- * SELECTOR STATUS: every selector below is an UNVERIFIED CANDIDATE taken from the synthetic
- * structural fixtures in tests/fixtures/extras/ (yt-watch-related, yt-m-watch-related,
- * yt-watch-end, yt-watch-comments-chat). None has been checked against live YouTube yet; each
- * control's release gate still needs its structural evidence. They are contracts only with
- * those fixtures.
+ * SELECTOR STATUS: the mobile related-items section, individual comments teaser and dedicated
+ * comments panel were observed on public m.youtube.com with a phone viewport on 2026-10-08.
+ * Their preservation fixtures remain synthetic. Desktop/end-screen/chat selectors remain
+ * UNVERIFIED CANDIDATES. Phone viewport evidence is not physical Safari or Firefox Android
+ * acceptance; each control's device release gate still needs its behavioral evidence.
  *
  * Boundaries every selector keeps: never a wrapper that also holds the playlist panel, the live
  * chat frame, the player's Replay/seek/settings controls or the autonav countdown. In particular
@@ -34,12 +34,30 @@ const ENDSCREEN = Object.freeze([
   ".ytp-endscreen-content",
 ]);
 
+const COMMENTS_PANEL = "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))";
+const COMMENTS_PANEL_MARKER: MarkerAdapter = Object.freeze({
+  feature: "youtube.comments",
+  attribute: "data-still-youtube-comments-panel",
+  candidates: "ytm-engagement-panel",
+  ruleSelector: "ytm-engagement-panel[data-still-youtube-comments-panel]",
+  structuralFallback: COMMENTS_PANEL,
+  owns: (element: Element) => element.matches("ytm-engagement-panel") && element.children.length === 1
+    && element.firstElementChild!.matches("ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section"),
+});
+
 /** youtube.comments (Comments): the comments section and the comments engagement panel. */
 const COMMENTS = Object.freeze([
   // The element itself, not its `#comments` id, so a recycled section with another id still
   // matches. Its siblings (the action carousel, chat) are never touched.
   "ytd-comments",
   'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]',
+  // Mobile: the individual teaser, never its metadata carousel (which can also contain chat).
+  "comments-entry-point-teaser-view-model",
+  // An observed dedicated comments panel includes its own scrim. Hiding only the section
+  // leaves that scrim/modal shell intercepting taps. Require the sole direct child to be the
+  // comments renderer; an ambiguous panel that also holds another section remains visible.
+  COMMENTS_PANEL,
+  COMMENTS_PANEL_MARKER.ruleSelector,
 ]);
 
 /** youtube.livechat (Live chat): the chat frame (with its entry button) and chat replay panel. */
@@ -71,7 +89,7 @@ export const YOUTUBE_EXTRAS: ServiceExtras = Object.freeze({
     Object.freeze({ id: "youtube-live-chat", feature: "youtube.livechat", action: "hide", selectors: LIVECHAT }),
   ]),
   routes: Object.freeze([LIVE_CHAT_ROUTE]),
-  markers: Object.freeze([]),
+  markers: Object.freeze([COMMENTS_PANEL_MARKER]),
   // youtube.autoplay (Autoplay prevention) is a packaged content handler, never rule data:
   // content/youtube-autoplay.ts, attached only while effectiveFeatures() reports it.
   handlers: Object.freeze(["youtube.autoplay"] as const),

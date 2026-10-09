@@ -147,6 +147,7 @@ public enum NativeAppleOwnershipObservation {
 public enum NativeAppleAccessCapabilities {
   public static let safariPro = [
     "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+    "youtube.related", "youtube.comments",
     "facebook.stories", "facebook.videos"
   ]
   public static func supported(paidMode: Bool) -> Set<String> {

@@ -39,4 +39,20 @@ Verification at reviewed source `2f93ea137aad234035daa493510069ad44791edc` is re
 
 The passing run used Deno 2.8.3 and Supabase CLI 2.119.0 and took 2m04s. These are verification versions, not a claim that future managed runtimes retain identical metadata or error text. Recharacterize changed runtime behavior with a disposable hosted fixture while preserving the security predicates.
 
-Relevant sources are the [fixture](../../../scripts/backend/sql/synthetic-catalog-fixture.sql), [hardening](../../../scripts/backend/sql/hardening-candidate.sql), [audit](../../../scripts/backend/sql/security-audit-candidate.sql), [role and rollback probes](../../../supabase/tests/catalog_preconditions.ts), [integration harness](../../../supabase/tests/security_foundation_test.ts), [runner](../../../scripts/backend/rehearse.sh), and [operational boundaries](../../../scripts/backend/README.md). This proves the explicitly privileged synthetic rehearsal; it does not prove a production execution role, live provider preservation, deployment approval, or lossless migration reversal.
+## Check migration state before changing the fixture
+
+Run migration permission assertions immediately after applying the migration in both upgrade and
+clean-install fixtures. Fixture setup can change role login, wrapper definitions or creator defaults;
+a later hardening step can repair permissions the migration itself failed to establish. Passing
+assertions after those changes proves the modified fixture rather than the migration's result.
+
+The fixed sandbox rehearsal runs its 33 existing pgTAP assertions before QA fixture setup and
+generic creator hardening. Separate catalog and behavioral probes cover QA routine ACLs, row
+isolation and operation recovery; the generic pgTAP suite does not cover that entire QA boundary.
+[Run 37851323165](https://github.com/ZackC-1/still-app/actions/runs/37851323165/job/113564648792)
+at source `b4a85ea67f2229ff2cdb4e4ff1813c1dc816ccb6` passed those 33 assertions and 20 QA
+behavioral steps in each fixture, including malformed and duplicate positive observations next to
+a known refund. Those invalid batches left persisted rights, observations and revocations unchanged;
+the valid refund control committed. This is disposable Linux evidence, not hosted target acceptance.
+
+Relevant sources are the [fixture](../../../scripts/backend/sql/synthetic-catalog-fixture.sql), [hardening](../../../scripts/backend/sql/hardening-candidate.sql), [audit](../../../scripts/backend/sql/security-audit-candidate.sql), [role and rollback probes](../../../supabase/tests/catalog_preconditions.ts), [integration harness](../../../supabase/tests/security_foundation_test.ts), [runner](../../../scripts/backend/rehearse.sh), [QA rehearsal](../../../scripts/backend/rehearse-qa-sandbox.sh), and [operational boundaries](../../../scripts/backend/README.md). This proves the explicitly privileged synthetic rehearsal; it does not prove a production execution role, live provider preservation, deployment approval, or lossless migration reversal.

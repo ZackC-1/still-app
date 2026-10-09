@@ -6,6 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: Mobile YouTube selects a Home topic but its feed becomes empty with blocking enabled
 date: 2026-09-10
+last_updated: 2026-10-08
 status: active
 tags: [youtube, mobile, selectors, dom-ownership]
 ---
@@ -36,3 +37,9 @@ No website event handlers, pagination requests or native settings are patched.
 Verification must include the disabled healthy control, repeated topic selection, Shorts remaining
 hidden, off/on restoration, reused ordinary cards, and desktop Shorts-filter recovery. Browser
 fixtures do not substitute for a signed physical iPhone Safari check of the reported Home layout.
+
+For an optional control that hides a dedicated mobile parent, selector support must cover the application's OS minimum. Safari added `:has()` in [15.4](https://webkit.org/blog/13096/css-has-pseudo-class/); a sole-child comments rule using it can otherwise leave the panel/scrim visible while its teaser disappears. The compiled [YouTube adapter](../../../packages/core/src/rules/youtube-extras.ts) retains modern CSS and adds the same-feature marker selector. The [marker hook](../../../packages/core/src/content/markers.ts) admits that fallback only when the primary selector is unsupported and the signed hide surface consumes its exact selector. It marks only a panel with one element child matching the comments section; a mixed or recycled panel loses the mark.
+
+Only an effective fallback owns a mutation observer. Relevant class and child-list records refresh affected panels; marker writes and unrelated mutations do not rescan the document. Off, revocation, another service and teardown clear owned attributes, including detached panels, and disconnect. The fallback never removes renderer-owned children or changes site settings.
+
+The composed Safari content regression models a rejecting older CSS parser as well as selector feature detection. It failed with the original CSS-only rule and passes with the fallback, including microtask delivery before paint, late panels, mixed content and free Shorts preservation. The complete core suite and built-extension YouTube fixtures pass. These are synthetic and Chromium proofs; physical Safari and Firefox Android acceptance remain separate.

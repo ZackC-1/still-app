@@ -114,8 +114,8 @@ export function parseInputs({ sha, migrations, functions }) {
     throw new Refusal("input-invalid", "List at least one migration file");
   const functionList = parseList(functions, FUNCTION_NAME, "function name");
   if (functionList.length > 0) {
-    // Deployed function bytes cannot be read back and verified the way migration history can,
-    // so function deploys stay separate owner-approved operations (gate G7).
+    // Arbitrary function lists lack a closed source/readback contract. The fixed QA
+    // function operation is selected separately and never accepts this generic list.
     throw new Refusal(
       "functions-unsupported",
       "Edge Function deploys are not supported by this workflow; leave the function list empty",
@@ -475,6 +475,7 @@ export const invariantPath = (file) =>
 
 /** Every file the deploy relies on, with its planned hash. */
 export function boundFiles(plan) {
+  if (plan?.kind === "supabase-exact-qa-functions") return plan.files;
   // An operation's apply uses only the deploy tooling and its own SQL and check.
   if (isOperation(plan)) return [...plan.tooling, plan.sql, plan.verification];
   return [
@@ -520,6 +521,12 @@ export async function checkFreshness({ git, plan, tipRef }) {
   }
   // An operation adds nothing to migration history, so newer migrations on main do not matter.
   if (isOperation(plan)) return { tip, mode: "files-identical" };
+  if (plan.kind === "supabase-exact-qa-functions") {
+    const history = (await migrationsAt(git, tip)).map(({ version, name }) => ({ version, name }));
+    if (canonical(history) !== canonical(plan.expectedHistoryAfter))
+      throw new Refusal("main-moved", "QA prerequisite history changed; plan again");
+    return { tip, mode: "files-identical" };
+  }
   const highest = plan.expectedHistoryAfter.at(-1).version;
   const atTip = (
     await migrationsAt(git, tip).catch(() => {
@@ -1762,7 +1769,7 @@ function requireRunner(env, platform) {
   }
 }
 
-function requireProductionContext(env, platform) {
+export function requireProductionContext(env, platform) {
   requireRunner(env, platform);
   if (
     env.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
@@ -1806,6 +1813,8 @@ export async function main(
     // DEPLOY_OPERATION selects numbered migrations (empty or "migrations", the default) or one
     // owner-approved operation; an operation refuses to run together with any migration.
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
+    if (env.DEPLOY_MODE === "baseline-only" && operation !== "qa-sandbox-functions")
+      throw new Refusal("mode-invalid", "baseline-only is reserved for the fixed QA function operation");
     const request = {
       git: makeGit(exec, cwd),
       sha: env.DEPLOY_SHA,
@@ -1814,13 +1823,19 @@ export async function main(
       mainRef: option(args, "--main-ref") ?? "HEAD",
     };
     const ops =
-      operation === "" || operation === "migrations"
+      operation === "" || operation === "migrations" || operation === "qa-sandbox-functions"
         ? null
         : await operations();
-    const plan = ops
+    const qa = operation === "qa-sandbox-functions" ? await import("./qa-functions.mjs") : null;
+    const plan = qa
+      ? await qa.createQaFunctionPlan({ ...request, cwd, exec,
+          sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+          projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF,
+          baselineSha256: env.DEPLOY_BASELINE_SHA256, mode: env.DEPLOY_MODE ?? "plan-only" })
+      : ops
       ? await ops.createOperationPlan({ ...request, operation })
       : await createDeployPlan(request);
-    const render = ops ? ops.renderOperationPlan : renderPlan;
+    const render = qa ? qa.renderQaPlan : ops ? ops.renderOperationPlan : renderPlan;
     const expect = option(args, "--expect-digest");
     if (expect !== undefined) assertSamePlan(plan, expect);
     if (option(args, "--out"))
@@ -1857,6 +1872,8 @@ export async function main(
   }
   if (command === "workdir") {
     const plan = await readPlan();
+    if (plan.kind === "supabase-exact-qa-functions")
+      throw new Refusal("qa-workdir-prepared-by-plan", "QA source and bundles are re-derived together by plan");
     await prepareWorkdir({
       exec,
       cwd,
@@ -1890,6 +1907,13 @@ export async function main(
     // With no receipt, an operation run still gets an operation record (never the migration
     // fallback, which would wrongly hold back an urgent pause until history is checked).
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
+    if (receipt?.kind === "supabase-exact-qa-functions" || operation === "qa-sandbox-functions") {
+      const qa = await import("./qa-functions.mjs");
+      const text = qa.renderQaFinal(receipt, context);
+      await writeSummary(text, env);
+      say(text);
+      return 0;
+    }
     const ops =
       receipt?.kind === "operation" || (!receipt && operation)
         ? await operations()
@@ -1908,6 +1932,19 @@ export async function main(
     requireProductionContext(env, platform);
     const plan = await readPlan();
     assertSamePlan(plan, env.EXPECTED_PLAN_DIGEST);
+    if (plan.kind === "supabase-exact-qa-functions") {
+      const qa = await import("./qa-functions.mjs");
+      const receipt = await qa.runQaFunctionOperation({ plan, env, platform, cwd, exec,
+        sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+        onProgress: async (r) => {
+          if (option(args, "--receipt"))
+            await writeFile(option(args, "--receipt"), JSON.stringify(r));
+        } });
+      const text = qa.renderQaFinal(receipt);
+      await writeSummary(text, env);
+      say(text);
+      return ["verified", "baseline-read-only"].includes(receipt.status) ? 0 : 1;
+    }
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
     if (isLoopback(conn))
       throw new Refusal(

@@ -48,6 +48,8 @@ const CASES = [
     targets: ["target-end-card-video", "target-end-card-channel", "target-endscreen-grid"] },
   { feature: "youtube.comments", file: "yt-watch-comments-chat.html", url: "https://www.youtube.com/watch?v=inv400000",
     targets: ["target-comments", "target-comments-panel"] },
+  { feature: "youtube.comments", file: "yt-m-watch-comments.html", url: "https://m.youtube.com/watch?v=inv400002",
+    targets: ["target-m-comments-teaser", "target-m-comments-preview", "target-m-comments-panel", "target-m-comments-header", "target-m-comments-scrim"] },
   { feature: "youtube.livechat", file: "yt-watch-comments-chat.html", url: "https://www.youtube.com/watch?v=inv400001",
     targets: ["target-chat-frame", "target-chat-entry", "target-chat-replay"] },
 ] as const;
@@ -92,6 +94,28 @@ test("paid on: Comments and Live chat are independent in all four combinations",
     for (const id of chat) await expect(page.locator(id), `${id} comments=${commentsOn} chat=${chatOn}`).toBeVisible({ visible: !chatOn });
     for (const id of await ids(page, "keep-")) await expect(page.locator(`#${id}`), id).toBeVisible();
   }
+});
+
+test("paid on: mobile comments preserve shared controls, recycle panels and restore when Still turns Off", async ({ page, authority }) => {
+  await only(authority, ["youtube.comments"]);
+  await serve(page, extrasFixture("yt-m-watch-comments.html"));
+  await page.goto("https://m.youtube.com/watch?v=inv400002");
+  await expect(page.locator("#comments-panel-shell")).toBeHidden();
+  await expect(page.locator("#keep-carousel")).toBeVisible();
+  await expect(page.locator("#keep-shared-carousel-action")).toBeVisible();
+  await expect(page.locator("#keep-description-panel")).toBeVisible();
+  await page.locator("#target-m-comments-panel").evaluate(node => { node.className = "engagement-panel-description-section"; });
+  await expect(page.locator("#comments-panel-shell")).toBeVisible();
+  await page.locator("#target-m-comments-panel").evaluate(node => { node.className = "engagement-panel-comments-section"; });
+  await expect(page.locator("#comments-panel-shell")).toBeHidden();
+  await page.locator("#comments-panel-shell").evaluate(node => {
+    node.insertAdjacentHTML("beforeend", '<ytm-engagement-panel-section-list-renderer id="ambiguous-description">Invented description</ytm-engagement-panel-section-list-renderer>');
+  });
+  await expect(page.locator("#comments-panel-shell")).toBeVisible();
+  await expect(page.locator("#ambiguous-description")).toBeVisible();
+  await commit(authority, "globalOn", false);
+  await expect(page.locator("#target-m-comments-teaser")).toBeVisible();
+  await expect(page.locator("#target-m-comments-header")).toBeVisible();
 });
 
 test("paid on: Related with End-of-video keeps the playlist panel, player, chat and comments, and hides late-rendered suggestions", async ({ page, authority }) => {
