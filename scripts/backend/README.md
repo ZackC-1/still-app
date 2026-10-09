@@ -498,12 +498,18 @@ writes nothing, and each is chosen with the workflow input `policy_mode`:
   writes the sandbox paid cutoff (write-once), and only when none exists. Both bodies carry
   placeholder QA build ids and the cutoff content awaits owner sign-off, so the planner refuses
   `mode=apply` until a reviewed change settles them (`PROVISIONAL` in `operations.mjs`).
-- `qa-sandbox-subjects` (`enable` with `subjects_sha256`, or `disable`): `enable` admits the accounts
-  in the `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret, whose canonical SHA-256 must equal the
-  approved `subjects_sha256` (`node scripts/backend/deploy/deploy.mjs subjects-digest < list.json`
-  prints it without echoing the list). Only per-email SHA-256 values reach the database. Unknown,
-  ambiguous or unconfirmed accounts refuse the whole run; rows are locked in the wrappers' order.
-  `disable` switches every membership off and never deletes a row.
+- `qa-sandbox-subjects` (`enable` with `subjects_sha256`, or `disable`): `enable` makes the enabled
+  memberships exactly the accounts in the `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret,
+  `{"salt":"<32+ random hex>","emails":[...]}` (salt from `openssl rand -hex 32`; emails only from
+  the designated QA accounts file). `subjects_sha256` is `<count>:<SHA-256>` of the salted
+  canonical object; `node scripts/backend/deploy/deploy.mjs subjects-digest < secret.json` prints
+  it without echoing the list, and the plan shows the count. Only per-email SHA-256 values reach
+  the database. Unknown, ambiguous or unconfirmed accounts refuse the whole run; every other
+  enabled membership is switched off (never deleted); rows are locked in the wrappers' order.
+  `disable` switches every membership off and never deletes a row. Neither revokes sandbox rights
+  already granted; `pause-qa-sandbox` stops every paid QA function at once. Once production has a
+  paid cutoff, the sandbox sales switches refuse (`production_cutoff_present`); use
+  `pause-qa-sandbox` then.
 
 Their rehearsals prove negative controls write nothing, production rows and cutoffs stay untouched,
 revisions are only appended, the policy reader serves exactly the approved body, and disable keeps

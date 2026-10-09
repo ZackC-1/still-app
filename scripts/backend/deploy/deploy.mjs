@@ -2131,7 +2131,7 @@ export async function main(
     const list = (await operations()).canonicalSubjects(
       Buffer.concat(chunks).toString("utf8"),
     );
-    say(`subjects_sha256=${list.sha256} accounts=${list.count}`);
+    say(`subjects_sha256=${list.binding} accounts=${list.count}`);
     return 0;
   }
   throw new Refusal(

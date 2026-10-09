@@ -234,6 +234,8 @@ const salesPolicy = (mode, { sql, verification }) =>
     counterpart: `qa-sandbox-sales-policy with policy_mode ${mode === "on" ? "off" : "on"}`,
     lastResort:
       "run pause-qa-sandbox, which stops every paid QA function at once",
+    preconditionRecovery:
+      "Nothing was written. If the refusal lists production_cutoff_present: once production has a paid cutoff, both sandbox sales switches (off and on) refuse by design; to stop QA purchases use pause-qa-sandbox. Otherwise check the state privately, then plan and approve again.",
   });
 
 const subjects = (mode, { sql, verification }) =>
@@ -249,12 +251,17 @@ const subjects = (mode, { sql, verification }) =>
     provisional: Object.freeze([]),
     effect:
       mode === "enable"
-        ? "every approved test account is a confirmed, active account with its QA sandbox membership enabled"
+        ? "the enabled QA sandbox memberships are exactly the approved test accounts, each a confirmed, active account (no row deleted)"
         : "no QA sandbox membership is enabled (every row kept)",
     lane: "QA test accounts",
     counterpart: `qa-sandbox-subjects with policy_mode ${mode === "enable" ? "disable" : "enable"}`,
     lastResort:
       "run pause-qa-sandbox, which stops every paid QA function at once",
+    preconditionRecovery:
+      "Nothing was written. An approved account is unknown, matches more than one account, or is not confirmed and active. Rebuild the list only from the designated QA accounts file, check its count, and plan and approve again.",
+    // Said on every verified run: what switching memberships off does not do.
+    verifiedNote:
+      "Switching a membership off stops new paid grants for that account; sandbox rights it was already granted are kept (refund or transfer them through the QA flows). To stop every paid QA function at once, run pause-qa-sandbox.",
   });
 
 /**
@@ -364,12 +371,12 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-subjects-enable.sql`,
       sha256:
-        "c61925b38c41d62e3616683aa457ee0605e1f605f652e0fd2dae4494705e73d2",
+        "cbadc23205271745bf85f3c5c148078d77d0bac2017b4fcf708a0b1828c02d2c",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-subjects-enable.verify.sql`,
       sha256:
-        "3fb9eb824595f6df01ef998e025c05044ab387b8f21ea46dc0003830f9eef884",
+        "3e4d15a1d67dbc762d8af178d5ef3e6e577b0c168048bf3c4a209b96bf186c17",
     },
   }),
   "qa-sandbox-subjects-disable": subjects("disable", {
@@ -450,23 +457,46 @@ export const runName = (name, registry = OPERATIONS) =>
 // ── QA test-account list (the list itself never leaves the runner's memory) ──────────────────
 
 const EMAIL = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,185}\.[a-z]{2,24}$/;
+/** At least 128 random bits, lower-case hex, so the public approval value cannot be guessed. */
+const SALT = /^[0-9a-f]{32,128}$/;
+/** The workflow's subjects_sha256 value: the approved account count, a colon, the salted SHA-256. */
+const SUBJECTS_BINDING = /^([1-9][0-9]?):([0-9a-f]{64})$/;
 
 /**
- * The approved test-account list as the canonical, sorted, lower-cased JSON array, its SHA-256 (the
- * `subjects_sha256` the owner approves) and the per-email SHA-256 values the database receives.
- * Refuses anything that is not a JSON array of 1 to 50 distinct email addresses. Never echoes input.
+ * The approved test-account list secret, `{"salt":"<32+ random lower-case hex>","emails":[...]}`.
+ * Returns the SHA-256 of its canonical form (`{"salt":...,"emails":[sorted, lower-cased]}`), the
+ * account count, the `subjects_sha256` workflow value (`<count>:<sha256>`, so the plan shows the
+ * count) and the per-email SHA-256 values the database receives. The salt keeps the public value
+ * from being checked by guessing emails. Refuses a missing or short salt, any other key, or anything
+ * but 1 to 50 distinct email addresses. Never echoes input.
  */
 export function canonicalSubjects(text) {
-  let list;
+  let secret;
   try {
-    list = JSON.parse(String(text ?? ""));
+    secret = JSON.parse(String(text ?? ""));
   } catch {
-    list = null;
+    secret = null;
   }
+  if (
+    !secret ||
+    typeof secret !== "object" ||
+    Array.isArray(secret) ||
+    Object.keys(secret).sort().join(",") !== "emails,salt"
+  )
+    throw new Refusal(
+      "subjects-list-invalid",
+      'The test-account list secret must be {"salt":"<random hex>","emails":[...]}',
+    );
+  if (typeof secret.salt !== "string" || !SALT.test(secret.salt))
+    throw new Refusal(
+      "subjects-list-invalid",
+      "The test-account list secret needs a salt of at least 32 random lower-case hex characters",
+    );
+  const list = secret.emails;
   if (!Array.isArray(list) || list.length < 1 || list.length > 50)
     throw new Refusal(
       "subjects-list-invalid",
-      "The test-account list must be a JSON array of 1 to 50 email addresses",
+      "The test-account list must hold 1 to 50 email addresses",
     );
   const emails = list.map((e) =>
     typeof e === "string" ? e.trim().toLowerCase() : "",
@@ -479,10 +509,13 @@ export function canonicalSubjects(text) {
       "subjects-list-invalid",
       "The test-account list must hold distinct, well-formed email addresses",
     );
-  const canonicalList = JSON.stringify([...emails].sort());
+  const digest = sha256(
+    JSON.stringify({ salt: secret.salt, emails: [...emails].sort() }),
+  );
   return {
-    sha256: sha256(canonicalList),
+    sha256: digest,
     count: emails.length,
+    binding: `${emails.length}:${digest}`,
     hashes: emails.map((e) => sha256(e)).sort(),
   };
 }
@@ -731,26 +764,34 @@ export const KINDS = Object.freeze({
           policyMode: op.policyMode,
         };
       }
-      if (!/^[0-9a-f]{64}$/.test(digest))
+      const bound = SUBJECTS_BINDING.exec(digest);
+      if (!bound || Number(bound[1]) > 50)
         throw new Refusal(
           "operation-input-invalid",
-          "subjects_sha256 must be the 64-character SHA-256 of the approved test-account list",
+          "subjects_sha256 must be <account count>:<SHA-256> of the salted test-account list (deploy.mjs subjects-digest prints it)",
         );
       return {
         workflowOperation: op.workflowOperation,
         policyMode: op.policyMode,
-        subjectsSha256: digest,
+        subjectCount: Number(bound[1]),
+        subjectsSha256: bound[2],
       };
     },
     pinned: (plan, op) =>
       plan.policyMode === op.policyMode &&
       (op.policyMode === "enable"
-        ? /^[0-9a-f]{64}$/.test(plan.subjectsSha256 ?? "")
-        : plan.subjectsSha256 === undefined),
+        ? /^[0-9a-f]{64}$/.test(plan.subjectsSha256 ?? "") &&
+          Number.isInteger(plan.subjectCount) &&
+          plan.subjectCount >= 1 &&
+          plan.subjectCount <= 50
+        : plan.subjectsSha256 === undefined && plan.subjectCount === undefined),
     vars(plan, { subjectEmails } = {}) {
       if (plan.policyMode !== "enable") return {};
       const list = canonicalSubjects(subjectEmails);
-      if (list.sha256 !== plan.subjectsSha256)
+      if (
+        list.sha256 !== plan.subjectsSha256 ||
+        list.count !== plan.subjectCount
+      )
         throw new Refusal(
           "subjects-list-mismatch",
           "The test-account list secret is not the list approved by subjects_sha256",
@@ -759,12 +800,12 @@ export const KINDS = Object.freeze({
     },
     closes: (op) =>
       op.policyMode === "enable"
-        ? ["subject_not_enabled"]
+        ? ["subject_not_enabled", "subjects_unlisted_enabled"]
         : ["subjects_enabled"],
     wrote(op, line, receipt) {
       const keys =
         op.policyMode === "enable"
-          ? ["listed", "admitted", "changed"]
+          ? ["listed", "admitted", "changed", "removed"]
           : ["disabled", "members"];
       const result = parseOutcome(line, keys);
       if (!result || !keys.every((k) => count(result[k]))) {
@@ -779,7 +820,7 @@ export const KINDS = Object.freeze({
         outcome: "ok",
         detail:
           op.policyMode === "enable"
-            ? `${result.admitted} of ${result.listed} approved account(s) admitted; ${result.changed} membership(s) switched on`
+            ? `${result.admitted} of ${result.listed} approved account(s) admitted; ${result.changed} membership(s) switched on; ${result.removed} unlisted membership(s) switched off (none deleted)`
             : `${result.disabled} membership(s) switched off; ${result.members} kept (none deleted)`,
       };
     },
@@ -1278,7 +1319,7 @@ function transactionRecovery(op, situation, sideFailed, reason) {
         `Do not run ${op.run} again to fix that, and do not undo it because of it; inspect role settings and migration history privately (Supabase SQL editor) and decide.`
       );
     case "verified":
-      return `none needed; to undo, run ${op.counterpart}${op.cutoff ? " (the sandbox paid cutoff stays: it is write-once)" : ""}`;
+      return `none needed; to undo, run ${op.counterpart}${op.cutoff ? " (the sandbox paid cutoff stays: it is write-once)" : ""}${op.verifiedNote ? `. ${op.verifiedNote}` : ""}`;
     default:
       throw new Error(`unknown recovery situation ${situation}`);
   }
@@ -1428,6 +1469,12 @@ export async function runOperation({
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
+    if (
+      error instanceof Refusal &&
+      error.category === "operation-precondition" &&
+      op?.preconditionRecovery
+    )
+      receipt.recovery = op.preconditionRecovery;
     if (error instanceof Refusal && error.message !== error.category)
       log(error.message);
     await onProgress(receipt);
@@ -1925,7 +1972,7 @@ export function derivePolicyPlan(plan, mode, expected, registry = OPERATIONS) {
 function deriveSubjectsPlan(plan, mode, subjectsSha256, registry = OPERATIONS) {
   const name = WORKFLOW_OPERATIONS["qa-sandbox-subjects"][mode];
   const op = operationNamed(name, registry);
-  const { subjectsSha256: _bound, ...rest } = plan;
+  const { subjectsSha256: _bound, subjectCount: _count, ...rest } = plan;
   return {
     ...rest,
     operation: name,
@@ -2302,27 +2349,37 @@ async function replaySubjects({
       "select pg_catalog.md5(coalesce(pg_catalog.string_agg(t::text, E'\\n' order by t.id), '')) from auth.users t",
       { readOnly: true },
     );
+  // The list secret, salted like the real one (a fresh throwaway salt per rehearsal).
+  const salt = randomBytes(16).toString("hex");
+  const secretOf = (emails) => JSON.stringify({ salt, emails });
+  const bindingOf = (emails) => canonicalSubjects(secretOf(emails)).binding;
+  const boundTo = (emails) => {
+    const list = canonicalSubjects(secretOf(emails));
+    return { ...plan, subjectsSha256: list.sha256, subjectCount: list.count };
+  };
   // Mixed case and spacing on purpose: the list is canonicalised before hashing.
-  const approved = JSON.stringify([
+  const approvedEmails = [
     ` ${listed[1][1].toUpperCase()} `,
     listed[0][1],
     listed[2][1],
-  ]);
-  const listSha = canonicalSubjects(approved).sha256;
+  ];
+  const approved = secretOf(approvedEmails);
   const enablePlan =
     op.policyMode === "enable"
-      ? { ...plan, subjectsSha256: listSha }
-      : deriveSubjectsPlan(plan, "enable", listSha, registry);
+      ? boundTo(approvedEmails)
+      : deriveSubjectsPlan(plan, "enable", bindingOf(approvedEmails), registry);
   const disablePlan =
     op.policyMode === "disable"
       ? plan
       : deriveSubjectsPlan(plan, "disable", "", registry);
 
   if (op.policyMode === "enable")
-    // A new row, a disabled row to re-enable, and an enabled row to leave alone.
+    // A new row, a disabled row to re-enable, an enabled row to leave alone, and an enabled
+    // account that is not on the list (it must be switched off, never deleted).
     await seedRows([
       [listed[1][0], false, 2],
       [listed[2][0], true, 1],
+      [nonMember[0], true, 4],
     ]);
   else
     await seedRows([
@@ -2339,10 +2396,16 @@ async function replaySubjects({
     const mismatch = await run(plan, approved);
     prove(
       "negative control: a list secret that is not the approved list is refused before any database call",
-      plan.subjectsSha256 === listSha ||
-        (mismatch.status === "refused" &&
-          mismatch.issues.includes("subjects-list-mismatch")),
+      mismatch.status === "refused" &&
+        mismatch.issues.includes("subjects-list-mismatch"),
       mismatch.issues.join(", "),
+    );
+    const unsalted = await run(enablePlan, JSON.stringify(approvedEmails));
+    prove(
+      "negative control: a list secret without a salt is refused before any database call",
+      unsalted.status === "refused" &&
+        unsalted.issues.includes("subjects-list-invalid"),
+      unsalted.issues.join(", "),
     );
     for (const [label, list] of [
       [
@@ -2351,11 +2414,7 @@ async function replaySubjects({
       ],
       ["an unconfirmed account", [listed[0][1], unconfirmed[1]]],
     ]) {
-      const text = JSON.stringify(list);
-      const refused = await run(
-        { ...plan, subjectsSha256: canonicalSubjects(text).sha256 },
-        text,
-      );
+      const refused = await run(boundTo(list), secretOf(list));
       prove(
         `negative control: a list with ${label} is refused before writing`,
         refused.status === "refused" &&
@@ -2377,17 +2436,13 @@ async function replaySubjects({
       [
         "an unknown account",
         canonicalSubjects(
-          JSON.stringify([
-            listed[0][1],
-            "qa-rehearsal-unknown@example.invalid",
-          ]),
+          secretOf([listed[0][1], "qa-rehearsal-unknown@example.invalid"]),
         ).hashes,
         "QS002",
       ],
       [
         "an unconfirmed account",
-        canonicalSubjects(JSON.stringify([listed[0][1], unconfirmed[1]]))
-          .hashes,
+        canonicalSubjects(secretOf([listed[0][1], unconfirmed[1]])).hashes,
         "QS004",
       ],
       ["malformed input", ["not-a-hash"], "QS001"],
@@ -2430,14 +2485,17 @@ async function replaySubjects({
         byHolder[listed[2][0]]?.r === 1,
     );
     prove(
-      "the counts match the approved list: 3 listed, 3 admitted, 2 changed",
+      "the counts match the approved list: 3 listed, 3 admitted, 2 switched on, 1 unlisted switched off",
       canonical(receipt.result) ===
-        canonical({ listed: 3, admitted: 3, changed: 2 }),
+        canonical({ listed: 3, admitted: 3, changed: 2, removed: 1 }),
       JSON.stringify(receipt.result ?? null),
     );
     prove(
-      "non-members stay out: the free and the unconfirmed account have no membership",
-      !byHolder[nonMember[0]] && !byHolder[unconfirmed[0]],
+      "the enabled set is exactly the list: the unlisted account is switched off (row kept, revision + 1), the unconfirmed one has no membership",
+      byHolder[nonMember[0]]?.e === false &&
+        byHolder[nonMember[0]]?.r === 5 &&
+        !byHolder[unconfirmed[0]] &&
+        enabled(rows).length === 3,
     );
     prove("no Auth account changed", (await authRows()) === startAuth);
     repeat = await run(enablePlan, approved);
@@ -2479,6 +2537,25 @@ async function replaySubjects({
     repeat.status,
   );
   prove("the repeat changed nothing at all", sameList(await snapshot(), after));
+
+  if (op.policyMode === "enable") {
+    // Enabling a shorter list drops the others: [A, B, C] then [B] leaves only B enabled.
+    const narrowed = [listed[1][1]];
+    const narrow = await run(boundTo(narrowed), secretOf(narrowed));
+    const rows = await members();
+    const byHolder = Object.fromEntries(rows.map((r) => [r.h, r]));
+    prove(
+      "enabling a shorter list switches the dropped accounts off and keeps their rows",
+      narrow.status === "verified" &&
+        canonical(narrow.result) ===
+          canonical({ listed: 1, admitted: 1, changed: 0, removed: 2 }) &&
+        sameList(enabled(rows), [listed[1][0]]) &&
+        byHolder[listed[0][0]]?.e === false &&
+        byHolder[listed[2][0]]?.e === false &&
+        rows.length === 4,
+      JSON.stringify(narrow.result ?? null),
+    );
+  }
 
   // Disable keeps every row: (after an enable rehearsal this is the follow-up off switch).
   const beforeDisable = await members();
@@ -2542,7 +2619,7 @@ function renderPlanInputs(plan) {
   if (plan.operationKind === QA_SUBJECTS)
     lines.push(
       plan.policyMode === "enable"
-        ? `- Approved test-account list: SHA-256 \`${plan.subjectsSha256}\` (the list itself stays in the protected environment secret and is checked against this value before any database call; no email, hash or id is printed).`
+        ? `- Approved test-account list: **${plan.subjectCount} account(s)**, salted SHA-256 \`${plan.subjectsSha256}\`. Check the count against the designated QA accounts file: the list must be built only from that file (enable cannot tell a mistyped real customer's email from a test account). The list stays in the protected environment secret and is checked against this value before any database call; every other enabled membership is switched off (never deleted); no email, hash or id is printed.`
         : "- Every enabled QA membership is switched off; no row is deleted; no account list is needed.",
     );
   return lines.length ? [...lines, ""] : [];

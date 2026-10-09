@@ -49,7 +49,7 @@ jobs:
             expected_revision: "1"
           - operation: qa-sandbox-subjects
             policy_mode: enable
-            subjects_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+            subjects_sha256: "1:0000000000000000000000000000000000000000000000000000000000000000"
           - operation: qa-sandbox-subjects
             policy_mode: disable
     steps:

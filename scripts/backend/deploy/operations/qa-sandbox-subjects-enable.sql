@@ -1,6 +1,7 @@
--- Owner-approved operation qa-sandbox-subjects (policy_mode enable): admit the approved test
--- accounts to the QA sandbox lane (private.qa_sandbox_subjects enabled = true). Nothing else
--- changes; no account, right or other table is written.
+-- Owner-approved operation qa-sandbox-subjects (policy_mode enable): make the enabled QA sandbox
+-- memberships exactly the approved test accounts. Approved accounts are switched on; any other
+-- enabled membership (an account dropped from the list) is switched off, never deleted. Nothing
+-- else changes; no account, right or other table is written.
 --
 -- Input: the runner hashes each approved, lower-cased email with SHA-256 and passes only the sorted
 -- JSON array of those hashes through its environment (never the command line). No email reaches
@@ -9,11 +10,13 @@
 -- What runs, in one transaction (a refusal anywhere writes nothing):
 --   1. every hash must match exactly one Auth account (lower-cased email): an unknown or ambiguous
 --      entry refuses, so the admitted count always equals the approved count;
---   2. per account in UUID order, the same lock order as the QA wrappers: its Auth row FOR SHARE
---      (it must be confirmed, not deleted and not banned, or the whole run refuses), then its
---      membership row FOR UPDATE;
---   3. a missing membership row is inserted enabled (revision 1); a disabled one is enabled with
---      revision + 1; an enabled one is left exactly as it is.
+--   2. one pass in UUID order over the approved accounts and the enabled unlisted memberships,
+--      the same lock order as the QA wrappers. An approved account: its Auth row FOR SHARE (it
+--      must be confirmed, not deleted and not banned, or the whole run refuses), then its
+--      membership row FOR UPDATE. An unlisted one: its membership row FOR UPDATE;
+--   3. approved: a missing membership row is inserted enabled (revision 1), a disabled one is
+--      enabled with revision + 1, an enabled one is left exactly as it is; unlisted: switched off
+--      with revision + 1 (the row and its refund/removal recovery stay).
 -- Refusals use fixed SQLSTATEs (QS001-QS004, see operations.mjs) and print no data. Counts only.
 \getenv still_operation_subject_hashes STILL_OPERATION_SUBJECT_HASHES
 begin;
@@ -26,6 +29,7 @@ declare
   v_holder uuid;
   v_confirmed boolean;
   v_changed integer := 0;
+  v_removed integer := 0;
   v_rows integer;
 begin
   if current_user <> 'postgres' then
@@ -65,8 +69,23 @@ begin
   select pg_catalog.array_agg(u.id order by u.id) into v_holders
     from auth.users u
     where pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.lower(u.email), 'UTF8')), 'hex') = any (v_hashes);
-  -- Lock and admit in UUID order: Auth row first, then the membership row (the wrappers' order).
-  foreach v_holder in array v_holders loop
+  -- One pass in UUID order over approved accounts and enabled unlisted memberships. Approved:
+  -- Auth row first, then the membership row (the wrappers' order). Unlisted: membership row only.
+  for v_holder in
+    select h.holder from (
+      select pg_catalog.unnest(v_holders) as holder
+      union
+      select s.holder from private.qa_sandbox_subjects s
+        where s.enabled and s.holder <> all (v_holders)
+    ) h order by h.holder
+  loop
+    if v_holder <> all (v_holders) then
+      update private.qa_sandbox_subjects s set enabled = false, revision = s.revision + 1
+        where s.holder = v_holder and s.enabled;
+      get diagnostics v_rows = row_count;
+      v_removed := v_removed + v_rows;
+      continue;
+    end if;
     select u.email_confirmed_at is not null and u.deleted_at is null
            and (u.banned_until is null or u.banned_until <= pg_catalog.clock_timestamp())
       into v_confirmed
@@ -84,7 +103,7 @@ begin
   end loop;
   perform pg_catalog.set_config('still_operation.outcome', pg_catalog.json_build_object(
     'listed', pg_catalog.cardinality(v_hashes), 'admitted', pg_catalog.cardinality(v_holders),
-    'changed', v_changed)::text, true);
+    'changed', v_changed, 'removed', v_removed)::text, true);
 end
 $$;
 select pg_catalog.current_setting('still_operation.outcome');

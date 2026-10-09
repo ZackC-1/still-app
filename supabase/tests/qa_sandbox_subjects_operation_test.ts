@@ -143,11 +143,13 @@ Deno.test({
           listed: 2,
           admitted: 2,
           changed: 2,
+          removed: 0,
         });
         assertEquals(await enable([A, B]), {
           listed: 2,
           admitted: 2,
           changed: 0,
+          removed: 0,
         });
         assertEquals(
           (await members()).map((m) => [m.holder, m.enabled, m.revision]),
@@ -166,6 +168,29 @@ Deno.test({
           false,
         );
       });
+
+      await t.step(
+        "enable makes the enabled set exactly the list: [A, B] then [B] switches A off, row kept",
+        async () => {
+          assertEquals(await enable([B]), {
+            listed: 1,
+            admitted: 1,
+            changed: 0,
+            removed: 1,
+          });
+          assertEquals(
+            (await members()).map((m) => [m.holder, m.enabled, m.revision]),
+            [[A, false, 2], [B, true, 1]],
+          );
+          assertEquals(
+            (await q`select public.qa_sandbox_account_enabled(${A}::uuid) as on`)[
+              0
+            ]?.on,
+            false,
+          );
+          assertEquals((await enable([A, B])).changed, 1);
+        },
+      );
 
       await t.step(
         "disable holds the shared row lock and an in-flight positive grant gets no right",
@@ -217,7 +242,7 @@ Deno.test({
           assertEquals(await rightsFor(key), 0);
           assertEquals(
             (await members()).map((m) => [m.holder, m.enabled, m.revision]),
-            [[A, false, 2], [B, false, 2]],
+            [[A, false, 4], [B, false, 2]],
           );
         },
       );

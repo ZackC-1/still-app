@@ -61,7 +61,7 @@ on:
         default: ""
         type: string
       subjects_sha256:
-        description: "qa-sandbox-subjects enable only: SHA-256 of the approved test-account list held in the QA_SANDBOX_SUBJECT_EMAILS_JSON environment secret"
+        description: "qa-sandbox-subjects enable only: <account count>:<salted SHA-256> of the QA_SANDBOX_SUBJECT_EMAILS_JSON secret, as printed by deploy.mjs subjects-digest"
         required: false
         default: ""
         type: string

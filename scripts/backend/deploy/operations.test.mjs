@@ -1871,6 +1871,8 @@ test("the deploy CLI shows the End state of a stopped operation in its closing r
 // ── The QA sandbox sales switch and test-account operations (one transaction each) ───────────
 
 const ZERO = "0".repeat(64);
+const SALT = "5a17".repeat(8);
+const secretOf = (emails, salt = SALT) => JSON.stringify({ salt, emails });
 const REGISTRY_DIR = new URL(
   "../../../packages/shared-types/",
   import.meta.url,
@@ -2073,15 +2075,33 @@ test("scope: a one-transaction operation writes only its own tables, sandbox onl
     throwsCategory(() => assertOperationScope(sql, op), "operation-scope");
 });
 
-test("canonicalSubjects: one canonical list hash, per-email hashes only, and refusals that never echo input", () => {
-  const a = canonicalSubjects('[" B@Example.org ", "a@example.org"]');
-  const b = canonicalSubjects('["a@example.org", "b@example.org"]');
+test("canonicalSubjects: one salted canonical hash bound to the count, per-email hashes only, refusals that never echo input", () => {
+  const a = canonicalSubjects(secretOf([" B@Example.org ", "a@example.org"]));
+  const b = canonicalSubjects(
+    JSON.stringify({ emails: ["a@example.org", "b@example.org"], salt: SALT }),
+  );
   assert.equal(a.sha256, b.sha256);
   assert.equal(
     a.sha256,
-    sha256(JSON.stringify(["a@example.org", "b@example.org"])),
+    sha256(
+      JSON.stringify({
+        salt: SALT,
+        emails: ["a@example.org", "b@example.org"],
+      }),
+    ),
+  );
+  // The salt is what keeps the public value from being checked by guessing emails.
+  assert.notEqual(
+    a.sha256,
+    canonicalSubjects(
+      JSON.stringify({
+        salt: "f".repeat(32),
+        emails: ["a@example.org", "b@example.org"],
+      }),
+    ).sha256,
   );
   assert.equal(a.count, 2);
+  assert.equal(a.binding, `2:${a.sha256}`);
   assert.deepEqual(
     a.hashes,
     [sha256("a@example.org"), sha256("b@example.org")].sort(),
@@ -2093,11 +2113,17 @@ test("canonicalSubjects: one canonical list hash, per-email hashes only, and ref
     "not json",
     "{}",
     "[]",
-    JSON.stringify(Array.from({ length: 51 }, (_, i) => `u${i}@example.org`)),
-    JSON.stringify([secret, secret.toUpperCase()]),
-    JSON.stringify([secret, 7]),
-    JSON.stringify([secret, "no-at-sign"]),
-    JSON.stringify([`${secret}\n`, "x@@example.org"]),
+    JSON.stringify([secret]), // the old, unsalted format
+    JSON.stringify({ emails: [secret] }), // missing salt
+    JSON.stringify({ salt: "ab".repeat(15), emails: [secret] }), // short salt
+    JSON.stringify({ salt: "Z".repeat(32), emails: [secret] }), // not lower-case hex
+    JSON.stringify({ salt: SALT, emails: [secret], note: "x" }),
+    secretOf([]),
+    secretOf(Array.from({ length: 51 }, (_, i) => `u${i}@example.org`)),
+    secretOf([secret, secret.toUpperCase()]),
+    secretOf([secret, 7]),
+    secretOf([secret, "no-at-sign"]),
+    secretOf([`${secret}\n`, "x@@example.org"]),
   ])
     assert.throws(
       () => canonicalSubjects(text),
@@ -2185,20 +2211,31 @@ test("planner: the sales switch binds the expected revision, the exact body and 
 test("planner: test accounts bind the approved list hash; disable takes no list", async (t) => {
   const { root, head } = await repo(t);
   const subjects = (extra) => plan(root, head, "qa-sandbox-subjects", extra);
-  const list = canonicalSubjects('["a@example.org"]');
+  const list = canonicalSubjects(secretOf(["a@example.org"]));
   const p = await subjects({
     policyMode: "enable",
-    subjectsSha256: list.sha256,
+    subjectsSha256: list.binding,
     mode: "apply",
   });
   assert.equal(p.operation, SUBJECTS_ENABLE);
   assert.equal(p.subjectsSha256, list.sha256);
+  assert.equal(p.subjectCount, 1);
   assert.deepEqual(p.provisional, undefined);
   assertSamePlan(JSON.parse(JSON.stringify(p)), p.digest);
   const shown = renderOperationPlan(p);
   assert.ok(shown.includes(list.sha256));
+  assert.ok(shown.includes("**1 account(s)**"));
+  assert.match(shown, /designated QA accounts file/);
   assert.ok(!shown.includes("example.org"));
-  for (const subjectsSha256 of ["", "abc", "A".repeat(64), `${ZERO}0`])
+  for (const subjectsSha256 of [
+    "",
+    "abc",
+    ZERO, // the count is required
+    `0:${ZERO}`,
+    `51:${ZERO}`,
+    `1:${"A".repeat(64)}`,
+    `1:${ZERO}0`,
+  ])
     await refuses(
       subjects({ policyMode: "enable", subjectsSha256 }),
       "operation-input-invalid",
@@ -2206,13 +2243,13 @@ test("planner: test accounts bind the approved list hash; disable takes no list"
   await refuses(
     subjects({
       policyMode: "enable",
-      subjectsSha256: ZERO,
+      subjectsSha256: `1:${ZERO}`,
       expectedRevision: "0",
     }),
     "operation-input-invalid",
   );
   await refuses(
-    subjects({ policyMode: "disable", subjectsSha256: ZERO }),
+    subjects({ policyMode: "disable", subjectsSha256: `1:${ZERO}` }),
     "operation-input-invalid",
   );
   const d = await subjects({ policyMode: "disable" });
@@ -2423,13 +2460,15 @@ test("sales switch: a refusal inside the transaction writes nothing and says why
 
 test("test accounts: the approved list stays in memory, only per-email hashes reach psql, and a mismatch is refused first", async (t) => {
   const emails = ["qa-one@example.org", "qa-two@example.org"];
-  const list = canonicalSubjects(JSON.stringify(emails));
+  const list = canonicalSubjects(secretOf(emails));
   const fx = await txFixture(t, "qa-sandbox-subjects", {
     policyMode: "enable",
-    subjectsSha256: list.sha256,
+    subjectsSha256: list.binding,
   });
   for (const [subjectEmails, issue] of [
-    [JSON.stringify(["qa-one@example.org"]), "subjects-list-mismatch"],
+    [secretOf(["qa-one@example.org"]), "subjects-list-mismatch"],
+    [secretOf(emails, "c".repeat(32)), "subjects-list-mismatch"], // other salt
+    [JSON.stringify(emails), "subjects-list-invalid"], // unsalted
     [undefined, "subjects-list-invalid"],
     ["", "subjects-list-invalid"],
   ]) {
@@ -2455,21 +2494,79 @@ test("test accounts: the approved list stays in memory, only per-email hashes re
         env.STILL_OPERATION_SUBJECT_HASHES,
         JSON.stringify(list.hashes),
       );
-      return { listed: 2, admitted: 2, changed: 1 };
+      return { listed: 2, admitted: 2, changed: 1, removed: 1 };
     },
   });
   const receipt = await runTx(fx, db, {
-    subjectEmails: JSON.stringify([...emails].reverse()),
+    subjectEmails: secretOf([...emails].reverse()),
     log: (l) => logs.push(l),
   });
   assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
-  assert.deepEqual(receipt.result, { listed: 2, admitted: 2, changed: 1 });
+  assert.deepEqual(receipt.result, {
+    listed: 2,
+    admitted: 2,
+    changed: 1,
+    removed: 1,
+  });
+  assert.ok(
+    receipt.steps.some((s) =>
+      s.detail?.endsWith(
+        "1 unlisted membership(s) switched off (none deleted)",
+      ),
+    ),
+  );
   const everything = `${JSON.stringify(db.state.calls.map(([c, a]) => [c, a]))}\n${logs.join("\n")}\n${JSON.stringify(receipt)}\n${renderOperationReceipt(receipt)}`;
-  for (const leak of [...emails, ...list.hashes, "example.org"])
+  for (const leak of [...emails, ...list.hashes, "example.org", SALT])
     assert.ok(!everything.includes(leak), leak);
-  assert.equal(
+  assert.match(
     receipt.recovery,
-    "none needed; to undo, run qa-sandbox-subjects with policy_mode disable",
+    /^none needed; to undo, run qa-sandbox-subjects with policy_mode disable\. Switching a membership off stops new paid grants for that account; sandbox rights it was already granted are kept/,
+  );
+});
+
+test("test accounts: an enabled account dropped from the list is an open item enable closes; a bad list names the fix", async (t) => {
+  const list = canonicalSubjects(secretOf(["qa-one@example.org"]));
+  const fx = await txFixture(t, "qa-sandbox-subjects", {
+    policyMode: "enable",
+    subjectsSha256: list.binding,
+  });
+  // [A, B] admitted earlier, now [B]: the check reports A as unlisted-but-enabled until enable runs.
+  const db = fakeTxDb({
+    issues: (state) => (state.applied ? [] : ["subjects_unlisted_enabled"]),
+    apply: () => ({ listed: 1, admitted: 1, changed: 0, removed: 1 }),
+  });
+  const receipt = await runTx(fx, db, {
+    subjectEmails: secretOf(["qa-one@example.org"]),
+  });
+  assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
+  assert.equal(receipt.result.removed, 1);
+  const refused = await runTx(
+    fx,
+    fakeTxDb({ issues: () => ["subject_unresolved"], apply: () => ({}) }),
+    { subjectEmails: secretOf(["qa-one@example.org"]) },
+  );
+  assert.deepEqual(refused.issues, ["operation-precondition"]);
+  assert.match(refused.recovery, /designated QA accounts file/);
+});
+
+test("sales switch: once production has a paid cutoff the switch refuses and points to pause-qa-sandbox", async (t) => {
+  const fx = await txFixture(
+    t,
+    "qa-sandbox-sales-policy",
+    { policyMode: "off", expectedRevision: "0" },
+    SETTLED,
+  );
+  const receipt = await runTx(
+    fx,
+    fakeTxDb({
+      issues: () => ["production_cutoff_present"],
+      apply: () => ({}),
+    }),
+  );
+  assert.deepEqual(receipt.issues, ["operation-precondition"]);
+  assert.match(
+    receipt.recovery,
+    /production_cutoff_present: once production has a paid cutoff, both sandbox sales switches \(off and on\) refuse by design; to stop QA purchases use pause-qa-sandbox/,
   );
 });
 
@@ -2598,34 +2695,39 @@ test("the subjects-digest helper prints only the approved hash and count", async
       {},
       {
         out,
-        stdin: [Buffer.from(JSON.stringify(emails))],
+        stdin: [Buffer.from(secretOf(emails))],
       },
     ),
     0,
   );
   assert.equal(
     out.text,
-    `subjects_sha256=${canonicalSubjects(JSON.stringify(emails)).sha256} accounts=2\n`,
+    `subjects_sha256=${canonicalSubjects(secretOf(emails)).binding} accounts=2\n`,
   );
-  assert.ok(!out.text.includes("example.org"));
-  await assert.rejects(
-    main(["subjects-digest"], {}, { out: sink(), stdin: [Buffer.from("[]")] }),
-    (e) => e.category === "subjects-list-invalid",
-  );
+  assert.ok(!out.text.includes("example.org") && !out.text.includes(SALT));
+  for (const input of ["[]", JSON.stringify(emails)])
+    await assert.rejects(
+      main(
+        ["subjects-digest"],
+        {},
+        { out: sink(), stdin: [Buffer.from(input)] },
+      ),
+      (e) => e.category === "subjects-list-invalid",
+    );
 });
 
 test("the apply command hands the list secret only to the run and prints none of it", async (t) => {
   const emails = ["qa-one@example.org"];
-  const list = canonicalSubjects(JSON.stringify(emails));
+  const list = canonicalSubjects(secretOf(emails));
   const fx = await txFixture(t, "qa-sandbox-subjects", {
     policyMode: "enable",
-    subjectsSha256: list.sha256,
+    subjectsSha256: list.binding,
   });
   const planFile = join(fx.root, ".plan.json");
   await writeFile(planFile, JSON.stringify(fx.p));
   const db = fakeTxDb({
     issues: (state) => (state.applied ? [] : ["subject_not_enabled"]),
-    apply: () => ({ listed: 1, admitted: 1, changed: 1 }),
+    apply: () => ({ listed: 1, admitted: 1, changed: 1, removed: 0 }),
   });
   const out = sink();
   const code = await main(
@@ -2637,7 +2739,7 @@ test("the apply command hands the list secret only to the run and prints none of
       GITHUB_REF: "refs/heads/main",
       EXPECTED_PLAN_DIGEST: fx.p.digest,
       SUPABASE_DB_URL: PROD_URL,
-      QA_SANDBOX_SUBJECT_EMAILS_JSON: JSON.stringify(emails),
+      QA_SANDBOX_SUBJECT_EMAILS_JSON: secretOf(emails),
     },
     { exec: db.exec, cwd: fx.root, out, platform: "linux" },
   );
@@ -2646,6 +2748,6 @@ test("the apply command hands the list secret only to the run and prints none of
     .split("\n")
     .filter((l) => !l.startsWith("::add-mask::"))
     .join("\n");
-  for (const leak of [...emails, ...list.hashes, SECRET])
+  for (const leak of [...emails, ...list.hashes, SECRET, SALT])
     assert.ok(!unmasked.includes(leak), leak);
 });

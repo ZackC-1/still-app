@@ -3,7 +3,8 @@
 -- supplies the approved per-email SHA-256 values as the psql variable
 -- still_operation_subject_hashes (a JSON array). One row, one column: a JSON array of issue codes
 -- ordered with collate "C". An empty array means every approved entry matches exactly one confirmed,
--- active Auth account whose QA membership is enabled. Prints codes only, never an email, hash or id.
+-- active Auth account whose QA membership is enabled, and no other membership is enabled (the
+-- enabled set is exactly the approved list). Prints codes only, never an email, hash or id.
 with
 approved as (
   select h.hash
@@ -32,6 +33,12 @@ issues(code) as (
     select 1 from matched m
     left join private.qa_sandbox_subjects s on s.holder = m.id
     where m.id is not null and s.enabled is not true
+  )
+  union all
+  select 'subjects_unlisted_enabled'
+  where exists (
+    select 1 from private.qa_sandbox_subjects s
+    where s.enabled and not exists (select 1 from matched m where m.id = s.holder)
   )
 )
 select coalesce(pg_catalog.json_agg(i.code order by i.code collate "C"), '[]'::json)::text
