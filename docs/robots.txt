@@ -1,20 +1,26 @@
 # Still welcomes search engines and AI search assistants.
 User-agent: *
 Allow: /
+Disallow: /qa/
 
 User-agent: Googlebot
 Allow: /
+Disallow: /qa/
 
 User-agent: Bingbot
 Allow: /
+Disallow: /qa/
 
 User-agent: OAI-SearchBot
 Allow: /
+Disallow: /qa/
 
 User-agent: PerplexityBot
 Allow: /
+Disallow: /qa/
 
 User-agent: Claude-SearchBot
 Allow: /
+Disallow: /qa/
 
 Sitemap: https://stillapp.fit/sitemap.xml
