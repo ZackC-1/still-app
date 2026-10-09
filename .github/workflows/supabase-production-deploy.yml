@@ -251,7 +251,7 @@ jobs:
         timeout-minutes: 10
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
-          SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}
+          SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ inputs.operation != 'qa-sandbox-secrets' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}
           QA_SANDBOX_SUBJECT_EMAILS_JSON: ${{ inputs.operation == 'qa-sandbox-subjects' && secrets.QA_SANDBOX_SUBJECT_EMAILS_JSON || '' }}
           # qa-sandbox-secrets only: the Secrets-only token and the staged provider values.
           SUPABASE_QA_SECRETS_ACCESS_TOKEN: ${{ inputs.operation == 'qa-sandbox-secrets' && secrets.SUPABASE_QA_SECRETS_ACCESS_TOKEN || '' }}

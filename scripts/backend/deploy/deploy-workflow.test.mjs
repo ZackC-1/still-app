@@ -174,8 +174,9 @@ test("only the approved apply job is bound to the environment and sees only the 
   assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
   assert.deepEqual(secretSteps[0].env, {
     SUPABASE_DB_URL: "${{ secrets.SUPABASE_PRODUCTION_DB_URL }}",
-    SUPABASE_PRODUCTION_ACCESS_TOKEN:
-      "${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}",
+    // Least privilege: the functions token is withheld from qa-sandbox-secrets, which uses only
+    // its own Secrets-only token.
+    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
     // The test-account list reaches the apply step only for qa-sandbox-subjects.
     QA_SANDBOX_SUBJECT_EMAILS_JSON: scoped(
       "qa-sandbox-subjects",

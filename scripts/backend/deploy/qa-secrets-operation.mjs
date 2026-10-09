@@ -47,11 +47,16 @@ export {
   renderQaSecretsFinal,
 };
 
-/** Every file the secrets operation's run depends on, bound by hash and checked for freshness. */
+/**
+ * Every file the secrets operation's run depends on, bound by hash and checked for freshness: the
+ * deploy tooling plus the whole module import closure of this file and deploy.mjs (a test derives
+ * the closure from the import statements and requires it to be listed here).
+ */
 export const SECRETS_TOOLING = Object.freeze(
   [
     ...new Set([
       ...TOOLING_PATHS,
+      "scripts/backend/deploy/qa-function-bundles.mjs",
       "scripts/backend/deploy/qa-functions.mjs",
       "scripts/backend/deploy/qa-secrets.mjs",
       "scripts/backend/deploy/qa-secrets-operation.mjs",

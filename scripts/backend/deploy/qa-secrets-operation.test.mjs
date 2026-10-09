@@ -133,6 +133,25 @@ test("the plan binds the module's plan, the commit on main and the tooling under
   );
 });
 
+test("the bound tooling covers the whole import closure of the apply process", async () => {
+  // Static `from "./x.mjs"` and dynamic `import("./x.mjs")`, starting from both entry points.
+  const dir = "scripts/backend/deploy/";
+  const seen = new Set();
+  const queue = [`${dir}deploy.mjs`, `${dir}qa-secrets-operation.mjs`];
+  while (queue.length) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const text = (await real(path)).toString("utf8");
+    for (const m of text.matchAll(
+      /(?:\bfrom\s+|\bimport\s*\(\s*)["'](\.\/[^"']+)["']/g,
+    ))
+      queue.push(`${dir}${m[1].slice(2)}`);
+  }
+  assert.ok(seen.has(`${dir}qa-function-bundles.mjs`));
+  for (const path of seen) assert.ok(SECRETS_TOOLING.includes(path), path);
+});
+
 test("the plan refuses a bad mode, a migration list, a commit off main and drifted files", async (t) => {
   const { root, head } = await repo(t);
   await refuses(plan(root, head, { mode: "baseline-only" }), "mode-invalid");
