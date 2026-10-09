@@ -20,16 +20,20 @@ const paidOnContent = (host: "chromium" | "firefox" | "safari", platform?: "desk
   import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from ${source("packages/core/src/rules/packaged.ts")};
   import { ACCESS_BENEFITS, IMPLEMENTED_PRO_FEATURES, accessCapabilitiesForTest, initialAccessSnapshot }
     from ${source("packages/core/src/entitlement/access-policy.ts")};
+  // The access snapshot is the per-device gate, as on the shipped hosts: the native app (Safari) or
+  // the background (Firefox) resolves it WITH the platform, so a Pro feature the device cannot use
+  // is "unsupported" there. The content capabilities below stay host-only, as the content entries.
+  const devicePro = accessCapabilitiesForTest({ paidMode: true, host: ${JSON.stringify(host)}, platform: ${JSON.stringify(platform)} }, IMPLEMENTED_PRO_FEATURES);
   const base = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
   const access = Object.freeze({ ...base, states: Object.freeze({ ...base.states,
-    ...Object.fromEntries(FEATURE_REGISTRY.filter((f) => f.tier === "pro").map((f) => [f.id, "purchased"])) }) });
+    ...Object.fromEntries(FEATURE_REGISTRY.filter((f) => f.tier === "pro").map((f) => [f.id, devicePro.has(f.id) ? "purchased" : "unsupported"])) }) });
   const entitlement = {
     currentAccessSnapshot: () => access, current: () => true, hydrate: async () => {},
     subscribeAccess: () => () => {}, subscribe: () => () => {}, watch: () => () => {}, refreshAccess: async () => access,
   };
   const script = createContentScript({
     win: window, doc: document, ruleSet: seed, ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2),
-    capabilities: accessCapabilitiesForTest({ paidMode: true, host: ${JSON.stringify(host)}, platform: ${JSON.stringify(platform)} }, IMPLEMENTED_PRO_FEATURES),
+    capabilities: accessCapabilitiesForTest({ paidMode: true, host: ${JSON.stringify(host)} }, IMPLEMENTED_PRO_FEATURES),
     cache: new SettingsCache(new ChromeStorageAdapter()), entitlement,
   });
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
@@ -38,7 +42,7 @@ const paidOnContent = (host: "chromium" | "firefox" | "safari", platform?: "desk
   void script.start();`;
 
 const test = createFormat2Test(paidOnContent("chromium"));
-// The capabilities the Safari host resolves per Apple platform (the native snapshot's answer).
+// Safari per Apple platform: the native snapshot's answer gates; the content entry passes its host only.
 const safariMac = createFormat2Test(paidOnContent("safari", "desktop"));
 const safariPhone = createFormat2Test(paidOnContent("safari", "ios"));
 const expect = test.expect;
