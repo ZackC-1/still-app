@@ -64,8 +64,12 @@ describe("accessCapabilities dormancy gate", () => {
     expect(sorted(accessCapabilitiesForTest({ paidMode: true, host: "chromium" }, odd))).toEqual([...FREE].sort());
   });
 
-  it("paid-on Safari capabilities match the shared native parity fixture", () => {
-    expect(sorted(accessCapabilities({ paidMode: true, host: "safari" }))).toEqual(parity.paidOnSafariSupported);
+  it("paid-on Safari capabilities match the shared native parity fixture on each Apple platform", () => {
+    // The native app answers per device: macOS Safari (the desktop layouts) and iPhone/iPad Safari.
+    expect(sorted(accessCapabilities({ paidMode: true, host: "safari", platform: "desktop" }))).toEqual(parity.paidOnSafariDesktopSupported);
+    expect(sorted(accessCapabilities({ paidMode: true, host: "safari", platform: "ios" }))).toEqual(parity.paidOnSafariMobileSupported);
+    // A Safari caller that cannot name its platform never claims a desktop-layout control.
+    expect(sorted(accessCapabilities({ paidMode: true, host: "safari", platform: "unknown" }))).toEqual(parity.paidOnSafariMobileSupported);
   });
 
   it("the packaged implementation table lists only Pro features", () => {
@@ -86,7 +90,8 @@ describe("accessCapabilities dormancy gate", () => {
       ],
       safari: [
         "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
-        "youtube.related", "youtube.comments", "facebook.stories", "facebook.videos",
+        "youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat", "youtube.autoplay",
+        "facebook.stories", "facebook.videos", "facebook.sponsored",
       ],
     });
   });
@@ -95,49 +100,43 @@ describe("accessCapabilities dormancy gate", () => {
     const pro = (host?: AccessHost) => sorted(accessCapabilitiesForTest({ paidMode: true, host }, IMPLEMENTED_PRO_FEATURES))
       .filter((id) => PRO.includes(id as (typeof PRO)[number]));
     for (const host of ACCESS_HOSTS) expect(pro(host), host).toEqual([...IMPLEMENTED_PRO_FEATURES[host]].sort());
-    // The host-less set is what a caller that forgot its host would offer: Chromium and Firefox
-    // would lose end-of-video suggestions, live chat, Autoplay and Desktop sidebar ads.
-    expect(pro()).toEqual([...IMPLEMENTED_PRO_FEATURES.safari].sort());
-    for (const id of ["youtube.endscreen", "youtube.livechat", "youtube.autoplay", "facebook.sponsored"] as const) {
-      expect(pro("chromium"), id).toContain(id);
-      expect(pro(), id).not.toContain(id);
-    }
+    // Every host runs the same packaged engine, so the intersection is the whole list; the
+    // per-device layout limit is the platform rule below, never a host-less guess.
+    expect(pro()).toEqual([...PRO].sort());
   });
 });
 
-describe("runtime platform seam (Firefox for Android)", () => {
-  const DESKTOP_ONLY = ["youtube.autoplay", "facebook.sponsored"];
+describe("runtime platform rule (Firefox for Android, Safari on iPhone and iPad)", () => {
+  const DESKTOP_LAYOUT_ONLY = ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"];
   const on = (host: AccessHost | undefined, platform?: AccessPlatform) =>
     sorted(accessCapabilitiesForTest({ paidMode: true, host, platform }, IMPLEMENTED_PRO_FEATURES));
 
-  it("absent or desktop keeps the host's whole list (the long-standing behaviour)", () => {
+  it("absent or desktop keeps the host's whole list", () => {
     for (const host of [undefined, ...ACCESS_HOSTS]) {
       expect(on(host, "desktop"), String(host)).toEqual(on(host));
       expect(sorted(packagedAccessContext(host, "desktop").supported)).toEqual(sorted(packagedAccessContext(host).supported));
     }
-    for (const id of DESKTOP_ONLY) expect(on("firefox"), id).toContain(id);
+    for (const host of ACCESS_HOSTS) for (const id of DESKTOP_LAYOUT_ONLY) expect(on(host, "desktop"), `${host}:${id}`).toContain(id);
   });
 
-  it("android drops exactly the desktop-only controls, and nothing else", () => {
-    const android = on("firefox", "android");
-    for (const id of DESKTOP_ONLY) expect(android, id).not.toContain(id);
-    expect(android).toEqual(on("firefox").filter((id) => !DESKTOP_ONLY.includes(id)));
-    // The mobile-layout controls Firefox for Android still offers (their selectors stay E0-gated).
-    expect(android).toEqual(expect.arrayContaining(["youtube.comments", "instagram.explore", "facebook.videos"]));
-    expect(on("chromium", "android")).toEqual(android);
+  it.each(["android", "ios", "unknown"] as const)("%s drops exactly the desktop-layout-only controls, and nothing else", (platform) => {
+    for (const host of ACCESS_HOSTS) {
+      const phone = on(host, platform);
+      for (const id of DESKTOP_LAYOUT_ONLY) expect(phone, `${host}:${id}`).not.toContain(id);
+      expect(phone, host).toEqual(on(host).filter((id) => !DESKTOP_LAYOUT_ONLY.includes(id)));
+      // The phone-layout controls with observed structures stay, including Autoplay prevention.
+      expect(phone, host).toEqual(expect.arrayContaining(["youtube.related", "youtube.comments", "youtube.autoplay"]));
+    }
   });
 
-  it("unknown is treated like a phone: a control that might do nothing is held back", () => {
-    expect(on("firefox", "unknown")).toEqual(on("firefox", "android"));
-  });
-
-  it("never changes Safari's list, which claims no desktop-only control", () => {
-    for (const platform of ["android", "desktop", "unknown"] as const) expect(on("safari", platform), platform).toEqual(on("safari"));
+  it("Firefox for Android and iPhone/iPad Safari get the same phone-layout list", () => {
+    expect(on("firefox", "android")).toEqual(on("safari", "ios"));
+    expect(on("safari", "desktop")).toEqual(on("chromium"));
   });
 
   it("paid off, the platform changes nothing: exactly the free features on every host", () => {
     for (const host of [undefined, ...ACCESS_HOSTS])
-      for (const platform of [undefined, "android", "desktop", "unknown"] as const) {
+      for (const platform of [undefined, "android", "ios", "desktop", "unknown"] as const) {
         expect(sorted(packagedAccessContext(host, platform).supported), `${host}:${platform}`).toEqual(parity.paidOffSupported);
         expect(sorted(accessCapabilities({ paidMode: PAID_TIER_ENABLED, host, platform }))).toEqual(parity.paidOffSupported);
         expect(sorted(accessCapabilitiesForTest({ paidMode: false, host, platform }, everyPro))).toEqual(parity.paidOffSupported);

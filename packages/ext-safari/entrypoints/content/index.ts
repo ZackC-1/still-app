@@ -39,7 +39,7 @@ export default defineContentScript({
         import.meta.env.VITE_SUPABASE_ANON_KEY)
     ) {
       await createModernShippingContentEntry({
-        // As below: Safari implements only the extras every host implements.
+        // As below: the Safari host, with no platform (see the legacy entry's note).
         host: "safari",
         ...(window.top === window && /(^|\.)tiktok\.com$/.test(window.location.hostname) ? {
           tiktokBlockedPage: createTikTokBlockedNavigation({
@@ -65,9 +65,10 @@ export default defineContentScript({
       return;
     }
     await createShippingContentEntry({
-      // Named for clarity: Safari implements only the extras every host implements (Instagram's
-      // today), so this is the same set the engine uses without a host (and, while paid is off,
-      // exactly the free features).
+      // The Safari host. No platform: a content script cannot ask Safari for it, and every Still
+      // Pro effect is also gated by the access snapshot the native app resolves per Apple platform
+      // (macOS Safari: the desktop layouts; iPhone/iPad: never the desktop-layout-only extras).
+      // While paid is off this is exactly the free features.
       host: "safari",
       storage: browser.storage.local,
       prod: import.meta.env.PROD,

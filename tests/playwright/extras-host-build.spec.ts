@@ -21,8 +21,9 @@ const HOSTS = BUILDS.map((build) => build.host);
 const quoted = (value: string) => `[\`"']${value}[\`"']`;
 /** The content entry's options object carries `host: "<host>"` (minifiers keep the key). */
 const contentHost = (host: string) => new RegExp(`\\bhost:\\s*${quoted(host)}`, "g");
-/** The background calls packagedAccessContext("<host>"): a call whose only argument is the host. */
-const backgroundHost = (host: string) => new RegExp(`[\\w$]+\\(\\s*${quoted(host)}\\s*\\)`, "g");
+/** The background calls packagedAccessContext("<host>"[, platform]): the host, then at most the
+ * runtime platform answer (a plain or awaited identifier; the hosts that span phones pass it). */
+const backgroundHost = (host: string) => new RegExp(`[\\w$]+\\(\\s*${quoted(host)}\\s*(?:,\\s*(?:await\\s+)?[\\w$.]+\\s*)?\\)`, "g");
 const read = (dir: string, file: string) => readFileSync(resolve(ROOT, dir, file), "utf8");
 /** A page's options name its access host: `accessHost: "<host>"` (minifiers keep the key). */
 const pageHost = (host: string) => new RegExp(`\\baccessHost:\\s*${quoted(host)}`, "g");

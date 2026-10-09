@@ -16,6 +16,7 @@ import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
+import { safariAccessPlatform } from "../lib/access-platform.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -43,10 +44,14 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 }
 
 export default defineBackground(() => {
-  // The Safari host's packaged context, named explicitly. It equals the adapter's host-less
-  // default today (Safari implements only the extras every host implements), so behaviour is
-  // unchanged.
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: () => packagedAccessContext("safari"), nativeObservation: async () => {
+  // The Safari host's packaged context for THIS device, from Safari's own platform answer (asked
+  // once; never the user agent or a screen size). macOS Safari loads the desktop layouts; iPhone,
+  // iPad and an unknown answer never claim a desktop-layout control. The native app resolves the
+  // same split at compile time and its snapshot is the authority while paid is on.
+  const accessPlatform = Promise.resolve()
+    .then(() => browser.runtime.getPlatformInfo())
+    .then((info) => safariAccessPlatform(info?.os), () => "unknown" as const);
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", await accessPlatform), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;

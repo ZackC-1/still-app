@@ -6,6 +6,7 @@ import {
   accessCapabilitiesForTest,
   initialAccessSnapshot,
   type AccessHost,
+  type AccessPlatform,
 } from "../../entitlement/access-policy.js";
 import { createEnginePageSession, type EnginePageSession } from "../engine.js";
 import { FACEBOOK_EXTRAS } from "../facebook-extras.js";
@@ -30,12 +31,12 @@ const settingsWith = (sites: Partial<Record<FeatureId, boolean>>): SettingsV2 =>
 const ALL_ON = settingsWith({ "facebook.reels": true, "facebook.stories": true, "facebook.videos": true, "facebook.sponsored": true });
 
 /** Paid on through the test seams, with the host's real implementation table. */
-function paidOn(host?: AccessHost): { access: BenefitAccessSnapshot; capabilities: ReadonlySet<BenefitId> } {
+function paidOn(host?: AccessHost, platform?: AccessPlatform): { access: BenefitAccessSnapshot; capabilities: ReadonlySet<BenefitId> } {
   const base = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
   const pro = FEATURE_REGISTRY.filter((feature) => feature.tier === "pro").map((feature) => [feature.id, "purchased"]);
   return {
     access: { ...base, states: { ...base.states, ...Object.fromEntries(pro) } },
-    capabilities: accessCapabilitiesForTest({ paidMode: true, host }, IMPLEMENTED_PRO_FEATURES),
+    capabilities: accessCapabilitiesForTest({ paidMode: true, host, platform }, IMPLEMENTED_PRO_FEATURES),
   };
 }
 const ON = paidOn("chromium");
@@ -367,15 +368,24 @@ describe("Desktop sidebar ads (fb-sidebar.html)", () => {
     expect(visible("target-sidebar-ad-block")).toBe(false);
   });
 
-  it("is not implemented on the Safari host (iPad is open owner question Q4) or when the host is unknown", () => {
+  it("acts on a desktop platform only: macOS Safari hides it; iPhone/iPad Safari, Android and unknown leave it", () => {
     for (const host of ["safari", undefined] as const) {
       render("fb-sidebar.html");
       const engine = session();
-      engine.applyDom(ALL_ON, new URL(`${FB}/`), document, paidOn(host));
-      expect(visible("target-sidebar-ad-block"), String(host)).toBe(true);
-      expect(engine.effectiveFeatures!(), String(host)).not.toContain("facebook.sponsored");
-      // Stories and Videos are implemented on every host.
-      expect(engine.effectiveFeatures!(), String(host)).toEqual(expect.arrayContaining(["facebook.stories", "facebook.videos"]));
+      engine.applyDom(ALL_ON, new URL(`${FB}/`), document, paidOn(host, "desktop"));
+      expect(visible("target-sidebar-ad-block"), `${host} desktop`).toBe(false);
+      expect(engine.effectiveFeatures!(), String(host)).toContain("facebook.sponsored");
+      engine.stop?.();
+    }
+    // Phones have no desktop right column; iPad is held with iPhone (one "ios" platform answer).
+    for (const [host, platform] of [["safari", "ios"], ["safari", "unknown"], ["firefox", "android"], ["firefox", "unknown"]] as const) {
+      render("fb-sidebar.html");
+      const engine = session();
+      engine.applyDom(ALL_ON, new URL(`${FB}/`), document, paidOn(host, platform));
+      expect(visible("target-sidebar-ad-block"), `${host} ${platform}`).toBe(true);
+      expect(engine.effectiveFeatures!(), `${host} ${platform}`).not.toContain("facebook.sponsored");
+      // Stories and Videos are not layout-limited.
+      expect(engine.effectiveFeatures!(), `${host} ${platform}`).toEqual(expect.arrayContaining(["facebook.stories", "facebook.videos"]));
       engine.stop?.();
     }
   });
@@ -397,6 +407,6 @@ describe("Facebook extras stay dormant on the shipped paid-off defaults", () => 
     const facebook = (host: AccessHost) => IMPLEMENTED_PRO_FEATURES[host].filter((id) => id.startsWith("facebook."));
     expect(facebook("chromium")).toEqual(FB_PRO);
     expect(facebook("firefox")).toEqual(FB_PRO);
-    expect(facebook("safari")).toEqual(["facebook.stories", "facebook.videos"]);
+    expect(facebook("safari")).toEqual(FB_PRO);
   });
 });

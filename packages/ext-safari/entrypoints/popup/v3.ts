@@ -10,6 +10,7 @@ import {
   type SafariPopupSurface,
   type SafariV3BuildInput,
 } from "../../lib/safari-v3.js";
+import { safariAccessPlatform } from "../../lib/access-platform.js";
 
 // The V3 popup gate. This module deliberately imports no component and no stylesheet: the V3
 // components and their global CSS live in ./v3-mount, which is loaded only after the record gate
@@ -53,7 +54,7 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
   const target = document.getElementById("app")!;
   let composition: SafariV3Composition;
   try {
-    composition = composeSafariV3("popup");
+    composition = composeSafariV3("popup", safariAccessPlatform(os));
   } catch {
     dropV3Styles();
     return "legacy";

@@ -402,7 +402,8 @@ public final class SharedEntitlementStore {
   }
 
   public func observeAppleBenefits(wall: @autoclosure () -> Int, ownership: NativeAppleOwnershipObservation,
-                                   paidMode: Bool = MonetizationConfig.paidTierEnabled) throws -> BenefitAccessSnapshot {
+                                   paidMode: Bool = MonetizationConfig.paidTierEnabled,
+                                   platform: SafariAccessPlatform = .current) throws -> BenefitAccessSnapshot {
     if !paidMode { return try observeBenefits(wall: wall()).1 }
     return try transactionAccess { record in
       let wall = wall()
@@ -411,7 +412,7 @@ public final class SharedEntitlementStore {
       }
       let evidence = observeRecord(&record, wall: wall)
       let context = NativeAccessContext(paidMode: true,
-        supported: NativeAppleAccessCapabilities.supported(paidMode: true),
+        supported: NativeAppleAccessCapabilities.supported(paidMode: true, platform: platform),
         accountId: record.accountId, sessionId: record.sessionId, sessionKnown: true,
         localRights: Set(verifiedAppleBindings(record).map { $0.1.claims.right }),
         evidenceStatus: ownership.evidenceStatus)

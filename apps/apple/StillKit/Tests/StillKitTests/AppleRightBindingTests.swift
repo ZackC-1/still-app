@@ -206,8 +206,10 @@ final class AppleRightBindingTests: XCTestCase {
       XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states[benefit], "locked")
       XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .unknown, paidMode: true).states[benefit], "verification_required")
     }
-    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states["youtube.endscreen"], "unsupported")
-    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states["facebook.sponsored"], "unsupported")
+    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true, platform: .mobile).states["youtube.endscreen"], "unsupported")
+    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true, platform: .mobile).states["facebook.sponsored"], "unsupported")
+    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true, platform: .mac).states["youtube.endscreen"], "locked")
+    XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true, platform: .mac).states["facebook.sponsored"], "locked")
     store.save(.init(entitled: true, updatedAt: now, source: .receipt))
     XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states["instagram.explore"], "verification_required")
     _ = try store.installAppleAccess(request(), nativePurchase: native(), wall: now)
@@ -218,23 +220,28 @@ final class AppleRightBindingTests: XCTestCase {
 
   func testObservedSafariYouTubeCapabilitiesRequireNativeScopedProofAndStayDormantWhenPaidOff() throws {
     let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
-    let supported = ["youtube.related", "youtube.comments"]
-    let unsupported = ["youtube.endscreen", "youtube.livechat", "youtube.autoplay", "facebook.sponsored"]
-    for benefit in supported {
-      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .unknown, paidMode: true).states[benefit], "verification_required", benefit)
-      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true).states[benefit], "locked", benefit)
+    // iPhone/iPad Safari: the phone-layout YouTube extras; macOS Safari adds the desktop-layout ones.
+    let mobile = ["youtube.related", "youtube.comments", "youtube.autoplay"]
+    let desktopLayout = ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]
+    for benefit in mobile {
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .unknown, paidMode: true, platform: .mobile).states[benefit], "verification_required", benefit)
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .noPurchases, paidMode: true, platform: .mobile).states[benefit], "locked", benefit)
     }
     _ = try store.installAppleAccess(request(), nativePurchase: native(), wall: now)
-    for benefit in supported {
-      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states[benefit], "purchased", benefit)
-      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: false).states[benefit], "unsupported", benefit)
+    for platform in [SafariAccessPlatform.mobile, .mac] {
+      for benefit in mobile {
+        XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true, platform: platform).states[benefit], "purchased", benefit)
+        XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: false, platform: platform).states[benefit], "unsupported", benefit)
+      }
     }
-    for benefit in unsupported {
-      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true).states[benefit], "unsupported", benefit)
+    for benefit in desktopLayout {
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true, platform: .mobile).states[benefit], "unsupported", benefit)
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: true, platform: .mac).states[benefit], "purchased", benefit)
+      XCTAssertEqual(try store.observeAppleBenefits(wall: now, ownership: .purchaseHistory, paidMode: false, platform: .mac).states[benefit], "unsupported", benefit)
     }
     let revoked = try store.observeAppleBenefits(wall: now + 1,
-      ownership: .verifiedRevocations([.init(identity: native(), revokedAt: now + 1)]), paidMode: true)
-    for benefit in supported { XCTAssertEqual(revoked.states[benefit], "verification_required", benefit) }
+      ownership: .verifiedRevocations([.init(identity: native(), revokedAt: now + 1)]), paidMode: true, platform: .mac)
+    for benefit in mobile + desktopLayout { XCTAssertEqual(revoked.states[benefit], "verification_required", benefit) }
     XCTAssertEqual(revoked.states["youtube.shorts"], "free")
     XCTAssertEqual(revoked.states["tiktok.all"], "free")
   }

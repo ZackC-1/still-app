@@ -114,60 +114,62 @@ type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: 
 // Instagram's four (rules/instagram-extras.ts) are compiled hide rules and content-script routes,
 // which every host's shared format-2 content engine runs the same way.
 const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"]);
-const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat"]);
-// The related-items section and dedicated comments entry/panel have observed mobile structures
-// and preservation regressions through Safari's shared content entry. This does not establish
-// mobile end-screen, live-chat or autoplay behavior.
-const YOUTUBE_SAFARI_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.comments"]);
-// YouTube's packaged content-handler control (no rule data): Chromium and Firefox only.
-const YOUTUBE_HANDLER_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.autoplay"]);
-// Facebook's Stories and Videos and Watch (rules/facebook-extras.ts) run in every host's shared
-// format-2 content engine; Desktop sidebar ads only on the desktop extension hosts (see below).
-const FACEBOOK_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.stories", "facebook.videos"]);
-const FACEBOOK_DESKTOP_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.sponsored"]);
+// YouTube's four hide controls (rules/youtube-extras.ts) and Autoplay prevention, a packaged
+// content handler with no rule data (content/youtube-autoplay.ts), all run in the shared content
+// engine of every host.
+const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat", "youtube.autoplay"]);
+// Facebook's Stories, Videos and Watch, and Desktop sidebar ads (rules/facebook-extras.ts) run in
+// every host's shared format-2 content engine.
+const FACEBOOK_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.stories", "facebook.videos", "facebook.sponsored"]);
+const EVERY_PRO: readonly ProFeatureId[] = Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...FACEBOOK_PRO]);
 export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProFeatureId[]>> = Object.freeze({
-  // YouTube's four hide controls (rules/youtube-extras.ts) and Autoplay prevention
-  // (content/youtube-autoplay.ts) only on the hosts that pass their host to the content entry and
-  // the access context (ext-chromium builds Chrome and Firefox).
-  chromium: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
-  // "firefox" is one build for desktop Firefox AND Firefox for Android, which gets the sites' mobile
-  // layouts (for YouTube, m.youtube.com). The mobile selectors are unverified candidates, so the
-  // structural evidence (E0) must cover Firefox for Android before paid activation. Autoplay
-  // prevention claims no m.youtube.com behaviour yet (H-075), and Desktop sidebar ads only ever
-  // matches the desktop right column: both are DESKTOP_ONLY_PRO, which a caller that passes the
-  // runtime platform ("android" or "unknown") never receives.
-  firefox: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...YOUTUBE_HANDLER_PRO, ...FACEBOOK_PRO, ...FACEBOOK_DESKTOP_PRO]),
-  // Safari (macOS and iPhone/iPad share one host) offers only the observed mobile YouTube
-  // controls. End-screen, live chat, autoplay and Facebook sponsored-feed/sidebar support still
-  // need their own mobile implementation and evidence before joining this set.
-  safari: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_SAFARI_PRO, ...FACEBOOK_PRO]),
+  // Every host's content entry runs the same packaged engine, so every host implements all twelve
+  // on the layout each one was built for. Which of them has something to act on depends on the
+  // device's layout, not the host: see DESKTOP_LAYOUT_ONLY_PRO and AccessPlatform.
+  chromium: EVERY_PRO,
+  // "firefox" is one build for desktop Firefox AND Firefox for Android, which gets the sites'
+  // phone layouts (for YouTube, m.youtube.com).
+  firefox: EVERY_PRO,
+  // "safari" is one host for macOS Safari (the desktop layouts) AND iPhone/iPad Safari. Its
+  // per-device answer comes from the native app (NativeAppleAccessCapabilities), which this
+  // table's platform rule must equal (packages/shared-types/fixtures/access-capabilities.json).
+  safari: EVERY_PRO,
 });
 
 /**
- * The device class a host build is running on, when its caller knows it. One "firefox" build runs
- * on desktop Firefox AND Firefox for Android, so the host alone cannot say whether a desktop-only
- * control has anything to act on. No caller passes it yet: once Firefox for Android's platform
- * answer (the browser's own runtime platform report) is wired into the Firefox build, that answer
- * ("android" | "desktop" | "unknown") is passed here unchanged.
+ * The device class a host build is running on, when its caller knows it: the browser's own
+ * runtime platform report (`runtime.getPlatformInfo().os`), never the user agent, window size or
+ * screen. "android" is Firefox for Android; "ios" is Safari on iPhone and iPad; "desktop" is
+ * every desktop OS (macOS Safari reports "mac"); "unknown" is no usable answer in time.
  */
-export type AccessPlatform = "android" | "desktop" | "unknown";
+export type AccessPlatform = "android" | "ios" | "desktop" | "unknown";
 
 /**
- * Still Pro features that act only on a site's DESKTOP layout. On any other platform they would be
- * a control that does nothing, so they are never a capability there:
- * - youtube.autoplay: the content handler claims no m.youtube.com behaviour (H-075);
+ * Still Pro features whose implementation acts only on a site's DESKTOP layout. On a phone or
+ * tablet platform they would be a control that does nothing, so they are never a capability there.
+ * Evidence (docs/plans/2026-10-09-feat-safari-android-pro-parity.md), public pages in phone
+ * emulation, signed out:
+ * - youtube.endscreen: m.youtube.com shows no end cards or end-screen grid; its only end-of-video
+ *   card is the autoplay countdown, which belongs to Autoplay prevention and must never be hidden;
+ * - youtube.livechat: m.youtube.com live streams that have desktop chat showed no chat frame,
+ *   entry or panel;
  * - facebook.sponsored: it only ever matches the desktop right column, which phones do not have.
+ * Autoplay prevention is NOT here: the guard handles the observed m.youtube.com countdown.
  */
-const DESKTOP_ONLY_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.autoplay", "facebook.sponsored"]);
+const DESKTOP_LAYOUT_ONLY_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]);
 
 export interface AccessCapabilityInput {
   readonly paidMode: boolean;
   /** Absent when the caller does not know its host: only features implemented on EVERY host count. */
   readonly host?: AccessHost;
   /**
-   * Absent keeps the long-standing behaviour (the host's whole list). "android" drops the
-   * desktop-only controls. "unknown" drops them too: a platform the browser could not name may be
-   * a phone, and a paid control that silently does nothing is worse than one held back.
+   * Absent keeps the host's whole list. Only a caller whose every effect is ALSO gated by an
+   * access snapshot that was resolved with the platform may omit it: the content entries and the
+   * DNR compiler (content scripts cannot ask the browser for its platform). Every caller that
+   * resolves or presents access on a host that spans phones (the backgrounds, popup and settings
+   * pages) passes it. "android" and "ios" drop the desktop-layout-only controls. "unknown" drops
+   * them too: a platform the browser could not name may be a phone, and a paid control that
+   * silently does nothing is worse than one held back.
    */
   readonly platform?: AccessPlatform;
 }
@@ -196,10 +198,10 @@ export function accessCapabilitiesForTest(input: AccessCapabilityInput,
 function capabilitiesFrom(input: AccessCapabilityInput, table: Readonly<Record<AccessHost, readonly BenefitId[]>>): ReadonlySet<BenefitId> {
   const free: BenefitId[] = [...FEATURE_REGISTRY.filter(feature => feature.tier === "free").map(feature => feature.id), "tiktok.all"];
   if (!input.paidMode) return new Set(free);
-  const desktopOnly = input.platform !== undefined && input.platform !== "desktop";
+  const notDesktop = input.platform !== undefined && input.platform !== "desktop";
   const pro = FEATURE_REGISTRY.filter(feature => feature.tier === "pro").map(feature => feature.id)
     .filter(id => input.host ? table[input.host].includes(id) : ACCESS_HOSTS.every(host => table[host].includes(id)))
-    .filter(id => !(desktopOnly && (DESKTOP_ONLY_PRO as readonly BenefitId[]).includes(id)));
+    .filter(id => !(notDesktop && (DESKTOP_LAYOUT_ONLY_PRO as readonly BenefitId[]).includes(id)));
   return new Set([...free, ...pro]);
 }
 

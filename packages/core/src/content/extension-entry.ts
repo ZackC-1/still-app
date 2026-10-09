@@ -64,10 +64,11 @@ export interface ExtensionContentEntryDeps {
    */
   readonly host?: AccessHost;
   /**
-   * The runtime platform. No entrypoint passes it yet; it comes from Firefox for Android's
-   * platform answer once that is wired into the Firefox build.
-   * Omitted keeps the host's whole list; "android" or "unknown" drops the desktop-only controls
-   * (access-policy.ts DESKTOP_ONLY_PRO). Paid off it changes nothing.
+   * The runtime platform. Content entries omit it: a content script cannot ask the browser for
+   * its platform, and every Still Pro effect here is also gated by the access snapshot, which the
+   * background (or Safari's native app) resolves WITH the platform. Omitted keeps the host's
+   * whole list; "android", "ios" or "unknown" drops the desktop-layout-only controls
+   * (access-policy.ts DESKTOP_LAYOUT_ONLY_PRO). Paid off it changes nothing.
    */
   readonly platform?: AccessPlatform;
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
