@@ -51,6 +51,12 @@ portal write that needs separate approval.
 4. Build the matched cohort, sign, install on the owner's devices, verify persistence after restart,
    and record artifact hashes, versions and device/OS/browser versions in the owner QA status sheet.
 5. Analytics test designation: `docs/plans/2026-10-08-005-feat-qa-analytics-test-designation.md`.
+6. Before any App Store archive (production phase): `apps/apple/scripts/release-env-state.mjs` and the
+   web build stamp report only configuration/modern/atomic state, so a stray QA-only setting
+   (`VITE_ANALYTICS_BUILD_CHANNEL`, `VITE_PACKAGE_IDENTITY`, or the earlier sandbox route/trust names)
+   in a developer shell or package `.env` file would reach an Apple store archive. Add a set/unset
+   token for every `DELIBERATELY_UNPACKAGED` name and refuse it in `archive.sh` (paid-sandbox QA builds
+   must keep working). Chrome and Firefox store packaging already strips them.
 
 ## Verification still owed
 

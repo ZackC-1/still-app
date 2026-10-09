@@ -8,6 +8,7 @@ import {
 import {
   canonicalEvent,
   isAppClientEvent,
+  serverIdentifyFor,
   type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
@@ -560,7 +561,7 @@ export function createExtensionAnalyticsHost(
     client,
     local: deps.local,
     consent: deps.consent,
-    identifyOnServer: deps.identifyOnServer,
+    identifyOnServer: serverIdentifyFor(deps.envelope, deps.identifyOnServer),
     subjects: deps.subjects,
   });
   const identify = (userId: string, options?: TrackOptions, ask?: number) =>

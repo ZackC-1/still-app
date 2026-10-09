@@ -298,6 +298,12 @@ export const ANALYTICS_BUILD_CHANNELS = ["release", "dev", "test"] as const;
 export function buildChannelEnvelope(value: unknown): { readonly build_channel: "test" } | undefined {
   return value === "test" ? { build_channel: "test" } : undefined;
 }
+
+/** The server email attach (analytics-identify) writes to the store PostHog project. A build whose
+ * events are labelled test sends only to its separate QA project, so it never asks the server. */
+export function serverIdentifyFor<T>(envelope: { readonly build_channel?: string } | undefined, identifyOnServer: T): T | undefined {
+  return envelope?.build_channel === "test" ? undefined : identifyOnServer;
+}
 export const ANALYTICS_PLANS = ["free", "pro", "grandfathered"] as const;
 
 /** Server canonical sales/account creation and independently consented website events cannot
