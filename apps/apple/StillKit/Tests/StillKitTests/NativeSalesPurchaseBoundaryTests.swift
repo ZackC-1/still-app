@@ -30,7 +30,8 @@ final class NativeSalesPurchaseBoundaryTests: XCTestCase {
     t.enabled = false
     let disabled = await NativeSalesPurchaseBoundary.perform(policy: runtime, unavailable: "held") { charges += 1; return "charged" }
     XCTAssertEqual(disabled, "held"); XCTAssertEqual(charges, 1)
-    XCTAssertEqual(t.requests.count, 3)
+    // The sandbox charge asks the policy again after Apple answers: 1 + 2 + 1.
+    XCTAssertEqual(t.requests.count, 4)
     XCTAssertTrue(t.requests.allSatisfy { $0.url?.path == "/functions/v1/qa-sandbox-product-policy" })
   }
 
@@ -60,6 +61,11 @@ final class NativeSalesPurchaseBoundaryTests: XCTestCase {
     // A sandbox caller that supplies no attestation is refused, never charged.
     let omitted = await NativeSalesPurchaseBoundary.perform(policy: sandbox, unavailable: "held") { charges += 1; return "charged" }
     XCTAssertEqual(omitted, "held"); XCTAssertEqual(charges, 2)
+    // Sales switched Off while Apple was answering holds the charge.
+    let switched = await NativeSalesPurchaseBoundary.perform(policy: sandbox, unavailable: "held", installEnvironment: { t.enabled = false; return .sandbox }) {
+      charges += 1; return "charged"
+    }
+    XCTAssertEqual(switched, "held"); XCTAssertEqual(charges, 2)
     // Policy Off holds before Apple is even asked.
     t.enabled = false
     _ = await NativeSalesPurchaseBoundary.perform(policy: sandbox, unavailable: "held", installEnvironment: { attestations += 1; return .sandbox }) { charges += 1; return "charged" }

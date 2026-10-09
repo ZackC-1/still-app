@@ -19,7 +19,11 @@ public enum NativeSalesPurchaseBoundary {
                                 installEnvironment: () async -> AppleInstallEnvironment = { .unavailable },
                                 charge: () async -> T) async -> T {
     guard let policy, await policy.freshCheck(.sales).allowed else { return unavailable }
-    if policy.requiresSandboxInstallation, !(await installEnvironment()).cannotTakeRealPayment { return unavailable }
+    if policy.requiresSandboxInstallation {
+      guard (await installEnvironment()).cannotTakeRealPayment else { return unavailable }
+      // Apple's answer can take longer than a fresh approval lasts, so ask again before charging.
+      guard await policy.freshCheck(.sales).allowed else { return unavailable }
+    }
     return await charge()
   }
 }

@@ -598,12 +598,11 @@ final class MonetizationConfigTests: XCTestCase {
       }
     }
     XCTAssertEqual(
-      Set(callSites), ["WebBridgeRouter.swift", "PurchaseManager.swift"],
+      callSites.sorted(), ["PurchaseManager.swift", "WebBridgeRouter.swift"],
       "every ask for Apple's purchase history goes through the one gated capture in "
         + "WebBridgeRouter, or the sandbox pre-charge check in PurchaseManager; a new call site "
         + "needs the same switch before it ships"
     )
-    XCTAssertEqual(callSites.filter { $0 == "PurchaseManager.swift" }.count, 1, "only the pre-charge check's single read")
   }
 
   /// PurchaseManager's second ask is behind a stricter switch than the paid tier: it lives only in

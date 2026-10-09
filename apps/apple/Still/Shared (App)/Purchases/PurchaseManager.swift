@@ -625,7 +625,8 @@ final class PurchaseManager {
   /// verified answer within the bound, including an OS before AppTransaction, is `unavailable`.
   private static func verifiedInstallEnvironment() async -> AppleInstallEnvironment {
     guard #available(iOS 16.0, macOS 13.0, *) else { return .unavailable }
-    return await bounded(20_000_000_000, fallback: AppleInstallEnvironment.unavailable) {
+    // Cancel on timeout so a late answer or sign-in sheet never overlaps the next Buy tap.
+    return await bounded(20_000_000_000, fallback: AppleInstallEnvironment.unavailable, cancelOnTimeout: true) {
       guard let result = try? await AppTransaction.shared, case .verified(let transaction) = result else { return .unavailable }
       switch transaction.environment {
       case .sandbox: return .sandbox
