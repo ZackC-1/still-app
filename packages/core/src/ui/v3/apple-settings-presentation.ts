@@ -50,6 +50,12 @@ export interface AppleSettingsProps extends Pick<
   | "labels"
 > {
   platform: "ios" | "mac";
+  /**
+   * True only after a setup read confirmed iPhone/iPad. `platform` starts as "ios" before any
+   * read, so it cannot say this: until confirmed, the Still Pro offer shows its general note,
+   * which is true on every surface.
+   */
+  phone?: boolean;
   sync: Omit<SyncCardProps, "account"> & {
     account?: AppleSettingsAccount;
   };

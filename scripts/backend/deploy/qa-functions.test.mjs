@@ -11,7 +11,11 @@ import {
 } from "./deploy.mjs";
 import {
   createQaFunctionPlan,
+  missingSecretCodes,
   QA_TOOLING,
+  READINESS_ISSUE_PREFIXES,
+  readinessCodes,
+  renderQaFinal,
   REQUIRED_SECRETS,
   runQaFunctionOperation,
 } from "./qa-functions.mjs";
@@ -141,6 +145,7 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
     dependencyMissing: false,
     secretResponse: null,
     replacementDrift: null,
+    gateCodes: null,
   };
   const exec = async (command, args, options) => {
     if (command === "psql") {
@@ -149,6 +154,8 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
         ? state.roles
         : file.endsWith("qa-function-prerequisites.sql")
         ? [state.catalog]
+        : controls.gateCodes
+        ? controls.gateCodes
         : controls.missingGate
         ? ["synthetic_missing_role"]
         : [];
@@ -715,6 +722,152 @@ test("protected baseline-only obtains private fingerprint without any upload", a
   assert.equal(receipt.writeAttempted, false);
   assert.equal(f.controls.postCount, 0);
   assert.match(receipt.baselineSha256, /^[a-f0-9]{64}$/);
+  // Readiness still names every absent required secret, by name only.
+  assert.deepEqual(
+    receipt.issues,
+    REQUIRED_SECRETS.map((name) => `missing_secret:${name}`),
+  );
+  assert.match(receipt.recovery, /^Resolve the listed readiness issues, then run baseline-only again/);
+  assert.match(renderQaFinal(receipt), /- Recovery: Resolve the listed readiness issues/);
+  assert.doesNotMatch(renderQaFinal(receipt), /none needed/);
+});
+
+test("baseline-only with every required secret and a clean gate needs no recovery", async (t) => {
+  const f = await fixture(t, "baseline-only");
+  const receipt = await f.run();
+  assert.equal(receipt.status, "baseline-read-only");
+  assert.deepEqual(receipt.issues, []);
+  assert.equal(receipt.recovery, "none needed");
+});
+
+test("readable readiness lists sorted fixed gate codes and missing secret names only", async (t) => {
+  const f = await fixture(t, "baseline-only");
+  const [firstMissing, secondMissing] = [
+    "STILL_QA_SANDBOX_STRIPE_WEBHOOK_SECRET",
+    "PRODUCT_POLICY_READER_DB_URL",
+  ];
+  f.state.secrets = f.state.secrets.filter(({ name }) =>
+    name !== firstMissing && name !== secondMissing
+  );
+  f.state.catalog.issues = [
+    "sandbox_sales_policy_missing",
+    "role_not_login:still_qa_sandbox_writer",
+    "role_membership:still_policy_reader",
+  ];
+  f.controls.gateCodes = [
+    "QA_missing_role_setting:lock_timeout=1s",
+    "routine_body:public.qa_sandbox_account_enabled(uuid)",
+    "role_not_login:still_qa_sandbox_writer",
+    "routine_acl:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])",
+  ];
+  const receipt = await f.run();
+  assert.equal(receipt.status, "stopped-before-write");
+  assert.equal(f.controls.postCount, 0);
+  assert.deepEqual(receipt.issues, [
+    "qa-prerequisite-gate-failed",
+    `missing_secret:${secondMissing}`,
+    `missing_secret:${firstMissing}`,
+    "QA_missing_role_setting:lock_timeout=1s",
+    "role_membership:still_policy_reader",
+    "role_not_login:still_qa_sandbox_writer",
+    "routine_acl:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])",
+    "routine_body:public.qa_sandbox_account_enabled(uuid)",
+    "sandbox_sales_policy_missing",
+  ]);
+  assert.match(receipt.recovery, /^Resolve the listed readiness issues, then run baseline-only again/);
+  const text = JSON.stringify(receipt) + renderQaFinal(receipt);
+  assert.doesNotMatch(
+    text,
+    /synthetic exact catalog|fixed-policy|synthetic-secret|b{64}/,
+  );
+  assert.match(text, /Fixed issue codes: qa-prerequisite-gate-failed\./);
+  assert.match(text, /Readiness issues \(8;/);
+  assert.match(text, /- Recovery: Resolve the listed readiness issues/);
+  assert.match(text, /- `missing_secret:PRODUCT_POLICY_READER_DB_URL`/);
+});
+
+test("readable readiness collapses free text and unreadable secrets to fixed markers", async (t) => {
+  const f = await fixture(t, "baseline-only");
+  f.controls.gateCodes = [
+    "missing_role:still_policy_reader",
+    "routine_body:synthetic free text with a value",
+    "missing_role:Synthetic@Example.invalid",
+    "unknown_prefix:still_policy_reader",
+    { code: "object" },
+  ];
+  f.state.catalog = { ...f.state.catalog, issues: "not-an-array" };
+  f.controls.secretResponse = (wire) => {
+    wire[0].value = "synthetic-private-value";
+    return wire;
+  };
+  const receipt = await f.run();
+  assert.deepEqual(receipt.issues, [
+    "qa-prerequisite-gate-failed",
+    "secret_inventory_unreadable",
+    "missing_role:still_policy_reader",
+    "unrecognized_issue_code",
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(receipt),
+    /free text|Synthetic@|unknown_prefix|synthetic-private-value|not-an-array/,
+  );
+});
+
+test("apply refusal for absent secrets names each missing secret", async (t) => {
+  const f = await fixture(t);
+  f.state.secrets = f.state.secrets.filter(({ name }) =>
+    name !== "STILL_QA_SANDBOX_WEB_RETURN_ORIGIN"
+  );
+  f.plan.baselineSha256 = sha256(canonical(f.state));
+  const { digest: _digest, ...manifest } = f.plan;
+  f.plan.digest = sha256(canonical(manifest));
+  f.env.EXPECTED_PLAN_DIGEST = f.plan.digest;
+  const receipt = await f.run();
+  assert.equal(receipt.status, "stopped-before-write");
+  assert.equal(f.controls.postCount, 0);
+  assert.deepEqual(receipt.issues, [
+    "qa-required-secret-missing",
+    "missing_secret:STILL_QA_SANDBOX_WEB_RETURN_ORIGIN",
+  ]);
+});
+
+test("readiness prefix allowlist equals the codes both gate SQL files can emit", async () => {
+  const prefixes = new Set();
+  for (
+    const file of [
+      "./verify/qa-function-prerequisites.sql",
+      "./verify/0021_qa_sandbox_access.sql",
+    ]
+  ) {
+    const sql = await readFile(new URL(file, import.meta.url), "utf8");
+    for (const [, prefix] of sql.matchAll(/select '([A-Za-z_]+):'\|\|/g)) {
+      prefixes.add(prefix);
+    }
+    for (
+      const [, prefix] of sql.matchAll(
+        /select '([A-Za-z_]+)'(?: as code)? (?:from|where)/g,
+      )
+    ) prefixes.add(prefix);
+  }
+  assert.deepEqual([...prefixes].sort(), [...READINESS_ISSUE_PREFIXES].sort());
+});
+
+test("readiness codes are bounded and secret names come from the fixed list", () => {
+  const many = Array.from(
+    { length: 205 },
+    (_, i) => `missing_routine:private.synthetic_${String(i).padStart(3, "0")}()`,
+  );
+  const codes = readinessCodes(many);
+  assert.equal(codes.length, 201);
+  assert.equal(codes.at(-1), "more_issue_codes:5");
+  assert.deepEqual(readinessCodes(["private_schema", "private_schema"]), [
+    "private_schema",
+  ]);
+  // Array argument types appear in fixed prerequisite signatures and must stay readable.
+  const arraySignature =
+    "missing_routine:private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])";
+  assert.deepEqual(readinessCodes([arraySignature]), [arraySignature]);
+  assert.deepEqual(missingSecretCodes(REQUIRED_SECRETS.map((name) => ({ name }))), []);
 });
 
 test("QA main drift and new migration stop even when upload source is untouched", async (t) => {

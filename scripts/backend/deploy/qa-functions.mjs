@@ -68,10 +68,94 @@ export const REQUIRED_SECRETS = Object.freeze([
     "WEB_RETURN_PATHS_JSON",
   ].map((suffix) => `STILL_QA_SANDBOX_${suffix}`),
 ]);
+// Every issue-code prefix the two read-only gates can emit. Each suffix those SQL files append
+// is drawn from a fixed list inside the SQL itself (signatures, role, table and setting names),
+// never from row contents. A test keeps this list equal to the prefixes found in both files.
+export const READINESS_ISSUE_PREFIXES = Object.freeze([
+  "QA_account_defaults",
+  "QA_client_RPC",
+  "QA_database_role_setting",
+  "QA_direct_table",
+  "QA_extra_policy",
+  "QA_internal_core",
+  "QA_live_RPC",
+  "QA_missing_role_setting",
+  "QA_missing_table_or_RLS",
+  "QA_new_column_ACL",
+  "QA_new_table_ACL",
+  "QA_owner_auth_mutation",
+  "QA_owner_default_execute",
+  "QA_owner_legacy_mutation",
+  "QA_owner_schema_create",
+  "QA_production_removal_default",
+  "QA_retention_schedule",
+  "QA_role_membership",
+  "QA_shared_RLS",
+  "QA_shared_trigger",
+  "QA_wrong_RLS_policy",
+  "client_private_grant",
+  "direct_table_grant",
+  "missing_QA_role",
+  "missing_history",
+  "missing_private_usage",
+  "missing_relation",
+  "missing_role",
+  "missing_routine",
+  "private_schema",
+  "role_membership",
+  "role_not_login",
+  "routine_acl",
+  "routine_body",
+  "routine_definer",
+  "routine_grant_option",
+  "routine_grantable",
+  "routine_owner",
+  "routine_path",
+  "sandbox_sales_policy_missing",
+  "unsafe_QA_role",
+  "unsafe_role",
+]);
+const ISSUE_CODE = /^([A-Za-z_]{1,48})(?::([a-z0-9_.,()=[\]]{1,160}))?$/;
+const MAX_READINESS_CODES = 200;
+const READINESS_RECOVERY =
+  "Resolve the listed readiness issues, then run baseline-only again before creating an apply plan";
 const same = (a, b) => canonical(a) === canonical(b);
-const refuse = (category) => {
-  throw new Refusal(category);
+const refuse = (category, codes) => {
+  const refusal = new Refusal(category);
+  if (codes) refusal.codes = codes;
+  throw refusal;
 };
+
+// Readable readiness: sorted, de-duplicated fixed identifiers only. Anything that is not a
+// known prefix with a catalog-identifier suffix collapses to one marker, so free text, facts,
+// digests or values can never reach the public closing record.
+export function readinessCodes(...lists) {
+  const codes = new Set();
+  for (const list of lists) {
+    for (const code of Array.isArray(list) ? list : [null]) {
+      const match = typeof code === "string" ? ISSUE_CODE.exec(code) : null;
+      codes.add(
+        match && READINESS_ISSUE_PREFIXES.includes(match[1])
+          ? code
+          : "unrecognized_issue_code",
+      );
+    }
+  }
+  const sorted = [...codes].sort();
+  return sorted.length > MAX_READINESS_CODES
+    ? [
+      ...sorted.slice(0, MAX_READINESS_CODES),
+      `more_issue_codes:${sorted.length - MAX_READINESS_CODES}`,
+    ]
+    : sorted;
+}
+
+// Names come only from REQUIRED_SECRETS; presence is judged by name, never by value or digest.
+export function missingSecretCodes(secrets) {
+  return REQUIRED_SECRETS.filter((name) =>
+    !secrets.some((item) => item.name === name)
+  ).map((name) => `missing_secret:${name}`);
+}
 const validRef = (ref) => /^[a-z]{20}$/.test(ref ?? "");
 const validHash = (hash) => /^[a-f0-9]{64}$/.test(hash ?? "");
 
@@ -254,7 +338,7 @@ function inventory(value) {
 // Management GET /secrets calls the SHA256 digest "value" (also the pinned CLI
 // DIGEST column). Normalize only validated hashes; never retain a secret plaintext.
 // https://supabase.com/docs/reference/api/v1-list-all-secrets
-function secretInventory(value) {
+export function secretInventory(value) {
   if (!Array.isArray(value)) refuse("qa-secret-inventory-invalid");
   const seen = new Set();
   return value.map((item) => {
@@ -330,7 +414,23 @@ async function baseline({ api, exec, cwd, sourceDir, conn, plan }) {
     !Array.isArray(prerequisite[0]?.history) ||
     typeof prerequisite[0]?.policyDigest !== "string"
   ) {
-    refuse("qa-prerequisite-gate-failed");
+    const lists = [];
+    if (gates.length) lists.push(gates);
+    if (prerequisite.length !== 1 || !Array.isArray(prerequisite[0]?.issues)) {
+      lists.push(null);
+    } else if (prerequisite[0].issues.length) {
+      lists.push(prerequisite[0].issues);
+    }
+    let secrets;
+    try {
+      secrets = missingSecretCodes(secretInventory(await api("/secrets")));
+    } catch {
+      secrets = ["secret_inventory_unreadable"];
+    }
+    refuse("qa-prerequisite-gate-failed", [
+      ...secrets,
+      ...(lists.length ? readinessCodes(...lists) : []),
+    ]);
   }
   if (!same(prerequisite[0].history, plan.expectedHistoryAfter)) {
     refuse("qa-hosted-history-differs");
@@ -484,18 +584,19 @@ export async function runQaFunctionOperation({
     receipt.baselineSha256 = initial.digest;
     receipt.functionCount = initial.state.functions.length;
     receipt.secretCount = initial.state.secrets.length;
+    const missingSecrets = missingSecretCodes(initial.state.secrets);
     if (plan.mode === "baseline-only") {
+      // Read-only readiness: the baseline still succeeds, and any absent required secret is
+      // listed by name because an apply against this state would refuse.
+      receipt.issues = missingSecrets;
+      if (missingSecrets.length) receipt.recovery = READINESS_RECOVERY;
       receipt.status = "baseline-read-only";
       await progress();
       return receipt;
     }
     if (initial.digest !== plan.baselineSha256) refuse("qa-baseline-drift");
-    if (
-      REQUIRED_SECRETS.some((name) =>
-        !initial.state.secrets.some((item) => item.name === name)
-      )
-    ) {
-      refuse("qa-required-secret-missing");
+    if (missingSecrets.length) {
+      refuse("qa-required-secret-missing", missingSecrets);
     }
     let expected = initial.state;
     for (const upload of plan.bundles.functions) {
@@ -563,11 +664,13 @@ export async function runQaFunctionOperation({
     receipt.status = receipt.writeAttempted
       ? "function-outcome-unknown"
       : "stopped-before-write";
-    receipt.issues = [
-      error instanceof Refusal ? error.category : "qa-operation-failed",
-    ];
+    receipt.issues = error instanceof Refusal
+      ? [error.category, ...(error.codes ?? [])]
+      : ["qa-operation-failed"];
     receipt.recovery = receipt.writeAttempted
       ? "Stop; inspect only the attempted QA routes privately; obtain a reviewed fix-forward or separately approved QA disable. Never blindly retry, delete or roll back."
+      : receipt.issues.length > 1
+      ? READINESS_RECOVERY
       : "Correct the fixed readiness failure and create a new exact plan before approval.";
     await progress();
     return receipt;
@@ -603,9 +706,16 @@ export function renderQaFinal(receipt, { applyOutcome } = {}) {
         "Interrupted after a possible or partial upload. Stop and inspect attempted QA routes privately before a reviewed fix-forward; never blindly retry.",
     };
   }
+  // Refusal categories are kebab-case `qa-…`; readiness codes are the fixed gate identifiers.
+  const categories = receipt.issues.filter((issue) => issue.startsWith("qa-"));
+  const readiness = receipt.issues.filter((issue) => !issue.startsWith("qa-"));
   return `## QA function closing record\n\n- Status: ${receipt.status}.\n` +
     `- Write attempted: ${receipt.writeAttempted}; completed routes: ${receipt.completed.length}.\n` +
     `- Baseline digest: ${receipt.baselineSha256 ?? "unavailable"}.\n` +
-    `- Fixed issue codes: ${receipt.issues.join(", ") || "none"}.\n` +
+    `- Fixed issue codes: ${categories.join(", ") || "none"}.\n` +
+    (readiness.length
+      ? `- Readiness issues (${readiness.length}; fix these before an apply plan):\n` +
+        readiness.map((code) => `  - \`${code}\`\n`).join("")
+      : "") +
     `- Recovery: ${receipt.recovery}.\n`;
 }
