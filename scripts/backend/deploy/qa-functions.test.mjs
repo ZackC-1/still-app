@@ -904,13 +904,15 @@ Deno.serve(async (request) => {
   const sql = postgres({
     host: "supabase_db_still-app", port: 5432, database: "postgres",
     username: "postgres", password: "postgres", ssl: false, max: 1,
-    fetch_types: false, prepare: false, connect_timeout: 2,
+    // Match createWriterSql's prepare:false and default type discovery; only
+    // fixture connection limits differ from the maintained writer recipe.
+    prepare: false, connect_timeout: 2,
     idle_timeout: 0, max_lifetime: null, no_subscribe: true,
   });
   let deadline;
   try {
     const rows = await Promise.race([
-      sql.unsafe("SELECT 1 AS runtime_probe").simple(),
+      sql\`SELECT \${1}::integer AS runtime_probe\`,
       new Promise((_, reject) => {
         deadline = setTimeout(() => reject(new Error("Fixture query deadline")), 4_000);
       }),
@@ -920,8 +922,14 @@ Deno.serve(async (request) => {
       ambient_setImmediate: typeof globalThis.setImmediate,
       ambient_clearImmediate: typeof globalThis.clearImmediate,
     });
-  } catch {
-    return new Response(null, { status: 500 });
+  } catch (error) {
+    // This route has only the fixed disposable database and synthetic inputs.
+    // Keep the next driver failure visible without emitting arbitrary payloads.
+    return Response.json({ fixture_failure: {
+      name: String(error?.name ?? '').slice(0, 80),
+      code: String(error?.code ?? '').slice(0, 80),
+      message: String(error?.message ?? '').slice(0, 240),
+    } }, { status: 500 });
   } finally {
     clearTimeout(deadline);
     await sql.end({ timeout: 1 });
@@ -1064,14 +1072,17 @@ Deno.serve(async (request) => {
         redirect: "error",
       },
     );
+    const probeBody = await probeResponse.text();
     assert.equal(
       probeResponse.status,
       200,
-      `sealed driver did not complete its disposable database query; local fixture diagnostics: ${
+      `sealed driver did not complete its disposable database query; fixture reply: ${
+        probeBody.slice(0, 500)
+      }; local fixture diagnostics: ${
         runtimeLog.replaceAll(anonKey, "[local JWT]")
       }`,
     );
-    const probeResult = await probeResponse.json();
+    const probeResult = JSON.parse(probeBody);
     assert.equal(probeResult.runtime_probe, 1);
     assert.deepEqual(Object.keys(probeResult).sort(), [
       "ambient_clearImmediate",
