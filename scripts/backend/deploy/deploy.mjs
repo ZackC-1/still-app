@@ -435,7 +435,22 @@ export async function createDeployPlan({
     });
   }
   assertIndependentVerifications(ordering);
-  const config = await boundFile(CONFIG_PATH, { category: "config-missing" });
+  // A migration-era commit may predate later Edge Function entries in config.toml. `db push`
+  // never reads [functions.*] tables, so only the rest of the file must match main.
+  const configBytes = await git.blob(inputs.sha, CONFIG_PATH);
+  const configOnMain = await git.blob(mainCommit, CONFIG_PATH);
+  if (!configBytes) throw new Refusal("config-missing", `${CONFIG_PATH} missing at that commit`);
+  const configMigrationSha256 = sha256(migrationConfigText(configBytes.toString("utf8")));
+  if (
+    !configOnMain ||
+    sha256(migrationConfigText(configOnMain.toString("utf8"))) !== configMigrationSha256
+  ) {
+    throw new Refusal(
+      "file-changed-on-main",
+      `${CONFIG_PATH} database settings differ between the commit and main`,
+    );
+  }
+  const config = { path: CONFIG_PATH, sha256: sha256(configBytes) };
 
   const tooling = [];
   for (const path of TOOLING_PATHS) {
@@ -454,7 +469,11 @@ export async function createDeployPlan({
     workflowRevision: mainCommit,
     onFirstParent: await git.onFirstParent(inputs.sha, mainCommit),
     cli: { version: CLI_VERSION, tarballSha256: CLI_TARBALL_SHA256 },
-    config: { path: config.path, sha256: config.sha256 },
+    config: {
+      path: config.path,
+      sha256: config.sha256,
+      migrationSha256: configMigrationSha256,
+    },
     migrations: planned,
     functions: [],
     priorMigrations: hashed.filter(
@@ -468,6 +487,17 @@ export async function createDeployPlan({
       "stop-and-fix-forward; never restore removed grants; no automatic rollback",
   };
   return { ...manifest, digest: sha256(canonical(manifest)) };
+}
+
+/** config.toml without its [functions.*] tables (Edge Function settings `db push` never reads). */
+export function migrationConfigText(text) {
+  const kept = [];
+  let inFunctions = false;
+  for (const line of String(text).split("\n")) {
+    if (/^\s*\[/.test(line)) inFunctions = /^\s*\[functions\.[^\]]+\]\s*(#.*)?$/.test(line);
+    if (!inFunctions) kept.push(line);
+  }
+  return kept.join("\n");
 }
 
 export const invariantPath = (file) =>
@@ -512,6 +542,13 @@ export async function checkFreshness({ git, plan, tipRef }) {
   }
   for (const file of boundFiles(plan)) {
     const bytes = await git.blob(tip, file.path);
+    // Migration plans bind config.toml by its database settings (see createDeployPlan).
+    if (file === plan.config && plan.config.migrationSha256) {
+      if (!bytes || sha256(migrationConfigText(bytes.toString("utf8"))) !== plan.config.migrationSha256) {
+        throw new Refusal("main-moved", `main changed ${file.path} after dispatch; plan again`);
+      }
+      continue;
+    }
     if (!bytes || sha256(bytes) !== file.sha256) {
       throw new Refusal(
         "main-moved",

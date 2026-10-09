@@ -46,6 +46,7 @@ import {
   runDeploy,
   checkFreshness,
   failureFacts,
+  migrationConfigText,
   issueCounts,
   runReplay,
   sha256,
@@ -497,6 +498,81 @@ test("an older commit may be deployed when main only added newer migrations", as
     ["0001", "0002"],
   );
   assert.match(renderPlan(p), /1 newer migration/);
+});
+
+test("migration config ignores only [functions.*] tables, including their comments and sub-tables", () => {
+  const base = 'project_id = "still-app"\n\n[db]\nmajor_version = 17\n';
+  const withFunctions =
+    base +
+    '\n[functions.qa-x]\n# why\nverify_jwt = false\nimport_map = "./functions/qa-x/deno.json"\n' +
+    '[functions.qa-x.secrets]\nkey = "env(K)"\n';
+  assert.equal(migrationConfigText(withFunctions).trimEnd(), base.trimEnd());
+  // Settings after a functions table still count once a non-function table starts.
+  assert.notEqual(
+    migrationConfigText(
+      withFunctions + "[db.pooler]\nenabled = true\n",
+    ).trimEnd(),
+    base.trimEnd(),
+  );
+  for (const changed of [
+    base.replace("17", "16"),
+    base + "[auth]\nenabled = false\n",
+    'project_id = "other"\n\n[db]\nmajor_version = 17\n',
+    base + "[functionsx]\nverify_jwt = false\n",
+  ])
+    assert.notEqual(migrationConfigText(changed), migrationConfigText(base));
+});
+
+test("an older migration commit plans when main only added Edge Function config entries", async (t) => {
+  const { root, head } = await repo(t);
+  const original = await readFile(join(root, "supabase/config.toml"), "utf8");
+  await put(root, "supabase/migrations/0003_later.sql", "select 1;\n");
+  await put(
+    root,
+    "supabase/config.toml",
+    original + "\n[functions.qa-later]\n# later route\nverify_jwt = true\n",
+  );
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "later migration and function entry");
+  const p = await plan(root, head);
+  // The plan binds the commit's own config bytes (what the deploy directory will hold).
+  assert.equal(p.config.sha256, sha256(Buffer.from(original)));
+  assert.equal(p.config.migrationSha256, sha256(migrationConfigText(original)));
+  // Database settings changed on main are still refused.
+  await put(
+    root,
+    "supabase/config.toml",
+    original + "\n[db.settings]\nstatement_timeout = 1\n",
+  );
+  git(root, "commit", "-q", "-am", "db setting");
+  await refuses(plan(root, head), "file-changed-on-main");
+});
+
+test("freshness: main adding Edge Function config proceeds; changing database config refuses", async (t) => {
+  const { root, head } = await repo(t);
+  const p = await plan(root, head);
+  const g = makeGit(defaultExec, root);
+  const original = await readFile(join(root, "supabase/config.toml"), "utf8");
+  await put(
+    root,
+    "supabase/config.toml",
+    original + "\n[functions.qa-later]\nverify_jwt = true\n",
+  );
+  git(root, "commit", "-q", "-am", "function entry");
+  assert.equal(
+    (await checkFreshness({ git: g, plan: p, tipRef: "main" })).mode,
+    "files-identical",
+  );
+  await put(
+    root,
+    "supabase/config.toml",
+    original + "\n[db.settings]\nstatement_timeout = 1\n",
+  );
+  git(root, "commit", "-q", "-am", "db setting");
+  await refuses(
+    checkFreshness({ git: g, plan: p, tipRef: "main" }),
+    "main-moved",
+  );
 });
 
 test("any change to verification, config or tooling changes the digest; tampering is refused", async (t) => {
