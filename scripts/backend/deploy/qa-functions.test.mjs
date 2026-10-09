@@ -15,7 +15,7 @@ import {
   REQUIRED_SECRETS,
   runQaFunctionOperation,
 } from "./qa-functions.mjs";
-import { QA_FUNCTIONS } from "./qa-function-bundles.mjs";
+import { QA_FUNCTIONS, sealQaRuntime } from "./qa-function-bundles.mjs";
 import {
   mkdir,
   mkdtemp,
@@ -660,6 +660,53 @@ for (const control of ["unknown", "bodyMismatch", "drift"]) {
   });
 }
 
+for (const control of ["function", "catalog", "role"]) {
+  test(`QA pre-upload ${control} drift after first verified upload stops before a second POST`, async (t) => {
+    const f = await fixture(t);
+    let injected = false;
+    const receipt = await f.run((progress) => {
+      f.receipts.push(progress);
+      if (progress.status !== "upload-verified" || injected) return;
+      // Inject only after route one's source/version/preservation readback has
+      // succeeded, so the following route's pre-upload guard must stop it.
+      assert.deepEqual(
+        progress.completed.map(({ name }) => name),
+        [QA_FUNCTIONS[0].name],
+      );
+      assert.equal(f.controls.postCount, 1);
+      injected = true;
+      if (control === "function") {
+        f.state.functions.find(({ slug }) => slug === "reconcile-entitlement")
+          .version++;
+      } else if (control === "catalog") {
+        f.state.catalog.facts.push("synthetic catalog drift between routes");
+      } else {
+        f.state.roles.push("synthetic role drift between routes");
+      }
+    });
+    assert.equal(injected, true);
+    assert.equal(f.controls.postCount, 1, "no second POST or retry");
+    assert.equal(receipt.status, "function-outcome-unknown");
+    assert.deepEqual(receipt.issues, ["qa-baseline-drift"]);
+    assert.equal(receipt.writeAttempted, true);
+    assert.equal(receipt.attemptedRoute, QA_FUNCTIONS[0].name);
+    assert.deepEqual(
+      receipt.completed.map(({ name }) => name),
+      [QA_FUNCTIONS[0].name],
+    );
+    assert.equal(
+      f.receipts.filter(({ status }) => status === "uploading").length,
+      1,
+    );
+    assert.equal(
+      f.receipts.filter(({ status }) => status === "upload-verified").length,
+      1,
+    );
+    assert.deepEqual(f.receipts.at(-1), receipt, "closed failure persisted");
+    assert.match(receipt.recovery, /fix-forward/);
+  });
+}
+
 test("protected baseline-only obtains private fingerprint without any upload", async (t) => {
   const f = await fixture(t, "baseline-only");
   f.state.secrets = [];
@@ -805,7 +852,7 @@ test(
 );
 
 test(
-  "all eight sealed uploads start in the actual pinned Supabase Edge runtime and deny incomplete requests",
+  "all eight sealed uploads deny incomplete requests and the sealed driver queries disposable PostgreSQL in the actual Edge runtime",
   {
     skip: process.env.STILL_QA_RUNTIME_INTEGRATION !== "1",
   },
@@ -835,6 +882,65 @@ test(
       sourceDir: cwd,
       artifactDir: uploads,
     });
+    assert.equal(manifest.functions.length, 8);
+    // This ninth route exists only in the disposable local serving tree, never
+    // in the fixed upload manifest or production source. Exercise a successful
+    // PostgreSQL exchange, which incomplete-request denials cannot establish.
+    const probeName = "fixture-only-postgres-runtime-probe";
+    const probeSource = join(root, "postgres-runtime-probe.ts");
+    const probeBundle = join(root, "postgres-runtime-probe.js");
+    await writeFile(
+      probeSource,
+      `
+// The reviewed config and frozen lock resolve this to postgres@3.4.9.
+import postgres from "postgres";
+Deno.serve(async (request) => {
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response(null, { status: 405 });
+  }
+  if (Deno.env.get("STILL_QA_FIXTURE_DB_PASSWORD") !== "postgres") {
+    return new Response(null, { status: 503 });
+  }
+  const sql = postgres({
+    host: "supabase_db_still-app", port: 5432, database: "postgres",
+    username: "postgres", password: "postgres", ssl: false, max: 1,
+    fetch_types: false, prepare: false, connect_timeout: 2,
+    idle_timeout: 0, max_lifetime: null, no_subscribe: true,
+  });
+  let deadline;
+  try {
+    const rows = await Promise.race([
+      sql.unsafe("SELECT 1 AS runtime_probe").simple(),
+      new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new Error("Fixture query deadline")), 4_000);
+      }),
+    ]);
+    return Response.json({
+      runtime_probe: rows[0]?.runtime_probe,
+      ambient_setImmediate: typeof globalThis.setImmediate,
+      ambient_clearImmediate: typeof globalThis.clearImmediate,
+    });
+  } catch {
+    return new Response(null, { status: 500 });
+  } finally {
+    clearTimeout(deadline);
+    await sql.end({ timeout: 1 });
+  }
+});
+`,
+    );
+    const compiledProbe = await defaultExec("deno", [
+      "bundle",
+      ...manifest.toolchain.flags,
+      `--output=${probeBundle}`,
+      probeSource,
+    ], { cwd });
+    assert.equal(compiledProbe.code, 0, compiledProbe.stderr);
+    await put(
+      fixtureDir,
+      `supabase/functions/${probeName}/index.js`,
+      sealQaRuntime(await readFile(probeBundle, "utf8")),
+    );
     const config = (await readFile(join(cwd, "supabase/config.toml"), "utf8"))
       .replace(/^\[functions\.[^\]]+\][\s\S]*?(?=^\[|$(?![\s\S]))/gm, "");
     await put(
@@ -843,7 +949,8 @@ test(
       config + "\n" +
         manifest.functions.map(({ name, verifyJwt }) =>
           `[functions.${name}]\nverify_jwt = ${verifyJwt}\nentrypoint = "./functions/${name}/index.js"\n`
-        ).join("\n"),
+        ).join("\n") +
+        `\n[functions.${probeName}]\nverify_jwt = true\nentrypoint = "./functions/${probeName}/index.js"\n`,
     );
     for (const upload of manifest.functions) {
       await put(
@@ -852,8 +959,10 @@ test(
         await readFile(join(uploads, upload.file)),
       );
     }
-    const envFile = join(root, "empty.env");
-    await writeFile(envFile, "", { mode: 0o600 });
+    const envFile = join(root, "fixture.env");
+    await writeFile(envFile, "STILL_QA_FIXTURE_DB_PASSWORD=postgres\n", {
+      mode: 0o600,
+    });
     const status = await defaultExec("supabase", ["status", "-o", "json"], {
       cwd,
     });
@@ -918,10 +1027,20 @@ test(
     );
     for (const { name, verifyJwt } of manifest.functions) {
       const response = await request(name);
-      const expectedStatus = verifyJwt ? 401 : name === "qa-sandbox-verify-apple-access" ? 200
-        : name === "qa-sandbox-stripe-webhook" ? 503 : 400;
-      assert.equal(response.status, expectedStatus,
-        `${name}; local fixture diagnostics: ${runtimeLog.replaceAll(anonKey, "[local JWT]")}`);
+      const expectedStatus = verifyJwt
+        ? 401
+        : name === "qa-sandbox-verify-apple-access"
+        ? 200
+        : name === "qa-sandbox-stripe-webhook"
+        ? 503
+        : 400;
+      assert.equal(
+        response.status,
+        expectedStatus,
+        `${name}; local fixture diagnostics: ${
+          runtimeLog.replaceAll(anonKey, "[local JWT]")
+        }`,
+      );
       if (verifyJwt) {
         const body = await response.json();
         assert.equal(response.status, 401, name);
@@ -935,6 +1054,41 @@ test(
         assert.equal(response.status, 503, name);
         assert.deepEqual(body, { error: "webhook_unavailable" });
       } else assert.equal(response.status, 400, name);
+    }
+    const probeResponse = await fetch(
+      `http://127.0.0.1:54321/functions/v1/${probeName}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${anonKey}` },
+        signal: AbortSignal.timeout(8_000),
+        redirect: "error",
+      },
+    );
+    assert.equal(
+      probeResponse.status,
+      200,
+      `sealed driver did not complete its disposable database query; local fixture diagnostics: ${
+        runtimeLog.replaceAll(anonKey, "[local JWT]")
+      }`,
+    );
+    const probeResult = await probeResponse.json();
+    assert.equal(probeResult.runtime_probe, 1);
+    assert.deepEqual(Object.keys(probeResult).sort(), [
+      "ambient_clearImmediate",
+      "ambient_setImmediate",
+      "runtime_probe",
+    ]);
+    for (const key of ["ambient_setImmediate", "ambient_clearImmediate"]) {
+      assert.ok(["undefined", "function"].includes(probeResult[key]), key);
+    }
+    t.diagnostic(
+      `Disposable Edge PostgreSQL SELECT 1 succeeded; ambient setImmediate=${probeResult.ambient_setImmediate}, clearImmediate=${probeResult.ambient_clearImmediate}`,
+    );
+    for (const upload of manifest.functions) {
+      assert.equal(
+        sha256(await readFile(join(uploads, upload.file))),
+        upload.sha256,
+      );
     }
   },
 );
