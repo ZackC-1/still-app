@@ -103,6 +103,7 @@ function amoClient(credentials, { fetch = globalThis.fetch, api = AMO_API, inter
     return fetch(new URL(path, api), { method, headers, body });
   };
   const failed = (method, path, status) => refusal(`${method} ${new URL(path, api).pathname} returned HTTP ${status}; nothing was retried`);
+  const gaveUp = (path, status) => refusal(`GET ${new URL(path, api).pathname} returned ${status} after 4 attempts; no write was repeated`);
   return {
     api,
     async write(path, method, body) {
@@ -116,7 +117,7 @@ function amoClient(credentials, { fetch = globalThis.fetch, api = AMO_API, inter
         try { response = await request(path); } catch (error) { if (attempt >= 4) throw error; }
         if (response?.ok) return json ? response.json() : Buffer.from(await response.arrayBuffer());
         if (response && response.status !== 429 && response.status < 500) failed("GET", path, response.status);
-        if (attempt >= 4) failed("GET", path, response?.status ?? "network error");
+        if (attempt >= 4) gaveUp(path, response ? `HTTP ${response.status}` : "a network error");
         await wait(interval);
       }
     },
@@ -151,7 +152,7 @@ export async function downloadSignedVersion(id, versionId, client, { interval = 
   if (!/^\d+$/.test(String(versionId))) refusal("AMO version id must be a number");
   const fileUrl = await poll(async () => {
     const detail = await client.read(`addon/${encodeURIComponent(id)}/versions/${versionId}/`);
-    if (detail?.channel !== undefined && detail.channel !== CHANNEL) refusal("this AMO version is not unlisted");
+    if (detail?.channel !== CHANNEL) refusal("this AMO version is not reported as unlisted");
     if (detail?.file?.status === "disabled") refusal("Mozilla rejected this version; see the developer hub");
     return detail?.file?.status === "public" && detail.file.url ? detail.file.url : undefined;
   }, { interval, timeout, label: "Signing" });
@@ -198,7 +199,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const client = amoClient(readCredentials(env.STILL_QA_AMO_CREDENTIALS_FILE));
   mkdirSync(out, { recursive: true });
   const amoVersionId = flag === "--resume" ? String(versionId) : await submitToAmo(pkg, client);
-  const signed = await downloadSignedVersion(pkg.id, amoVersionId, client);
+  // Record the version before waiting, so a failed download can be resumed without the hub.
+  writeFileSync(join(out, "amo-version.json"), `${JSON.stringify({ addonId: pkg.id, version: pkg.version, amoVersionId }, null, 2)}\n`);
+  process.stdout.write(`AMO version ${amoVersionId} created or selected; resume with --resume ${amoVersionId} if the download fails.\n`);
+  let signed;
+  try { signed = await downloadSignedVersion(pkg.id, amoVersionId, client); }
+  catch (error) { throw new Error(`${error.message} (AMO version ${amoVersionId}; retry the download with --resume ${amoVersionId})`, { cause: error }); }
   const { xpi, signatureFiles } = writeVerifiedXpi(pkg, signed, out);
   const receipt = { ...plan, amoVersionId, resumed: flag === "--resume", signedXpi: xpi, signedSha256: sha256(signed), signatureFiles, signedAt: new Date().toISOString() };
   writeFileSync(join(out, "signing-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);

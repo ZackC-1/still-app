@@ -67,8 +67,8 @@ test("signing uploads to the unlisted channel, creates the version by id and dow
     { json: { processed: true, valid: true, channel: "unlisted" } },
     { json: { version: { id: 99, channel: "unlisted" } } },
     { status: 502 },
-    { json: { file: { status: "unreviewed" } } },
-    { json: { file: { status: "public", url: FILE_URL } } },
+    { json: { channel: "unlisted", file: { status: "unreviewed" } } },
+    { json: { channel: "unlisted", file: { status: "public", url: FILE_URL } } },
     { bytes: Buffer.from("signed") },
   ]);
   const result = await signWithAmo(PKG, CREDENTIALS, { fetch: amo.fetch, interval: 0 });
@@ -96,9 +96,9 @@ test("signing stops without retrying on a failed write, a non-unlisted result, a
     [[...validated, { status: 500 }], /HTTP 500; nothing was retried/],
     [[...validated, { json: { version: { id: 5, channel: "listed" } } }], /outside the unlisted channel/],
     [[...validated, { json: { version: { id: 5 } } }], /outside the unlisted channel/],
-    [[...created, { json: { file: { status: "disabled" } } }], /rejected this version/],
+    [[...created, { json: { channel: "unlisted", file: { status: "disabled" } } }], /rejected this version/],
     [[...created, { status: 404 }], /HTTP 404/],
-    [[...created, { json: { file: { status: "public", url: "https://example.org/x.xpi" } } }], /not on addons.mozilla.org/],
+    [[...created, { json: { channel: "unlisted", file: { status: "public", url: "https://example.org/x.xpi" } } }], /not on addons.mozilla.org/],
   ]) {
     const amo = fakeAmo([...responses]);
     await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: amo.fetch, interval: 0 }), pattern);
@@ -107,9 +107,12 @@ test("signing stops without retrying on a failed write, a non-unlisted result, a
     assert.ok(writes.length <= 2 && new Set(writes).size === writes.length, writes.join(","));
   }
   await assert.rejects(signWithAmo({ ...PKG, id: "still@chartash.com" }, CREDENTIALS, { fetch: fakeAmo([]).fetch }), /only the sandbox QA/);
-  // Read-only polls give up after a bounded number of transient failures.
+  // Read-only polls give up after a bounded number of transient failures, and say so.
   const flaky = fakeAmo([...created, { status: 502 }, { status: 502 }, { status: 502 }, { status: 502 }]);
-  await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: flaky.fetch, interval: 0 }), /HTTP 502/);
+  await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: flaky.fetch, interval: 0 }), /HTTP 502 after 4 attempts; no write was repeated/);
+  // A resumed or polled version that does not report its channel is not proof of unlisted.
+  const silent = fakeAmo([...created, { json: { file: { status: "public", url: FILE_URL } } }]);
+  await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: silent.fetch, interval: 0 }), /not reported as unlisted/);
 });
 
 test("the signed XPI must be the uploaded files plus a Mozilla signature", () => {
