@@ -67,3 +67,55 @@ Earlier integrated runtime `371339e5` also passed 439 StillKit tests and unsigne
 PR #366 merged exact reviewed head `39158647feabe1d2f090935451ab9afbcdb6400e` into main `dfa0d4046a9e5b9a7ed0b588b0aedb537f7c631c`. All eight checks passed, including the complete fixture suite, real Firefox checks and StillKit. Full independent review identified the older-Safari selector issue above; the repaired source and final fixture-only follow-up each received an actual Claude review with no remaining actionable findings. The final fixture follow-up moves fixture-owned layout declarations to inline styles so the dormancy test does not mistake them for extension CSS; runtime bytes are unchanged.
 
 Repaired runtime `cbddffc5373b756cf2b811621919ffbb3be0cb08` also produced successful unsigned Release iOS Simulator and macOS app/Safari-extension builds. The packaged WebUI and Safari resources matched the generated resources with no SHA mismatch. The built extension passed the older-selector fallback control; a separate 1,554-shape selector/marker comparison found no mismatch. These are source, synthetic and unsigned-build proofs. Signing, matching hosted configuration, TestFlight delivery and physical-device journeys remain open. Safari still has eight evidenced extras; Firefox Android has ten. Autoplay, end-screen and live-chat mobile observation, plus the owner-deferred authenticated Facebook feed investigation, remain incomplete.
+
+## Checkpoint: Safari desktop layouts and phone-layout autoplay (9 October)
+
+Branch `feat/v31-safari-android-pro-parity-20261009` (base `afc88365`, local commits, not pushed).
+
+**Capability model.** Every host's content entry runs the same packaged engine, so
+`IMPLEMENTED_PRO_FEATURES` lists all twelve for Chromium, Firefox and Safari. Which extras a device
+can use is decided by its platform, from deterministic signals only (never user agent, page layout,
+window or screen size): `runtime.getPlatformInfo().os` in the Safari and Firefox backgrounds and
+Safari V3 pages, and the compiled OS in StillKit (`SafariAccessPlatform`). `android`, `ios` and
+`unknown` drop the desktop-layout-only set (`youtube.endscreen`, `youtube.livechat`,
+`facebook.sponsored`). Content entries pass only their host; the background (Firefox) or native
+snapshot (Safari) is the per-device authority. Paid-off builds fold the platform away.
+
+| Surface | Extras offered (paid on) | Change |
+|---|---|---|
+| macOS Safari (desktop layouts) | all 12 | +endscreen, +livechat, +autoplay, +sponsored sidebar |
+| iPhone/iPad Safari | 9: Instagram ×4, related, comments, autoplay, Facebook Stories/Videos | +autoplay |
+| Firefox for Android | the same 9 | +autoplay (phone countdown); endscreen and live chat are no longer offered, sponsored stays held |
+| Chromium, desktop Firefox | all 12 | unchanged |
+
+Before this branch no caller passed a platform, so Firefox for Android actually resolved all twelve,
+including controls with nothing to act on in its layouts. iPad shares the `ios` answer and is held
+with iPhone even when it requests the desktop site: the layout can change per site, and no physical
+iPad is available (owner exception).
+
+**Observed structures (synthetic/emulated, not device acceptance).** Public m.youtube.com, signed
+out, Playwright WebKit with an iPhone user agent, Gecko with a Firefox for Android user agent and
+Chromium with an Android user agent, touch-started playback:
+
+- Autoplay: after the end, `player-endscreen #player-endscreen[data-has-timer-countdown="true"]`
+  appears in the player controls beside `#movie_player` (inside `#player-container-id`), "Up next
+  in 9/10", with one Cancel `<button>` and a Play now link in `.ytwPlayerEndscreenButtonContainer`.
+  Without action the next video loaded after about ten seconds. Pressing that Cancel kept the URL for
+  18+ seconds, showed Replay and left "Autoplay is on" unchanged, in WebKit and Gecko. A
+  deliberately opened Mix (`list=RD…`) advanced with no countdown. With YouTube's toggle off, the end
+  state showed only Replay.
+- End-of-video suggestions: no end cards or end-screen grid in either toggle state; the only card is
+  the autoplay countdown, which must never be hidden.
+- Live chat: Lofi Girl and Sky News live streams showed no chat frame, entry, panel or `live_chat`
+  iframe on m.youtube.com in WebKit or Gecko, while desktop www.youtube.com showed
+  `ytd-live-chat-frame` for both. Signed-in mobile pages were not inspected.
+
+**Blocked.** Facebook sponsored posts in the phone feed need the owner's authenticated session; no
+selector was guessed and `facebook.sponsored` stays desktop-layout-only on phones.
+
+**Verification.** Guard regressions failed against the observed fixture before the repair (8 unit,
+3 built-fixture) and four guard mutations were caught. The Safari desktop-layout composed entry
+(seven cases) failed on the previous table. Focused suites, `@still/core`, `@still/ext-safari`,
+`@still/ext-chromium`, typecheck, lint, built host/autoplay/dormancy fixtures and StillKit
+`swift test` passed; see the branch report for counts. Physical macOS Safari, iPhone/iPad Safari
+and Firefox for Android journeys remain open.

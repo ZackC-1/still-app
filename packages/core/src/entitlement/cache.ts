@@ -64,6 +64,7 @@ export class EntitlementCache {
   private accessWatching = false;
   private accessScheduled = false;
   private accessRetryDelay: number | null = null;
+  private accessObserved = false;
   private unwatch: (() => void) | null = null;
 
   constructor(
@@ -112,6 +113,18 @@ export class EntitlementCache {
     this.apply(entitled);
   }
 
+  /**
+   * Replaces the page's SEED snapshot once a late platform answer arrives (the seed was resolved
+   * for an unknown platform). Ignored after any observation from the access authority, which is
+   * always newer and already resolved for this device. The paid mode never changes here.
+   */
+  seedAccess(access: Pick<TrustedAccessContext, "paidMode" | "supported">): void {
+    if (this.accessObserved) return;
+    const seeded = initialAccessSnapshot(access);
+    if ((seeded.refreshAfterMs !== null) !== this.modernPaidMode) return;
+    this.applyAccess(seeded);
+  }
+
   currentAccess(benefit: BenefitId): AccessState { return this.currentAccessSnapshot().states[benefit]; }
   currentAccessSnapshot(): BenefitAccessSnapshot {
     // A suspended page cannot return a paid grant merely because its refresh timer has not run.
@@ -143,6 +156,7 @@ export class EntitlementCache {
         this.accessObservedWall = startedWall;
         this.accessRefreshDeadline = deadline;
         this.accessRetryDelay = null;
+        this.accessObserved = true;
         this.applyAccess(value);
       }
       return this.accessSnapshot;

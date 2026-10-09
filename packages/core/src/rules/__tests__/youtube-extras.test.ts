@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PAID_TIER_ENABLED, type BenefitAccessSnapshot, type BenefitId, type FeatureId, type SettingsV2 } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type BenefitAccessSnapshot, type FeatureId, type SettingsV2 } from "@still/shared-types";
 import {
   ACCESS_HOSTS,
   IMPLEMENTED_PRO_FEATURES,
@@ -8,6 +8,7 @@ import {
   initialAccessSnapshot,
   packagedAccessContext,
   type AccessHost,
+  type AccessPlatform,
 } from "../../entitlement/access-policy.js";
 import { createEnginePageSession, type EngineOptions, type EnginePageSession } from "../engine.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
@@ -27,8 +28,8 @@ type YtPro = (typeof YT_PRO)[number];
 const packaged = admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!;
 
 /** The paid-on seam for one host: real implementation table, purchased access for the four. */
-function paidOn(host: AccessHost = "chromium"): EngineOptions {
-  const capabilities = accessCapabilitiesForTest({ paidMode: true, host }, IMPLEMENTED_PRO_FEATURES);
+function paidOn(host: AccessHost = "chromium", platform?: AccessPlatform): EngineOptions {
+  const capabilities = accessCapabilitiesForTest({ paidMode: true, host, platform }, IMPLEMENTED_PRO_FEATURES);
   const base = initialAccessSnapshot({ paidMode: true, supported: capabilities });
   const access: BenefitAccessSnapshot = { ...base, states: { ...base.states, ...Object.fromEntries(
     YT_PRO.filter((id) => capabilities.has(id)).map((id) => [id, "purchased"])) } };
@@ -264,13 +265,15 @@ describe("youtube.livechat top-level route", () => {
     expect(evaluate(href).kind).not.toBe("redirect");
   });
 
-  it("routes only while Live chat itself is effective: Off, service Off, Still Off, paid off, or Safari host all leave it", () => {
+  it("routes only while Live chat itself is effective: Off, service Off, Still Off, paid off, or a phone platform all leave it", () => {
     const href = "https://www.youtube.com/live_chat?v=inv400001";
     expect(evaluate(href, settings(["youtube.comments", "youtube.related", "youtube.endscreen"])).kind).not.toBe("redirect");
     expect(evaluate(href, settings(YT_PRO, { services: { ...DEFAULT_SETTINGS_V2.services, youtube: false } })).kind).toBe("noop");
     expect(evaluate(href, settings(YT_PRO, { globalOn: false })).kind).toBe("noop");
     expect(evaluate(href, all, {}).kind).not.toBe("redirect");
-    expect(evaluate(href, all, paidOn("safari")).kind).not.toBe("redirect");
+    for (const [host, platform] of [["safari", "ios"], ["safari", "unknown"], ["firefox", "android"]] as const)
+      expect(evaluate(href, all, paidOn(host, platform)).kind, `${host} ${platform}`).not.toBe("redirect");
+    expect(evaluate(href, all, paidOn("safari", "desktop"))).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
     // Independent of Shorts: Live chat routes with the free core Off.
     expect(evaluate(href, { ...all, sites: { ...all.sites, "youtube.shorts": false } })).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
   });
@@ -283,30 +286,24 @@ describe("youtube.livechat top-level route", () => {
 });
 
 describe("YouTube extras capability table and selector boundaries", () => {
-  it("Safari implements observed Related and Comments; other YouTube extras remain held there", () => {
+  it("every host implements all five; phone platforms hold the desktop-layout end screen and live chat", () => {
     // The four hide controls plus Autoplay prevention (a content handler, youtube-autoplay.ts).
-    for (const host of ["chromium", "firefox"] as const)
+    for (const host of ACCESS_HOSTS)
       expect([...IMPLEMENTED_PRO_FEATURES[host]].filter((id) => id.startsWith("youtube.")).sort()).toEqual([...YT_PRO, "youtube.autoplay"].sort());
-    expect(IMPLEMENTED_PRO_FEATURES.safari.filter((id) => id.startsWith("youtube."))).toEqual(["youtube.related", "youtube.comments"]);
     for (const host of [undefined, ...ACCESS_HOSTS]) {
       const off = accessCapabilities({ paidMode: PAID_TIER_ENABLED, host });
-      for (const id of YT_PRO) expect(off.has(id), `${host}:${id}`).toBe(false);
+      for (const id of [...YT_PRO, "youtube.autoplay"] as const) expect(off.has(id), `${host}:${id}`).toBe(false);
     }
-    const on = (host?: AccessHost) => accessCapabilitiesForTest({ paidMode: true, host }, IMPLEMENTED_PRO_FEATURES);
-    for (const id of YT_PRO) {
-      expect(on("chromium").has(id)).toBe(true);
-      expect(on("firefox").has(id)).toBe(true);
-      expect(on("safari").has(id)).toBe(id === "youtube.related" || id === "youtube.comments");
-      expect(on().has(id), "an unknown host needs every host, Safari included").toBe(id === "youtube.related" || id === "youtube.comments");
+    const on = (host?: AccessHost, platform?: AccessPlatform) => accessCapabilitiesForTest({ paidMode: true, host, platform }, IMPLEMENTED_PRO_FEATURES);
+    for (const id of [...YT_PRO, "youtube.autoplay"] as const) {
+      for (const host of [undefined, ...ACCESS_HOSTS]) expect(on(host, "desktop").has(id), `${host}:${id}`).toBe(true);
+      const phoneLayout = id !== "youtube.endscreen" && id !== "youtube.livechat";
+      expect(on("safari", "ios").has(id), `ios:${id}`).toBe(phoneLayout);
+      expect(on("firefox", "android").has(id), `android:${id}`).toBe(phoneLayout);
     }
-    const autoplay: BenefitId = "youtube.autoplay";
-    expect(on("chromium").has(autoplay)).toBe(true);
-    expect(on("firefox").has(autoplay)).toBe(true);
-    expect(on("safari").has(autoplay)).toBe(false);
-    for (const host of [undefined, ...ACCESS_HOSTS]) expect(accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }).has(autoplay)).toBe(false);
   });
 
-  it("naming the Safari host changes nothing today: same context, snapshot and paid-on capabilities as no host", () => {
+  it("naming the Safari host alone (a content entry) keeps the whole list; the paid-off context equals no host", () => {
     expect(packagedAccessContext("safari")).toEqual(packagedAccessContext());
     expect(initialAccessSnapshot(packagedAccessContext("safari"))).toEqual(initialAccessSnapshot());
     expect([...accessCapabilitiesForTest({ paidMode: true, host: "safari" }, IMPLEMENTED_PRO_FEATURES)].sort())

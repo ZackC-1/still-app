@@ -1,8 +1,31 @@
 {
   "schema": 1,
-  "description": "Owner decision 6 dormancy gate: the packaged host capabilities while the paid tier is off. Both packages/core (accessCapabilities) and StillKit (NativeAccessContext's default supported set) must equal this list exactly, so no Still Pro feature can resolve to an effective state while paid is off.",
-  "paidOffSupported": ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"],
-  "paidOnSafariSupported": [
+  "description": "Owner decision 6 dormancy gate: the packaged host capabilities while the paid tier is off. Both packages/core (accessCapabilities) and StillKit (NativeAccessContext's default supported set) must equal this list exactly, so no Still Pro feature can resolve to an effective state while paid is off. The paid-on Safari sets are per Apple platform: StillKit's NativeAppleAccessCapabilities for macOS (desktop layouts) and for iPhone/iPad must equal packages/core accessCapabilities for host safari with platform desktop and ios.",
+  "paidOffSupported": [
+    "facebook.reels",
+    "instagram.reels",
+    "tiktok.all",
+    "youtube.shorts"
+  ],
+  "paidOnSafariDesktopSupported": [
+    "facebook.reels",
+    "facebook.sponsored",
+    "facebook.stories",
+    "facebook.videos",
+    "instagram.explore",
+    "instagram.reels",
+    "instagram.stories",
+    "instagram.suggested",
+    "instagram.threads",
+    "tiktok.all",
+    "youtube.autoplay",
+    "youtube.comments",
+    "youtube.endscreen",
+    "youtube.livechat",
+    "youtube.related",
+    "youtube.shorts"
+  ],
+  "paidOnSafariMobileSupported": [
     "facebook.reels",
     "facebook.stories",
     "facebook.videos",
@@ -12,6 +35,7 @@
     "instagram.suggested",
     "instagram.threads",
     "tiktok.all",
+    "youtube.autoplay",
     "youtube.comments",
     "youtube.related",
     "youtube.shorts"

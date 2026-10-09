@@ -4,6 +4,7 @@
   import { readAccountStatus } from "../../lib/account-status.js";
 import { pushSettingsToApp } from "../../lib/native-settings.js";
   import { createSafariPageAnalytics } from "../../lib/analytics.js";
+  import { safariPlatformAnswer } from "../../lib/access-platform.js";
 
   // Push each local edit straight to the App Group (see popup/main.ts — the background reconciler
   // may be asleep on iOS and miss the browser.storage write).
@@ -16,6 +17,7 @@ import { pushSettingsToApp } from "../../lib/native-settings.js";
     analytics: createSafariPageAnalytics(),
     openedWhere: "options",
     accessHost: "safari",
+    accessPlatform: safariPlatformAnswer(),
   });
 </script>
 

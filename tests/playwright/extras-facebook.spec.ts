@@ -12,7 +12,7 @@ import { extrasFixture } from "../../packages/core/src/rules/__tests__/extras-fi
 // behaviour here does not depend on the build's sync configuration (as format2-shipping.spec.ts);
 // it is verified in both CI lanes.
 
-const paidOnContent = (host: "chromium" | "firefox" | "safari") => (source: (path: string) => string) => `
+const paidOnContent = (host: "chromium" | "firefox" | "safari", platform?: "desktop" | "ios" | "android") => (source: (path: string) => string) => `
   import seed from ${source("packages/core/rules/seed.json")};
   import { FEATURE_REGISTRY } from "@still/shared-types";
   import { createContentScript } from ${source("packages/core/src/content/index.ts")};
@@ -20,9 +20,13 @@ const paidOnContent = (host: "chromium" | "firefox" | "safari") => (source: (pat
   import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from ${source("packages/core/src/rules/packaged.ts")};
   import { ACCESS_BENEFITS, IMPLEMENTED_PRO_FEATURES, accessCapabilitiesForTest, initialAccessSnapshot }
     from ${source("packages/core/src/entitlement/access-policy.ts")};
+  // The access snapshot is the per-device gate, as on the shipped hosts: the native app (Safari) or
+  // the background (Firefox) resolves it WITH the platform, so a Pro feature the device cannot use
+  // is "unsupported" there. The content capabilities below stay host-only, as the content entries.
+  const devicePro = accessCapabilitiesForTest({ paidMode: true, host: ${JSON.stringify(host)}, platform: ${JSON.stringify(platform)} }, IMPLEMENTED_PRO_FEATURES);
   const base = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
   const access = Object.freeze({ ...base, states: Object.freeze({ ...base.states,
-    ...Object.fromEntries(FEATURE_REGISTRY.filter((f) => f.tier === "pro").map((f) => [f.id, "purchased"])) }) });
+    ...Object.fromEntries(FEATURE_REGISTRY.filter((f) => f.tier === "pro").map((f) => [f.id, devicePro.has(f.id) ? "purchased" : "unsupported"])) }) });
   const entitlement = {
     currentAccessSnapshot: () => access, current: () => true, hydrate: async () => {},
     subscribeAccess: () => () => {}, subscribe: () => () => {}, watch: () => () => {}, refreshAccess: async () => access,
@@ -38,7 +42,9 @@ const paidOnContent = (host: "chromium" | "firefox" | "safari") => (source: (pat
   void script.start();`;
 
 const test = createFormat2Test(paidOnContent("chromium"));
-const safari = createFormat2Test(paidOnContent("safari"));
+// Safari per Apple platform: the native snapshot's answer gates; the content entry passes its host only.
+const safariMac = createFormat2Test(paidOnContent("safari", "desktop"));
+const safariPhone = createFormat2Test(paidOnContent("safari", "ios"));
 const expect = test.expect;
 const FB = "https://www.facebook.com";
 
@@ -215,8 +221,21 @@ test.describe("Desktop sidebar ads (paid on)", () => {
     });
 });
 
-safari.describe("Desktop sidebar ads on the Safari host (paid on)", () => {
-  safari("is not implemented there: iPad is open owner question Q4", async ({ page, authority }) => {
+safariMac.describe("Desktop sidebar ads on macOS Safari (paid on)", () => {
+  safariMac("hides the desktop right-column ads and keeps contacts, birthdays and group chats", async ({ page, authority }) => {
+    await commit(authority, ALL_ON);
+    await serveFacebook(page, "fb-sidebar.html");
+    await page.goto(`${FB}/`);
+    await engineRan(page);
+    await expect(page.locator("#target-sidebar-ad-block")).toBeHidden();
+    for (const id of ["keep-contacts", "keep-birthdays", "keep-group-chats"])
+      await expect(page.locator(`#${id}`), id).toBeVisible();
+    await expectKeptVisible(page);
+  });
+});
+
+safariPhone.describe("Desktop sidebar ads on iPhone/iPad Safari (paid on)", () => {
+  safariPhone("is never a control there, even with a desktop page and a saved On", async ({ page, authority }) => {
     await commit(authority, ALL_ON);
     await serveFacebook(page, "fb-sidebar.html");
     await page.goto(`${FB}/`);

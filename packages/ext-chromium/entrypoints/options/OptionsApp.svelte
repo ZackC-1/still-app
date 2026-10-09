@@ -23,6 +23,9 @@
   import { observeDirectControls } from "@still/core/ui/v3/direct-control-observer";
   import { reportDirectControl } from "../../lib/invitation-client.js";
   import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
+  import { runtimePlatformAnswerFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
+  import { settingsFeatures } from "../../lib/settings-features.js";
+  import { browser } from "wxt/browser";
 
   let optionsRoot: HTMLElement;
   onMount(() => {
@@ -43,6 +46,9 @@
   );
   const analytics = createPageAnalytics(Boolean(import.meta.env.FIREFOX));
   let committedPopupBinding: CommittedPopupBinding | undefined;
+  // The browser's answer whenever it comes (`eventual`), not the one-second bound: a desktop
+  // Firefox whose answer is late still gets its rows and access once it arrives.
+  const platform = runtimePlatformAnswerFor(Boolean(import.meta.env.FIREFOX), browser.runtime).eventual;
   const controller = createExtensionUiController(purchase, {
     emailConsent,
     analytics,
@@ -59,7 +65,15 @@
       : undefined,
     openedWhere: "options",
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
+    accessPlatform: platform,
   });
+  // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
+  // phone rows until Firefox's own answer says desktop, however late. Chromium draws every row.
+  let platformAnswer = $state<RuntimePlatform | null>(null);
+  void platform.then((answer) => {
+    platformAnswer = answer;
+  });
+  let features = $derived(settingsFeatures(Boolean(import.meta.env.FIREFOX), platformAnswer));
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({
     service,
@@ -144,6 +158,7 @@
           loadSettings,
           help,
           sectionMemory,
+          features,
         }
       : undefined}
   />

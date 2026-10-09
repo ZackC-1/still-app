@@ -11,7 +11,8 @@ final class AccessCapabilityParityTests: XCTestCase {
   struct Fixture: Decodable {
     let schema: Int
     let paidOffSupported: [String]
-    let paidOnSafariSupported: [String]
+    let paidOnSafariDesktopSupported: [String]
+    let paidOnSafariMobileSupported: [String]
   }
 
   static func fixture() throws -> Fixture {
@@ -35,11 +36,26 @@ final class AccessCapabilityParityTests: XCTestCase {
     XCTAssertEqual(Set(free), expected)
   }
 
-  func testNativeSafariPaidOnSetMatchesTheSharedTypeScriptFixture() throws {
+  func testNativeSafariPaidOnSetsMatchTheSharedTypeScriptFixturePerPlatform() throws {
     let fixture = try Self.fixture()
-    XCTAssertEqual(Set(fixture.paidOnSafariSupported).count, fixture.paidOnSafariSupported.count)
-    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: true), Set(fixture.paidOnSafariSupported))
-    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: false), Set(fixture.paidOffSupported))
+    XCTAssertEqual(Set(fixture.paidOnSafariDesktopSupported).count, fixture.paidOnSafariDesktopSupported.count)
+    XCTAssertEqual(Set(fixture.paidOnSafariMobileSupported).count, fixture.paidOnSafariMobileSupported.count)
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: true, platform: .mac), Set(fixture.paidOnSafariDesktopSupported))
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: true, platform: .mobile), Set(fixture.paidOnSafariMobileSupported))
+    for platform in [SafariAccessPlatform.mac, .mobile] {
+      XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: false, platform: platform), Set(fixture.paidOffSupported))
+    }
+    // The compiled platform is the build's own operating system, never a runtime guess.
+    #if os(macOS)
+    XCTAssertEqual(SafariAccessPlatform.current, .mac)
+    #else
+    XCTAssertEqual(SafariAccessPlatform.current, .mobile)
+    #endif
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: true),
+                   NativeAppleAccessCapabilities.supported(paidMode: true, platform: .current))
+    // The mobile set is the desktop set minus exactly the desktop-layout-only extras.
+    XCTAssertEqual(Set(fixture.paidOnSafariDesktopSupported).subtracting(fixture.paidOnSafariMobileSupported),
+                   ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"])
   }
 
   func testEveryProFeatureResolvesUnsupportedFromTheDefaultContext() {

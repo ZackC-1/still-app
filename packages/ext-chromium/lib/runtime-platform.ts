@@ -42,8 +42,12 @@ const KNOWN_DESKTOP: PlatformAnswer = {
   eventual: Promise.resolve("desktop"),
 };
 
-/** Ask the browser once. "android" only when it says so; any other OS is "desktop"; a missing API or
- * a failure is "unknown". */
+/** The WebExtensions desktop `PlatformOs` values. Anything outside these and "android" is malformed. */
+const DESKTOP_OS: readonly string[] = ["mac", "win", "linux", "openbsd", "cros", "fuchsia"];
+
+/** Ask the browser once. "android" only when it says so; a known desktop OS is "desktop"; a missing
+ * API, a failure or a malformed answer is "unknown" (the safe default: it never claims a
+ * desktop-layout extra, and the TikTok allowance stays closed). */
 export function askRuntimePlatform(
   runtime: PlatformInfoSource | undefined,
   limitMs: number = PLATFORM_ANSWER_LIMIT_MS,
@@ -53,7 +57,8 @@ export function askRuntimePlatform(
     const answer = runtime?.getPlatformInfo?.();
     eventual = answer
       ? Promise.resolve(answer).then(
-          (info): RuntimePlatform => (info?.os === "android" ? "android" : "desktop"),
+          (info): RuntimePlatform => (info?.os === "android" ? "android"
+            : typeof info?.os === "string" && DESKTOP_OS.includes(info.os) ? "desktop" : "unknown"),
           (): RuntimePlatform => "unknown",
         )
       : Promise.resolve("unknown");
@@ -100,6 +105,21 @@ export function runtimePlatformAnswerFor(
   runtime: PlatformInfoSource | undefined,
 ): PlatformAnswer {
   return isFirefox ? askRuntimePlatform(runtime) : KNOWN_DESKTOP;
+}
+
+/**
+ * The platform for the Still Pro access context, asked again on each access observation: the
+ * eventual answer once the browser gave it (so a desktop Firefox whose answer was late recovers
+ * its desktop-layout extras), otherwise the bounded one. "unknown" and "android" hold back the
+ * desktop-layout-only extras (access-policy.ts), because a paid control that silently does nothing
+ * on a phone is worse than one held back. Chromium is desktop at once.
+ */
+export function accessPlatformReader(answer: PlatformAnswer): () => Promise<RuntimePlatform> {
+  let settled: RuntimePlatform | null = null;
+  void answer.eventual.then((value) => {
+    settled = value;
+  });
+  return async () => settled ?? (await answer.bounded);
 }
 
 /** The popup presentation loader for this build: the phone popup only in Firefox for Android, the

@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { IMPLEMENTED_PRO_FEATURES } from "../../entitlement/access-policy.js";
+import { IMPLEMENTED_PRO_FEATURES, accessCapabilities } from "../../entitlement/access-policy.js";
 import { describe, expect, it, vi } from "vitest";
 import { NativeBridge, parseNativeAppleAccessCommit, type NativeAppleAccessInstall } from "../bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { PAID_ACCESS_WINDOW_MS } from "@still/shared-types";
+import { FEATURE_REGISTRY, PAID_ACCESS_WINDOW_MS } from "@still/shared-types";
 const now = 1_800_000_000_000;
 const identity = "synthetic-access:" + "ab".repeat(64);
 const input: NativeAppleAccessInstall = { nativeBinding: "signed-binding", localProof: "signed-local", issuerTime: now };
@@ -70,12 +70,19 @@ describe("native Apple signed access install/readback contract", () => {
   });
 });
 
-it("keeps the compiled native Safari capability allowlist equal to the canonical host gate", () => {
+it("keeps the compiled native Safari capability allowlists equal to the canonical host gate per platform", () => {
   const source = readFileSync(resolve(import.meta.dirname, "../../../../../apps/apple/StillKit/Sources/StillKit/AppleRightBinding.swift"), "utf8");
-  const native = source.match(/public static let safariPro = \[([\s\S]*?)\]/)?.[1];
-  expect(native).toBeDefined();
-  const ids = [...native!.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(match => match[1]);
-  expect(ids.sort()).toEqual([...IMPLEMENTED_PRO_FEATURES.safari].sort());
+  const list = (name: string) => {
+    const native = source.match(new RegExp(`public static let ${name} = \\[([\\s\\S]*?)\\]`))?.[1];
+    expect(native, name).toBeDefined();
+    return [...native!.matchAll(/"([a-z]+\.[a-z]+)"/g)].map(match => match[1]!);
+  };
+  const pro = (platform: "desktop" | "ios") => [...accessCapabilities({ paidMode: true, host: "safari", platform })]
+    .filter(id => FEATURE_REGISTRY.some(feature => feature.id === id && feature.tier === "pro")).sort();
+  // iPhone/iPad Safari (`safariPro`) and macOS Safari (`safariPro + safariDesktopLayoutPro`).
+  expect(list("safariPro").sort()).toEqual(pro("ios"));
+  expect([...list("safariPro"), ...list("safariDesktopLayoutPro")].sort()).toEqual(pro("desktop"));
+  expect(pro("desktop")).toEqual([...IMPLEMENTED_PRO_FEATURES.safari].sort());
 });
 
 it("uses a separate closed local evidence RPC and retains the purchased-only account-link RPC", async () => {

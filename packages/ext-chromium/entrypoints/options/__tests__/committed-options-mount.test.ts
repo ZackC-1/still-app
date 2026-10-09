@@ -40,7 +40,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   localStorage.clear();
 });
-async function installBrowser(atomic = true) {
+async function installBrowser(atomic = true, os = "mac", answerAfterMs = 0) {
   const store: Record<string, unknown> = {
     "still:settings": {
       settings: structuredClone(DEFAULT_SETTINGS),
@@ -145,6 +145,7 @@ async function installBrowser(atomic = true) {
       getURL: (path = "") => origin + path.replace(/^\//, ""),
       sendMessage,
       openOptionsPage,
+      getPlatformInfo: () => new Promise((resolve) => setTimeout(() => resolve({ os }), answerAfterMs)),
     },
     tabs: { create: async () => ({ id: 1 }) },
   });
@@ -170,6 +171,54 @@ async function installBrowser(atomic = true) {
     },
   };
 }
+
+describe("Firefox options page hides switches a phone cannot use", () => {
+  const sectionRows = async (section: string) => {
+    const button = await waitFor(() => screen.getByRole("button", { name: section }));
+    if (button.getAttribute("aria-expanded") !== "true") await fireEvent.click(button);
+    return (name: string) => screen.queryByText(name) !== null;
+  };
+  it.each([
+    ["android", false],
+    ["mac", true],
+  ] as const)("Firefox on %s: end screen, live chat and sidebar ads drawn = %s; free rows and saved choices kept", async (os, desktop) => {
+    const f = await installBrowser(true, os);
+    vi.stubEnv("FIREFOX", "true");
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
+    const before = structuredClone(f.store["still:settings"]);
+    render(OptionsApp);
+    let drawn = await sectionRows("YouTube Blocker");
+    await waitFor(() => expect(drawn("End-of-video suggestions")).toBe(desktop));
+    expect(drawn("Live chat")).toBe(desktop);
+    for (const name of ["Shorts", "Related videos", "Autoplay prevention", "Comments"]) expect(drawn(name), name).toBe(true);
+    drawn = await sectionRows("Facebook Blocker");
+    expect(drawn("Desktop sidebar ads")).toBe(desktop);
+    expect(drawn("Facebook Stories")).toBe(true);
+    expect(f.store["still:settings"]).toEqual(before);
+  });
+});
+
+describe("Firefox options page and a platform answer after the one-second bound", () => {
+  it.each([["mac", true], ["android", false]] as const)("a late %s answer: desktop-only rows drawn afterwards = %s", async (os, desktop) => {
+    await installBrowser(true, os, 1_300);
+    vi.stubEnv("FIREFOX", "true");
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
+    render(OptionsApp);
+    const button = await waitFor(() => screen.getByRole("button", { name: "YouTube Blocker" }));
+    if (button.getAttribute("aria-expanded") !== "true") await fireEvent.click(button);
+    expect(screen.queryByText("Related videos")).not.toBeNull();
+    expect(screen.queryByText("End-of-video suggestions")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1_600));
+    const again = await waitFor(() => screen.getByRole("button", { name: "YouTube Blocker" }));
+    if (again.getAttribute("aria-expanded") !== "true") await fireEvent.click(again);
+    await waitFor(() => expect(screen.queryByText("End-of-video suggestions") !== null).toBe(desktop));
+    expect(screen.queryByText("Live chat") !== null).toBe(desktop);
+  });
+});
 
 describe("actual Chromium options mount", () => {
   it("uses the actual factory runtime binding and commits free choices with options-only telemetry", async () => {

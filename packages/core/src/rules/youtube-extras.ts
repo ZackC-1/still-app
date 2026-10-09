@@ -12,6 +12,11 @@ import type { ExtrasRoute, MarkerAdapter, ServiceExtras } from "./extras.js";
  * Their preservation fixtures remain synthetic. Desktop/end-screen/chat selectors remain
  * UNVERIFIED CANDIDATES. Phone viewport evidence is not physical Safari or Firefox Android
  * acceptance; each control's device release gate still needs its behavioral evidence.
+ * End-of-video suggestions and Live chat have NO phone-layout selectors on purpose: on 2026-10-09
+ * public m.youtube.com in phone emulation showed no end cards or end-screen grid (its only end
+ * card is the autoplay countdown, which is never hidden) and no live chat on live streams whose
+ * desktop page had chat. Phone platforms therefore never offer them (access-policy.ts
+ * DESKTOP_LAYOUT_ONLY_PRO).
  *
  * Boundaries every selector keeps: never a wrapper that also holds the playlist panel, the live
  * chat frame, the player's Replay/seek/settings controls or the autonav countdown. In particular

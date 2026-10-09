@@ -45,6 +45,8 @@
       }>;
       help: ExtensionSettingsProps["help"];
       sectionMemory?: ExtensionSettingsProps["sectionMemory"];
+      /** The rows to draw (a phone surface omits switches that cannot act there); omitted: all. */
+      features?: ExtensionSettingsProps["features"];
     };
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
@@ -453,6 +455,7 @@
       onServiceChange={desktopCommands.service}
       onFeatureChange={desktopCommands.feature}
       sectionMemory={settingsHost.sectionMemory}
+      features={settingsHost.features}
       sync={{ ...optionsSync, accountActions: optionsAccountActions }}
       privacyActions={usageActions}
       help={settingsHost.help}

@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, createSettingsIntentRouter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, parseBenefitAccessSnapshot } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, parseBenefitAccessSnapshot, type AccessPlatform } from "@still/core/entitlement";
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
@@ -16,6 +16,7 @@ import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, reque
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
+import { safariPlatformAnswer } from "../lib/access-platform.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -43,10 +44,14 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 }
 
 export default defineBackground(() => {
-  // The Safari host's packaged context, named explicitly. It equals the adapter's host-less
-  // default today (Safari implements only the extras every host implements), so behaviour is
-  // unchanged.
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: () => packagedAccessContext("safari"), nativeObservation: async () => {
+  // The Safari host's packaged context for THIS device, from Safari's own platform answer (asked
+  // once; never the user agent or a screen size). macOS Safari loads the desktop layouts; iPhone,
+  // iPad and an unknown answer never claim a desktop-layout control. The native app resolves the
+  // same split at compile time and its snapshot is the authority while paid is on.
+  // Paid off never asks: the context is the free features on every platform.
+  let accessPlatform: Promise<AccessPlatform> | null = null;
+  const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= safariPlatformAnswer());
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", PAID_TIER_ENABLED ? await devicePlatform() : undefined), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;

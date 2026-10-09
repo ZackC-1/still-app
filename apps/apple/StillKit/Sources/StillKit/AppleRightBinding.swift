@@ -143,16 +143,39 @@ public enum NativeAppleOwnershipObservation {
   }
 }
 
-/// Safari macOS/iOS share this capability gate; signed claims may cover more benefits.
+/// Which Safari a build serves. Compile-time and deterministic: never the user agent, the page
+/// layout or a screen size. macOS Safari gets the sites' desktop layouts; iPhone and iPad Safari
+/// may get phone layouts, so the desktop-layout-only extras are never offered there.
+public enum SafariAccessPlatform {
+  case mac, mobile
+  public static var current: SafariAccessPlatform {
+    #if os(macOS)
+    return .mac
+    #else
+    return .mobile
+    #endif
+  }
+}
+
+/// The Safari capability gate, per Apple platform; signed claims may cover more benefits. It must
+/// equal packages/core accessCapabilities for host "safari" with platform "desktop" (mac) and
+/// "ios" (mobile): packages/shared-types/fixtures/access-capabilities.json.
 public enum NativeAppleAccessCapabilities {
+  /// Extras with an observed phone-layout structure or no layout dependence (iPhone/iPad Safari).
   public static let safariPro = [
     "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
-    "youtube.related", "youtube.comments",
+    "youtube.related", "youtube.comments", "youtube.autoplay",
     "facebook.stories", "facebook.videos"
   ]
-  public static func supported(paidMode: Bool) -> Set<String> {
+  /// Extras that act only on the desktop layouts macOS Safari loads (access-policy.ts
+  /// DESKTOP_LAYOUT_ONLY_PRO): end cards, live chat and the desktop right-column ads.
+  public static let safariDesktopLayoutPro = ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]
+  public static func pro(for platform: SafariAccessPlatform) -> [String] {
+    platform == .mac ? safariPro + safariDesktopLayoutPro : safariPro
+  }
+  public static func supported(paidMode: Bool, platform: SafariAccessPlatform = .current) -> Set<String> {
     Set(PackagedFeatureRegistry.features.filter { $0.tier == "free" }.map { $0.id } +
-      [PackagedFeatureRegistry.tiktokAlias] + (paidMode ? safariPro : []))
+      [PackagedFeatureRegistry.tiktokAlias] + (paidMode ? pro(for: platform) : []))
   }
 }
 

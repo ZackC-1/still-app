@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
   import { proRowsDormant, rowsFor } from "./presentation.js";
+  import { DESKTOP_LAYOUT_ONLY_PRO } from "../../entitlement/access-policy.js";
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import PopupInvitation from "./PopupInvitation.svelte";
@@ -157,9 +158,12 @@
   >
     {#each services as service, index (service)}
       {#if index > 0}<div class="divider"></div>{/if}
+      <!-- Phone surfaces never show a Still Pro switch that cannot act in a phone layout
+           (owner decision): end-of-video suggestions, live chat and desktop sidebar ads. The
+           saved choice is kept; only the row is not drawn. Free rows are never in this list. -->
       {@const rows = rowsFor(service).filter(
         (row) =>
-          row.id !== "facebook.sponsored" &&
+          !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(row.id) &&
           (!features || features.includes(row.id)),
       )}
       <div class="site-section" data-paused={!settings.globalOn || undefined}>

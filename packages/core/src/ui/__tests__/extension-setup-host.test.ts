@@ -48,7 +48,8 @@ describe("extension pages resolve their access for their own host", () => {
         accessHost: host,
         onCommittedPopupBinding: (binding) => { access = binding.current().access; },
       });
-      expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([[host, undefined]]);
+      // Hosts that span phones seed an unknown platform until the browser answers.
+      expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([[host, host === "chromium" ? undefined : "unknown"]]);
       expect(seen.calls[0]!.result.paidMode).toBe(PAID_TIER_ENABLED);
       expect(access).toEqual(initialAccessSnapshot(seen.calls[0]!.result));
     });
@@ -57,6 +58,23 @@ describe("extension pages resolve their access for their own host", () => {
     installChrome();
     createExtensionUiController(undefined, { accessHost: "firefox", accessPlatform: "android" });
     expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([["firefox", "android"]]);
+  });
+
+  it("a pending platform answer seeds unknown, then reseeds the page with the browser's answer", async () => {
+    installChrome();
+    let answer!: (platform: AccessPlatform) => void;
+    createExtensionUiController(undefined, { accessHost: "firefox", accessPlatform: new Promise((resolve) => { answer = resolve; }) });
+    expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([["firefox", "unknown"]]);
+    answer("android");
+    await Promise.resolve(); await Promise.resolve();
+    expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([["firefox", "unknown"], ["firefox", "android"]]);
+  });
+
+  it("a failed platform answer keeps the unknown-platform seed", async () => {
+    installChrome();
+    createExtensionUiController(undefined, { accessHost: "safari", accessPlatform: Promise.reject(new Error("no answer")) });
+    await Promise.resolve(); await Promise.resolve();
+    expect(seen.calls.map((call) => [call.host, call.platform])).toEqual([["safari", "unknown"]]);
   });
 
   it("without a host it keeps the host-less default (only features every host implements)", () => {

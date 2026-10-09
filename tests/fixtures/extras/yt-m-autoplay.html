@@ -2,23 +2,62 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Synthetic mobile YouTube autoplay preservation</title>
+    <title>Synthetic mobile YouTube autoplay countdown</title>
   </head>
   <body>
-    <!-- Synthetic mobile preservation fixture. #movie_player and its html5-main-video were
-         observed on public m.youtube.com with a phone viewport on 2026-10-08. The countdown
-         and Cancel classes are existing UNVERIFIED candidates: the inspected browser could
-         not play that video. These event tests do not prove live mobile autoplay prevention.
-         All page content is Invented text for preservation. -->
+    <!-- Synthetic model of the m.youtube.com up-next countdown. The element names, classes,
+         nesting and the data-has-timer-countdown attribute were observed on public
+         m.youtube.com watch pages on 2026-10-09 in phone emulation (WebKit with an iPhone
+         user agent, Gecko with a Firefox for Android user agent, Chromium with an Android
+         user agent), signed out, after touch-started playback ended: the countdown lives in
+         the player controls beside #movie_player, not inside it, and its action row holds one
+         Cancel <button> and one Play now link. Pressing that Cancel kept the page, left Replay
+         and YouTube's own "Autoplay is on" toggle unchanged. Physical iPhone Safari and Firefox
+         for Android behavior remains UNVERIFIED. All page content is Invented text. -->
     <ytm-app>
-    <div id="movie_player" class="html5-video-player">
-      <video class="html5-main-video" id="player-video"></video>
-      <div class="ytp-autonav-endscreen-countdown-overlay" id="keep-autonav-overlay">
-        <span>Up next in 8</span>
-        <button class="ytp-autonav-endscreen-upnext-cancel-button" id="keep-autonav-cancel">Cancel</button>
-        <a href="/watch?v=inv300002" id="keep-autonav-next">Invented up next video</a>
+    <div id="player-container-id" class="player-container">
+      <div id="player">
+        <div id="movie_player" class="html5-video-player ytp-mweb-player">
+          <video class="html5-main-video" id="player-video"></video>
+        </div>
       </div>
-      <button class="ytp-autonav-toggle-button" id="keep-autoplay-toggle" aria-checked="true">Autoplay</button>
+      <div id="player-control-container">
+        <ytm-custom-control class="ytmCustomControlHost">
+          <ytm-watch-player-controls class="ytmWatchPlayerControlsHost">
+            <div id="player-control-overlay" class="new-controls">
+              <div class="player-controls-content">
+                <player-autonav-toggle class="ytwPlayerAutonavToggleHost">
+                  <button class="ytwAutonavToggleButtonHost" id="keep-autoplay-toggle" aria-label="Autoplay is on">Invented toggle</button>
+                </player-autonav-toggle>
+                <button class="icon-button endscreen-replay-button" id="keep-replay" aria-label="Replay Video">Invented replay</button>
+                <player-endscreen class="ytwPlayerEndscreenHost" id="keep-autonav-overlay">
+                  <div class="ytwPlayerEndscreenContainer">
+                    <div id="player-endscreen" class="ytwPlayerEndscreenPlayerEndscreen" data-has-timer-countdown="true">
+                      <div class="ytwPlayerEndscreenTopPanel">
+                        <div class="ytwPlayerEndscreenHeader" role="text"><span id="upnext-in-message">Up next in <span class="ytwPlayerEndscreenCountdownNumber">8</span></span></div>
+                        <ytm-button-renderer class="icon-remove">
+                          <button class="ytSpecButtonShapeNextHost" id="keep-autonav-dismiss" aria-label="Cancel autoplay for this video">Invented dismiss</button>
+                        </ytm-button-renderer>
+                      </div>
+                      <div class="ytwPlayerEndscreenCountdownContainer">
+                        <a href="/watch?v=inv300002" class="ytwPlayerEndscreenCuedVideoContainer" id="keep-autonav-next" aria-label="Invented up next video">Invented up next video</a>
+                      </div>
+                      <div class="ytwPlayerEndscreenButtonContainer">
+                        <ytm-button-renderer class="ytwPlayerEndscreenActionButton">
+                          <button class="ytSpecButtonShapeNextHost" id="keep-autonav-cancel" aria-label="Cancel">Cancel</button>
+                        </ytm-button-renderer>
+                        <ytm-button-renderer class="ytwPlayerEndscreenActionButton">
+                          <a href="/watch?v=inv300002" class="ytSpecButtonShapeNextHost" id="keep-autonav-play" aria-label="Play now">Play now</a>
+                        </ytm-button-renderer>
+                      </div>
+                    </div>
+                  </div>
+                </player-endscreen>
+              </div>
+            </div>
+          </ytm-watch-player-controls>
+        </ytm-custom-control>
+      </div>
     </div>
     <div id="keep-playlist-panel">
       <a href="/watch?v=inv300003&amp;list=PLinvented03&amp;index=2" id="keep-playlist-next">Invented playlist item two</a>
@@ -28,12 +67,15 @@
       // Records what a dormant build must leave alone. "loads" counts document loads in this tab
       // through sessionStorage, so a reload or a back-and-forward bounce to the same URL still
       // shows up; "token" is unique to this document's lifetime. "ended" counts the scripted
-      // video "ended" event at its target, which proves the event really fired.
+      // video "ended" event at its target, which proves the event really fired. The Play now
+      // link and the top dismiss button are never Still's to press.
       const loads = Number(sessionStorage.getItem("autoplayProbeLoads") || "0") + 1;
       sessionStorage.setItem("autoplayProbeLoads", String(loads));
-      window.__autoplayProbe = { toggleClicks: 0, cancelClicks: 0, ended: 0, loads, token: Math.random().toString(36).slice(2) };
+      window.__autoplayProbe = { toggleClicks: 0, cancelClicks: 0, playClicks: 0, dismissClicks: 0, ended: 0, loads, token: Math.random().toString(36).slice(2) };
       document.getElementById("keep-autoplay-toggle").addEventListener("click", () => window.__autoplayProbe.toggleClicks++);
       document.getElementById("keep-autonav-cancel").addEventListener("click", () => window.__autoplayProbe.cancelClicks++);
+      document.getElementById("keep-autonav-play").addEventListener("click", (event) => { event.preventDefault(); window.__autoplayProbe.playClicks++; });
+      document.getElementById("keep-autonav-dismiss").addEventListener("click", () => window.__autoplayProbe.dismissClicks++);
       document.getElementById("player-video").addEventListener("ended", () => window.__autoplayProbe.ended++);
       window.fireEnded = () => document.getElementById("player-video").dispatchEvent(new Event("ended"));
     </script>

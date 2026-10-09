@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { accessCapabilities } from "@still/core/entitlement";
 import {
+  accessPlatformReader,
   askRuntimePlatform,
   detectRuntimePlatform,
   isFirefoxAndroid,
@@ -32,8 +34,12 @@ afterEach(() => {
 describe("runtime platform", () => {
   it("is android only when the browser says android", async () => {
     expect(await detectRuntimePlatform(runtime("android"))).toBe("android");
-    for (const os of ["mac", "win", "linux", "cros", "openbsd", "fuchsia", "ANDROID", ""])
+    for (const os of ["mac", "win", "linux", "cros", "openbsd", "fuchsia"])
       expect(await detectRuntimePlatform(runtime(os))).toBe("desktop");
+    // A malformed answer is not a desktop claim: it is unknown (held back, TikTok gate closed).
+    for (const os of ["ANDROID", "", "ios", "android-ish"])
+      expect(await detectRuntimePlatform(runtime(os)), os).toBe("unknown");
+    expect(await detectRuntimePlatform({ getPlatformInfo: async () => ({}) as { os: string } })).toBe("unknown");
   });
 
   it("never decides from the window, the screen or the user agent", async () => {
@@ -92,6 +98,46 @@ describe("runtime platform", () => {
     expect(isFirefoxAndroid(false, "desktop")).toBe(false);
     // An unknown platform is presented and counted as desktop.
     expect(isFirefoxAndroid(true, "unknown")).toBe(false);
+  });
+});
+
+describe("Still Pro access platform", () => {
+  const DESKTOP_LAYOUT_ONLY = ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"] as const;
+  const proFor = (platform: RuntimePlatform) => accessCapabilities({ paidMode: true, host: "firefox", platform });
+
+  it("Firefox for Android never resolves a desktop-layout-only extra; it keeps the phone-layout ones", async () => {
+    narrowWindow(390);
+    const read = accessPlatformReader(runtimePlatformAnswerFor(true, runtime("android")));
+    const platform = await read();
+    expect(platform).toBe("android");
+    for (const id of DESKTOP_LAYOUT_ONLY) expect(proFor(platform).has(id), id).toBe(false);
+    for (const id of ["youtube.autoplay", "youtube.comments", "youtube.related"] as const) expect(proFor(platform).has(id), id).toBe(true);
+  });
+
+  it("a narrow desktop Firefox window is still desktop and keeps every extra", async () => {
+    narrowWindow(390);
+    const read = accessPlatformReader(runtimePlatformAnswerFor(true, runtime("mac")));
+    expect(await read()).toBe("desktop");
+    for (const id of DESKTOP_LAYOUT_ONLY) expect(proFor(await read()).has(id), id).toBe(true);
+  });
+
+  it("Chromium is desktop at once without asking the browser", async () => {
+    const source = runtime("android");
+    expect(await accessPlatformReader(runtimePlatformAnswerFor(false, source))()).toBe("desktop");
+    expect(source.getPlatformInfo).not.toHaveBeenCalled();
+  });
+
+  it("a late answer is unknown (held back) until the browser answers, then the answer is used", async () => {
+    vi.useFakeTimers();
+    let answer!: (info: { os: string }) => void;
+    const read = accessPlatformReader(askRuntimePlatform({ getPlatformInfo: () => new Promise((resolve) => { answer = resolve; }) }, 50));
+    const first = read();
+    await vi.advanceTimersByTimeAsync(60);
+    expect(await first).toBe("unknown");
+    for (const id of DESKTOP_LAYOUT_ONLY) expect(proFor("unknown").has(id), id).toBe(false);
+    answer({ os: "linux" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await read()).toBe("desktop");
   });
 });
 

@@ -1,4 +1,4 @@
-import { mount } from "svelte";
+import { mount, unmount } from "svelte";
 import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
 import type { SafariPopupSurface } from "../../lib/safari-v3.js";
 import SafariV3Popup from "./SafariV3Popup.svelte";
@@ -10,13 +10,13 @@ export function mountSafariV3Popup(
   target: HTMLElement,
   composition: SafariV3Composition,
   surface: SafariPopupSurface,
-): void {
+): () => void {
   // Text size follows the system Text Size on iPhone and iPad (owner decision 51); a Mac stays at
   // the normal size. Bound before mounting, and removed again if mounting fails, so the legacy
   // popup that then starts carries nothing of it.
   const unbindTextScale = bindTextScale(document, "apple", { compactPopup: true });
   try {
-    mount(SafariV3Popup, {
+    const instance = mount(SafariV3Popup, {
       target,
       props: {
         composition,
@@ -24,6 +24,10 @@ export function mountSafariV3Popup(
         onSettings: () => void browser.runtime.openOptionsPage(),
       },
     });
+    return () => {
+      void unmount(instance);
+      unbindTextScale();
+    };
   } catch (error) {
     unbindTextScale();
     throw error;

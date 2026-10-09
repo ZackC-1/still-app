@@ -29,7 +29,17 @@ const counters = () => {
   const counts = { cancel: 0, toggle: 0 };
   document.getElementById("keep-autonav-cancel")!.addEventListener("click", () => counts.cancel++);
   document.getElementById("keep-autoplay-toggle")!.addEventListener("click", () => counts.toggle++);
+  // Controls Still must never press: Play now and the phone card's top dismiss (when present).
+  for (const id of ["keep-autonav-play", "keep-autonav-dismiss"]) document.getElementById(id)?.addEventListener("click", (event) => {
+    event.preventDefault();
+    throw new Error(`${id} must never be pressed`);
+  });
   return counts;
+};
+/** YouTube's own toggle state as the fixture renders it (desktop aria-checked, phone aria-label). */
+const toggleState = () => {
+  const toggle = document.getElementById("keep-autoplay-toggle")!;
+  return toggle.getAttribute("aria-checked") ?? toggle.getAttribute("aria-label");
 };
 const end = (target: HTMLMediaElement = video()) => target.dispatchEvent(new Event("ended"));
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -57,20 +67,22 @@ afterEach(() => {
 
 describe.each([
   { name: "desktop", origin: "https://www.youtube.com", file: "yt-autoplay.html" },
-  { name: "mobile candidate countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html" },
+  { name: "mobile observed countdown", origin: "https://m.youtube.com", file: "yt-m-autoplay.html" },
 ])("the Autoplay guard: $name", ({ origin, file }) => {
   const WATCH = `${origin}/watch?v=inv300001`;
   const PLAYLIST = `${origin}/watch?v=inv300003&list=PLinvented03&index=2`;
   beforeEach(() => render(file));
   it("cancels this up-next countdown once when the video ends, and never pauses, plays, toggles or navigates", async () => {
     const counts = counters();
+    const toggle = toggleState();
+    expect(toggle).toMatch(/^(true|Autoplay is on)$/);
     const g = guard(WATCH);
     g.reconcile(true, new URL(WATCH));
     end();
     await settle();
     expect(counts.cancel).toBe(1);
     expect(counts.toggle).toBe(0);
-    expect(document.getElementById("keep-autoplay-toggle")!.getAttribute("aria-checked")).toBe("true");
+    expect(toggleState()).toBe(toggle);
     expect(pause).not.toHaveBeenCalled();
     expect(play).not.toHaveBeenCalled();
     end();
@@ -235,17 +247,29 @@ describe.each([
   });
 
   it("clicks only a real Cancel button: never a non-button, anything inside a link, or the Play button", async () => {
-    const variants: Array<[string, string]> = [
+    const mobile = file === "yt-m-autoplay.html";
+    // Each variant replaces the real Cancel. On the phone card the Cancel is the action row's only
+    // button; a second button there could be Play now redrawn, so the whole row is ambiguous.
+    const variants: Array<[string, string, string?]> = mobile ? [
+      ["a non-button in the action row", '<div role="button" id="probe">Cancel</div>'],
+      ["a Cancel button inside a link", '<a href="/watch?v=inv300002"><button id="probe">Cancel</button></a>'],
+      ["a second button in the action row", '<button id="probe">Cancel</button></ytm-button-renderer><ytm-button-renderer><button id="probe-second">Play now</button>'],
+      // Play now redrawn as a button while Cancel is gone: the lone button must not be pressed.
+      ["a lone Play-now-like button with no Play now link", '<button id="probe">Play now</button>', "drop-play-link"],
+      ["a Cancel button holding the Play now link", '<button id="probe">Cancel<a href="/watch?v=inv300002">x</a></button>', "drop-play-link"],
+    ] : [
       ["a non-button with the Cancel class", '<div class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</div>'],
       ["a Cancel button inside a link", '<a href="/watch?v=inv300002"><button class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</button></a>'],
       ["the Play button wearing the Cancel class", '<button class="ytp-autonav-endscreen-upnext-cancel-button ytp-autonav-endscreen-upnext-play-button" id="probe">Play</button>'],
     ];
-    for (const [name, markup] of variants) {
+    for (const [name, markup, variant] of variants) {
       render(file);
-      document.getElementById("keep-autonav-cancel")!.remove();
-      overlay().insertAdjacentHTML("afterbegin", markup);
+      if (variant === "drop-play-link") document.getElementById("keep-autonav-play")!.parentElement!.remove();
+      const cancel = document.getElementById("keep-autonav-cancel")!;
+      if (mobile) cancel.outerHTML = markup;
+      else { cancel.remove(); overlay().insertAdjacentHTML("afterbegin", markup); }
       let clicks = 0;
-      document.getElementById("probe")!.addEventListener("click", (event) => { clicks++; event.preventDefault(); });
+      for (const id of ["probe", "probe-second"]) document.getElementById(id)?.addEventListener("click", (event) => { clicks++; event.preventDefault(); });
       const g = guard(WATCH);
       g.reconcile(true, new URL(WATCH));
       end();
@@ -286,6 +310,60 @@ describe.each([
     end();
     await settle();
     expect(counts.cancel).toBe(0);
+  });
+});
+
+describe("the Autoplay guard: phone-layout boundaries", () => {
+  const MOBILE_WATCH = "https://m.youtube.com/watch?v=inv300001";
+  beforeEach(() => render("yt-m-autoplay.html"));
+
+  it("an up-next card without its countdown timer is not autoplay and is left alone", async () => {
+    const counts = counters();
+    document.getElementById("player-endscreen")!.setAttribute("data-has-timer-countdown", "false");
+    const g = guard(MOBILE_WATCH);
+    g.reconcile(true, new URL(MOBILE_WATCH));
+    end();
+    await settle();
+    expect(counts.cancel).toBe(0);
+    // The timer starting later in the same ended state is a countdown: cancelled then.
+    document.getElementById("player-endscreen")!.setAttribute("data-has-timer-countdown", "true");
+    await settle();
+    expect(counts.cancel).toBe(1);
+  });
+
+  it("a countdown outside this player's own container is never this player's", async () => {
+    const counts = counters();
+    // Move the main player out of the container that holds the countdown: the countdown now
+    // belongs to some other player, and this player's end must not press it.
+    const container = document.getElementById("player-container-id")!;
+    container.parentElement!.insertAdjacentHTML("beforeend", '<div id="other-wrapper"></div>');
+    document.getElementById("other-wrapper")!.append(document.getElementById("player")!);
+    const g = guard(MOBILE_WATCH);
+    g.reconcile(true, new URL(MOBILE_WATCH));
+    end();
+    await settle();
+    expect(counts.cancel).toBe(0);
+  });
+
+  it("Replay stays available: after Cancel nothing presses Replay, the toggle or Play now", async () => {
+    const counts = counters();
+    let replays = 0;
+    document.getElementById("keep-replay")!.addEventListener("click", () => replays++);
+    const g = guard(MOBILE_WATCH);
+    g.reconcile(true, new URL(MOBILE_WATCH));
+    end();
+    await settle();
+    // YouTube removes the cancelled card; the person replays the video, which ends again.
+    document.getElementById("keep-autonav-overlay")!.remove();
+    await settle();
+    expect(counts.cancel).toBe(1);
+    expect(replays).toBe(0);
+    video().dispatchEvent(new Event("play"));
+    end();
+    await settle();
+    expect(counts).toEqual({ cancel: 1, toggle: 0 });
+    expect(pause).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
   });
 });
 

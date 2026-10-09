@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, SettingsCache, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, EntitlementCache, packagedAccessContext } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, EntitlementCache, packagedAccessContext, type AccessPlatform } from "@still/core/entitlement";
 import { UiController, type CommittedPopupBinding, type CommittedPopupToggle } from "@still/core/ui";
 import { watchAccountStatus } from "@still/core/ui/account-status";
 import { createDesktopPopupBinding } from "@still/core/ui/v3/desktop-popup-binding";
@@ -73,13 +73,15 @@ export async function decideSafariV3(
   return selectSafariV3Build(env) && savedRecordIsAtomic(await probe());
 }
 
-/** Build the V3 composition. Call only after decideSafariV3 said yes. */
-export function composeSafariV3(where: "popup" | "options"): SafariV3Composition {
+/** Build the V3 composition. Call only after decideSafariV3 said yes. `platform` is Safari's own
+ * platform answer (safariAccessPlatform); without it the page seeds its first snapshot as an
+ * unknown platform, which never claims a desktop-layout control. */
+export function composeSafariV3(where: "popup" | "options", platform: AccessPlatform = "unknown"): SafariV3Composition {
   // Everything started so far, newest first. A throw partway through stops each of them, so a
   // failed composition leaves nothing running for the legacy screen to run beside.
   const started: Array<() => void> = [];
   try {
-    return startComposition(where, started);
+    return startComposition(where, platform, started);
   } catch (error) {
     for (const stop of started.reverse()) {
       try {
@@ -92,7 +94,7 @@ export function composeSafariV3(where: "popup" | "options"): SafariV3Composition
   }
 }
 
-function startComposition(where: "popup" | "options", started: Array<() => void>): SafariV3Composition {
+function startComposition(where: "popup" | "options", platform: AccessPlatform, started: Array<() => void>): SafariV3Composition {
   // Same nudge as the legacy page: the background pulls the app's record and access into storage.
   void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
   const analytics = createSafariPageAnalytics();
@@ -111,8 +113,8 @@ function startComposition(where: "popup" | "options", started: Array<() => void>
     where,
   });
   controller.accountManagedByApp = true;
-  // Safari's own host list, the same one its background resolves (packagedAccessContext("safari")).
-  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), { access: packagedAccessContext("safari") });
+  // Safari's own host list for this device, the same one its background resolves.
+  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), { access: packagedAccessContext("safari", platform) });
   let live = true;
   const unsubscribeEntitlement = entitlement.subscribe((entitled) => {
     controller.entitled = entitled;

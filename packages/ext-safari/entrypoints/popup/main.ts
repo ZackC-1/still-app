@@ -5,6 +5,7 @@ import { readAccountStatus } from "../../lib/account-status.js";
 import { pushSettingsToApp } from "../../lib/native-settings.js";
 import { createSafariPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
+import { safariPlatformAnswer } from "../../lib/access-platform.js";
 
 // Build the (purchase-free — AE7) controller, then mount the shared UI. No per-site pause control:
 // it (and the activeTab grant + tab query that powered it) was removed 2026-07-06; only the
@@ -23,6 +24,7 @@ function init(): void {
     analytics: createSafariPageAnalytics(),
     openedWhere: "popup",
     accessHost: "safari",
+    accessPlatform: safariPlatformAnswer(),
   });
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
