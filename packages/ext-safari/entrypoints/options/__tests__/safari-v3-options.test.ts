@@ -119,6 +119,53 @@ describe("Safari V3 settings page", () => {
     stop();
   });
 
+  it.each([
+    ["ios", true],
+    ["mac", false],
+    [undefined, false],
+    ["never", false],
+  ] as const)("platform %s: the Still Pro offer speaks about this device = %s (only a confirmed iPhone/iPad)", async (os, phone) => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    let said: boolean | undefined | "unset" = "unset";
+    let stop = () => {};
+    const mode = await startSafariV3Options({
+      env: ENV,
+      platform: os === "never" ? () => new Promise(() => {}) : async () => os,
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { stop(): void }, _features?: readonly string[], phoneArg?: boolean) {
+          said = phoneArg;
+          stop = () => composition.stop();
+        },
+      }),
+    });
+    expect(mode).toBe("v3");
+    expect(said).toBe(phone);
+    stop();
+  });
+
+  it("a late mac answer remounts without the phone wording", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    const said: Array<boolean | undefined> = [];
+    const compositions: Array<{ stop(): void }> = [];
+    await startSafariV3Options({
+      env: ENV,
+      platform: () => new Promise((resolve) => setTimeout(() => resolve("mac"), 1_200)),
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { stop(): void }, _features?: readonly string[], phoneArg?: boolean) {
+          said.push(phoneArg);
+          compositions.push(composition);
+          return () => {};
+        },
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(said).toHaveLength(2);
+    expect(said.every((value) => !value)).toBe(true);
+    for (const composition of compositions) composition.stop();
+  });
+
   it("a platform answer that never comes does not hold the page: it mounts as unknown within the bound", async () => {
     await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';

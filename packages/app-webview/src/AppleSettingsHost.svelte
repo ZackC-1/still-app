@@ -241,13 +241,19 @@
   );
   // Platform starts as the narrower iOS inventory and follows any later successful observation.
   let platform = $state<AppleSettingsProps["platform"]>("ios");
+  // Whether a setup read has confirmed the platform. A read that times out or observes nothing
+  // leaves it false, so a Mac is never told "On this device… need a computer".
+  let platformKnown = $state(false);
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
   $effect(() =>
     watchAppleSetup(
       observeSetup,
       (next) => {
         setup = next.setup;
-        if (next.platform) platform = next.platform;
+        if (next.platform) {
+          platform = next.platform;
+          platformKnown = true;
+        }
       },
       undefined,
       undefined,
@@ -362,7 +368,7 @@
 {/snippet}
 
 {#if purchaseOpen && purchaseProps}
-  <PurchaseView {...purchaseProps} phone={platform !== "mac"} />
+  <PurchaseView {...purchaseProps} phone={platformKnown && platform === "ios"} />
   {#if canLink}<div class="still-ui app">
       <button
         type="button"
@@ -378,6 +384,7 @@
     settings={view.settings}
     access={view.state.access}
     {platform}
+    phone={platformKnown && platform === "ios"}
     onGlobalChange={view.commands.global}
     onServiceChange={view.commands.service}
     onFeatureChange={view.commands.feature}

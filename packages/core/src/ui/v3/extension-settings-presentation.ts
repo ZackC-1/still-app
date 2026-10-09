@@ -139,6 +139,12 @@ export interface ExtensionSettingsProps extends Pick<
   | "commandsDisabled"
 > {
   sync: SyncCardProps;
+  /**
+   * True only when the browser confirmed a phone platform (Firefox for Android, iPhone/iPad
+   * Safari). Pending or unknown is not a phone here: the Still Pro offer then shows its general
+   * note, which is true on every surface, even while the rows are drawn as phone rows.
+   */
+  phone?: boolean;
   pro?: Omit<
     ProOfferCardProps,
     | "confirmedAccount"

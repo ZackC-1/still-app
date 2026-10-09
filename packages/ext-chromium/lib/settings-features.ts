@@ -1,6 +1,6 @@
 import { phoneLayoutFeatures } from "@still/core/entitlement";
 import type { FeatureId } from "@still/shared-types";
-import type { RuntimePlatform } from "./runtime-platform.js";
+import { isFirefoxAndroid, type RuntimePlatform } from "./runtime-platform.js";
 
 /**
  * The feature rows the settings page draws. Owner decision: every phone surface hides, rather
@@ -12,4 +12,13 @@ import type { RuntimePlatform } from "./runtime-platform.js";
 export function settingsFeatures(isFirefox: boolean, platform: RuntimePlatform | null): readonly FeatureId[] | undefined {
   if (!isFirefox || platform === "desktop") return undefined;
   return phoneLayoutFeatures();
+}
+
+/**
+ * Whether the settings page speaks about this device as a phone in the Still Pro offer: only on a
+ * confirmed Firefox for Android answer. A pending or unknown answer keeps the general note, which
+ * is true on every surface, although the rows above are drawn as phone rows until desktop is known.
+ */
+export function settingsPhone(isFirefox: boolean, platform: RuntimePlatform | null): boolean {
+  return platform !== null && isFirefoxAndroid(isFirefox, platform);
 }

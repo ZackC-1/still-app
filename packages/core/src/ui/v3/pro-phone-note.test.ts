@@ -3,7 +3,10 @@ import { cleanup, render, screen, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FEATURE_REGISTRY } from "@still/shared-types";
 import {
+  ACCESS_HOSTS,
   DESKTOP_LAYOUT_ONLY_PRO,
+  IMPLEMENTED_PRO_FEATURES,
+  accessCapabilities,
   phoneLayoutFeatures,
 } from "../../entitlement/access-policy.js";
 import { proPhoneNote } from "./pro-phone-note.js";
@@ -11,6 +14,7 @@ import ProOfferCard from "./ProOfferCard.svelte";
 import NativeProOfferCard from "./NativeProOfferCard.svelte";
 import PurchaseView from "./PurchaseView.svelte";
 import ExtensionSettings from "./ExtensionSettings.svelte";
+import PurchaseSignInSheet from "./PurchaseSignInSheet.svelte";
 import { fixture } from "./ExtensionSettings.test-fixtures.js";
 
 afterEach(cleanup);
@@ -126,14 +130,82 @@ describe("Still Pro offer note about phones", () => {
     expect(screen.getByText(GENERAL)).toBeVisible();
   });
 
-  it("follows the settings page's own row inventory: phone rows give the phone note", async () => {
+  it("speaks about this device on the settings page only when the host confirmed a phone", async () => {
     const { props } = await fixture("locked");
-    const desktop = render(ExtensionSettings, { props });
-    expect(screen.getByText(GENERAL)).toBeVisible();
-    desktop.unmount();
+    // Desktop rows, and phone rows drawn while the platform answer is pending or unknown (desktop
+    // Firefox or macOS Safari whose answer never came): the general note, true on every surface.
+    for (const features of [undefined, phoneLayoutFeatures()]) {
+      const view = render(ExtensionSettings, { props: { ...props, features } });
+      expect(screen.getByText(GENERAL)).toBeVisible();
+      expect(screen.queryByText(PHONE)).toBeNull();
+      view.unmount();
+    }
     render(ExtensionSettings, {
-      props: { ...props, features: phoneLayoutFeatures() },
+      props: { ...props, features: phoneLayoutFeatures(), phone: true },
     });
     expect(screen.getByText(PHONE)).toBeVisible();
+  });
+
+  it("reaches the browser purchase screen behind the sign-in sheet", () => {
+    const op = { requestId: "r", ownerId: "o", purpose: "purchase" as const };
+    const ready = { operation: op, verified: true, onRequest: vi.fn() };
+    render(PurchaseSignInSheet, {
+      props: {
+        open: true,
+        operation: op,
+        email: "",
+        code: "",
+        observation: { operation: op, verified: true, state: "email" },
+        emailInput: ready,
+        codeInput: ready,
+        send: ready,
+        verify: ready,
+        dismiss: ready,
+        background: {
+          host: "browser",
+          controls: [],
+          phone: true,
+          access: { state: "none", verified: true },
+          channel: "ready",
+          offer: { verified: true, price: "fixture only" },
+          purchase: { state: "idle" },
+          checkout: { verified: true, onRequest: vi.fn() },
+          restorePort: { verified: true, onRequest: vi.fn() },
+          onSignIn: vi.fn(),
+        },
+      },
+    });
+    expect(document.body).toHaveTextContent(PHONE);
+  });
+
+  it("pins the count it assumes: every browser build offers all the extras on a computer and the same subset on a phone", () => {
+    const pro = FEATURE_REGISTRY.filter((row) => row.tier === "pro").map(
+      (row) => row.id,
+    );
+    const phonePro = pro.filter(
+      (id) => !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(id),
+    );
+    expect(ACCESS_HOSTS).toEqual(["chromium", "firefox", "safari"]);
+    for (const host of ACCESS_HOSTS) {
+      expect([...IMPLEMENTED_PRO_FEATURES[host]].sort(), host).toEqual(
+        [...pro].sort(),
+      );
+      const desktop = accessCapabilities({
+        paidMode: true,
+        host,
+        platform: "desktop",
+      });
+      expect(
+        pro.filter((id) => desktop.has(id)),
+        host,
+      ).toEqual(pro);
+      for (const platform of ["android", "ios", "unknown"] as const) {
+        const phone = accessCapabilities({ paidMode: true, host, platform });
+        expect(
+          pro.filter((id) => phone.has(id)),
+          `${host} ${platform}`,
+        ).toEqual(phonePro);
+      }
+    }
   });
 });
