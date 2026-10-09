@@ -44,6 +44,8 @@ export interface SharedDataProps {
 export interface ProOfferCardProps {
   /** Descriptive, capability-filtered inventory; no switches, saved-choice changes or authority. */
   controls?: readonly { site: string; label: string }[];
+  /** True where the surface draws the phone-layout inventory (iPhone/iPad, Firefox for Android). */
+  phone?: boolean;
   ownership: "none" | "owned" | "checking" | "verify" | "failed";
   channel: "ready" | "unverified" | "unavailable";
   /** Verified caller data; the price is displayed only in the real checkout. */

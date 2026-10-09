@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { NativeProOfferCardProps } from "./apple-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import { proPhoneNote } from "./pro-phone-note.js";
   let {
     ownership,
     channel,
+    phone = false,
     offer,
     accessHeld = false,
     accessChecking = false,
@@ -76,6 +78,7 @@
       >
         {offer.priceNote}
       </p>{/if}
+    {#if ownership === "none"}<p class="caption">{proPhoneNote(phone)}</p>{/if}
     {#if ready}
       <button
         type="button"

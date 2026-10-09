@@ -312,6 +312,7 @@
     <div bind:this={proSection} style="display:contents;">
       <NativeProOfferCard
         {...pro}
+        phone={platform !== "mac"}
         {accessChecking}
         {accessVerify}
         accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}

@@ -362,7 +362,7 @@
 {/snippet}
 
 {#if purchaseOpen && purchaseProps}
-  <PurchaseView {...purchaseProps} />
+  <PurchaseView {...purchaseProps} phone={platform !== "mac"} />
   {#if canLink}<div class="still-ui app">
       <button
         type="button"

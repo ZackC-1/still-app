@@ -11,6 +11,7 @@
   import SharingCard from "./SharingCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
+  import { DESKTOP_LAYOUT_ONLY_PRO } from "../../entitlement/access-policy.js";
   import "./design/styles.css";
   let {
     settings,
@@ -49,6 +50,12 @@
   $effect(() => {
     if (deleteTarget && !deleteTargetCurrent) deleteTarget = null;
   });
+  // A host on a phone (Firefox for Android, iPhone/iPad Safari) draws only the phone-layout rows,
+  // so the offer says what works on this device rather than in general.
+  let phone = $derived(
+    features !== undefined &&
+      DESKTOP_LAYOUT_ONLY_PRO.some((id) => !features.includes(id)),
+  );
   let knownMissing = $derived(
     FEATURE_REGISTRY.some(
       (row) => row.tier === "pro" && access.states[row.id] === "locked",
@@ -265,6 +272,7 @@
     <div bind:this={proSection} style="display:contents;">
       <ProOfferCard
         {...pro}
+        {phone}
         confirmedAccount={sync.account?.confirmed ?? false}
         {knownMissing}
         {accessHeld}
