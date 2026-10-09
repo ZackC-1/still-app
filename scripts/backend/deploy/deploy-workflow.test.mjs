@@ -10,8 +10,26 @@ import {
   ENVIRONMENT_NAME,
   TOOLING_PATHS,
 } from "./deploy.mjs";
-import { OPERATIONS } from "./operations.mjs";
+import {
+  OPERATIONS,
+  POLICY_MODES,
+  WORKFLOW_OPERATIONS,
+  resolveOperation,
+} from "./operations.mjs";
 import { QA_OPERATION } from "./qa-functions.mjs";
+import {
+  QA_SECRETS_OPERATION,
+  QA_SECRETS_TOKEN_ENV,
+  STAGED_SECRETS,
+} from "./qa-secrets.mjs";
+
+/** Secrets that reach the apply step only for one operation, as `operation == X && secret || ''`. */
+const scoped = (operation, secret) =>
+  `\${{ inputs.operation == '${operation}' && secrets.${secret} || '' }}`;
+const SECRETS_ONLY = [
+  QA_SECRETS_TOKEN_ENV,
+  ...STAGED_SECRETS.map((item) => item.from),
+];
 
 const WORKFLOWS = new URL("../../../.github/workflows/", import.meta.url);
 const DEPLOY = "supabase-production-deploy.yml";
@@ -69,12 +87,17 @@ test("deploy workflow runs only on manual dispatch, serialized, with read-only t
     "migrations",
     "mode",
     "operation",
+    "policy_expected_revision",
+    "policy_mode",
+    "subjects_sha256",
   ]);
   assert.equal(workflow.on.workflow_dispatch.inputs.mode.default, "plan-only");
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.mode.options, [
     "plan-only",
     "apply",
     "baseline-only",
+    "rotate",
+    "disable",
   ]);
   assert.equal(workflow.on.workflow_dispatch.inputs.functions.default, "");
   assert.deepEqual(workflow.permissions, { contents: "read" });
@@ -118,7 +141,12 @@ test("only the approved apply job is bound to the environment and sees only the 
   assert.match(apply.if, /needs\.plan\.outputs\.environment-ready == 'true'/);
   assert.deepEqual(
     [...text.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]),
-    ["SUPABASE_PRODUCTION_DB_URL", "SUPABASE_PRODUCTION_ACCESS_TOKEN"],
+    [
+      "SUPABASE_PRODUCTION_DB_URL",
+      "SUPABASE_PRODUCTION_ACCESS_TOKEN",
+      "QA_SANDBOX_SUBJECT_EMAILS_JSON",
+      ...SECRETS_ONLY,
+    ],
   );
   const secretSteps = apply.steps.filter((s) =>
     JSON.stringify(s).includes("secrets."),
@@ -146,10 +174,21 @@ test("only the approved apply job is bound to the environment and sees only the 
   assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
   assert.deepEqual(secretSteps[0].env, {
     SUPABASE_DB_URL: "${{ secrets.SUPABASE_PRODUCTION_DB_URL }}",
-    SUPABASE_PRODUCTION_ACCESS_TOKEN:
-      "${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}",
+    // Least privilege: the functions token is withheld from qa-sandbox-secrets, which uses only
+    // its own Secrets-only token.
+    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
+    // The test-account list reaches the apply step only for qa-sandbox-subjects.
+    QA_SANDBOX_SUBJECT_EMAILS_JSON: scoped(
+      "qa-sandbox-subjects",
+      "QA_SANDBOX_SUBJECT_EMAILS_JSON",
+    ),
+    // The Secrets-only token and the 19 staged values reach it only for qa-sandbox-secrets.
+    ...Object.fromEntries(
+      SECRETS_ONLY.map((name) => [name, scoped(QA_SECRETS_OPERATION, name)]),
+    ),
     GH_TOKEN: "${{ github.token }}",
   });
+  assert.equal(SECRETS_ONLY.length, 20);
   assert.match(secretSteps[0].run, /deploy\.mjs apply /);
   assert.ok(!JSON.stringify(plan).includes("secrets."));
   assert.equal(
@@ -258,6 +297,8 @@ test("no other workflow can reach the production database environment or its sec
     for (const secret of [
       "SUPABASE_PRODUCTION_DB_URL",
       "SUPABASE_PRODUCTION_ACCESS_TOKEN",
+      "QA_SANDBOX_SUBJECT_EMAILS_JSON",
+      ...SECRETS_ONLY,
     ])
       assert.ok(!text.includes(secret), name);
   }
@@ -272,9 +313,31 @@ test("operations are a closed choice that defaults to migrations and leaves migr
   // Exactly the operations the planner knows; anything else is refused by the planner too.
   assert.deepEqual(operation.options, [
     "migrations",
-    ...Object.keys(OPERATIONS),
+    ...Object.keys(WORKFLOW_OPERATIONS),
     QA_OPERATION,
+    QA_SECRETS_OPERATION,
   ]);
+  const { policy_mode, policy_expected_revision, subjects_sha256 } =
+    workflow.on.workflow_dispatch.inputs;
+  assert.equal(policy_mode.type, "choice");
+  assert.equal(policy_mode.default, "none");
+  assert.deepEqual(policy_mode.options, [...POLICY_MODES]);
+  for (const input of [policy_expected_revision, subjects_sha256]) {
+    assert.equal(input.type, "string");
+    assert.equal(input.required, "false");
+    assert.equal(input.default, "");
+  }
+  for (const job of Object.values(workflow.jobs)) {
+    assert.equal(job.env.DEPLOY_POLICY_MODE, "${{ inputs.policy_mode }}");
+    assert.equal(
+      job.env.DEPLOY_POLICY_EXPECTED_REVISION,
+      "${{ inputs.policy_expected_revision }}",
+    );
+    assert.equal(
+      job.env.DEPLOY_SUBJECTS_SHA256,
+      "${{ inputs.subjects_sha256 }}",
+    );
+  }
   assert.equal(migrations.required, "false");
   assert.equal(migrations.default, "");
   assert.doesNotMatch(workflow["run-name"], /secrets\.|commit|migrations \}\}/);
@@ -290,7 +353,7 @@ test("every operation retains authority checks and uses only its fixed rehearsal
   assert.doesNotMatch(plan.if, /operation/);
   assert.equal(
     apply.if,
-    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions')) && needs.plan.outputs.environment-ready == 'true'",
+    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets')) && needs.plan.outputs.environment-ready == 'true'",
   );
   for (const [jobName, job] of Object.entries({ plan, apply })) {
     const conditionals = job.steps.filter((step) =>
@@ -355,10 +418,8 @@ test("every operation retains authority checks and uses only its fixed rehearsal
     assert.equal(job.env.DEPLOY_MODE, "${{ inputs.mode }}");
   }
   const protection = plan.steps.find((s) => s.id === "protection");
-  assert.match(
-    protection.run,
-    /if \[ "\$DEPLOY_MODE" = apply \] \|\| \[ "\$DEPLOY_MODE" = baseline-only \]; then/,
-  );
+  // Every mode but plan-only needs the protected environment ready before approval is requested.
+  assert.match(protection.run, /if \[ "\$DEPLOY_MODE" != plan-only \]; then/);
   assert.match(protection.run, /protection --phase plan --require/);
   const qaRehearsal = plan.steps.findIndex(
     (s) =>
@@ -428,9 +489,37 @@ test("the pull-request operation rehearsal has no environment or secret and cove
     /secrets\.|SUPABASE_PRODUCTION_DB_URL|id-token|: write\b/,
   );
   assert.equal(job.if, "github.event_name == 'pull_request'");
-  assert.deepEqual(job.strategy.matrix.operation, Object.keys(OPERATIONS));
+  // Every registry row (every operation and mode) is rehearsed exactly once, and the secrets
+  // operation in each of its writing modes.
+  const rows = job.strategy.matrix.include;
+  assert.deepEqual(
+    rows
+      .filter((row) => row.operation !== QA_SECRETS_OPERATION)
+      .map((row) => resolveOperation(row.operation, row.policy_mode))
+      .sort(),
+    Object.keys(OPERATIONS).sort(),
+  );
+  assert.deepEqual(
+    rows
+      .filter((row) => row.operation === QA_SECRETS_OPERATION)
+      .map((row) => row.mode),
+    ["apply", "rotate", "disable"],
+  );
   const plan = job.steps.find((s) => (s.run ?? "").includes("deploy.mjs plan"));
   assert.equal(plan.env.DEPLOY_OPERATION, "${{ matrix.operation }}");
+  assert.equal(plan.env.DEPLOY_POLICY_MODE, "${{ matrix.policy_mode }}");
+  assert.equal(
+    plan.env.DEPLOY_POLICY_EXPECTED_REVISION,
+    "${{ matrix.expected_revision }}",
+  );
+  assert.equal(
+    plan.env.DEPLOY_SUBJECTS_SHA256,
+    "${{ matrix.subjects_sha256 }}",
+  );
+  assert.equal(plan.env.DEPLOY_MODE, "${{ matrix.mode || 'plan-only' }}");
+  // A synthetic project ref: the rehearsal never reaches a hosted project.
+  assert.match(plan.env.SUPABASE_PRODUCTION_PROJECT_REF, /^[a-z]{20}$/);
+  assert.match(plan.run, /--source-dir "\$RUNNER_TEMP\/qa-source"/);
   assert.equal(plan.env.DEPLOY_MIGRATIONS, "");
   for (const step of job.steps)
     if (step.run) assert.doesNotMatch(step.run, /\$\{\{/, step.name);
@@ -471,4 +560,9 @@ test("the pull-request operation rehearsal has no environment or secret and cove
     (s.run ?? "").includes("node --test"),
   );
   assert.match(tests.run, /scripts\/backend\/deploy\/operations\.test\.mjs/);
+  // A glob covers qa-secrets.test.mjs and qa-secrets-operation.test.mjs (the foundation workflow
+  // must never spell a secrets reference, so the file names are not written out).
+  assert.ok(
+    tests.run.includes('"scripts/backend/deploy/qa-secrets*.test.mjs"'),
+  );
 });

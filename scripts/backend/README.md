@@ -485,3 +485,48 @@ negative controls. It also checks the generated provider fixture's actual graph 
 retaining entrypoint/auth/store/issuer bytes. SQL and actual CLI serve tests skipped on this Mac
 are not runtime evidence. Hosted rehearsal, provider configuration, protected deployment approval
 and actual store/device QA remain distinct gates.
+
+## QA sandbox sales switch and test accounts (owner-approved operations)
+
+Two more operations prepare the QA sandbox lane. Each runs its SQL as one transaction, so a refusal
+writes nothing, and each is chosen with the workflow input `policy_mode`:
+
+- `qa-sandbox-sales-policy` (`off` / `on`, plus `policy_expected_revision`): publishes the pinned
+  sandbox sales body as the next sandbox revision, compare-and-set on the approved expected revision
+  under `apply_product_policy`'s advisory lock. The SQL names only the `sandbox` environment; the
+  ledger row records the fixed all-zero operator id, never an owner identity. The first `on` also
+  writes the sandbox paid cutoff (write-once), and only when none exists. Both bodies list the
+  current QA test set's build ids (`QA_SANDBOX_SALES_BUILDS` in `operations.mjs`: the extension
+  manifest version and the Apple CFBundleShortVersionString); a new test set changes them in one
+  reviewed change. An operation that lists `provisional` content cannot be applied.
+- `qa-sandbox-subjects` (`enable` with `subjects_sha256`, or `disable`): `enable` makes the enabled
+  memberships exactly the accounts in the `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret,
+  `{"salt":"<32+ random hex>","emails":[...]}` (salt from `openssl rand -hex 32`; emails only from
+  the designated QA accounts file). `subjects_sha256` is `<count>:<SHA-256>` of the salted
+  canonical object; `node scripts/backend/deploy/deploy.mjs subjects-digest < secret.json` prints
+  it without echoing the list, and the plan shows the count. Only per-email SHA-256 values reach
+  the database. Unknown, ambiguous or unconfirmed accounts refuse the whole run; every other
+  enabled membership is switched off (never deleted); rows are locked in the wrappers' order.
+  `disable` switches every membership off and never deletes a row. Neither revokes sandbox rights
+  already granted; `pause-qa-sandbox` stops every paid QA function at once. Once production has a
+  paid cutoff, the sandbox sales switches refuse (`production_cutoff_present`); use
+  `pause-qa-sandbox` then.
+
+Their rehearsals prove negative controls write nothing, production rows and cutoffs stay untouched,
+revisions are only appended, the policy reader serves exactly the approved body, and disable keeps
+every row; `supabase/tests/qa_sandbox_subjects_operation_test.ts` races disable against in-flight QA
+grants on the real wrappers.
+
+### QA sandbox secrets (owner-approved operation)
+
+`qa-sandbox-secrets` runs the secrets module (`deploy/qa-secrets.mjs`) through the same protected
+workflow (`deploy/qa-secrets-operation.mjs` binds the commit on main, the tooling, the plan digest
+and freshness). The workflow `mode` is the module's mode: `plan-only` (no secret is read), `apply`,
+`rotate` or `disable`; `rotate` and `disable` are refused for every other operation. Only the apply
+step of this operation receives `SUPABASE_QA_SECRETS_ACCESS_TOKEN` and the 19 `QA_STAGE_*` values.
+The plan job rehearses the module unchanged on its throwaway database: its psql calls are pointed at
+that database with the exact role names, so the generated SCRAM passwords really sign in (and a
+wrong one is refused), and its Management API and GitHub reads are answered in memory. The
+rehearsal proves the negative controls write nothing, apply writes exactly the required names with
+matching digests and repeats as a no-change, an emergency pause wins over apply, rotate replaces
+every password, and disable removes only the QA-prefixed names.
