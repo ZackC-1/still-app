@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: Mobile YouTube selects a Home topic but its feed becomes empty with blocking enabled
 date: 2026-09-10
-last_updated: 2026-10-08
+last_updated: 2026-10-09
 status: active
 tags: [youtube, mobile, selectors, dom-ownership]
 ---
@@ -43,3 +43,5 @@ For an optional control that hides a dedicated mobile parent, selector support m
 Only an effective fallback owns a mutation observer. Relevant class and child-list records refresh affected panels; marker writes and unrelated mutations do not rescan the document. Off, revocation, another service and teardown clear owned attributes, including detached panels, and disconnect. The fallback never removes renderer-owned children or changes site settings.
 
 The composed Safari content regression models a rejecting older CSS parser as well as selector feature detection. It failed with the original CSS-only rule and passes with the fallback, including microtask delivery before paint, late panels, mixed content and free Shorts preservation. The complete core suite and built-extension YouTube fixtures pass. These are synthetic and Chromium proofs; physical Safari and Firefox Android acceptance remain separate.
+
+To observe mobile player behavior, a Chromium session with an iPhone user agent is not enough: m.youtube.com then serves a stream Chromium cannot play ("Your browser can't play this video"), and scripted `play()` without a touch never shows the up-next countdown. Use Playwright WebKit with an iPhone user agent (or Gecko with a Firefox for Android user agent), `isMobile`/`hasTouch`, tap `#movie_player`, then seek near the end. The phone countdown is drawn in the player controls beside `#movie_player`, not inside it, so a guard scoped to the main player alone never sees it; scope it to the player container that holds both. Treat a control as phone-capable only when such an observation finds its surface: m.youtube.com showed no end cards and no live chat, so those extras are held on phone platforms ([access policy](../../../packages/core/src/entitlement/access-policy.ts)) rather than shipped as controls that do nothing.

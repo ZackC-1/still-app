@@ -147,7 +147,7 @@ export type AccessPlatform = "android" | "ios" | "desktop" | "unknown";
 /**
  * Still Pro features whose implementation acts only on a site's DESKTOP layout. On a phone or
  * tablet platform they would be a control that does nothing, so they are never a capability there.
- * Evidence (docs/plans/2026-10-09-feat-safari-android-pro-parity.md), public pages in phone
+ * Evidence (docs/plans/2026-10-08-feat-mobile-pro-completion.md, 9 October checkpoint), public pages in phone
  * emulation, signed out:
  * - youtube.endscreen: m.youtube.com shows no end cards or end-screen grid; its only end-of-video
  *   card is the autoplay countdown, which belongs to Autoplay prevention and must never be hidden;

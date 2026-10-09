@@ -52,6 +52,9 @@ sponsored-post hiding in the Facebook phone feed as the mobile behavior of
 `facebook.sponsored`. Desktop sidebar behavior remains. This is an approved
 implementation requirement; structural and physical-device acceptance is pending.
 See [the bounded implementation plan](../../../plans/2026-10-08-feat-mobile-pro-completion.md).
+Source status (9 October, not device-accepted): macOS Safari offers all twelve; iPhone/iPad Safari
+and Firefox for Android offer nine (end-of-video suggestions and live chat have no phone-layout
+surface; the phone-feed sponsored behavior is blocked on the owner's Facebook session).
 
 ## Design
 
