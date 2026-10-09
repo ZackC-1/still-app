@@ -50,6 +50,11 @@ export const TOOLING_PATHS = Object.freeze([
   "scripts/backend/deploy/sql/server-version.sql",
 ]);
 const isOperation = (plan) => plan?.kind === OPERATION_KIND;
+/** Plan kind of the qa-sandbox-secrets operation (qa-secrets.mjs via qa-secrets-operation.mjs). */
+const SECRETS_KIND = "supabase-qa-secrets";
+const SECRETS_OPERATION = "qa-sandbox-secrets";
+/** Loaded on demand, like operations.mjs, to keep this module free of import cycles. */
+const secretsOperation = () => import("./qa-secrets-operation.mjs");
 /** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
 const operations = () => import("./operations.mjs");
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
@@ -509,6 +514,8 @@ export const invariantPath = (file) =>
 /** Every file the deploy relies on, with its planned hash. */
 export function boundFiles(plan) {
   if (plan?.kind === "supabase-exact-qa-functions") return plan.files;
+  // The secrets operation binds its pinned SQL, role facts and its tooling.
+  if (plan?.kind === SECRETS_KIND) return [...plan.files, ...plan.tooling];
   // An operation's apply uses only the deploy tooling and its own SQL and check.
   if (isOperation(plan)) return [...plan.tooling, plan.sql, plan.verification];
   return [
@@ -560,7 +567,8 @@ export async function checkFreshness({ git, plan, tipRef }) {
     }
   }
   // An operation adds nothing to migration history, so newer migrations on main do not matter.
-  if (isOperation(plan)) return { tip, mode: "files-identical" };
+  if (isOperation(plan) || plan.kind === SECRETS_KIND)
+    return { tip, mode: "files-identical" };
   if (plan.kind === "supabase-exact-qa-functions") {
     const history = (await migrationsAt(git, tip)).map(({ version, name }) => ({ version, name }));
     if (canonical(history) !== canonical(plan.expectedHistoryAfter))
@@ -1870,6 +1878,10 @@ export async function main(
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
     if (env.DEPLOY_MODE === "baseline-only" && operation !== "qa-sandbox-functions")
       throw new Refusal("mode-invalid", "baseline-only is reserved for the fixed QA function operation");
+    if (["rotate", "disable"].includes(env.DEPLOY_MODE) && operation !== SECRETS_OPERATION)
+      throw new Refusal("mode-invalid", "rotate and disable are modes of the qa-sandbox-secrets operation only");
+    if (operation === SECRETS_OPERATION && String(env.DEPLOY_BASELINE_SHA256 ?? "").trim() !== "")
+      throw new Refusal("operation-input-invalid", "qa-sandbox-secrets takes no baseline_sha256");
     const request = {
       git: makeGit(exec, cwd),
       sha: env.DEPLOY_SHA,
@@ -1878,9 +1890,11 @@ export async function main(
       mainRef: option(args, "--main-ref") ?? "HEAD",
     };
     const ops =
-      operation === "" || operation === "migrations" || operation === "qa-sandbox-functions"
+      operation === "" || operation === "migrations" || operation === "qa-sandbox-functions" ||
+      operation === SECRETS_OPERATION
         ? null
         : await operations();
+    const secrets = operation === SECRETS_OPERATION ? await secretsOperation() : null;
     // The QA sales-policy and subjects inputs belong to those operations only.
     const operationInputs = {
       policyMode: String(env.DEPLOY_POLICY_MODE ?? "").trim(),
@@ -1898,7 +1912,11 @@ export async function main(
         "policy_mode, policy_expected_revision and subjects_sha256 apply only to an owner-approved operation; leave them at none and empty",
       );
     const qa = operation === "qa-sandbox-functions" ? await import("./qa-functions.mjs") : null;
-    const plan = qa
+    const plan = secrets
+      ? await secrets.createSecretsOperationPlan({ ...request, cwd, exec,
+          sourceDir: option(args, "--source-dir"),
+          projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF, mode: env.DEPLOY_MODE ?? "plan-only" })
+      : qa
       ? await qa.createQaFunctionPlan({ ...request, cwd, exec,
           sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
           projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF,
@@ -1907,7 +1925,8 @@ export async function main(
       ? await ops.createOperationPlan({ ...request, operation, ...operationInputs,
           mode: env.DEPLOY_MODE ?? "plan-only" })
       : await createDeployPlan(request);
-    const render = qa ? qa.renderQaPlan : ops ? ops.renderOperationPlan : renderPlan;
+    const render = secrets ? secrets.renderSecretsOperationPlan
+      : qa ? qa.renderQaPlan : ops ? ops.renderOperationPlan : renderPlan;
     const expect = option(args, "--expect-digest");
     if (expect !== undefined) assertSamePlan(plan, expect);
     if (option(args, "--out"))
@@ -1946,6 +1965,12 @@ export async function main(
     const plan = await readPlan();
     if (plan.kind === "supabase-exact-qa-functions")
       throw new Refusal("qa-workdir-prepared-by-plan", "QA source and bundles are re-derived together by plan");
+    if (plan.kind === SECRETS_KIND) {
+      await (await secretsOperation()).prepareSecretsWorkdir({
+        exec, cwd, plan, dir: option(args, "--dir") });
+      say(`deploy directory ready (${option(args, "--stage")})`);
+      return 0;
+    }
     await prepareWorkdir({
       exec,
       cwd,
@@ -1979,6 +2004,15 @@ export async function main(
     // With no receipt, an operation run still gets an operation record (never the migration
     // fallback, which would wrongly hold back an urgent pause until history is checked).
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
+    if (receipt?.kind === SECRETS_KIND || operation === SECRETS_OPERATION) {
+      const text = (await secretsOperation()).renderQaSecretsFinal(
+        receipt?.kind === SECRETS_KIND ? receipt : null,
+        { applyOutcome: env.APPLY_OUTCOME },
+      );
+      await writeSummary(text, env);
+      say(text);
+      return 0;
+    }
     if (receipt?.kind === "supabase-exact-qa-functions" || operation === "qa-sandbox-functions") {
       const qa = await import("./qa-functions.mjs");
       const text = qa.renderQaFinal(receipt, context);
@@ -2016,6 +2050,20 @@ export async function main(
       await writeSummary(text, env);
       say(text);
       return ["verified", "baseline-read-only"].includes(receipt.status) ? 0 : 1;
+    }
+    if (plan.kind === SECRETS_KIND) {
+      // The module re-checks the approval, digest, mode, target and every pinned file itself.
+      const mod = await secretsOperation();
+      const receipt = await mod.runSecretsOperation({ plan, env, platform, cwd,
+        sourceDir: option(args, "--source-dir"),
+        onProgress: async (r) => {
+          if (option(args, "--receipt"))
+            await writeFile(option(args, "--receipt"), JSON.stringify(r));
+        } });
+      const text = mod.renderQaSecretsFinal(receipt);
+      await writeSummary(text, env);
+      say(text);
+      return receipt.status === "verified" ? 0 : 1;
     }
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
     if (isLoopback(conn))
@@ -2085,6 +2133,14 @@ export async function main(
     requireRunner(env, platform);
     const plan = await readPlan();
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
+    if (plan.kind === SECRETS_KIND) {
+      const mod = await secretsOperation();
+      const result = await mod.runSecretsReplay({ exec, plan, dir: option(args, "--dir"),
+        conn, cwd, log: say });
+      await writeSummary(mod.renderSecretsReplay(result), env);
+      say(JSON.stringify({ status: result.status, proofs: result.proofs }));
+      return result.status === "verified" ? 0 : 1;
+    }
     if (isOperation(plan)) {
       const ops = await operations();
       const result = await ops.runOperationReplay({

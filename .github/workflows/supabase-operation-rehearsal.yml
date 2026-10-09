@@ -7,6 +7,8 @@ name: Supabase operation rehearsal
 # subjects operations prove their negative controls write nothing, production rows stay unchanged,
 # revisions are only appended, the cutoff is written once, and memberships are never deleted (the
 # subjects rehearsal uses its own synthetic accounts; the subjects_sha256 below is a placeholder).
+# The qa-sandbox-secrets rehearsal runs the secrets module unchanged against this database with its
+# Management API and GitHub reads stubbed in memory: synthetic values, no token, no network.
 # No environment, secret or production access; it never deploys anything.
 on:
   pull_request:
@@ -52,6 +54,15 @@ jobs:
             subjects_sha256: "1:0000000000000000000000000000000000000000000000000000000000000000"
           - operation: qa-sandbox-subjects
             policy_mode: disable
+          - operation: qa-sandbox-secrets
+            policy_mode: none
+            mode: apply
+          - operation: qa-sandbox-secrets
+            policy_mode: none
+            mode: rotate
+          - operation: qa-sandbox-secrets
+            policy_mode: none
+            mode: disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,9 +88,13 @@ jobs:
           DEPLOY_POLICY_MODE: ${{ matrix.policy_mode }}
           DEPLOY_POLICY_EXPECTED_REVISION: ${{ matrix.expected_revision }}
           DEPLOY_SUBJECTS_SHA256: ${{ matrix.subjects_sha256 }}
+          DEPLOY_MODE: ${{ matrix.mode || 'plan-only' }}
+          # Synthetic: the secrets rehearsal never reaches a hosted project.
+          SUPABASE_PRODUCTION_PROJECT_REF: stillrehearsalrefabc
           DEPLOY_MIGRATIONS: ""
           DEPLOY_FUNCTIONS: ""
         run: |
-          DEPLOY_SHA="$(git rev-parse HEAD)" node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/operation-plan.json" --summary
+          DEPLOY_SHA="$(git rev-parse HEAD)" node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/operation-plan.json" --summary \
+            --source-dir "$RUNNER_TEMP/qa-source"
       - name: Rehearse the operation on a throwaway database
         run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/operation-plan.json" "$RUNNER_TEMP/replay"

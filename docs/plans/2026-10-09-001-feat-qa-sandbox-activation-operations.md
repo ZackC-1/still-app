@@ -30,7 +30,10 @@ In scope (this lane): G1 (generalised operation framework), G5 (`pause-qa-sandbo
 `resume-qa-sandbox`), G4 (`qa-sandbox-subjects` enable/disable), G3 (`qa-sandbox-sales-policy`
 off/on).
 
-Out of scope: G2 `qa-sandbox-secrets` (another builder; the framework leaves a `kind` slot and the
+Follow-up (third PR): G2's `qa-sandbox-secrets` module (built by another lane) is wired into the
+workflow: `mode` plan-only/apply/rotate/disable; only its apply step receives the Secrets-only token
+and the 19 `QA_STAGE_*` values; the rehearsal runs the module unchanged on the runner's database
+with the Management API stubbed. Originally out of scope: G2 `qa-sandbox-secrets` (another builder; the framework leaves a `kind` slot and the
 workflow keeps its secret wiring per operation), G6 readiness output, G7/G8 return pages and the
 bundle validator, docs G9, any hosted run or workflow dispatch, and D3 (accepted: the live
 `revenuecat-webhook` is unchanged).
