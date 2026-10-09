@@ -11,6 +11,7 @@ import {
   OPERATION_KIND,
   Refusal,
   TOOLING_PATHS,
+  assertSamePlan,
   checkFreshness,
   defaultExec,
   lintVerificationSql,
@@ -26,16 +27,27 @@ import {
   ROLE_FACTS_SQL,
   SETTLE_MS,
   FUNCTION_ROLES,
+  POLICY_MODES,
+  PROTECTED_OPERATOR_SUBJECT,
+  PROVISIONAL,
+  QA_SANDBOX_CUTOFF,
+  QA_SANDBOX_SALES_BUILDS,
+  QA_SANDBOX_SALES_TEMPLATES,
   QA_SANDBOX_WRITER_ROLE,
   SETTINGS_WRITER_ROLE,
+  WORKFLOW_OPERATIONS,
   assertOperationDefinition,
   assertOperationScope,
   assertPlanPinned,
+  canonicalSubjects,
   createOperationPlan,
+  isKnownOperation,
   operationNamed,
   renderOperationFinal,
   renderOperationPlan,
   renderOperationReceipt,
+  renderSalesBody,
+  resolveOperation,
   runOperation,
   runOperationReplay,
   untouchedRoles,
@@ -51,6 +63,16 @@ const RESUME = "resume-settings-sync";
 const QA_PAUSE = "pause-qa-sandbox";
 const QA_RESUME = "resume-qa-sandbox";
 const LOGIN_SWITCHES = [PAUSE, RESUME, QA_PAUSE, QA_RESUME];
+const POLICY_OFF = "qa-sandbox-sales-policy-off";
+const POLICY_ON = "qa-sandbox-sales-policy-on";
+const SUBJECTS_ENABLE = "qa-sandbox-subjects-enable";
+const SUBJECTS_DISABLE = "qa-sandbox-subjects-disable";
+const TRANSACTIONAL = [
+  POLICY_OFF,
+  POLICY_ON,
+  SUBJECTS_ENABLE,
+  SUBJECTS_DISABLE,
+];
 /** A role name that must never reach public output (stands in for hosted catalog detail). */
 const HIDDEN_ROLE = "hosted_internal_role_sentinel";
 
@@ -85,6 +107,11 @@ async function repo(t, { omit = [] } = {}) {
     root,
     "supabase/migrations/0015_settings_sync_per_field.sql",
     "create role still_settings_writer nologin;\n",
+  );
+  await put(
+    root,
+    "supabase/migrations/0016_product_policy.sql",
+    "create table private.product_policy_revisions (revision bigint);\n",
   );
   await put(
     root,
@@ -128,7 +155,10 @@ function throwsCategory(fn, category) {
 // ── The registry and its pinned SQL ──────────────────────────────────────────────────────────
 
 test("exactly the login switches exist, and each meets the operation contract", () => {
-  assert.deepEqual(Object.keys(OPERATIONS), LOGIN_SWITCHES);
+  assert.deepEqual(Object.keys(OPERATIONS), [
+    ...LOGIN_SWITCHES,
+    ...TRANSACTIONAL,
+  ]);
   for (const [name, op] of Object.entries(OPERATIONS))
     assertOperationDefinition(name, op);
   for (const [name, role, login, counterpart] of [
@@ -185,7 +215,8 @@ test("exactly the login switches exist, and each meets the operation contract", 
 });
 
 test("the operation SQL and checks are pinned by hash and are exactly the reviewed statements", async () => {
-  for (const [name, op] of Object.entries(OPERATIONS)) {
+  for (const name of LOGIN_SWITCHES) {
+    const op = OPERATIONS[name];
     const sql = await real(op.sql.path);
     const check = await real(op.verification.path);
     assert.equal(sha256(sql), op.sql.sha256, `${name} SQL hash`);
@@ -228,6 +259,13 @@ test("the operation SQL and checks are pinned by hash and are exactly the review
       await real(op.verification.path),
       /still_policy|still_entitlement/,
     );
+  for (const op of Object.values(OPERATIONS)) {
+    assert.equal(sha256(await real(op.sql.path)), op.sql.sha256);
+    assert.equal(
+      sha256(await real(op.verification.path)),
+      op.verification.sha256,
+    );
+  }
   // The QA pair has the settings pair's exact shape, with only the role (and its prose) changed.
   for (const [settings, qa] of [
     [PAUSE, QA_PAUSE],
@@ -380,6 +418,7 @@ test("planner binds commit, pinned SQL, check, tooling and rehearsal migrations 
     [
       "0001_init.sql",
       "0015_settings_sync_per_field.sql",
+      "0016_product_policy.sql",
       "0021_qa_sandbox_access.sql",
     ],
   );
@@ -1827,4 +1866,786 @@ test("the deploy CLI shows the End state of a stopped operation in its closing r
     result.stdout,
     /## Operation closing record[\s\S]*Outcome: stopped[\s\S]*- End state: NOT reached/,
   );
+});
+
+// ── The QA sandbox sales switch and test-account operations (one transaction each) ───────────
+
+const ZERO = "0".repeat(64);
+const REGISTRY_DIR = new URL(
+  "../../../packages/shared-types/",
+  import.meta.url,
+);
+
+test("workflow choices resolve to exactly the registry, and any other mode or input is refused", () => {
+  assert.deepEqual(
+    Object.values(WORKFLOW_OPERATIONS)
+      .flatMap((modes) => Object.values(modes))
+      .sort(),
+    Object.keys(OPERATIONS).sort(),
+  );
+  assert.deepEqual(
+    [
+      ...new Set(Object.values(WORKFLOW_OPERATIONS).flatMap(Object.keys)),
+    ].sort(),
+    [...POLICY_MODES].sort(),
+  );
+  for (const [operation, mode, name] of [
+    [PAUSE, "", PAUSE],
+    [PAUSE, "none", PAUSE],
+    [QA_RESUME, undefined, QA_RESUME],
+    ["qa-sandbox-sales-policy", "off", POLICY_OFF],
+    ["qa-sandbox-sales-policy", "on", POLICY_ON],
+    ["qa-sandbox-subjects", "enable", SUBJECTS_ENABLE],
+    ["qa-sandbox-subjects", "disable", SUBJECTS_DISABLE],
+  ])
+    assert.equal(resolveOperation(operation, mode), name);
+  for (const [operation, mode] of [
+    ["qa-sandbox-sales-policy", "none"],
+    ["qa-sandbox-sales-policy", ""],
+    ["qa-sandbox-sales-policy", "enable"],
+    ["qa-sandbox-subjects", "off"],
+    [PAUSE, "on"],
+    [QA_PAUSE, "disable"],
+  ])
+    throwsCategory(
+      () => resolveOperation(operation, mode),
+      "operation-input-invalid",
+    );
+  for (const operation of [
+    "qa-sandbox-functions",
+    "migrations",
+    POLICY_OFF,
+    "__proto__",
+  ])
+    throwsCategory(
+      () => resolveOperation(operation, "none"),
+      "operation-unknown",
+    );
+  for (const name of Object.keys(WORKFLOW_OPERATIONS))
+    assert.ok(isKnownOperation(name), name);
+  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, ""])
+    assert.ok(!isKnownOperation(name), name);
+});
+
+test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, for the sandbox only", async () => {
+  for (const [mode, name] of [
+    ["off", POLICY_OFF],
+    ["on", POLICY_ON],
+  ]) {
+    const op = OPERATIONS[name];
+    const sql = await real(op.sql.path);
+    const template = JSON.parse(
+      /v_template constant jsonb := '([^']+)';/.exec(sql)[1],
+    );
+    assert.deepEqual(
+      template,
+      JSON.parse(JSON.stringify(QA_SANDBOX_SALES_TEMPLATES[mode])),
+    );
+    assert.equal(template.environment, "sandbox");
+    assert.equal(template.salesEnabled, mode === "on");
+    assert.deepEqual(template.builds, [...QA_SANDBOX_SALES_BUILDS]);
+    assert.ok(
+      QA_SANDBOX_SALES_BUILDS.every((b) => b.build === "qa-provisional"),
+    );
+    assert.ok(op.provisional.includes(PROVISIONAL.builds));
+    assert.equal(op.provisional.includes(PROVISIONAL.cutoff), mode === "on");
+    // The production environment is never named by the SQL that runs.
+    assert.doesNotMatch(stripComments(sql), /production/);
+    assert.ok(sql.includes(`'${PROTECTED_OPERATOR_SUBJECT}'`));
+    assert.match(
+      sql,
+      /pg_advisory_xact_lock\(\s*pg_catalog\.hashtextextended\('still-product-policy:sales:sandbox', 0\)\)/,
+    );
+    assert.equal(/paid_cutoff/.test(stripComments(sql)), mode === "on");
+  }
+  // The shared grammar's own vector renders byte-for-byte as private.product_policy_render would.
+  const vectors = JSON.parse(
+    await readFile(
+      new URL("fixtures/product-policy-vectors.json", REGISTRY_DIR),
+      "utf8",
+    ),
+  );
+  const body = vectors.cases.find((c) => c.namespace === "sales").response.body;
+  const { revision, ...rest } = JSON.parse(body);
+  assert.equal(renderSalesBody(rest, revision), body);
+  // Decision D2 (owner sign-off pending): one pinned cutoff, the same in JS, SQL and its check.
+  const on = await real(OPERATIONS[POLICY_ON].sql.path);
+  const check = await real(OPERATIONS[POLICY_ON].verification.path);
+  const literal = `array[${QA_SANDBOX_CUTOFF.benefits.map((b) => `'${b}'`).join(", ")}]`;
+  for (const text of [on, check]) {
+    assert.ok(text.includes(`'${QA_SANDBOX_CUTOFF.product}'`));
+    assert.ok(text.includes(literal));
+  }
+  assert.match(
+    stripComments(on),
+    /if not exists \(select 1 from private\.paid_cutoff c where c\.environment = 'sandbox'\) then\s+insert into private\.paid_cutoff/,
+  );
+  assert.notEqual(QA_SANDBOX_CUTOFF.product, "still-pro-v3");
+  assert.match(QA_SANDBOX_CUTOFF.product, /^[a-z0-9][a-z0-9._-]{0,95}$/);
+  const registry = JSON.parse(
+    await readFile(new URL("src/feature-registry.json", REGISTRY_DIR), "utf8"),
+  );
+  assert.deepEqual(
+    [...QA_SANDBOX_CUTOFF.benefits],
+    [
+      ...registry.features.filter((f) => f.tier === "free").map((f) => f.id),
+      registry.tiktokAlias.id,
+    ].sort(),
+  );
+});
+
+test("scope: a one-transaction operation writes only its own tables, sandbox only, with no other command", async () => {
+  const off = OPERATIONS[POLICY_OFF];
+  const enable = OPERATIONS[SUBJECTS_ENABLE];
+  const disable = OPERATIONS[SUBJECTS_DISABLE];
+  const policy = await real(off.sql.path);
+  const subjects = await real(enable.sql.path);
+  const disabling = await real(disable.sql.path);
+  for (const name of TRANSACTIONAL)
+    assertOperationScope(
+      await real(OPERATIONS[name].sql.path),
+      OPERATIONS[name],
+    );
+  const inBody = (sql, statement) =>
+    sql.replace(
+      "  perform pg_catalog.set_config('still_operation.outcome',",
+      `  ${statement}\n  perform pg_catalog.set_config('still_operation.outcome',`,
+    );
+  for (const [sql, op] of [
+    [inBody(policy, "delete from private.product_policy_revisions;"), off],
+    [
+      inBody(
+        policy,
+        "update private.product_policy_revisions set body = body;",
+      ),
+      off,
+    ],
+    [
+      inBody(
+        policy,
+        "insert into private.paid_cutoff (environment) values ('sandbox');",
+      ),
+      off,
+    ],
+    [inBody(policy, "insert into public.profiles (id) values (null);"), off],
+    [inBody(policy, "perform 1 from private.access_rights r;"), off],
+    [inBody(policy, "execute 'select 1';"), off],
+    [inBody(policy, "set role postgres;"), off],
+    [inBody(policy, "alter role still_policy_admin login;"), off],
+    [inBody(policy, "perform 'still_policy_admin';"), off],
+    [inBody(policy, "perform $q$x$q$;"), off],
+    [
+      policy.replace(
+        "values ('sales', 'sandbox', v_expected + 1",
+        "values ('sales', 'production', v_expected + 1",
+      ),
+      off,
+    ],
+    [
+      policy.replace(
+        "\\getenv still_operation_policy_body",
+        "\\! echo still_operation_policy_body",
+      ),
+      off,
+    ],
+    [`\\getenv x HOME\n${policy}`, off],
+    [policy.replace("begin;\n", ""), off],
+    [`${policy}select 1;\n`, off],
+    [policy, enable],
+    [inBody(subjects, "delete from private.qa_sandbox_subjects;"), enable],
+    [inBody(subjects, "update auth.users set email = email;"), enable],
+    [
+      inBody(
+        subjects,
+        "insert into private.access_rights (right_id) values (null);",
+      ),
+      enable,
+    ],
+    [disabling.replace("begin;\n", "\\getenv x HOME\nbegin;\n"), disable],
+    [
+      disabling.replace(
+        "for update;",
+        "for update; perform 1 from auth.users u;",
+      ),
+      disable,
+    ],
+  ])
+    throwsCategory(() => assertOperationScope(sql, op), "operation-scope");
+});
+
+test("canonicalSubjects: one canonical list hash, per-email hashes only, and refusals that never echo input", () => {
+  const a = canonicalSubjects('[" B@Example.org ", "a@example.org"]');
+  const b = canonicalSubjects('["a@example.org", "b@example.org"]');
+  assert.equal(a.sha256, b.sha256);
+  assert.equal(
+    a.sha256,
+    sha256(JSON.stringify(["a@example.org", "b@example.org"])),
+  );
+  assert.equal(a.count, 2);
+  assert.deepEqual(
+    a.hashes,
+    [sha256("a@example.org"), sha256("b@example.org")].sort(),
+  );
+  assert.ok(!JSON.stringify(a).includes("example.org"));
+  const secret = "secret-person@example.org";
+  for (const text of [
+    "",
+    "not json",
+    "{}",
+    "[]",
+    JSON.stringify(Array.from({ length: 51 }, (_, i) => `u${i}@example.org`)),
+    JSON.stringify([secret, secret.toUpperCase()]),
+    JSON.stringify([secret, 7]),
+    JSON.stringify([secret, "no-at-sign"]),
+    JSON.stringify([`${secret}\n`, "x@@example.org"]),
+  ])
+    assert.throws(
+      () => canonicalSubjects(text),
+      (error) =>
+        error instanceof Refusal &&
+        error.category === "subjects-list-invalid" &&
+        !error.message.includes("secret-person"),
+    );
+});
+
+test("planner: the sales switch binds the expected revision, the exact body and the cutoff; bad inputs and provisional apply are refused", async (t) => {
+  const { root, head } = await repo(t);
+  const policy = (extra) => plan(root, head, "qa-sandbox-sales-policy", extra);
+  const p = await policy({ policyMode: "on", expectedRevision: "1" });
+  assert.equal(p.operation, POLICY_ON);
+  assert.equal(p.operationKind, "qa-sales-policy");
+  assert.equal(p.workflowOperation, "qa-sandbox-sales-policy");
+  assert.deepEqual([p.expectedRevision, p.policyRevision], [1, 2]);
+  assert.equal(p.body, renderSalesBody(QA_SANDBOX_SALES_TEMPLATES.on, 2));
+  assert.equal(p.bodySha256, sha256(p.body));
+  assert.deepEqual(p.cutoff, {
+    product: QA_SANDBOX_CUTOFF.product,
+    benefits: [...QA_SANDBOX_CUTOFF.benefits],
+  });
+  assert.deepEqual(p.provisional, [PROVISIONAL.builds, PROVISIONAL.cutoff]);
+  assert.ok(!("role" in p) && !("login" in p));
+  assert.deepEqual(p.untouchedRoles, [...FUNCTION_ROLES]);
+  // The digest survives the JSON round trip the workflow makes, and binds the revision.
+  assertSamePlan(JSON.parse(JSON.stringify(p)), p.digest);
+  assert.notEqual(
+    (await policy({ policyMode: "on", expectedRevision: "2" })).digest,
+    p.digest,
+  );
+  const off = await policy({ policyMode: "off", expectedRevision: "0" });
+  assert.equal(off.operation, POLICY_OFF);
+  assert.ok(!("cutoff" in off));
+  assert.equal(off.body, renderSalesBody(QA_SANDBOX_SALES_TEMPLATES.off, 1));
+  for (const expectedRevision of [
+    "",
+    "-1",
+    "01",
+    "1.5",
+    "x",
+    "9007199254740991",
+  ])
+    await refuses(
+      policy({ policyMode: "off", expectedRevision }),
+      "operation-input-invalid",
+    );
+  await refuses(
+    policy({ policyMode: "off", expectedRevision: "0", subjectsSha256: ZERO }),
+    "operation-input-invalid",
+  );
+  await refuses(
+    policy({ policyMode: "none", expectedRevision: "0" }),
+    "operation-input-invalid",
+  );
+  await refuses(
+    policy({ policyMode: "on", expectedRevision: "1", mode: "apply" }),
+    "operation-provisional",
+  );
+  await refuses(
+    policy({ policyMode: "off", expectedRevision: "0", mode: "apply" }),
+    "operation-provisional",
+  );
+  for (const extra of [
+    { policyMode: "on" },
+    { expectedRevision: "0" },
+    { subjectsSha256: ZERO },
+  ])
+    await refuses(plan(root, head, PAUSE, extra), "operation-input-invalid");
+  const shown = renderOperationPlan(p);
+  for (const needle of [
+    p.body,
+    p.bodySha256,
+    "Provisional content: plan-only",
+    PROVISIONAL.cutoff,
+    "compare-and-set from `1` to `2`",
+    "still-free-v2",
+    "one transaction",
+  ])
+    assert.ok(shown.includes(needle), needle);
+});
+
+test("planner: test accounts bind the approved list hash; disable takes no list", async (t) => {
+  const { root, head } = await repo(t);
+  const subjects = (extra) => plan(root, head, "qa-sandbox-subjects", extra);
+  const list = canonicalSubjects('["a@example.org"]');
+  const p = await subjects({
+    policyMode: "enable",
+    subjectsSha256: list.sha256,
+    mode: "apply",
+  });
+  assert.equal(p.operation, SUBJECTS_ENABLE);
+  assert.equal(p.subjectsSha256, list.sha256);
+  assert.deepEqual(p.provisional, undefined);
+  assertSamePlan(JSON.parse(JSON.stringify(p)), p.digest);
+  const shown = renderOperationPlan(p);
+  assert.ok(shown.includes(list.sha256));
+  assert.ok(!shown.includes("example.org"));
+  for (const subjectsSha256 of ["", "abc", "A".repeat(64), `${ZERO}0`])
+    await refuses(
+      subjects({ policyMode: "enable", subjectsSha256 }),
+      "operation-input-invalid",
+    );
+  await refuses(
+    subjects({
+      policyMode: "enable",
+      subjectsSha256: ZERO,
+      expectedRevision: "0",
+    }),
+    "operation-input-invalid",
+  );
+  await refuses(
+    subjects({ policyMode: "disable", subjectsSha256: ZERO }),
+    "operation-input-invalid",
+  );
+  const d = await subjects({ policyMode: "disable" });
+  assert.equal(d.operation, SUBJECTS_DISABLE);
+  assert.ok(!("subjectsSha256" in d));
+  assert.match(renderOperationPlan(d), /no row is deleted/);
+});
+
+/** Fake psql for the one-transaction kinds: the end-state check reads `state`, the SQL changes it. */
+function fakeTxDb({ issues, apply, sqlFailure, onOperation } = {}) {
+  const state = {
+    applied: false,
+    calls: [],
+    roles: { postgres: { login: true }, still_policy_reader: { login: false } },
+  };
+  const ok = (stdout) => ({ code: 0, stdout: `${stdout}\n`, stderr: "" });
+  const exec = async (cmd, args, opts = {}) => {
+    state.calls.push([cmd, args, opts]);
+    if (cmd === "git" || cmd === "tar") return defaultExec(cmd, args, opts);
+    assert.equal(cmd, "psql");
+    const file = args[args.indexOf("-f") + 1];
+    const name = TRANSACTIONAL.find((n) =>
+      file.endsWith(OPERATIONS[n].sql.path),
+    );
+    if (name) {
+      assert.ok(
+        !args.includes("set session characteristics as transaction read only"),
+      );
+      if (sqlFailure) return { code: 3, stdout: "", stderr: sqlFailure };
+      state.applied = true;
+      onOperation?.(state, opts.env);
+      return ok(`t\n${JSON.stringify(apply(opts.env))}`);
+    }
+    if (file.endsWith("server-version.sql")) return ok("170006");
+    if (file.endsWith("migration-history.sql"))
+      return ok(
+        JSON.stringify([{ version: "0021", name: "qa_sandbox_access" }]),
+      );
+    if (file.endsWith("role-facts.sql"))
+      return ok(
+        JSON.stringify(
+          Object.entries(state.roles)
+            .map(([r, v]) => `role ${r} | login ${v.login}`)
+            .sort(),
+        ),
+      );
+    if (
+      TRANSACTIONAL.some((n) => file.endsWith(OPERATIONS[n].verification.path))
+    )
+      return ok(JSON.stringify(issues(state, opts.env, args)));
+    throw new Error(`unexpected file ${file}`);
+  };
+  return { state, exec, sleep: async () => {} };
+}
+
+/** A registry whose sales-policy rows are not provisional (only to exercise the production path). */
+const SETTLED = Object.freeze({
+  ...OPERATIONS,
+  [POLICY_OFF]: { ...OPERATIONS[POLICY_OFF], provisional: [] },
+  [POLICY_ON]: { ...OPERATIONS[POLICY_ON], provisional: [] },
+});
+
+async function txFixture(t, workflowOperation, extra, registry = OPERATIONS) {
+  const { root, head } = await repo(t);
+  const p = await plan(root, head, workflowOperation, { ...extra, registry });
+  const dir = join(root, ".deploy");
+  await prepareWorkdir({
+    exec: defaultExec,
+    cwd: root,
+    plan: p,
+    dir,
+    stage: "full",
+  });
+  return { root, p, dir, registry };
+}
+
+const runTx = (fx, db, extra = {}) =>
+  runOperation({
+    exec: db.exec,
+    plan: fx.p,
+    dir: fx.dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: fx.root,
+    sleep: db.sleep,
+    registry: fx.registry,
+    ...extra,
+  });
+
+const policyIssues = (state) =>
+  state.applied ? [] : ["sandbox_sales_policy_missing"];
+
+test("sales switch: refused against production while its content is provisional, before any database call", async (t) => {
+  const fx = await txFixture(t, "qa-sandbox-sales-policy", {
+    policyMode: "off",
+    expectedRevision: "0",
+  });
+  const db = fakeTxDb({ issues: policyIssues, apply: () => ({}) });
+  const receipt = await runTx(fx, db);
+  assert.deepEqual(
+    [receipt.status, receipt.issues, receipt.writeAttempted],
+    ["refused", ["operation-provisional"], false],
+  );
+  assert.equal(db.state.calls.length, 0);
+});
+
+test("sales switch: body and revision reach psql only through its environment; verified, then no change", async (t) => {
+  const fx = await txFixture(
+    t,
+    "qa-sandbox-sales-policy",
+    { policyMode: "off", expectedRevision: "0" },
+    SETTLED,
+  );
+  const db = fakeTxDb({
+    issues: (state, env, args) => {
+      assert.equal(env.STILL_OPERATION_POLICY_BODY, fx.p.body);
+      assert.ok(
+        args.includes(
+          "\\getenv still_operation_policy_body STILL_OPERATION_POLICY_BODY",
+        ),
+      );
+      return policyIssues(state);
+    },
+    apply: (env) => {
+      assert.equal(env.STILL_OPERATION_EXPECTED_REVISION, "0");
+      assert.equal(env.STILL_OPERATION_POLICY_BODY, fx.p.body);
+      return { revision: 1, cutoff: "unchanged" };
+    },
+  });
+  const receipt = await runTx(fx, db);
+  assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
+  assert.deepEqual(receipt.result, { revision: 1, cutoff: "unchanged" });
+  assert.equal(
+    receipt.recovery,
+    "none needed; to undo, run qa-sandbox-sales-policy with policy_mode on",
+  );
+  assert.ok(
+    receipt.steps.some(
+      (s) =>
+        s.detail ===
+        "published sandbox sales revision 1; sandbox paid cutoff unchanged",
+    ),
+  );
+  assert.ok(
+    receipt.steps.some(
+      (s) =>
+        s.name === "no role changed (every role and setting untouched)" &&
+        s.outcome === "ok",
+    ),
+  );
+  for (const [cmd, args] of db.state.calls)
+    if (cmd === "psql")
+      assert.ok(!args.join(" ").includes(fx.p.body), "body in argv");
+  const again = await runTx(fx, db);
+  assert.deepEqual(
+    [again.status, again.outcome, again.writeAttempted],
+    ["no-change", "already-off", false],
+  );
+});
+
+test("sales switch: a refusal inside the transaction writes nothing and says why; an unexpected state is refused first", async (t) => {
+  const fx = await txFixture(
+    t,
+    "qa-sandbox-sales-policy",
+    { policyMode: "on", expectedRevision: "1" },
+    SETTLED,
+  );
+  for (const [target, stderr] of [
+    [
+      "production",
+      "psql:/x/qa-sandbox-sales-policy-on.sql:70: ERROR:  QP001\n",
+    ],
+    [
+      "local-replay",
+      "psql:<stdin>:70: ERROR:  QP001 sandbox sales revision is not the approved expected revision\n",
+    ],
+  ]) {
+    const db = fakeTxDb({
+      issues: () => ["sandbox_sales_policy_differs"],
+      apply: () => ({}),
+      sqlFailure: stderr,
+    });
+    const receipt = await runTx(fx, db, { target });
+    assert.equal(receipt.status, "stopped");
+    assert.deepEqual(receipt.issues, [
+      "operation-failed",
+      "operation-refused:stale-expected-revision",
+    ]);
+    assert.match(
+      receipt.recovery,
+      /^Nothing was written: the database refused the change inside its transaction \(stale-expected-revision\)/,
+    );
+  }
+  const db = fakeTxDb({
+    issues: () => ["production_cutoff_present", "sandbox_sales_policy_differs"],
+    apply: () => ({}),
+  });
+  const receipt = await runTx(fx, db);
+  assert.deepEqual(
+    [receipt.status, receipt.issues, receipt.writeAttempted],
+    ["refused", ["operation-precondition"], false],
+  );
+  assert.match(
+    receipt.steps.at(-1).detail,
+    /unexpected starting state: production_cutoff_present/,
+  );
+});
+
+test("test accounts: the approved list stays in memory, only per-email hashes reach psql, and a mismatch is refused first", async (t) => {
+  const emails = ["qa-one@example.org", "qa-two@example.org"];
+  const list = canonicalSubjects(JSON.stringify(emails));
+  const fx = await txFixture(t, "qa-sandbox-subjects", {
+    policyMode: "enable",
+    subjectsSha256: list.sha256,
+  });
+  for (const [subjectEmails, issue] of [
+    [JSON.stringify(["qa-one@example.org"]), "subjects-list-mismatch"],
+    [undefined, "subjects-list-invalid"],
+    ["", "subjects-list-invalid"],
+  ]) {
+    const db = fakeTxDb({
+      issues: () => ["subject_not_enabled"],
+      apply: () => ({}),
+    });
+    const receipt = await runTx(fx, db, { subjectEmails });
+    assert.deepEqual([receipt.status, receipt.issues], ["refused", [issue]]);
+    assert.equal(db.state.calls.length, 0);
+  }
+  const logs = [];
+  const db = fakeTxDb({
+    issues: (state, env) => {
+      assert.equal(
+        env.STILL_OPERATION_SUBJECT_HASHES,
+        JSON.stringify(list.hashes),
+      );
+      return state.applied ? [] : ["subject_not_enabled"];
+    },
+    apply: (env) => {
+      assert.equal(
+        env.STILL_OPERATION_SUBJECT_HASHES,
+        JSON.stringify(list.hashes),
+      );
+      return { listed: 2, admitted: 2, changed: 1 };
+    },
+  });
+  const receipt = await runTx(fx, db, {
+    subjectEmails: JSON.stringify([...emails].reverse()),
+    log: (l) => logs.push(l),
+  });
+  assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
+  assert.deepEqual(receipt.result, { listed: 2, admitted: 2, changed: 1 });
+  const everything = `${JSON.stringify(db.state.calls.map(([c, a]) => [c, a]))}\n${logs.join("\n")}\n${JSON.stringify(receipt)}\n${renderOperationReceipt(receipt)}`;
+  for (const leak of [...emails, ...list.hashes, "example.org"])
+    assert.ok(!everything.includes(leak), leak);
+  assert.equal(
+    receipt.recovery,
+    "none needed; to undo, run qa-sandbox-subjects with policy_mode disable",
+  );
+});
+
+test("test accounts: disable needs no list; a role change during the run fails the side check", async (t) => {
+  const fx = await txFixture(t, "qa-sandbox-subjects", {
+    policyMode: "disable",
+  });
+  const done = fakeTxDb({
+    issues: (state, env) => {
+      assert.equal(env.STILL_OPERATION_SUBJECT_HASHES, undefined);
+      return state.applied ? [] : ["subjects_enabled"];
+    },
+    apply: () => ({ disabled: 2, members: 3 }),
+  });
+  const receipt = await runTx(fx, done);
+  assert.equal(receipt.status, "verified");
+  assert.ok(
+    receipt.steps.some(
+      (s) => s.detail === "2 membership(s) switched off; 3 kept (none deleted)",
+    ),
+  );
+  const touched = fakeTxDb({
+    issues: (state) => (state.applied ? [] : ["subjects_enabled"]),
+    apply: () => ({ disabled: 1, members: 1 }),
+    onOperation: (state) => (state.roles.still_policy_reader.login = true),
+  });
+  const failed = await runTx(fx, touched);
+  assert.equal(failed.status, "verification-failed");
+  assert.deepEqual(failed.issues, ["other-roles-changed"]);
+  assert.match(
+    failed.recovery,
+    /^End state verified: no QA sandbox membership is enabled \(every row kept\)\. But a separate check failed \(other-roles-changed\)/,
+  );
+  assert.match(
+    renderOperationFinal(
+      { ...failed, status: "in-progress", applied: true },
+      { applyOutcome: "failure", jobStatus: "cancelled" },
+    ),
+    /run qa-sandbox-subjects with policy_mode disable again/,
+  );
+});
+
+test("the deploy CLI plans the QA operations from workflow inputs and keeps their inputs to those operations", async (t) => {
+  const { root, head } = await repo(t);
+  const base = {
+    DEPLOY_SHA: head,
+    DEPLOY_MIGRATIONS: "",
+    DEPLOY_FUNCTIONS: "",
+  };
+  const out = sink();
+  const planFile = join(root, ".plan.json");
+  assert.equal(
+    await main(
+      ["plan", "--out", planFile],
+      {
+        ...base,
+        DEPLOY_OPERATION: "qa-sandbox-sales-policy",
+        DEPLOY_POLICY_MODE: "off",
+        DEPLOY_POLICY_EXPECTED_REVISION: "0",
+      },
+      { cwd: root, out },
+    ),
+    0,
+  );
+  assert.equal(
+    JSON.parse(await readFile(planFile, "utf8")).operation,
+    POLICY_OFF,
+  );
+  for (const [env, category] of [
+    [
+      {
+        DEPLOY_OPERATION: "qa-sandbox-sales-policy",
+        DEPLOY_POLICY_MODE: "on",
+        DEPLOY_POLICY_EXPECTED_REVISION: "1",
+        DEPLOY_MODE: "apply",
+      },
+      "operation-provisional",
+    ],
+    [
+      { DEPLOY_OPERATION: "migrations", DEPLOY_POLICY_MODE: "off" },
+      "operation-input-invalid",
+    ],
+    [
+      {
+        DEPLOY_OPERATION: "qa-sandbox-functions",
+        DEPLOY_SUBJECTS_SHA256: ZERO,
+      },
+      "operation-input-invalid",
+    ],
+    [
+      { DEPLOY_OPERATION: "", DEPLOY_POLICY_EXPECTED_REVISION: "0" },
+      "operation-input-invalid",
+    ],
+    [
+      { DEPLOY_OPERATION: "qa-sandbox-subjects", DEPLOY_POLICY_MODE: "enable" },
+      "operation-input-invalid",
+    ],
+  ])
+    await assert.rejects(
+      main(["plan"], { ...base, ...env }, { cwd: root, out: sink() }),
+      (e) => e.category === category,
+    );
+  // A closing record with no receipt is still an operation record for the QA operations.
+  const closing = sink();
+  await main(
+    ["final-summary", "--receipt", join(root, "missing.json")],
+    {
+      DEPLOY_OPERATION: "qa-sandbox-subjects",
+      APPLY_OUTCOME: "failure",
+      JOB_STATUS: "failure",
+    },
+    { cwd: root, out: closing },
+  );
+  assert.match(
+    closing.text,
+    /## Operation closing record[\s\S]*Operation: `qa-sandbox-subjects`/,
+  );
+});
+
+test("the subjects-digest helper prints only the approved hash and count", async () => {
+  const out = sink();
+  const emails = ["qa-one@example.org", "QA-Two@example.org"];
+  assert.equal(
+    await main(
+      ["subjects-digest"],
+      {},
+      {
+        out,
+        stdin: [Buffer.from(JSON.stringify(emails))],
+      },
+    ),
+    0,
+  );
+  assert.equal(
+    out.text,
+    `subjects_sha256=${canonicalSubjects(JSON.stringify(emails)).sha256} accounts=2\n`,
+  );
+  assert.ok(!out.text.includes("example.org"));
+  await assert.rejects(
+    main(["subjects-digest"], {}, { out: sink(), stdin: [Buffer.from("[]")] }),
+    (e) => e.category === "subjects-list-invalid",
+  );
+});
+
+test("the apply command hands the list secret only to the run and prints none of it", async (t) => {
+  const emails = ["qa-one@example.org"];
+  const list = canonicalSubjects(JSON.stringify(emails));
+  const fx = await txFixture(t, "qa-sandbox-subjects", {
+    policyMode: "enable",
+    subjectsSha256: list.sha256,
+  });
+  const planFile = join(fx.root, ".plan.json");
+  await writeFile(planFile, JSON.stringify(fx.p));
+  const db = fakeTxDb({
+    issues: (state) => (state.applied ? [] : ["subject_not_enabled"]),
+    apply: () => ({ listed: 1, admitted: 1, changed: 1 }),
+  });
+  const out = sink();
+  const code = await main(
+    ["apply", "--plan", planFile, "--dir", fx.dir],
+    {
+      GITHUB_ACTIONS: "true",
+      RUNNER_ENVIRONMENT: "github-hosted",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_REF: "refs/heads/main",
+      EXPECTED_PLAN_DIGEST: fx.p.digest,
+      SUPABASE_DB_URL: PROD_URL,
+      QA_SANDBOX_SUBJECT_EMAILS_JSON: JSON.stringify(emails),
+    },
+    { exec: db.exec, cwd: fx.root, out, platform: "linux" },
+  );
+  assert.equal(code, 0, out.text);
+  const unmasked = out.text
+    .split("\n")
+    .filter((l) => !l.startsWith("::add-mask::"))
+    .join("\n");
+  for (const leak of [...emails, ...list.hashes, SECRET])
+    assert.ok(!unmasked.includes(leak), leak);
 });
