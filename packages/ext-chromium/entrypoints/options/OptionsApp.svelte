@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
   import type {
@@ -67,6 +67,8 @@
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
     accessPlatform: platform,
   });
+  // This page owns its controller: stop the account poll when the page's view is destroyed.
+  onDestroy(() => controller.dispose());
   // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
   // phone rows until Firefox's own answer says desktop, however late. Chromium draws every row.
   let platformAnswer = $state<RuntimePlatform | null>(null);
