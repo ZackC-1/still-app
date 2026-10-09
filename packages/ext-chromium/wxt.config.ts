@@ -87,7 +87,9 @@ export function qaPackageVersion(env: ManifestBuildEnv, storeVersion: string): s
   return `${storeVersion}.${sequence}`;
 }
 
-const STORE_VERSION: string = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+// Read only when a QA package is built: browser-like test environments import this file too.
+const storeVersion = (): string =>
+  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 
 /** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
 export const FIREFOX_2X_DESCRIPTION =
@@ -120,7 +122,7 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
     // summary from here. Firefox's validator caps the name at 45 characters; Chrome caps the
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
     name: qaSandboxPackage(env) ? QA_SANDBOX_PACKAGE.name : "Still: Remove Shorts & Reels, Stop Scrolling",
-    ...(qaSandboxPackage(env) ? { version: qaPackageVersion(env, STORE_VERSION) } : {}),
+    ...(qaSandboxPackage(env) ? { version: qaPackageVersion(env, storeVersion()) } : {}),
     description: isFirefox
       ? firefoxDescriptionFor(env)
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
