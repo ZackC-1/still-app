@@ -290,9 +290,17 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
 }
 
 
-/** Main's first-parent commit count at the revision: increases with every merge, never repeats. */
-export function qaBuildSequence(root, revision, run = spawnSync) {
+/**
+ * Main's first-parent commit count at the revision: increases with every merge and never repeats,
+ * but only for a clean build of a commit on main's own line. A branch or uncommitted build could
+ * reuse a number main later gets, and Mozilla signs each version only once, so it is refused.
+ */
+export function qaBuildSequence(root, { revision, dirty }, run = spawnSync) {
   if (!/^[0-9a-f]{40}$/.test(String(revision ?? ""))) throw new Error("QA build sequence needs an exact revision");
+  if (dirty !== false) throw new Error("Sandbox QA packages are built only from a clean checkout (commit or stash local changes)");
+  const line = run("git", ["rev-list", "--first-parent", "origin/main"], { cwd: root, encoding: "utf8" });
+  if (line.status !== 0 || !String(line.stdout ?? "").split("\n").includes(revision))
+    throw new Error("Sandbox QA packages are built only from a commit on main's own line (fetch and check out origin/main)");
   const result = run("git", ["rev-list", "--count", "--first-parent", revision], { cwd: root, encoding: "utf8" });
   const sequence = String(result.stdout ?? "").trim();
   if (result.status !== 0 || !/^[1-9]\d{0,4}$/.test(sequence) || Number(sequence) > 65535)
@@ -315,7 +323,7 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
     await isolatedSandboxSource(root, config, async ({ clone, run, snapshot, overlay }) => {
       const identity = candidateIdentity(snapshot, overlay, targets);
       // A distinct, increasing fourth version number per source (packages/ext-chromium/wxt.config.ts).
-      env.VITE_QA_BUILD_SEQUENCE = qaBuildSequence(root, snapshot.revision);
+      env.VITE_QA_BUILD_SEQUENCE = qaBuildSequence(root, snapshot);
       const envDir = join(run, "empty-env"); await mkdir(envDir);
       runChecked("pnpm", PAID_INSTALL_ARGS, { cwd: clone, env });
       for (const target of targets) {

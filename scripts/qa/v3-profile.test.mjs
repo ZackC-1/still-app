@@ -742,14 +742,29 @@ test("QA builds always label analytics as test and only ever send to the separat
   assert.equal(profileEnvironment("local", {}).VITE_ANALYTICS_BUILD_CHANNEL, undefined);
 });
 
-test("QA build sequence is main's first-parent commit count at an exact revision", async () => {
+test("QA build sequence is main's first-parent commit count, only for a clean commit on main", async () => {
   const { qaBuildSequence } = await import("./v3-profile.mjs");
-  const rev = "a".repeat(40);
-  const calls = [];
-  const fake = (stdout, status = 0) => (cmd, args, opts) => (calls.push([cmd, args, opts.cwd]), { stdout, status });
-  assert.equal(qaBuildSequence("/repo", rev, fake("306\n")), "306");
-  assert.deepEqual(calls[0], ["git", ["rev-list", "--count", "--first-parent", rev], "/repo"]);
-  for (const bad of ["0\n", "65536\n", "", "x\n"]) assert.throws(() => qaBuildSequence("/repo", rev, fake(bad)), /could not be derived/);
-  assert.throws(() => qaBuildSequence("/repo", rev, fake("306\n", 128)), /could not be derived/);
-  assert.throws(() => qaBuildSequence("/repo", "HEAD", fake("306\n")), /exact revision/);
+  const rev = "a".repeat(40), other = "b".repeat(40);
+  const fake = ({ line = `${other}\n${rev}\n`, count = "306\n", lineStatus = 0, countStatus = 0 } = {}) => {
+    const calls = [];
+    const run = (cmd, args, opts) => {
+      calls.push([cmd, args, opts.cwd]);
+      return args[1] === "--first-parent" ? { stdout: line, status: lineStatus } : { stdout: count, status: countStatus };
+    };
+    return { run, calls };
+  };
+  const ok = fake();
+  assert.equal(qaBuildSequence("/repo", { revision: rev, dirty: false }, ok.run), "306");
+  assert.deepEqual(ok.calls, [
+    ["git", ["rev-list", "--first-parent", "origin/main"], "/repo"],
+    ["git", ["rev-list", "--count", "--first-parent", rev], "/repo"],
+  ]);
+  assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: true }, fake().run), /clean checkout/);
+  assert.throws(() => qaBuildSequence("/repo", { revision: rev }, fake().run), /clean checkout/);
+  assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: false }, fake({ line: `${other}\n` }).run), /main's own line/);
+  assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: false }, fake({ lineStatus: 128 }).run), /main's own line/);
+  for (const count of ["0\n", "65536\n", "", "x\n"])
+    assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: false }, fake({ count }).run), /could not be derived/);
+  assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: false }, fake({ countStatus: 128 }).run), /could not be derived/);
+  assert.throws(() => qaBuildSequence("/repo", { revision: "HEAD", dirty: false }, fake().run), /exact revision/);
 });
