@@ -741,3 +741,15 @@ test("QA builds always label analytics as test and only ever send to the separat
   assert.equal(env.VITE_POSTHOG_HOST, undefined);
   assert.equal(profileEnvironment("local", {}).VITE_ANALYTICS_BUILD_CHANNEL, undefined);
 });
+
+test("QA build sequence is main's first-parent commit count at an exact revision", async () => {
+  const { qaBuildSequence } = await import("./v3-profile.mjs");
+  const rev = "a".repeat(40);
+  const calls = [];
+  const fake = (stdout, status = 0) => (cmd, args, opts) => (calls.push([cmd, args, opts.cwd]), { stdout, status });
+  assert.equal(qaBuildSequence("/repo", rev, fake("306\n")), "306");
+  assert.deepEqual(calls[0], ["git", ["rev-list", "--count", "--first-parent", rev], "/repo"]);
+  for (const bad of ["0\n", "65536\n", "", "x\n"]) assert.throws(() => qaBuildSequence("/repo", rev, fake(bad)), /could not be derived/);
+  assert.throws(() => qaBuildSequence("/repo", rev, fake("306\n", 128)), /could not be derived/);
+  assert.throws(() => qaBuildSequence("/repo", "HEAD", fake("306\n")), /exact revision/);
+});
