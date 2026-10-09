@@ -1,6 +1,6 @@
 ---
 title: "Owner-approved operations that switch the QA sandbox lane on and off"
-status: active
+status: active (PRs open; apply of the sales switch blocked on A3 and D2)
 date: 2026-10-09
 owner: "Claude Code (QA activation tooling lane)"
 branch: "feat/v31-qa-sandbox-operations-20261009 (PR 1), feat/v31-qa-sandbox-policy-subjects-20261009 (PR 2)"
@@ -93,5 +93,11 @@ bundle validator, docs G9, any hosted run or workflow dispatch, and D3 (accepted
 
 ## Completion evidence
 
-Recorded in each PR body: gate results, rehearsal output, and what remains unverified (hosted
-behaviour, direct-host reachability, real accounts).
+- PR 1 (#380): framework and G5. `node --test scripts/backend/deploy/*.test.mjs` green; local
+  rehearsal of all four login switches against this branch's own `--local` database: verified.
+- PR 2: G3 and G4. Same gates; local rehearsal of `qa-sandbox-sales-policy` off (expected 0) and on
+  (expected 1), `qa-sandbox-subjects` enable and disable: every proof and negative control passed;
+  `qa_sandbox_subjects_operation_test.ts` passed in a Linux container against the same local
+  database (real 0021 wrappers).
+- Not verified here: anything hosted (no production run or dispatch), real QA build ids (A3) and
+  owner sign-off of the cutoff content (D2); apply stays refused until both land.
