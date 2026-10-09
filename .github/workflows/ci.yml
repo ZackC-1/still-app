@@ -99,6 +99,11 @@ jobs:
         working-directory: supabase/functions
         run: deno test --allow-read=../migrations/0013_counter_retention.sql,../migrations/0015_settings_sync_per_field.sql
 
+      # Synthetic keys only; no network permission. The PG* names are read by the pinned driver
+      # while it builds an idle client for a dummy URL. --allow-run=deno drives the CLI test.
+      - name: Test offline QA secret bundle check with synthetic bundles
+        run: deno test --config supabase/functions/deno.json --no-prompt --allow-env=PGMAX,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-read --allow-write --allow-run=deno scripts/backend/qa-secret-bundle-check.test.ts
+
   e2e:
     name: Playwright on fixtures
     runs-on: ubuntu-latest
