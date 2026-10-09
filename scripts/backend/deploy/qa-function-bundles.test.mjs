@@ -147,6 +147,10 @@ async function fixture(t) {
 test("seals all fixed uploads and verifies their actual bytes and source closure", async (t) => {
   const options = await fixture(t);
   const manifest = await buildQaFunctionBundles(options);
+  assert.equal(
+    manifest.toolchain.runtimeGlobals,
+    "node-buffer-global-timers-v3",
+  );
   assert.deepEqual(
     manifest.functions.map(({ name, verifyJwt }) => ({ name, verifyJwt })),
     QA_FUNCTIONS,
@@ -296,6 +300,48 @@ test("CommonJS compiler prologue drift fails before sealing arbitrary source", (
 // Explicitly enabled by the protected bundle rehearsal, which installs Deno
 // 2.8.3. Ordinary offline Node checks retain their synthetic boundary coverage.
 test(
+  "sealed immediate timers schedule and cancel without ambient Node globals",
+  { skip: process.env.STILL_QA_BUNDLE_INTEGRATION !== "1" },
+  async (t) => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "still-qa-timer-boundary-")),
+    );
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const probe = join(root, "timers.mjs");
+    await writeFile(
+      probe,
+      sealQaRuntime(`
+      delete globalThis.Buffer;
+      delete globalThis.global;
+      delete globalThis.setImmediate;
+      delete globalThis.clearImmediate;
+      if (typeof globalThis.setImmediate !== 'undefined' ||
+          typeof globalThis.clearImmediate !== 'undefined') throw new Error('Ambient timer mutation');
+      let cancelledRan = false;
+      const cancelled = setImmediate(() => { cancelledRan = true; });
+      clearImmediate(cancelled);
+      await new Promise((resolve) => setImmediate(resolve));
+      if (cancelledRan) throw new Error('Cancelled callback ran');
+      console.log('sealed timers passed without ambient globals');
+    `),
+    );
+    const result = await defaultExec("deno", [
+      "run",
+      "--no-config",
+      "--no-lock",
+      `--allow-read=${root}`,
+      "--deny-net",
+      "--deny-env",
+      "--deny-write",
+      "--deny-run",
+      probe,
+    ], { cwd: root });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /sealed timers passed without ambient globals/);
+  },
+);
+
+test(
   "actual eight-route bundles are portable, closed, and start without authority",
   {
     skip: process.env.STILL_QA_BUNDLE_INTEGRATION !== "1",
@@ -362,6 +408,8 @@ test(
     import assert from 'node:assert/strict';
     delete globalThis.Buffer;
     delete globalThis.global;
+    delete globalThis.setImmediate;
+    delete globalThis.clearImmediate;
     Deno.env.get = () => undefined;
     let networkCalls = 0;
     globalThis.fetch = () => { networkCalls++; throw new Error('Network forbidden'); };

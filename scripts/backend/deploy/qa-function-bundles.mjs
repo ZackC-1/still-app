@@ -67,10 +67,12 @@ var __deno_internal_createRequire = (url) => {
 // beyond the uploaded bytes. Accept only the characterized pinned prologue.
 export function sealQaRuntime(source) {
   // Closed ESM uploads lose Deno npm's automatic Node globals. Bind the builtin
-  // explicitly, so PostgreSQL/SDK code works without ambient Buffer/global.
+  // explicitly, so PostgreSQL/SDK code works without ambient Buffer/global or
+  // immediate timers (absent in the characterized Edge 1.77.1 runtime).
   // Keep these module-local; never mutate the Edge worker's global namespace.
-  const buffer = 'import { Buffer } from "node:buffer";\nconst global = globalThis;\n';
-  if (!source.includes("createRequire")) return buffer + source;
+  const globals =
+    'import { Buffer } from "node:buffer";\nimport { setImmediate, clearImmediate } from "node:timers";\nconst global = globalThis;\n';
+  if (!source.includes("createRequire")) return globals + source;
   const start = source.indexOf(REQUIRE_IMPORT);
   const end = start + REQUIRE_IMPORT.length;
   const loader = source.slice(end, source.indexOf(";", end) + 1);
@@ -85,7 +87,7 @@ export function sealQaRuntime(source) {
   ) {
     refuse("Unrecognized CommonJS compiler prologue");
   }
-  return buffer + source.slice(0, start) + SEALED_REQUIRE + source.slice(end);
+  return globals + source.slice(0, start) + SEALED_REQUIRE + source.slice(end);
 }
 
 // Check every component, not only the leaf: an ancestor symlink can escape an
@@ -131,7 +133,7 @@ async function toolchain(exec, cwd) {
     identity,
     flags: [...FLAGS],
     runtimeRequire: "node-builtins-only-v1",
-    runtimeGlobals: "node-buffer-global-v2",
+    runtimeGlobals: "node-buffer-global-timers-v3",
   };
 }
 
