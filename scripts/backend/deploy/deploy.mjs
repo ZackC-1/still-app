@@ -435,7 +435,22 @@ export async function createDeployPlan({
     });
   }
   assertIndependentVerifications(ordering);
-  const config = await boundFile(CONFIG_PATH, { category: "config-missing" });
+  // A migration-era commit may predate later Edge Function entries in config.toml. `db push`
+  // never reads [functions.*] tables, so only the rest of the file must match main.
+  const configBytes = await git.blob(inputs.sha, CONFIG_PATH);
+  const configOnMain = await git.blob(mainCommit, CONFIG_PATH);
+  if (!configBytes) throw new Refusal("config-missing", `${CONFIG_PATH} missing at that commit`);
+  const configMigrationSha256 = sha256(migrationConfigText(configBytes.toString("utf8")));
+  if (
+    !configOnMain ||
+    sha256(migrationConfigText(configOnMain.toString("utf8"))) !== configMigrationSha256
+  ) {
+    throw new Refusal(
+      "file-changed-on-main",
+      `${CONFIG_PATH} database settings differ between the commit and main`,
+    );
+  }
+  const config = { path: CONFIG_PATH, sha256: sha256(configBytes) };
 
   const tooling = [];
   for (const path of TOOLING_PATHS) {
@@ -454,7 +469,11 @@ export async function createDeployPlan({
     workflowRevision: mainCommit,
     onFirstParent: await git.onFirstParent(inputs.sha, mainCommit),
     cli: { version: CLI_VERSION, tarballSha256: CLI_TARBALL_SHA256 },
-    config: { path: config.path, sha256: config.sha256 },
+    config: {
+      path: config.path,
+      sha256: config.sha256,
+      migrationSha256: configMigrationSha256,
+    },
     migrations: planned,
     functions: [],
     priorMigrations: hashed.filter(
@@ -468,6 +487,20 @@ export async function createDeployPlan({
       "stop-and-fix-forward; never restore removed grants; no automatic rollback",
   };
   return { ...manifest, digest: sha256(canonical(manifest)) };
+}
+
+/** config.toml without its [functions.*] tables (Edge Function settings `db push` never reads). */
+export function migrationConfigText(text) {
+  // A multi-line string could hold a line that looks like a table header; never normalize one
+  // (the byte-exact text is returned, so any difference is refused).
+  if (/"""|'''/.test(String(text))) return String(text);
+  const kept = [];
+  let inFunctions = false;
+  for (const line of String(text).split("\n")) {
+    if (/^\s*\[/.test(line)) inFunctions = /^\s*\[functions\.[^\]]+\]\s*(#.*)?$/.test(line);
+    if (!inFunctions) kept.push(line);
+  }
+  return kept.join("\n");
 }
 
 export const invariantPath = (file) =>
@@ -512,6 +545,13 @@ export async function checkFreshness({ git, plan, tipRef }) {
   }
   for (const file of boundFiles(plan)) {
     const bytes = await git.blob(tip, file.path);
+    // Migration plans bind config.toml by its database settings (see createDeployPlan).
+    if (file === plan.config && plan.config.migrationSha256) {
+      if (!bytes || sha256(migrationConfigText(bytes.toString("utf8"))) !== plan.config.migrationSha256) {
+        throw new Refusal("main-moved", `main changed ${file.path} after dispatch; plan again`);
+      }
+      continue;
+    }
     if (!bytes || sha256(bytes) !== file.sha256) {
       throw new Refusal(
         "main-moved",
@@ -1565,6 +1605,10 @@ export function renderPlan(plan) {
     `- Approval environment: \`${plan.environment}\` (owner approval required before any secret is available)`,
     `- Edge Functions: none`,
     `- Supabase CLI ${plan.cli.version}, download SHA-256 \`${plan.cli.tarballSha256}\``,
+    `- Config: \`${plan.config.path}\` SHA-256 \`${plan.config.sha256}\`` +
+      (plan.config.migrationSha256
+        ? `; database settings (Edge Function sections removed) SHA-256 \`${plan.config.migrationSha256}\`, identical on main`
+        : ""),
     `- Hosted migration history must be exactly ${plan.expectedHistoryBefore.length} entries ending at \`${plan.expectedHistoryBefore.at(-1).version}\`; after the deploy, exactly ${plan.expectedHistoryAfter.length}.`,
     plan.newerMigrationsOnMain > 0
       ? `- Note: main has ${plan.newerMigrationsOnMain} newer migration(s) that this deploy does NOT include.`
@@ -1572,7 +1616,7 @@ export function renderPlan(plan) {
     plan.onFirstParent
       ? "- The commit is on main's own line of history (first parent)."
       : "- ⚠️ **The commit is not on main's own line of history**: it reached main through a merged branch. " +
-        "That is allowed only because every migration, check and config file it uses is byte-identical on main; " +
+        "That is allowed only because every migration and check it uses is byte-identical on main, and its config.toml matches main apart from Edge Function sections; " +
         "if you expected a commit made directly on main, reject and check the commit you pasted.",
     "",
     "| File | Role | SHA-256 |",
