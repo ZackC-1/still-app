@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "wxt";
 
 export const firefoxBrowserSpecificSettings = {
@@ -73,6 +74,23 @@ export function qaSandboxPackage(env: ManifestBuildEnv): boolean {
   return true;
 }
 
+/**
+ * A sandbox QA package's version: the store version plus a fourth number, main's first-parent
+ * commit count, set by the paid-sandbox profile. Mozilla signs each version number only once, so
+ * every new QA source gets a new, increasing version. Chrome caps each part at 65535.
+ */
+export function qaPackageVersion(env: ManifestBuildEnv, storeVersion: string): string {
+  const sequence = env.VITE_QA_BUILD_SEQUENCE ?? "";
+  if (!/^[1-9]\d{0,4}$/.test(sequence) || Number(sequence) > 65535)
+    throw new Error("A sandbox QA package requires VITE_QA_BUILD_SEQUENCE between 1 and 65535");
+  if (!/^\d+\.\d+\.\d+$/.test(storeVersion)) throw new Error("The store version must have exactly three parts");
+  return `${storeVersion}.${sequence}`;
+}
+
+// Read only when a QA package is built: browser-like test environments import this file too.
+const storeVersion = (): string =>
+  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+
 /** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
 export const FIREFOX_2X_DESCRIPTION =
   "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
@@ -104,6 +122,7 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
     // summary from here. Firefox's validator caps the name at 45 characters; Chrome caps the
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
     name: qaSandboxPackage(env) ? QA_SANDBOX_PACKAGE.name : "Still: Remove Shorts & Reels, Stop Scrolling",
+    ...(qaSandboxPackage(env) ? { version: qaPackageVersion(env, storeVersion()) } : {}),
     description: isFirefox
       ? firefoxDescriptionFor(env)
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
