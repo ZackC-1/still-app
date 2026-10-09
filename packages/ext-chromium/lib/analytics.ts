@@ -55,6 +55,8 @@ export interface BackgroundAnalyticsDeps {
    * for Android it reports the existing closed surface "firefox-android"; nothing else changes. */
   readonly platform?: Promise<RuntimePlatform>;
   readonly config: AnalyticsConfig;
+  /** Packaged context; QA builds label every event build_channel "test" (buildChannelEnvelope). */
+  readonly envelope?: { readonly build_channel: "test" };
   readonly appVersion: string;
   readonly local: AnalyticsKeyValue;
   /** Where the queue waits: IndexedDB private to the background, never seen by content scripts. */
@@ -113,6 +115,7 @@ export function createBackgroundAnalytics(
       return device;
     },
     config: deps.config,
+    envelope: deps.envelope,
     appVersion: deps.appVersion,
     local: deps.local,
     queueStore: deps.queue ?? undefined,

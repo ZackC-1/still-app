@@ -13,6 +13,7 @@ import {
 } from "./consent.js";
 import { createAccountIdentifier, type SubjectDeps } from "./extension-host.js";
 import type { AnalyticsKeyValue } from "./identity.js";
+import { serverIdentifyFor } from "./events.js";
 import type { AnalyticsContextReply } from "../native/bridge.js";
 import type { UiAnalytics } from "../ui/controller.svelte.js";
 
@@ -153,7 +154,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         client,
         local: deps.store,
         consent: async () => consent,
-        identifyOnServer: deps.identifyOnServer,
+        identifyOnServer: serverIdentifyFor(deps.envelope, deps.identifyOnServer),
         subjects: deps.subjects,
       });
       currentReady = {
