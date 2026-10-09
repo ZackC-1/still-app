@@ -91,9 +91,15 @@ only inside the approval environment is unavailable to the earlier plan job. The
 `DEPLOY_BASELINE_SHA256` binds the fresh private catalog, role, history, function and secret-name
 fingerprint. These names describe tooling under preparation, not installed configuration.
 
+Planned for the sandbox secrets install: `SUPABASE_QA_SECRETS_ACCESS_TOKEN`, a separate Supabase
+personal access token limited to project secrets (read and write; no database or function access).
+It is stored only as a `supabase-production` environment secret, is passed only to the apply step
+of the protected `qa-sandbox-secrets` operation, never sits on a developer machine, and is revoked
+when sandbox testing ends. The existing `SUPABASE_PRODUCTION_ACCESS_TOKEN` cannot write secrets.
+
 Owner-only protection must be verified before either `baseline-only` or `apply` reaches that
 environment. A baseline read writes no functions or settings, and does not require every QA secret
-to be present. Apply requires all fixed input names and an approved baseline collected after setup;
+to be present; it names each absent required secret as `missing_secret:<NAME>`. Apply requires all fixed input names and an approved baseline collected after setup;
 name/digest presence does not verify the values or establish purchase acceptance. Follow the
 [sandbox activation runbook](release/shared-hosted-sandbox-qa.md) for the separate reviewed setup,
 source deployment and hosted/device acceptance gates.

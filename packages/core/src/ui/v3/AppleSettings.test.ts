@@ -333,6 +333,28 @@ describe("controlled D04 Apple settings", () => {
     view.unmount();
   });
 
+  it("tells a confirmed iPhone/iPad buyer which Still Pro extras work there, and everyone else the general note", async () => {
+    const { props } = await fixture("locked");
+    const phone = render(AppleSettings, { props: { ...props, phone: true } });
+    const card = () => screen.getByRole("region", { name: "Still Pro" });
+    expect(
+      within(card()).getByText(
+        "On this device, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.",
+      ),
+    ).toBeVisible();
+    phone.unmount();
+    // A Mac, and the "ios" starting value before any setup read confirmed the platform.
+    for (const platform of ["mac", "ios"] as const) {
+      const view = render(AppleSettings, { props: { ...props, platform } });
+      expect(
+        within(card()).getByText(
+          "On iPhone, iPad and Firefox for Android, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.",
+        ),
+      ).toBeVisible();
+      view.unmount();
+    }
+  });
+
   it("renders the native optional-account caption without changing the shared card's default", async () => {
     const plain = render(SyncCard, { props: {} });
     expect(

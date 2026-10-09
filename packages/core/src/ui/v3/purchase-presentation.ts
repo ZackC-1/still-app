@@ -3,6 +3,8 @@ import type { RestoreStatusCardProps } from "./extension-settings-presentation.j
 interface PurchaseViewCommon {
   /** Actual capability-filtered, ordered controls; no production inventory fallback. */
   controls: readonly { site: string; label: string }[];
+  /** True where the surface draws the phone-layout inventory (iPhone/iPad, Firefox for Android). */
+  phone?: boolean;
   access: {
     state:
       | "none"

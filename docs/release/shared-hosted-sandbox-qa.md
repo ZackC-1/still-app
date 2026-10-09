@@ -21,19 +21,26 @@ prerequisite change. A successful disposable-database rehearsal does not establi
 on the hosted target.
 
 The generic migration workflow refuses caller-selected Edge Function deployment. The separate
-fixed `qa-sandbox-functions` operation is under preparation; its source, protection checks, target
-baseline and negative controls must be reviewed before activation. Do not deploy from a developer
-shell or treat the synthetic foundation workflow as production authority.
+fixed `qa-sandbox-functions` operation deploys only the eight sealed QA bundles through the
+protected workflow. Its `baseline-only` mode is the read-only readiness check: when the catalog gate
+fails, the closing record lists the fixed issue codes from the 0021 gate and the current
+prerequisite query (for example `role_not_login:<role>`, `role_membership:<role>` or
+`sandbox_sales_policy_missing`) and `missing_secret:<NAME>` for each absent required secret name.
+It never lists catalog facts, digests or values. Do not deploy from a developer shell or treat the
+synthetic foundation workflow as production authority.
 
 The migration receipt can report `applied-verified-counts-changed` when a private full-row invariant
 changes while catalog verification passes. Investigate that warning before preparing a function
 activation packet. Concurrent production traffic can change those fingerprints, so the warning
 does not identify the cause. A successful migration exit code alone never authorizes QA activation.
 
-The latest read-only GitHub checks for the exact `supabase-production` environment returned HTTP
-404. Its presence, access and required configuration are unverified. Establish reviewed owner-only
-protection and explicit setup scope before either a protected baseline read or an apply job; do not
-let a workflow implicitly create an unprotected environment.
+The `supabase-production` GitHub environment exists with owner-only required approval (2026-10-09).
+Every protected run still re-reads that protection itself and refuses without the owner's
+approval; do not let a workflow implicitly create or widen an environment. On 2026-10-09 the
+pending database updates 0014 through 0021 began to be applied one protected run per step, each
+from the last `main` commit on which that update was the newest one. PR #373 bound the deploy
+configuration so this catch-up can run, and PR #374 lets the 0021 end-state check run before 0021
+is applied. Confirm the hosted history ends at `0021` before any activation step below.
 
 ## Exact route scope
 
@@ -74,6 +81,51 @@ Bind the following to one proposed execution scope before requesting approval:
 Account registry insertion, QA-role creation, secret installation and provider configuration are
 external writes. Include each intended action explicitly. Existing production billing, global live
 secrets and production Edge bundles stay outside this packet.
+
+## Activation order
+
+Each row is a separate owner approval or portal visit. Do not start a row until the one before it
+is verified. Operations marked *planned* are being built as separate reviewed PRs; until one is on
+protected `main` with CI green, its row is blocked.
+
+| Step | What happens | How | Verify before moving on |
+| --- | --- | --- | --- |
+| A. Preconditions | Hosted history ends at `0021`; the support PRs are merged; the private secret bundle passes the offline check | Local only | Offline check prints `PASS overall` (see below) |
+| B. Provider settings | Dedicated QA Apple In-App Purchase key; RevenueCat and Stripe sandbox checks; Stripe webhook endpoint for `qa-sandbox-stripe-webhook`; provider mapping bound to the sandbox price | Owner portal visits | Names and IDs read back; no values in Git or chat |
+| C. Secrets and logins | Owner stores the Secrets-only token; the 19 bundle values are staged as write-only environment secrets; `qa-sandbox-secrets` (*planned*) sets LOGIN with generated passwords for the three narrow roles and installs every required secret | Protected run | Closing record lists names and installed/unchanged only; every `REQUIRED_SECRETS` name present by digest |
+| D. First sales-policy entry | `qa-sandbox-sales-policy` mode `off` (*planned*) publishes sandbox revision 1 with sales off and no cutoff | Protected run | `sandbox_sales_policy_missing` no longer reported; production revisions unchanged |
+| E. Readiness and deploy | `qa-sandbox-functions` `baseline-only`, then `apply` with that baseline digest; change nothing in between | Two protected runs | Readiness lists no issues; apply closing record `verified` with eight routes; production function versions unchanged |
+| F. Test accounts | `qa-sandbox-subjects` mode `enable` (*planned*) admits only the designated QA accounts, bound by the approved list fingerprint | Protected run | Enabled count equals the approved list; non-member, expired-Auth and production-RPC negatives refused |
+| G. Test sales on | Website return pages `/qa/success` and `/qa/cancel` answer 200; then `qa-sandbox-sales-policy` mode `on` (*planned*) | Protected run | Public sandbox policy read shows the new revision; cutoff row for sandbox only; production unchanged |
+
+### Offline secret bundle check
+
+Before staging any value, run the [offline bundle check](../../scripts/backend/qa-secret-bundle-check.ts)
+against the private bundle (one JSON object with exactly the 19 `STILL_QA_SANDBOX_*` provider and
+authority values; database URLs are generated later inside the protected run) and the public
+paid-sandbox trust record. It runs the real config readers with dummy database URLs that use the
+exact role usernames, checks that the signer public key is in the public trust list and that the
+list matches its recorded fingerprint, and confirms the approved return pages. It can read only
+those two files, has no network permission, and prints one PASS or FAIL line per check name. The
+exact command is in the script header. A PASS proves composition only, not provider permissions,
+hosted reachability or purchase acceptance.
+
+### Off switches (fastest first)
+
+1. **Turn test sales off:** `qa-sandbox-sales-policy` mode `off` (*planned*) publishes a new sandbox
+   revision with sales off. Test apps stop offering purchases on their next policy read.
+2. **Stop the whole paid test lane:** `pause-qa-sandbox` (*planned*) sets `still_qa_sandbox_writer`
+   NOLOGIN and ends its sessions, so every paid QA route answers unavailable at once. Free sync and
+   production customers are untouched. `resume-qa-sandbox` restores LOGIN without changing the
+   password.
+3. **Remove test accounts:** `qa-sandbox-subjects` mode `disable` (*planned*) sets `enabled=false`
+   and never deletes rows, so refund and removal recovery stays reachable.
+4. **Remove QA secrets:** `qa-sandbox-secrets` mode `disable` (*planned*) deletes only the
+   `STILL_QA_SANDBOX_*` secrets and sets the QA writer NOLOGIN; the shared narrow-role URLs stay.
+
+Until those operations are on `main`, the owner's emergency fallback is deleting
+`STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL` in the Supabase dashboard; paid QA routes then stop as
+their running copies restart. Revoke the Secrets-only token when testing ends.
 
 ## Approved execution and acceptance
 

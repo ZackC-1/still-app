@@ -26,8 +26,10 @@
     composition: SafariV3Composition;
     /** The rows to draw (iPhone/iPad omit the desktop-layout-only extras); omitted draws all. */
     features?: readonly FeatureId[];
+    /** Safari confirmed iPhone/iPad: the Still Pro offer speaks about this device. */
+    phone?: boolean;
   }
-  let { composition, features }: Props = $props();
+  let { composition, features, phone = false }: Props = $props();
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -123,6 +125,7 @@
       onFeatureChange={ready.commands.feature}
       {sectionMemory}
       {features}
+      {phone}
       sync={{
         ...sync,
         accountActions: unavailable ? recovery : undefined,

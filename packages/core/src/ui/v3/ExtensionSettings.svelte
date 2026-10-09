@@ -23,6 +23,7 @@
     services,
     features,
     labels,
+    phone = false,
     sync,
     pro,
     restore,
@@ -265,6 +266,7 @@
     <div bind:this={proSection} style="display:contents;">
       <ProOfferCard
         {...pro}
+        {phone}
         confirmedAccount={sync.account?.confirmed ?? false}
         {knownMissing}
         {accessHeld}
