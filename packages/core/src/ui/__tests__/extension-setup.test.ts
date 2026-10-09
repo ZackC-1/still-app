@@ -566,3 +566,22 @@ describe("retained local-only authority observation in the maintained factory", 
       atomic: { ownership: "unknown", sequence: saved.atomic!.sequence + 2, pending: [], paused: null } });
   });
 });
+describe("account-status poll lifetime", () => {
+  it("polls while the page's view lives and stops for good once its owner disposes the controller", async () => {
+    installChrome();
+    vi.useFakeTimers();
+    try {
+      const read = vi.fn(() => Promise.resolve(null));
+      const c = createExtensionUiController(undefined, { readAccountStatus: read });
+      await vi.advanceTimersByTimeAsync(4000);
+      const polled = read.mock.calls.length;
+      expect(polled).toBeGreaterThanOrEqual(2);
+      c.dispose();
+      c.dispose();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(read).toHaveBeenCalledTimes(polled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

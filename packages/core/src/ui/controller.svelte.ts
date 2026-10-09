@@ -424,6 +424,8 @@ export class UiController {
    * the fake-timer seam, matching the payoff/cooldown pattern. */
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollCount = 0;
+  /** Page-lifetime watchers (the account-status poll) the controller's owner stops on destroy. */
+  private readonly teardowns: (() => void)[] = [];
 
   constructor(deps: UiControllerDeps) {
     this.cache = deps.cache;
@@ -439,6 +441,17 @@ export class UiController {
       this.settings = s;
     });
     void this.loadUsageSharing();
+  }
+
+  /** Registers a watcher that must stop when the UI owning this controller is destroyed. */
+  addTeardown(stop: () => void): void {
+    this.teardowns.push(stop);
+  }
+
+  /** Stops every registered page-lifetime watcher. Called by the component that owns the
+   * controller when it unmounts; safe to call more than once. */
+  dispose(): void {
+    for (const stop of this.teardowns.splice(0)) stop();
   }
 
   // ── "Share usage data" ───────────────────────────────────────────────────────────────────────

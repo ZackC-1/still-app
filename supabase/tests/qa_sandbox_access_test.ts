@@ -1189,11 +1189,6 @@ Deno.test({
           assertEquals(job.schedule, "* * * * *");
           assertEquals(job.active, true);
           assertEquals(job.username, "postgres");
-          const lastRun = Number(
-            (await admin`select coalesce(max(runid),0)::text as run from cron.job_run_details where jobid=${job.jobid}`)[
-              0
-            ]!.run,
-          );
           const body = rollback.replace(/^([\s\S]*?)\bbegin;\n/, "").replace(
             /commit;\s*$/,
             "",
@@ -1222,30 +1217,44 @@ Deno.test({
           // serializer can truncate sub-millisecond precision on a round trip.
           await admin`with fresh as (
             insert into private.qa_sandbox_rate_windows
-            values(clock_timestamp(),extensions.gen_random_bytes(32),clock_timestamp()+interval '2 minutes')
+            values(clock_timestamp(),extensions.gen_random_bytes(32),clock_timestamp()+interval '10 minutes')
             returning window_start
           ) insert into private.qa_sandbox_rate_counters
             select ${freshBucket},window_start,1 from fresh`;
+          // Both inserts are committed and the 2000 window is already expired, so any real cron
+          // run that STARTS after this database-clock moment must delete it. Waiting for such a
+          // run, instead of for whatever happens within ~65 s, removes two races: a run already
+          // in flight when the rows landed, and a single minute's run that pg_cron skips or that
+          // fails under runner load. Three minute boundaries fit inside the bound.
+          const expiredBy = (await admin`select clock_timestamp()::text as at`)[
+            0
+          ]!.at as string;
           const started = Date.now();
-          let remaining = 1, succeeded = false;
-          while (
-            (remaining > 0 || !succeeded) && Date.now() - started < 65000
-          ) {
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            remaining = Number(
+          let runs: {
+            status: string;
+            start_time: string;
+            return_message: string | null;
+          }[] = [];
+          while (Date.now() - started < 190000) {
+            runs =
+              (await admin`select status,start_time::text,return_message from cron.job_run_details
+              where jobid=${job.jobid} and start_time>${expiredBy}::timestamptz order by runid`) as unknown as typeof runs;
+            if (runs.some((run) => run.status === "succeeded")) break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          const evidence = JSON.stringify(runs);
+          assert(
+            runs.some((run) => run.status === "succeeded"),
+            `real minute cron must complete a run after the QA window expired: ${evidence}`,
+          );
+          assertEquals(
+            Number(
               (await admin`select count(*)::int as count from private.qa_sandbox_rate_windows where window_start='2000-01-01T00:00:00Z'`)[
                 0
               ]!.count,
-            );
-            succeeded =
-              (await admin`select status from cron.job_run_details where jobid=${job.jobid} and runid>${lastRun} order by runid desc limit 1`)[
-                0
-              ]?.status === "succeeded";
-          }
-          assertEquals(
-            remaining,
+            ),
             0,
-            "real minute cron must delete an expired never-returning QA window",
+            `real minute cron must delete an expired never-returning QA window: ${evidence}`,
           );
           assertEquals(
             (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where window_start='2000-01-01T00:00:00Z'`)[
@@ -1253,7 +1262,6 @@ Deno.test({
             ]?.count,
             0,
           );
-          assertEquals(succeeded, true);
           assertEquals(
             (await admin`select count(*)::int as count from private.qa_sandbox_rate_counters where bucket_key=${freshBucket}`)[
               0

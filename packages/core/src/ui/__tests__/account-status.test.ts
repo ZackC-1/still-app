@@ -71,3 +71,23 @@ it("a delayed sign-out cannot reset the account received from another surface", 
   expect(controller.accountEmail).toBe("second@example.com");
   stop();
 });
+
+it("stops polling, without an unhandled error, once its page's document is gone", async () => {
+  // A test file's jsdom teardown removes `document` while this page-lifetime interval is still
+  // registered; the next tick must end the watcher rather than reject with a ReferenceError.
+  vi.useFakeTimers();
+  const controller = makeController();
+  const read = vi.fn<() => Promise<AccountStatusSnapshot | null>>().mockResolvedValue(status);
+  watchAccountStatus(controller, read);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(read).toHaveBeenCalledTimes(1);
+  vi.stubGlobal("document", undefined);
+  try {
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

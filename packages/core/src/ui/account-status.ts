@@ -11,6 +11,13 @@ export function watchAccountStatus(
   let stopped = false;
   let pending = false;
   const refresh = async (): Promise<void> => {
+    // The page this watcher served is gone (a torn-down test document): stop polling instead of
+    // throwing from a timer nobody owns any more.
+    if (typeof document === "undefined") {
+      stopped = true;
+      clearInterval(timer);
+      return;
+    }
     if (stopped || pending || document.visibilityState === "hidden") return;
     pending = true;
     const revision = controller.accountRevision;

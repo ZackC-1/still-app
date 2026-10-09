@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import {
     App,
     OpenSettingsButton,
@@ -10,6 +11,9 @@
     controller: UiController;
   }
   let { controller }: Props = $props();
+  // The popup page hands its controller to this one view for the page's life; stop its account
+  // poll when the view goes.
+  onDestroy(() => controller.dispose());
 
   function openOptions(): void {
     void browser.runtime.openOptionsPage();

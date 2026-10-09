@@ -189,7 +189,7 @@ export function createExtensionUiController(
 
   const read = purchase?.readAccountStatus ?? (options?.readAccountStatus
     ? () => options.readAccountStatus!(cache.currentRecord()) : undefined);
-  if (read) watchAccountStatus(controller, read);
+  if (read) controller.addTeardown(watchAccountStatus(controller, read));
   const handoff = options?.onCommittedPopupBinding;
   if (handoff) {
     const binding = createDesktopPopupBinding(cache, entitlement);

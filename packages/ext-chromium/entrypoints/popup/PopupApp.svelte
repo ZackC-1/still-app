@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { PAID_TIER_ENABLED, SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     App,
@@ -42,6 +42,9 @@
     platform = Promise.resolve("desktop"),
     proDestinationReady = false,
   }: Props = $props();
+  // The popup page hands its controller to this one view for the page's life; stop its account
+  // poll when the view goes.
+  onDestroy(() => controller.dispose());
 
   // Keep V3 global styles out of shared default/native/options build graphs.
   // The sync invitation wrapper loads only where V3 shows it, and Firefox for Android (V3 builds
