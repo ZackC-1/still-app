@@ -64,6 +64,15 @@ umask 077
 psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
   --command='set session characteristics as transaction read only' \
   --file=scripts/backend/deploy/verify/0021_qa_sandbox_access.invariant.sql > "$upgrade_root/invariant-before.json"
+# The deploy runs the end-state check before applying too; before 0021 it must report the absent
+# QA objects as issues, never fail on a role or routine that does not exist yet.
+pre_0021=$(psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0021_qa_sandbox_access.sql | tail -n 1)
+if [[ $pre_0021 != *'"missing_QA_role"'* ]]; then
+  echo 'The 0021 end-state check did not report the absent QA roles before the upgrade.' >&2; exit 1
+fi
+echo '0021 end-state check before upgrade reports absent QA objects: PASS.'
 supabase migration up --local --workdir "$upgrade_root" >/dev/null
 psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
   --command='set session characteristics as transaction read only' \
