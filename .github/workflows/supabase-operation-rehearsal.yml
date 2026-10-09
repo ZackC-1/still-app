@@ -1,10 +1,10 @@
 name: Supabase operation rehearsal
 
 # Runs the production deploy job's own rehearsal of the owner-approved operations
-# (pause-settings-sync / resume-settings-sync) on a throwaway database inside this runner, from the
-# pull request's code. It proves the writer's sign-in is refused or allowed, its open connection is
-# closed, the purchase, sales and rating roles still sign in, and no other role, grant, row or
-# migration changes. No environment, secret or production access; it never deploys anything.
+# (pause/resume-settings-sync, pause/resume-qa-sandbox) on a throwaway database inside this runner,
+# from the pull request's code. It proves the target writer's sign-in is refused or allowed, its
+# open connection is closed, every other function role still signs in, and no other role, grant,
+# row or migration changes. No environment, secret or production access; it never deploys anything.
 on:
   pull_request:
     paths:
@@ -32,6 +32,8 @@ jobs:
         operation:
           - pause-settings-sync
           - resume-settings-sync
+          - pause-qa-sandbox
+          - resume-qa-sandbox
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

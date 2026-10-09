@@ -25,8 +25,9 @@ import {
   OPERATIONS,
   ROLE_FACTS_SQL,
   SETTLE_MS,
+  FUNCTION_ROLES,
+  QA_SANDBOX_WRITER_ROLE,
   SETTINGS_WRITER_ROLE,
-  UNTOUCHED_FUNCTION_ROLES,
   assertOperationDefinition,
   assertOperationScope,
   assertPlanPinned,
@@ -37,6 +38,7 @@ import {
   renderOperationReceipt,
   runOperation,
   runOperationReplay,
+  untouchedRoles,
 } from "./operations.mjs";
 
 const SECRET = "synthetic-password-sentinel-7d1e";
@@ -46,6 +48,9 @@ const LOCAL_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const REPO = new URL("../../../", import.meta.url);
 const PAUSE = "pause-settings-sync";
 const RESUME = "resume-settings-sync";
+const QA_PAUSE = "pause-qa-sandbox";
+const QA_RESUME = "resume-qa-sandbox";
+const LOGIN_SWITCHES = [PAUSE, RESUME, QA_PAUSE, QA_RESUME];
 /** A role name that must never reach public output (stands in for hosted catalog detail). */
 const HIDDEN_ROLE = "hosted_internal_role_sentinel";
 
@@ -80,6 +85,11 @@ async function repo(t, { omit = [] } = {}) {
     root,
     "supabase/migrations/0015_settings_sync_per_field.sql",
     "create role still_settings_writer nologin;\n",
+  );
+  await put(
+    root,
+    "supabase/migrations/0021_qa_sandbox_access.sql",
+    "create role still_qa_sandbox_writer nologin;\n",
   );
   for (const op of Object.values(OPERATIONS))
     for (const file of [op.sql, op.verification])
@@ -117,14 +127,35 @@ function throwsCategory(fn, category) {
 
 // ── The registry and its pinned SQL ──────────────────────────────────────────────────────────
 
-test("exactly two operations exist, and each meets the operation contract", () => {
-  assert.deepEqual(Object.keys(OPERATIONS), [PAUSE, RESUME]);
+test("exactly the login switches exist, and each meets the operation contract", () => {
+  assert.deepEqual(Object.keys(OPERATIONS), LOGIN_SWITCHES);
   for (const [name, op] of Object.entries(OPERATIONS))
     assertOperationDefinition(name, op);
-  assert.equal(OPERATIONS[PAUSE].login, false);
-  assert.equal(OPERATIONS[PAUSE].closesConnections, true);
-  assert.equal(OPERATIONS[RESUME].login, true);
-  assert.equal(OPERATIONS[RESUME].closesConnections, false);
+  for (const [name, role, login, counterpart] of [
+    [PAUSE, SETTINGS_WRITER_ROLE, false, RESUME],
+    [RESUME, SETTINGS_WRITER_ROLE, true, PAUSE],
+    [QA_PAUSE, QA_SANDBOX_WRITER_ROLE, false, QA_RESUME],
+    [QA_RESUME, QA_SANDBOX_WRITER_ROLE, true, QA_PAUSE],
+  ]) {
+    const op = OPERATIONS[name];
+    assert.deepEqual(
+      [op.kind, op.role, op.login, op.closesConnections, op.counterpart],
+      ["role-login", role, login, !login, counterpart],
+    );
+    // Every function role except the operation's own target stays untouched.
+    assert.deepEqual(
+      untouchedRoles(op),
+      FUNCTION_ROLES.filter((r) => r !== role),
+    );
+    assert.ok(!untouchedRoles(op).includes(role));
+  }
+  assert.deepEqual([...FUNCTION_ROLES].sort(), [
+    "still_entitlement_writer",
+    "still_policy_admin",
+    "still_policy_reader",
+    "still_qa_sandbox_writer",
+    "still_settings_writer",
+  ]);
   // Negative controls: a definition without a verification step, touching another role, or a
   // pause that leaves connections open is not a valid operation.
   const { verification: _dropped, ...noVerification } = OPERATIONS[PAUSE];
@@ -135,8 +166,13 @@ test("exactly two operations exist, and each meets the operation contract", () =
       verification: { ...OPERATIONS[PAUSE].verification, sha256: "" },
     },
     { ...OPERATIONS[PAUSE], role: "still_policy_reader" },
+    { ...OPERATIONS[PAUSE], role: "still_entitlement_writer" },
     { ...OPERATIONS[PAUSE], closesConnections: false },
     { ...OPERATIONS[PAUSE], noChange: undefined },
+    { ...OPERATIONS[PAUSE], noChange: "already-resumed" },
+    { ...OPERATIONS[PAUSE], kind: "anything-goes" },
+    { ...OPERATIONS[PAUSE], kind: undefined },
+    { ...OPERATIONS[PAUSE], counterpart: "" },
   ])
     throwsCategory(
       () => assertOperationDefinition(PAUSE, broken),
@@ -160,12 +196,19 @@ test("the operation SQL and checks are pinned by hash and are exactly the review
         s.split(" ").slice(0, 4).join(" "),
       ),
       op.login
-        ? ["alter role still_settings_writer login"]
+        ? [`alter role ${op.role} login`]
         : [
-            "alter role still_settings_writer nologin",
+            `alter role ${op.role} nologin`,
             "select pg_catalog.json_build_object('closed', pg_catalog.count(*) filter",
           ],
     );
+    // Each operation's SQL and check name its own role and no other role.
+    for (const text of [sql, check]) {
+      const named = new Set(
+        [...stripComments(text).matchAll(/still_[a-z_]+/g)].map((m) => m[0]),
+      );
+      assert.deepEqual([...named], [op.role], name);
+    }
     // A single changed byte no longer matches the pin.
     assert.notEqual(sha256(`${sql} `), op.sql.sha256);
   }
@@ -185,6 +228,25 @@ test("the operation SQL and checks are pinned by hash and are exactly the review
       await real(op.verification.path),
       /still_policy|still_entitlement/,
     );
+  // The QA pair has the settings pair's exact shape, with only the role (and its prose) changed.
+  for (const [settings, qa] of [
+    [PAUSE, QA_PAUSE],
+    [RESUME, QA_RESUME],
+  ])
+    for (const key of ["sql", "verification"]) {
+      const statements = async (name) =>
+        stripComments(await real(OPERATIONS[name][key].path))
+          .replace(/\s+/g, " ")
+          .trim();
+      assert.equal(
+        (await statements(qa)).replaceAll(
+          QA_SANDBOX_WRITER_ROLE,
+          SETTINGS_WRITER_ROLE,
+        ),
+        await statements(settings),
+        `${qa} ${key}`,
+      );
+    }
 });
 
 test("scope: SQL that touches another role, a password, a grant or anything extra is refused", async () => {
@@ -221,8 +283,19 @@ test("scope: SQL that touches another role, a password, a grant or anything extr
     [`${good}\ndelete from public.profiles;`, pause],
     ["alter role still_settings_writer nologin;", resume], // wrong direction
     ["", resume],
+    // A QA switch may name only the QA writer, and a settings switch only the settings writer.
+    ["alter role still_settings_writer login;", OPERATIONS[QA_RESUME]],
+    ["alter role still_qa_sandbox_writer login;", resume],
+    [
+      good.replaceAll("still_settings_writer", "still_qa_sandbox_writer"),
+      pause,
+    ],
   ])
     throwsCategory(() => assertOperationScope(sql, op), "operation-scope");
+  throwsCategory(
+    () => assertOperationScope(good, { ...pause, kind: "unknown" }),
+    "operation-scope",
+  );
 });
 
 // ── Planner ──────────────────────────────────────────────────────────────────────────────────
@@ -295,10 +368,20 @@ test("planner binds commit, pinned SQL, check, tooling and rehearsal migrations 
   assert.equal(p.sqlText, await real(OPERATIONS[PAUSE].sql.path));
   assert.deepEqual(p.migrations, []);
   assert.deepEqual(p.functions, []);
-  assert.deepEqual(p.untouchedRoles, [...UNTOUCHED_FUNCTION_ROLES]);
+  assert.equal(p.operationKind, "role-login");
+  assert.deepEqual(p.untouchedRoles, [
+    "still_entitlement_writer",
+    "still_policy_reader",
+    "still_policy_admin",
+    "still_qa_sandbox_writer",
+  ]);
   assert.deepEqual(
     p.rehearsalMigrations.map((m) => m.file),
-    ["0001_init.sql", "0015_settings_sync_per_field.sql"],
+    [
+      "0001_init.sql",
+      "0015_settings_sync_per_field.sql",
+      "0021_qa_sandbox_access.sql",
+    ],
   );
   assert.equal(p.tooling.length, TOOLING_PATHS.length);
   assert.equal((await plan(root, head)).digest, p.digest, "deterministic");
@@ -423,6 +506,7 @@ test("planner refuses unpinned SQL, a missing check, a missing writer role and d
 
 /** Fake psql over roles, open connections and migration history. */
 function fakeDb({
+  writerRole = SETTINGS_WRITER_ROLE,
   writerLogin = true,
   connections = 2,
   roles = {},
@@ -438,9 +522,11 @@ function fakeDb({
 } = {}) {
   const state = {
     roles: {
-      ...(writerMissing
+      // The other login-switch role is just another untouched function role here.
+      ...(writerRole === SETTINGS_WRITER_ROLE
         ? {}
-        : { [SETTINGS_WRITER_ROLE]: { login: writerLogin } }),
+        : { [SETTINGS_WRITER_ROLE]: { login: true } }),
+      ...(writerMissing ? {} : { [writerRole]: { login: writerLogin } }),
       still_entitlement_writer: { login: true },
       still_policy_reader: { login: true },
       still_policy_admin: { login: true },
@@ -461,7 +547,9 @@ function fakeDb({
         `role ${name} | superuser false`,
       ])
       .sort();
-  const writer = () => state.roles[SETTINGS_WRITER_ROLE];
+  const writer = () => state.roles[writerRole];
+  const named = (file, key) =>
+    LOGIN_SWITCHES.find((name) => file.endsWith(OPERATIONS[name][key].path));
   const closeAll = () => {
     const closed = state.connections;
     state.connections = 0;
@@ -488,10 +576,9 @@ function fakeDb({
       const readOnly = args.includes(
         "set session characteristics as transaction read only",
       );
-      if (
-        file.endsWith(OPERATIONS[PAUSE].sql.path) ||
-        file.endsWith(OPERATIONS[RESUME].sql.path)
-      ) {
+      const operation = named(file, "sql");
+      if (operation) {
+        assert.equal(OPERATIONS[operation].role, writerRole);
         assert.ok(!readOnly, "the operation itself is not a read-only session");
         assert.ok(args.includes("set lock_timeout = '10s'"));
         assert.ok(
@@ -500,7 +587,7 @@ function fakeDb({
         );
         if (sqlFailure) return { code: 3, stdout: "", stderr: sqlFailure };
         let out = "";
-        if (file.endsWith(OPERATIONS[PAUSE].sql.path)) {
+        if (!OPERATIONS[operation].login) {
           writer().login = false;
           out = JSON.stringify({ closed: closeAll(), remaining: 0 });
         } else writer().login = true;
@@ -516,7 +603,9 @@ function fakeDb({
         return ok(JSON.stringify(["grant A", "function f"]));
       if (file.endsWith("rehearsal-data-fingerprint.sql"))
         return ok(JSON.stringify(state.data));
-      if (file.endsWith(OPERATIONS[PAUSE].verification.path)) {
+      const checked = named(file, "verification");
+      if (checked) assert.equal(OPERATIONS[checked].role, writerRole);
+      if (checked && !OPERATIONS[checked].login) {
         if (!writer()) return ok('["writer_role_missing"]');
         return ok(
           JSON.stringify(
@@ -527,7 +616,7 @@ function fakeDb({
           ),
         );
       }
-      if (file.endsWith(OPERATIONS[RESUME].verification.path)) {
+      if (checked) {
         if (!writer()) return ok('["writer_role_missing"]');
         return ok(writer().login ? "[]" : '["writer_cannot_login"]');
       }
@@ -571,7 +660,14 @@ function fakeDb({
     throw new Error(`unexpected psql command ${text}`);
   };
   const spawnHeld = (cmd, args, opts) => {
-    assert.equal(opts.env.PGUSER, SETTINGS_WRITER_ROLE);
+    assert.equal(opts.env.PGUSER, writerRole);
+    // The held session lifts the role's statement timeout so only the operation can end it.
+    assert.deepEqual(args.slice(-4), [
+      "-c",
+      "set statement_timeout = 0",
+      "-c",
+      "select pg_catalog.pg_sleep(600)",
+    ]);
     let resolve;
     const done = new Promise((r) => {
       resolve = r;
@@ -634,7 +730,7 @@ const operationWrites = (state) =>
   state.calls.filter(
     ([c, a]) =>
       c === "psql" &&
-      /-settings-sync\.sql$/.test(a.at(-1)) &&
+      /-(settings-sync|qa-sandbox)\.sql$/.test(a.at(-1)) &&
       !a.at(-1).endsWith(".verify.sql"),
   );
 
@@ -709,8 +805,8 @@ test("resume: login on, verified, no connection wait, nothing else changed", asy
     "role-facts.sql",
     "migration-history.sql",
   ]);
-  for (const role of UNTOUCHED_FUNCTION_ROLES)
-    assert.equal(db.state.roles[role].login, true);
+  for (const role of untouchedRoles(OPERATIONS[RESUME]))
+    if (db.state.roles[role]) assert.equal(db.state.roles[role].login, true);
 });
 
 test("repeating an operation whose end state holds reports it and writes nothing", async (t) => {
@@ -1138,6 +1234,141 @@ test("rehearsal negative controls: an ineffective pause, a surviving connection,
       (e) => e.category === "replay-not-local",
     );
     assert.equal(db.state.calls.length, 0);
+  }
+});
+
+// ── The paid QA lane's emergency stop (same contract, other role) ───────────────────────────
+
+test("pause-qa-sandbox: the QA writer's login off and connections closed; settings sync untouched", async (t) => {
+  const fx = await opFixture(t, QA_PAUSE);
+  assert.equal(fx.p.role, QA_SANDBOX_WRITER_ROLE);
+  assert.deepEqual(fx.p.untouchedRoles, [
+    "still_entitlement_writer",
+    "still_policy_reader",
+    "still_policy_admin",
+    "still_settings_writer",
+  ]);
+  assert.equal(fx.p.recovery, "safe to repeat; to undo, run resume-qa-sandbox");
+  const shown = renderOperationPlan(fx.p);
+  assert.ok(shown.includes("alter role still_qa_sandbox_writer nologin;"));
+  assert.ok(shown.includes("still_settings_writer"));
+  const db = fakeDb({ writerRole: QA_SANDBOX_WRITER_ROLE });
+  const receipt = await run(fx, db, { settleMs: 0 });
+  assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
+  assert.equal(db.state.roles[QA_SANDBOX_WRITER_ROLE].login, false);
+  assert.equal(db.state.roles[SETTINGS_WRITER_ROLE].login, true);
+  assert.equal(db.state.connections, 0);
+  assert.equal(receipt.recovery, "none needed; to undo, run resume-qa-sandbox");
+  assert.deepEqual(sequence(db.state).slice(3, 5), [
+    "pause-qa-sandbox.verify.sql",
+    "pause-qa-sandbox.sql",
+  ]);
+  // Repeating it is a no-change; resuming it switches the login back on.
+  const again = await run(fx, db, { settleMs: 0 });
+  assert.deepEqual(
+    [again.status, again.outcome, again.writeAttempted],
+    ["no-change", "already-paused", false],
+  );
+  const resumeFx = await opFixture(t, QA_RESUME);
+  const resumed = await run(resumeFx, db);
+  assert.equal(resumed.status, "verified");
+  assert.equal(db.state.roles[QA_SANDBOX_WRITER_ROLE].login, true);
+  assert.equal(
+    resumed.recovery,
+    "none needed; to stop the paid QA lane again, run pause-qa-sandbox",
+  );
+});
+
+test("a QA pause that also touches the settings writer fails, and recovery names the QA operation", async (t) => {
+  const fx = await opFixture(t, QA_PAUSE);
+  const db = fakeDb({
+    writerRole: QA_SANDBOX_WRITER_ROLE,
+    onOperation: (s) => (s.roles[SETTINGS_WRITER_ROLE].login = false),
+  });
+  const receipt = await run(fx, db, { settleMs: 0 });
+  assert.equal(receipt.status, "verification-failed");
+  assert.deepEqual(receipt.issues, ["other-roles-changed"]);
+  assert.match(
+    receipt.recovery,
+    /^End state verified: the paid QA lane IS paused \(still_qa_sandbox_writer cannot sign in/,
+  );
+  assert.match(receipt.recovery, /Do not run pause-qa-sandbox again/);
+  assert.doesNotMatch(receipt.recovery, /settings-sync|\bsync\b/);
+  // The run that never reached its end state names the QA lane, not sync.
+  const missed = await run(
+    fx,
+    fakeDb({
+      writerRole: QA_SANDBOX_WRITER_ROLE,
+      onOperation: (s) => (s.roles[QA_SANDBOX_WRITER_ROLE].login = true),
+    }),
+    { settleMs: 0 },
+  );
+  assert.match(
+    missed.recovery,
+    /^End state NOT reached: do not assume the paid QA lane is paused\. Run pause-qa-sandbox again/,
+  );
+  const closing = renderOperationFinal(
+    { ...missed, status: "in-progress", applied: false },
+    { applyOutcome: "failure", jobStatus: "cancelled" },
+  );
+  assert.match(closing, /run pause-qa-sandbox again \(safe to repeat\)/);
+  assert.doesNotMatch(closing, /settings-sync/);
+});
+
+test("an unexpected starting state is refused before any write", async (t) => {
+  const fx = await opFixture(t, QA_RESUME);
+  const db = fakeDb({ writerRole: QA_SANDBOX_WRITER_ROLE, writerLogin: false });
+  const exec = async (cmd, args, opts) =>
+    args.at(-1)?.endsWith("resume-qa-sandbox.verify.sql")
+      ? {
+          code: 0,
+          stdout: '["writer_cannot_login","writer_surprise"]\n',
+          stderr: "",
+        }
+      : db.exec(cmd, args, opts);
+  const receipt = await run(fx, { ...db, exec });
+  assert.deepEqual(
+    [receipt.status, receipt.issues, receipt.writeAttempted, receipt.endState],
+    ["refused", ["operation-precondition"], false, "not-reached"],
+  );
+  assert.match(
+    receipt.steps.at(-1).detail,
+    /unexpected starting state: writer_surprise/,
+  );
+  assert.equal(operationWrites(db.state).length, 0);
+});
+
+test("QA pause and resume rehearsals prove the effect and leave every other function role signing in", async (t) => {
+  for (const [operation, notes] of [
+    [
+      QA_PAUSE,
+      [
+        "before: the writer holds an open connection",
+        "after: the writer holds no connection",
+      ],
+    ],
+    [QA_RESUME, ["after: the writer's sign-in is allowed"]],
+  ]) {
+    const fx = await opFixture(t, operation);
+    const db = fakeDb({
+      writerRole: QA_SANDBOX_WRITER_ROLE,
+      writerLogin: false,
+      connections: 0,
+    });
+    const result = await replay(fx, db);
+    assert.equal(
+      result.status,
+      "verified",
+      JSON.stringify(result.proofs, null, 2),
+    );
+    const names = result.proofs.map((p) => p.name);
+    for (const note of notes) assert.ok(names.includes(note), note);
+    assert.ok(
+      names.includes("after: still_settings_writer still signs in (untouched)"),
+    );
+    assert.deepEqual(result.roleDiff.removed, [
+      `role still_qa_sandbox_writer | login ${operation === QA_RESUME ? "false" : "true"}`,
+    ]);
   }
 });
 

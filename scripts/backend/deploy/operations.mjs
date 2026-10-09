@@ -4,21 +4,30 @@
 //                      connections. The sync-settings function reaches the database only as that
 //                      role, so new sync stops; apps keep settings on the device and retry.
 // resume-settings-sync switches still_settings_writer back to LOGIN (password untouched).
+// pause-qa-sandbox     the same emergency stop for still_qa_sandbox_writer: every paid qa-sandbox-*
+//                      function answers "unavailable" at once. Free sync and live customers are
+//                      untouched.
+// resume-qa-sandbox    switches still_qa_sandbox_writer back to LOGIN (password untouched).
 //
 // Each runs through the same protected workflow as a migration: manual dispatch from main, a plan
 // (no secrets) that binds the exact SQL by hash and rehearses it on a throwaway database, owner
 // approval in the `supabase-production` environment, re-derivation of the same plan digest, then
 // the SQL, read-only verification and an always-run closing record with no secrets.
 //
+// Every operation has a `kind` (see KINDS below) that fixes its allowed statement shapes, its
+// definition contract, the end state its check proves and its recovery text. A new kind (for
+// example the credentials operation planned for the QA secrets) plugs in by adding one KINDS entry
+// and its registry rows; the planner, runner, rehearsal and closing record dispatch on the kind.
+//
 // Guarantees enforced here (each has a test and a negative control in operations.test.mjs):
 // - only the operations in OPERATIONS exist; an operation never runs together with migrations;
 // - the SQL bytes must equal the hash pinned below, and every statement must be one of the exact
-//   allowed shapes naming only still_settings_writer;
+//   allowed shapes of the operation's kind (a login switch names only its own target role);
 // - a post-apply read-only check proves the end state (login off and no connections, or login
 //   on), and a before/after comparison of every role's attributes proves that nothing but the
-//   writer's login changed (the sales, rating and purchase roles keep their own logins);
-// - repeating an operation whose end state already holds reports "already paused" or "already
-//   resumed" and writes nothing.
+//   operation's own change happened (every other function role keeps its own login);
+// - repeating an operation whose end state already holds reports that ("already paused", ...)
+//   and writes nothing.
 //
 // Not a migration: nothing is added to migration history, and the history must be unchanged.
 import { spawn } from "node:child_process";
@@ -53,12 +62,23 @@ import {
 } from "./deploy.mjs";
 
 export const SETTINGS_WRITER_ROLE = "still_settings_writer";
-/** Roles other Edge Functions sign in as. An operation must leave every one of them untouched. */
-export const UNTOUCHED_FUNCTION_ROLES = Object.freeze([
+export const QA_SANDBOX_WRITER_ROLE = "still_qa_sandbox_writer";
+/** Every role an Edge Function signs in as. An operation leaves all of them untouched except its own target. */
+export const FUNCTION_ROLES = Object.freeze([
   "still_entitlement_writer", // purchase webhook
   "still_policy_reader", // sales and rating switches (read)
   "still_policy_admin", // sales and rating switches (owner admin)
+  SETTINGS_WRITER_ROLE, // free settings sync
+  QA_SANDBOX_WRITER_ROLE, // fixed sandbox QA functions
 ]);
+/** The only roles a login switch may target (each has a pause and a resume operation). */
+export const LOGIN_SWITCH_ROLES = Object.freeze([
+  SETTINGS_WRITER_ROLE,
+  QA_SANDBOX_WRITER_ROLE,
+]);
+/** The function roles an operation must leave untouched: all of them except its own target. */
+export const untouchedRoles = (op) =>
+  FUNCTION_ROLES.filter((role) => role !== op.role);
 export const ROLE_FACTS_SQL = "scripts/backend/deploy/sql/role-facts.sql";
 export const DATA_FINGERPRINT_SQL =
   "scripts/backend/deploy/sql/rehearsal-data-fingerprint.sql";
@@ -78,53 +98,151 @@ export const terminateStatement = (role) =>
   "pg_catalog.pg_terminate_backend(a.pid, 5000) as closed from pg_catalog.pg_stat_activity a " +
   `where a.usename = '${role}' and a.pid <> pg_catalog.pg_backend_pid()) t`;
 
+/** Kind of an operation that switches one function role's login off (closing its connections) or on. */
+export const ROLE_LOGIN = "role-login";
+
+const loginSwitch = ({
+  role,
+  login,
+  requiresMigration,
+  sql,
+  verification,
+  lane,
+  counterpart,
+  lastResort,
+}) =>
+  Object.freeze({
+    kind: ROLE_LOGIN,
+    role,
+    login,
+    closesConnections: !login,
+    requiresMigration,
+    sql: Object.freeze(sql),
+    verification: Object.freeze(verification),
+    noChange: login ? "already-resumed" : "already-paused",
+    effect: login
+      ? `${role} can sign in again (rolcanlogin true) with its existing password`
+      : `${role} cannot sign in (rolcanlogin false) and holds no database connection`,
+    lane,
+    counterpart,
+    lastResort,
+  });
+
 /**
  * The complete list of operations. Changing an operation's SQL or check means changing its pinned
  * hash here too, in the same reviewed commit; the planner refuses any other bytes.
  */
 export const OPERATIONS = Object.freeze({
-  "pause-settings-sync": Object.freeze({
+  "pause-settings-sync": loginSwitch({
     role: SETTINGS_WRITER_ROLE,
     login: false,
-    closesConnections: true,
     requiresMigration: "0015_settings_sync_per_field.sql",
-    sql: Object.freeze({
+    sql: {
       path: `${OPERATIONS_DIR}/pause-settings-sync.sql`,
       sha256:
         "eaa46c0fa7155a783c4c7858e00a68a1f8fdd4c6c1a4125c7c82874f63e59726",
-    }),
-    verification: Object.freeze({
+    },
+    verification: {
       path: `${OPERATIONS_DIR}/pause-settings-sync.verify.sql`,
       sha256:
         "6a5017a37c6b9579f818eed913aba6fd739ed59931334b1f12354996cd75dc82",
-    }),
-    noChange: "already-paused",
-    effect:
-      "still_settings_writer cannot sign in (rolcanlogin false) and holds no database connection",
+    },
+    lane: "sync",
+    counterpart: "resume-settings-sync",
+    lastResort: "the dashboard SQL in the pause runbook",
   }),
-  "resume-settings-sync": Object.freeze({
+  "resume-settings-sync": loginSwitch({
     role: SETTINGS_WRITER_ROLE,
     login: true,
-    closesConnections: false,
     requiresMigration: "0015_settings_sync_per_field.sql",
-    sql: Object.freeze({
+    sql: {
       path: `${OPERATIONS_DIR}/resume-settings-sync.sql`,
       sha256:
         "41f106901fc6e6756ae8f6e180f23b18510ba95ebf4a981f6a434751aa0c9b32",
-    }),
-    verification: Object.freeze({
+    },
+    verification: {
       path: `${OPERATIONS_DIR}/resume-settings-sync.verify.sql`,
       sha256:
         "e08beb82225105f952108d313ce1b1e0ca5def8257472c29ec061d6a1a350471",
-    }),
-    noChange: "already-resumed",
-    effect:
-      "still_settings_writer can sign in again (rolcanlogin true) with its existing password",
+    },
+    lane: "sync",
+    counterpart: "pause-settings-sync",
+    lastResort: "the dashboard SQL in the pause runbook",
+  }),
+  "pause-qa-sandbox": loginSwitch({
+    role: QA_SANDBOX_WRITER_ROLE,
+    login: false,
+    requiresMigration: "0021_qa_sandbox_access.sql",
+    sql: {
+      path: `${OPERATIONS_DIR}/pause-qa-sandbox.sql`,
+      sha256:
+        "7cfd2f4a34cc61091863d5c5ad2e0b2a3f64df045607b5e0c36048b003ea2d0c",
+    },
+    verification: {
+      path: `${OPERATIONS_DIR}/pause-qa-sandbox.verify.sql`,
+      sha256:
+        "eb1c3af164e7761a6031edfc7d235b9bacf057ed430d6e75e1b1f84a2bf70634",
+    },
+    lane: "the paid QA lane",
+    counterpart: "resume-qa-sandbox",
+    lastResort:
+      "delete the STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL function secret in the Supabase dashboard",
+  }),
+  "resume-qa-sandbox": loginSwitch({
+    role: QA_SANDBOX_WRITER_ROLE,
+    login: true,
+    requiresMigration: "0021_qa_sandbox_access.sql",
+    sql: {
+      path: `${OPERATIONS_DIR}/resume-qa-sandbox.sql`,
+      sha256:
+        "53a00df77e687651a8a4ff14e8573454e59915254d616d6fa7bfc845bcc5985e",
+    },
+    verification: {
+      path: `${OPERATIONS_DIR}/resume-qa-sandbox.verify.sql`,
+      sha256:
+        "dfc0b0eb412dcf46e0e01706755b7fbadccfe44b0557a41439f103dd5958cdfc",
+    },
+    lane: "the paid QA lane",
+    counterpart: "pause-qa-sandbox",
+    lastResort:
+      "alter role still_qa_sandbox_writer login in the Supabase SQL editor",
   }),
 });
 
 /** Workflow value for an ordinary numbered-migration deploy. */
 export const MIGRATIONS_MODE = "migrations";
+
+/**
+ * Per-kind contracts. `definition` checks the registry row; `scope` checks the SQL text against the
+ * kind's allowed statement shapes; `closes` lists the end-state check's issue codes the operation
+ * may close (any other code before the write is a refusal); `expectedRoleDiff` is the only change
+ * to role facts the operation may cause.
+ */
+export const KINDS = Object.freeze({
+  [ROLE_LOGIN]: Object.freeze({
+    definition(op, bad) {
+      if (!LOGIN_SWITCH_ROLES.includes(op.role))
+        bad("a login switch may only touch the settings or QA sandbox writer");
+      if (typeof op.login !== "boolean") bad("missing end-state login value");
+      if (op.closesConnections !== !op.login)
+        bad("a pause must close connections and a resume must not");
+      if (op.noChange !== (op.login ? "already-resumed" : "already-paused"))
+        bad("missing no-change outcome");
+    },
+    scope: (sql, op) => assertLoginScope(sql, op),
+    closes: (op) =>
+      op.login
+        ? ["writer_cannot_login"]
+        : ["writer_can_login", "writer_connections_open"],
+    expectedRoleDiff(op, factsBefore) {
+      const from = `role ${op.role} | login ${!op.login}`;
+      const to = `role ${op.role} | login ${op.login}`;
+      return factsBefore.includes(from)
+        ? { removed: [from], added: [to] }
+        : { removed: [], added: [] };
+    },
+  }),
+});
 
 /** Structural contract every operation definition must meet (tested against OPERATIONS). */
 export function assertOperationDefinition(name, op) {
@@ -135,11 +253,8 @@ export function assertOperationDefinition(name, op) {
   if (!/^[a-z][a-z0-9-]{2,62}$/.test(name) || name === MIGRATIONS_MODE)
     bad("bad operation name");
   if (!op || typeof op !== "object") bad("missing definition");
-  if (op.role !== SETTINGS_WRITER_ROLE)
-    bad("operations may only touch the settings writer");
-  if (typeof op.login !== "boolean") bad("missing end-state login value");
-  if (op.closesConnections !== !op.login)
-    bad("a pause must close connections and a resume must not");
+  if (typeof op.kind !== "string" || !Object.hasOwn(KINDS, op.kind))
+    bad("unknown operation kind");
   for (const key of ["sql", "verification"]) {
     if (!op[key] || !hex.test(op[key].sha256 ?? ""))
       bad(`missing pinned ${key} hash`);
@@ -149,10 +264,12 @@ export function assertOperationDefinition(name, op) {
     )
       bad(`unexpected ${key} path`);
   }
-  if (!["already-paused", "already-resumed"].includes(op.noChange))
-    bad("missing no-change outcome");
   if (!/^[0-9]{4,14}_[a-z0-9_]+\.sql$/.test(op.requiresMigration ?? ""))
     bad("missing required migration");
+  for (const key of ["effect", "lane", "counterpart", "lastResort"])
+    if (typeof op[key] !== "string" || op[key] === "")
+      bad(`missing ${key} text`);
+  KINDS[op.kind].definition(op, bad);
   return true;
 }
 
@@ -168,11 +285,18 @@ export function operationNamed(name, registry = OPERATIONS) {
   return op;
 }
 
-/**
- * Every statement must be one of the exact allowed shapes, name only the operation's role, and
- * appear in the operation's exact order. Defense in depth: the pinned hash is the primary guard.
- */
+/** The SQL must be one of its kind's allowed shapes. Defense in depth: the pinned hash is the primary guard. */
 export function assertOperationScope(sql, op) {
+  if (!op || !Object.hasOwn(KINDS, op.kind ?? ""))
+    throw new Refusal("operation-scope", "Unknown operation kind");
+  return KINDS[op.kind].scope(sql, op);
+}
+
+/**
+ * Login switch: every statement must be one of the exact allowed shapes, name only the
+ * operation's role, and appear in the operation's exact order.
+ */
+function assertLoginScope(sql, op) {
   const statements = stripComments(sql)
     .split(";")
     .map((s) =>
@@ -300,6 +424,7 @@ export async function createOperationPlan({
     protocol: 1,
     kind: OPERATION_KIND,
     operation,
+    operationKind: op.kind,
     role: op.role,
     login: op.login,
     closesConnections: op.closesConnections,
@@ -312,15 +437,15 @@ export async function createOperationPlan({
     sql: { path: sql.path, sha256: sql.sha256 },
     sqlText: sql.text,
     verification: { path: verification.path, sha256: verification.sha256 },
-    untouchedRoles: [...UNTOUCHED_FUNCTION_ROLES],
+    untouchedRoles: untouchedRoles(op),
     rehearsalMigrations,
     functions: [],
     migrations: [],
     tooling,
     effect: op.effect,
     recovery: op.login
-      ? "safe to repeat; to stop sync again, run pause-settings-sync"
-      : "safe to repeat; to undo, run resume-settings-sync",
+      ? `safe to repeat; to stop ${op.lane} again, run ${op.counterpart}`
+      : `safe to repeat; to undo, run ${op.counterpart}`,
   };
   return { ...manifest, digest: sha256(canonical(manifest)) };
 }
@@ -330,6 +455,7 @@ export function assertPlanPinned(plan, registry = OPERATIONS) {
   const op = operationNamed(plan.operation, registry);
   if (
     plan.kind !== OPERATION_KIND ||
+    plan.operationKind !== op.kind ||
     plan.role !== op.role ||
     plan.login !== op.login ||
     plan.sql?.path !== op.sql.path ||
@@ -423,12 +549,38 @@ const factList = (line) => {
 };
 
 /** The only role-fact difference an operation may cause, given the facts before it. */
-export function expectedRoleDiff(op, factsBefore) {
-  const from = `role ${op.role} | login ${!op.login}`;
-  const to = `role ${op.role} | login ${op.login}`;
-  return factsBefore.includes(from)
-    ? { removed: [from], added: [to] }
-    : { removed: [], added: [] };
+export const expectedRoleDiff = (op, factsBefore) =>
+  KINDS[op.kind].expectedRoleDiff(op, factsBefore);
+
+/** Owner-facing recovery text for an operation, by situation (one place for every kind). */
+export function recoveryText(op, name, situation, sideFailed = []) {
+  const state = op.login ? "resumed" : "paused";
+  switch (situation) {
+    case "write-attempted":
+      return op.login
+        ? `The resume may not have finished. Run ${name} again (safe to repeat). Last resort: ${op.lastResort}.`
+        : `The pause may be only partly done. Run ${name} again (safe to repeat). Last resort: ${op.lastResort}.`;
+    case "end-state-missed": {
+      let text =
+        `End state NOT reached: do not assume ${op.lane} is ${state}. Run ${name} again (safe to repeat); ` +
+        "if the checks still fail, run the runbook's read-only checks privately.";
+      if (sideFailed.length)
+        text += ` Separately, a side check failed (${sideFailed.join(", ")}): inspect role settings and migration history privately (Supabase SQL editor).`;
+      return text;
+    }
+    case "side-check-failed":
+      return (
+        `End state verified: ${op.lane} IS ${state} (${op.effect}). But a separate check failed (${sideFailed.join(", ")}): ` +
+        "something other than the writer's login changed during the run (another role's settings, or migration history), possibly unrelated activity. " +
+        `Do not run ${name} again to fix that, and do not undo the ${op.login ? "resume" : "pause"} because of it; inspect role settings and migration history privately (Supabase SQL editor) and decide.`
+      );
+    case "verified":
+      return op.login
+        ? `none needed; to stop ${op.lane} again, run ${op.counterpart}`
+        : `none needed; to undo, run ${op.counterpart}`;
+    default:
+      throw new Error(`unknown recovery situation ${situation}`);
+  }
 }
 
 const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -523,9 +675,21 @@ export async function runOperation({
       await step(
         "state before",
         "refused",
-        "the settings writer role does not exist",
+        `the ${op.role} role does not exist`,
       );
       throw new Refusal("writer-role-missing");
+    }
+    // Anything the operation does not itself close means an unexpected starting state: refuse
+    // before writing (issue codes are fixed strings, never data, so they are safe to print).
+    const closable = KINDS[op.kind].closes(op);
+    const unexpected = before.filter((code) => !closable.includes(code));
+    if (unexpected.length) {
+      await step(
+        "state before",
+        "refused",
+        `unexpected starting state: ${unexpected.join(", ")}`,
+      );
+      throw new Refusal("operation-precondition");
     }
     if (before.length === 0) {
       receipt.status = "no-change";
@@ -556,9 +720,7 @@ export async function runOperation({
   }
 
   receipt.writeAttempted = true;
-  receipt.recovery = op.login
-    ? "The resume may not have finished. Run resume-settings-sync again (safe to repeat). Last resort: the dashboard SQL in the pause runbook."
-    : "The pause may be only partly done. Run pause-settings-sync again (safe to repeat). Last resort: the dashboard SQL in the pause runbook.";
+  receipt.recovery = recoveryText(op, plan.operation, "write-attempted");
   await onProgress(receipt);
   const ran = await runOperationSql({
     exec,
@@ -685,26 +847,17 @@ export async function runOperation({
   const sideFailed = receipt.issues.filter(
     (i) => !/^verification-(issues|error):/.test(i),
   );
-  const state = op.login ? "resumed" : "paused";
-  const again = op.login ? "resume-settings-sync" : "pause-settings-sync";
   if (receipt.issues.length) {
     receipt.status = "verification-failed";
-    if (!endStateReached) {
-      receipt.recovery =
-        `End state NOT reached: do not assume sync is ${state}. Run ${again} again (safe to repeat); ` +
-        "if the checks still fail, run the runbook's read-only checks privately.";
-      if (sideFailed.length)
-        receipt.recovery += ` Separately, a side check failed (${sideFailed.join(", ")}): inspect role settings and migration history privately (Supabase SQL editor).`;
-    } else
-      receipt.recovery =
-        `End state verified: sync IS ${state} (${op.effect}). But a separate check failed (${sideFailed.join(", ")}): ` +
-        "something other than the writer's login changed during the run (another role's settings, or migration history), possibly unrelated activity. " +
-        `Do not run ${again} again to fix that, and do not undo the ${op.login ? "resume" : "pause"} because of it; inspect role settings and migration history privately (Supabase SQL editor) and decide.`;
+    receipt.recovery = recoveryText(
+      op,
+      plan.operation,
+      endStateReached ? "side-check-failed" : "end-state-missed",
+      sideFailed,
+    );
   } else {
     receipt.status = "verified";
-    receipt.recovery = op.login
-      ? "none needed; to stop sync again, run pause-settings-sync"
-      : "none needed; to undo, run resume-settings-sync";
+    receipt.recovery = recoveryText(op, plan.operation, "verified");
   }
   await onProgress(receipt);
   return receipt;
@@ -850,16 +1003,16 @@ export async function runOperationReplay({
   // Starting state, rehearsal only: the roles that exist get LOGIN and a throwaway password.
   const roles = JSON.parse(
     await sql(
-      `select coalesce(pg_catalog.json_agg(rolname::text order by rolname), '[]') from pg_catalog.pg_roles where rolname in (${[op.role, ...UNTOUCHED_FUNCTION_ROLES].map((r) => `'${r}'`).join(", ")})`,
+      `select coalesce(pg_catalog.json_agg(rolname::text order by rolname), '[]') from pg_catalog.pg_roles where rolname in (${[op.role, ...untouchedRoles(op)].map((r) => `'${r}'`).join(", ")})`,
       { readOnly: true },
     ),
   );
   if (!roles.includes(op.role))
     throw new Refusal(
       "writer-role-missing",
-      "The rehearsal database has no settings writer role",
+      `The rehearsal database has no ${op.role} role`,
     );
-  const others = UNTOUCHED_FUNCTION_ROLES.filter((r) => roles.includes(r));
+  const others = untouchedRoles(op).filter((r) => roles.includes(r));
   for (const role of roles)
     await sql(`alter role ${role} login password '${password}'`);
   if (op.login) await sql(`alter role ${op.role} nologin`);
@@ -869,7 +1022,18 @@ export async function runOperationReplay({
     if (op.closesConnections) {
       held = spawnHeld(
         "psql",
-        ["-X", "-q", "-A", "-t", "-c", "select pg_catalog.pg_sleep(600)"],
+        // The writer roles carry a 2 s statement_timeout; the held connection lifts it for its own
+        // session so only the operation, never the timeout, can end it.
+        [
+          "-X",
+          "-q",
+          "-A",
+          "-t",
+          "-c",
+          "set statement_timeout = 0",
+          "-c",
+          "select pg_catalog.pg_sleep(600)",
+        ],
         { cwd, env: loginEnv(op.role) },
       );
       let open = 0;
@@ -1030,7 +1194,7 @@ export function renderOperationPlan(plan) {
     `- Approval environment: \`${plan.environment}\` (owner approval required before any secret is available)`,
     "- This is an operation, not a migration: nothing is added to migration history, and no migration or function runs with it.",
     `- End state the job verifies: ${plan.effect}.`,
-    `- Untouched, and checked: every other role, including ${plan.untouchedRoles.join(", ")} (purchases, sales and rating switches).`,
+    `- Untouched, and checked: every other role, including the other function roles ${plan.untouchedRoles.join(", ")}.`,
     "- Safe to repeat: if the end state already holds, the job reports it and writes nothing.",
     plan.onFirstParent
       ? "- The commit is on main's own line of history (first parent)."
@@ -1123,10 +1287,8 @@ export function renderOperationFinal(receipt, { applyOutcome, jobStatus }) {
   if (receipt.status === "in-progress") {
     // The run ended before it could judge the end state, wherever it was interrupted.
     endState = "unknown";
-    const again =
-      receipt.operation === "resume-settings-sync"
-        ? "resume-settings-sync"
-        : "pause-settings-sync";
+    // Every operation is safe to repeat: the one to run again is the one that was interrupted.
+    const again = receipt.operation;
     if (receipt.applied) {
       outcome = `operation ran; verification not completed (interrupted: ${how})`;
       recovery = `run ${again} again (safe to repeat; it reports the state and writes nothing if already done)`;
