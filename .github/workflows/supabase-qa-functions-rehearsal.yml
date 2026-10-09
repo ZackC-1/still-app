@@ -1,0 +1,78 @@
+name: Supabase fixed QA function rehearsal
+
+# Disposable Linux runner only. No protected environment, hosted credentials,
+# provider calls, uploaded hosted artifacts or production deployments.
+on:
+  pull_request:
+    paths:
+      - "scripts/backend/deploy/**"
+      - "scripts/backend/plan.mjs"
+      - "supabase/**"
+      - "packages/core/src/**"
+      - "packages/shared-types/src/**"
+      - ".github/workflows/supabase-production-deploy.yml"
+      - ".github/workflows/supabase-qa-functions-rehearsal.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-qa-functions-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa-functions-rehearsal:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.8.3"
+      - name: Exact source, upload, protection and interrupted-write checks
+        env:
+          STILL_QA_BUNDLE_INTEGRATION: "1"
+        run: node --test scripts/backend/deploy/deploy.test.mjs scripts/backend/deploy/qa-functions.test.mjs scripts/backend/deploy/qa-function-bundles.test.mjs
+      - name: Install pinned Supabase CLI (checksum verified)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Rehearse current SQL prerequisites and the sealed uploads on the actual Edge runtime
+        env:
+          STILL_QA_RUNTIME_INTEGRATION: "1"
+          STILL_QA_PREREQUISITE_INTEGRATION: "1"
+        run: |
+          set -euo pipefail
+          test "$(supabase --version)" = '2.119.0'
+          cleanup() {
+            supabase stop --project-id still-app --no-backup >/dev/null 2>&1 || return 1
+            test -z "$(docker ps -aq --filter label=com.supabase.cli.project=still-app)"
+            test -z "$(docker volume ls -q --filter label=com.supabase.cli.project=still-app)"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT TERM
+          supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
+          supabase db reset --local --no-seed --version 0021 >/dev/null
+          # Fixture-only role/policy readiness, on this runner's empty database.
+          # No real users, provider keys, registry admissions or enabled sales.
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          alter role still_settings_writer login;
+          alter role still_policy_reader login;
+          alter role still_qa_sandbox_writer login;
+          insert into private.product_policy_operations(operation_id,kind,namespace,environment,owner_subject,expected_revision,body,preview_hash,created_at,expires_at,status,applied_revision,applied_at)
+          values('00000000-0000-4000-8000-000000000001','apply','sales','sandbox','00000000-0000-4000-8000-000000000002',0,'{}',repeat('0',64),clock_timestamp(),clock_timestamp()+interval '1 hour','applied',1,clock_timestamp());
+          insert into private.product_policy_revisions(namespace,environment,revision,body,operation_id,published_at)
+          values('sales','sandbox',1,'{"schema":1,"environment":"sandbox","revision":1,"salesEnabled":false,"channels":{"apple":{"enabled":false,"offer":"still-pro-v3"},"web":{"enabled":false,"offer":"still-pro-v3"}},"builds":[]}',
+          '00000000-0000-4000-8000-000000000001',clock_timestamp());
+          SQL
+          node --test scripts/backend/deploy/qa-functions.test.mjs

@@ -11,6 +11,7 @@ import {
   TOOLING_PATHS,
 } from "./deploy.mjs";
 import { OPERATIONS } from "./operations.mjs";
+import { QA_OPERATION } from "./qa-functions.mjs";
 
 const WORKFLOWS = new URL("../../../.github/workflows/", import.meta.url);
 const DEPLOY = "supabase-production-deploy.yml";
@@ -62,6 +63,7 @@ test("deploy workflow runs only on manual dispatch, serialized, with read-only t
   const { workflow } = await load(DEPLOY);
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs).sort(), [
+    "baseline_sha256",
     "commit",
     "functions",
     "migrations",
@@ -72,6 +74,7 @@ test("deploy workflow runs only on manual dispatch, serialized, with read-only t
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.mode.options, [
     "plan-only",
     "apply",
+    "baseline-only",
   ]);
   assert.equal(workflow.on.workflow_dispatch.inputs.functions.default, "");
   assert.deepEqual(workflow.permissions, { contents: "read" });
@@ -104,7 +107,7 @@ test("every action in the deploy workflow is pinned to a full commit SHA", async
   }
 });
 
-test("only the approved apply job is bound to the environment and sees the one secret", async () => {
+test("only the approved apply job is bound to the environment and sees only the fixed deployment secrets", async () => {
   const { text, workflow } = await load(DEPLOY);
   const { plan, apply } = workflow.jobs;
   assert.deepEqual(Object.keys(workflow.jobs), ["plan", "apply"]);
@@ -115,7 +118,7 @@ test("only the approved apply job is bound to the environment and sees the one s
   assert.match(apply.if, /needs\.plan\.outputs\.environment-ready == 'true'/);
   assert.deepEqual(
     [...text.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]),
-    ["SUPABASE_PRODUCTION_DB_URL"],
+    ["SUPABASE_PRODUCTION_DB_URL", "SUPABASE_PRODUCTION_ACCESS_TOKEN"],
   );
   const secretSteps = apply.steps.filter((s) =>
     JSON.stringify(s).includes("secrets."),
@@ -141,7 +144,12 @@ test("only the approved apply job is bound to the environment and sees the one s
     JOB_STATUS: "${{ job.status }}",
   });
   assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
-  assert.deepEqual(Object.keys(secretSteps[0].env), ["SUPABASE_DB_URL"]);
+  assert.deepEqual(secretSteps[0].env, {
+    SUPABASE_DB_URL: "${{ secrets.SUPABASE_PRODUCTION_DB_URL }}",
+    SUPABASE_PRODUCTION_ACCESS_TOKEN:
+      "${{ secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN }}",
+    GH_TOKEN: "${{ github.token }}",
+  });
   assert.match(secretSteps[0].run, /deploy\.mjs apply /);
   assert.ok(!JSON.stringify(plan).includes("secrets."));
   assert.equal(
@@ -247,7 +255,11 @@ test("no other workflow can reach the production database environment or its sec
         `${name} names ${ENVIRONMENT_NAME}`,
       );
     }
-    assert.ok(!text.includes("SUPABASE_PRODUCTION_DB_URL"), name);
+    for (const secret of [
+      "SUPABASE_PRODUCTION_DB_URL",
+      "SUPABASE_PRODUCTION_ACCESS_TOKEN",
+    ])
+      assert.ok(!text.includes(secret), name);
   }
 });
 
@@ -261,6 +273,7 @@ test("operations are a closed choice that defaults to migrations and leaves migr
   assert.deepEqual(operation.options, [
     "migrations",
     ...Object.keys(OPERATIONS),
+    QA_OPERATION,
   ]);
   assert.equal(migrations.required, "false");
   assert.equal(migrations.default, "");
@@ -271,15 +284,99 @@ test("operations are a closed choice that defaults to migrations and leaves migr
   );
 });
 
-test("an operation runs every protective step a migration does: no step can be skipped by the operation choice", async () => {
+test("every operation retains authority checks and uses only its fixed rehearsal path", async () => {
   const { workflow } = await load(DEPLOY);
   const { plan, apply } = workflow.jobs;
-  for (const job of [plan, apply]) {
-    for (const step of job.steps) {
-      // A step skipped for operations would remove a protection (rehearsal, verification, record).
-      assert.doesNotMatch(String(step.if ?? ""), /operation/, step.name);
+  assert.doesNotMatch(plan.if, /operation/);
+  assert.equal(
+    apply.if,
+    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions')) && needs.plan.outputs.environment-ready == 'true'",
+  );
+  for (const [jobName, job] of Object.entries({ plan, apply })) {
+    const conditionals = job.steps.filter((step) =>
+      /operation/.test(step.if ?? ""),
+    );
+    const expected = new Map([
+      ["denoland/setup-deno", "inputs.operation == 'qa-sandbox-functions'"],
+      [
+        "Install pinned Supabase CLI (checksum verified)",
+        "inputs.operation != 'qa-sandbox-functions'",
+      ],
+      [
+        "Verify pinned Supabase CLI",
+        "inputs.operation != 'qa-sandbox-functions'",
+      ],
+      ...(jobName === "plan"
+        ? [
+            [
+              "Rehearse the exact change on a throwaway database (no production access)",
+              "inputs.operation != 'qa-sandbox-functions'",
+            ],
+            [
+              "Verify fixed QA operation and compiler boundary (no production access)",
+              "inputs.operation == 'qa-sandbox-functions'",
+            ],
+          ]
+        : [
+            [
+              "Extract the exact commit and re-verify every hash",
+              "inputs.operation != 'qa-sandbox-functions'",
+            ],
+          ]),
+    ]);
+    assert.equal(conditionals.length, expected.size);
+    for (const step of conditionals) {
+      const key = step.uses?.startsWith("denoland/setup-deno@")
+        ? "denoland/setup-deno"
+        : step.name;
+      assert.equal(step.if, expected.get(key), `${jobName}: ${key}`);
+      expected.delete(key);
     }
-    assert.doesNotMatch(job.if, /operation/);
+    assert.equal(expected.size, 0);
+    for (const step of job.steps.filter((s) => !conditionals.includes(s)))
+      assert.ok(
+        step.if === undefined || step.if === "always()",
+        `${jobName}: ${step.name}`,
+      );
+    assert.equal(
+      job.steps.find((s) => s.uses?.startsWith("denoland/setup-deno@")).with[
+        "deno-version"
+      ],
+      "2.8.3",
+    );
+    assert.equal(
+      job.env.DEPLOY_BASELINE_SHA256,
+      "${{ inputs.baseline_sha256 }}",
+    );
+    assert.equal(
+      job.env.SUPABASE_PRODUCTION_PROJECT_REF,
+      "${{ vars.SUPABASE_PRODUCTION_PROJECT_REF }}",
+    );
+    assert.equal(job.env.DEPLOY_MODE, "${{ inputs.mode }}");
+  }
+  const protection = plan.steps.find((s) => s.id === "protection");
+  assert.match(
+    protection.run,
+    /if \[ "\$DEPLOY_MODE" = apply \] \|\| \[ "\$DEPLOY_MODE" = baseline-only \]; then/,
+  );
+  assert.match(protection.run, /protection --phase plan --require/);
+  const qaRehearsal = plan.steps.findIndex(
+    (s) =>
+      s.name ===
+      "Verify fixed QA operation and compiler boundary (no production access)",
+  );
+  assert.match(
+    plan.steps[qaRehearsal].run,
+    /qa-functions\.test\.mjs.*qa-function-bundles\.test\.mjs.*deploy\.test\.mjs/,
+  );
+  for (const job of [plan, apply]) {
+    const derived = job.steps.find((s) =>
+      s.run?.includes("deploy.mjs plan --out"),
+    );
+    assert.match(
+      derived.run,
+      /--source-dir "\$RUNNER_TEMP\/qa-source" --artifact-dir "\$RUNNER_TEMP\/qa-uploads"/,
+    );
   }
   const planOrder = [
     "deploy.mjs plan --out",
@@ -301,7 +398,7 @@ test("an operation runs every protective step a migration does: no step can be s
     s.uses?.startsWith("actions/upload-artifact@"),
   );
   assert.ok(
-    publish > planOrder.at(-1),
+    publish > planOrder.at(-1) && publish > qaRehearsal,
     "the plan is published after the rehearsal",
   );
   // The apply job: approval readback, re-derived digest, hash re-check, freshness, the one step

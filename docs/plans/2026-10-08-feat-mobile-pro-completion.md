@@ -1,6 +1,6 @@
 # Complete Still Pro behavior on Safari and Firefox Android
 
-Status: source preparation; structural investigation in progress. No physical-device or provider acceptance is claimed.
+Status: Related videos and Comments source merged; remaining mobile extras and installed acceptance unfinished. No physical-device or provider acceptance is claimed.
 
 Base: `a1e880067b5c1a0e6fc066c47f759de36816a023`.
 Branch: `feat/v31-mobile-pro-completion-20261008`.
@@ -61,3 +61,9 @@ Full independent review of frozen `371339e5` confirmed that the dedicated commen
 The composed Safari regression rejected unsupported CSS rules and failed before repair. Both selector-support lanes now pass accepted-access, saved-On, Off, revocation, late insertion, pre-paint recycling and independent free Shorts controls. The repaired tree passed 124 focused tests and the complete core suite (4,818 passed, 39 existing skips), typecheck with zero errors/warnings, scoped lint, Chromium/Safari resource builds and 21 built YouTube fixtures. Initial broad-run failures came from temporary package-subpath aliases and restricted Swift cache access; corrected verification tooling passed without source/assertion/timeout changes. Regenerated only the existing development rule seed/signature.
 
 Earlier integrated runtime `371339e5` also passed 439 StillKit tests and unsigned Release iOS Simulator/macOS app-plus-Safari builds with matching packaged resources. Those native artifacts predate this fallback and are not final repaired binaries. Fresh independent review, current required CI, protected merge and the repaired native package cohort remain open. Simulated unsupported-selector coverage does not establish execution on physical older Safari, current iPhone Safari or Firefox Android.
+
+## Checkpoint: reviewed source merged
+
+PR #366 merged exact reviewed head `39158647feabe1d2f090935451ab9afbcdb6400e` into main `dfa0d4046a9e5b9a7ed0b588b0aedb537f7c631c`. All eight checks passed, including the complete fixture suite, real Firefox checks and StillKit. Full independent review identified the older-Safari selector issue above; the repaired source and final fixture-only follow-up each received an actual Claude review with no remaining actionable findings. The final fixture follow-up moves fixture-owned layout declarations to inline styles so the dormancy test does not mistake them for extension CSS; runtime bytes are unchanged.
+
+Repaired runtime `cbddffc5373b756cf2b811621919ffbb3be0cb08` also produced successful unsigned Release iOS Simulator and macOS app/Safari-extension builds. The packaged WebUI and Safari resources matched the generated resources with no SHA mismatch. The built extension passed the older-selector fallback control; a separate 1,554-shape selector/marker comparison found no mismatch. These are source, synthetic and unsigned-build proofs. Signing, matching hosted configuration, TestFlight delivery and physical-device journeys remain open. Safari still has eight evidenced extras; Firefox Android has ten. Autoplay, end-screen and live-chat mobile observation, plus the owner-deferred authenticated Facebook feed investigation, remain incomplete.
