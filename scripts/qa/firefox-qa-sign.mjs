@@ -66,19 +66,36 @@ export function amoJwt({ issuer, secret }, now = Date.now()) {
   return `${unsigned}.${createHmac("sha256", secret).update(unsigned).digest("base64url")}`;
 }
 
+/**
+ * Mozilla's signer re-serializes manifest.json (layout only). A manifest entry therefore also
+ * carries the SHA-256 of its parsed JSON with keys sorted, and only that file is compared that way.
+ */
+const sortKeys = value => Array.isArray(value) ? value.map(sortKeys)
+  : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sortKeys(value[key])])) : value;
+function fileEntry(name, data) {
+  const entry = { name, sha256: sha256(data) };
+  if (name !== "manifest.json") return entry;
+  try { return { ...entry, jsonSha256: sha256(JSON.stringify(sortKeys(JSON.parse(data.toString("utf8"))))) }; }
+  catch { return entry; }
+}
+
 /** Deterministic upload: the repository's fixed-timestamp, sorted zip of the built directory. */
 export function packageDirectory(dir) {
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
   const identity = checkQaManifest(manifest);
   const entries = treeEntries(dir);
-  return { ...identity, zip: createZip(entries), files: entries.map(entry => ({ name: entry.name, sha256: sha256(entry.data) })) };
+  return { ...identity, zip: createZip(entries), files: entries.map(entry => fileEntry(entry.name, entry.data)) };
 }
 
-/** The signed XPI must contain exactly the uploaded files plus Mozilla's META-INF signature entries. */
+/**
+ * The signed XPI must contain exactly the uploaded files plus Mozilla's META-INF signature entries.
+ * Every file must be byte-identical except manifest.json, which must parse to the same JSON.
+ */
 export function verifySignedPayload(uploadedFiles, signedFiles) {
   const signature = signedFiles.filter(file => file.name.startsWith("META-INF/"));
   const payload = signedFiles.filter(file => !file.name.startsWith("META-INF/"));
-  const key = files => JSON.stringify([...files].sort((a, b) => a.name.localeCompare(b.name)).map(file => [file.name, file.sha256]));
+  const identity = file => file.name === "manifest.json" && file.jsonSha256 ? `json:${file.jsonSha256}` : file.sha256;
+  const key = files => JSON.stringify([...files].sort((a, b) => a.name.localeCompare(b.name)).map(file => [file.name, identity(file)]));
   if (key(payload) !== key(uploadedFiles)) refusal("signed XPI contents differ from the uploaded package");
   if (!signature.some(file => /^META-INF\/(mozilla\.rsa|cose\.sig)$/.test(file.name))) refusal("returned file has no Mozilla signature");
   return signature.map(file => file.name).sort();
@@ -182,7 +199,7 @@ export function writeVerifiedXpi(pkg, signed, out, { listFiles = zipFiles } = {}
 /** Lists a zip's entries with SHA-256s using the system unzip tool (present on macOS and Linux). */
 export function zipFiles(path) {
   const names = execFileSync("/usr/bin/unzip", ["-Z1", path], { encoding: "utf8" }).split("\n").filter(name => name && !name.endsWith("/"));
-  return names.map(name => ({ name, sha256: sha256(execFileSync("/usr/bin/unzip", ["-p", path, name], { maxBuffer: 64 * 1024 * 1024 })) }));
+  return names.map(name => fileEntry(name, execFileSync("/usr/bin/unzip", ["-p", path, name], { maxBuffer: 64 * 1024 * 1024 })));
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env) {

@@ -124,6 +124,34 @@ test("the signed XPI must be the uploaded files plus a Mozilla signature", () =>
   assert.throws(() => verifySignedPayload(uploaded, uploaded), /no Mozilla signature/);
 });
 
+test("Mozilla's re-serialized manifest.json is accepted only when it parses to the same JSON", async () => {
+  const root = await mkdtemp(join(tmpdir(), "still-ff-qa-manifest-"));
+  try {
+    const dir = join(root, "firefox-mv3");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "manifest.json"), JSON.stringify(QA_MANIFEST));
+    await writeFile(join(dir, "background.js"), "worker");
+    const pkg = packageDirectory(dir);
+    const signedZip = async (manifestText, background = "worker") => {
+      const path = join(root, `signed-${Math.random()}.xpi`);
+      await writeFile(path, createZip([
+        { name: "META-INF/mozilla.rsa", data: Buffer.from("sig") },
+        { name: "background.js", data: Buffer.from(background) },
+        { name: "manifest.json", data: Buffer.from(manifestText) },
+      ]));
+      return zipFiles(path);
+    };
+    // Re-indented, reordered keys: same JSON, so accepted.
+    const reordered = Object.fromEntries(Object.entries(QA_MANIFEST).reverse());
+    assert.deepEqual(verifySignedPayload(pkg.files, await signedZip(JSON.stringify(reordered, null, 4) + "\n")), ["META-INF/mozilla.rsa"]);
+    // Any changed value in the manifest is refused.
+    await assert.rejects(async () => verifySignedPayload(pkg.files, await signedZip(JSON.stringify({ ...QA_MANIFEST, version: "9.9.9" }))), /differ/);
+    await assert.rejects(async () => verifySignedPayload(pkg.files, await signedZip("not json")), /differ/);
+    // Other files are still compared byte for byte.
+    await assert.rejects(async () => verifySignedPayload(pkg.files, await signedZip(JSON.stringify(QA_MANIFEST), "worker ")), /differ/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("a built QA directory packages deterministically and plan-only mode uploads nothing", async () => {
   const root = await mkdtemp(join(tmpdir(), "still-ff-qa-sign-"));
   try {
