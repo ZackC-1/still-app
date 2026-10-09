@@ -1,5 +1,7 @@
 -- Read-only 0021 catalog gate. Returns [] only for the exact reviewed bodies/roles/ACLs.
 -- No account, transaction identity, credential or private provider payload is returned.
+-- The deploy also runs it before 0021 exists: role and routine lookups are guarded so absent QA
+-- objects are reported as issues instead of failing the query.
 with expected(signature,owner,definer,body_md5,execute_role) as (values
  ('private.begin_access_observation_core(uuid,text)','postgres',false,'c38d125ea8557e5bfd2705123b7c5ee2','still_qa_sandbox_owner'),
  ('public.begin_access_observation(uuid,text)','postgres',true,'4918b74b2c10bd706b82dffee0335412','still_entitlement_writer'),
@@ -78,16 +80,16 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
  union all select 'QA_retention_schedule' where not exists(select 1 from cron.job
   where jobname='still-qa-sandbox-rate-retention' and schedule='* * * * *' and active and username='postgres'
    and database=current_database() and command='set lock_timeout = ''1s''; set statement_timeout = ''5s''; select private.cleanup_qa_sandbox_rate_counters();')
- union all select 'QA_owner_schema_create' where pg_catalog.has_schema_privilege('still_qa_sandbox_owner','public','CREATE')
+ union all select 'QA_owner_schema_create' where (case when pg_catalog.to_regrole('still_qa_sandbox_owner') is null then false else pg_catalog.has_schema_privilege('still_qa_sandbox_owner','public','CREATE') end)
  union all select 'QA_live_RPC:'||signature from expected where signature like 'public.%' and signature not like 'public.qa_sandbox_%'
-  and pg_catalog.has_function_privilege('still_qa_sandbox_writer',signature,'EXECUTE')
+  and (case when pg_catalog.to_regrole('still_qa_sandbox_writer') is null or pg_catalog.to_regprocedure(signature) is null then false else pg_catalog.has_function_privilege('still_qa_sandbox_writer',pg_catalog.to_regprocedure(signature),'EXECUTE') end)
  union all select 'QA_internal_core:'||signature from expected where signature like 'private.%'
-  and pg_catalog.has_function_privilege('still_qa_sandbox_writer',signature,'EXECUTE')
+  and (case when pg_catalog.to_regrole('still_qa_sandbox_writer') is null or pg_catalog.to_regprocedure(signature) is null then false else pg_catalog.has_function_privilege('still_qa_sandbox_writer',pg_catalog.to_regprocedure(signature),'EXECUTE') end)
  union all select 'QA_direct_table:'||c.relname from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
   where ((n.nspname='private' and c.relname in ('qa_sandbox_subjects','qa_sandbox_purchase_operations','qa_sandbox_negative_rights','qa_sandbox_rate_windows','qa_sandbox_rate_counters',
    'access_rights','access_observations','access_revocations','access_transfer_operations','apple_access_observations','apple_access_link_operations')) or (n.nspname='public' and c.relname='entitlements'))
-   and (pg_catalog.has_table_privilege('still_qa_sandbox_writer',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-    or pg_catalog.has_any_column_privilege('still_qa_sandbox_writer',c.oid,'SELECT,INSERT,UPDATE,REFERENCES'))
+   and ((case when pg_catalog.to_regrole('still_qa_sandbox_writer') is null then false else pg_catalog.has_table_privilege('still_qa_sandbox_writer',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') end)
+    or (case when pg_catalog.to_regrole('still_qa_sandbox_writer') is null then false else pg_catalog.has_any_column_privilege('still_qa_sandbox_writer',c.oid,'SELECT,INSERT,UPDATE,REFERENCES') end))
  union all select 'QA_missing_table_or_RLS:'||name from unnest(array['qa_sandbox_subjects','qa_sandbox_purchase_operations','qa_sandbox_negative_rights','qa_sandbox_rate_windows','qa_sandbox_rate_counters']) name
   where not exists(select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname=name and c.relrowsecurity)
  union all select 'QA_new_table_ACL:'||c.relname from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace,
@@ -98,15 +100,15 @@ with expected(signature,owner,definer,body_md5,execute_role) as (values
   join pg_catalog.pg_attribute col on col.attrelid=c.oid,lateral pg_catalog.aclexplode(col.attacl) a
   where n.nspname='private' and c.relname in ('qa_sandbox_subjects','qa_sandbox_purchase_operations','qa_sandbox_negative_rights','qa_sandbox_rate_windows','qa_sandbox_rate_counters')
    and a.grantee<>c.relowner and (a.grantee is distinct from (select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_owner') or a.is_grantable)
- union all select 'QA_owner_auth_mutation' where pg_catalog.has_table_privilege('still_qa_sandbox_owner','auth.users','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-  or pg_catalog.has_any_column_privilege('still_qa_sandbox_owner','auth.users','INSERT,UPDATE,REFERENCES')
- union all select 'QA_owner_legacy_mutation' where pg_catalog.has_table_privilege('still_qa_sandbox_owner','public.entitlements','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-  or pg_catalog.has_any_column_privilege('still_qa_sandbox_owner','public.entitlements','INSERT,UPDATE,REFERENCES')
+ union all select 'QA_owner_auth_mutation' where (case when pg_catalog.to_regrole('still_qa_sandbox_owner') is null then false else pg_catalog.has_table_privilege('still_qa_sandbox_owner','auth.users','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') end)
+  or (case when pg_catalog.to_regrole('still_qa_sandbox_owner') is null then false else pg_catalog.has_any_column_privilege('still_qa_sandbox_owner','auth.users','INSERT,UPDATE,REFERENCES') end)
+ union all select 'QA_owner_legacy_mutation' where (case when pg_catalog.to_regrole('still_qa_sandbox_owner') is null then false else pg_catalog.has_table_privilege('still_qa_sandbox_owner','public.entitlements','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') end)
+  or (case when pg_catalog.to_regrole('still_qa_sandbox_owner') is null then false else pg_catalog.has_any_column_privilege('still_qa_sandbox_owner','public.entitlements','INSERT,UPDATE,REFERENCES') end)
  union all select 'QA_wrong_RLS_policy:'||t.name from unnest(array['access_observations','access_rights','access_revocations','access_transfer_operations','apple_access_observations','apple_access_link_operations']) t(name)
   where not exists(select 1 from pg_catalog.pg_policy p join pg_catalog.pg_class c on c.oid=p.polrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace
    where n.nspname='private' and c.relname=t.name and p.polname='qa_sandbox_owner' and p.polcmd='*' and p.polpermissive and p.polroles=array[(select oid from pg_catalog.pg_roles where rolname='still_qa_sandbox_owner')]
     and pg_catalog.pg_get_expr(p.polqual,p.polrelid)='(environment = ''sandbox''::text)' and pg_catalog.pg_get_expr(p.polwithcheck,p.polrelid)='(environment = ''sandbox''::text)')
  union all select 'QA_client_RPC:'||e.signature from expected e,pg_catalog.pg_roles r where e.signature like 'public.qa_sandbox_%'
-  and r.rolname in ('anon','authenticated','service_role','still_entitlement_writer') and pg_catalog.has_function_privilege(r.oid,e.signature,'EXECUTE')
+  and r.rolname in ('anon','authenticated','service_role','still_entitlement_writer') and (case when pg_catalog.to_regprocedure(e.signature) is null then false else pg_catalog.has_function_privilege(r.oid,pg_catalog.to_regprocedure(e.signature),'EXECUTE') end)
 )
 select coalesce(json_agg(code order by code),'[]'::json) from (select distinct code from issues) sorted;
