@@ -30,6 +30,7 @@ public final class ProductPolicyRuntime {
   enum Namespace { case sales }
   struct Verdict { let allowed: Bool }
   let enabled: Bool
+  var requiresSandboxInstallation = false
   var questions = 0
   var onCheck: (() -> Void)?
   init(_ enabled: Bool) { self.enabled = enabled }
@@ -58,20 +59,26 @@ ${boundary}
   func offering(for package: Package) -> AppleLifetimeOffering? { AppleLifetimeOffering() }
   static func proEntitlementIsActive(in value: Bool) -> Bool { value }
   func freshSalesPolicy() -> ProductPolicyRuntime? { policy }
+  static var installEnvironment = AppleInstallEnvironment.unavailable
+  static func verifiedInstallEnvironment() async -> AppleInstallEnvironment { installEnvironment }
 ${method}
 }
 @main struct Run {
   @MainActor static func main() async {
-    for state in ["unknown", "off", "on", "owned", "identity"] {
+    for state in ["unknown", "off", "on", "owned", "identity", "sandbox-installed", "sandbox-app-store-install"] {
       let executor = Executor()
-      if state != "unknown" { executor.policy = ProductPolicyRuntime(state == "on" || state == "identity") }
+      let sandbox = state.hasPrefix("sandbox")
+      if state != "unknown" { executor.policy = ProductPolicyRuntime(state == "on" || state == "identity" || sandbox) }
+      // A sandbox build charges only inside Apple's verified sandbox, never as an App Store install.
+      executor.policy?.requiresSandboxInstallation = sandbox
+      Executor.installEnvironment = state == "sandbox-installed" ? .sandbox : state == "sandbox-app-store-install" ? .production : .unavailable
       executor.receiptOwned = state == "owned"
       if state == "identity" { executor.policy?.onCheck = { executor.currentAppUserID = "replacement" } }
       Purchases.shared.charges = 0
       let result = await executor.purchaseStillPro(expectedOffer: AppleLifetimeOffering())
-      let expected = state == "on" ? 1 : 0
+      let expected = state == "on" || state == "sandbox-installed" ? 1 : 0
       guard Purchases.shared.charges == expected else { fatalError("charge escaped sales/receipt/session gate: " + state) }
-      if state == "unknown" || state == "off" { guard result == .unavailable else { fatalError("unknown/off result") } }
+      if state == "unknown" || state == "off" || state == "sandbox-app-store-install" { guard result == .unavailable else { fatalError("unknown/off/production-install result: " + state) } }
       if state == "owned" { guard executor.policy?.questions == 0 else { fatalError("owned receipt consulted sales") } }
     }
     print("native-executor-sales-PASS")
