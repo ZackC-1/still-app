@@ -202,7 +202,7 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
     (surface !== "all" && !Object.hasOwn(SURFACES, surface) && !(profile === "paid-sandbox" && (Object.hasOwn(APPLE_TARGETS, surface) || surface === "apple-all")))
   )
     throw new Error(
-      "Usage: v3-profile.mjs <local|test|paid-sandbox> [all|chrome|firefox|safari|apple-webview|apple-ios-sim|apple-macos|apple-ios-archive|apple-macos-archive|apple-all]",
+      "Usage: v3-profile.mjs <local|test|paid-sandbox> [all|chrome|firefox|safari|apple-webview|apple-ios-sim|apple-macos|apple-ios-archive|apple-macos-archive|apple-ios-device|apple-macos-device|apple-all]",
     );
   if (profile === "paid-sandbox") return paidSandboxMain(surface, input, root);
   const surfaces = surface === "all" ? Object.keys(SURFACES) : [surface];

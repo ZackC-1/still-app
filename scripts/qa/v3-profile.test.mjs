@@ -676,3 +676,44 @@ test("actual packaged resource verification refuses a foreign webview or Safari 
     await assert.rejects(paid.verifyApplePackage(app, "apple-ios-archive", config, root), /local codesign check failed/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("development device export never uploads or requests provisioning changes", () => {
+  const options = paid.developmentExportOptions();
+  assert.match(options, /<key>method<\/key><string>debugging<\/string>/);
+  assert.match(options, /<key>destination<\/key><string>export<\/string>/);
+  assert.match(options, /<key>teamID<\/key><string>UM9HVDH3P3<\/string>/);
+  assert.doesNotMatch(options, /upload|app-store|enterprise|allowProvisioning/i);
+  for (const target of ["apple-ios-device", "apple-macos-device"])
+    assert.deepEqual([paid.APPLE_TARGETS[target].signed, paid.APPLE_TARGETS[target].archive], [true, true]);
+});
+
+test("development device packages require the reviewed team, a device-limited live profile and the App Group", () => {
+  const now = Date.parse("2026-10-08T00:00:00Z");
+  const profileFor = (bundle, overrides = {}) => ({
+    teams: ["UM9HVDH3P3"], devices: ["device-a"], allDevices: false, expires: "2027-06-24T00:00:00Z",
+    entitlements: { "application-identifier": `UM9HVDH3P3.${bundle.endsWith(".appex") ? "com.chartash.still.Extension" : "com.chartash.still"}` },
+    ...overrides,
+  });
+  const entitlements = () => ({ "com.apple.security.application-groups": ["group.com.chartash.still"] });
+  const verify = (profileOverrides = {}, signed = entitlements, target = "apple-ios-device") =>
+    paid.verifyDevelopmentSigning("/qa/Still.app", target, { now, readEntitlements: signed, readProfile: bundle => profileFor(bundle, profileOverrides) });
+  const verified = verify();
+  assert.equal(verified.developmentSigned, true);
+  assert.deepEqual(verified.bundles.map(bundle => [bundle.bundleId, bundle.provisionedDeviceCount]), [["com.chartash.still", 1], ["com.chartash.still.Extension", 1]]);
+  // Receipts carry counts and dates, never device identifiers.
+  assert.doesNotMatch(JSON.stringify(verified), /device-a/);
+  // Mac profiles name the identifier with the com.apple prefix.
+  const mac = paid.verifyDevelopmentSigning("/qa/Still.app", "apple-macos-device", { now, readEntitlements: entitlements,
+    readProfile: bundle => profileFor(bundle, { entitlements: { "com.apple.application-identifier": profileFor(bundle).entitlements["application-identifier"] } }) });
+  assert.equal(mac.bundles.length, 2);
+  assert.throws(() => verify({ teams: ["ZZZZZZZZZZ"] }), /reviewed team/);
+  assert.throws(() => verify({ entitlements: { "application-identifier": "UM9HVDH3P3.org.example.other" } }), /reviewed team/);
+  assert.throws(() => verify({ devices: undefined }), /device-limited/);
+  assert.throws(() => verify({ devices: [] }), /device-limited/);
+  assert.throws(() => verify({ allDevices: true }), /device-limited/);
+  assert.throws(() => verify({ expires: "2026-10-07T00:00:00Z" }), /expired/);
+  assert.throws(() => verify({ expires: undefined }), /expired/);
+  assert.throws(() => verify({}, () => ({ "com.apple.security.application-groups": ["group.org.example"] })), /App Group/);
+  assert.throws(() => verify({}, () => ({})), /App Group/);
+  assert.throws(() => verify({}, entitlements, "apple-ios-archive"), /not a development device target/);
+});
