@@ -6,14 +6,14 @@ import { bindTextScale } from "@still/core/ui/v3/text-scale";
 
 // The V3 settings-page components and their global stylesheet. Loaded by ./v3 only after the
 // record gate has chosen V3.
-export function mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[]): () => void {
+export function mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[], phone = false): () => void {
   // Text size follows the system Text Size on iPhone and iPad (owner decision 51); a Mac stays at
   // the normal size. Removed again if mounting fails, before the legacy page starts.
   const unbindTextScale = bindTextScale(document, "apple");
   try {
     const instance = mount(SafariV3Options, {
       target,
-      props: { composition, features },
+      props: { composition, features, phone },
     });
     return () => {
       void unmount(instance);

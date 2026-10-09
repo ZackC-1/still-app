@@ -24,7 +24,7 @@
   import { reportDirectControl } from "../../lib/invitation-client.js";
   import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
   import { runtimePlatformAnswerFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
-  import { settingsFeatures } from "../../lib/settings-features.js";
+  import { settingsFeatures, settingsPhone } from "../../lib/settings-features.js";
   import { browser } from "wxt/browser";
 
   let optionsRoot: HTMLElement;
@@ -74,6 +74,7 @@
     platformAnswer = answer;
   });
   let features = $derived(settingsFeatures(Boolean(import.meta.env.FIREFOX), platformAnswer));
+  let phone = $derived(settingsPhone(Boolean(import.meta.env.FIREFOX), platformAnswer));
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({
     service,
@@ -159,6 +160,7 @@
           help,
           sectionMemory,
           features,
+          phone,
         }
       : undefined}
   />

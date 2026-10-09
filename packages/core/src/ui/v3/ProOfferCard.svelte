@@ -2,9 +2,11 @@
   import type { ProOfferCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   import StaticProControlList from "./StaticProControlList.svelte";
+  import { proPhoneNote } from "./pro-phone-note.js";
   let {
     ownership,
     controls = [],
+    phone = false,
     channel,
     offer,
     confirmedAccount,
@@ -68,6 +70,7 @@
         {offer.priceNote}
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
+    {#if ownership === "none"}<p class="caption">{proPhoneNote(phone)}</p>{/if}
     {#if canBuy}
       <button
         type="button"
