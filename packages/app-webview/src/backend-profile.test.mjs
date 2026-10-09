@@ -52,6 +52,7 @@ function launch(env = {}, responseError = null) {
     SettingsCache: class { watch() {} hydrate = async () => {}; whenHydrated = async () => {}; },
     NativeBridge: Bridge,
     appleSettingsCacheOptions: () => ({}),
+    buildChannelEnvelope: value => value === "test" ? { build_channel: "test" } : undefined,
     createAppAnalytics: () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} }),
     createClient() { clientCount++; return client; },
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },

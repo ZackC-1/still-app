@@ -62,6 +62,7 @@ vi.mock("../analytics.js", () => ({
   }),
 }));
 vi.mock("@still/core/analytics", () => ({
+  buildChannelEnvelope: () => undefined,
   createIndexedDbKeyValue: () => ({}),
   QUIET_FLUSH_ALARM: "quiet",
   requestQuietFlush: vi.fn(),
