@@ -15,6 +15,7 @@ import { terminateStatement } from "./operations.mjs";
 import { REQUIRED_SECRETS } from "./qa-functions.mjs";
 import {
   assertWritableName,
+  cleanEdges,
   createQaSecretsPlan,
   DISABLE_SECRETS,
   generatePassword,
@@ -358,6 +359,7 @@ async function harness(
     deletes: [],
     verifiers: [],
     probes: [],
+    events: [],
   };
   const fetchImpl = async (url, options = {}) => {
     calls.fetch.push({
@@ -432,6 +434,7 @@ async function harness(
     const body = JSON.parse(options.body);
     if (options.method === "POST") {
       calls.posts.push(body.map((item) => item.name));
+      calls.events.push("post");
       if (controls.postFailure === "throw") throw new TypeError("network");
       if (controls.postFailure === "partial") {
         store.set(body[0].name, body[0].value);
@@ -509,6 +512,7 @@ async function harness(
     if (args.includes("-f") && file.endsWith(QA_SECRETS_SQL.login.path)) {
       assert.ok(args.includes("--single-transaction"));
       assert.equal(env.PGUSER, `postgres.${REF}`);
+      calls.events.push("alter");
       if (controls.loginFails)
         return { code: 3, stdout: "", stderr: "ERROR:  42501\n" };
       for (const { role, variable } of QA_ROLE_LOGINS) {
@@ -748,25 +752,55 @@ test("apply treats an equal existing secret as unchanged (not an overwrite)", as
   );
 });
 
-test("apply refuses a URL without LOGIN or LOGIN without its URL (rotate decides)", async (t) => {
-  for (const options of [
-    {
-      secrets: {
-        STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL:
-          "postgresql://x:y@z/postgres",
-      },
-    },
-    { roles: { [WRITER]: { login: true } } },
-  ]) {
-    const h = await harness(t, options);
+test("apply refuses LOGIN without its URL (rotate decides)", async (t) => {
+  const h = await harness(t, { roles: { [WRITER]: { login: true } } });
+  const receipt = await h.run();
+  assert.equal(receipt.status, "stopped-before-write");
+  assert.deepEqual(receipt.issues, [
+    "qa-role-secret-mismatch",
+    `qa-role-secret-mismatch:${WRITER}`,
+  ]);
+  assert.equal(h.calls.posts.length, 0);
+});
+
+for (const mode of ["apply", "rotate"]) {
+  test(`${mode} never undoes an emergency stop: a paused role stops the run`, async (t) => {
+    // pause-settings-sync leaves the settings writer NOLOGIN while its URL secret stays.
+    const paused = { still_settings_writer: { login: false } };
+    const h = await harness(t, {
+      mode,
+      roles: mode === "rotate" ? { ...allLoggedIn(), ...paused } : paused,
+      secrets:
+        mode === "rotate"
+          ? fullStore()
+          : { SETTINGS_WRITER_DB_URL: fullStore().SETTINGS_WRITER_DB_URL },
+    });
     const receipt = await h.run();
     assert.equal(receipt.status, "stopped-before-write");
     assert.deepEqual(receipt.issues, [
-      "qa-role-secret-mismatch",
-      `qa-role-secret-mismatch:${WRITER}`,
+      "qa-role-paused",
+      "qa-role-paused:still_settings_writer",
     ]);
     assert.equal(h.calls.posts.length, 0);
-  }
+    assert.deepEqual(h.calls.events, []);
+    assert.equal(h.roles.get("still_settings_writer").login, false);
+    assert.match(renderQaSecretsFinal(receipt), /qa-role-paused/);
+  });
+}
+
+test("a paused QA writer (URL kept, login off) also stops apply", async (t) => {
+  const h = await harness(t, {
+    secrets: {
+      STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL:
+        fullStore().STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL,
+    },
+  });
+  const receipt = await h.run();
+  assert.deepEqual(receipt.issues, [
+    "qa-role-paused",
+    `qa-role-paused:${WRITER}`,
+  ]);
+  assert.deepEqual(h.calls.events, []);
 });
 
 // ── Refusals before any write ───────────────────────────────────────────────────────────────────
@@ -1014,6 +1048,151 @@ test("rotate replaces every role URL and password and only differing staged valu
     outcomes(receipt.secrets).STILL_QA_SANDBOX_STRIPE_PRICE_ID,
     "replaced",
   );
+});
+
+test("rotate changes the passwords first and writes the URLs only after the sign-in check", async (t) => {
+  const h = await harness(t, {
+    mode: "rotate",
+    roles: allLoggedIn(),
+    secrets: fullStore(),
+  });
+  const receipt = await h.run();
+  assert.equal(receipt.status, "verified", receipt.issues.join());
+  assert.deepEqual(h.calls.events, ["alter", "post"]);
+  const statuses = [
+    ...new Set(
+      h.snapshots
+        .map((item) => item.status)
+        .filter((s) => s.startsWith("writing")),
+    ),
+  ];
+  assert.deepEqual(statuses, ["writing-roles", "writing-secrets"]);
+  const atPost = h.snapshots.find((item) => item.status === "writing-secrets");
+  assert.ok(atPost.roles.every((item) => item.outcome === "password-rotated"));
+  assert.equal(h.calls.probes.length, 3);
+  // Apply keeps the install order: URL first, then LOGIN.
+  const install = await harness(t);
+  await install.run();
+  assert.deepEqual(install.calls.events, ["post", "alter"]);
+});
+
+test("a failed rotate ALTER ROLE writes no secret; re-running rotate is the recovery", async (t) => {
+  const store = fullStore();
+  const h = await harness(t, {
+    mode: "rotate",
+    roles: allLoggedIn(),
+    secrets: store,
+    controls: { loginFails: true },
+  });
+  const receipt = await h.run();
+  assert.equal(receipt.status, "outcome-unknown");
+  assert.deepEqual(receipt.issues, ["qa-role-login-failed"]);
+  assert.equal(h.calls.posts.length, 0);
+  for (const [name, value] of Object.entries(store))
+    assert.equal(h.store.get(name), value);
+  assert.ok(
+    receipt.secrets.every((item) =>
+      ["not-attempted", "unchanged"].includes(item.outcome),
+    ),
+  );
+  assert.ok(receipt.roles.every((item) => item.outcome === "outcome-unknown"));
+  assert.match(receipt.recovery, /separately approved rotate \(safe to repeat/);
+  h.controls.loginFails = false;
+  assert.equal((await h.run()).status, "verified");
+});
+
+test("rotate ALTER succeeded but the URL write failed: the receipt says sign-in is broken until rotate re-runs", async (t) => {
+  const h = await harness(t, {
+    mode: "rotate",
+    roles: allLoggedIn(),
+    secrets: fullStore(),
+    controls: { postFailure: 500 },
+  });
+  const receipt = await h.run();
+  assert.equal(receipt.status, "outcome-unknown");
+  assert.deepEqual(receipt.issues, ["qa-secrets-write-outcome-unknown"]);
+  assert.deepEqual(receipt.counts.roles, { "password-rotated": 3 });
+  for (const { secret } of QA_ROLE_LOGINS) {
+    assert.equal(outcomes(receipt.secrets)[secret], "outcome-unknown");
+  }
+  assert.match(receipt.recovery, /cannot sign in until rotate runs again/);
+  assert.match(
+    renderQaSecretsFinal(receipt),
+    /cannot sign in until rotate runs again/,
+  );
+  // The stored URLs no longer match the new passwords...
+  for (const { role, secret } of QA_ROLE_LOGINS) {
+    const password = new URL(h.store.get(secret)).password;
+    assert.equal(verifierAccepts(h.roles.get(role).verifier, password), false);
+  }
+  // ...and re-running rotate is safe and restores a matching pair for every role.
+  h.controls.postFailure = null;
+  const again = await h.run();
+  assert.equal(again.status, "verified", again.issues.join());
+  for (const { role, secret } of QA_ROLE_LOGINS) {
+    const password = new URL(h.store.get(secret)).password;
+    assert.ok(verifierAccepts(h.roles.get(role).verifier, password), role);
+  }
+  assert.equal((await h.run()).status, "verified");
+});
+
+test("staged values may not start or end with whitespace, except one PEM trailing newline", async (t) => {
+  const pem =
+    "-----BEGIN PRIVATE KEY-----\nSENTINELPEMBODY\n-----END PRIVATE KEY-----";
+  assert.equal(cleanEdges("price_123"), true);
+  assert.equal(cleanEdges(pem), true);
+  assert.equal(cleanEdges(`${pem}\n`), true);
+  assert.equal(cleanEdges(`${pem}\r\n`), true);
+  for (const bad of [
+    " price_123",
+    "price_123 ",
+    "price_123\n",
+    "\tprice_123",
+    `${pem}\n\n`,
+    ` ${pem}`,
+    `${pem} `,
+    "-----BEGIN X-----\n",
+  ]) {
+    assert.equal(cleanEdges(bad), false, JSON.stringify(bad));
+  }
+  const h = await harness(t, {
+    env: {
+      QA_STAGE_STRIPE_PRICE_ID: "price_123\n",
+      QA_STAGE_WEB_RETURN_ORIGIN: " https://stillapp.fit",
+    },
+  });
+  const receipt = await h.run();
+  assert.equal(receipt.status, "stopped-before-write");
+  assert.deepEqual(receipt.issues, [
+    "qa-stage-value-whitespace",
+    "qa-stage-value-whitespace:QA_STAGE_STRIPE_PRICE_ID",
+    "qa-stage-value-whitespace:QA_STAGE_WEB_RETURN_ORIGIN",
+  ]);
+  assert.equal(h.calls.posts.length, 0);
+  const ok = await harness(t, {
+    env: { QA_STAGE_APP_STORE_SERVER_PRIVATE_KEY: `${pem}\n` },
+  });
+  assert.equal((await ok.run()).status, "verified");
+  assert.equal(
+    ok.store.get("STILL_QA_SANDBOX_APP_STORE_SERVER_PRIVATE_KEY"),
+    `${pem}\n`,
+  );
+});
+
+test("the plan tells the owner about shared names, emergency stops and proof limits", async () => {
+  const text = renderQaSecretsPlan(
+    await createQaSecretsPlan({
+      mode: "rotate",
+      projectRef: REF,
+      sourceDir: ROOT,
+    }),
+  );
+  assert.match(text, /`product-policy` and `sync-settings`/);
+  assert.match(text, /not deployed today/);
+  assert.match(text, /pause-settings-sync/);
+  assert.match(text, /never turns a login back on/);
+  assert.match(text, /not proven to work/);
+  assert.match(text, /pooler/);
 });
 
 // ── Disable ────────────────────────────────────────────────────────────────────────────────────

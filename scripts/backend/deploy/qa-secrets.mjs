@@ -8,13 +8,34 @@
 //              Copy each staged QA_STAGE_<SUFFIX> value to STILL_QA_SANDBOX_<SUFFIX>. Never
 //              replaces an existing secret: an equal digest reports "unchanged", a different one
 //              refuses the whole run before any write. A role that already has LOGIN and its URL
-//              secret is "unchanged" (live functions keep their working login).
-//   rotate     like apply, but every role gets a new password and URL, and staged values replace
-//              existing secrets whose digest differs. Live sync-settings and product-policy pick
-//              up the new URL on their next cold start; until then their old URL fails to sign in.
+//              secret is "unchanged".
+//   rotate     every role gets a new password and URL, and staged values replace existing secrets
+//              whose digest differs. The password changes FIRST, then the URL secrets are written:
+//              a failed ALTER ROLE leaves everything as it was. If the ALTER succeeds and the write
+//              fails, functions using those URLs cannot sign in until rotate is run again; re-running
+//              rotate is the documented recovery and is safe (it generates and writes fresh values).
 //   disable    still_qa_sandbox_writer NOLOGIN (and close its connections), then delete every
 //              STILL_QA_SANDBOX_* secret. The shared PRODUCT_POLICY_READER_DB_URL and
 //              SETTINGS_WRITER_DB_URL secrets and roles are kept.
+//
+// Emergency stops win: apply and rotate refuse (qa-role-paused) when a role is NOLOGIN while its
+// URL secret exists, the state pause-settings-sync / pause-qa-sandbox leave behind. Run the matching
+// resume operation first; this module never switches LOGIN back on implicitly.
+//
+// Shared names, plainly: PRODUCT_POLICY_READER_DB_URL and SETTINGS_WRITER_DB_URL are unprefixed and
+// are also read by the production product-policy and sync-settings functions. Those functions are
+// NOT deployed on hosted Supabase today (live: export-user-data, reconcile-entitlement, delete-user,
+// revenuecat-webhook, selector-canary, create-web-checkout, review-signin, analytics-identify), so
+// setting them switches nothing on now, but a future production deploy of either function would
+// sign in with these URLs and logins.
+//
+// Limits of the proof: "unchanged" means a URL secret exists and its role has LOGIN; only a digest
+// is readable, so this run cannot prove that an existing URL works. The sign-in probe for a new
+// password goes through the admin connection's host (the pooler on GitHub runners, user
+// "<role>.<ref>"), while functions use the direct host. The later qa-sandbox-functions readiness
+// baseline and the post-deploy function probes prove the rest.
+//
+// Staged values must not have leading or trailing whitespace; a PEM block may end with one newline.
 //
 // Integration contract (the generalized protected-operation workflow calls this; nothing here
 // edits the workflow, operations.mjs or deploy.mjs):
@@ -48,8 +69,8 @@
 // - every refusal happens before the first write; writes are never retried; a failure after a
 //   write began records "outcome-unknown" with recovery guidance;
 // - after writing, GET /secrets must show sha256(value) for every written name and no other
-//   change; role-facts.sql must show only the promised LOGIN change; a sign-in probe with each
-//   new password must succeed.
+//   change; role-facts.sql must show only the promised LOGIN change (none for a rotate of logged-in
+//   roles); a sign-in probe with each new password must succeed.
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -564,19 +585,33 @@ function readStaged(env) {
   if (unexpected.length) refuse("qa-stage-unexpected", unexpected);
   const values = new Map();
   const missing = [];
+  const padded = [];
   for (const { name, from } of STAGED_SECRETS) {
     const value = env[from];
     if (typeof value !== "string" || !value.trim()) missing.push(from);
+    else if (!cleanEdges(value)) padded.push(from);
     else values.set(name, value);
   }
   if (missing.length) refuse("qa-stage-value-missing", missing);
+  if (padded.length) refuse("qa-stage-value-whitespace", padded);
   return values;
+}
+
+const PEM =
+  /^-----BEGIN [A-Z0-9 ]+-----\r?\n[\s\S]*\r?\n-----END [A-Z0-9 ]+-----$/;
+
+/** No leading or trailing whitespace, except that a PEM block may end with one newline. */
+export function cleanEdges(value) {
+  if (value === value.trim()) return true;
+  const body = value.replace(/\r?\n$/, "");
+  return body === body.trim() && PEM.test(body);
 }
 
 function decide(mode, { inventory, roles }, staged) {
   const digest = new Map(inventory.map((item) => [item.name, item.digest]));
   const secrets = [];
   const roleSteps = [];
+  const paused = [];
   for (const { role, secret } of QA_ROLE_LOGINS) {
     const state = roles.get(role);
     const present = digest.has(secret);
@@ -599,11 +634,17 @@ function decide(mode, { inventory, roles }, staged) {
       continue;
     }
     if (!state.exists) refuse("qa-role-missing", [role]);
+    // A URL secret without LOGIN is an emergency stop (pause-settings-sync, pause-qa-sandbox).
+    // Never undo it here: the operator runs the matching resume operation first.
+    if (present && !state.login) {
+      paused.push(role);
+      continue;
+    }
     let action;
     if (mode === "rotate") action = "rotate";
     else if (present && state.login) action = "none";
     else if (!present && !state.login) action = "install";
-    // A URL without LOGIN, or LOGIN without its URL: only an explicit rotate may decide.
+    // LOGIN without its URL: some other consumer may hold the password; only rotate decides.
     else refuse("qa-role-secret-mismatch", [role]);
     roleSteps.push({ role, action });
     secrets.push({
@@ -612,6 +653,7 @@ function decide(mode, { inventory, roles }, staged) {
       present,
     });
   }
+  if (paused.length) refuse("qa-role-paused", paused);
   if (mode === "disable") {
     for (const name of DISABLE_SECRETS) {
       secrets.push({
@@ -639,6 +681,90 @@ function decide(mode, { inventory, roles }, staged) {
   }
   secrets.sort((a, b) => a.name.localeCompare(b.name));
   return { secrets, roleSteps };
+}
+
+async function verifyInventory(api, expected, secrets, receipt) {
+  const observed = new Map(
+    (await api.list()).map((item) => [item.name, item.digest]),
+  );
+  const mismatched = [
+    ...new Set([...expected.keys(), ...observed.keys()]),
+  ].filter((name) => expected.get(name) !== observed.get(name));
+  // Names only: a written name with the wrong digest, or any other secret that moved.
+  if (mismatched.length) refuse("qa-secret-digest-mismatch", mismatched);
+  for (const item of receipt.secrets) {
+    const step = secrets.find((entry) => entry.name === item.name);
+    if (item.outcome === "outcome-unknown") item.outcome = DONE[step.action];
+  }
+}
+
+async function setLogins({
+  changes,
+  before,
+  passwords,
+  receipt,
+  progress,
+  run,
+}) {
+  if (!changes.length) return;
+  const variables = {};
+  for (const { role } of changes) {
+    variables[QA_ROLE_LOGINS.find((entry) => entry.role === role).variable] =
+      scramSha256Verifier(passwords.get(role), {
+        salt: Buffer.from(run.randomBytesImpl(16)),
+      });
+  }
+  receipt.status = "writing-roles";
+  receipt.writeAttempted = true;
+  for (const item of receipt.roles) {
+    if (changes.some((step) => step.role === item.role))
+      item.outcome = "outcome-unknown";
+  }
+  await progress();
+  const ran = await runPinnedSql({
+    exec: run.exec,
+    cwd: run.cwd,
+    conn: run.conn,
+    file: run.path(QA_SECRETS_SQL.login),
+    variables,
+    single: true,
+  });
+  if (ran.code !== 0) refuse("qa-role-login-failed");
+  const after = await run.roleState();
+  for (const { role } of QA_ROLE_LOGINS) {
+    if (after.get(role).login !== true) refuse("qa-role-cannot-login", [role]);
+  }
+  for (const { role } of changes) {
+    if (!["scram", "unreadable"].includes(after.get(role).password)) {
+      refuse("qa-role-password-not-scram", [role]);
+    }
+  }
+  assertOnlyLoginChanged(
+    before.facts,
+    factList(await run.read(join(run.sourceDir, ROLE_FACTS))),
+    changes.map(({ role }) => ({ role, login: true })),
+  );
+  const failed = [];
+  for (const { role } of changes) {
+    const ok = await probeLogin({
+      exec: run.exec,
+      cwd: run.cwd,
+      conn: run.conn,
+      projectRef: run.projectRef,
+      role,
+      password: passwords.get(role),
+    });
+    if (!ok) failed.push(role);
+  }
+  if (failed.length) refuse("qa-role-login-probe-failed", failed);
+  for (const step of changes) {
+    const item = receipt.roles.find((entry) => entry.role === step.role);
+    item.outcome =
+      step.action === "rotate" && before.roles.get(step.role).login
+        ? DONE.rotate
+        : "login-set";
+  }
+  await progress();
 }
 
 // ── Run ───────────────────────────────────────────────────────────────────────────────────────
@@ -823,113 +949,67 @@ export async function runQaSecretsOperation({
         for (const name of names) expected.delete(name);
       }
     } else {
+      // Every password for this run is generated up front, in memory only.
+      for (const { role } of changes) {
+        passwords.set(role, generatePassword(randomBytesImpl));
+      }
       const body = [];
       for (const item of writes) {
-        let value = staged.get(item.name);
         const login = QA_ROLE_LOGINS.find(
           (entry) => entry.secret === item.name,
         );
-        if (login) {
-          const password = generatePassword(randomBytesImpl);
-          passwords.set(login.role, password);
-          value = roleDbUrl(plan.projectRef, login.role, password);
-        }
+        const value = login
+          ? roleDbUrl(plan.projectRef, login.role, passwords.get(login.role))
+          : staged.get(item.name);
         assertWritableName(item.name);
         body.push({ name: item.name, value });
         expected.set(item.name, sha256(value));
       }
-      // Secret first, then LOGIN: a failure between the two leaves an unused URL, never a
-      // login whose URL is missing.
-      receipt.status = "writing-secrets";
-      receipt.writeAttempted = true;
-      mark(
-        receipt.secrets,
-        new Set(body.map((item) => item.name)),
-        "outcome-unknown",
-      );
-      await progress();
-      await api.write("POST", body);
-      body.length = 0;
-    }
-
-    const inventory = await api.list();
-    const observed = new Map(inventory.map((item) => [item.name, item.digest]));
-    const mismatched = [
-      ...new Set([...expected.keys(), ...observed.keys()]),
-    ].filter((name) => expected.get(name) !== observed.get(name));
-    if (mismatched.length) {
-      // Names only: a written name with the wrong digest, or any other secret that moved.
-      refuse("qa-secret-digest-mismatch", mismatched);
-    }
-    for (const item of receipt.secrets) {
-      const step = secrets.find((entry) => entry.name === item.name);
-      if (item.outcome === "outcome-unknown") item.outcome = DONE[step.action];
-    }
-    await progress();
-
-    if (plan.mode !== "disable" && changes.length) {
-      const variables = {};
-      for (const { role } of changes) {
-        const verifier = scramSha256Verifier(passwords.get(role), {
-          salt: Buffer.from(randomBytesImpl(16)),
-        });
-        variables[
-          QA_ROLE_LOGINS.find((entry) => entry.role === role).variable
-        ] = verifier;
-      }
-      receipt.status = "writing-roles";
-      mark(
-        receipt.roles,
-        new Set(changes.map((item) => item.role)),
-        "outcome-unknown",
-      );
-      await progress();
-      const ran = await runPinnedSql({
-        exec,
-        cwd,
-        conn,
-        file: path(QA_SECRETS_SQL.login),
-        variables,
-        single: true,
-      });
-      if (ran.code !== 0) refuse("qa-role-login-failed");
-      const after = await roleState();
-      for (const { role } of QA_ROLE_LOGINS) {
-        if (after.get(role).login !== true)
-          refuse("qa-role-cannot-login", [role]);
-      }
-      for (const { role } of changes) {
-        if (!["scram", "unreadable"].includes(after.get(role).password)) {
-          refuse("qa-role-password-not-scram", [role]);
-        }
-      }
-      assertOnlyLoginChanged(
-        before.facts,
-        factList(await read(join(sourceDir, ROLE_FACTS))),
-        changes.map(({ role }) => ({ role, login: true })),
-      );
-      const failed = [];
-      for (const { role } of changes) {
-        if (
-          !(await probeLogin({
+      const logins = () =>
+        setLogins({
+          changes,
+          before,
+          passwords,
+          receipt,
+          progress,
+          run: {
             exec,
             cwd,
             conn,
+            path,
+            read,
+            roleState,
+            sourceDir,
+            randomBytesImpl,
             projectRef: plan.projectRef,
-            role,
-            password: passwords.get(role),
-          }))
-        )
-          failed.push(role);
+          },
+        });
+      const write = async () => {
+        receipt.status = "writing-secrets";
+        receipt.writeAttempted = true;
+        mark(
+          receipt.secrets,
+          new Set(body.map((item) => item.name)),
+          "outcome-unknown",
+        );
+        await progress();
+        if (body.length) await api.write("POST", body);
+        body.length = 0;
+        await verifyInventory(api, expected, secrets, receipt);
+        await progress();
+      };
+      if (plan.mode === "rotate") {
+        // Password first: a failed ALTER ROLE leaves every login and URL as it was.
+        await logins();
+        await write();
+      } else {
+        // Install: URL first; a failure before LOGIN leaves only an unused URL.
+        await write();
+        await logins();
       }
-      if (failed.length) refuse("qa-role-login-probe-failed", failed);
-      for (const step of changes) {
-        const item = receipt.roles.find((entry) => entry.role === step.role);
-        item.outcome =
-          step.action === "rotate" && before.roles.get(step.role).login
-            ? DONE.rotate
-            : "login-set";
-      }
+    }
+    if (plan.mode === "disable") {
+      await verifyInventory(api, expected, secrets, receipt);
     }
     receipt.status = "verified";
     await progress();
@@ -957,14 +1037,28 @@ export async function runQaSecretsOperation({
   }
 }
 
-function recoveryFor({ writeAttempted, mode }) {
+function recoveryFor({ writeAttempted, mode, roles = [], secrets = [] }) {
   if (!writeAttempted) {
     return "Nothing was written. Correct the named readiness problem, create a new plan and approve it again.";
   }
   if (mode === "disable") {
     return "Stop. Check the QA writer login and STILL_QA_SANDBOX_* names privately, then run a separately approved disable again (safe to repeat). Emergency fallback: delete STILL_QA_SANDBOX_ENTITLEMENT_WRITER_DB_URL in the Supabase dashboard.";
   }
-  return "Stop; do not re-run apply. Rows marked outcome-unknown may or may not have changed. Recover with a separately approved rotate (replaces every QA secret and password, then verifies) or disable. If the settings writer or policy reader row is outcome-unknown after a rotate, run rotate again promptly: live sync-settings or product-policy may not sign in.";
+  if (mode === "rotate") {
+    const changed = roles.some((item) =>
+      ["password-rotated", "login-set"].includes(item.outcome),
+    );
+    const unsaved = secrets.some((item) =>
+      ["outcome-unknown", "not-attempted"].includes(item.outcome),
+    );
+    return (
+      (changed && unsaved
+        ? "The database passwords changed but the matching URL secrets may not have been saved: functions that use those URLs cannot sign in until rotate runs again. "
+        : "Rows marked outcome-unknown may or may not have changed. ") +
+      "Recover with a separately approved rotate (safe to repeat: it generates fresh passwords, changes them first, then rewrites every URL and verifies) or disable."
+    );
+  }
+  return "Stop; do not re-run apply. Rows marked outcome-unknown may or may not have changed. Recover with a separately approved rotate (changes every password first, then rewrites every QA secret and verifies) or disable.";
 }
 
 // ── Public records (names, outcomes and counts only) ──────────────────────────────────────────
@@ -977,7 +1071,11 @@ export function renderQaSecretsPlan(plan) {
     `- Pinned SQL: ${plan.files.map((file) => `\`${file.path}\` \`${file.sha256}\``).join(", ")}.`,
     `- Generated in runner memory (direct host, exact role): ${plan.roles.map((item) => `\`${item.secret}\` for \`${item.role}\``).join(", ")}.`,
     `- Copied from ${plan.staged.length} staged \`${STAGE_PREFIX}*\` values to the matching \`${QA_SECRET_PREFIX}*\` names.`,
-    `- apply never replaces an existing secret or a working login; rotate replaces them; disable removes the ${plan.removable.length} \`${QA_SECRET_PREFIX}*\` names and switches \`${QA_WRITER}\` to NOLOGIN.`,
+    `- apply never replaces an existing secret or a working login; rotate changes each password first, then rewrites the URLs; disable removes the ${plan.removable.length} \`${QA_SECRET_PREFIX}*\` names and switches \`${QA_WRITER}\` to NOLOGIN.`,
+    "- An emergency stop wins: a role that is switched off while its URL exists (pause-settings-sync, pause-qa-sandbox) stops the run; run the matching resume first. This operation never turns a login back on by itself.",
+    "- **Shared names:** `PRODUCT_POLICY_READER_DB_URL` and `SETTINGS_WRITER_DB_URL` are also read by the production `product-policy` and `sync-settings` functions. Those are not deployed today, so this switches nothing on for customers now, but a future production deploy of either function would sign in with these URLs and logins.",
+    "- Limits: an existing URL reported `unchanged` is not proven to work (only its digest is readable). The sign-in check for a new password goes through the database pooler, while functions use the direct host; the later function readiness and post-deploy probes prove the rest.",
+    "- Staged values may not start or end with whitespace (a PEM block may end with one newline).",
     "- No value, password or verifier appears in this plan, the logs or the closing record.",
     "",
   ];
