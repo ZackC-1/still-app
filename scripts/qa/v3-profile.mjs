@@ -30,6 +30,24 @@ export const SURFACES = Object.freeze({
   "apple-webview": "app-webview",
 });
 
+/** SHA-256 of the real (store) PostHog project key. QA builds may never embed it, so test traffic can
+ * never reach real metrics. Only the fingerprint is kept; the public key itself stays in .env files. */
+export const PRODUCTION_POSTHOG_KEY_SHA256 = "8ca75dbbb20edd626386a86f22a55f4ef6b6c62b6664ced673abe08e180e54a7";
+const POSTHOG_HOSTS = Object.freeze({ us: "https://us.i.posthog.com", eu: "https://eu.i.posthog.com" });
+
+/** QA builds always label events build_channel "test". Analytics is sent only when the separate QA
+ * PostHog project key and region are both supplied; the store project's key is refused. */
+export function qaAnalyticsEnvironment(input) {
+  const key = input.STILL_QA_POSTHOG_KEY?.trim(), region = input.STILL_QA_POSTHOG_REGION?.trim();
+  if (!key && !region) return { VITE_ANALYTICS_BUILD_CHANNEL: "test" };
+  if (!key || !region) throw new Error("QA analytics needs both STILL_QA_POSTHOG_KEY and STILL_QA_POSTHOG_REGION");
+  if (!/^phc_[A-Za-z0-9]{20,64}$/.test(key)) throw new Error("STILL_QA_POSTHOG_KEY must be a public PostHog project key (phc_)");
+  if (createHash("sha256").update(key).digest("hex") === PRODUCTION_POSTHOG_KEY_SHA256)
+    throw new Error("QA builds may not use the real PostHog project; use the separate QA project");
+  if (!Object.hasOwn(POSTHOG_HOSTS, region)) throw new Error("STILL_QA_POSTHOG_REGION must be us or eu");
+  return { VITE_ANALYTICS_BUILD_CHANNEL: "test", VITE_POSTHOG_KEY: key, VITE_POSTHOG_HOST: POSTHOG_HOSTS[region] };
+}
+
 /** No inherited client configuration or debug logging reaches the build loaders. */
 export function profileEnvironment(profile, input = process.env) {
   if (!["local", "test", "paid-sandbox"].includes(profile))
@@ -90,6 +108,7 @@ export function profileEnvironment(profile, input = process.env) {
       throw new Error("Only a public Supabase client key is allowed");
     env.VITE_SUPABASE_URL = url.origin;
     env.VITE_SUPABASE_ANON_KEY = key;
+    Object.assign(env, qaAnalyticsEnvironment(input));
   }
   if (profile === "paid-sandbox") {
     const config = sandboxConfiguration(input);
@@ -98,6 +117,8 @@ export function profileEnvironment(profile, input = process.env) {
     for (const key of Object.keys(env)) if (!allowed.has(key) && !key.startsWith("VITE_") && key !== "NODE_ENV") delete env[key];
     env.VITE_ACCESS_ENVIRONMENT = "sandbox";
     env.VITE_ACCESS_PUBLIC_KEYS = config.publicKeysJson;
+    // Separate Firefox add-on id and visible name (packages/ext-chromium/wxt.config.ts).
+    env.VITE_PACKAGE_IDENTITY = "paid-sandbox-qa";
   }
   return env;
 }
@@ -136,6 +157,8 @@ export function artifactManifest({
   backendRouteProfile: routeProfile = "production",
   artifacts,
   paidBuild,
+  analyticsKey,
+  analyticsChannel,
 }) {
   backendRouteProfile({ STILL_QA_BACKEND_ROUTE_PROFILE: routeProfile }, { requireSandbox: profile === "paid-sandbox" });
   if (profile === "paid-sandbox") {
@@ -169,6 +192,12 @@ export function artifactManifest({
         : null,
       reachableFromPhysicalDevice: "unverified",
     },
+    analytics: {
+      buildChannel: analyticsChannel ?? null,
+      // Binds the analytics project without exporting its key; delivery needs a real journey.
+      projectKeySha256: analyticsKey ? createHash("sha256").update(analyticsKey).digest("hex") : null,
+      delivery: analyticsKey ? "unverified" : "not-configured",
+    },
     trust: {
       buildMode: "production",
       rules: "production-only",
@@ -200,7 +229,7 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
     (surface !== "all" && !Object.hasOwn(SURFACES, surface) && !(profile === "paid-sandbox" && (Object.hasOwn(APPLE_TARGETS, surface) || surface === "apple-all")))
   )
     throw new Error(
-      "Usage: v3-profile.mjs <local|test|paid-sandbox> [all|chrome|firefox|safari|apple-webview|apple-ios-sim|apple-macos|apple-ios-archive|apple-macos-archive|apple-all]",
+      "Usage: v3-profile.mjs <local|test|paid-sandbox> [all|chrome|firefox|safari|apple-webview|apple-ios-sim|apple-macos|apple-ios-archive|apple-macos-archive|apple-ios-device|apple-macos-device|apple-all]",
     );
   if (profile === "paid-sandbox") return paidSandboxMain(surface, input, root);
   const surfaces = surface === "all" ? Object.keys(SURFACES) : [surface];
@@ -239,6 +268,8 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
         backendUrl: env.VITE_SUPABASE_URL,
         backendRouteProfile: env.VITE_BACKEND_ROUTE_PROFILE,
         artifacts,
+        analyticsKey: env.VITE_POSTHOG_KEY,
+        analyticsChannel: env.VITE_ANALYTICS_BUILD_CHANNEL,
       });
       pending.push({ path: join(surfaceDir, "artifact-manifest.json"), manifest, selected, surfaceDir });
     }
@@ -300,6 +331,7 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
         if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config, { sourceRoot: clone, inlineModules: target === "apple-webview" });
         const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
           sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, backendRouteProfile: config.backendRouteProfile, artifacts,
+          analyticsKey: env.VITE_POSTHOG_KEY, analyticsChannel: env.VITE_ANALYTICS_BUILD_CHANNEL,
           paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });
         pending.push({ target, path: join(targetDir, "artifact-manifest.json"), manifest });
       }

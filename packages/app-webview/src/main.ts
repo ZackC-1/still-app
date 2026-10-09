@@ -23,7 +23,7 @@ import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
-import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
+import { buildChannelEnvelope, createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -102,6 +102,7 @@ const analytics = createAppAnalytics({
     key: import.meta.env.VITE_POSTHOG_KEY,
     host: import.meta.env.VITE_POSTHOG_HOST,
   },
+  envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
   store: storageKeyValue(safeStorage()),
   identifyOnServer: () => identifyOnServer?.() ?? Promise.resolve(),
 });

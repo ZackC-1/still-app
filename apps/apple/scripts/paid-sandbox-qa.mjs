@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile, mkdir, rm, lstat, chmod } from "node:fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +23,12 @@ export const APPLE_TARGETS = Object.freeze({
   "apple-macos": { scheme: "Still (macOS)", destination: "generic/platform=macOS", signed: false, archive: false },
   "apple-ios-archive": { scheme: "Still (iOS)", destination: "generic/platform=iOS", signed: true, archive: true },
   "apple-macos-archive": { scheme: "Still (macOS)", destination: "generic/platform=macOS", signed: true, archive: true },
+  // Development-signed exports for the owner's registered QA devices. A device-limited profile
+  // cannot be submitted to the App Store, and StoreKit in a development build uses the sandbox.
+  "apple-ios-device": { scheme: "Still (iOS)", destination: "generic/platform=iOS", signed: true, archive: true, developmentExport: "Still.ipa" },
+  "apple-macos-device": { scheme: "Still (macOS)", destination: "generic/platform=macOS", signed: true, archive: true, developmentExport: "Still.app" },
 });
+const APP_GROUP = "group.com.chartash.still";
 export const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const refusal = message => { throw new Error(`Paid sandbox QA: ${message}`); };
 const gitEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
@@ -281,6 +287,65 @@ export async function verifyApplePackage(app, target, config, clone) {
   return { nativeInfoPlistsMatched: true, nativeBackendRouteProfileMatched: true, webviewSha256: hash(web), safari, codeSigned: APPLE_TARGETS[target].signed, ...(signingTeam ? { signingTeam } : {}) };
 }
 
+/** Export options for registered QA devices: development method, local export only, no upload.
+ * The caller never passes -allowProvisioningUpdates, so only existing local profiles are used. */
+export function developmentExportOptions() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>method</key><string>debugging</string>
+<key>teamID</key><string>${REVIEWED_SIGNING_TEAM}</string>
+<key>signingStyle</key><string>automatic</string>
+<key>destination</key><string>export</string>
+</dict></plist>
+`;
+}
+
+const plistKey = (path, key, format) => {
+  const result = spawnSync("/usr/bin/plutil", ["-extract", key, format, "-o", "-", path], { encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+};
+/** Decoded embedded provisioning profile fields; dates are not JSON, so each field is extracted. */
+export function readEmbeddedProfile(bundle, mac) {
+  const embedded = mac ? join(bundle, "Contents/embedded.provisionprofile") : join(bundle, "embedded.mobileprovision");
+  // Decode outside the signed bundle so nothing unsealed is ever written into it.
+  const scratch = mkdtempSync(join(tmpdir(), "still-profile-")), decoded = join(scratch, "profile.plist");
+  try {
+    runChecked("/usr/bin/security", ["cms", "-D", "-i", embedded, "-o", decoded]);
+    const json = key => { const text = plistKey(decoded, key, "json"); return text === undefined ? undefined : JSON.parse(text); };
+    return { teams: json("TeamIdentifier"), devices: json("ProvisionedDevices"), allDevices: plistKey(decoded, "ProvisionsAllDevices", "raw") === "true",
+      expires: plistKey(decoded, "ExpirationDate", "raw"), entitlements: json("Entitlements") };
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+export function readSignedEntitlements(bundle) {
+  const xmlText = runChecked("/usr/bin/codesign", ["-d", "--entitlements", "-", "--xml", bundle], { capture: true });
+  const parsed = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", "-"], { input: xmlText, encoding: "utf8" });
+  if (parsed.status !== 0) refusal("unreadable signed entitlements");
+  return JSON.parse(parsed.stdout);
+}
+
+/** Device-limited development signing for the reviewed team, with the shared App Group in both
+ * bundles. Records counts and dates only; device identifiers never enter a receipt. */
+export function verifyDevelopmentSigning(app, target, { readProfile = readEmbeddedProfile, readEntitlements = readSignedEntitlements, now = Date.now() } = {}) {
+  if (!APPLE_TARGETS[target]?.developmentExport) refusal("not a development device target");
+  const mac = target.includes("macos");
+  const extension = join(app, mac ? "Contents/PlugIns" : "PlugIns", "Still Extension.appex");
+  const bundles = [];
+  for (const [bundle, id] of [[app, "com.chartash.still"], [extension, "com.chartash.still.Extension"]]) {
+    const profile = readProfile(bundle, mac), signed = readEntitlements(bundle);
+    const identifier = profile.entitlements?.["application-identifier"] ?? profile.entitlements?.["com.apple.application-identifier"];
+    const expires = Date.parse(profile.expires ?? "");
+    if (JSON.stringify(profile.teams) !== JSON.stringify([REVIEWED_SIGNING_TEAM]) || identifier !== `${REVIEWED_SIGNING_TEAM}.${id}`)
+      refusal("development profile is not the reviewed team's profile for this bundle");
+    if (!Array.isArray(profile.devices) || profile.devices.length < 1 || profile.allDevices)
+      refusal("development package requires a device-limited profile; store or enterprise profiles are refused");
+    if (!Number.isFinite(expires) || expires <= now) refusal("development profile is expired or undated");
+    if (!signed["com.apple.security.application-groups"]?.includes(APP_GROUP)) refusal("signed bundle lacks the shared App Group");
+    bundles.push({ bundleId: id, provisionedDeviceCount: profile.devices.length, profileExpires: new Date(expires).toISOString() });
+  }
+  return { developmentSigned: true, appGroup: APP_GROUP, bundles };
+}
+
 export async function buildAppleTarget({ clone, output, target, env, config }) {
   const spec = APPLE_TARGETS[target];
   if (!spec) refusal("unknown Apple target");
@@ -294,9 +359,34 @@ export async function buildAppleTarget({ clone, output, target, env, config }) {
   if (spec.archive) args.push("-archivePath", archive);
   else args.push("CODE_SIGNING_ALLOWED=NO");
   runChecked("xcodebuild", args, { cwd: clone, env });
+  const artifact = join(output, "artifact"); await mkdir(artifact, { recursive: true });
+  if (spec.developmentExport) {
+    const options = join(output, "ExportOptions.plist"), exported = join(output, "export");
+    // A refused package, its archive and its export are removed on every exit, never left installable.
+    try {
+      await writeFile(options, developmentExportOptions());
+      runChecked("xcodebuild", ["-exportArchive", "-archivePath", archive, "-exportPath", exported, "-exportOptionsPlist", options], { cwd: clone, env });
+      let app = join(exported, "Still.app");
+      if (spec.developmentExport === "Still.ipa") {
+        runChecked("/usr/bin/ditto", ["-x", "-k", join(exported, "Still.ipa"), join(output, "ipa")]);
+        app = join(output, "ipa/Payload/Still.app");
+      }
+      const verified = { ...(await verifyApplePackage(app, target, config, clone)), ...verifyDevelopmentSigning(app, target) };
+      // Re-check the exact bundle immediately before packaging it.
+      runChecked("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
+      // ditto keeps the Mac bundle's signature intact; the exported IPA is already an archive.
+      if (spec.developmentExport === "Still.ipa") runChecked("/bin/cp", [join(exported, "Still.ipa"), join(artifact, "Still.ipa")]);
+      else runChecked("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, join(artifact, "Still-mac.zip")]);
+      return verified;
+    } catch (error) {
+      await rm(artifact, { recursive: true, force: true });
+      throw error;
+    } finally {
+      for (const path of [derived, archive, exported, join(output, "ipa"), options]) await rm(path, { recursive: true, force: true });
+    }
+  }
   const app = spec.archive ? join(archive, "Products/Applications/Still.app") : join(derived, "Build/Products", target === "apple-ios-sim" ? "Release-iphonesimulator" : "Release", "Still.app");
   const verified = await verifyApplePackage(app, target, config, clone);
-  const artifact = join(output, "artifact"); await mkdir(artifact, { recursive: true });
   runChecked("tar", ["-czf", join(artifact, "Still.tgz"), "-C", dirname(spec.archive ? archive : app), spec.archive ? "Still.xcarchive" : "Still.app"]);
   await rm(derived, { recursive: true, force: true });
   if (spec.archive) await rm(archive, { recursive: true, force: true });

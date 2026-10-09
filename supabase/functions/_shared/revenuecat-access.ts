@@ -118,7 +118,10 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           const product = entitlement.products.items.find(candidate => object(candidate) && candidate.id === mapping.product_id);
           if (!object(product) || product.object !== "product" || product.state !== "active" ||
               product.app_id !== mapping.app_id || product.store_identifier !== mapping.store_identifier ||
-              product.type !== "one_time" || !object(product.one_time) || product.one_time.is_consumable !== false) { complete = false; continue; }
+              // RevenueCat v2 reports lifetime products as one_time or non_consumable; both must
+              // still state is_consumable false. Unknown (null) or consumable never grants.
+              (product.type !== "one_time" && product.type !== "non_consumable") || !object(product.one_time) ||
+              product.one_time.is_consumable !== false) { complete = false; continue; }
           rights.push({ key, product: benefit });
           if (rights.length > 16) return unavailable;
         }

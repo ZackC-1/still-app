@@ -22,7 +22,7 @@ import { createIdentityStore, createSessionStores } from "../lib/session-stores.
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
-import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 import {
   afterPlatformAnswer,
@@ -294,6 +294,7 @@ export default defineBackground(() => {
         key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
         host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
       },
+      envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
       appVersion: browser.runtime.getManifest().version,
       local: storageKeyValue(chrome.storage.local),
       queue: createIndexedDbKeyValue(),
