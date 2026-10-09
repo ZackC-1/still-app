@@ -523,6 +523,18 @@ test("migration config ignores only [functions.*] tables, including their commen
     assert.notEqual(migrationConfigText(changed), migrationConfigText(base));
 });
 
+test("migration config is compared byte-exact when it holds a multi-line string", () => {
+  const hidden = (value) =>
+    `[auth.sms]\ntemplate = """\n[functions.x]\n"""\nenable_signup = ${value}\n`;
+  assert.notEqual(
+    migrationConfigText(hidden(true)),
+    migrationConfigText(hidden(false)),
+  );
+  assert.equal(migrationConfigText(hidden(true)), hidden(true));
+  const literal = `a = '''\n[functions.y]\n'''\nb = 1\n`;
+  assert.equal(migrationConfigText(literal), literal);
+});
+
 test("an older migration commit plans when main only added Edge Function config entries", async (t) => {
   const { root, head } = await repo(t);
   const original = await readFile(join(root, "supabase/config.toml"), "utf8");

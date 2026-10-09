@@ -491,6 +491,9 @@ export async function createDeployPlan({
 
 /** config.toml without its [functions.*] tables (Edge Function settings `db push` never reads). */
 export function migrationConfigText(text) {
+  // A multi-line string could hold a line that looks like a table header; never normalize one
+  // (the byte-exact text is returned, so any difference is refused).
+  if (/"""|'''/.test(String(text))) return String(text);
   const kept = [];
   let inFunctions = false;
   for (const line of String(text).split("\n")) {
@@ -1602,6 +1605,10 @@ export function renderPlan(plan) {
     `- Approval environment: \`${plan.environment}\` (owner approval required before any secret is available)`,
     `- Edge Functions: none`,
     `- Supabase CLI ${plan.cli.version}, download SHA-256 \`${plan.cli.tarballSha256}\``,
+    `- Config: \`${plan.config.path}\` SHA-256 \`${plan.config.sha256}\`` +
+      (plan.config.migrationSha256
+        ? `; database settings (Edge Function sections removed) SHA-256 \`${plan.config.migrationSha256}\`, identical on main`
+        : ""),
     `- Hosted migration history must be exactly ${plan.expectedHistoryBefore.length} entries ending at \`${plan.expectedHistoryBefore.at(-1).version}\`; after the deploy, exactly ${plan.expectedHistoryAfter.length}.`,
     plan.newerMigrationsOnMain > 0
       ? `- Note: main has ${plan.newerMigrationsOnMain} newer migration(s) that this deploy does NOT include.`
@@ -1609,7 +1616,7 @@ export function renderPlan(plan) {
     plan.onFirstParent
       ? "- The commit is on main's own line of history (first parent)."
       : "- ⚠️ **The commit is not on main's own line of history**: it reached main through a merged branch. " +
-        "That is allowed only because every migration, check and config file it uses is byte-identical on main; " +
+        "That is allowed only because every migration and check it uses is byte-identical on main, and its config.toml matches main apart from Edge Function sections; " +
         "if you expected a commit made directly on main, reject and check the commit you pasted.",
     "",
     "| File | Role | SHA-256 |",
