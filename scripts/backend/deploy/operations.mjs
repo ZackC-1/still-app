@@ -138,19 +138,21 @@ export const PROTECTED_OPERATOR_SUBJECT =
   "00000000-0000-0000-0000-000000000000";
 
 /**
- * PROVISIONAL (decision A3): the QA build identifiers per paid surface. The placeholder matches no
- * real build, so a body published with it lets no client offer a purchase. A reviewed change
- * replaces it (here, in both sales-policy SQL templates and their pinned hashes) once the QA cohort
- * is frozen, and removes PROVISIONAL.builds from the two operations below.
+ * Decision A3: the build identifiers QA test set 3 presents, frozen from its artifacts (built from
+ * main 598951be, first-parent count 311). Extensions present their manifest version
+ * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
+ * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
+ * here, in both sales-policy SQL templates and their pinned hashes, in one reviewed change, then
+ * publishes a new sandbox revision.
  */
 export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
   [
-    "chrome_desktop",
-    "firefox_desktop",
-    "firefox_android",
-    "apple_mobile_host",
-    "apple_macos_host",
-  ].map((surface) => Object.freeze({ surface, build: "qa-provisional" })),
+    ["chrome_desktop", "2.1.1.311"],
+    ["firefox_desktop", "2.1.1.311"],
+    ["firefox_android", "2.1.1.311"],
+    ["apple_mobile_host", "2.1.0"],
+    ["apple_macos_host", "2.1.0"],
+  ].map(([surface, build]) => Object.freeze({ surface, build })),
 );
 
 const salesTemplate = (enabled) =>
@@ -172,10 +174,10 @@ export const QA_SANDBOX_SALES_TEMPLATES = Object.freeze({
 });
 
 /**
- * PROVISIONAL (decision D2, owner sign-off pending): the sandbox paid cutoff written once by the
- * first `on`. 0016 open question 6 leaves the production content undefined; this is the proposed
- * content to rehearse: a protected product id (never still-pro-v3) and the sorted ids of the
- * features released free (FEATURE_REGISTRY tier "free" plus the TikTok website alias).
+ * Decision D2 (accepted for the sandbox): the sandbox paid cutoff written once by the first `on`: a
+ * protected product id (never still-pro-v3) and the sorted ids of the features released free
+ * (FEATURE_REGISTRY tier "free" plus the TikTok website alias). 0016 open question 6 still leaves the
+ * production content to a separate decision.
  */
 export const QA_SANDBOX_CUTOFF = Object.freeze({
   product: "still-free-v2",
@@ -185,14 +187,6 @@ export const QA_SANDBOX_CUTOFF = Object.freeze({
     "tiktok.all",
     "youtube.shorts",
   ]),
-});
-
-/** Reasons an operation's content is not yet approved for production (apply is refused). */
-export const PROVISIONAL = Object.freeze({
-  builds:
-    "A3: the QA build identifiers are the placeholder qa-provisional until a reviewed change freezes them",
-  cutoff:
-    "D2: the sandbox paid cutoff content (still-free-v2 and the free-tier ids) awaits owner sign-off",
 });
 
 /** The exact bytes private.product_policy_render('sales', template + revision) produces. */
@@ -221,11 +215,8 @@ const salesPolicy = (mode, { sql, verification }) =>
     noChange: `already-${mode}`,
     template: QA_SANDBOX_SALES_TEMPLATES[mode],
     cutoff: mode === "on" ? QA_SANDBOX_CUTOFF : null,
-    provisional: Object.freeze(
-      mode === "on"
-        ? [PROVISIONAL.builds, PROVISIONAL.cutoff]
-        : [PROVISIONAL.builds],
-    ),
+    // Content not yet approved for production would be listed here (apply is then refused).
+    provisional: Object.freeze([]),
     effect:
       mode === "on"
         ? "the newest sandbox sales revision is the pinned on body, the sandbox paid cutoff exists with the pinned content, and production has no paid cutoff"
@@ -347,7 +338,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "8bdc5bca4878167884af8b9ed6b5a8b0b3895cd9b74e35200eb420669227dc05",
+        "ca62240cf5d27597f0c6d166ae3e3876069e3cf9efa5b653cc7f7e7b2b611473",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -359,7 +350,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "63efa14a1f4c18d0877ca937d1345c66f5225bea9441d62213b8b9505bc4ba3b",
+        "a549feed1861ab870db416102adb7b9cc42615a72a77bd8528269b6ddba0ca63",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,

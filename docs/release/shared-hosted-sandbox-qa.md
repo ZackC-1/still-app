@@ -92,7 +92,7 @@ protected `main` with CI green, its row is blocked.
 | --- | --- | --- | --- |
 | A. Preconditions | Hosted history ends at `0021`; the support PRs are merged; the private secret bundle passes the offline check | Local only | Offline check prints `PASS overall` (see below) |
 | B. Provider settings | Dedicated QA Apple In-App Purchase key; RevenueCat and Stripe sandbox checks; Stripe webhook endpoint for `qa-sandbox-stripe-webhook`; provider mapping bound to the sandbox price | Owner portal visits | Names and IDs read back; no values in Git or chat |
-| C. Secrets and logins | Owner stores the Secrets-only token; the 19 bundle values are staged as write-only environment secrets; `qa-sandbox-secrets` (*planned*) sets LOGIN with generated passwords for the three narrow roles and installs every required secret | Protected run | Closing record lists names and installed/unchanged only; every `REQUIRED_SECRETS` name present by digest |
+| C. Secrets and logins | Owner stores the Secrets-only token; the 19 bundle values are staged as write-only environment secrets; `qa-sandbox-secrets` with workflow `mode` `apply` (*planned*) sets LOGIN with generated passwords for the three narrow roles and installs every required secret | Protected run | Closing record lists names and installed/unchanged only; every `REQUIRED_SECRETS` name present by digest |
 | D. First sales-policy entry | `qa-sandbox-sales-policy` mode `off` (*planned*) publishes sandbox revision 1 with sales off and no cutoff | Protected run | `sandbox_sales_policy_missing` no longer reported; production revisions unchanged |
 | E. Readiness and deploy | `qa-sandbox-functions` `baseline-only`, then `apply` with that baseline digest; change nothing in between | Two protected runs | Readiness lists no issues; apply closing record `verified` with eight routes; production function versions unchanged |
 | F. Test accounts | `qa-sandbox-subjects` mode `enable` (*planned*) makes the enabled memberships exactly the designated QA accounts (any other enabled member is switched off, never deleted), bound by `subjects_sha256` (see below) | Protected run | The plan shows the approved account count and it matches the QA accounts file; closing record `admitted` equals that count; non-member, expired-Auth and production-RPC negatives refused |
@@ -109,6 +109,13 @@ list matches its recorded fingerprint, and confirms the approved return pages. I
 those two files, has no network permission, and prints one PASS or FAIL line per check name. The
 exact command is in the script header. A PASS proves composition only, not provider permissions,
 hosted reachability or purchase acceptance.
+
+### Which builds the sandbox sales switch admits
+
+The sandbox sales bodies list one build id per surface (`QA_SANDBOX_SALES_BUILDS` in
+`scripts/backend/deploy/operations.mjs`). Extensions present their manifest version, unique per QA
+test set (for test set 3, `2.1.1.311`). The Apple id `2.1.0` is not specific to test set 3: every sandbox-routed Apple build at marketing version 2.1.0 matches it (Apple QA builds keep MARKETING_VERSION; the build number is not presented). The public App Store build is excluded because it reads the production policy environment, never this sandbox body. A new test set needs a reviewed change to those ids and
+a new sandbox sales revision.
 
 ### Building the test-account list
 
@@ -139,7 +146,7 @@ The `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret is one JSON object,
    and never deletes rows, so refund and removal recovery stays reachable. It stops new paid grants
    only: sandbox rights already granted are kept until refunded or transferred through the QA
    flows. To stop every paid QA function at once, use `pause-qa-sandbox`.
-4. **Remove QA secrets:** `qa-sandbox-secrets` mode `disable` (*planned*) deletes only the
+4. **Remove QA secrets:** `qa-sandbox-secrets` with workflow `mode` `disable` (*planned*) deletes only the
    `STILL_QA_SANDBOX_*` secrets and sets the QA writer NOLOGIN; the shared narrow-role URLs stay.
 
 Until those operations are on `main`, the owner's emergency fallback is deleting
