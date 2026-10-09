@@ -13,12 +13,14 @@
 // ({"issuer": "...", "secret": "..."}, mode 0600, owned by you). They are never read from arguments
 // or printed. The call sequence follows Mozilla's web-ext 10.7.0 implementation of AMO API v5:
 // upload, wait for validation, PUT the version under the add-on id, wait for the signed file,
-// download it. A failure after an upload is reported and never retried automatically: AMO version
-// numbers are single-use, so an unknown outcome needs a person to look at the developer hub.
+// download it. A failed write is reported and never retried automatically: AMO version numbers are
+// single-use, so an unknown outcome needs a person to look at the developer hub. Read-only status
+// polls retry transient failures, and `--resume <version id>` downloads and verifies a version that
+// was already created, without uploading anything.
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createZip } from "../release/zip.mjs";
@@ -93,40 +95,87 @@ async function poll(check, { interval, timeout, label, now = Date.now }) {
   }
 }
 
-/** Upload, validate, create the unlisted version and download the signed XPI. Never retries a write. */
-export async function signWithAmo({ zip, id, version }, credentials, { fetch = globalThis.fetch, api = AMO_API, interval = 3000, timeout = 15 * 60_000 } = {}) {
-  if (id !== QA_ADDON_ID) refusal("only the sandbox QA add-on id may be signed");
-  const call = async (path, { method = "GET", body, json = true } = {}) => {
+/** AMO calls. Writes are never retried; read-only polls retry transient failures a few times. */
+function amoClient(credentials, { fetch = globalThis.fetch, api = AMO_API, interval = 3000 } = {}) {
+  const request = async (path, { method = "GET", body } = {}) => {
     const headers = { Authorization: `JWT ${amoJwt(credentials)}`, Accept: "application/json" };
     if (typeof body === "string") headers["Content-Type"] = "application/json";
-    const response = await fetch(new URL(path, api), { method, headers, body });
-    if (!response.ok) refusal(`${method} ${new URL(path, api).pathname} returned HTTP ${response.status}; nothing was retried`);
-    return json ? response.json() : Buffer.from(await response.arrayBuffer());
+    return fetch(new URL(path, api), { method, headers, body });
   };
+  const failed = (method, path, status) => refusal(`${method} ${new URL(path, api).pathname} returned HTTP ${status}; nothing was retried`);
+  return {
+    api,
+    async write(path, method, body) {
+      const response = await request(path, { method, body });
+      if (!response.ok) failed(method, path, response.status);
+      return response.json();
+    },
+    async read(path, { json = true } = {}) {
+      for (let attempt = 1; ; attempt++) {
+        let response;
+        try { response = await request(path); } catch (error) { if (attempt >= 4) throw error; }
+        if (response?.ok) return json ? response.json() : Buffer.from(await response.arrayBuffer());
+        if (response && response.status !== 429 && response.status < 500) failed("GET", path, response.status);
+        if (attempt >= 4) failed("GET", path, response?.status ?? "network error");
+        await wait(interval);
+      }
+    },
+  };
+}
+
+/** Upload, validate and create the unlisted version. Returns the AMO version id. Never retries a write. */
+export async function submitToAmo({ zip, id, version }, client, { interval = 3000, timeout = 15 * 60_000 } = {}) {
+  if (id !== QA_ADDON_ID) refusal("only the sandbox QA add-on id may be signed");
   const form = new FormData();
   form.set("channel", CHANNEL);
   form.set("upload", new File([zip], `still-qa-sandbox-${version}.zip`));
-  const { uuid } = await call("upload/", { method: "POST", body: form });
+  const { uuid } = await client.write("upload/", "POST", form);
   if (typeof uuid !== "string" || !uuid) refusal("AMO returned no upload id");
   await poll(async () => {
-    const detail = await call(`upload/${uuid}/`);
+    const detail = await client.read(`upload/${uuid}/`);
     if (!detail.processed) return undefined;
     if (!detail.valid) refusal(`AMO validation failed: ${JSON.stringify(detail.validation?.messages ?? detail.validation ?? {})}`);
-    if (detail.channel && detail.channel !== CHANNEL) refusal("AMO recorded a channel other than unlisted");
+    if (detail.channel !== CHANNEL) refusal("AMO did not record the upload as unlisted; nothing was submitted");
     return true;
   }, { interval, timeout, label: "Validation" });
-  const created = await call(`addon/${encodeURIComponent(id)}/`, { method: "PUT", body: JSON.stringify({ version: { upload: uuid } }) });
+  const created = await client.write(`addon/${encodeURIComponent(id)}/`, "PUT", JSON.stringify({ version: { upload: uuid } }));
   const versionId = created?.version?.id;
   if (!versionId) refusal("AMO did not return the new version; check the developer hub");
-  if (created.version.channel && created.version.channel !== CHANNEL) refusal("AMO created a version outside the unlisted channel");
+  if (created.version.channel !== CHANNEL) refusal("AMO created a version outside the unlisted channel; check the developer hub");
+  return String(versionId);
+}
+
+/** Read-only: wait for Mozilla's signature on an existing version and download it. Used by --resume. */
+export async function downloadSignedVersion(id, versionId, client, { interval = 3000, timeout = 15 * 60_000 } = {}) {
+  if (id !== QA_ADDON_ID) refusal("only the sandbox QA add-on id may be signed");
+  if (!/^\d+$/.test(String(versionId))) refusal("AMO version id must be a number");
   const fileUrl = await poll(async () => {
-    const detail = await call(`addon/${encodeURIComponent(id)}/versions/${versionId}/`);
+    const detail = await client.read(`addon/${encodeURIComponent(id)}/versions/${versionId}/`);
+    if (detail?.channel !== undefined && detail.channel !== CHANNEL) refusal("this AMO version is not unlisted");
+    if (detail?.file?.status === "disabled") refusal("Mozilla rejected this version; see the developer hub");
     return detail?.file?.status === "public" && detail.file.url ? detail.file.url : undefined;
   }, { interval, timeout, label: "Signing" });
   // The download carries the JWT, so it may only go to AMO itself.
-  if (new URL(fileUrl).origin !== new URL(api).origin) refusal("signed file URL is not on addons.mozilla.org");
-  const signed = await call(fileUrl, { json: false });
-  return { signed, versionId: String(versionId), uploadUuid: uuid };
+  if (new URL(fileUrl).origin !== new URL(client.api).origin) refusal("signed file URL is not on addons.mozilla.org");
+  return client.read(fileUrl, { json: false });
+}
+
+/** Upload, validate, create the unlisted version and download the signed XPI. Never retries a write. */
+export async function signWithAmo(pkg, credentials, options = {}) {
+  const client = amoClient(credentials, options);
+  const versionId = await submitToAmo(pkg, client, options);
+  return { signed: await downloadSignedVersion(pkg.id, versionId, client, options), versionId };
+}
+
+/** Keep the signed XPI only if it is the uploaded files plus Mozilla's signature. */
+export function writeVerifiedXpi(pkg, signed, out, { listFiles = zipFiles } = {}) {
+  const xpi = join(out, `still-qa-sandbox-${pkg.version}-signed.xpi`), pending = `${xpi}.unverified`;
+  writeFileSync(pending, signed);
+  try {
+    const signatureFiles = verifySignedPayload(pkg.files, listFiles(pending));
+    renameSync(pending, xpi);
+    return { xpi, signatureFiles };
+  } finally { rmSync(pending, { force: true }); }
 }
 
 /** Lists a zip's entries with SHA-256s using the system unzip tool (present on macOS and Linux). */
@@ -136,22 +185,22 @@ export function zipFiles(path) {
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env) {
-  const [dir, out, flag, ...rest] = argv;
-  if (!dir || !out || rest.length || (flag !== undefined && flag !== "--submit"))
-    refusal("usage: firefox-qa-sign.mjs <built firefox-mv3 dir> <output dir> [--submit]");
+  const [dir, out, flag, versionId, ...rest] = argv;
+  const usage = "usage: firefox-qa-sign.mjs <built firefox-mv3 dir> <output dir> [--submit | --resume <AMO version id>]";
+  if (!dir || !out || rest.length || (flag !== undefined && flag !== "--submit" && flag !== "--resume") ||
+      (flag === "--resume") !== (versionId !== undefined)) refusal(usage);
   const pkg = packageDirectory(resolve(dir));
   const plan = { addonId: pkg.id, version: pkg.version, channel: CHANNEL, uploadSha256: sha256(pkg.zip), files: pkg.files.length };
-  if (flag !== "--submit") {
+  if (flag === undefined) {
     process.stdout.write(`Checked QA package ${pkg.id} ${pkg.version}; nothing uploaded. Plan: ${JSON.stringify(plan)}\n`);
     return plan;
   }
-  const credentials = readCredentials(env.STILL_QA_AMO_CREDENTIALS_FILE);
+  const client = amoClient(readCredentials(env.STILL_QA_AMO_CREDENTIALS_FILE));
   mkdirSync(out, { recursive: true });
-  const { signed, versionId } = await signWithAmo(pkg, credentials);
-  const xpi = join(out, `still-qa-sandbox-${pkg.version}-signed.xpi`);
-  writeFileSync(xpi, signed);
-  const signatureFiles = verifySignedPayload(pkg.files, zipFiles(xpi));
-  const receipt = { ...plan, amoVersionId: versionId, signedXpi: xpi, signedSha256: sha256(signed), signatureFiles, signedAt: new Date().toISOString() };
+  const amoVersionId = flag === "--resume" ? String(versionId) : await submitToAmo(pkg, client);
+  const signed = await downloadSignedVersion(pkg.id, amoVersionId, client);
+  const { xpi, signatureFiles } = writeVerifiedXpi(pkg, signed, out);
+  const receipt = { ...plan, amoVersionId, resumed: flag === "--resume", signedXpi: xpi, signedSha256: sha256(signed), signatureFiles, signedAt: new Date().toISOString() };
   writeFileSync(join(out, "signing-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
   process.stdout.write(`Signed ${pkg.id} ${pkg.version} (unlisted). XPI: ${xpi}\n`);
   return receipt;

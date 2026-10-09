@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createZip } from "../release/zip.mjs";
 import {
-  amoJwt, checkQaManifest, packageDirectory, QA_ADDON_ID, QA_ADDON_NAME, readCredentials, signWithAmo, verifySignedPayload, zipFiles, main,
+  amoJwt, checkQaManifest, packageDirectory, QA_ADDON_ID, QA_ADDON_NAME, readCredentials, signWithAmo, verifySignedPayload, writeVerifiedXpi, zipFiles, main,
 } from "./firefox-qa-sign.mjs";
 
 const QA_MANIFEST = { name: QA_ADDON_NAME, version: "3.1.0", browser_specific_settings: { gecko: { id: QA_ADDON_ID }, gecko_android: { strict_min_version: "142.0" } } };
@@ -66,6 +66,7 @@ test("signing uploads to the unlisted channel, creates the version by id and dow
     { json: { processed: false } },
     { json: { processed: true, valid: true, channel: "unlisted" } },
     { json: { version: { id: 99, channel: "unlisted" } } },
+    { status: 502 },
     { json: { file: { status: "unreviewed" } } },
     { json: { file: { status: "public", url: FILE_URL } } },
     { bytes: Buffer.from("signed") },
@@ -75,7 +76,7 @@ test("signing uploads to the unlisted channel, creates the version by id and dow
   assert.equal(result.versionId, "99");
   assert.deepEqual(amo.calls.map(call => `${call.method} ${new URL(call.url).pathname}`), [
     "POST /api/v5/addons/upload/", "GET /api/v5/addons/upload/u-1/", "GET /api/v5/addons/upload/u-1/",
-    "PUT /api/v5/addons/addon/still-qa-sandbox%40chartash.com/", "GET /api/v5/addons/addon/still-qa-sandbox%40chartash.com/versions/99/",
+    "PUT /api/v5/addons/addon/still-qa-sandbox%40chartash.com/", "GET /api/v5/addons/addon/still-qa-sandbox%40chartash.com/versions/99/", "GET /api/v5/addons/addon/still-qa-sandbox%40chartash.com/versions/99/",
     "GET /api/v5/addons/addon/still-qa-sandbox%40chartash.com/versions/99/", "GET /api/v5/addons/file/1/still-qa.xpi",
   ]);
   assert.equal(amo.calls[0].body.get("channel"), "unlisted");
@@ -83,21 +84,32 @@ test("signing uploads to the unlisted channel, creates the version by id and dow
   assert.ok(amo.calls.every(call => call.auth.startsWith("JWT ")));
 });
 
-test("signing stops without retrying on a failed write, a non-unlisted result or a foreign download host", async () => {
-  const validated = [{ json: { uuid: "u-1" } }, { json: { processed: true, valid: true } }];
+test("signing stops without retrying on a failed write, a non-unlisted result, a rejection or a foreign download host", async () => {
+  const validated = [{ json: { uuid: "u-1" } }, { json: { processed: true, valid: true, channel: "unlisted" } }];
+  const created = [...validated, { json: { version: { id: 5, channel: "unlisted" } } }];
   for (const [responses, pattern] of [
     [[{ status: 503 }], /HTTP 503; nothing was retried/],
     [[{ json: { uuid: "u-1" } }, { json: { processed: true, valid: false, validation: { messages: ["bad"] } } }], /validation failed/],
-    [[{ json: { uuid: "u-1" } }, { json: { processed: true, valid: true, channel: "listed" } }], /other than unlisted/],
+    [[{ json: { uuid: "u-1" } }, { json: { processed: true, valid: true, channel: "listed" } }], /not record the upload as unlisted/],
+    // A response that omits the channel is not proof of unlisted.
+    [[{ json: { uuid: "u-1" } }, { json: { processed: true, valid: true } }], /not record the upload as unlisted/],
     [[...validated, { status: 500 }], /HTTP 500; nothing was retried/],
     [[...validated, { json: { version: { id: 5, channel: "listed" } } }], /outside the unlisted channel/],
-    [[...validated, { json: { version: { id: 5 } } }, { json: { file: { status: "public", url: "https://example.org/x.xpi" } } }], /not on addons.mozilla.org/],
+    [[...validated, { json: { version: { id: 5 } } }], /outside the unlisted channel/],
+    [[...created, { json: { file: { status: "disabled" } } }], /rejected this version/],
+    [[...created, { status: 404 }], /HTTP 404/],
+    [[...created, { json: { file: { status: "public", url: "https://example.org/x.xpi" } } }], /not on addons.mozilla.org/],
   ]) {
     const amo = fakeAmo([...responses]);
     await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: amo.fetch, interval: 0 }), pattern);
-    assert.equal(amo.calls.filter(call => call.method !== "GET").length <= 2, true);
+    // At most the upload and the version creation are writes; neither is ever repeated.
+    const writes = amo.calls.filter(call => call.method !== "GET").map(call => call.method);
+    assert.ok(writes.length <= 2 && new Set(writes).size === writes.length, writes.join(","));
   }
   await assert.rejects(signWithAmo({ ...PKG, id: "still@chartash.com" }, CREDENTIALS, { fetch: fakeAmo([]).fetch }), /only the sandbox QA/);
+  // Read-only polls give up after a bounded number of transient failures.
+  const flaky = fakeAmo([...created, { status: 502 }, { status: 502 }, { status: 502 }, { status: 502 }]);
+  await assert.rejects(signWithAmo(PKG, CREDENTIALS, { fetch: flaky.fetch, interval: 0 }), /HTTP 502/);
 });
 
 test("the signed XPI must be the uploaded files plus a Mozilla signature", () => {
@@ -123,9 +135,21 @@ test("a built QA directory packages deterministically and plan-only mode uploads
       ...first.files.map(file => ({ name: file.name, data: Buffer.from(file.name === "manifest.json" ? JSON.stringify(QA_MANIFEST) : "worker") })),
     ]));
     assert.deepEqual(verifySignedPayload(first.files, zipFiles(join(root, "signed.xpi"))), ["META-INF/mozilla.rsa"]);
+    // A returned file that fails verification is never left on disk, under any name.
+    const { readdir, readFile } = await import("node:fs/promises");
+    const out = join(root, "verified");
+    await mkdir(out);
+    assert.throws(() => writeVerifiedXpi(first, Buffer.from("not-a-signed-xpi"), out, { listFiles: () => first.files }), /no Mozilla signature/);
+    assert.deepEqual(await readdir(out), []);
+    const good = writeVerifiedXpi(first, await readFile(join(root, "signed.xpi")), out);
+    assert.deepEqual(await readdir(out), ["still-qa-sandbox-3.1.0-signed.xpi"]);
+    assert.deepEqual(good.signatureFiles, ["META-INF/mozilla.rsa"]);
     const plan = await main([dir, join(root, "out")], {});
     assert.deepEqual([plan.addonId, plan.channel, plan.files], [QA_ADDON_ID, "unlisted", 2]);
     await assert.rejects(main([dir, join(root, "out"), "--submit"], {}), /STILL_QA_AMO_CREDENTIALS_FILE/);
     await assert.rejects(main([dir, join(root, "out"), "--upload"], {}), /usage/);
+    await assert.rejects(main([dir, join(root, "out"), "--resume"], {}), /usage/);
+    await assert.rejects(main([dir, join(root, "out"), "--submit", "5"], {}), /usage/);
+    await assert.rejects(main([dir, join(root, "out"), "--resume", "5"], {}), /STILL_QA_AMO_CREDENTIALS_FILE/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

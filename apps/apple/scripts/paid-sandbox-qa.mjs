@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile, mkdir, rm, lstat, chmod } from "node:fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -307,13 +308,14 @@ const plistKey = (path, key, format) => {
 /** Decoded embedded provisioning profile fields; dates are not JSON, so each field is extracted. */
 export function readEmbeddedProfile(bundle, mac) {
   const embedded = mac ? join(bundle, "Contents/embedded.provisionprofile") : join(bundle, "embedded.mobileprovision");
-  const decoded = join(dirname(bundle), `.${bundle.split("/").pop()}.profile.plist`);
+  // Decode outside the signed bundle so nothing unsealed is ever written into it.
+  const scratch = mkdtempSync(join(tmpdir(), "still-profile-")), decoded = join(scratch, "profile.plist");
   try {
     runChecked("/usr/bin/security", ["cms", "-D", "-i", embedded, "-o", decoded]);
     const json = key => { const text = plistKey(decoded, key, "json"); return text === undefined ? undefined : JSON.parse(text); };
     return { teams: json("TeamIdentifier"), devices: json("ProvisionedDevices"), allDevices: plistKey(decoded, "ProvisionsAllDevices", "raw") === "true",
       expires: plistKey(decoded, "ExpirationDate", "raw"), entitlements: json("Entitlements") };
-  } finally { spawnSync("/bin/rm", ["-f", decoded]); }
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 export function readSignedEntitlements(bundle) {
   const xmlText = runChecked("/usr/bin/codesign", ["-d", "--entitlements", "-", "--xml", bundle], { capture: true });
@@ -360,19 +362,28 @@ export async function buildAppleTarget({ clone, output, target, env, config }) {
   const artifact = join(output, "artifact"); await mkdir(artifact, { recursive: true });
   if (spec.developmentExport) {
     const options = join(output, "ExportOptions.plist"), exported = join(output, "export");
-    await writeFile(options, developmentExportOptions());
-    runChecked("xcodebuild", ["-exportArchive", "-archivePath", archive, "-exportPath", exported, "-exportOptionsPlist", options], { cwd: clone, env });
-    let app = join(exported, "Still.app");
-    if (spec.developmentExport === "Still.ipa") {
-      runChecked("/usr/bin/ditto", ["-x", "-k", join(exported, "Still.ipa"), join(output, "ipa")]);
-      app = join(output, "ipa/Payload/Still.app");
+    // A refused package, its archive and its export are removed on every exit, never left installable.
+    try {
+      await writeFile(options, developmentExportOptions());
+      runChecked("xcodebuild", ["-exportArchive", "-archivePath", archive, "-exportPath", exported, "-exportOptionsPlist", options], { cwd: clone, env });
+      let app = join(exported, "Still.app");
+      if (spec.developmentExport === "Still.ipa") {
+        runChecked("/usr/bin/ditto", ["-x", "-k", join(exported, "Still.ipa"), join(output, "ipa")]);
+        app = join(output, "ipa/Payload/Still.app");
+      }
+      const verified = { ...(await verifyApplePackage(app, target, config, clone)), ...verifyDevelopmentSigning(app, target) };
+      // Re-check the exact bundle immediately before packaging it.
+      runChecked("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
+      // ditto keeps the Mac bundle's signature intact; the exported IPA is already an archive.
+      if (spec.developmentExport === "Still.ipa") runChecked("/bin/cp", [join(exported, "Still.ipa"), join(artifact, "Still.ipa")]);
+      else runChecked("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, join(artifact, "Still-mac.zip")]);
+      return verified;
+    } catch (error) {
+      await rm(artifact, { recursive: true, force: true });
+      throw error;
+    } finally {
+      for (const path of [derived, archive, exported, join(output, "ipa"), options]) await rm(path, { recursive: true, force: true });
     }
-    const verified = { ...(await verifyApplePackage(app, target, config, clone)), ...verifyDevelopmentSigning(app, target) };
-    // ditto keeps the Mac bundle's signature intact; the exported IPA is already an archive.
-    if (spec.developmentExport === "Still.ipa") runChecked("/bin/cp", [join(exported, "Still.ipa"), join(artifact, "Still.ipa")]);
-    else runChecked("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, join(artifact, "Still-mac.zip")]);
-    for (const path of [derived, archive, exported, join(output, "ipa"), options]) await rm(path, { recursive: true, force: true });
-    return verified;
   }
   const app = spec.archive ? join(archive, "Products/Applications/Still.app") : join(derived, "Build/Products", target === "apple-ios-sim" ? "Release-iphonesimulator" : "Release", "Still.app");
   const verified = await verifyApplePackage(app, target, config, clone);
