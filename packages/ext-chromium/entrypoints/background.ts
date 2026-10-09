@@ -1,7 +1,7 @@
 import { createClient, FunctionsHttpError, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter, SettingsStorageRecovery } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, packagedAccessTrust, createAccountAccessReconciler, type TrustedAccessContext } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessTrust, createAccountAccessReconciler, type TrustedAccessContext } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
@@ -33,6 +33,7 @@ import {
   type PlatformAnswer,
 } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
+import { hostAccessContext } from "../lib/access-context.js";
 import { createNavigationDnrSync, type NavigationDnrApi } from "../lib/navigation-dnr.js";
 import { FORMAT2_SHIPPING_SERVICES } from "@still/core/content/extension-entry";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "@still/core/ui/v3/first-run-host";
@@ -174,12 +175,10 @@ export default defineBackground(() => {
     publicKeys: import.meta.env.VITE_ACCESS_PUBLIC_KEYS as string | undefined,
   });
   const entitlements = new OrderedEntitlements(Date.now, { authority: true, trust: accessTrust, context: async () => {
-    // Host- and platform-specific, so a Still Pro extra resolves only where this device's layout
-    // has something for it to act on (Firefox for Android never gets the desktop-layout-only
-    // extras). While paid is off every host's context is exactly the free features.
-    // Paid off never waits for the answer: the context is the free features on every platform.
-    const devicePlatform = PAID_TIER_ENABLED ? await accessPlatform() : undefined;
-    const context = packagedAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium", devicePlatform);
+    // Host- and platform-specific (lib/access-context.ts), so a Still Pro extra resolves only
+    // where this device's layout has something for it to act on: Firefox for Android never gets
+    // the desktop-layout-only extras. Paid off it is exactly the free features, without waiting.
+    const context = await hostAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium", accessPlatform);
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
     // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.

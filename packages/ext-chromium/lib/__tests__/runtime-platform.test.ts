@@ -34,8 +34,12 @@ afterEach(() => {
 describe("runtime platform", () => {
   it("is android only when the browser says android", async () => {
     expect(await detectRuntimePlatform(runtime("android"))).toBe("android");
-    for (const os of ["mac", "win", "linux", "cros", "openbsd", "fuchsia", "ANDROID", ""])
+    for (const os of ["mac", "win", "linux", "cros", "openbsd", "fuchsia"])
       expect(await detectRuntimePlatform(runtime(os))).toBe("desktop");
+    // A malformed answer is not a desktop claim: it is unknown (held back, TikTok gate closed).
+    for (const os of ["ANDROID", "", "ios", "android-ish"])
+      expect(await detectRuntimePlatform(runtime(os)), os).toBe("unknown");
+    expect(await detectRuntimePlatform({ getPlatformInfo: async () => ({}) as { os: string } })).toBe("unknown");
   });
 
   it("never decides from the window, the screen or the user agent", async () => {

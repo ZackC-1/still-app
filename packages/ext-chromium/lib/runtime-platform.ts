@@ -42,8 +42,12 @@ const KNOWN_DESKTOP: PlatformAnswer = {
   eventual: Promise.resolve("desktop"),
 };
 
-/** Ask the browser once. "android" only when it says so; any other OS is "desktop"; a missing API or
- * a failure is "unknown". */
+/** The WebExtensions desktop `PlatformOs` values. Anything outside these and "android" is malformed. */
+const DESKTOP_OS: readonly string[] = ["mac", "win", "linux", "openbsd", "cros", "fuchsia"];
+
+/** Ask the browser once. "android" only when it says so; a known desktop OS is "desktop"; a missing
+ * API, a failure or a malformed answer is "unknown" (the safe default: it never claims a
+ * desktop-layout extra, and the TikTok allowance stays closed). */
 export function askRuntimePlatform(
   runtime: PlatformInfoSource | undefined,
   limitMs: number = PLATFORM_ANSWER_LIMIT_MS,
@@ -53,7 +57,8 @@ export function askRuntimePlatform(
     const answer = runtime?.getPlatformInfo?.();
     eventual = answer
       ? Promise.resolve(answer).then(
-          (info): RuntimePlatform => (info?.os === "android" ? "android" : "desktop"),
+          (info): RuntimePlatform => (info?.os === "android" ? "android"
+            : typeof info?.os === "string" && DESKTOP_OS.includes(info.os) ? "desktop" : "unknown"),
           (): RuntimePlatform => "unknown",
         )
       : Promise.resolve("unknown");
