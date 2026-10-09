@@ -110,6 +110,13 @@ those two files, has no network permission, and prints one PASS or FAIL line per
 exact command is in the script header. A PASS proves composition only, not provider permissions,
 hosted reachability or purchase acceptance.
 
+### Which builds the sandbox sales switch admits
+
+The sandbox sales bodies list one build id per surface (`QA_SANDBOX_SALES_BUILDS` in
+`scripts/backend/deploy/operations.mjs`). Extensions present their manifest version, unique per QA
+test set (for test set 3, `2.1.1.311`). The Apple id `2.1.0` is not specific to test set 3: every sandbox-routed Apple build at marketing version 2.1.0 matches it (Apple QA builds keep MARKETING_VERSION; the build number is not presented). The public App Store build is excluded because it reads the production policy environment, never this sandbox body. A new test set needs a reviewed change to those ids and
+a new sandbox sales revision.
+
 ### Building the test-account list
 
 The `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret is one JSON object,
