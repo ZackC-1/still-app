@@ -49,6 +49,7 @@ from the app webview in `packages/app-webview/`.
 | [guides.html](guides.html) | Guide index. |
 | [block-youtube-shorts.html](block-youtube-shorts.html), [remove-instagram-reels-safari.html](remove-instagram-reels-safari.html) | Service-specific guides. |
 | [short-form-video-blocker.html](short-form-video-blocker.html), [browser-extensions-native-iphone-apps.html](browser-extensions-native-iphone-apps.html) | Product scope and native-app boundaries. |
+| [qa/success.html](qa/success.html), [qa/cancel.html](qa/cancel.html) | `noindex` return pages for the test-only sandbox web checkout (`/qa/success`, `/qa/cancel`); kept out of the sitemap and disallowed in `robots.txt`. |
 | `assets/` | Page styles, licensed font, logo and homepage poster. |
 | `robots.txt`, `sitemap.xml`, `.nojekyll` | Search discovery and static-site behavior. |
 
