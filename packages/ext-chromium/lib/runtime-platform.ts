@@ -102,6 +102,21 @@ export function runtimePlatformAnswerFor(
   return isFirefox ? askRuntimePlatform(runtime) : KNOWN_DESKTOP;
 }
 
+/**
+ * The platform for the Still Pro access context, asked again on each access observation: the
+ * eventual answer once the browser gave it (so a desktop Firefox whose answer was late recovers
+ * its desktop-layout extras), otherwise the bounded one. "unknown" and "android" hold back the
+ * desktop-layout-only extras (access-policy.ts), because a paid control that silently does nothing
+ * on a phone is worse than one held back. Chromium is desktop at once.
+ */
+export function accessPlatformReader(answer: PlatformAnswer): () => Promise<RuntimePlatform> {
+  let settled: RuntimePlatform | null = null;
+  void answer.eventual.then((value) => {
+    settled = value;
+  });
+  return async () => settled ?? (await answer.bounded);
+}
+
 /** The popup presentation loader for this build: the phone popup only in Firefox for Android, the
  * desktop popup everywhere else. The platform is awaited inside the loader, so the popup never
  * shows one presentation and then swaps to the other. */

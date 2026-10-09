@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, createSettingsIntentRouter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, parseBenefitAccessSnapshot } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, parseBenefitAccessSnapshot, type AccessPlatform } from "@still/core/entitlement";
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
@@ -48,10 +48,12 @@ export default defineBackground(() => {
   // once; never the user agent or a screen size). macOS Safari loads the desktop layouts; iPhone,
   // iPad and an unknown answer never claim a desktop-layout control. The native app resolves the
   // same split at compile time and its snapshot is the authority while paid is on.
-  const accessPlatform = Promise.resolve()
+  // Paid off never asks: the context is the free features on every platform.
+  let accessPlatform: Promise<AccessPlatform> | null = null;
+  const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= Promise.resolve()
     .then(() => browser.runtime.getPlatformInfo())
-    .then((info) => safariAccessPlatform(info?.os), () => "unknown" as const);
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", await accessPlatform), nativeObservation: async () => {
+    .then((info) => safariAccessPlatform(info?.os), () => "unknown" as const));
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", PAID_TIER_ENABLED ? await devicePlatform() : undefined), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;

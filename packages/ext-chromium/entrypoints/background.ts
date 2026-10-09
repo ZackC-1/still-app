@@ -27,6 +27,7 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 import {
   afterPlatformAnswer,
   gatedDocumentVerification,
+  accessPlatformReader,
   runtimePlatformAnswerFor,
   tabAllowancePlatformGate,
   type PlatformAnswer,
@@ -95,6 +96,7 @@ export default defineBackground(() => {
   // desktop there); the TikTok gate also follows a late answer.
   const platformAnswer = runtimePlatformAnswerFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
   const platform = platformAnswer.bounded;
+  const accessPlatform = accessPlatformReader(platformAnswer);
   const settingsRuntime = modernSettingsRuntime(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -172,9 +174,12 @@ export default defineBackground(() => {
     publicKeys: import.meta.env.VITE_ACCESS_PUBLIC_KEYS as string | undefined,
   });
   const entitlements = new OrderedEntitlements(Date.now, { authority: true, trust: accessTrust, context: async () => {
-    // Host-specific, so a Still Pro extra this build implements can resolve once paid is on.
-    // While paid is off every host's context is exactly the free features.
-    const context = packagedAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium");
+    // Host- and platform-specific, so a Still Pro extra resolves only where this device's layout
+    // has something for it to act on (Firefox for Android never gets the desktop-layout-only
+    // extras). While paid is off every host's context is exactly the free features.
+    // Paid off never waits for the answer: the context is the free features on every platform.
+    const devicePlatform = PAID_TIER_ENABLED ? await accessPlatform() : undefined;
+    const context = packagedAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium", devicePlatform);
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
     // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.
