@@ -3,8 +3,8 @@ name: Supabase production deploy
 # The protected path for database and fixed QA function changes to reach production (owner decision 9, CP-033).
 # Manual dispatch from main only; never runs on push, pull request or schedule.
 # One run deploys one exact change: a commit on main plus EITHER the exact list of pending
-# migrations OR one owner-approved operation (pause-settings-sync / resume-settings-sync, see
-# scripts/backend/deploy/operations.mjs), or the closed qa-sandbox-functions operation.
+# migrations OR one owner-approved operation (pause/resume-settings-sync, pause/resume-qa-sandbox,
+# see scripts/backend/deploy/operations.mjs), or the closed qa-sandbox-functions operation.
 # QA targets use the NONSECRET REPOSITORY variable SUPABASE_PRODUCTION_PROJECT_REF
 # (available to the plan job before environment approval), never an environment-only variable.
 # Protected apply binds/checks that same target against the protected database credential.
@@ -35,6 +35,8 @@ on:
           - migrations
           - pause-settings-sync
           - resume-settings-sync
+          - pause-qa-sandbox
+          - resume-qa-sandbox
           - qa-sandbox-functions
       migrations:
         description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql); empty for an operation"
