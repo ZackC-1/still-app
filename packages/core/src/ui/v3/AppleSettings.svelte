@@ -16,6 +16,7 @@
     settings,
     access,
     platform,
+    phone = false,
     onGlobalChange,
     onServiceChange,
     onFeatureChange,
@@ -312,6 +313,7 @@
     <div bind:this={proSection} style="display:contents;">
       <NativeProOfferCard
         {...pro}
+        {phone}
         {accessChecking}
         {accessVerify}
         accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}

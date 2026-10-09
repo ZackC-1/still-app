@@ -41,6 +41,7 @@
     services,
     features,
     labels,
+    phone,
     commandsDisabled,
     sync,
     pro,
@@ -86,6 +87,7 @@
   {services}
   {features}
   {labels}
+  {phone}
   {commandsDisabled}
   {sync}
   {pro}

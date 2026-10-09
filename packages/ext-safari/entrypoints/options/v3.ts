@@ -14,8 +14,9 @@ import { phoneLayoutFeatures } from "@still/core/entitlement";
 // ./v3-mount and load only after the record gate has chosen V3.
 
 export interface SafariV3OptionsView {
-  /** `features`: the rows to draw; omitted draws every row (macOS). */
-  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[]): (() => void) | void;
+  /** `features`: the rows to draw; omitted draws every row (macOS). `phone`: Safari confirmed
+   * iPhone/iPad, so the Still Pro offer speaks about this device; otherwise its general note. */
+  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[], phone?: boolean): (() => void) | void;
 }
 
 export interface SafariV3OptionsDeps {
@@ -56,7 +57,7 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
   try {
     // iPhone, iPad and an unknown answer never draw a Still Pro switch that cannot act in a phone
     // layout (owner decision); the saved choice is kept.
-    unmountView = view.mountSafariV3Options(target, composition, platform === "desktop" ? undefined : phoneLayoutFeatures());
+    unmountView = view.mountSafariV3Options(target, composition, platform === "desktop" ? undefined : phoneLayoutFeatures(), platform === "ios");
   } catch {
     composition.stop();
     target.replaceChildren();

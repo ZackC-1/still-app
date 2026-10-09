@@ -3,6 +3,7 @@
   import type { OperationStatus } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   import StaticProControlList from "./StaticProControlList.svelte";
+  import { proPhoneNote } from "./pro-phone-note.js";
   import "./design/styles.css";
 
   let props: PurchaseViewProps = $props();
@@ -169,6 +170,7 @@
       </p>
       <section class="card card-stack">
         <StaticProControlList controls={props.controls} gap={10} />
+        <p class="caption">{proPhoneNote(props.phone ?? false)}</p>
       </section>
       {#if props.purchase.state === "failed"}{@render status({
           tone: "failed",

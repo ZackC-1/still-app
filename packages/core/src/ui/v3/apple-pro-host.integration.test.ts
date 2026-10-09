@@ -28,7 +28,11 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { WKWebViewStorageAdapter } from "../../storage/wkwebview-adapter.js";
 import { createApplePurchaseAuthority } from "../../native/apple-purchase-authority.js";
-import { NativeBridge, type NativeProResult } from "../../native/bridge.js";
+import {
+  NativeBridge,
+  type NativeProResult,
+  type SafariSetupObservation,
+} from "../../native/bridge.js";
 import {
   ACCESS_BENEFITS,
   initialAccessSnapshot,
@@ -84,6 +88,7 @@ async function compose(
     verificationFails?: boolean;
     verificationHeld?: boolean;
     purchasePending?: boolean;
+    observeSetup?: () => Promise<SafariSetupObservation | null>;
   } = {},
 ) {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
@@ -221,7 +226,7 @@ async function compose(
     props: {
       controller,
       authority,
-      observeSetup: async () => null,
+      observeSetup: options.observeSetup ?? (async () => null),
       help: {},
       proServices: {
         bridge: native,
@@ -264,6 +269,54 @@ async function compose(
     },
   };
 }
+const PHONE_NOTE =
+  "On this device, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.";
+const GENERAL_NOTE =
+  "On iPhone, iPad and Firefox for Android, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.";
+describe("Still Pro offer note follows only a confirmed platform", () => {
+  async function notes(expected: string, other: string) {
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await waitFor(() => expect(card).toHaveTextContent(expected));
+    expect(card).not.toHaveTextContent(other);
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Get Still Pro" }),
+    );
+    expect(await screen.findByText(expected)).toBeVisible();
+    expect(screen.queryByText(other)).toBeNull();
+  }
+  it("a setup read that times out (a Mac that never answered) keeps the general note", async () => {
+    await compose({ observeSetup: () => new Promise(() => {}) });
+    await new Promise((resolve) => setTimeout(resolve, 2_200));
+    await notes(GENERAL_NOTE, PHONE_NOTE);
+  });
+  it("a read that observes nothing keeps the general note", async () => {
+    await compose({ observeSetup: async () => null });
+    await notes(GENERAL_NOTE, PHONE_NOTE);
+  });
+  it("a confirmed Mac gets the general note", async () => {
+    await compose({
+      observeSetup: async () => ({
+        ok: true,
+        platform: "macos",
+        extensionStatus: "enabled",
+        enableLocation: "safariExtensionSettings",
+      }),
+    });
+    await notes(GENERAL_NOTE, PHONE_NOTE);
+  });
+  it("a confirmed iPhone/iPad (the iOS app on iPad reports ios) gets the phone note", async () => {
+    await compose({
+      observeSetup: async () => ({
+        ok: true,
+        platform: "ios",
+        extensionStatus: "unknown",
+        enableLocation: "settingsAppStillPage",
+      }),
+    });
+    await notes(PHONE_NOTE, GENERAL_NOTE);
+  });
+});
+
 describe("Apple settings to real native Pro screen integration", () => {
   it("opens D18, buys without sign-in and shows only verified local success", async () => {
     const f = await compose();

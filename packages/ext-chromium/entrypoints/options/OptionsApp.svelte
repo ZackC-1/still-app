@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
   import type {
@@ -24,7 +24,7 @@
   import { reportDirectControl } from "../../lib/invitation-client.js";
   import { bindProOptionsNavigation } from "../../lib/pro-navigation.js";
   import { runtimePlatformAnswerFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
-  import { settingsFeatures } from "../../lib/settings-features.js";
+  import { settingsFeatures, settingsPhone } from "../../lib/settings-features.js";
   import { browser } from "wxt/browser";
 
   let optionsRoot: HTMLElement;
@@ -67,6 +67,8 @@
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
     accessPlatform: platform,
   });
+  // This page owns its controller: stop the account poll when the page's view is destroyed.
+  onDestroy(() => controller.dispose());
   // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
   // phone rows until Firefox's own answer says desktop, however late. Chromium draws every row.
   let platformAnswer = $state<RuntimePlatform | null>(null);
@@ -74,6 +76,7 @@
     platformAnswer = answer;
   });
   let features = $derived(settingsFeatures(Boolean(import.meta.env.FIREFOX), platformAnswer));
+  let phone = $derived(settingsPhone(Boolean(import.meta.env.FIREFOX), platformAnswer));
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({
     service,
@@ -159,6 +162,7 @@
           help,
           sectionMemory,
           features,
+          phone,
         }
       : undefined}
   />

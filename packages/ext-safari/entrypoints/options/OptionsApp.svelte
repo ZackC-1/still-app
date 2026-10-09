@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { App, SAFARI_SURFACE_GUIDANCE } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
   import { readAccountStatus } from "../../lib/account-status.js";
@@ -19,6 +20,7 @@ import { pushSettingsToApp } from "../../lib/native-settings.js";
     accessHost: "safari",
     accessPlatform: safariPlatformAnswer(),
   });
+  onDestroy(() => controller.dispose());
 </script>
 
 <main class="options">
