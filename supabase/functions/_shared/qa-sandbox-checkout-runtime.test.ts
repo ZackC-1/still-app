@@ -203,9 +203,19 @@ async function configurationInputs(): Promise<Record<string,string>> {
     STILL_QA_SANDBOX_REVENUECAT_STRIPE_PUBLIC_API_KEY:"syntheticStripePublic",STILL_QA_SANDBOX_WEB_RETURN_ORIGIN:"https://return.example.test",
     STILL_QA_SANDBOX_WEB_RETURN_PATHS_JSON:JSON.stringify({ success:"/checkout/success",cancel:"/checkout/cancel" }),
     STILL_QA_SANDBOX_REVENUECAT_PROJECT_ID:"proj_synthetic",STILL_QA_SANDBOX_REVENUECAT_ACCESS_SECRET_API_KEY:"synthetic-qa-server",
-    STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON:JSON.stringify([{ product_id:"product_rc",app_id:"app_qa",store:"stripe",store_identifier:"prod_synthetic",entitlement_lookup_key:"still_pro_v3",benefit_product:"still_pro_v3" }]),
+    STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON:JSON.stringify([{ product_id:"product_rc",app_id:"app_qa",store:"stripe",store_identifier:"price_synthetic",entitlement_lookup_key:"still_pro_v3",benefit_product:"still_pro_v3" }]),
   };
 }
+Deno.test("a Stripe mapping must name the exact configured sandbox price", async () => {
+  const values = await configurationInputs();
+  assert(await readQaSandboxCheckoutConfig(name => values[name]));
+  for (const storeIdentifier of ["prod_synthetic","price_other",""]) {
+    const mapping = JSON.parse(values.STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON)[0];
+    const changed: Record<string,string> = { ...values, STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON:JSON.stringify([{ ...mapping,store_identifier:storeIdentifier }]) };
+    assertEquals(await readQaSandboxCheckoutConfig(name => changed[name]),null,storeIdentifier);
+  }
+  assertEquals(await readQaSandboxCheckoutConfig(name => ({ ...values,STILL_QA_SANDBOX_STRIPE_PRICE_ID:"price_other" } as Record<string,string>)[name]),null);
+});
 Deno.test("closed sandbox config validates real key pairs and freezes complete private binding fingerprints", async () => {
   const values = await configurationInputs(); const config = await readQaSandboxCheckoutConfig(name => values[name]); assert(config);
   assertEquals(config.billing.successUrl,"https://return.example.test/checkout/success"); assertEquals(config.apple.environment,"sandbox");
@@ -382,7 +392,7 @@ Deno.test("actual composed runtime uses fixed QA RPCs, managed readback, RC impo
     return respond({ object:"list",next_page:null,items:imported ? [{ object:"purchase",id:"purchase_synthetic",customer_id:HOLDER,environment:"sandbox",
       product_id:"product_rc",store:"stripe",status:"owned",ownership:"purchased",purchased_at:Date.now(),revenue_in_usd:{ currency:"USD",gross:9.99 },
       entitlements:{ object:"list",next_page:null,items:[{ object:"entitlement",state:"active",project_id:"proj_synthetic",lookup_key:"still_pro_v3",
-        products:{ object:"list",next_page:null,items:[{ object:"product",id:"product_rc",state:"active",app_id:"app_qa",store_identifier:"prod_synthetic",type:"one_time",one_time:{ is_consumable:false } }] } }] } }] : [] });
+        products:{ object:"list",next_page:null,items:[{ object:"product",id:"product_rc",state:"active",app_id:"app_qa",store_identifier:"price_synthetic",type:"one_time",one_time:{ is_consumable:null } }] } }] } }] : [] });
   };
   try {
     const runtime = await readQaSandboxCheckoutRuntime(name => values[name],() => sql); assert(runtime);

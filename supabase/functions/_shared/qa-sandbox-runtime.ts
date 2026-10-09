@@ -9,7 +9,7 @@ import { PgQaSandboxMembership, type QaSandboxMembership } from "./qa-sandbox-au
 import { QaSandboxAccessRightStore, QaSandboxAppleAccessStore, QaSandboxPgRateLimiter } from "./qa-sandbox-store.ts";
 import { readQaSandboxAppleConfig, type QaSandboxAppleConfig } from "./qa-sandbox-config.ts";
 import { createWriterSql } from "./pg-store.ts";
-import { HttpRevenueCatAccessClient, parseAccessProductMappings, type RevenueCatAccessClient } from "./revenuecat-access.ts";
+import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo, type RevenueCatAccessClient } from "./revenuecat-access.ts";
 import { enforceRateLimit, type RateLimiter } from "./rate-limit.ts";
 import { jsonResponse, optionsResponse } from "./store.ts";
 import { accessRequest, reconcileScopedAccess, RECONCILE_RATE_LIMIT, type ScopedReconcileAccess } from "../reconcile-entitlement/handler.ts";
@@ -52,7 +52,8 @@ export async function readQaSandboxRuntime(read: (name: string) => string | unde
   createSql: (url: string) => ReturnType<typeof postgres> = createWriterSql): Promise<QaSandboxRuntime | null> {
   const config = await readQaSandboxAppleConfig(read);
   if (!config) return null;
-  const products = parseAccessProductMappings(read("STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON") ?? "");
+  const products = stripeMappingsBoundTo(parseAccessProductMappings(read("STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON") ?? ""),
+    read("STILL_QA_SANDBOX_STRIPE_PRICE_ID") ?? "");
   const project = read("STILL_QA_SANDBOX_REVENUECAT_PROJECT_ID") ?? "";
   const secret = read("STILL_QA_SANDBOX_REVENUECAT_ACCESS_SECRET_API_KEY") ?? "";
   const provider = products && /^[A-Za-z0-9_-]{1,96}$/.test(project) && secret

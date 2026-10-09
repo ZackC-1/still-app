@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { HttpRevenueCatAccessClient, parseAccessProductMappings, type AccessProductMapping } from "./revenuecat-access.ts";
+import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo, type AccessProductMapping } from "./revenuecat-access.ts";
 
 const HOLDER = "11111111-1111-1111-1111-111111111111";
 const MAPPING: AccessProductMapping = { product_id: "prod-current", app_id: "app-still", store_identifier: "still_pro_v3",
@@ -275,4 +275,13 @@ Deno.test("legacy still_sync remains paid and revocable on all retained stores",
     assertEquals(await read([{ ...historic, status: "refunded", entitlements: undefined, revenue_in_usd: null }], {}, [legacy]),
       { status: "verified", rights: [{ ...positive.rights[0]!, state: "revoked" }], complete: true });
   }
+});
+
+Deno.test("Stripe mappings bind to the exact configured price; other stores are unaffected", () => {
+  const mixed = parseAccessProductMappings(JSON.stringify([MAPPING, STRIPE_MAPPING]));
+  if (!mixed) throw new Error("Mixed grammar rejected");
+  assertEquals(stripeMappingsBoundTo(mixed, STRIPE_MAPPING.store_identifier), mixed);
+  for (const price of ["", "price_other", STRIPE_MAPPING.store_identifier + "x"]) assertEquals(stripeMappingsBoundTo(mixed, price), null);
+  assertEquals(stripeMappingsBoundTo([MAPPING], ""), [MAPPING]);
+  assertEquals(stripeMappingsBoundTo(null, STRIPE_MAPPING.store_identifier), null);
 });

@@ -59,6 +59,13 @@ export function parseAccessProductMappings(text: string): readonly AccessProduct
   } catch { return null; }
 }
 
+/** RevenueCat identifies an imported Stripe item by its price ID, so a Stripe mapping must name the
+ * exact configured sandbox price; another price on the same Stripe product never grants. */
+export function stripeMappingsBoundTo(mappings: readonly AccessProductMapping[] | null,
+  priceId: string): readonly AccessProductMapping[] | null {
+  return mappings?.every(mapping => mapping.store !== "stripe" || mapping.store_identifier === priceId) ? mappings : null;
+}
+
 /** Unlike the legacy Boolean/V1 subscriber response, V2 purchases expose current owned/refunded
  * status, project/app/product mapping, environment, transaction identity and canonical revenue.
  * Only positive genuine payment is classified as paid; zero/unknown amount is recovery-required.
