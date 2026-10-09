@@ -40,7 +40,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   localStorage.clear();
 });
-async function installBrowser(atomic = true, os = "mac") {
+async function installBrowser(atomic = true, os = "mac", answerAfterMs = 0) {
   const store: Record<string, unknown> = {
     "still:settings": {
       settings: structuredClone(DEFAULT_SETTINGS),
@@ -145,7 +145,7 @@ async function installBrowser(atomic = true, os = "mac") {
       getURL: (path = "") => origin + path.replace(/^\//, ""),
       sendMessage,
       openOptionsPage,
-      getPlatformInfo: async () => ({ os }),
+      getPlatformInfo: () => new Promise((resolve) => setTimeout(() => resolve({ os }), answerAfterMs)),
     },
     tabs: { create: async () => ({ id: 1 }) },
   });
@@ -197,6 +197,26 @@ describe("Firefox options page hides switches a phone cannot use", () => {
     expect(drawn("Desktop sidebar ads")).toBe(desktop);
     expect(drawn("Facebook Stories")).toBe(true);
     expect(f.store["still:settings"]).toEqual(before);
+  });
+});
+
+describe("Firefox options page and a platform answer after the one-second bound", () => {
+  it.each([["mac", true], ["android", false]] as const)("a late %s answer: desktop-only rows drawn afterwards = %s", async (os, desktop) => {
+    await installBrowser(true, os, 1_300);
+    vi.stubEnv("FIREFOX", "true");
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
+    render(OptionsApp);
+    const button = await waitFor(() => screen.getByRole("button", { name: "YouTube Blocker" }));
+    if (button.getAttribute("aria-expanded") !== "true") await fireEvent.click(button);
+    expect(screen.queryByText("Related videos")).not.toBeNull();
+    expect(screen.queryByText("End-of-video suggestions")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1_600));
+    const again = await waitFor(() => screen.getByRole("button", { name: "YouTube Blocker" }));
+    if (again.getAttribute("aria-expanded") !== "true") await fireEvent.click(again);
+    await waitFor(() => expect(screen.queryByText("End-of-video suggestions") !== null).toBe(desktop));
+    expect(screen.queryByText("Live chat") !== null).toBe(desktop);
   });
 });
 

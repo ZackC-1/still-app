@@ -116,6 +116,30 @@ describe("Safari V3 popup: surfaces", () => {
   });
 });
 
+describe("Safari V3 popup: a platform answer after the bound", () => {
+  const late = (os: string) => () => new Promise<string>((resolve) => setTimeout(() => resolve(os), 1_200));
+
+  it("a late mac answer upgrades the open phone popup to the desktop popup", async () => {
+    const f = await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    expect(await startSafariV3Popup({ env: ENV, platform: late("mac") })).toBe("v3");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy(), { timeout: 2_000 });
+    expect(screen.queryByRole("button", { name: "Settings. Opens Still settings." })).toBeNull();
+    expect(f.messages.filter((m) => m.action === "track" && m.name === "opened")).toHaveLength(1);
+    expect(writes(f.nativeKinds())).toEqual([]);
+  });
+
+  it("a late ios answer keeps the phone popup", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    await startSafariV3Popup({ env: ENV, platform: late("ios") });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Still settings" })).toBeNull();
+  });
+});
+
 describe("Safari V3 popup: saving", () => {
   it.each(["ios", "mac"])("%s: one switch is exactly one native intent, mirrored for blocking and reported once", async (platform) => {
     const { f } = await open("atomic", { platform });

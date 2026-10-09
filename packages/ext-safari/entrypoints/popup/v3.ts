@@ -10,7 +10,7 @@ import {
   type SafariPopupSurface,
   type SafariV3BuildInput,
 } from "../../lib/safari-v3.js";
-import { boundedSafariOs, safariAccessPlatform } from "../../lib/access-platform.js";
+import { safariAccessPlatform, safariOsAnswer } from "../../lib/access-platform.js";
 
 // The V3 popup gate. This module deliberately imports no component and no stylesheet: the V3
 // components and their global CSS live in ./v3-mount, which is loaded only after the record gate
@@ -21,7 +21,7 @@ export interface SafariV3PopupView {
     target: HTMLElement,
     composition: SafariV3Composition,
     surface: SafariPopupSurface,
-  ): void;
+  ): (() => void) | void;
 }
 
 export interface SafariV3PopupDeps {
@@ -49,8 +49,10 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
     dropV3Styles();
     return "legacy";
   }
-  // Bounded: a missing or late answer is unknown (the phone popup, no desktop-layout extras).
-  const os = await boundedSafariOs(deps.platform && (async () => ({ os: await deps.platform!() })));
+  // Bounded: a missing or late answer is unknown (the phone popup, no desktop-layout extras). A
+  // late "mac" answer upgrades the open popup to the desktop surface (below).
+  const answer = safariOsAnswer(deps.platform && (async () => ({ os: await deps.platform!() })));
+  const os = await answer.bounded;
   const target = document.getElementById("app")!;
   let composition: SafariV3Composition;
   try {
@@ -59,8 +61,9 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
     dropV3Styles();
     return "legacy";
   }
+  let unmountView: (() => void) | void;
   try {
-    view.mountSafariV3Popup(target, composition, safariPopupSurface(os));
+    unmountView = view.mountSafariV3Popup(target, composition, safariPopupSurface(os));
   } catch {
     composition.stop();
     target.replaceChildren();
@@ -72,5 +75,24 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
   } catch {
     /* Telemetry never decides which screen shows. */
   }
+  if (os !== "mac")
+    void answer.eventual.then((late) => {
+      if (late !== "mac") return;
+      // A Mac whose answer came after the bound: the desktop surface and access.
+      // The mounted view owns (and on unmount stops) its composition, so the upgrade starts a
+      // fresh one for the desktop platform. The opening was already reported once.
+      try {
+        unmountView?.();
+        composition.stop();
+        target.replaceChildren();
+        const next = composeSafariV3("popup", safariAccessPlatform(late));
+        composition = next;
+        unmountView = view.mountSafariV3Popup(target, next, safariPopupSurface(late));
+      } catch {
+        // A failed upgrade leaves nothing half-running; reopening starts afresh.
+        composition.stop();
+        target.replaceChildren();
+      }
+    });
   return "v3";
 }

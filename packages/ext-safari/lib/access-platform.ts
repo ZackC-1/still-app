@@ -14,24 +14,37 @@ export function safariAccessPlatform(os: string | undefined): AccessPlatform {
 /** How long a page waits for Safari's platform answer before carrying on as unknown. */
 export const SAFARI_PLATFORM_LIMIT_MS = 1_000;
 
-/**
- * Safari's `os` answer within a bound: undefined when the call is missing, fails or is late, so a
- * page never waits on it before mounting. Never rejects.
- */
-export function boundedSafariOs(
+/** Safari's `os` answer twice over: `bounded` settles within the limit (undefined when missing,
+ * failed or late), `eventual` is the answer itself whenever it comes (undefined on a failure; it
+ * may never settle). Neither rejects. A page mounts with `bounded` and upgrades on a late "mac". */
+export interface SafariOsAnswer {
+  readonly bounded: Promise<string | undefined>;
+  readonly eventual: Promise<string | undefined>;
+}
+
+export function safariOsAnswer(
   read: () => Promise<{ os?: string } | undefined> = () => browser.runtime.getPlatformInfo(),
   limitMs: number = SAFARI_PLATFORM_LIMIT_MS,
-): Promise<string | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const answer = Promise.resolve()
+): SafariOsAnswer {
+  const eventual = Promise.resolve()
     .then(read)
     .then((info) => (typeof info?.os === "string" ? info.os : undefined), () => undefined);
-  return Promise.race([
-    answer,
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bounded = Promise.race([
+    eventual,
     new Promise<undefined>((resolve) => {
       timer = setTimeout(() => resolve(undefined), limitMs);
     }),
   ]).finally(() => clearTimeout(timer));
+  return { bounded, eventual };
+}
+
+/** The bounded answer alone (see safariOsAnswer). Never rejects. */
+export function boundedSafariOs(
+  read?: () => Promise<{ os?: string } | undefined>,
+  limitMs?: number,
+): Promise<string | undefined> {
+  return safariOsAnswer(read, limitMs).bounded;
 }
 
 /** The bounded access platform for a Safari page or background. Never rejects. */

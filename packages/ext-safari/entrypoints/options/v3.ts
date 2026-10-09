@@ -7,7 +7,7 @@ import {
   type SafariV3Composition,
 } from "../../lib/safari-v3-runtime.js";
 import type { SafariV3BuildInput } from "../../lib/safari-v3.js";
-import { boundedSafariOs, safariAccessPlatform } from "../../lib/access-platform.js";
+import { safariAccessPlatform, safariOsAnswer } from "../../lib/access-platform.js";
 import { phoneLayoutFeatures } from "@still/core/entitlement";
 
 // The V3 settings-page gate. Like the popup's, it imports no component or stylesheet; those live in
@@ -15,7 +15,7 @@ import { phoneLayoutFeatures } from "@still/core/entitlement";
 
 export interface SafariV3OptionsView {
   /** `features`: the rows to draw; omitted draws every row (macOS). */
-  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[]): void;
+  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition, features?: readonly FeatureId[]): (() => void) | void;
 }
 
 export interface SafariV3OptionsDeps {
@@ -40,7 +40,9 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
     return "legacy";
   }
   // Bounded: a missing or late answer is unknown and never delays mounting by more than a second.
-  const os = await boundedSafariOs(deps.platform && (async () => ({ os: await deps.platform!() })));
+  // A late "mac" answer upgrades the open page to every row (below).
+  const answer = safariOsAnswer(deps.platform && (async () => ({ os: await deps.platform!() })));
+  const os = await answer.bounded;
   const platform = safariAccessPlatform(os);
   const target = document.getElementById("app")!;
   let composition: SafariV3Composition;
@@ -50,10 +52,11 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
     dropV3Styles();
     return "legacy";
   }
+  let unmountView: (() => void) | void;
   try {
     // iPhone, iPad and an unknown answer never draw a Still Pro switch that cannot act in a phone
     // layout (owner decision); the saved choice is kept.
-    view.mountSafariV3Options(target, composition, platform === "desktop" ? undefined : phoneLayoutFeatures());
+    unmountView = view.mountSafariV3Options(target, composition, platform === "desktop" ? undefined : phoneLayoutFeatures());
   } catch {
     composition.stop();
     target.replaceChildren();
@@ -65,5 +68,24 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
   } catch {
     /* Telemetry never decides which screen shows. */
   }
+  if (platform !== "desktop")
+    void answer.eventual.then((late) => {
+      if (late !== "mac") return;
+      // A Mac whose answer came after the bound: every row and desktop access.
+      // The mounted view owns (and on unmount stops) its composition, so the upgrade starts a
+      // fresh one for the desktop platform. The opening was already reported once.
+      try {
+        unmountView?.();
+        composition.stop();
+        target.replaceChildren();
+        const next = composeSafariV3("options", safariAccessPlatform(late));
+        composition = next;
+        unmountView = view.mountSafariV3Options(target, next, undefined);
+      } catch {
+        // A failed upgrade leaves nothing half-running; reopening starts afresh.
+        composition.stop();
+        target.replaceChildren();
+      }
+    });
   return "v3";
 }

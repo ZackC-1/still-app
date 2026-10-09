@@ -141,6 +141,39 @@ describe("Safari V3 settings page", () => {
     stop();
   });
 
+  it.each([["mac", true], ["ios", false]] as const)("a late %s answer: every row drawn afterwards = %s", async (os, upgraded) => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    const mounts: Array<readonly string[] | undefined> = [];
+    const unmounts = vi.fn();
+    const compositions: Array<{ stop(): void }> = [];
+    const mode = await startSafariV3Options({
+      env: ENV,
+      platform: () => new Promise((resolve) => setTimeout(() => resolve(os), 1_200)),
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { stop(): void }, features?: readonly string[]) {
+          mounts.push(features);
+          compositions.push(composition);
+          return unmounts;
+        },
+      }),
+    });
+    expect(mode).toBe("v3");
+    expect(mounts).toHaveLength(1);
+    expect(mounts[0]).not.toContain("youtube.endscreen");
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (upgraded) {
+      expect(mounts).toHaveLength(2);
+      expect(mounts[1]).toBeUndefined();
+      expect(unmounts).toHaveBeenCalledOnce();
+      expect(compositions[1]).not.toBe(compositions[0]);
+    } else {
+      expect(mounts).toHaveLength(1);
+      expect(unmounts).not.toHaveBeenCalled();
+    }
+    for (const composition of compositions) composition.stop();
+  });
+
   it("a failed mount stops what it started, clears the page and hands over to legacy", async () => {
     const f = await installSafari({ saved: "atomic", signedIn: true });
     document.body.innerHTML = '<div id="app"></div>';
