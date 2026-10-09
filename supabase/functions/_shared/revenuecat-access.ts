@@ -25,6 +25,17 @@ export type AccessProductMapping = LegacyAccessProductMapping | StripeAccessProd
 const ID = /^[A-Za-z0-9_-]{1,96}$/;
 const STRIPE_STORE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+// RevenueCat v2 reports App Store and RevenueCat Billing lifetime products as one_time or
+// non_consumable, and both must state is_consumable false. RevenueCat cannot record that flag for a
+// Stripe price (its Stripe apps allow only subscription or one_time, and the flag stays null), so
+// for the one exact mapped Stripe price an unknown flag is accepted; an explicit consumable never
+// grants. Repeat purchases are refused by checkout (already_entitled), not by the provider.
+function lifetimeProduct(product: Record<string, unknown>, store: AccessProductMapping["store"]): boolean {
+  if (!object(product.one_time)) return false;
+  const consumable = product.one_time.is_consumable;
+  if (store === "stripe") return product.type === "one_time" && (consumable === false || consumable === null);
+  return (product.type === "one_time" || product.type === "non_consumable") && consumable === false;
+}
 
 export function parseAccessProductMappings(text: string): readonly AccessProductMapping[] | null {
   try {
@@ -46,6 +57,13 @@ export function parseAccessProductMappings(text: string): readonly AccessProduct
     if (new Set(parsed.map(mapping => mapping.product_id)).size !== parsed.length) return null;
     return parsed as AccessProductMapping[];
   } catch { return null; }
+}
+
+/** RevenueCat identifies an imported Stripe item by its price ID, so a Stripe mapping must name the
+ * exact configured sandbox price; another price on the same Stripe product never grants. */
+export function stripeMappingsBoundTo(mappings: readonly AccessProductMapping[] | null,
+  priceId: string): readonly AccessProductMapping[] | null {
+  return mappings?.every(mapping => mapping.store !== "stripe" || mapping.store_identifier === priceId) ? mappings : null;
 }
 
 /** Unlike the legacy Boolean/V1 subscriber response, V2 purchases expose current owned/refunded
@@ -118,10 +136,7 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           const product = entitlement.products.items.find(candidate => object(candidate) && candidate.id === mapping.product_id);
           if (!object(product) || product.object !== "product" || product.state !== "active" ||
               product.app_id !== mapping.app_id || product.store_identifier !== mapping.store_identifier ||
-              // RevenueCat v2 reports lifetime products as one_time or non_consumable; both must
-              // still state is_consumable false. Unknown (null) or consumable never grants.
-              (product.type !== "one_time" && product.type !== "non_consumable") || !object(product.one_time) ||
-              product.one_time.is_consumable !== false) { complete = false; continue; }
+              !lifetimeProduct(product, mapping.store)) { complete = false; continue; }
           rights.push({ key, product: benefit });
           if (rights.length > 16) return unavailable;
         }

@@ -10,7 +10,7 @@ import type { QaSandboxMembership } from "./qa-sandbox-auth.ts";
 import { readQaSandboxAppleConfig, type QaSandboxAppleConfig } from "./qa-sandbox-config.ts";
 import { createQaSandboxRuntime } from "./qa-sandbox-runtime.ts";
 import { createWriterSql } from "./pg-store.ts";
-import { HttpRevenueCatAccessClient, parseAccessProductMappings, type AccessProductMapping } from "./revenuecat-access.ts";
+import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo, type AccessProductMapping } from "./revenuecat-access.ts";
 import { QaSandboxManagedCheckout, QA_STRIPE_API_VERSION, type QaManagedCheckoutConfig, type QaCheckoutOperation, type QaCheckoutRecovery } from "./qa-sandbox-managed-checkout.ts";
 import { PgQaPurchaseOperationStore, type QaPurchaseOperation, type QaPurchaseOperationStore } from "./qa-purchase-operation-store.ts";
 import { reconcileScopedAccess, type ScopedReconcileAccess } from "../reconcile-entitlement/handler.ts";
@@ -67,7 +67,7 @@ export async function readQaSandboxCheckoutConfig(read: (name: string) => string
         new URL(path,origin).pathname !== path) return null;
     }
     if (paths.success === paths.cancel || get("STRIPE_API_VERSION") !== QA_STRIPE_API_VERSION) return null;
-    const mappings = parseAccessProductMappings(get("ACCESS_PROVIDER_PRODUCTS_JSON"));
+    const mappings = stripeMappingsBoundTo(parseAccessProductMappings(get("ACCESS_PROVIDER_PRODUCTS_JSON")), get("STRIPE_PRICE_ID"));
     const stripe = mappings?.filter(mapping => mapping.store === "stripe");
     if (!mappings || stripe?.length !== 1 || !/^[A-Za-z0-9_-]{1,96}$/.test(get("REVENUECAT_PROJECT_ID")) ||
       !/^[!-~]{1,1024}$/.test(get("REVENUECAT_ACCESS_SECRET_API_KEY"))) return null;

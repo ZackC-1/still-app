@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { HttpRevenueCatAccessClient, parseAccessProductMappings, type AccessProductMapping } from "./revenuecat-access.ts";
+import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo, type AccessProductMapping } from "./revenuecat-access.ts";
 
 const HOLDER = "11111111-1111-1111-1111-111111111111";
 const MAPPING: AccessProductMapping = { product_id: "prod-current", app_id: "app-still", store_identifier: "still_pro_v3",
@@ -164,6 +164,31 @@ Deno.test("Stripe owned evidence yields canonical benefit and stable provider pu
   assertEquals(result.rights[0]?.key.length, 64);
   assertEquals(await read([stripePurchase()], {}, mappings), result);
 });
+Deno.test("Stripe one_time with RevenueCat's unknown consumable flag grants; consumable or other types never do", async () => {
+  // Observed for a Stripe price imported into RevenueCat: type one_time, is_consumable null. RevenueCat's
+  // Stripe apps allow only subscription or one_time, so the flag cannot be set to false.
+  const mappings = parseAccessProductMappings(JSON.stringify([STRIPE_MAPPING]));
+  if (!mappings) throw new Error("Stripe grammar rejected");
+  const unknownFlag = stripePurchase();
+  (unknownFlag.entitlements.items[0]!.products.items[0]!.one_time as { is_consumable: unknown }).is_consumable = null;
+  assertEquals(await read([unknownFlag], {}, mappings), await read([stripePurchase()], {}, mappings));
+  for (const mutate of [
+    (p: ReturnType<typeof stripePurchase>) => { p.entitlements.items[0]!.products.items[0]!.one_time.is_consumable = true; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]!.one_time as { is_consumable: unknown }).is_consumable = undefined; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]!.one_time as { is_consumable: unknown }).is_consumable = "false"; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]! as { one_time: unknown }).one_time = null; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]! as { type: string }).type = "non_consumable"; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]! as { type: string }).type = "consumable"; },
+    (p: ReturnType<typeof stripePurchase>) => { (p.entitlements.items[0]!.products.items[0]! as { type: string }).type = "subscription"; },
+  ]) {
+    const p = stripePurchase(); mutate(p);
+    assertEquals(await read([p], {}, mappings), { status: "verified", rights: [], complete: false });
+  }
+  // The relaxation is Stripe-only: an App Store or RevenueCat Billing product with an unknown flag never grants.
+  const legacy = purchase();
+  (legacy.entitlements.items[0]!.products.items[0]!.one_time as { is_consumable: unknown }).is_consumable = null;
+  assertEquals(await read([legacy]), { status: "verified", rights: [], complete: false });
+});
 Deno.test("QA Stripe mapping cannot classify production purchases or refunds", async () => {
   const real = globalThis.fetch;
   try {
@@ -250,4 +275,13 @@ Deno.test("legacy still_sync remains paid and revocable on all retained stores",
     assertEquals(await read([{ ...historic, status: "refunded", entitlements: undefined, revenue_in_usd: null }], {}, [legacy]),
       { status: "verified", rights: [{ ...positive.rights[0]!, state: "revoked" }], complete: true });
   }
+});
+
+Deno.test("Stripe mappings bind to the exact configured price; other stores are unaffected", () => {
+  const mixed = parseAccessProductMappings(JSON.stringify([MAPPING, STRIPE_MAPPING]));
+  if (!mixed) throw new Error("Mixed grammar rejected");
+  assertEquals(stripeMappingsBoundTo(mixed, STRIPE_MAPPING.store_identifier), mixed);
+  for (const price of ["", "price_other", STRIPE_MAPPING.store_identifier + "x"]) assertEquals(stripeMappingsBoundTo(mixed, price), null);
+  assertEquals(stripeMappingsBoundTo([MAPPING], ""), [MAPPING]);
+  assertEquals(stripeMappingsBoundTo(null, STRIPE_MAPPING.store_identifier), null);
 });
