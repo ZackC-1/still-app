@@ -29,7 +29,6 @@ import {
   FUNCTION_ROLES,
   POLICY_MODES,
   PROTECTED_OPERATOR_SUBJECT,
-  PROVISIONAL,
   QA_SANDBOX_CUTOFF,
   QA_SANDBOX_SALES_BUILDS,
   QA_SANDBOX_SALES_TEMPLATES,
@@ -1871,6 +1870,18 @@ test("the deploy CLI shows the End state of a stopped operation in its closing r
 // ── The QA sandbox sales switch and test-account operations (one transaction each) ───────────
 
 const ZERO = "0".repeat(64);
+/** A registry whose sales rows carry a provisional reason (exercises the apply refusal). */
+const HELD = Object.freeze({
+  ...OPERATIONS,
+  [POLICY_OFF]: {
+    ...OPERATIONS[POLICY_OFF],
+    provisional: ["synthetic: content awaiting review"],
+  },
+  [POLICY_ON]: {
+    ...OPERATIONS[POLICY_ON],
+    provisional: ["synthetic: content awaiting review"],
+  },
+});
 const SALT = "5a17".repeat(8);
 const secretOf = (emails, salt = SALT) => JSON.stringify({ salt, emails });
 const REGISTRY_DIR = new URL(
@@ -1946,11 +1957,19 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
     assert.equal(template.environment, "sandbox");
     assert.equal(template.salesEnabled, mode === "on");
     assert.deepEqual(template.builds, [...QA_SANDBOX_SALES_BUILDS]);
-    assert.ok(
-      QA_SANDBOX_SALES_BUILDS.every((b) => b.build === "qa-provisional"),
+    // Decision A3: QA test set 3 (main 598951be, first-parent count 311).
+    assert.deepEqual(
+      QA_SANDBOX_SALES_BUILDS.map((b) => [b.surface, b.build]),
+      [
+        ["chrome_desktop", "2.1.1.311"],
+        ["firefox_desktop", "2.1.1.311"],
+        ["firefox_android", "2.1.1.311"],
+        ["apple_mobile_host", "2.1.0"],
+        ["apple_macos_host", "2.1.0"],
+      ],
     );
-    assert.ok(op.provisional.includes(PROVISIONAL.builds));
-    assert.equal(op.provisional.includes(PROVISIONAL.cutoff), mode === "on");
+    assert.doesNotMatch(sql, /qa-provisional/);
+    assert.deepEqual(op.provisional, []);
     // The production environment is never named by the SQL that runs.
     assert.doesNotMatch(stripComments(sql), /production/);
     assert.ok(sql.includes(`'${PROTECTED_OPERATOR_SUBJECT}'`));
@@ -1970,7 +1989,7 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
   const body = vectors.cases.find((c) => c.namespace === "sales").response.body;
   const { revision, ...rest } = JSON.parse(body);
   assert.equal(renderSalesBody(rest, revision), body);
-  // Decision D2 (owner sign-off pending): one pinned cutoff, the same in JS, SQL and its check.
+  // Decision D2 (accepted for the sandbox): one pinned cutoff, the same in JS, SQL and its check.
   const on = await real(OPERATIONS[POLICY_ON].sql.path);
   const check = await real(OPERATIONS[POLICY_ON].verification.path);
   const literal = `array[${QA_SANDBOX_CUTOFF.benefits.map((b) => `'${b}'`).join(", ")}]`;
@@ -2148,7 +2167,7 @@ test("planner: the sales switch binds the expected revision, the exact body and 
     product: QA_SANDBOX_CUTOFF.product,
     benefits: [...QA_SANDBOX_CUTOFF.benefits],
   });
-  assert.deepEqual(p.provisional, [PROVISIONAL.builds, PROVISIONAL.cutoff]);
+  assert.deepEqual(p.provisional, []);
   assert.ok(!("role" in p) && !("login" in p));
   assert.deepEqual(p.untouchedRoles, [...FUNCTION_ROLES]);
   // The digest survives the JSON round trip the workflow makes, and binds the revision.
@@ -2181,12 +2200,20 @@ test("planner: the sales switch binds the expected revision, the exact body and 
     policy({ policyMode: "none", expectedRevision: "0" }),
     "operation-input-invalid",
   );
-  await refuses(
-    policy({ policyMode: "on", expectedRevision: "1", mode: "apply" }),
-    "operation-provisional",
+  // The content is settled (A3 frozen, D2 accepted), so apply may be planned.
+  assert.equal(
+    (await policy({ policyMode: "on", expectedRevision: "1", mode: "apply" }))
+      .operation,
+    POLICY_ON,
   );
+  // The provisional mechanism still refuses apply for any row that lists a reason.
   await refuses(
-    policy({ policyMode: "off", expectedRevision: "0", mode: "apply" }),
+    policy({
+      policyMode: "off",
+      expectedRevision: "0",
+      mode: "apply",
+      registry: HELD,
+    }),
     "operation-provisional",
   );
   for (const extra of [
@@ -2199,13 +2226,12 @@ test("planner: the sales switch binds the expected revision, the exact body and 
   for (const needle of [
     p.body,
     p.bodySha256,
-    "Provisional content: plan-only",
-    PROVISIONAL.cutoff,
     "compare-and-set from `1` to `2`",
     "still-free-v2",
     "one transaction",
   ])
     assert.ok(shown.includes(needle), needle);
+  assert.doesNotMatch(shown, /Provisional content/);
 });
 
 test("planner: test accounts bind the approved list hash; disable takes no list", async (t) => {
@@ -2305,13 +2331,6 @@ function fakeTxDb({ issues, apply, sqlFailure, onOperation } = {}) {
   return { state, exec, sleep: async () => {} };
 }
 
-/** A registry whose sales-policy rows are not provisional (only to exercise the production path). */
-const SETTLED = Object.freeze({
-  ...OPERATIONS,
-  [POLICY_OFF]: { ...OPERATIONS[POLICY_OFF], provisional: [] },
-  [POLICY_ON]: { ...OPERATIONS[POLICY_ON], provisional: [] },
-});
-
 async function txFixture(t, workflowOperation, extra, registry = OPERATIONS) {
   const { root, head } = await repo(t);
   const p = await plan(root, head, workflowOperation, { ...extra, registry });
@@ -2343,10 +2362,12 @@ const policyIssues = (state) =>
   state.applied ? [] : ["sandbox_sales_policy_missing"];
 
 test("sales switch: refused against production while its content is provisional, before any database call", async (t) => {
-  const fx = await txFixture(t, "qa-sandbox-sales-policy", {
-    policyMode: "off",
-    expectedRevision: "0",
-  });
+  const fx = await txFixture(
+    t,
+    "qa-sandbox-sales-policy",
+    { policyMode: "off", expectedRevision: "0" },
+    HELD,
+  );
   const db = fakeTxDb({ issues: policyIssues, apply: () => ({}) });
   const receipt = await runTx(fx, db);
   assert.deepEqual(
@@ -2361,7 +2382,7 @@ test("sales switch: body and revision reach psql only through its environment; v
     t,
     "qa-sandbox-sales-policy",
     { policyMode: "off", expectedRevision: "0" },
-    SETTLED,
+    OPERATIONS,
   );
   const db = fakeTxDb({
     issues: (state, env, args) => {
@@ -2415,7 +2436,7 @@ test("sales switch: a refusal inside the transaction writes nothing and says why
     t,
     "qa-sandbox-sales-policy",
     { policyMode: "on", expectedRevision: "1" },
-    SETTLED,
+    OPERATIONS,
   );
   for (const [target, stderr] of [
     [
@@ -2554,7 +2575,7 @@ test("sales switch: once production has a paid cutoff the switch refuses and poi
     t,
     "qa-sandbox-sales-policy",
     { policyMode: "off", expectedRevision: "0" },
-    SETTLED,
+    OPERATIONS,
   );
   const receipt = await runTx(
     fx,
@@ -2636,15 +2657,6 @@ test("the deploy CLI plans the QA operations from workflow inputs and keeps thei
     POLICY_OFF,
   );
   for (const [env, category] of [
-    [
-      {
-        DEPLOY_OPERATION: "qa-sandbox-sales-policy",
-        DEPLOY_POLICY_MODE: "on",
-        DEPLOY_POLICY_EXPECTED_REVISION: "1",
-        DEPLOY_MODE: "apply",
-      },
-      "operation-provisional",
-    ],
     [
       { DEPLOY_OPERATION: "migrations", DEPLOY_POLICY_MODE: "off" },
       "operation-input-invalid",

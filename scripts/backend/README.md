@@ -495,9 +495,10 @@ writes nothing, and each is chosen with the workflow input `policy_mode`:
   sandbox sales body as the next sandbox revision, compare-and-set on the approved expected revision
   under `apply_product_policy`'s advisory lock. The SQL names only the `sandbox` environment; the
   ledger row records the fixed all-zero operator id, never an owner identity. The first `on` also
-  writes the sandbox paid cutoff (write-once), and only when none exists. Both bodies carry
-  placeholder QA build ids and the cutoff content awaits owner sign-off, so the planner refuses
-  `mode=apply` until a reviewed change settles them (`PROVISIONAL` in `operations.mjs`).
+  writes the sandbox paid cutoff (write-once), and only when none exists. Both bodies list the
+  current QA test set's build ids (`QA_SANDBOX_SALES_BUILDS` in `operations.mjs`: the extension
+  manifest version and the Apple CFBundleShortVersionString); a new test set changes them in one
+  reviewed change. An operation that lists `provisional` content cannot be applied.
 - `qa-sandbox-subjects` (`enable` with `subjects_sha256`, or `disable`): `enable` makes the enabled
   memberships exactly the accounts in the `QA_SANDBOX_SUBJECT_EMAILS_JSON` environment secret,
   `{"salt":"<32+ random hex>","emails":[...]}` (salt from `openssl rand -hex 32`; emails only from

@@ -23,8 +23,8 @@ begin;
 select pg_catalog.set_config('still_operation.expected_revision', :'still_operation_expected_revision', true) is not null and pg_catalog.set_config('still_operation.policy_body', :'still_operation_policy_body', true) is not null as configured;
 do $$
 declare
-  v_template constant jsonb := '{"schema":1,"environment":"sandbox","salesEnabled":true,"channels":{"apple":{"enabled":true,"offer":"still-pro-v3"},"web":{"enabled":true,"offer":"still-pro-v3"}},"builds":[{"surface":"chrome_desktop","build":"qa-provisional"},{"surface":"firefox_desktop","build":"qa-provisional"},{"surface":"firefox_android","build":"qa-provisional"},{"surface":"apple_mobile_host","build":"qa-provisional"},{"surface":"apple_macos_host","build":"qa-provisional"}]}';
-  -- Decision D2 (owner sign-off pending): the protected product id and the sorted free-tier ids.
+  v_template constant jsonb := '{"schema":1,"environment":"sandbox","salesEnabled":true,"channels":{"apple":{"enabled":true,"offer":"still-pro-v3"},"web":{"enabled":true,"offer":"still-pro-v3"}},"builds":[{"surface":"chrome_desktop","build":"2.1.1.311"},{"surface":"firefox_desktop","build":"2.1.1.311"},{"surface":"firefox_android","build":"2.1.1.311"},{"surface":"apple_mobile_host","build":"2.1.0"},{"surface":"apple_macos_host","build":"2.1.0"}]}';
+  -- Decision D2 (accepted for the sandbox): the protected product id and the sorted free-tier ids.
   v_cutoff_product constant text := 'still-free-v2';
   v_cutoff_benefits constant text[] := array['facebook.reels', 'instagram.reels', 'tiktok.all', 'youtube.shorts'];
   v_operator constant uuid := '00000000-0000-0000-0000-000000000000';

@@ -81,8 +81,8 @@ bundle validator, docs G9, any hosted run or workflow dispatch, and D3 (accepted
 
 | Item | State |
 |---|---|
-| D2 cutoff content | 0016 open question 6 leaves production undefined. Pinned constant: product `still-free-v2`, benefits = the sorted free-tier ids (`facebook.reels`, `instagram.reels`, `tiktok.all`, `youtube.shorts`). **Owner sign-off required**; apply refused until then. |
-| A3 QA build identifiers | Not frozen. Pinned placeholder build `qa-provisional` per paid surface; apply refused until a reviewed change freezes them. |
+| D2 cutoff content | Accepted for the sandbox (coordinator, 2026-10-09): product `still-free-v2`, benefits = the sorted free-tier ids (`facebook.reels`, `instagram.reels`, `tiktok.all`, `youtube.shorts`). The production content stays a separate decision (0016 open question 6). |
+| A3 QA build identifiers | Frozen for QA test set 3 (main 598951be, first-parent count 311): `chrome_desktop`, `firefox_desktop`, `firefox_android` = `2.1.1.311` (extension manifest version); `apple_mobile_host`, `apple_macos_host` = `2.1.0` (CFBundleShortVersionString). Each new test set needs a reviewed change and a new sandbox revision. |
 | `policy_expected_revision` input | Added (the compare-and-set value must be part of the approved plan). |
 | Subjects `disable` scope | Every enabled membership (works without the email secret, so it is a reliable off switch). |
 
@@ -108,5 +108,6 @@ bundle validator, docs G9, any hosted run or workflow dispatch, and D3 (accepted
   (expected 1), `qa-sandbox-subjects` enable and disable: every proof and negative control passed;
   `qa_sandbox_subjects_operation_test.ts` passed in a Linux container against the same local
   database (real 0021 wrappers).
-- Not verified here: anything hosted (no production run or dispatch), real QA build ids (A3) and
-  owner sign-off of the cutoff content (D2); apply stays refused until both land.
+- Not verified here: anything hosted (no production run or dispatch).
+- A3 and D2 settled in the follow-up PR: the sales bodies carry test set 3's build ids and the
+  sales operation no longer lists provisional content, so `mode=apply` may be planned.
