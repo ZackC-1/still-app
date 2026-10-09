@@ -598,10 +598,27 @@ final class MonetizationConfigTests: XCTestCase {
       }
     }
     XCTAssertEqual(
-      callSites, ["WebBridgeRouter.swift"],
+      Set(callSites), ["WebBridgeRouter.swift", "PurchaseManager.swift"],
       "every ask for Apple's purchase history goes through the one gated capture in "
-        + "WebBridgeRouter; a new call site needs the same switch before it ships"
+        + "WebBridgeRouter, or the sandbox pre-charge check in PurchaseManager; a new call site "
+        + "needs the same switch before it ships"
     )
+    XCTAssertEqual(callSites.filter { $0 == "PurchaseManager.swift" }.count, 1, "only the pre-charge check's single read")
+  }
+
+  /// PurchaseManager's second ask is behind a stricter switch than the paid tier: it lives only in
+  /// `verifiedInstallEnvironment`, which is reached only as the sales boundary's install attestation,
+  /// so it runs only after a fresh sales check allowed a charge in a sandbox build, on a Buy tap.
+  func testPurchaseManagerAsksAppleOnlyInsideTheSandboxPreChargeCheck() throws {
+    let url = try XCTUnwrap(try shippedSwiftSources().first { $0.lastPathComponent == "PurchaseManager.swift" })
+    let text = try String(contentsOf: url, encoding: .utf8)
+    let start = try XCTUnwrap(text.range(of: "private static func verifiedInstallEnvironment() async -> AppleInstallEnvironment {"))
+    // The function ends at the first closing brace at its own two-space indentation.
+    let end = try XCTUnwrap(text.range(of: "\n  }\n", range: start.upperBound..<text.endIndex))
+    let outside = String(text[..<start.lowerBound]) + String(text[end.upperBound...])
+    XCTAssertFalse(outside.split(separator: "\n").contains { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") && $0.contains("AppTransaction") })
+    XCTAssertEqual(outside.components(separatedBy: "verifiedInstallEnvironment()").count - 1, 1)
+    XCTAssertTrue(outside.contains("installEnvironment: { await Self.verifiedInstallEnvironment() }"))
   }
 
   /// The helper both source-text tests above depend on has to fail when it cannot find the capture,

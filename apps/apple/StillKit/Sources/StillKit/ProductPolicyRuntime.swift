@@ -64,6 +64,9 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
     self.evaluate = evaluate
   }
 
+  /// A sandbox route or sandbox policy context may only charge inside Apple's sandbox.
+  public var requiresSandboxInstallation: Bool { routeProfile == .sharedHostedSandbox || context.environment == "sandbox" }
+
   /// The public evaluators, which read the compiled paid switch themselves.
   static let packagedEvaluator: Evaluator = { namespace, context, response, highestSeen, now in
     switch namespace {

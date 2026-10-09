@@ -604,7 +604,8 @@ final class PurchaseManager {
     }
     guard let package else { return .unavailable }
     if let expectedOffer, offering(for: package) != expectedOffer { return .unavailable }
-    return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable) {
+    return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable,
+                                                     installEnvironment: { await Self.verifiedInstallEnvironment() }) {
       // The policy await must not allow a departed identity to receive this new charge.
       guard self.currentAppUserID == startingUserID else { return .failed("identity changed") }
       do {
@@ -616,6 +617,21 @@ final class PurchaseManager {
           return .pending // Ask-to-Buy: guardian approval arrives out-of-band
         }
         return .failed(error.localizedDescription)
+      }
+    }
+  }
+
+  /// Apple's verified installation environment for the sandbox pre-charge check. Anything short of a
+  /// verified answer within the bound, including an OS before AppTransaction, is `unavailable`.
+  private static func verifiedInstallEnvironment() async -> AppleInstallEnvironment {
+    guard #available(iOS 16.0, macOS 13.0, *) else { return .unavailable }
+    return await bounded(20_000_000_000, fallback: AppleInstallEnvironment.unavailable) {
+      guard let result = try? await AppTransaction.shared, case .verified(let transaction) = result else { return .unavailable }
+      switch transaction.environment {
+      case .sandbox: return .sandbox
+      case .xcode: return .xcode
+      case .production: return .production
+      default: return .unavailable
       }
     }
   }
