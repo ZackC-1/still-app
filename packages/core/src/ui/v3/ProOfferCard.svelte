@@ -3,6 +3,7 @@
   import Glyph from "./Glyph.svelte";
   import StaticProControlList from "./StaticProControlList.svelte";
   import { proPhoneNote } from "./pro-phone-note.js";
+  import { PAID_TIER_ENABLED } from "@still/shared-types";
   let {
     ownership,
     controls = [],
@@ -29,7 +30,11 @@
       !accessVerify &&
       !restoreHeld &&
       channel === "ready" &&
-      Boolean(offer?.price.trim()) &&
+      // A checkout-priced offer carries no price here (the checkout page shows it); only a build
+      // compiled with the paid tier on may accept it. Every other offer still needs its verified
+      // price. With the paid tier off this folds to the price check alone.
+      ((PAID_TIER_ENABLED && offer?.checkoutPriced === true) ||
+        Boolean(offer?.price.trim())) &&
       state !== "failed" &&
       state !== "success",
   );
@@ -63,11 +68,13 @@
     </div>
   {:else}
     <div class="offer-head"><h2 class="card-title">Still Pro</h2></div>
-    {#if canBuy && offer?.priceNote}<p
+    {#if canBuy && (offer?.priceNote || (PAID_TIER_ENABLED && offer?.checkoutPriced))}<p
         class="card-body"
         style="margin-block-start:-8px;"
       >
-        {offer.priceNote}
+        {PAID_TIER_ENABLED && offer.checkoutPriced
+          ? "The price is shown at checkout."
+          : offer.priceNote}
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
     {#if ownership === "none"}<p class="caption">{proPhoneNote(phone)}</p>{/if}

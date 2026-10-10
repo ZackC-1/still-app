@@ -19,6 +19,7 @@ import {
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
 import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
+import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
@@ -672,7 +673,10 @@ function createSessionSpine(
     return { get: () => slot.get(), set: value => order(() => slot.set(value)) };
   }
 
-  const session = createExtensionSession({
+  // Paid-tier builds also answer the settings page's "may I offer Buy?" from this same
+  // canCreateCheckout (lib/checkout-availability.ts). The choice folds away with the compiled
+  // switch off, leaving exactly createExtensionSession.
+  const session = (PAID_TIER_ENABLED ? createSessionWithCheckoutAvailability : createExtensionSession)({
     auth,
     backend,
     records: entitlements,

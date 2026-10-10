@@ -12,6 +12,8 @@ import {
 import type { ExtensionSessionState } from "../sync/extension-session.js";
 import {
   UiController,
+  CHECKOUT_PENDING_TTL_MS,
+  type AccessRecheck,
   type AuthPersistence,
   type UiAnalytics,
   type UiAuth,
@@ -153,6 +155,26 @@ export function createExtensionUiController(
   // the historical Boolean cache cannot verify Pro; subsequent epochs use the same watcher.
   if (PAID_TIER_ENABLED && options?.onCommittedPopupBinding)
     void entitlement.refreshAccess();
+  // A committed paid page's access re-check: the scoped reconcile, then a fresh read of the access
+  // authority. A "none" answer usually changes nothing in storage, so without this read the page
+  // would keep its earlier "verify again" observation until its refresh timer, by which time the
+  // short-lived "known none" evidence has lapsed (R4). Folds away with the paid tier off.
+  if (PAID_TIER_ENABLED && purchase && options?.onCommittedPopupBinding) {
+    const checkout = purchase.checkout;
+    // One re-check at a time: the page-open check and a page's own request share a flight.
+    let flight: Promise<AccessRecheck> | null = null;
+    controller.recheckAccess = () =>
+      (flight ??= (async () => {
+        try {
+          const outcome = await checkout.reconcile();
+          // An observation already in flight may predate the reconcile: let it land, then read again.
+          await entitlement.refreshAccess();
+          return { outcome, access: await entitlement.refreshAccess() };
+        } finally {
+          flight = null;
+        }
+      })());
+  }
 
   if (purchase) {
     const revision = controller.accountRevision;
@@ -165,7 +187,18 @@ export function createExtensionUiController(
         // is the design): a pending OTP lands straight on code entry (AE2), a pending checkout on
         // its checking/stale presentation (U4/R3). Both no-op when moot (signed in / entitled).
         if (state.pendingOtp) controller.rehydrateCodeEntry(state.pendingOtp);
-        if (state.checkoutPending) controller.rehydrateCheckoutPending(state.checkoutPending);
+        if (state.checkoutPending) {
+          // A committed paid page (the V3 popup and settings) never presents the legacy paywall's
+          // pending sheet, which shows a compiled price: its re-check below covers the pending
+          // checkout (the background clears the record on a purchase or a finished checkout). A
+          // record past the pending lifetime is dropped, as the legacy presentation's stale state
+          // would let the person do. Folds away with the paid tier off.
+          if (PAID_TIER_ENABLED && controller.recheckAccess) {
+            const at = state.checkoutPending.startedAt;
+            if (!(typeof at === "number" && Number.isFinite(at) && Date.now() - at <= CHECKOUT_PENDING_TTL_MS))
+              purchase.checkout.setPending(null);
+          } else controller.rehydrateCheckoutPending(state.checkoutPending);
+        }
         // R4: reconcile on every popup open with a session, so a paid-elsewhere user unlocks and a
         // refund revokes without ritual. The checkout-pending rehydration above starts its own
         // fast-poll (which reconciles immediately), so only the no-pending open fires here. The
@@ -177,8 +210,8 @@ export function createExtensionUiController(
         // lost by waiting: the record it keeps warm is refreshed by the content-script nudge, which
         // reconciles whenever the cached answer is more than a day old, and the whole path returns
         // with the switch.
-        if (PAID_TIER_ENABLED && state.userId !== null && state.checkoutPending === null) {
-          void purchase.checkout.reconcile();
+        if (PAID_TIER_ENABLED && state.userId !== null && (state.checkoutPending === null || controller.recheckAccess)) {
+          void (controller.recheckAccess ? controller.recheckAccess() : purchase.checkout.reconcile());
         }
       })
       .catch(() => {

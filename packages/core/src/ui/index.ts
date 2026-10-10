@@ -19,6 +19,7 @@ export type {
   CheckoutPending,
   CheckoutFlow,
   CheckoutReconcileOutcome,
+  AccessRecheck,
   UiAnalytics,
   UsageSharingState,
 } from "./controller.svelte.js";

@@ -48,8 +48,13 @@ export interface ProOfferCardProps {
   phone?: boolean;
   ownership: "none" | "owned" | "checking" | "verify" | "failed";
   channel: "ready" | "unverified" | "unavailable";
-  /** Verified caller data; the price is displayed only in the real checkout. */
-  offer?: { price: string; priceNote?: string };
+  /**
+   * Verified caller data; the price is displayed only in the real checkout. A checkout-priced
+   * offer (`checkoutPriced: true`, `price: ""`) has no price on this surface at all: the browser
+   * extensions carry no verified price, so the checkout page shows it (owner decision,
+   * 10 October 2026). It enables Buy only in builds compiled with the paid tier on.
+   */
+  offer?: { price: string; priceNote?: string; checkoutPriced?: true };
   confirmedAccount: boolean;
   accessHeld?: boolean;
   /** Actual pending observation, separate from a held or completed access result. */
