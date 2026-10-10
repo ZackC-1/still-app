@@ -9,6 +9,8 @@ import {
   USAGE_PERMISSION_VERSION,
   createDefaultOnUsage,
   supabaseSubjectIssuer,
+  projectKeySha256,
+  SUBJECT_RETRY_MS,
   versionedNotice,
   type SubjectIssuingClient,
 } from "../default-on.js";
@@ -175,6 +177,15 @@ describe("default-on usage permission (Firefox: the optional technicalAndInterac
     });
   }
 
+  it("when Firefox does withdraw it, no mark stays: a grant in the add-on manager before any read turns sharing on", async () => {
+    const { browser, kv, usage } = firefox(true);
+    await usage.permission();
+    await usage.commit(false);
+    expect(kv.data[FIREFOX_STOPPED_KEY]).toBeNull();
+    browser.granted = true; // granted again in the add-on manager, with no read in between
+    expect((await usage.permission())?.state).toBe("granted");
+  });
+
   it("the off mark is dropped once Firefox reports the permission withdrawn, so a later grant there turns sharing on", async () => {
     const { browser, kv, usage } = firefox(true, "refuses");
     await usage.permission();
@@ -248,6 +259,8 @@ describe("the one-time notice, versioned by the disclosure", () => {
 describe("per-device identity requests (supabaseSubjectIssuer)", () => {
   const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const PROOF = { originProof: "e".repeat(64) };
+  const KEY = "phc_synthetic_project_key";
+  const KEY_SHA = createHash("sha256").update(KEY).digest("hex");
   function client(session: { access_token: string; user: { id: string } } | null, reply: { data: unknown; error: unknown }) {
     const invoke = vi.fn(async (..._args: unknown[]) => reply);
     const c: SubjectIssuingClient = {
@@ -257,18 +270,23 @@ describe("per-device identity requests (supabaseSubjectIssuer)", () => {
     return { c, invoke };
   }
 
-  it("sends only the origin proof, with that account's own session", async () => {
+  it("hashes the trimmed project key as lowercase hex SHA-256", async () => {
+    expect(await projectKeySha256(`  ${KEY}\n`)).toBe(KEY_SHA);
+    expect(KEY_SHA).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("sends only the origin proof and the project key's digest, with that account's own session", async () => {
     const { c, invoke } = client(
       { access_token: "token-a", user: { id: ACCOUNT.toUpperCase() } },
       { data: { state: "active", subject: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, error: null },
     );
     const signal = new AbortController().signal;
-    expect(await supabaseSubjectIssuer(c)({ ...PROOF, extra: "dropped" } as never, signal, ACCOUNT)).toEqual({
+    expect(await supabaseSubjectIssuer(c, KEY)({ ...PROOF, extra: "dropped" } as never, signal, ACCOUNT)).toEqual({
       state: "active",
       subject: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     });
     expect(invoke).toHaveBeenCalledWith("analytics-identify", {
-      body: PROOF,
+      body: { ...PROOF, projectKeySha256: KEY_SHA },
       headers: { Authorization: "Bearer token-a" },
       signal,
     });
@@ -277,13 +295,56 @@ describe("per-device identity requests (supabaseSubjectIssuer)", () => {
   it("refuses a session for another account, or none, without calling the server", async () => {
     for (const session of [null, { access_token: "token-b", user: { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" } }]) {
       const { c, invoke } = client(session, { data: null, error: null });
-      await expect(supabaseSubjectIssuer(c)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      await expect(supabaseSubjectIssuer(c, KEY)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
       expect(invoke).not.toHaveBeenCalled();
     }
   });
 
+  it("after a 503 or 429 it waits before asking again, instead of asking at every screen", async () => {
+    for (const status of [503, 429]) {
+      let clock = 1_000;
+      const { c, invoke } = client(
+        { access_token: "t", user: { id: ACCOUNT } },
+        { data: null, error: Object.assign(new Error(String(status)), { context: { status } }) },
+      );
+      const issue = supabaseSubjectIssuer(c, KEY, () => clock);
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      expect(invoke).toHaveBeenCalledTimes(1);
+      clock += SUBJECT_RETRY_MS;
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      expect(invoke).toHaveBeenCalledTimes(2);
+    }
+    // Any other failure (a network error) is tried again at the next screen.
+    const { c, invoke } = client({ access_token: "t", user: { id: ACCOUNT } }, { data: null, error: new Error("network") });
+    const issue = supabaseSubjectIssuer(c, KEY);
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
   it("a refused request (503 while the server switch is off) throws, so the device keeps waiting", async () => {
     const { c } = client({ access_token: "t", user: { id: ACCOUNT } }, { data: null, error: new Error("503") });
-    await expect(supabaseSubjectIssuer(c)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow("503");
+    await expect(supabaseSubjectIssuer(c, KEY)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow("503");
+  });
+
+  it("a test_channel answer is treated like unavailable: it throws, never stops, and waits before asking again", async () => {
+    let clock = 5_000;
+    const { c, invoke } = client({ access_token: "t", user: { id: ACCOUNT } }, { data: { state: "test_channel" }, error: null });
+    const issue = supabaseSubjectIssuer(c, KEY, () => clock);
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    clock += SUBJECT_RETRY_MS;
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("a build without a project key never asks", async () => {
+    for (const key of [undefined, "", "   "]) {
+      const { c, invoke } = client({ access_token: "t", user: { id: ACCOUNT } }, { data: null, error: null });
+      await expect(supabaseSubjectIssuer(c, key)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      expect(invoke).not.toHaveBeenCalled();
+    }
   });
 });
