@@ -32,13 +32,14 @@ function setup() {
     status: "session_bound", creation_started_at: NOW, paid_at: null, created_at: NOW, updated_at: NOW } as QaPurchaseOperation,
     reads: 0, creates: 0, imports: 0, recoveries: 0, begins: 0, commits: 0, signs: 0, refunds: 0, enabled: false, confirmed: false,
     paid: true, pending: false, expired: false, unknown: false, importFails: false, rcUnavailable: false, customerMissing: false, active: false,
-    negative: true, complete: true, known: true, stale: false, full: true, partial: false, mutations: [] as string[], snapshots: [] as unknown[] };
+    negative: true, complete: true, known: true, stale: false, full: true, partial: false, deleted: false, readFails: false, mutations: [] as string[], snapshots: [] as unknown[] };
   const deps: QaSandboxStripeWebhookDeps = { secret: SECRET, checkout: { configurationHash: HASH, jwtSecret: "",
     accounts: { confirmed: () => Promise.resolve(state.confirmed) }, membership: { enabled: () => Promise.resolve(state.enabled) },
     limiter: { consume: () => { throw Error("webhooks do not use user/IP limiter"); } },
     operations: {
       prepare: () => { throw Error("must not prepare"); }, claimCreation: () => { throw Error("must not claim"); },
-      read: (op, holder) => { state.reads++; return Promise.resolve(op === OP && holder === HOLDER ? { ...state.row } : null); },
+      read: (op, holder) => { state.reads++; if (state.readFails) return Promise.reject(Error("QA account unavailable"));
+        return Promise.resolve(op === OP && holder === HOLDER && !state.deleted ? { ...state.row } : null); },
       bindSession: (op, holder, session, hash) => { assertEquals([op,holder,session,hash],[OP,HOLDER,SESSION,HASH]);
         assert(state.row.creation_started_at); state.row = { ...state.row,stripe_session_id: session,status: "session_bound" }; state.mutations.push("bind"); return Promise.resolve({ ...state.row }); },
       recordStatus: (op, session, status: QaPurchaseOperationStatus) => { assertEquals([op,session],[OP,SESSION]);
@@ -46,6 +47,10 @@ function setup() {
         if (status === "closed_unpaid") assertEquals(state.row.paid_at,null);
         state.row = { ...state.row,status,paid_at: ["paid_verified","import_pending","imported","refunded"].includes(status) ? state.row.paid_at ?? NOW : state.row.paid_at };
         state.mutations.push(status); return Promise.resolve({ ...state.row }); },
+      recordDeletedAccountRefund: (op, session) => { assertEquals([op,session],[OP,SESSION]); state.mutations.push("deleted-account-refunded");
+        if (!state.deleted) throw Error("stored operation still names an account");
+        state.row = { ...state.row,status: "refunded",paid_at: state.row.paid_at ?? NOW };
+        return Promise.resolve({ ...state.row,holder: null,status: "refunded" as const }); },
     }, billing: {
       createCheckout: () => { state.creates++; throw Error("must not create"); },
       recoverCheckout: () => { state.recoveries++; return Promise.resolve(state.unknown ? { status: "unknown",sessionId: SESSION } :
@@ -253,4 +258,31 @@ Deno.test("signed refund composes actual managed Charge readback and RC negative
     assertEquals(snapshot.length,1); assertEquals(snapshot[0]!.key.length,64); assertEquals(snapshot[0]!.state,"revoked");
     assertEquals([s.state.signs,s.state.creates,s.state.imports],[0,0,0]);
   } finally { globalThis.fetch = real; }
+});
+Deno.test("refund for a deleted account marks the kept payment record refunded without recreating or observing the account", async () => {
+  for (const readFails of [true,false]) {
+    // A deleted account's scoped read fails (no Auth row or membership) or finds nothing.
+    const s = setup(); s.state.deleted = true; s.state.readFails = readFails; s.state.row = { ...s.state.row,status: "access_observed",paid_at: NOW };
+    assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200);
+    assertEquals(s.state.mutations,["deleted-account-refunded"]); assertEquals(s.state.row.status,"refunded");
+    assertEquals([s.state.begins,s.state.commits,s.state.imports,s.state.creates,s.state.signs],[0,0,0,0,0]);
+    // Stripe retries are idempotent.
+    assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200);
+    assertEquals([s.state.begins,s.state.commits,s.state.signs],[0,0,0]);
+  }
+});
+Deno.test("deleted-account refund path refuses an operation that still names an account, a foreign configuration or creation window", async () => {
+  const live = setup(); live.state.readFails = true;
+  assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),live.deps)).status,502);
+  assertEquals([live.state.begins,live.state.commits,live.state.signs],[0,0,0]);
+  for (const patch of [{ configuration_hash: "c".repeat(64) },{ creation_started_at: new Date(Date.parse(NOW)-301000).toISOString() },{ creation_started_at: null }]) {
+    const s = setup(); s.state.deleted = true; s.state.row = { ...s.state.row,...patch };
+    assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,502);
+    assertEquals([s.state.begins,s.state.commits,s.state.signs],[0,0,0]);
+  }
+});
+Deno.test("paid notification for a deleted account never imports, grants or recreates it", async () => {
+  const s = setup(); s.state.deleted = true; s.state.readFails = true;
+  assertEquals((await handleQaSandboxStripeWebhook(await request(),s.deps)).status,502);
+  assertEquals([s.state.imports,s.state.creates,s.state.begins,s.state.signs,s.state.mutations.length],[0,0,0,0,0]);
 });
