@@ -36,10 +36,16 @@ struct Commit: Encodable { let status = "committed" }
 struct BridgeFrame { let isTrusted: Bool }
 enum MonetizationConfig { static var paidTierEnabled = true }
 enum Failure: Error { case stale }
+enum NativeAccessSessionCheck { case verified(Session), rejected(subject: String?), unavailable }
 @MainActor final class Verifier {
   var calls = 0
-  var result: Session? = Session(accountId: "account-a", sessionId: "session-a")
-  func verify(accessToken: String) async -> Session? { calls += 1; return result }
+  var result: NativeAccessSessionCheck = .verified(Session(accountId: "account-a", sessionId: "session-a"))
+  var first: NativeAccessSessionCheck?
+  func check(accessToken: String) async -> NativeAccessSessionCheck {
+    calls += 1
+    if calls == 1, let first { return first }
+    return result
+  }
 }
 @MainActor final class Status {
   struct Value { let accountId: String }
@@ -49,7 +55,9 @@ enum Failure: Error { case stale }
 @MainActor final class Store {
   var generation = 0
   var installs = 0
+  var clears = 0
   var bytes = "untouched"
+  func clearAccessAccount() throws { clears += 1; generation += 1; bytes = "cleared" }
   func prepareAppleAccessInstall() throws -> Int { generation }
   func prepareAccountAccess(_ session: Session, expectedGeneration: Int) throws -> Int {
     guard expectedGeneration == generation else { throw Failure.stale }; return generation
@@ -106,9 +114,9 @@ ${source.slice(start, end)}
       router.handle(body, frame: BridgeFrame(isTrusted: true), reply: reply.accept)
       await settle { NativeAccountAccessRuntime.port.releases.count == 1 }
       switch scenario {
-      case "auth-lost": router.accessSessionVerifier!.result = nil
-      case "account-replaced": router.accessSessionVerifier!.result = Session(accountId: "account-b", sessionId: "session-a")
-      case "session-renewed": router.accessSessionVerifier!.result = Session(accountId: "account-a", sessionId: "session-b")
+      case "auth-lost": router.accessSessionVerifier!.result = .unavailable
+      case "account-replaced": router.accessSessionVerifier!.result = .verified(Session(accountId: "account-b", sessionId: "session-a"))
+      case "session-renewed": router.accessSessionVerifier!.result = .verified(Session(accountId: "account-a", sessionId: "session-b"))
       case "signed-out": router.accountSyncStatus.accountId = nil
       case "display-replaced": router.accountSyncStatus.accountId = "account-b"
       case "newer-request":
@@ -133,6 +141,35 @@ ${source.slice(start, end)}
         guard router.entitlement.installs == 1, router.entitlement.bytes == "installed", reply.value != nil, reply.error == nil, router.accessSessionVerifier!.calls == 2 else { fatalError("current authenticated control failed") }
       } else {
         guard router.entitlement.installs == 0, router.entitlement.bytes == "untouched", reply.value == nil, reply.error != nil else { fatalError("stale reconciliation installed: " + scenario) }
+      }
+    }
+    // Definitive Auth refusal of the bound account's own token ends its stored rights; anything
+    // else (offline, another subject, a newer request or account) keeps them.
+    for scenario in ["rejected-first", "rejected-after-fetch", "rejected-other-subject", "rejected-no-subject", "unavailable-first", "rejected-after-account-change"] {
+      let router = Router(), reply = Reply()
+      NativeAccountAccessRuntime.port = FetchPort()
+      let verifier = router.accessSessionVerifier!
+      switch scenario {
+      case "rejected-first": verifier.first = .rejected(subject: "account-a")
+      case "rejected-other-subject": verifier.first = .rejected(subject: "account-b")
+      case "rejected-no-subject": verifier.first = .rejected(subject: nil)
+      case "unavailable-first": verifier.first = .unavailable
+      default: break
+      }
+      router.handle(body, frame: BridgeFrame(isTrusted: true), reply: reply.accept)
+      if scenario == "rejected-after-fetch" || scenario == "rejected-after-account-change" {
+        await settle { NativeAccountAccessRuntime.port.releases.count == 1 }
+        verifier.result = .rejected(subject: "account-a")
+        if scenario == "rejected-after-account-change" { router.accountSyncStatus.accountId = "account-b" }
+        NativeAccountAccessRuntime.port.release(0)
+      }
+      await settle { reply.calls == 1 }
+      let cleared = scenario == "rejected-first" || scenario == "rejected-after-fetch"
+      guard reply.value == nil, reply.error != nil, router.entitlement.installs == 0,
+        router.entitlement.clears == (cleared ? 1 : 0),
+        router.entitlement.bytes == (cleared ? "cleared" : "untouched") else { fatalError("rejection handling: " + scenario) }
+      if scenario.hasSuffix("-first") || scenario.hasSuffix("subject") {
+        guard NativeAccountAccessRuntime.port.releases.isEmpty else { fatalError("refused session reached the fetch: " + scenario) }
       }
     }
     for scenario in ["dormant", "untrusted", "missing-token", "oversized-token", "extra-field", "runtime-unavailable", "no-account"] {

@@ -62,6 +62,15 @@ public final class AccountSyncStatusStore {
     return try? JSONDecoder().decode(AccountSyncStatus.self, from: data)
   }
 
+  /// The account the app last published, telling "nothing stored" (signed out) apart from a stored
+  /// status that cannot be read. Display state only: it never authenticates anything.
+  public enum DisplayedAccount: Equatable, Sendable { case signedOut, account(String), unreadable }
+  public func displayedAccount() -> DisplayedAccount {
+    guard let data = backing.read() else { return .signedOut }
+    guard let record = try? JSONDecoder().decode(AccountSyncStatus.self, from: data) else { return .unreadable }
+    return .account(record.accountId)
+  }
+
   @discardableResult
   public func save(rawStatus: Any) -> Bool {
     if rawStatus is NSNull {
