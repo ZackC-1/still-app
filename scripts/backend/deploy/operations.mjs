@@ -138,8 +138,8 @@ export const PROTECTED_OPERATOR_SUBJECT =
   "00000000-0000-0000-0000-000000000000";
 
 /**
- * Decision A3: the build identifiers the current QA test set (test set 5) presents, frozen from its artifacts (built from
- * main 4f122a82, first-parent count 321). Extensions present their manifest version
+ * Decision A3: the build identifiers the current QA test set (test set 6) presents, frozen from its artifacts (built from
+ * main bbf9ef50, first-parent count 335). Extensions present their manifest version
  * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
  * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
  * here, in both sales-policy SQL templates and their pinned hashes, in one reviewed change, then
@@ -147,9 +147,9 @@ export const PROTECTED_OPERATOR_SUBJECT =
  */
 export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
   [
-    ["chrome_desktop", "2.1.1.321"],
-    ["firefox_desktop", "2.1.1.321"],
-    ["firefox_android", "2.1.1.321"],
+    ["chrome_desktop", "2.1.1.335"],
+    ["firefox_desktop", "2.1.1.335"],
+    ["firefox_android", "2.1.1.335"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -338,7 +338,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "7740dc3294f237e8637d2f533f73bc194d42f6f3dff950bd894b2bf0338bb5ac",
+        "1cca457ede5fba9b5bff54f69d97e7a1d813e673d4caedd47d127845644794b0",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -350,7 +350,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "6595a4aaad3b23339e70d438e819bcb8d6d1fd736a4e42523545df37933148bc",
+        "df059541c941db9b468afe0fcb8075ea0f1f8858fa2ebdc845e8167397918272",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
