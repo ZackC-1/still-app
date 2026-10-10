@@ -6,8 +6,11 @@ name: Supabase production deploy
 # migrations OR one owner-approved operation (pause/resume-settings-sync, pause/resume-qa-sandbox,
 # qa-sandbox-sales-policy, qa-sandbox-subjects; see scripts/backend/deploy/operations.mjs), or the
 # closed qa-sandbox-functions / qa-sandbox-secrets operations (scripts/backend/deploy/qa-functions.mjs,
-# qa-secrets-operation.mjs). policy_mode, policy_expected_revision and subjects_sha256
-# belong only to the two QA sandbox operations; every other run leaves them at none and empty.
+# qa-secrets-operation.mjs), or one of the four analytics-subjects operations that switch on
+# signed-in analytics in order (scripts/backend/deploy/analytics-subjects.mjs): secrets, functions,
+# erasure schedule and switch. policy_expected_revision and subjects_sha256 belong only to the two
+# QA sandbox operations; policy_mode also selects enable or disable for analytics-erasure-schedule
+# and analytics-subjects-switch; every other run leaves them at none and empty.
 # The QA_SANDBOX_SUBJECT_EMAILS_JSON environment secret reaches only the apply step, and only for
 # qa-sandbox-subjects; the run checks it against the approved subjects_sha256 before any write.
 # QA targets use the NONSECRET REPOSITORY variable SUPABASE_PRODUCTION_PROJECT_REF
@@ -46,8 +49,12 @@ on:
           - qa-sandbox-subjects
           - qa-sandbox-functions
           - qa-sandbox-secrets
+          - analytics-subjects-secrets
+          - analytics-subjects-functions
+          - analytics-erasure-schedule
+          - analytics-subjects-switch
       policy_mode:
-        description: "qa-sandbox-sales-policy: off or on; qa-sandbox-subjects: enable or disable; none for every other operation"
+        description: "qa-sandbox-sales-policy: off or on; qa-sandbox-subjects, analytics-erasure-schedule and analytics-subjects-switch: enable or disable; none for every other operation"
         required: true
         default: none
         type: choice
@@ -83,7 +90,7 @@ on:
         default: ""
         type: string
       mode:
-        description: "plan-only shows the plan; apply deploys after owner approval; baseline-only is the protected read-only QA operation; rotate and disable are qa-sandbox-secrets only"
+        description: "plan-only shows the plan; apply deploys after owner approval; baseline-only is the protected read-only QA operation; rotate and disable are qa-sandbox-secrets only (rotate also analytics-subjects-secrets)"
         required: true
         default: plan-only
         type: choice
@@ -133,7 +140,7 @@ jobs:
         with:
           node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        if: inputs.operation == 'qa-sandbox-functions'
+        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-')
         with:
           deno-version: "2.8.3"
       - name: Bind the exact change (commit on main, file hashes, expected history)
@@ -184,7 +191,7 @@ jobs:
 
   apply:
     needs: plan
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets')) && needs.plan.outputs.environment-ready == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets') || (inputs.mode == 'rotate' && inputs.operation == 'analytics-subjects-secrets')) && needs.plan.outputs.environment-ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # Secrets live ONLY in this environment and are released only after the owner approves.
@@ -214,7 +221,7 @@ jobs:
         with:
           node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        if: inputs.operation == 'qa-sandbox-functions'
+        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-')
         with:
           deno-version: "2.8.3"
       - name: Confirm owner approval and environment protection (read-only)
@@ -251,10 +258,13 @@ jobs:
         timeout-minutes: 10
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
-          SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ inputs.operation != 'qa-sandbox-secrets' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}
+          # Withheld from the two secrets operations, which use only the Secrets-only token below.
+          SUPABASE_PRODUCTION_ACCESS_TOKEN: ${{ inputs.operation != 'qa-sandbox-secrets' && inputs.operation != 'analytics-subjects-secrets' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}
           QA_SANDBOX_SUBJECT_EMAILS_JSON: ${{ inputs.operation == 'qa-sandbox-subjects' && secrets.QA_SANDBOX_SUBJECT_EMAILS_JSON || '' }}
-          # qa-sandbox-secrets only: the Secrets-only token and the staged provider values.
-          SUPABASE_QA_SECRETS_ACCESS_TOKEN: ${{ inputs.operation == 'qa-sandbox-secrets' && secrets.SUPABASE_QA_SECRETS_ACCESS_TOKEN || '' }}
+          # The Secrets-only token: qa-sandbox-secrets, and the two analytics operations that write a
+          # function secret (analytics-subjects-secrets, analytics-subjects-switch).
+          SUPABASE_QA_SECRETS_ACCESS_TOKEN: ${{ (inputs.operation == 'qa-sandbox-secrets' || inputs.operation == 'analytics-subjects-secrets' || inputs.operation == 'analytics-subjects-switch') && secrets.SUPABASE_QA_SECRETS_ACCESS_TOKEN || '' }}
+          # qa-sandbox-secrets only: the staged provider values.
           QA_STAGE_ACCESS_PROOF_KEY_ID: ${{ inputs.operation == 'qa-sandbox-secrets' && secrets.QA_STAGE_ACCESS_PROOF_KEY_ID || '' }}
           QA_STAGE_ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64: ${{ inputs.operation == 'qa-sandbox-secrets' && secrets.QA_STAGE_ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64 || '' }}
           QA_STAGE_ACCESS_PROOF_PUBLIC_KEY_HEX: ${{ inputs.operation == 'qa-sandbox-secrets' && secrets.QA_STAGE_ACCESS_PROOF_PUBLIC_KEY_HEX || '' }}
