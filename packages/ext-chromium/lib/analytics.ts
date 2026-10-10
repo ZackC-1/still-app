@@ -8,6 +8,7 @@ import {
   type AnalyticsKeyValue,
   type AnalyticsSend,
   type ExtensionAnalyticsHost,
+  type SubjectDeps,
 } from "@still/core/analytics";
 import type { UiAnalytics } from "@still/core/ui";
 import { isExtensionPageSender } from "./session-messages.js";
@@ -71,6 +72,9 @@ export interface BackgroundAnalyticsDeps {
   readonly firefoxPermissionGranted?: () => Promise<boolean>;
   /** Firefox permission withdrawal (V3 default-on builds, default-on-analytics.ts); injectable for tests. */
   readonly firefoxPermissionRevoke?: () => Promise<unknown>;
+  /** V3 default-on builds: request this device's identity for a signed-in account
+   * (supabaseSubjectIssuer). Read only by default-on-analytics.ts. */
+  readonly issueSubject?: SubjectDeps["issue"];
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;

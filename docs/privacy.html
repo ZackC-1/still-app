@@ -56,10 +56,13 @@
     Usage events carry Still's own random
     install and person identifiers, the Still version and the kind of device (iPhone, iPad or Mac, and
     whether it is Chrome, Firefox, Safari or the Still app). Still asks PostHog not to work out your location from your connection, and our PostHog
-    project discards IP addresses. The iPhone and
-    Mac apps keep an anonymous person identifier in your iCloud key-value storage so the same person
-    on two Apple devices is counted once. If you sign in, your usage is linked to your Still account
-    ID, and our server adds your account email to that record. See
+    project discards IP addresses. Each device gets its own random identifiers, created on the
+    device; the Still app and its Safari extension on the same device share them. (Version 2.1 of the
+    iPhone and Mac apps instead keeps an anonymous person identifier in your iCloud key-value storage
+    so the same person on two Apple devices is counted once.) If you sign in, our server gives each
+    device you sign in on its own random identifier for your account and adds your account email to
+    that record on the server; your device never sends your email or account ID to PostHog. (Version
+    2.1 links your usage to your Still account ID instead.) See
     <a href="https://posthog.com/privacy">PostHog's privacy policy</a>.</li>
     <li><strong>Support correspondence:</strong> our support, privacy and general-contact addresses
     forward to a Google Workspace mailbox. We receive your address, message and any attachments
@@ -133,9 +136,15 @@
   <h3>Usage analytics</h3>
   <p>PostHog keeps usage events for one year on our current plan (a paid plan would keep them for up
   to seven years). Turning off <strong>Share usage data</strong> stops new events and discards any
-  still waiting on your device. Still then makes one brief attempt to record only that sharing was
-  turned off, so we can see how many people choose to. It does not delete events already sent. Deleting your Still account
-  asks PostHog to delete the person record linked to that account along with its events. PostHog
+  still waiting on your device, and nothing more is sent. (Version 2.1 makes one brief attempt to
+  record only that sharing was turned off.) It does not delete events already sent. Turning sharing
+  back on gives that device a new anonymous identifier, so its earlier events are not linked to the
+  new ones. In Firefox, sharing follows Firefox's "technical and interaction data" permission, which
+  Firefox offers when you install Still; you can also change it in Firefox's add-on settings. The
+  Safari extension follows the Still app's setting. If what Still shares changes, Still shows its
+  notice again. Deleting your Still account
+  asks PostHog to delete the records linked to that account, including each device's identifier for
+  it, along with their events. PostHog
   processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage
   from a device that was never signed in is not linked to an account; contact us to have it removed.</p>
 

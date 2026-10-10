@@ -184,10 +184,14 @@ different surfaces, so label every insight with the definition it uses.
   nothing when sharing is turned off, so the opt-out rate cannot be read from events; V3 records
   `analytics_choice_made {choice: share}` when someone turns it back on (with a new anonymous id, so
   that device starts a new person). Read Firefox separately: it is an opt-in sample.
-- **Signed-in devices (V3).** Per-device identities are not wired yet (owner decision 50), so a
-  device that is signed in sends nothing while signed in; its events wait unattributed. Signed-out
-  use, including everything before a first sign-in, is reported. Expect V3 active and funnel numbers
-  to undercount signed-in people until per-device identities ship.
+- **Signed-in devices (V3).** A signed-in device reports under its own per-device subject (owner
+  decision 50), which carries the account's email as a person property; two devices of one account
+  are two persons with the same email. Until `ANALYTICS_SUBJECTS_ENABLED` is on, signed-in devices
+  send nothing (their events wait on the device), so V3 numbers undercount signed-in people until
+  then. Signed-out use, including everything before a first sign-in, is always reported.
+- **Person split at upgrade (V3).** A device upgrading from 2.1 starts a new permission with new
+  ids, so its 2.1 person and its V3 person are different people, and it sees the notice again. Do
+  not read the upgrade week as new installs: use `updated` (from 2.1) to separate them.
 - **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
   someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on
   a device and keeps using it (a fresh anonymous id, on purpose); a device whose first sync arrived
@@ -280,10 +284,27 @@ Until then no per-device identity is ever created, so an account deletion cannot
 connected to an app or extension, and the server switch above turned on, only in a build that
 already has the account-bound hold: while someone is signed in and their device has no identity
 yet, what they do waits, belongs only to that account, and is thrown away if they sign out or
-another account signs in. That is in this change. Also, a new build that turns analytics on
-without per-device identities reports nothing at all for signed-in people (their use waits and is
-never sent). So switching analytics on in a new build and connecting per-device identities must
-ship together, in the same release.
+another account signs in. V3 builds have the hold and are connected (Chrome and Firefox ask from
+the settings page or popup, the Apple app at sign-in and launch, the Safari extension reads the
+app's identity from the App Group). Until the switch is on they ask, get 503, and keep waiting;
+older 2.1 clients never use this path.
+
+**What the owner must do to switch signed-in analytics on** (each an owner-approved protected
+deploy step; never the Supabase CLI from a working checkout):
+
+1. Confirm the hard gate above (0017, 0018 and the current `delete-user` deployed and verified, the
+   GoTrue deletion rehearsal green).
+2. Set the function secrets `ANALYTICS_ERASER_DB_URL` (the eraser login), `ANALYTICS_EVENT_ID_SECRET`
+   (at least 32 random characters) and, for the deletion worker, `ANALYTICS_ERASURE_WORKER_TOKEN`.
+3. Deploy `analytics-identify` (and `analytics-erasure` with the worker token) so they read them.
+   No function code changes in this release: the V3 clients use the existing per-device request.
+4. Schedule the deletion worker (`analytics-erasure`, called with the worker token, every 15
+   minutes; see "How often to run the worker"). Without it, deleting an account only records the
+   account's per-device subjects for deletion; their PostHog persons and events are deleted when the
+   worker runs. Do not switch identities on before the worker is scheduled.
+5. Set `ANALYTICS_SUBJECTS_ENABLED=true` on the functions and redeploy `analytics-identify` so it
+   reads the new value. For QA, set it on the sandbox project first and check with a V3 QA package
+   that a signed-in device's events appear under a random subject carrying the account email.
 
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.

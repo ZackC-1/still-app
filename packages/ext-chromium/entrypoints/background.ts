@@ -23,7 +23,7 @@ import { createSessionWithCheckoutAvailability } from "../lib/checkout-availabil
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
-import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush, supabaseSubjectIssuer } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 import { createDefaultOnBackgroundAnalytics } from "../lib/default-on-analytics.js";
 import {
@@ -314,6 +314,11 @@ export default defineBackground(() => {
             if (error) throw error;
           }
         : undefined,
+      // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
+      // Folds away in 2.x builds, byte-for-byte.
+      ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
+        ? { issueSubject: supabaseSubjectIssuer(spine.client) }
+        : {}),
     },
     chrome.runtime.id,
     chrome.runtime.getURL(""),

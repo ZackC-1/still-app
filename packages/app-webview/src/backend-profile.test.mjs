@@ -35,6 +35,8 @@ function launch(env = {}, responseError = null) {
   let accountRefreshes = 0;
   const events = [];
   let analyticsFactory;
+  let analyticsDeps;
+  let subjectIssuerClient;
   const analyticsStub = () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} });
   const client = {
     functions: { invoke: async (name, options) => { calls.push({ name, options }); return { data: { synthetic: true }, error: responseError }; } },
@@ -55,8 +57,9 @@ function launch(env = {}, responseError = null) {
     NativeBridge: Bridge,
     appleSettingsCacheOptions: () => ({}),
     buildChannelEnvelope: value => value === "test" ? { build_channel: "test" } : undefined,
-    createAppAnalytics: () => { analyticsFactory = "2.x"; return analyticsStub(); },
-    createDefaultOnAppAnalytics: () => { analyticsFactory = "default-on"; return analyticsStub(); },
+    createAppAnalytics: (deps) => { analyticsFactory = "2.x"; analyticsDeps = deps; return analyticsStub(); },
+    createDefaultOnAppAnalytics: (deps) => { analyticsFactory = "default-on"; analyticsDeps = deps; return analyticsStub(); },
+    supabaseSubjectIssuer: (client) => { subjectIssuerClient = client; return async () => ({ state: "active", subject: "synthetic" }); },
     createClient() { clientCount++; return client; },
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },
     packagedAccessTrust: config => ({ environment: config.environment === "sandbox" ? "sandbox" : "production", keys: [] }),
@@ -73,12 +76,22 @@ function launch(env = {}, responseError = null) {
     isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { analyticsFactory, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
+  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
 
 test("usage analytics is on by default exactly where the V3 screens are", () => {
   assert.equal(launch().analyticsFactory, "default-on");
   assert.equal(launch({ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }).analyticsFactory, "2.x");
+});
+
+test("V3 signed-in devices ask for their own identity through the configured client; 2.x never does", async () => {
+  const v3 = launch();
+  assert.equal(typeof v3.analyticsDeps.issueSubject, "function");
+  assert.ok(v3.subjectIssuerClient(), "the issuer uses the app's configured Supabase client");
+  assert.deepEqual(await v3.analyticsDeps.issueSubject({ originProof: "a".repeat(64) }, new AbortController().signal, "synthetic"), { state: "active", subject: "synthetic" });
+  const legacy = launch({ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined });
+  assert.equal("issueSubject" in legacy.analyticsDeps, false);
+  assert.equal(legacy.subjectIssuerClient(), undefined);
 });
 
 test("explicit QA profile routes both Apple fulfillment requests and modern sync to QA", async () => {

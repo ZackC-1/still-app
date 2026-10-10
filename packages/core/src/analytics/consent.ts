@@ -3,7 +3,11 @@ import { deriveAnonymousId, deriveDeviceId } from "./derive.js";
 import { USAGE_ON_BY_DEFAULT_BUILD } from "./build-basis.js";
 
 // One device-local permission authority. Old On and native/store permission never imply that
-// the approved current usage/email/AI purposes and recipients have been accepted.
+// the approved current usage/email/AI purposes and recipients have been accepted under the
+// capability-evidence basis. The one exception is the ADR 0004 default-on basis (default-on.ts,
+// V3 builds only): there a 2.1 On, or no choice at all, is carried to a fresh default-on
+// permission, and the one-time notice is shown again because the disclosure changed
+// (NOTICE_VERSION_KEY); a 2.1 Off stays off.
 
 export const CONSENT_KEY = "still:analytics:enabled";
 export const PRIVACY_CAPABILITIES = [
