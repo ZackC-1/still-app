@@ -137,12 +137,15 @@
   <p>PostHog keeps usage events for one year on our current plan (a paid plan would keep them for up
   to seven years). Turning off <strong>Share usage data</strong> stops new events and discards any
   still waiting on your device, and nothing more is sent. (Version 2.1 makes one brief attempt to
-  record only that sharing was turned off.) It does not delete events already sent. Turning sharing
-  back on gives that device a new anonymous identifier, so its earlier events are not linked to the
-  new ones. In Firefox, sharing follows Firefox's "technical and interaction data" permission, which
-  Firefox offers when you install Still; you can also change it in Firefox's add-on settings. The
-  Safari extension follows the Still app's setting. If what Still shares changes, Still shows its
-  notice again. Deleting your Still account
+  record only that sharing was turned off.) It does not delete events already sent. In current
+  versions, turning sharing back on (in Firefox, allowing its permission again) gives that device a
+  new anonymous identifier, so its earlier signed-out events are not linked to the new ones; if you
+  are signed in, the device's new identifier still carries your account email on our server. In
+  Firefox, sharing follows Firefox's "technical and interaction data" permission, which Firefox
+  offers when you install Still; you can also change it in Firefox's add-on settings. The Safari
+  extension follows the Still app's setting. In current versions of the iPhone and Mac apps and the
+  Chrome extension, Still shows its notice again if what Still shares changes (Firefox shows no
+  notice: its own permission controls sharing). Deleting your Still account
   asks PostHog to delete the records linked to that account, including each device's identifier for
   it, along with their events. PostHog
   processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage

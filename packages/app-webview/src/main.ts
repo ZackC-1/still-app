@@ -140,7 +140,8 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     const { error } = await supabase.functions.invoke("analytics-identify", { body: {} });
     if (error) throw error;
   };
-  if (appleSettingsMode !== "legacy") analyticsSubjectIssuer = supabaseSubjectIssuer(supabase);
+  if (appleSettingsMode !== "legacy")
+    analyticsSubjectIssuer = supabaseSubjectIssuer(supabase, import.meta.env.VITE_POSTHOG_KEY);
   // Deterministic App Review sign-in (plan 2026-07-15-002, R13): Apple-build-only env. Both the
   // gate and the value are build-time — extension builds never define this, so the review branch
   // is dead code everywhere else (fail closed; gate-production-trust-by-build-mode).

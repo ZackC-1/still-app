@@ -6,6 +6,7 @@ import {
   QUEUE_KEY,
   USAGE_PERMISSION_VERSION,
   readAnalyticsPermission,
+  supabaseSubjectIssuer,
   type AnalyticsKeyValue,
 } from "@still/core/analytics";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, type BackgroundAnalyticsDeps } from "../analytics.js";
@@ -292,6 +293,30 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     for (let i = 0; i < 3; i++) await t.settle();
     await t.bg.client.flush();
     expect(issueSubject).toHaveBeenCalled();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
+  });
+
+  it("a test build answered test_channel keeps sharing on and its signed-in use waiting", async () => {
+    const invoke = vi.fn(async (..._args: unknown[]) => ({ data: { state: "test_channel" }, error: null }));
+    const issueSubject = supabaseSubjectIssuer(
+      {
+        auth: { getSession: async () => ({ data: { session: { access_token: "t", user: { id: ACCOUNT } } }, error: null }) },
+        functions: { invoke },
+      },
+      "phc_qa_project_key",
+    );
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject });
+    t.bg.onStart(ACCOUNT);
+    await t.settle();
+    await t.send(OPEN);
+    await t.send(OPEN); // a second screen does not ask again (back-off)
+    for (let i = 0; i < 3; i++) await t.settle();
+    await t.bg.client.flush();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    const body = (invoke.mock.calls[0]![1] as { body: Record<string, unknown> }).body;
+    expect(Object.keys(body).sort()).toEqual(["originProof", "projectKeySha256"]);
+    expect(t.permission()?.state).toBe("granted"); // never a stop
     expect(t.fetch).not.toHaveBeenCalled();
     expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
   });

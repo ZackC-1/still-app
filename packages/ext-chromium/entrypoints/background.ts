@@ -317,7 +317,9 @@ export default defineBackground(() => {
       // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
       // Folds away in 2.x builds, byte-for-byte.
       ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
-        ? { issueSubject: supabaseSubjectIssuer(spine.client) }
+        ? {
+            issueSubject: supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined),
+          }
         : {}),
     },
     chrome.runtime.id,
