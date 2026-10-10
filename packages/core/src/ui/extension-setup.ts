@@ -44,9 +44,10 @@ export interface ExtensionPurchaseDeps {
   readonly persistence: AuthPersistence;
   /** create-checkout / open-tab / pending-flag / reconcile seam (plan U4/R3). */
   readonly checkout: UiCheckout;
-  /** Host display price for the paywall CTA (e.g. "$1.99") — defined in ext-chromium, NEVER in
-   * shared strings, so no web price can reach an Apple-target bundle (3.1.3). */
-  readonly displayPrice: string;
+  /** Host display price for the paywall CTA, or null for none — defined in ext-chromium, NEVER in
+   * shared strings, so no web price can reach an Apple-target bundle (3.1.3). Builds compiled
+   * with the paid tier on pass null: the browser shows no price and the checkout page shows it. */
+  readonly displayPrice: string | null;
   /** The background's mount snapshot (`getState` message): userId and the persisted pending
    * records have no storage-watch mirror, so the popup asks once on mount. */
   readonly getState: () => Promise<ExtensionSessionState>;
