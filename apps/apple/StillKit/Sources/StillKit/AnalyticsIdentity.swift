@@ -280,13 +280,20 @@ public final class AnalyticsIdentityStore {
 
   // MARK: Native message lanes
 
-  /// The Safari extension's read-only lane: `{kind:"analyticsContext"}` →
-  /// `{analytics:{installId, anchorId, consent, platform, device}}`. Unknown kinds return nil.
-  /// `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
-  /// handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  /// The Safari extension's read-only lanes. Unknown kinds return nil.
+  ///
+  ///   * `{kind:"analyticsContext"}` → `{analytics:{installId, anchorId, consent, platform, device}}`.
+  ///     `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
+  ///     handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  ///   * `{kind:"analyticsPermission"}` → `{analyticsPermission: <record> | false | null}`: the app's
+  ///     usage-sharing permission as stored, so a V3 extension reports only under the app's choice.
+  ///     It never creates ids, grants, stops or writes anything.
   public func extensionReply(rawBody: Any, platform: String, device: String) -> [String: Any]? {
-    guard let body = rawBody as? [String: Any], body["kind"] as? String == "analyticsContext"
-    else { return nil }
+    guard let body = rawBody as? [String: Any] else { return nil }
+    if body["kind"] as? String == "analyticsPermission" {
+      return ["analyticsPermission": analyticsPermissionReply()["permission"] ?? NSNull()]
+    }
+    guard body["kind"] as? String == "analyticsContext" else { return nil }
     let install = extensionInstall()
     return ["analytics": [
       "installId": install.installId,

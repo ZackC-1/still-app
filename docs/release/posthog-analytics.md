@@ -1,6 +1,7 @@
 # PostHog usage analytics: setup and operations
 
-Current for Still 2.1. The decision and its boundaries are [ADR 0004](../adr/0004-first-party-usage-analytics.md);
+Current for Still 2.1, with the V3 differences marked. The decision and its boundaries are
+[ADR 0004](../adr/0004-first-party-usage-analytics.md), including its V3 consent section;
 the build plan is [2026-09-23 usage analytics](../plans/2026-09-23-001-feat-usage-analytics-plan.md).
 Portal state changes; verify it directly before acting. Never put keys in this file, a commit or chat.
 
@@ -9,16 +10,16 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Surface | Sends | Consent |
 |---|---|---|
 | Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; one-time notice; switch in options |
-| Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
+| Firefox extension background | the same | On exactly while the optional `technicalAndInteraction` permission is granted (offered in Firefox's install prompt; the settings switch requests or withdraws it); no notice |
 | iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, switch flips (`where: app`), active days, sign-in funnel | On by default; one-time notice; switch in the app |
-| Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |
+| Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch (V3: the app's App Group permission, read only; nothing before the app has launched once) |
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
 Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
-  funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
+  funnel; `sharing_turned_off` in 2.1 only, `analytics_choice_made` in V3). Each is checked against `packages/core/src/analytics/events.ts` and
   carries `surface` (chrome, firefox, firefox-android, safari-ios, safari-macos, app-ios,
   app-macos), `store` (ios, macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
@@ -178,9 +179,15 @@ different surfaces, so label every insight with the definition it uses.
 - **New accounts.** `account_created` is sent by the server once per account created since the 2.1
   launch, when the account first shares usage. Break it down by the person's first store. It counts
   only people who share usage.
-- **Opt-out rate.** `sharing_turned_off` is sent once when someone turns sharing off with Still's own
-  switch (not when Firefox's permission is withdrawn in the add-on manager). Read Firefox separately:
-  it is an opt-in sample.
+- **Opt-out rate.** 2.1: `sharing_turned_off` is sent once when someone turns sharing off with
+  Still's own switch (not when Firefox's permission is withdrawn in the add-on manager). V3 sends
+  nothing when sharing is turned off, so the opt-out rate cannot be read from events; V3 records
+  `analytics_choice_made {choice: share}` when someone turns it back on (with a new anonymous id, so
+  that device starts a new person). Read Firefox separately: it is an opt-in sample.
+- **Signed-in devices (V3).** Per-device identities are not wired yet (owner decision 50), so a
+  device that is signed in sends nothing while signed in; its events wait unattributed. Signed-out
+  use, including everything before a first sign-in, is reported. Expect V3 active and funnel numbers
+  to undercount signed-in people until per-device identities ship.
 - **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
   someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on
   a device and keeps using it (a fresh anonymous id, on purpose); a device whose first sync arrived
@@ -196,7 +203,7 @@ different surfaces, so label every insight with the definition it uses.
   confirmation never comes (a lookup that keeps failing), those events wait; they are never sent under
   a guessed account. When an account is deleted, or a device learns its session ended, everything
   still waiting under it is dropped before any queued event is sent; if the device's storage refuses
-  the drop, or cannot be read, no queued event is sent until it succeeds. The one standalone
+  the drop, or cannot be read, no queued event is sent until it succeeds. In 2.1, the one standalone
   `sharing_turned_off` attempt is separate from the queue: it names the anonymous id once the
   account is forgotten, and is skipped altogether if the forget overtakes it.
 - **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives

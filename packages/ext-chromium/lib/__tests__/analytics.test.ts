@@ -7,7 +7,8 @@ import type { RuntimePlatform } from "../runtime-platform.js";
 const HOST_TEST = vi.hoisted(() => ({ inject: true }));
 
 // Explicit controlled test integration, never a production host configuration or provider proof.
-// Production wrappers still omit this seam and therefore hold optional analytics.
+// The 2.x wrapper omits this seam and therefore reports nothing; V3 builds use
+// default-on-analytics.ts, tested with no seam in default-on-analytics.test.ts.
 vi.mock("@still/core/analytics", async (importOriginal) => {
   const real = await importOriginal<typeof import("@still/core/analytics")>();
   return {

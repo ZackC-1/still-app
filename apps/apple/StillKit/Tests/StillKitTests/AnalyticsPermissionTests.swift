@@ -22,6 +22,29 @@ final class AnalyticsPermissionTests: XCTestCase {
     }
   }
 
+  func testTheExtensionReadsTheAppsPermissionReadOnly() {
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: { XCTFail("the permission lane creates no identity"); return "" })
+    let ask: [String: Any] = ["kind": "analyticsPermission"]
+    // Nothing chosen yet (the app grants its default at launch): no permission, nothing written.
+    XCTAssertTrue(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsPermission"] is NSNull)
+    XCTAssertTrue(group.values.isEmpty)
+    // A 2.1 "off" stays off.
+    group.set(false, forKey: AnalyticsIdentityStore.consentKey)
+    XCTAssertEqual(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsPermission"] as? Bool, false)
+    // The app's granted record, then its stop, exactly as stored.
+    XCTAssertEqual(store.commitAnalyticsPermission(permission())["ok"] as? Bool, true)
+    let granted = store.extensionReply(rawBody: ask, platform: "macos", device: "desktop")?["analyticsPermission"] as? [String: Any]
+    XCTAssertEqual(granted?["state"] as? String, "granted")
+    XCTAssertEqual(granted?["origin"] as? String, permission()["origin"] as? String)
+    store.setConsent(false)
+    let stopped = store.extensionReply(rawBody: ask, platform: "macos", device: "desktop")?["analyticsPermission"] as? [String: Any]
+    XCTAssertEqual(stopped?["state"] as? String, "stopped")
+    XCTAssertEqual(group.values.count, 1, "reads never write")
+    // Other kinds still fall through.
+    XCTAssertNil(store.extensionReply(rawBody: ["kind": "commitAnalyticsPermission"], platform: "ios", device: "phone"))
+  }
+
   func testGrantIsReadBackFromSameSlotAndLegacyOffRetainsStopAuthority() {
     let group = MemoryKeyValue()
     let store = AnalyticsIdentityStore(group: group)

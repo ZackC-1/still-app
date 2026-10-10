@@ -4,6 +4,7 @@
 export * from "./events.js";
 export * from "./identity.js";
 export * from "./consent.js";
+export * from "./default-on.js";
 export * from "./derive.js";
 export * from "./erasure.js";
 export * from "./client.js";

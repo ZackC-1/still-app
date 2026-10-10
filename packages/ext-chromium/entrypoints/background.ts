@@ -25,6 +25,7 @@ import {
 } from "../lib/session-messages.js";
 import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
+import { createDefaultOnBackgroundAnalytics } from "../lib/default-on-analytics.js";
 import {
   afterPlatformAnswer,
   gatedDocumentVerification,
@@ -285,7 +286,14 @@ export default defineBackground(() => {
 
   // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
   // fresh install or update, and a listener added after an await would miss it.
-  const analytics = createBackgroundAnalytics(
+  // V3 builds share usage data on by default with the settings switch as the off path (Firefox:
+  // the optional data-collection permission), per ADR 0004 (lib/default-on-analytics.ts). The
+  // inline build-time check folds this to the 2.x factory in every 2.x build, byte-for-byte.
+  const analytics = (
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+      ? createDefaultOnBackgroundAnalytics
+      : createBackgroundAnalytics
+  )(
     {
       isFirefox: Boolean(import.meta.env.FIREFOX),
       // Firefox for Android reports its own existing surface; asked here, never awaited here.
