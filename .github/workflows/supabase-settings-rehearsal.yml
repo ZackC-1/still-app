@@ -29,7 +29,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.8.3"
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: "2.119.0"
       - name: Parse migration 0015 SQL and all PLpgSQL bodies
