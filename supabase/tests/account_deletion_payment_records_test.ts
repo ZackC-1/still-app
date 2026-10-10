@@ -82,7 +82,7 @@ Deno.test({
         await assertRejects(() => store.read(operation("a"), A));
         await assertRejects(() => store.recordDeletedAccountRefund(operation("a"), "cs_test_DeletionB"));
         await assertRejects(() => store.recordDeletedAccountRefund(operation("b"), "cs_test_DeletionB"));
-        assertEquals((await admin`select holder::text from auth.users where id = ${A}::uuid`).length, 0);
+        assertEquals((await admin`select id from auth.users where id = ${A}::uuid`).length, 0);
       });
 
       await t.step("gate reports drift in the trigger routine and a reappearing orphan", async () => {
