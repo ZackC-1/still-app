@@ -27,6 +27,8 @@ interface StripeAccessProductMapping {
 export type AccessProductMapping = LegacyAccessProductMapping | StripeAccessProductMapping;
 const ID = /^[A-Za-z0-9_-]{1,96}$/;
 const STRIPE_STORE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+/** Distinct entitlement reads allowed in one getRights call; Still maps at most two lookup keys. */
+const MAX_ENTITLEMENT_READS = 4;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 // RevenueCat v2 reports App Store and RevenueCat Billing lifetime products as one_time or
 // non_consumable, and both must state is_consumable false. RevenueCat cannot record that flag for a
@@ -115,6 +117,27 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
     const visited = new Set<string>();
     // One deadline covers every page; incomplete pagination is never authoritative absence.
     const signal = AbortSignal.timeout(8_000);
+    // RevenueCat's purchases list names each granted entitlement but never embeds that entitlement's
+    // products, and `expand` there accepts only items.redemption (verified live 2026-10-10). The
+    // product binding is read from the entitlement itself (expand=product): once per entitlement per
+    // call, under the same deadline, and never more than MAX_ENTITLEMENT_READS distinct entitlements.
+    // A failed or malformed read is transient (null → unavailable), never absence.
+    const entitlements = new Map<string, Record<string, unknown>>();
+    const readEntitlement = async (id: string): Promise<Record<string, unknown> | null> => {
+      const known = entitlements.get(id);
+      if (known) return known;
+      if (entitlements.size >= MAX_ENTITLEMENT_READS) return null;
+      const response = await fetch(
+        `https://api.revenuecat.com/v2/projects/${this.project}/entitlements/${encodeURIComponent(id)}?expand=product`,
+        { headers: { Authorization: `Bearer ${this.secret}` }, signal, redirect: "error" });
+      if (!response.ok) return null;
+      const body: unknown = await response.json();
+      if (!object(body) || body.object !== "entitlement" || body.id !== id || body.project_id !== this.project ||
+          body.state !== "active" || !object(body.products) || body.products.object !== "list" ||
+          body.products.next_page !== null || !Array.isArray(body.products.items)) return null;
+      entitlements.set(id, body);
+      return body;
+    };
     try {
       for (let page = 0; page < 4; page++) {
         if (visited.has(next)) return unavailable;
@@ -168,9 +191,12 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           const entitlement = purchase.entitlements.items.find(candidate => object(candidate) &&
             candidate.state === "active" && candidate.object === "entitlement" && candidate.project_id === this.project &&
             candidate.lookup_key === mapping.entitlement_lookup_key);
-          if (!object(entitlement) || !object(entitlement.products) || entitlement.products.object !== "list" ||
-              entitlement.products.next_page !== null || !Array.isArray(entitlement.products.items)) { complete = false; continue; }
-          const product = entitlement.products.items.find(candidate => object(candidate) && candidate.id === mapping.product_id);
+          if (!object(entitlement) || typeof entitlement.id !== "string" || !ID.test(entitlement.id)) { complete = false; continue; }
+          // Any products embedded in the purchase item are ignored: the entitlement read is the one source.
+          const granted = await readEntitlement(entitlement.id);
+          if (!granted || granted.lookup_key !== mapping.entitlement_lookup_key) return unavailable;
+          const product = (granted.products as { items: unknown[] }).items
+            .find(candidate => object(candidate) && candidate.id === mapping.product_id);
           if (!object(product) || product.object !== "product" || product.state !== "active" ||
               product.app_id !== mapping.app_id || product.store_identifier !== mapping.store_identifier ||
               !lifetimeProduct(product, mapping.store)) { complete = false; continue; }

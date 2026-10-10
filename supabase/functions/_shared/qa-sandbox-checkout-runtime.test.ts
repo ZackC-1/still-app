@@ -388,11 +388,15 @@ Deno.test("actual composed runtime uses fixed QA RPCs, managed readback, RC impo
       assertEquals(JSON.parse(init?.body as string),{ fetch_token:SESSION,app_user_id:HOLDER });
       assertEquals(new Headers(init?.headers).get("X-Platform"),"stripe"); imported = true; return Promise.resolve(new Response(null,{ status:204 }));
     }
+    // Real RevenueCat shape: the purchase names its entitlement; products come from the entitlement read.
+    const entitlement = { object:"entitlement",id:"entl_synthetic",state:"active",project_id:"proj_synthetic",lookup_key:"still_pro_v3" };
+    if (url === "https://api.revenuecat.com/v2/projects/proj_synthetic/entitlements/entl_synthetic?expand=product") {
+      return respond({ ...entitlement,products:{ object:"list",next_page:null,items:[{ object:"product",id:"product_rc",state:"active",app_id:"app_qa",store_identifier:"price_synthetic",type:"one_time",one_time:{ is_consumable:null } }] } });
+    }
     assert(url.startsWith(`https://api.revenuecat.com/v2/projects/proj_synthetic/customers/${HOLDER}/purchases?environment=sandbox`));
     return respond({ object:"list",next_page:null,items:imported ? [{ object:"purchase",id:"purchase_synthetic",customer_id:HOLDER,environment:"sandbox",
       product_id:"product_rc",store:"stripe",status:"owned",ownership:"purchased",purchased_at:Date.now(),revenue_in_usd:{ currency:"USD",gross:9.99 },
-      entitlements:{ object:"list",next_page:null,items:[{ object:"entitlement",state:"active",project_id:"proj_synthetic",lookup_key:"still_pro_v3",
-        products:{ object:"list",next_page:null,items:[{ object:"product",id:"product_rc",state:"active",app_id:"app_qa",store_identifier:"price_synthetic",type:"one_time",one_time:{ is_consumable:null } }] } }] } }] : [] });
+      entitlements:{ object:"list",next_page:null,items:[entitlement] } }] : [] });
   };
   try {
     const runtime = await readQaSandboxCheckoutRuntime(name => values[name],() => sql); assert(runtime);
