@@ -8,7 +8,7 @@
 // SQL is ever an input. Every output column has a declared type that report.mjs enforces before
 // anything is printed.
 
-/** The nine designated Still QA accounts: workflow label -> programme name. */
+/** The designated Still QA accounts: workflow label -> programme name. */
 export const LABELS = Object.freeze({
   preserved: "Preserved QA account",
   "web-chrome": "QA-Web-Chrome",
@@ -20,6 +20,34 @@ export const LABELS = Object.freeze({
   "qa-b": "QA B",
   delete: "QA-Delete",
 });
+
+/**
+ * Labels that may be absent from the registry. The Preserved QA account is an older account, not
+ * an owner "+stillqa-" alias, so the database (correctly) refuses to register it; checks that name
+ * it answer "unavailable: not registered" instead of failing. The alias rule is unchanged.
+ */
+export const OPTIONAL_LABELS = Object.freeze(["preserved"]);
+/** The eight owner QA aliases that must all be registered. */
+export const REQUIRED_LABELS = Object.freeze(Object.keys(LABELS).filter((l) => !OPTIONAL_LABELS.includes(l)));
+
+/**
+ * Registry verdict: every required label present once and `ok`; an optional label, if present, `ok`.
+ * @param {Record<string, unknown>[]} rows
+ * @param {(row: Record<string, unknown>) => boolean} ok
+ * @returns {"pass" | "fail"}
+ */
+export function registryVerdict(rows, ok) {
+  const byLabel = new Map(rows.map((r) => [r.label, r]));
+  if (byLabel.size !== rows.length) return "fail";
+  if (rows.some((r) => !Object.hasOwn(LABELS, String(r.label)))) return "fail";
+  return REQUIRED_LABELS.every((l) => byLabel.has(l) && ok(byLabel.get(l))) && rows.every(ok) ? "pass" : "fail";
+}
+
+/** @param {Record<string, unknown>[]} rows */
+const optionalNotes = (rows) =>
+  OPTIONAL_LABELS.filter((l) => !rows.some((r) => r.label === l)).map(
+    (l) => `${LABELS[l]} (${l}): not registered (not a QA alias); checks that name it answer "unavailable".`,
+  );
 
 const ENVIRONMENTS = ["sandbox", "production"];
 const OPERATION_STATES = [
@@ -164,7 +192,7 @@ const BASELINE_QUERIES = [
  * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | { type: "state", values: string[] }} FieldType
  * @typedef {{ name: string, sql: string, params?: number[], fields: Record<string, FieldType> }} CheckQuery
  * @typedef {"pass" | "fail" | undefined} Verdict
- * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline") => Verdict, queries: CheckQuery[] }} Check
+ * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline") => Verdict, notes?: (rows: Record<string, unknown>[][]) => string[], queries: CheckQuery[] }} Check
  */
 
 /**
@@ -178,9 +206,11 @@ export const CHECKS = Object.freeze([
     id: "setup",
     programIds: [],
     title: "Route readiness: the narrow read-only role and the QA account registry",
-    expected: "The session is the narrow read-only role; all nine QA labels are registered, live owner QA aliases and (for the seven paid-lane labels) sandbox members.",
+    expected:
+      "The session is the narrow read-only role; the eight owner QA alias labels are registered, live and (for the seven paid-lane labels) sandbox members. The Preserved QA account is not an alias and is normally not registered.",
     accounts: [],
-    verdict: ([labels]) => (labels.length === 9 && labels.every((r) => r.in_scope === true) ? "pass" : "fail"),
+    verdict: ([labels]) => registryVerdict(labels, (r) => r.in_scope === true),
+    notes: ([labels]) => optionalNotes(labels),
     queries: [
       {
         name: "registered QA labels",
@@ -213,12 +243,11 @@ export const CHECKS = Object.freeze([
     programIds: ["DB-02"],
     title: "Each QA label resolves to one confirmed account (no email exposed)",
     expected:
-      "Each of the nine labels maps to exactly one Auth account: present, confirmed, not banned or deleted, a live owner QA alias (in scope). Sandbox membership is expected for the seven paid-lane accounts (the free control and the deletion account are deliberately not members).",
+      "Each of the eight alias labels maps to exactly one Auth account: present, confirmed, not banned or deleted, a live owner QA alias (in scope). Sandbox membership is expected for the seven paid-lane accounts (the deletion account is deliberately not a member). The Preserved QA account is not an alias, so it is normally not registered.",
     accounts: [],
     verdict: ([rows]) =>
-      rows.length === 9 && rows.every((r) => r.auth_present && r.confirmed && !r.banned && !r.deleted && r.in_scope)
-        ? "pass"
-        : "fail",
+      registryVerdict(rows, (r) => r.auth_present === true && r.confirmed === true && !r.banned && !r.deleted && r.in_scope === true),
+    notes: ([rows]) => optionalNotes(rows),
     queries: [
       {
         name: "QA label status",

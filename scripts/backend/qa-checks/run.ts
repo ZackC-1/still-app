@@ -19,7 +19,7 @@
 import { createHmac } from "node:crypto";
 import type postgres from "postgres";
 import { createAuditConnection } from "../audit.ts";
-import { InputError, PRODUCTION_QUERIES, queryParams, resolveRequest } from "./catalogue.mjs";
+import { InputError, LABELS, OPTIONAL_LABELS, PRODUCTION_QUERIES, queryParams, resolveRequest } from "./catalogue.mjs";
 import { assertSingleSelect, CHECK_VIEWS } from "./sql-guard.mjs";
 import { renderReport } from "./report.mjs";
 
@@ -108,6 +108,8 @@ export interface CheckerSession {
 }
 
 export class CheckError extends Error {}
+/** An optional QA label (the Preserved QA account) that is not registered: not a failure. */
+export class UnavailableError extends Error {}
 
 /** Names (never values) of the narrowness conditions a session fails. */
 export function sessionProblems(session: CheckerSession | undefined): string[] {
@@ -171,6 +173,11 @@ export async function runCheck(sql: Sql, request: Request): Promise<CheckRun> {
       const holders: string[] = [];
       for (const label of request.labels) {
         const rows = await tx.unsafe(LABEL_SQL, [label], EXTENDED);
+        if (rows.length !== 1 && OPTIONAL_LABELS.includes(label)) {
+          throw new UnavailableError(
+            `${LABELS[label as keyof typeof LABELS]} (${label}) is not registered (not a QA alias); this check cannot read it.`,
+          );
+        }
         if (rows.length !== 1) {
           throw new CheckError(`QA label ${label} is not registered; the owner registers it once (see the runbook).`);
         }
@@ -226,7 +233,12 @@ export function compareProduction(digest: string, baselineText: string | undefin
   }
 }
 
-export type Verdict = "pass" | "fail" | "needs-review";
+export type Verdict = "pass" | "fail" | "needs-review" | "unavailable";
+
+/** Fixed catalogue notes (no values), e.g. that the optional Preserved QA account is not registered. */
+export function notesFor(request: Request, run: CheckRun): string[] {
+  return request.check.notes?.(run.results.map((r) => r.rows)) ?? [];
+}
 
 export function verdictFor(request: Request, run: CheckRun, production?: ProductionStatus): Verdict {
   const decided = request.check.verdict?.(run.results.map((r) => r.rows), production);
@@ -293,17 +305,23 @@ if (import.meta.main) {
       }
     }
     const verdict = verdictFor(request, run, production);
-    const report = renderReport({ ...request, holders: run.holders, results: run.results, refKey, production, verdict });
+    const notes = notesFor(request, run);
+    const report = renderReport({ ...request, holders: run.holders, results: run.results, refKey, production, verdict, notes });
     await encryptReport(report, {
       ageBin: env("STILL_QA_AGE_BIN"),
       recipient,
       outFile: `${env("STILL_QA_CHECKS_REPORT_DIR")}/report.age`,
     });
-    line = `Read-only QA check ${programId}: ${verdict} (full report: encrypted artifact)`;
+    // Notes are fixed catalogue text (label names only), safe for the public log.
+    line = `Read-only QA check ${programId}: ${verdict} (full report: encrypted artifact)${notes.map((n) => ` Note: ${n}`).join("")}`;
     if (verdict === "fail") Deno.exitCode = 1;
   } catch (error) {
-    line = `Read-only QA check ${programId}: fail (${describeFailure(error)})`;
-    Deno.exitCode = 1;
+    if (error instanceof UnavailableError) {
+      line = `Read-only QA check ${programId}: unavailable (${error.message})`;
+    } else {
+      line = `Read-only QA check ${programId}: fail (${describeFailure(error)})`;
+      Deno.exitCode = 1;
+    }
   } finally {
     try {
       await sql?.end({ timeout: 5 });

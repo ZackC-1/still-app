@@ -11,13 +11,15 @@
 //   node scripts/backend/qa-checks/owner-setup.mjs registry < <private JSON {"qa-a": "<email>", ...}>
 //     Prints two SQL-editor blocks: a read-only PREVIEW that shows the owner, in the SQL editor
 //     only, each label with a masked address (z***+stillqa-refund@…) and whether it is a confirmed
-//     owner QA alias; then the COMMIT block, to run only if all nine are. Both carry only SHA-256
+//     owner QA alias; then the COMMIT block, to run only if every previewed row is. The eight alias
+//     labels are required; `preserved` (an older, non-alias account) is optional and is left out
+//     with a note when it is absent or not a +stillqa alias, because the database refuses it. Both carry only SHA-256
 //     digests (of each lower-cased email and of the tag-free base mailbox). These digests are not
 //     secret, just not readable at a glance; the database enforces the alias rule itself.
 import { createHash, randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { generatePassword, scramSha256Verifier } from "../deploy/qa-secrets.mjs";
-import { LABELS } from "./catalogue.mjs";
+import { LABELS, OPTIONAL_LABELS, REQUIRED_LABELS } from "./catalogue.mjs";
 
 const ROLE = "still_qa_readonly_checker";
 const EMAIL = /^[^\s@'"\\]{1,64}@[^\s@'"\\]{1,190}\.[A-Za-z]{2,24}$/;
@@ -63,21 +65,35 @@ export function registrySql(accounts) {
   const labels = Object.keys(accounts);
   const unknown = labels.filter((l) => !Object.hasOwn(LABELS, l));
   if (unknown.length) throw new Error(`Unknown labels (use ${Object.keys(LABELS).join(", ")})`);
-  if (labels.length !== Object.keys(LABELS).length) throw new Error("All nine QA labels are required");
-  const rows = labels.map((label) => {
+  const missing = REQUIRED_LABELS.filter((l) => !labels.includes(l));
+  if (missing.length) throw new Error(`The eight QA alias labels are required; missing: ${missing.join(", ")}`);
+  const skipped = [];
+  const rows = [];
+  for (const label of Object.keys(LABELS).filter((l) => labels.includes(l))) {
     const raw = accounts[label];
     const email = typeof raw === "string" ? raw.trim().toLowerCase() : "";
     if (!EMAIL.test(email)) throw new Error(`Label ${label} needs one email address`);
-    if (!QA_ALIAS.test(email)) throw new Error(`Label ${label} is not a +stillqa-<name> alias`);
-    return { label, digest: sha256(email), base: sha256(email.replace(TAG, "@")) };
-  });
+    if (!QA_ALIAS.test(email)) {
+      if (OPTIONAL_LABELS.includes(label)) {
+        skipped.push(label);
+        continue;
+      }
+      throw new Error(`Label ${label} is not a +stillqa-<name> alias`);
+    }
+    rows.push({ label, digest: sha256(email), base: sha256(email.replace(TAG, "@")) });
+  }
+  for (const label of OPTIONAL_LABELS) if (!labels.includes(label)) skipped.push(label);
   if (new Set(rows.map((r) => r.digest)).size !== rows.length) throw new Error("Each label needs a different email");
-  if (new Set(rows.map((r) => r.base)).size !== 1) throw new Error("All nine aliases must belong to the same mailbox");
+  if (new Set(rows.map((r) => r.base)).size !== 1) throw new Error("All QA aliases must belong to the same mailbox");
+  const notes = skipped.map(
+    (l) => `-- ${l}: left out (not a +stillqa alias; the database would refuse it). Checks naming it answer "unavailable".`,
+  );
   const base = rows[0].base;
   const values = rows.map((r) => `  ('${r.label}', '${r.digest}')`).join(",\n");
   const join = "join auth.users u on pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.lower(u.email), 'UTF8')), 'hex') = v.email_sha256";
   return [
-    "-- A. PREVIEW (reads only). Every one of the nine rows must show qa_alias = true and a masked",
+    ...notes,
+    `-- A. PREVIEW (reads only). Every one of the ${rows.length} rows must show qa_alias = true and a masked`,
     "--    address you recognise. If not, stop: do not run block B.",
     "select v.label,",
     "  pg_catalog.left(u.email, 1) || '***' || coalesce(pg_catalog.substring(pg_catalog.lower(u.email), '(\\+stillqa-[a-z0-9-]+)@'), '') || '@…' as masked_email,",
@@ -88,7 +104,7 @@ export function registrySql(accounts) {
     `left ${join}`,
     "order by v.label;",
     "",
-    "-- B. COMMIT (run separately, only after A shows nine qa_alias = true rows).",
+    `-- B. COMMIT (run separately, only after A shows ${rows.length} qa_alias = true rows).`,
     "begin;",
     "insert into still_qa_checks.qa_alias_owner(base_sha256)",
     `values ('${base}') on conflict (singleton) do update set base_sha256 = excluded.base_sha256;`,
@@ -98,7 +114,7 @@ export function registrySql(accounts) {
     ") v(label, email_sha256)",
     join,
     "on conflict (label) do update set holder = excluded.holder, registered_at = pg_catalog.clock_timestamp();",
-    "-- Expect 9.",
+    `-- Expect ${rows.length}.`,
     "select pg_catalog.count(*) as registered_labels from still_qa_checks.qa_accounts;",
     "commit;",
     "",
@@ -126,7 +142,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       await writeFile(out, text, { mode: 0o600, flag: "wx" });
       console.log(`Wrote ${out} (owner-only). Paste step 1 and step 2, then delete it.`);
     } else if (command === "registry") {
-      process.stdout.write(registrySql(JSON.parse(await readStdin())));
+      const sql = registrySql(JSON.parse(await readStdin()));
+      for (const note of sql.split("\n").filter((l) => / left out /.test(l))) console.error(note.replace(/^-- /, "Note: "));
+      process.stdout.write(sql);
     } else {
       throw new Error("Use: login --project-ref <ref> --pooler-host <host> --out <file> | registry < accounts.json");
     }

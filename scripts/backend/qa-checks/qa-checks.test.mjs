@@ -14,7 +14,9 @@ import {
   InputError,
   LABELS,
   NOT_READ_ONLY,
+  OPTIONAL_LABELS,
   PRODUCTION_QUERIES,
+  REQUIRED_LABELS,
   queryParams,
   resolveRequest,
 } from "./catalogue.mjs";
@@ -227,8 +229,24 @@ test("machine verdicts are only pass or fail where the expectation is exact; oth
   assert.equal(check("DB-31").verdict([[], [{ a: 0, b: 0, c: 0 }], []], "no-baseline"), undefined);
   assert.equal(check("DB-35").verdict([], "changed"), "fail");
   assert.equal(check("DB-35").verdict([], "unchanged"), undefined);
-  assert.equal(check("setup").verdict([Array(9).fill({ in_scope: true })]), "pass");
-  assert.equal(check("setup").verdict([Array(8).fill({ in_scope: true })]), "fail");
+  const registry = (labels, extra = {}) => labels.map((label) => ({ label, in_scope: true, ...extra }));
+  const all = Object.keys(LABELS);
+  const eight = all.filter((l) => l !== "preserved");
+  assert.deepEqual(REQUIRED_LABELS, eight);
+  assert.deepEqual(OPTIONAL_LABELS, ["preserved"]);
+  assert.equal(check("setup").verdict([registry(all)]), "pass");
+  assert.equal(check("setup").verdict([registry(eight)]), "pass", "preserved is optional");
+  assert.equal(check("setup").verdict([registry(eight.filter((l) => l !== "qa-a"))]), "fail");
+  assert.equal(check("setup").verdict([[...registry(eight), { label: "preserved", in_scope: false }]]), "fail");
+  assert.equal(check("setup").verdict([[...registry(eight), ...registry(["qa-a"])]]), "fail", "duplicate label");
+  assert.deepEqual(check("setup").notes([registry(eight)]), [
+    'Preserved QA account (preserved): not registered (not a QA alias); checks that name it answer "unavailable".',
+  ]);
+  assert.deepEqual(check("setup").notes([registry(all)]), []);
+  const identity = { auth_present: true, confirmed: true, banned: false, deleted: false, in_scope: true };
+  assert.equal(check("DB-02").verdict([registry(eight, identity)]), "pass");
+  assert.equal(check("DB-02").verdict([registry(eight, { ...identity, confirmed: false })]), "fail");
+  assert.deepEqual(check("DB-02").notes([registry(eight, identity)]).length, 1);
   assert.equal(check("DB-07").verdict, undefined);
 });
 
@@ -365,6 +383,21 @@ test("owner setup helpers emit only a verifier, an expiry, a key and digests", a
   const base = createHash("sha256").update("owner@example.invalid").digest("hex");
   assert.equal(sql.split(`'${base}'`).length - 1, 2, "base mailbox digest in preview and commit");
   assert.ok(sql.includes(createHash("sha256").update("owner+stillqa-qa-a@example.invalid").digest("hex")));
+  assert.match(sql, /-- Expect 9\./);
+  // The Preserved QA account is not an alias: it is optional and left out, never registered.
+  const { preserved: _preserved, ...eight } = accounts;
+  for (const input of [eight, { ...eight, preserved: "older.account@example.invalid" }]) {
+    const without = registrySql(input);
+    assert.match(without, /^-- preserved: left out \(not a \+stillqa alias/);
+    assert.match(without, /Every one of the 8 rows/);
+    assert.match(without, /-- Expect 8\./);
+    assert.ok(!without.includes("('preserved'"), "preserved must not be previewed or registered");
+    assert.ok(!without.includes(createHash("sha256").update("older.account@example.invalid").digest("hex")));
+    assert.ok(!without.includes("older.account"));
+  }
+  assert.throws(() => registrySql({ ...eight, "qa-a": undefined }), /qa-a needs one email/);
+  const { "qa-a": _qaA, ...seven } = eight;
+  assert.throws(() => registrySql(seven), /missing: qa-a/);
   assert.throws(() => registrySql({ ...accounts, admin: "owner+stillqa-x@example.invalid" }));
   assert.throws(() => registrySql({ "qa-a": accounts["qa-a"] }));
   assert.throws(() => registrySql({ ...accounts, "qa-b": accounts["qa-a"] }));
