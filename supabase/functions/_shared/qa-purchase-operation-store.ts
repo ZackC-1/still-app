@@ -19,12 +19,21 @@ export interface QaPurchaseOperation {
   readonly updated_at: string;
 }
 
+/** A refunded operation whose account was deleted (0022 keeps the payment record, clears the account id). */
+export type DeletedAccountQaPurchaseOperation = Omit<QaPurchaseOperation, "holder" | "status"> & {
+  readonly holder: null;
+  readonly status: "refunded";
+};
+
 export interface QaPurchaseOperationStore {
   prepare(operation: string, holder: string, configurationHash: string): Promise<QaPurchaseOperation>;
   claimCreation(operation: string, holder: string, configurationHash: string): Promise<{ operation: QaPurchaseOperation; claimed: boolean }>;
   bindSession(operation: string, holder: string, session: string, configurationHash: string): Promise<QaPurchaseOperation>;
   read(operation: string, holder: string): Promise<QaPurchaseOperation | null>;
   recordStatus(operation: string, session: string | null, status: QaPurchaseOperationStatus): Promise<QaPurchaseOperation>;
+  /** Record a canonical full refund on the exact bound Session of an operation whose account was
+   * deleted. Rejects (after the write) when the stored operation still names an account. */
+  recordDeletedAccountRefund(operation: string, session: string): Promise<DeletedAccountQaPurchaseOperation>;
 }
 
 type Sql = ReturnType<typeof postgres>;
@@ -58,7 +67,9 @@ function configuration(value: string): void {
 function sessionId(value: unknown): value is string {
   return typeof value === "string" && SESSION.test(value);
 }
-function receipt(value: unknown): QaPurchaseOperation {
+function receipt(value: unknown): QaPurchaseOperation;
+function receipt(value: unknown, deletedAccount: true): DeletedAccountQaPurchaseOperation;
+function receipt(value: unknown, deletedAccount = false): QaPurchaseOperation | DeletedAccountQaPurchaseOperation {
   if (!object(value) || !exactKeys(value, KEYS) || value.environment !== "sandbox" ||
     typeof value.configuration_hash !== "string" || !HASH.test(value.configuration_hash) ||
     typeof value.status !== "string" || !STATUSES.includes(value.status) ||
@@ -66,7 +77,8 @@ function receipt(value: unknown): QaPurchaseOperation {
     !timestamp(value.created_at) || !timestamp(value.updated_at) ||
     (value.creation_started_at !== null && !timestamp(value.creation_started_at)) ||
     (value.paid_at !== null && !timestamp(value.paid_at))) throw unavailable();
-  const operation = uuid(value.operation_id), holder = uuid(value.holder);
+  // Only a deleted account's kept record has no account id; every scoped read still requires one.
+  const operation = uuid(value.operation_id), holder = deletedAccount ? deletedHolder(value.holder) : uuid(value.holder);
   // Only an unstarted/prepared operation may lack a creation fence. Unknown outcomes keep it.
   if ((value.creation_started_at === null && value.status !== "prepared") ||
     (value.stripe_session_id !== null && value.creation_started_at === null) ||
@@ -76,6 +88,10 @@ function receipt(value: unknown): QaPurchaseOperation {
     ((value.status === "session_bound" || value.status === "closed_unpaid") && value.paid_at !== null) ||
     (value.paid_at !== null && value.stripe_session_id === null)) throw unavailable();
   return { ...value, operation_id: operation, holder } as unknown as QaPurchaseOperation;
+}
+function deletedHolder(value: unknown): null {
+  if (value !== null) throw unavailable();
+  return null;
 }
 function result(rows: unknown): unknown {
   if (!Array.isArray(rows) || rows.length !== 1 || !object(rows[0]) || !exactKeys(rows[0], ["result"])) throw unavailable();
@@ -148,6 +164,18 @@ export class PgQaPurchaseOperationStore implements QaPurchaseOperationStore {
       const value = receipt(result(rows));
       scope(value, operation, null);
       if (value.stripe_session_id !== session || value.status !== status) throw unavailable();
+      return value;
+    } catch { throw unavailable(); }
+  }
+
+  async recordDeletedAccountRefund(operation: string, session: string): Promise<DeletedAccountQaPurchaseOperation> {
+    try {
+      operation = uuid(operation);
+      if (!sessionId(session)) throw unavailable();
+      // The same exact operation+Session transition as recordStatus; SQL needs no account for it.
+      const rows = await this.sql`select public.qa_sandbox_record_checkout_status(${operation}::uuid, ${session}, 'refunded') as result`;
+      const value = receipt(result(rows), true);
+      if (value.operation_id !== operation || value.stripe_session_id !== session || value.status !== "refunded") throw unavailable();
       return value;
     } catch { throw unavailable(); }
   }

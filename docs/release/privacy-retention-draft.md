@@ -41,6 +41,10 @@ Temporary connection counters can finish the same short security window after ac
 This prevents deleting an account from resetting protection for other people using the same
 internet connection. We do not create an account-to-IP history to perform deletion.
 
+Deleting your account switches off its Pro access but keeps its purchase records, with your
+account ID removed, so we can handle refunds, tax and disputes. Stripe and RevenueCat keep their
+own records of the payment, and purchases made through Apple stay with your Apple ID.
+
 A minimal last-synced-account marker remains on the device after sign-out or account deletion. It
 prevents settings from one account being copied into a different account on a shared device. This
 marker is not an IP address or browsing history. Blocking settings can continue to work locally.

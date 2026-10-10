@@ -109,15 +109,15 @@ const plan = (root, sha, migrations = "0002_harden.sql", extra = {}) =>
     ...extra,
   });
 
-/** Actual reviewed source through 0021, published only inside an owned disposable Git repo. */
-async function qaMigrationRepo(t) {
+/** Actual reviewed source through `through` (default 0021), published only inside an owned disposable Git repo. */
+async function qaMigrationRepo(t, through = 21) {
   const { root } = await repo(t);
   await rm(join(root, "supabase/migrations"), { recursive: true });
   const migrations = new URL("../../../supabase/migrations/", import.meta.url);
   for (const filename of await readdir(migrations)) {
     if (
       /^\d+_[a-z0-9_]+\.sql$/.test(filename) &&
-      Number(filename.split("_")[0]) <= 21
+      Number(filename.split("_")[0]) <= through
     ) {
       await put(
         root,
@@ -229,6 +229,45 @@ test("actual 0021 plan binds the exact QA catalog gate and complete-row preserva
     (await plan(root, head, "0021_qa_sandbox_access.sql")).digest,
     p.digest,
   );
+});
+
+test("actual 0022 plan binds its account-deletion gate and bounded-repair invariant", async (t) => {
+  const { root, head } = await qaMigrationRepo(t, 22);
+  const p = await plan(root, head, "0022_account_deletion_keeps_payment_records.sql");
+  assert.equal(p.priorMigrations.length, 21);
+  assert.equal(p.expectedHistoryBefore.at(-1).version, "0021");
+  assert.deepEqual(p.expectedHistoryAfter.at(-1), {
+    version: "0022",
+    name: "account_deletion_keeps_payment_records",
+  });
+  const [migration] = p.migrations;
+  for (const [kind, filename] of [
+    ["verification", "0022_account_deletion_keeps_payment_records.sql"],
+    ["invariant", "0022_account_deletion_keeps_payment_records.invariant.sql"],
+  ]) {
+    const bytes = await readFile(new URL(`./verify/${filename}`, import.meta.url));
+    assert.deepEqual(migration[kind], {
+      path: `scripts/backend/deploy/verify/${filename}`,
+      sha256: sha256(bytes),
+    });
+    assert.equal(lintVerificationSql(bytes.toString()), true);
+  }
+  // 0022 changes no routine an earlier verifier pins, and pins exactly its one new trigger routine
+  // at the body the migration creates.
+  const source = await readFile(
+    new URL("../../../supabase/migrations/0022_account_deletion_keeps_payment_records.sql", import.meta.url),
+    "utf8",
+  );
+  assert.deepEqual([...routinesChanged(source)].sort(), ["private.deactivate_deleted_account_rights"]);
+  const gate = await readFile(
+    new URL("./verify/0022_account_deletion_keeps_payment_records.sql", import.meta.url),
+    "utf8",
+  );
+  assert.deepEqual([...routinesPinned(gate)], ["private.deactivate_deleted_account_rights"]);
+  const start = source.indexOf("create function private.deactivate_deleted_account_rights(");
+  const open = source.indexOf("$$", start);
+  const body = source.slice(open + 2, source.indexOf("$$", open + 2));
+  assert.match(gate, new RegExp(`'${createHash("md5").update(body).digest("hex")}'`));
 });
 
 test("plan binds commit, hashes, verification, tooling and exact expected history", async (t) => {
