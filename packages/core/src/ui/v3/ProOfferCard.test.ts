@@ -106,6 +106,14 @@ describe("browser Pro offer static list and existing authority", () => {
     },
   );
 
+  it("compiled with the paid tier off, a checkout-priced offer never enables Buy", () => {
+    const input = props({ offer: { price: "", checkoutPriced: true } });
+    render(ProOfferCard, { props: input });
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(screen.queryByText("The price is shown at checkout.")).toBeNull();
+    expect(input.onBuy).not.toHaveBeenCalled();
+  });
+
   it("does not repeat checkout while pending or invent a missing caller action", async () => {
     const input = props({ state: "pending" });
     const view = render(ProOfferCard, { props: input });
