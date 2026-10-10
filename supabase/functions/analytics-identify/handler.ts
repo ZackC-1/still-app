@@ -14,8 +14,14 @@ import { readBoundedBody } from "../_shared/request-body.ts";
 // Two request shapes:
 //   * Released 2.1 clients send a body without `originProof` (usually `{}`). Nothing in it is read,
 //     and the email goes on the account's person, exactly as before.
-//   * A V3 client sends exactly {"originProof": <64 hex>}: SHA-256 of its erasure key, itself a
-//     one-way HMAC of its private consent handle; never the handle or the key. This path is off
+//   * A V3 client sends {"originProof": <64 hex>, "projectKeySha256": <64 hex>}. The origin proof is
+//     SHA-256 of its erasure key, itself a one-way HMAC of its private consent handle; never the
+//     handle or the key. projectKeySha256 is SHA-256 of the public PostHog project key the client
+//     sends its own events to. Only a client whose key is this server's POSTHOG_PROJECT_KEY (the
+//     project the email and account_created would land in) gets an identity: any other channel,
+//     including a test build pointed at the PostHog test project or a body without the field, is
+//     answered 200 {state: "test_channel"} with nothing read or written (no email, no
+//     account_created, no subject); the client keeps waiting, as it does for "unavailable". This path is off
 //     unless ANALYTICS_SUBJECTS_ENABLED is "true" (HARD GATE: not before the account-deletion
 //     reorder and the subject snapshot are deployed and verified; see migration 0017). While off it
 //     answers 503 and touches nothing. The server issues (or returns) this device's own PostHog identity
@@ -71,11 +77,21 @@ export interface AnalyticsIdentifyDeps extends AuthDeps {
   readonly now?: () => number;
   /** Override for ACCOUNTS_COUNTED_SINCE (tests). */
   readonly countedSince?: string;
+  /** SHA-256 (hex) of POSTHOG_PROJECT_KEY. Absent or null: no client channel matches. */
+  readonly projectKeySha256?: string | null;
 }
 
-/** The subject request's origin proof; null for a legacy body; "invalid" for anything else that
- * names one. */
-async function originProofOf(req: Request): Promise<string | null | "invalid"> {
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** A V3 subject request: the origin proof and the client's claimed PostHog project (or null). */
+interface SubjectRequest {
+  readonly proof: string;
+  readonly projectKeySha256: string | null;
+}
+
+/** The subject request; null for a legacy body; "invalid" for anything else that names an origin
+ * proof. */
+async function originProofOf(req: Request): Promise<SubjectRequest | null | "invalid"> {
   let text: string;
   try { text = await readBoundedBody(req, { maxBytes: MAX_BODY_BYTES }); }
   catch { return "invalid"; }
@@ -87,7 +103,13 @@ async function originProofOf(req: Request): Promise<string | null | "invalid"> {
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "originProof")) return null;
   const v = body as Record<string, unknown>;
-  return Object.keys(v).length === 1 && isOriginProof(v.originProof) ? v.originProof : "invalid";
+  const keys = Object.keys(v);
+  const channel = Object.hasOwn(v, "projectKeySha256");
+  if (
+    keys.length !== (channel ? 2 : 1) || !isOriginProof(v.originProof) ||
+    (channel && (typeof v.projectKeySha256 !== "string" || !SHA256_HEX.test(v.projectKeySha256)))
+  ) return "invalid";
+  return { proof: v.originProof, projectKeySha256: channel ? v.projectKeySha256 as string : null };
 }
 
 async function accountCreatedNow(
@@ -105,9 +127,9 @@ async function accountCreatedNow(
 
 export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDeps): Promise<Response> {
   return withAuthenticatedUser(req, deps, async (userId, request) => {
-    const proof = await originProofOf(request);
-    if (proof === "invalid") return jsonResponse(400, { error: "invalid_request" });
-    if (proof !== null) return await identifySubject(deps, userId, proof, request);
+    const subject = await originProofOf(request);
+    if (subject === "invalid") return jsonResponse(400, { error: "invalid_request" });
+    if (subject !== null) return await identifySubject(deps, userId, subject, request);
     if (!deps.posthog.canIdentify) return jsonResponse(200, { identified: false });
     // The released body is client-selected: it cannot bypass the subject path's abuse budget.
     const limiter = deps.limiter ?? deps.subjects?.limiter;
@@ -129,7 +151,7 @@ export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDep
 async function identifySubject(
   deps: AnalyticsIdentifyDeps,
   userId: string,
-  proof: string,
+  { proof, projectKeySha256 }: SubjectRequest,
   req: Request,
 ): Promise<Response> {
   const subjects = deps.subjects;
@@ -142,6 +164,12 @@ async function identifySubject(
     network: true,
   });
   if (limited) return limited;
+  // Server-enforced channel: only a client sending its events to this server's PostHog project gets
+  // an identity. Nothing is read or written for any other (a test build, or no claim at all).
+  if (
+    !projectKeySha256 || !deps.projectKeySha256 || !SHA256_HEX.test(deps.projectKeySha256) ||
+    projectKeySha256 !== deps.projectKeySha256
+  ) return jsonResponse(200, { state: "test_channel" });
   const issue = await subjects.store.issueSubject(userId, proof);
   if (issue.state === "stopped") return jsonResponse(200, { state: "stopped" });
   // Five new devices per account per day (0017); the device simply tries again later.

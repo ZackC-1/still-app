@@ -994,7 +994,8 @@ Deno.test({
             new Request("http://x", {
               method: "POST",
               headers: { Authorization: `Bearer ${await jwt(U1)}`, "cf-connecting-ip": "198.51.100.20" },
-              body: JSON.stringify({ originProof }),
+              // A production-channel client: it claims the server's own PostHog project.
+              body: JSON.stringify({ originProof, projectKeySha256: "e".repeat(64) }),
             }),
             {
               jwtSecret: JWT_SECRET,
@@ -1005,6 +1006,7 @@ Deno.test({
               posthog: { canIdentify: true, canDelete: true, setPersonEmail: () => Promise.reject(new Error("legacy")), deletePerson: () => Promise.resolve() },
               subjectsEnabled: true,
               subjects: { store, limiter, posthog: subjectPort },
+              projectKeySha256: "e".repeat(64),
             },
           )).json();
         const issued = await identify(await proof(K5));

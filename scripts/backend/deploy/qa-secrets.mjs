@@ -517,7 +517,7 @@ async function psqlSupportsGetenv(exec, cwd) {
   if (result.code !== 0 || !(major >= 15)) refuse("qa-secrets-psql-too-old");
 }
 
-async function runPinnedSql({ exec, cwd, conn, file, variables = {}, single }) {
+export async function runPinnedSql({ exec, cwd, conn, file, variables = {}, single }) {
   const result = await exec(
     "psql",
     [
@@ -552,7 +552,7 @@ async function runPinnedSql({ exec, cwd, conn, file, variables = {}, single }) {
 }
 
 /** Signs in once as `role` with the new password, through the same host as the admin URL. */
-async function probeLogin({ exec, cwd, conn, projectRef, role, password }) {
+export async function probeLogin({ exec, cwd, conn, projectRef, role, password }) {
   const direct = conn.host === `db.${projectRef}.supabase.co`;
   const probe = {
     ...conn,

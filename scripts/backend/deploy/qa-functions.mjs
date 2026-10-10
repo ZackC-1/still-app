@@ -302,7 +302,8 @@ export async function createQaFunctionPlan({
 }
 
 // Keep the complete private inventory in memory. Public records contain its hash only.
-function inventory(value) {
+// Also used by analytics-subjects.mjs for the production analytics routes.
+export function inventory(value) {
   if (!Array.isArray(value)) refuse("qa-function-inventory-invalid");
   const fields = [
     "id",
@@ -354,7 +355,7 @@ export function secretInventory(value) {
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function management({ projectRef, token, fetchImpl }) {
+export function management({ projectRef, token, fetchImpl }) {
   if (
     !validRef(projectRef) || typeof token !== "string" || !token.trim() ||
     /[\r\n]/.test(token)
@@ -484,7 +485,7 @@ function bodyMetadataMatches(metadata, { upload, deployed, projectRef }) {
     (!("module_count" in metadata) || metadata.module_count === 1);
 }
 
-async function readback({ api, upload, posted, bytes, projectRef }) {
+export async function readback({ api, upload, posted, bytes, projectRef }) {
   const metadata = async () =>
     inventory([await api(`/functions/${upload.name}`)])[0];
   const before = await metadata();
