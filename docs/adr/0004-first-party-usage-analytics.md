@@ -144,8 +144,11 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
 - **Turning sharing off** fences work in flight, discards the queue and sends nothing.
 - **Signed-in devices (owner decision 50, 2026-10-10: finish it).** A signed-in device reports under
   its own identity: from an ordinary Still screen (never a background start) it sends
-  `analytics-identify` only the origin proof (a one-way hash of its private permission origin), with
-  that account's own session. The server issues or returns the device's random subject (never the
+  `analytics-identify` only the origin proof (a one-way hash of its private permission origin) and
+  `projectKeySha256` (the SHA-256 of the public PostHog project key it sends events with), with that
+  account's own session. The server issues identities only to builds that report to its own project:
+  any other build is answered `test_channel`, which the client treats like unavailable (it keeps
+  waiting and never stops sharing). The server issues or returns the device's random subject (never the
   account id) and attaches the account's email to it on the server. The client never sends the
   account id or the email to PostHog. Deleting the account records every subject of the account for deletion
   (`delete-user`, migrations 0017/0018), and the scheduled `analytics-erasure` worker deletes those
@@ -154,8 +157,8 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   when the App Group no longer holds it; withdrawn when the app signs out, sharing is turned off or
   the server stops the identity). The Safari extension reads it, a local read with no network, at
   every background start as well as from its pages, only for the same account and permission; it
-  drops a cached identity the App Group no longer confirms, and never calls the server. After a 503
-  or 429 a client waits 15 minutes before asking again.
+  drops a cached identity the App Group no longer confirms, and never calls the server. After a 503,
+  a 429 or a `test_channel` answer a client waits 15 minutes before asking again.
   Until the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on, the server answers 503 and a signed-in
   device's events wait on the device, bound to the account (dropped if it signs out, sent once it has
   its identity, never older than 30 days). Signed-out use is reported under the device's anonymous
