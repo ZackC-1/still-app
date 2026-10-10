@@ -23,7 +23,7 @@ import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
-import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
+import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, supabaseSubjectIssuer, type AnalyticsKeyValue, type SubjectDeps } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -93,6 +93,8 @@ const backendRouteProfile = readAppleBackendProfile(
 
 let controller: UiController;
 let identifyOnServer: (() => Promise<void>) | undefined;
+/** V3 only: requests this device's analytics identity for the signed-in account (set below). */
+let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
 // Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
 // the "Share usage data" switch; this owns the client. It waits for the native context and does
 // nothing outside the app or in a build without a PostHog key.
@@ -108,6 +110,13 @@ const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics 
   envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
   store: storageKeyValue(safeStorage()),
   identifyOnServer: () => identifyOnServer?.() ?? Promise.resolve(),
+  // V3: signed-in use reports under this device's own server-issued identity (owner decision 50).
+  ...(appleSettingsMode !== "legacy"
+    ? {
+        issueSubject: (body: { originProof: string }, signal: AbortSignal, account: string) =>
+          analyticsSubjectIssuer?.(body, signal, account) ?? Promise.reject(new Error("No sign-in in this build")),
+      }
+    : {}),
 });
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
@@ -131,6 +140,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     const { error } = await supabase.functions.invoke("analytics-identify", { body: {} });
     if (error) throw error;
   };
+  if (appleSettingsMode !== "legacy") analyticsSubjectIssuer = supabaseSubjectIssuer(supabase);
   // Deterministic App Review sign-in (plan 2026-07-15-002, R13): Apple-build-only env. Both the
   // gate and the value are build-time — extension builds never define this, so the review branch
   // is dead code everywhere else (fail closed; gate-production-trust-by-build-mode).

@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>Still — Privacy Policy</h1>
-  <p class="updated">Last updated: September 23, 2026</p>
+  <p class="updated">Last updated: October 10, 2026</p>
   <p>Still is made by Cadmus Labs LLC. This policy covers our apps, browser extensions, website
   and support service.</p>
   <p>Still removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
@@ -56,10 +56,13 @@
     Usage events carry Still's own random
     install and person identifiers, the Still version and the kind of device (iPhone, iPad or Mac, and
     whether it is Chrome, Firefox, Safari or the Still app). Still asks PostHog not to work out your location from your connection, and our PostHog
-    project discards IP addresses. The iPhone and
-    Mac apps keep an anonymous person identifier in your iCloud key-value storage so the same person
-    on two Apple devices is counted once. If you sign in, your usage is linked to your Still account
-    ID, and our server adds your account email to that record. See
+    project discards IP addresses. Each device gets its own random identifiers, created on the
+    device; the Still app and its Safari extension on the same device share them. (Version 2.1 of the
+    iPhone and Mac apps instead keeps an anonymous person identifier in your iCloud key-value storage
+    so the same person on two Apple devices is counted once.) If you sign in, our server gives each
+    device you sign in on its own random identifier for your account and adds your account email to
+    that record on the server; your device never sends your email or account ID to PostHog. (Version
+    2.1 links your usage to your Still account ID instead.) See
     <a href="https://posthog.com/privacy">PostHog's privacy policy</a>.</li>
     <li><strong>Support correspondence:</strong> our support, privacy and general-contact addresses
     forward to a Google Workspace mailbox. We receive your address, message and any attachments
@@ -133,9 +136,12 @@
   <h3>Usage analytics</h3>
   <p>PostHog keeps usage events for one year on our current plan (a paid plan would keep them for up
   to seven years). Turning off <strong>Share usage data</strong> stops new events and discards any
-  still waiting on your device. Still then makes one brief attempt to record only that sharing was
-  turned off, so we can see how many people choose to. It does not delete events already sent. Deleting your Still account
-  asks PostHog to delete the person record linked to that account along with its events. PostHog
+  still waiting on your device, and nothing more is sent. (Version 2.1 makes one brief attempt to
+  record only that sharing was turned off.) It does not delete events already sent. Turning sharing
+  back on gives that device a new anonymous identifier, so its earlier events are not linked to the
+  new ones. Deleting your Still account
+  asks PostHog to delete the records linked to that account, including each device's identifier for
+  it, along with their events. PostHog
   processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage
   from a device that was never signed in is not linked to an account; contact us to have it removed.</p>
 
@@ -159,10 +165,11 @@
   <p>You can use blocking without an account, stop settings sync by signing out, and request a copy
   of your account data by contacting <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a>.</p>
   <p>Usage sharing starts on in the iPhone and Mac apps and the Chrome extension, which tell you so the
-  first time you open them. Turn it off at any time with <strong>Share usage data</strong> in Still's
-  settings (in the Still app for Safari on iPhone and Mac). In Firefox it starts off: nothing is sent
-  unless you allow Firefox's "technical and interaction data" permission when installing or later in
-  Still's settings.</p>
+  first time you open them, and again if what Still shares changes. Turn it off at any time with
+  <strong>Share usage data</strong> in Still's settings (in the Still app for Safari on iPhone and Mac;
+  the Safari extension follows the app). In Firefox, sharing follows Firefox's "technical and
+  interaction data" permission, which Firefox offers when you install Still: nothing is sent unless
+  you allow it, and you can change it later in Still's settings or in Firefox's add-on settings.</p>
   <p>Choose <strong>Delete account</strong> in the app's signed-in screen to remove the authentication
   account, synced settings, account entitlement record and account-linked security counters from our
   active application database, and to ask PostHog to delete the usage record linked to the account. Temporary connection counters may finish their existing short security

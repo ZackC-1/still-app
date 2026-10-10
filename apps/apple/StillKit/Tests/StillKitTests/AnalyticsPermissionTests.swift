@@ -45,6 +45,34 @@ final class AnalyticsPermissionTests: XCTestCase {
     XCTAssertNil(store.extensionReply(rawBody: ["kind": "commitAnalyticsPermission"], platform: "ios", device: "phone"))
   }
 
+  func testTheAppPublishesItsPerDeviceIdentityAndTheExtensionReadsIt() {
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: { XCTFail("no identity is created"); return "" })
+    let ask: [String: Any] = ["kind": "analyticsSubject"]
+    XCTAssertTrue(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsSubject"] is NSNull)
+    let entry: [String: Any] = [
+      "account": "00000000-0000-4000-8000-0000000000aa",
+      "originProof": String(repeating: "b", count: 64),
+      "subject": "00000000-0000-4000-8000-0000000000bb",
+    ]
+    XCTAssertEqual(store.publishAnalyticsSubject(entry)["ok"] as? Bool, true)
+    let read = store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsSubject"] as? [String: String]
+    XCTAssertEqual(read?["subject"], "00000000-0000-4000-8000-0000000000bb")
+    XCTAssertEqual(read?["account"], "00000000-0000-4000-8000-0000000000aa")
+    // Refused, and nothing changes: the account as the subject, an uppercase id, a short proof, extra keys.
+    var same = entry; same["subject"] = entry["account"]
+    var upper = entry; upper["subject"] = "00000000-0000-4000-8000-0000000000BB"
+    var short = entry; short["originProof"] = "abc"
+    var extra = entry; extra["email"] = "x@example.com"
+    for bad in [same, upper, short, extra] {
+      XCTAssertEqual(store.publishAnalyticsSubject(bad)["ok"] as? Bool, false)
+    }
+    XCTAssertEqual(store.analyticsSubject?["subject"], "00000000-0000-4000-8000-0000000000bb")
+    // An account deletion clears it.
+    XCTAssertEqual(store.publishAnalyticsSubject(NSNull())["ok"] as? Bool, true)
+    XCTAssertNil(store.analyticsSubject)
+  }
+
   func testGrantIsReadBackFromSameSlotAndLegacyOffRetainsStopAuthority() {
     let group = MemoryKeyValue()
     let store = AnalyticsIdentityStore(group: group)

@@ -4,6 +4,7 @@ import {
   createDefaultOnUsage,
   createExtensionAnalyticsHost,
   resolveAnalyticsIdentity,
+  versionedNotice,
   type ExtensionAnalyticsHost,
 } from "@still/core/analytics";
 import { isExtensionPageSender } from "./session-messages.js";
@@ -16,6 +17,8 @@ import type { BackgroundAnalyticsDeps } from "./analytics.js";
 //   * Chrome: on from install. The one-time notice ("Still shares usage data...", Turn off / OK)
 //     and the "Share usage data" switch on the first-run and settings pages are the off path, and
 //     the switch turns it back on.
+//   * Signed in: the device reports under its own identity, which the server issues and gives the
+//     account's email (issueSubject; off until the server's ANALYTICS_SUBJECTS_ENABLED switch).
 //   * Firefox: follows the optional `technicalAndInteraction` data-collection permission, which
 //     Firefox offers in its own install prompt. Granted there means on from install; the switch
 //     requests it (inside the tap, see createPageAnalytics) or withdraws it; withdrawing it in the
@@ -72,7 +75,9 @@ export function createDefaultOnBackgroundAnalytics(
     config: deps.config,
     envelope: deps.envelope,
     appVersion: deps.appVersion,
-    local: deps.local,
+    // The notice flag follows the disclosure version, so an earlier acknowledgement (2.1's
+    // included) shows the notice again; everything else is this extension's local storage.
+    local: versionedNotice(deps.local),
     queueStore: deps.queue ?? undefined,
     identity: () =>
       (identity ??= resolveAnalyticsIdentity({
@@ -89,6 +94,9 @@ export function createDefaultOnBackgroundAnalytics(
     noticeApplies: !deps.isFirefox,
     isTrustedPage: (sender) => isExtensionPageSender(sender, runtimeId, extensionOrigin),
     identifyOnServer: deps.identifyOnServer,
+    // Signed-in devices report under their own server-issued identity (owner decision 50); the
+    // server attaches the account's email to it. A stop from the server ends sharing here.
+    subjects: deps.issueSubject ? { issue: deps.issueSubject, onStopped: () => usage.commit(false) } : undefined,
     requestQuietFlush: deps.requestQuietFlush,
     fetch: deps.fetch,
     now: deps.now,

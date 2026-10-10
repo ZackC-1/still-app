@@ -84,7 +84,9 @@
 //      it is an explicit choice; only an answered value may be shown as a saved choice. Concurrent
 //      first-launch analyticsContext reads share one computation (LaunchValue).
 //        { kind:"acknowledgeAnalyticsNotice" } → { ok:true }
-//      Consent lives in the App Group so the Safari extension follows the app's switch.
+//        { kind:"setAnalyticsSubject", subject: {account, originProof, subject} | null } → { ok }
+//      Consent lives in the App Group so the Safari extension follows the app's switch; so does
+//      the per-device identity the server issued for the signed-in account (V3).
 //
 //  The web layer drives sign-in: the web client signs in via email code, then hands the resulting
 //  UUID back via `configurePurchases` so RevenueCat is keyed to the same account the webhook (U14)
@@ -594,6 +596,15 @@ final class WebBridgeRouter {
     case "acknowledgeAnalyticsNotice":
       analytics.acknowledgeNotice()
       reply(Self.json(["ok": true]), nil)
+
+    case "setAnalyticsSubject":
+      // The per-device identity the app's server issued, for the Safari extension to follow. Only
+      // the trusted bundled frame writes it; the extension's native lane only reads.
+      guard frame.isTrusted, Set(dict.keys) == ["kind", "subject"], let value = dict["subject"] else {
+        reply(nil, "still: invalid analytics subject")
+        return
+      }
+      reply(Self.json(analytics.publishAnalyticsSubject(value)), nil)
 
     case "setAccountSyncStatus":
       // Only the trusted bundled WK frame reaches this writer. The Safari native lane only reads.

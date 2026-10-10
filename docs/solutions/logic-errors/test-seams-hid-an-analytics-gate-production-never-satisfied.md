@@ -6,6 +6,7 @@ problem_type: logic_error
 module: packages/core/src/analytics
 applies_when: A client gate needs inputs (permission, policy, evidence) that tests inject; or an extension host observes events before its first account answer
 date: 2026-10-10
+last_updated: 2026-10-10
 status: active
 tags:
   - analytics
@@ -80,7 +81,13 @@ bundles.
 - Any host that observes events at startup must assume the first account answer can land at any
   point after; observe after it, or test that order explicitly.
 - Background-entry tests that stub `../analytics.js` must also stub `../default-on-analytics.js`
-  (V3 builds choose it).
+  (V3 builds choose it), and their partial `@still/core/analytics` mocks need
+  `supabaseSubjectIssuer`.
+- A browser can refuse to withdraw an optional permission (`permissions.remove` resolving false).
+  Where that permission is the switch, keep the product's own off durably (Firefox's
+  `FIREFOX_STOPPED_KEY`) instead of trusting the withdrawal.
+- Vitest inlines `import.meta.env.VITE_*` from the environment the run started with in a module
+  read at load (`vi.stubEnv` does not change it): mock such a module instead of stubbing the env.
 
 Related: [ADR 0004](../../adr/0004-first-party-usage-analytics.md),
 [shipped-bundle convention](../conventions/add-paid-only-code-without-changing-shipped-bundles.md).

@@ -4,7 +4,7 @@ import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { createAppAnalytics } from "../apple-app.js";
 import { QUEUE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
-import { USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics } from "../default-on.js";
+import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 
 // A V3 build: the default-on basis is compiled in (build-basis.ts reads the build flags).
@@ -13,7 +13,15 @@ vi.mock("../build-basis.js", () => ({ USAGE_ON_BY_DEFAULT_BUILD: true }));
 /** The App Group's one consent slot, as AnalyticsIdentityStore keeps it: unset, a 2.1 Boolean, or
  * the permission record. Behind the real NativeBridge, so its parsing is exercised too. */
 function fakeNative(initial?: boolean | AnalyticsPermission) {
-  const native = { slot: initial as boolean | AnalyticsPermission | undefined, noticeSeen: false };
+  const native = {
+    slot: initial as boolean | AnalyticsPermission | undefined,
+    noticeSeen: false,
+    /** The App Group refuses permission writes (a full disk, a failing native call). */
+    refuseCommit: false,
+    /** The App Group cannot be read. */
+    unreadable: false,
+    subject: null as unknown,
+  };
   const record = () => (typeof native.slot === "object" ? native.slot : null);
   const permissionReply = () => ({ ok: true, permission: record() ?? (native.slot === false ? false : null) });
   const consent = () => (record() ? record()!.state === "granted" : native.slot !== false);
@@ -21,8 +29,13 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
     postMessage: vi.fn(async (message: Record<string, unknown>): Promise<unknown> => {
       switch (message.kind) {
         case "analyticsPermission":
+          if (native.unreadable) throw new Error("unreadable");
           return permissionReply();
+        case "setAnalyticsSubject":
+          native.subject = message.subject;
+          return { ok: true };
         case "commitAnalyticsPermission": {
+          if (native.refuseCommit) return { ok: false };
           const value = message.permission;
           if (value === false) {
             const current = record();
@@ -60,7 +73,7 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
     }),
   };
   const win: StillBridgeWindow = { webkit: { messageHandlers: { still: port } } };
-  return { native, record, bridge: new NativeBridge(win) };
+  return { native, record, win, bridge: new NativeBridge(win) };
 }
 
 function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
@@ -68,7 +81,11 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]) ?? null, set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(initial?: boolean | AnalyticsPermission, defaultOn = true) {
+function setup(
+  initial?: boolean | AnalyticsPermission,
+  defaultOn = true,
+  issueSubject?: (body: { originProof: string }, signal: AbortSignal, account: string) => Promise<unknown>,
+) {
   const host = fakeNative(initial);
   const store = memory();
   const fetch = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
@@ -80,13 +97,15 @@ function setup(initial?: boolean | AnalyticsPermission, defaultOn = true) {
     store,
     fetch: fetch as unknown as typeof globalThis.fetch,
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+    ...(defaultOn ? { win: host.win, issueSubject } : {}),
   });
+  const bodies = () => fetch.mock.calls.map((call) => String((call[1] as RequestInit).body));
   const sent = () =>
     fetch.mock.calls.flatMap((call) =>
       (JSON.parse(String((call[1] as RequestInit).body)) as { batch: { event: string }[] }).batch.map((e) => e.event),
     );
   const queue = () => ((store.data[QUEUE_KEY] as { event: string }[] | undefined) ?? []).map((e) => e.event);
-  return { ...host, app, fetch, sent, queue };
+  return { ...host, app, store, fetch, sent, bodies, queue };
 }
 
 /** A launch as main.ts runs it: the account check finds nobody, and the launch events go out. */
@@ -168,5 +187,92 @@ describe("V3 Apple app: on by default, with the existing notice and switch", () 
     await launch(on);
     expect(on.record()?.state).toBe("granted");
     expect(on.fetch).toHaveBeenCalled();
+  });
+});
+
+describe("V3 Apple app: review follow-ups", () => {
+  it("an off the App Group does not take is a failure: the switch keeps showing on", async () => {
+    const t = setup();
+    await launch(t);
+    t.native.refuseCommit = true;
+    await expect(t.app.ui.setSharing!(false)).rejects.toThrow();
+    expect(t.record()?.state).toBe("granted");
+    t.native.refuseCommit = false;
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(t.record()?.state).toBe("stopped");
+  });
+
+  it("hides the switch when the state is unknown, rather than showing off over a granted record", async () => {
+    const t = setup();
+    await launch(t);
+    const granted = t.record()!;
+    // A later launch whose native reads fail: nothing is known, so no switch.
+    const next = setup(granted);
+    next.native.unreadable = true;
+    await launch(next);
+    expect(await next.app.ui.sharing!()).toBeNull();
+    expect(next.fetch).not.toHaveBeenCalled();
+  });
+
+  it("a 2.1 upgrader who saw the 2.1 notice sees the notice again for the new disclosure", async () => {
+    const t = setup(true);
+    t.native.noticeSeen = true; // the 2.1 notice
+    await launch(t);
+    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: true });
+    t.app.ui.acknowledgeNotice!();
+    await Promise.resolve();
+    expect(t.store.data[NOTICE_VERSION_KEY]).toBe(USAGE_PERMISSION_VERSION);
+    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: false });
+  });
+});
+
+describe("V3 Apple app: signed-in devices report under their own identity (owner decision 50)", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  it("asks the server with only the origin proof, reports under the subject, and shares it with the extension", async () => {
+    const issue = vi.fn(async (_body: { originProof: string }, _signal: AbortSignal, _account: string) => ({
+      state: "active",
+      subject: SUBJECT,
+    }));
+    const t = setup(undefined, true, issue);
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(issue).toHaveBeenCalledTimes(1);
+    const [body, , account] = issue.mock.calls[0]!;
+    expect(Object.keys(body)).toEqual(["originProof"]);
+    expect(body.originProof).toMatch(/^[0-9a-f]{64}$/);
+    expect(account).toBe(ACCOUNT);
+    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "opened", "active"]));
+    const all = t.bodies().join("\n");
+    expect(all).toContain(`"distinct_id":"${SUBJECT}"`);
+    expect(all).not.toContain(ACCOUNT); // the account id never reaches PostHog from the client
+    expect(all).not.toMatch(/@|email/i); // nor an email: the server attaches it
+    expect(t.native.subject).toEqual({ account: ACCOUNT, originProof: body.originProof, subject: SUBJECT });
+
+    // Deleting the account forgets the identity here and in the App Group.
+    await t.app.ui.reset({ forgetAccount: true, account: ACCOUNT });
+    expect(t.native.subject).toBeNull();
+  });
+
+  it("while the server switch is off (503), signed-in use waits on the device and nothing is sent", async () => {
+    const issue = vi.fn(async () => {
+      throw new Error("503 unavailable");
+    });
+    const t = setup(undefined, true, issue);
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(issue).toHaveBeenCalled();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue().length).toBeGreaterThan(0);
+    expect(t.native.subject).toBeNull();
+  });
+
+  it("a server stop ends sharing on this device", async () => {
+    const t = setup(undefined, true, async () => ({ state: "stopped" }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.record()?.state).toBe("stopped");
   });
 });
