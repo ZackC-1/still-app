@@ -13,9 +13,6 @@ import type { Tab } from "./_session.js";
 const rootClass = (tab: Tab) =>
   tab.evaluate<string>("document.documentElement.className");
 
-export const stillIsActive = async (tab: Tab): Promise<boolean> =>
-  (await rootClass(tab)).includes("still-active");
-
 const CORE = {
   youtube: "youtube-shorts",
   instagram: "instagram-reels",
