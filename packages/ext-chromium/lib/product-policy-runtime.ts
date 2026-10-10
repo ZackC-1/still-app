@@ -43,6 +43,8 @@ import { backendRoutes, backendRouteEnvironmentMatches, type BackendRouteProfile
 //   * Offline, timed out, failed, missing, invalid, late or stale means Off. A cached On never
 //     authorizes: `freshCheck` never reads the ordinary cache.
 
+/** The public function path on the project origin. */
+export const PRODUCT_POLICY_PATH = "/functions/v1/product-policy";
 /** A fresh check that has not answered within this many milliseconds is Off. */
 export const PRODUCT_POLICY_TIMEOUT_MS = 5000;
 
