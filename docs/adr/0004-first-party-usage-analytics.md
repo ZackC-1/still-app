@@ -1,6 +1,7 @@
 # ADR-0004: First-party usage analytics, with no browsing data by construction
 
-Date: 2026-09-23 · Status: accepted (owner decision; ships with Still 2.1)
+Date: 2026-09-23 · Status: accepted (owner decision; ships with Still 2.1). Consent reaffirmed for V3
+by the owner on 2026-10-10; see [V3 consent](#v3-consent-2026-10-10).
 
 ## Context
 
@@ -33,8 +34,10 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
    `delete-user` deletes the PostHog person and events with the account.
 5. **Consent.** On by default with a one-time notice and a per-device "Share usage data" switch on
    Chrome and the Apple apps (the Safari extension follows the app's switch). Firefox allows usage
-   data only as the optional `technicalAndInteraction` permission, so it is off until granted.
-   Nothing is queued while off, and turning it off discards what was waiting.
+   data only as the optional `technicalAndInteraction` permission, which Firefox offers in its own
+   install prompt: sharing is on exactly while that permission is granted. Nothing is queued while
+   off, and turning it off discards what was waiting. V3 builds implement this through a per-device
+   permission record ([V3 consent](#v3-consent-2026-10-10)).
 6. **Never for advertising.** No data is shared with advertisers or brokers, so this is not
    "tracking" under Apple's definition and needs no App Tracking Transparency prompt.
 
@@ -81,8 +84,10 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   events only if it learns that nobody is signed in; if a different account is established first,
   those events can still be sent under the deleted account. Permanent storage loss is outside this
   guarantee.
-- Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
-  standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
+- Turning sharing off takes effect before any network call: the waiting queue is discarded. In 2.1,
+  one standalone `sharing_turned_off` attempt (bounded to a few seconds) was the only thing sent; V3
+  sends nothing at all when sharing is turned off (the closed schema has no such event), and records
+  `analytics_choice_made {choice: "share"}` when it is turned back on.
 - New accounts are counted by the server once per account, never inferred by a client.
 - Chrome and Firefox send `installed` and `setup_completed` at install, before the one-time notice
   is seen (owner decision, 2026-09-23): counting every install outweighs holding them, and the store
@@ -90,5 +95,51 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 - Consent is re-read before every request and fails closed; anything waiting is discarded when
   sharing turns out to be off, however it was switched off.
 - Store totals remain the source of truth for downloads; PostHog counts first opens.
+
+## V3 consent (2026-10-10)
+
+Owner decision, 2026-10-10: "By default I want people's analytics turned on. They can turn them off."
+This reaffirms decision 5 for V3 and replaces the V3 plan's per-device fresh opt-in (R8) for usage
+sharing. The privacy limits above are unchanged: the closed event schema, nothing from content
+scripts, no pages, videos or searches, no fingerprinting, never advertising.
+
+V3 builds (`VITE_MODERN_SETTINGS_SYNC_ENABLED=true` in the browsers; the D04 screens in the Apple
+app) behave as follows. `packages/core/src/analytics/default-on.ts` is the authority.
+
+- **Permission record.** Every send needs a granted per-device permission record whose version is
+  the SHA-256 of the default-on disclosure (`USAGE_DISCLOSURE`). Each record has its own private
+  origin, from which the provider ids are derived. The host passes `DEFAULT_ON_USAGE_POLICY`, which
+  claims no erasure or retention capability evidence: this decision promises none (switching off
+  stops collection and discards what waits; deleting the account deletes what was sent). The
+  capability-evidence gate remains for any other policy.
+- **Chrome.** The first read with no recorded choice grants the permission, so `installed` and
+  `setup_completed` are reported from install. The one-time notice ("Still shares usage data to
+  help improve the app. It never includes the sites or videos you visit.", Turn off / OK) and the
+  "Share usage data" row on the first-run and settings pages ("Helps improve Still. Never includes
+  the sites or videos you visit.") show it on and are the off path. Off stores a stopped record;
+  no later read grants again. The switch turns it back on under a new origin, so new ids: the
+  device then counts as a new anonymous person.
+- **Firefox.** Sharing follows the optional `technicalAndInteraction` data-collection permission.
+  Granted in Firefox's install prompt means on from install. The settings switch requests the
+  permission inside the tap (declined: stays off) or withdraws it. Withdrawing it in the add-on
+  manager ends the permission at the next read and discards what waits. There is no notice.
+- **Apple apps.** The app grants the permission in the App Group at its first launch with no
+  recorded choice, and shows the existing one-time notice and switch on the settings screen. While
+  sharing is off the switch stays visible, showing off.
+- **Safari extension.** Reads the app's record through the native handler's read-only
+  `analyticsPermission` lane and never grants, stops or writes one. Before the app has created the
+  record it reports nothing. When the app turns sharing off it stops sending at once; events that
+  were waiting in the extension are never sent and are discarded when sharing is next allowed.
+- **Upgrades from 2.1.** The 2.1 "on" value (or no value) counts as no choice, so sharing is on; a
+  2.1 "off" stays off.
+- **Turning sharing off** fences work in flight, discards the queue and sends nothing.
+- **Signed-in devices.** Per-device identities (owner decision 50) are not wired in any host yet,
+  so while an account is signed in on a device, that device's events wait unsent and unattributed.
+  Signed-out use is reported under the device's anonymous id.
+
+Builds without these flags (every 2.x store package) are byte-for-byte unchanged by this section.
+In current source those 2.x hosts supply no permission record, so a 2.x package rebuilt from this
+code would report nothing; the shipped 2.1.x packages predate that change and follow decision 5 as
+first built.
 
 See the plan: [2026-09-23 usage analytics](../plans/2026-09-23-001-feat-usage-analytics-plan.md).

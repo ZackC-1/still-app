@@ -23,7 +23,7 @@ import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
-import { buildChannelEnvelope, createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
+import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -96,7 +96,10 @@ let identifyOnServer: (() => Promise<void>) | undefined;
 // Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
 // the "Share usage data" switch; this owns the client. It waits for the native context and does
 // nothing outside the app or in a build without a PostHog key.
-const analytics = createAppAnalytics({
+// With the V3 screens (D04), usage sharing is on by default with the existing one-time notice and
+// switch, per ADR 0004; the Safari extension follows the App Group permission. Every 2.x build
+// folds appleSettingsMode to "legacy", so this choice folds to createAppAnalytics, byte-for-byte.
+const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics : createAppAnalytics)({
   bridge,
   config: {
     key: import.meta.env.VITE_POSTHOG_KEY,
