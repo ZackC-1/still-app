@@ -65,7 +65,7 @@ on:
           - DB-37
           - DB-38
       account:
-        description: "QA account label, for checks about one account (the first account for two-account checks)"
+        description: "QA account label, for checks about one account (the first account for two-account checks); preserved is not a QA alias and answers unavailable"
         required: true
         default: none
         type: choice

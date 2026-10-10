@@ -31,6 +31,9 @@ a write credential or any customer data. Runbook and programme mapping:
   SQL-editor install of the reviewed file (recommended during QA) or a later numbered migration.
 - **Extended protocol always.** postgres.js uses the simple (multi-statement) protocol for a
   query without parameters; the runner forces `simple: false` (found by the disposable test).
+- **Preserved QA account is optional (follow-up, 10 Oct).** It is an older account, not a `+stillqa`
+  alias, so the unchanged alias rule refuses it. The registry needs the eight aliases; `setup` and
+  DB-02 pass with eight and note it; checks naming it answer `unavailable`, not `fail`. No SQL change.
 - **DB-36 is not read-only** (fault injection and writes); it stays an engineering record.
 - **Security review (10 Oct) changes.** Registration and visibility are bound to the owner's
   `+stillqa-<name>` aliases through a mailbox digest (trigger plus read-time rule; no address

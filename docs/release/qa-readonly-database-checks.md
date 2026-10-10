@@ -20,7 +20,7 @@ command-line tool, never holds a write credential and **never approves a run**: 
 
 1. Claude starts the workflow from `main`, for example
    `gh workflow run supabase-readonly-checks.yml -f check=DB-07 -f account=web-chrome`.
-   Inputs are fixed choice lists: a programme id (or `setup`) and the nine labels below. No SQL,
+   Inputs are fixed choice lists: a programme id (or `setup`) and the labels below. No SQL,
    email or id can be typed in.
 2. GitHub holds the run until **the owner** approves it in the `supabase-readonly-checks`
    environment. Only then are the environment's secrets released to the job.
@@ -30,7 +30,7 @@ command-line tool, never holds a write credential and **never approves a run**: 
 4. The runner signs in as `still_qa_readonly_checker`, opens a read-only transaction, proves the
    session is the narrow role, runs the reviewed queries and rolls back.
 5. **The repository is public**, so Actions logs, summaries and artifacts are world-readable. The
-   log and summary show one line: `Read-only QA check DB-07: pass | fail | needs-review`. The full
+   log and summary show one line: `Read-only QA check DB-07: pass | fail | needs-review | unavailable`. The full
    report is encrypted with [age](https://github.com/FiloSottile/age) (v1.2.1, checksum pinned) to
    the repository variable `STILL_QA_READONLY_REPORT_PUBKEY` and uploaded as artifact
    `qa-report-<run id>` (kept 14 days). Only Claude's private key opens it.
@@ -39,12 +39,18 @@ command-line tool, never holds a write credential and **never approves a run**: 
    `gh run download <run id> -n qa-report-<run id> -D <private dir>` then
    `age --decrypt --identity <private key file> <private dir>/report.age`.
 
-`pass` and `fail` are decided only where the expectation is exact (route readiness, DB-02, DB-15,
+`unavailable` means the named account is the optional, unregistered Preserved account; nothing was
+read. `pass` and `fail` are decided only where the expectation is exact (route readiness, DB-02, DB-15,
 DB-31, DB-32, DB-33, DB-37, a changed production for DB-35); every other check is `needs-review`.
 
-QA account labels: `preserved` (Preserved QA account), `web-chrome`, `web-firefox`,
-`web-android`, `fresh` (QA-Fresh), `refund-web` (Refund test (web)), `qa-a`, `qa-b`, `delete`
-(QA-Delete).
+QA account labels: `web-chrome`, `web-firefox`, `web-android`, `fresh` (QA-Fresh), `refund-web`
+(Refund test (web)), `qa-a`, `qa-b`, `delete` (QA-Delete) are the eight owner QA aliases and must
+all be registered. `preserved` (Preserved QA account) is an older account, not a `+stillqa` alias,
+so the database refuses to register it; it is optional. A check run with `account=preserved`
+answers `unavailable: not registered` (not a failure), and `setup` and DB-02 pass with the eight
+aliases and note "preserved: not registered (not a QA alias)". For the programme steps that name
+the Preserved account (DB-03, DB-04), record the database check as not available through this
+route, or run the same check on another registered account that made the same change.
 
 ## Why it can only read, and only QA data
 
@@ -103,10 +109,11 @@ Owner steps (five):
    `node scripts/backend/qa-checks/owner-setup.mjs login --project-ref <ref> --pooler-host <session pooler host> --out <new private file>`.
    Paste its step 1 (a password verifier with a 60-day expiry, never the password) into the SQL
    editor. Keep the file for step 4.
-3. **Register the nine QA accounts.** Claude prepares the paste from the private QA account file
-   with `owner-setup.mjs registry` (digests only). Run block A first: it shows each label with a
-   masked address such as `z***+stillqa-refund@…` and `qa_alias = true`. Only if all nine look
-   right, run block B. It must report 9.
+3. **Register the QA accounts.** Claude prepares the paste from the private QA account file
+   with `owner-setup.mjs registry` (digests only). It needs the eight alias labels; it leaves the
+   Preserved account out with a note because it is not an alias. Run block A first: it shows each
+   label with a masked address such as `z***+stillqa-refund@…` and `qa_alias = true`. Only if every
+   row looks right, run block B. It reports the number it registered (normally 8).
 4. **GitHub settings.**
    - Settings → Environments → new environment `supabase-readonly-checks`: required reviewer = only
      you; "Prevent self-review" off (runs start under your account); "Allow administrators to
@@ -115,8 +122,8 @@ Owner steps (five):
    - Settings → Secrets and variables → Actions → Variables: `STILL_QA_READONLY_REPORT_PUBKEY` =
      the `age1…` public key from Claude. (Only if the connection reports an untrusted certificate:
      environment variable `STILL_QA_READONLY_CA_PEM` = the database's public CA certificate.)
-5. **Approve the first run.** Claude starts `setup`; approve it in GitHub. It passes when all nine
-   labels are registered, live QA aliases and (for the paid lane) sandbox members. Then run DB-01
+5. **Approve the first run.** Claude starts `setup`; approve it in GitHub. It passes when the eight
+   alias labels are registered, live QA aliases and (for the paid lane) sandbox members. Then run DB-01
    before any testing so the production baseline exists.
 
 ## If the credential may have leaked, and routine hygiene
@@ -144,9 +151,9 @@ and replace the secret. Even a leaked credential can only read the QA-scoped vie
 | --- | --- | --- | --- |
 | DB-01 | `baseline` | none | Migration tail, QA members, sandbox policy heads and cutoff; records the keyed production baseline. Run before testing. |
 | DB-35 | `baseline-recheck` | none | Same facts plus "production unchanged since baseline". |
-| DB-02 | `account-identity` | none | All nine labels in one run: present, confirmed, banned, deleted, membership, in scope. |
-| DB-03, DB-28 | `settings-write` | account | Version, server time, switches, last write logged, anchor, write log. |
-| DB-04 | `settings-merge` | account | Switches plus per-field clocks. |
+| DB-02 | `account-identity` | none | All registered labels in one run (the eight aliases): present, confirmed, banned, deleted, membership, in scope. Preserved is noted as not registered. |
+| DB-03, DB-28 | `settings-write` | account | Version, server time, switches, last write logged, anchor, write log. DB-03's Preserved account answers `unavailable`. |
+| DB-04 | `settings-merge` | account | Switches plus per-field clocks. Preserved answers `unavailable`. |
 | DB-05 | `first-sign-in` | account | Profile/entitlement/right counts and schema version. |
 | DB-06 | `settings-isolation` | account, account_b | Document fingerprints and distinct count. |
 | DB-07, DB-10, DB-38 | `checkout-started` | account | Operations (test-mode session shown as yes/no) and open count. |
