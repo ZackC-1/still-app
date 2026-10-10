@@ -9,6 +9,7 @@ import type { RateLimiter } from "../_shared/rate-limit.ts";
 import type { EntitlementStore } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 import type { AccessRightStore, AccessSigner, CommittedAccess } from "../_shared/access-issuer.ts";
+import { HttpRevenueCatAccessClient } from "../_shared/revenuecat-access.ts";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long!!";
 const EXPECTED = TEST_EXPECTED_CLAIMS;
@@ -450,4 +451,31 @@ Deno.test("real linked-Apple refresher plus handler returns committed refund aft
       apple: new VerifiedAppleAccountRefresher(appleStore, verifier) } });
   assertEquals((await response.json()).access, { status: "unavailable", environment: "sandbox", proofs: [], revocations, issuer_time: 2000 });
   assertEquals(calls.some(call => call.startsWith("commit:")), false); assertEquals(calls.includes("sign"), false);
+});
+
+Deno.test("production scoped route: RevenueCat customer-missing 404 is verified-none for the JWT subject only", async () => {
+  const realFetch = globalThis.fetch;
+  const run = async (body: string | null, option: Parameters<typeof scopedAccess>[0] = { none: true }) => {
+    const urls: unknown[] = [];
+    globalThis.fetch = ((input: unknown) => { urls.push(input); return Promise.resolve(new Response(body, { status: 404 })); }) as typeof fetch;
+    const { store } = mockStore(); const { access, calls } = scopedAccess(option); const jwt = await mintHs256({ sub: A }, SECRET);
+    const provider = new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [{ product_id: "prod-current", app_id: "app-still",
+      store_identifier: "still_pro_v3", entitlement_lookup_key: "still_pro_v3", store: "rc_billing" }]);
+    const res = await handleReconcile(req(jwt, { access_schema: 1 }), { jwtSecret: SECRET, expected: EXPECTED, store,
+      rc: mockRc({}), limiter: allowAll, access: { ...access, provider } });
+    return { data: await res.json(), urls, calls };
+  };
+  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Customer not found", retryable: false });
+  try {
+    const none = await run(missing);
+    assertEquals(none.data.access.status, "none"); assertEquals(none.data.access.proofs, []);
+    assertEquals(none.urls, [`https://api.revenuecat.com/v2/projects/proj-still/customers/${A}/purchases?environment=sandbox&limit=100`]);
+    assertEquals(none.calls, [`begin:${A}:sandbox`, `commit:${A}:sandbox`, "confirm"]);
+    for (const body of [null, "", "{}", JSON.stringify({ type: "resource_missing", retryable: true }),
+      JSON.stringify({ type: "resource_missing", message: "Project not found" })]) {
+      assertEquals((await run(body)).data.access.status, "unavailable", String(body));
+    }
+    // The final account fence still gates the absence answer.
+    assertEquals((await run(missing, { none: true, finalFence: false })).data.access.status, "unavailable");
+  } finally { globalThis.fetch = realFetch; }
 });

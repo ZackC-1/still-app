@@ -66,6 +66,31 @@ export function stripeMappingsBoundTo(mappings: readonly AccessProductMapping[] 
   return mappings?.every(mapping => mapping.store !== "stripe" || mapping.store_identifier === priceId) ? mappings : null;
 }
 
+/** RevenueCat v2's documented "customer not found": HTTP 404 whose error body has type
+ * resource_missing (https://www.revenuecat.com/docs/api-v2#tag/Error-Handling). The request path is
+ * built here from the fixed server project and the authenticated holder, and redirects are refused,
+ * so the 404 can only be about this project's customer list for this account. RevenueCat documents
+ * one resource_missing type for every missing ID, so the body cannot positively prove which ID was
+ * missing; a body that names anything other than the customer (a `param` other than customer_id, or
+ * a message mentioning the project) is refused. Residual risk: a misconfigured project ID that
+ * RevenueCat answers with an indistinguishable resource_missing body would read as verified-none
+ * for accounts with no recorded rights. That never grants or revokes anything (the reconciler only
+ * answers "none" when the account's rights ledger is empty). The project ID is fixed server
+ * configuration (a staged secret), never request input, and a wrong one already fails every
+ * buyer's positive read, so it surfaces in the first purchase/restore test. */
+async function customerNotFound(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  let body: unknown;
+  try { body = await response.json(); } catch { return false; }
+  if (!object(body) || body.type !== "resource_missing") return false;
+  if (body.object !== undefined && body.object !== "error") return false;
+  if (body.retryable === true) return false;
+  if (body.param !== undefined && body.param !== null && body.param !== "customer_id") return false;
+  if (body.message !== undefined && body.message !== null &&
+      (typeof body.message !== "string" || /project/i.test(body.message))) return false;
+  return true;
+}
+
 /** Unlike the legacy Boolean/V1 subscriber response, V2 purchases expose current owned/refunded
  * status, project/app/product mapping, environment, transaction identity and canonical revenue.
  * Only positive genuine payment is classified as paid; zero/unknown amount is recovery-required.
@@ -93,8 +118,16 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
         const response = await fetch(`https://api.revenuecat.com${next}`, {
           headers: { Authorization: `Bearer ${this.secret}` }, signal, redirect: "error",
         });
-        // 404/unknown account is ambiguous; only a successful complete list proves absence.
-        if (!response.ok) return unavailable;
+        // Owner decision 2026-10-10: RevenueCat creates a customer only when it first records an
+        // event for that App User ID, so an account that never bought answers its purchases list
+        // with 404 resource_missing ("customer not found"). On the FIRST page only, that exact
+        // answer is a complete, empty list (verified-none, so clients may offer Buy). No customer
+        // is created. Every other non-OK answer — another 404 type, an empty or malformed body, a
+        // retryable error, 403/429/5xx, or a 404 on a later page — stays unavailable.
+        if (!response.ok) {
+          if (page === 0 && await customerNotFound(response)) return { status: "verified", rights: [], complete: true };
+          return unavailable;
+        }
         const list: unknown = await response.json();
         if (!object(list) || list.object !== "list" || !Array.isArray(list.items) || list.items.length > 100 ||
             !(list.next_page === null || typeof list.next_page === "string")) return unavailable;
