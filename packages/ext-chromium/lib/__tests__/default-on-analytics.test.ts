@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { CONSENT_KEY, QUEUE_KEY, USAGE_PERMISSION_VERSION, readAnalyticsPermission, type AnalyticsKeyValue } from "@still/core/analytics";
+import {
+  CONSENT_KEY,
+  NOTICE_KEY,
+  NOTICE_VERSION_KEY,
+  QUEUE_KEY,
+  USAGE_PERMISSION_VERSION,
+  readAnalyticsPermission,
+  type AnalyticsKeyValue,
+} from "@still/core/analytics";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, type BackgroundAnalyticsDeps } from "../analytics.js";
 import { createDefaultOnBackgroundAnalytics } from "../default-on-analytics.js";
 
@@ -19,7 +27,15 @@ function memory(initial: Record<string, unknown> = {}): AnalyticsKeyValue & { da
 
 type Factory = typeof createDefaultOnBackgroundAnalytics;
 
-function setup(factory: Factory, over: { isFirefox?: boolean; granted?: boolean; local?: ReturnType<typeof memory> } = {}) {
+function setup(
+  factory: Factory,
+  over: {
+    isFirefox?: boolean;
+    granted?: boolean;
+    local?: ReturnType<typeof memory>;
+    issueSubject?: BackgroundAnalyticsDeps["issueSubject"];
+  } = {},
+) {
   const local = over.local ?? memory();
   const browser = { granted: over.granted ?? false, revoked: 0 };
   let n = 0;
@@ -40,6 +56,7 @@ function setup(factory: Factory, over: { isFirefox?: boolean; granted?: boolean;
     },
     fetch: fetch as unknown as typeof globalThis.fetch,
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+    issueSubject: over.issueSubject,
   };
   const bg = factory(deps, RUNTIME_ID, ORIGIN);
   const send = (message: Record<string, unknown>) =>
@@ -54,7 +71,8 @@ function setup(factory: Factory, over: { isFirefox?: boolean; granted?: boolean;
     });
   const permission = () => readAnalyticsPermission(local.data[CONSENT_KEY]);
   const settle = () => new Promise((r) => setTimeout(r, 0));
-  return { bg, local, browser, fetch, send, queue, sent, permission, settle };
+  const bodies = () => fetch.mock.calls.map((call) => String((call[1] as RequestInit).body)).join("\n");
+  return { bg, local, browser, fetch, send, queue, sent, bodies, permission, settle };
 }
 
 /** A fresh install as the background runs it: the start hands over its account read (still
@@ -138,7 +156,7 @@ describe("V3 Chrome: on by default, with the one-time notice and a working switc
     expect(await t.send({ action: "sharing" })).toMatchObject({ enabled: true });
   });
 
-  it("while signed in, events wait unsent: per-device identities are not wired (owner decision 50)", async () => {
+  it("while signed in without a per-device identity (no issuer in this build), events wait unsent", async () => {
     const t = setup(createDefaultOnBackgroundAnalytics);
     t.bg.onStart("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     await t.settle();
@@ -196,5 +214,96 @@ describe("V3 Firefox: follows the optional technicalAndInteraction permission", 
     expect(t.fetch).not.toHaveBeenCalled();
     expect(t.queue()).toEqual([]);
     expect(t.permission()?.state).toBe("stopped");
+  });
+});
+
+describe("V3 Chrome: install timing", () => {
+  it("counts the install when the start's account read is slow", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    let answer!: (account: string | null) => void;
+    t.bg.onStart(new Promise<string | null>((resolve) => (answer = resolve)));
+    t.bg.onInstalled({ reason: "install" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.queue()).toEqual([]); // not observed yet: waiting for the read
+    answer(null);
+    for (let i = 0; i < 5; i++) await t.settle();
+    await t.bg.flushWhenReady();
+    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
+  });
+
+  it("a background stopped while the install waits records and sends nothing", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    let answer!: (account: string | null) => void;
+    t.bg.onStart(new Promise<string | null>((resolve) => (answer = resolve)));
+    t.bg.onInstalled({ reason: "install" });
+    t.bg.stop();
+    answer(null);
+    for (let i = 0; i < 5; i++) await t.settle();
+    expect(t.queue()).toEqual([]);
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("V3 Chrome: the notice follows the disclosure version", () => {
+  it("a 2.1 upgrader who acknowledged the 2.1 notice sees it again; acknowledging records this version", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { local: memory({ [CONSENT_KEY]: true, [NOTICE_KEY]: true }) });
+    await install(t);
+    expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: true });
+    await t.send({ action: "acknowledgeNotice" });
+    expect(t.local.data[NOTICE_VERSION_KEY]).toBe(USAGE_PERMISSION_VERSION);
+    expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: false });
+  });
+});
+
+describe("V3 signed-in devices report under their own identity (owner decision 50)", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const OPEN = { action: "track", name: "opened", props: { where: "options" } };
+
+  it("a Still screen asks the server with only the origin proof; use is sent under the subject", async () => {
+    const issueSubject = vi.fn(async (_body: { originProof: string }, _signal: AbortSignal, _account: string) => ({
+      state: "active",
+      subject: SUBJECT,
+    }));
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject });
+    t.bg.onStart(ACCOUNT); // a background start never calls the server
+    for (let i = 0; i < 3; i++) await t.settle();
+    expect(issueSubject).not.toHaveBeenCalled();
+    await t.send(OPEN); // an ordinary Still screen
+    for (let i = 0; i < 3; i++) await t.settle();
+    await t.bg.client.flush();
+    expect(issueSubject).toHaveBeenCalledTimes(1);
+    const [body, , account] = issueSubject.mock.calls[0]!;
+    expect(Object.keys(body)).toEqual(["originProof"]);
+    expect(account).toBe(ACCOUNT);
+    expect(t.sent()).toEqual(expect.arrayContaining(["opened"]));
+    expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+  });
+
+  it("while the server's switch is off (503), signed-in use waits on the device", async () => {
+    const issueSubject = vi.fn(async () => {
+      throw new Error("503 unavailable");
+    });
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject });
+    t.bg.onStart(ACCOUNT);
+    await t.settle();
+    await t.send(OPEN);
+    for (let i = 0; i < 3; i++) await t.settle();
+    await t.bg.client.flush();
+    expect(issueSubject).toHaveBeenCalled();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
+  });
+
+  it("a server stop ends sharing on this device", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: async () => ({ state: "stopped" }) });
+    t.bg.onStart(ACCOUNT);
+    await t.settle();
+    await t.send(OPEN);
+    for (let i = 0; i < 3; i++) await t.settle();
+    expect(t.permission()?.state).toBe("stopped");
+    expect(await t.send({ action: "sharing" })).toMatchObject({ enabled: false });
+    expect(t.fetch).not.toHaveBeenCalled();
   });
 });

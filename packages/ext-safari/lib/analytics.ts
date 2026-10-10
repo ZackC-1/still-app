@@ -52,7 +52,7 @@ export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
 
 export interface SafariAnalyticsDeps extends Pick<
   ExtensionAnalyticsHostDeps,
-  "permission" | "privacyPolicy" | "envelope"
+  "permission" | "privacyPolicy" | "envelope" | "subjects"
 > {
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
@@ -196,6 +196,13 @@ export function createSafariBackgroundAnalytics(
       };
     },
     noticeApplies: false,
+    // V3 builds: signed-in use reports under the device's identity the app was issued (owner
+    // decision 50; lib/default-on-analytics.ts). The inline build-time check folds this away in
+    // every 2.x build, byte-for-byte.
+    ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" ||
+    import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true"
+      ? { subjects: deps.subjects }
+      : {}),
     isTrustedPage: deps.isTrustedPage,
     requestQuietFlush: deps.requestQuietFlush,
     fetch: deps.fetch,

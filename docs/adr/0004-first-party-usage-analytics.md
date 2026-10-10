@@ -116,26 +116,44 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   `setup_completed` are reported from install. The one-time notice ("Still shares usage data to
   help improve the app. It never includes the sites or videos you visit.", Turn off / OK) and the
   "Share usage data" row on the first-run and settings pages ("Helps improve Still. Never includes
-  the sites or videos you visit.") show it on and are the off path. Off stores a stopped record;
+  the sites or videos you visit.") show it on and are the off path. The notice is versioned by the
+  disclosure: a device that acknowledged an earlier notice (including the 2.1 notice) sees it again
+  when the disclosure changes, with sharing still on. Off stores a stopped record;
   no later read grants again. The switch turns it back on under a new origin, so new ids: the
   device then counts as a new anonymous person.
 - **Firefox.** Sharing follows the optional `technicalAndInteraction` data-collection permission.
   Granted in Firefox's install prompt means on from install. The settings switch requests the
-  permission inside the tap (declined: stays off) or withdraws it. Withdrawing it in the add-on
+  permission inside the tap (declined: stays off) or withdraws it. If Firefox refuses or fails to
+  withdraw it, Still's own off is kept by a durable "stopped by Still" mark until the switch turns
+  sharing back on (or Firefox reports the permission withdrawn). Withdrawing it in the add-on
   manager ends the permission at the next read and discards what waits. There is no notice.
 - **Apple apps.** The app grants the permission in the App Group at its first launch with no
-  recorded choice, and shows the existing one-time notice and switch on the settings screen. While
-  sharing is off the switch stays visible, showing off.
+  recorded choice, and shows the existing one-time notice (versioned as above) and switch on the
+  settings screen. While sharing is off the switch stays visible, showing off; when the state cannot
+  be read the switch is hidden. An off that the App Group does not take is reported as a failure, so
+  the switch keeps showing on rather than claiming an off the Safari extension would not follow.
 - **Safari extension.** Reads the app's record through the native handler's read-only
   `analyticsPermission` lane and never grants, stops or writes one. Before the app has created the
   record it reports nothing. When the app turns sharing off it stops sending at once; events that
   were waiting in the extension are never sent and are discarded when sharing is next allowed.
-- **Upgrades from 2.1.** The 2.1 "on" value (or no value) counts as no choice, so sharing is on; a
-  2.1 "off" stays off.
+- **Upgrades from 2.1.** The 2.1 "on" value (or no value) counts as no choice, so sharing is on,
+  and the notice is shown again because the disclosure changed; a 2.1 "off" stays off. The
+  permission's ids are new, so the device's 2.1 person and its V3 person are different people in
+  PostHog (a person split at upgrade).
 - **Turning sharing off** fences work in flight, discards the queue and sends nothing.
-- **Signed-in devices.** Per-device identities (owner decision 50) are not wired in any host yet,
-  so while an account is signed in on a device, that device's events wait unsent and unattributed.
-  Signed-out use is reported under the device's anonymous id.
+- **Signed-in devices (owner decision 50, 2026-10-10: finish it).** A signed-in device reports under
+  its own identity: from an ordinary Still screen (never a background start) it sends
+  `analytics-identify` only the origin proof (a one-way hash of its private permission origin), with
+  that account's own session. The server issues or returns the device's random subject (never the
+  account id) and attaches the account's email to it on the server. The client never sends the
+  account id or the email to PostHog. Deleting the account records every subject of the account for deletion
+  (`delete-user`, migrations 0017/0018), and the scheduled `analytics-erasure` worker deletes those
+  persons and their events from PostHog; the worker must be scheduled before the switch is turned on. The Apple app publishes its subject to the App Group, and the Safari
+  extension reports under it only for the same account and permission; it never calls the server.
+  Until the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on, the server answers 503 and a signed-in
+  device's events wait on the device, bound to the account (dropped if it signs out, sent once it has
+  its identity, never older than 30 days). Signed-out use is reported under the device's anonymous
+  id.
 
 Builds without these flags (every 2.x store package) are byte-for-byte unchanged by this section.
 In current source those 2.x hosts supply no permission record, so a 2.x package rebuilt from this

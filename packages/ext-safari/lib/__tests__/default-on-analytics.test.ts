@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { originProof } from "../../../core/src/analytics/derive.js";
 import {
   ANALYTICS_MESSAGE_KIND,
   CONSENT_KEY,
@@ -18,6 +19,7 @@ vi.mock("../../../core/src/analytics/build-basis.js", () => ({ USAGE_ON_BY_DEFAU
 const backgrounds: ReturnType<typeof createSafariBackgroundAnalytics>[] = [];
 afterEach(() => {
   for (const bg of backgrounds.splice(0)) bg.stop();
+  vi.unstubAllEnvs();
 });
 
 const PAGE = { id: "ext", url: "safari-web-extension://ext/popup.html" };
@@ -28,11 +30,13 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]) ?? null, set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(options: { lane?: boolean; defaultOn?: boolean } = {}) {
+function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string | null } = {}) {
   // The app's side of the App Group: its own default-on authority over the shared slot.
   const appGroup = memory();
   const app = createDefaultOnUsage({ store: appGroup });
   const local = memory();
+  /** What the app published to the App Group for its signed-in account (setAnalyticsSubject). */
+  const appGroupSubject: { value: unknown } = { value: null };
   const fetch = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
   const sendNative = vi.fn(async (message: Record<string, unknown>): Promise<unknown> => {
     if (message.kind === "analyticsPermission")
@@ -47,7 +51,20 @@ function setup(options: { lane?: boolean; defaultOn?: boolean } = {}) {
           device: "phone",
         },
       };
-    if (message.kind === "getAccountSyncStatus") return { accountSyncStatus: null };
+    if (message.kind === "analyticsSubject") return { analyticsSubject: appGroupSubject.value };
+    if (message.kind === "getAccountSyncStatus")
+      return options.account
+        ? {
+            accountSyncStatus: JSON.stringify({
+              accountId: options.account,
+              email: null,
+              lastSyncedAt: null,
+              pendingUpload: false,
+              cloudReachable: true,
+              updatedAt: 1,
+            }),
+          }
+        : { accountSyncStatus: null };
     return null;
   });
   let n = 0;
@@ -83,7 +100,8 @@ function setup(options: { lane?: boolean; defaultOn?: boolean } = {}) {
     await settle();
     await settle();
   };
-  return { app, appGroup, bg, fetch, sendNative, send, sent, queue, settle, use };
+  const bodies = () => fetch.mock.calls.map((call) => String((call[1] as RequestInit).body)).join("\n");
+  return { app, appGroup, appGroupSubject, bg, fetch, sendNative, send, sent, bodies, queue, settle, use };
 }
 
 describe("root cause: the 2.x Safari wiring supplies no permission or policy", () => {
@@ -139,5 +157,50 @@ describe("V3 Safari extension: follows the Apple app's default-on permission", (
     await t.app.permission();
     await t.use();
     expect(t.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("V3 Safari extension, signed in: the same per-device identity as the app (owner decision 50)", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  // The subject lane is compiled into V3 builds only (an inline build-time check in lib/analytics.ts).
+  const v3 = () => vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+
+  it("reports under the identity the app published, never as the account, and never calls the server", async () => {
+    v3();
+    const t = setup({ account: ACCOUNT });
+    const permission = (await t.app.permission())!;
+    t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await t.use();
+    expect(t.sent()).toEqual(expect.arrayContaining(["opened"]));
+    expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.sendNative.mock.calls.map(([m]) => m.kind)).toContain("analyticsSubject");
+  });
+
+  it("waits while the app has no identity for this account under this permission", async () => {
+    v3();
+    for (const published of [
+      null,
+      { account: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", originProof: "0".repeat(64), subject: SUBJECT }, // another account
+      { account: ACCOUNT, originProof: "0".repeat(64), subject: SUBJECT }, // an earlier permission
+    ]) {
+      const t = setup({ account: ACCOUNT });
+      await t.app.permission();
+      t.appGroupSubject.value = published;
+      await t.use();
+      expect(t.fetch).not.toHaveBeenCalled();
+      expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
+    }
+  });
+
+  it("a 2.x build never reads the identity lane", async () => {
+    const t = setup({ account: ACCOUNT });
+    const permission = (await t.app.permission())!;
+    t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await t.use();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.sendNative.mock.calls.map(([m]) => m.kind)).not.toContain("analyticsSubject");
   });
 });
