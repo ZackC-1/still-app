@@ -210,5 +210,3 @@ export async function reinstall(firefox: StillFirefox): Promise<void> {
 
 export const NEEDS_BACKEND =
   "Needs the QA-P7 local backend recipe (sign-in, sync); enable when that lands";
-export const FIREFOX_ONLY_BUILD =
-  "The Firefox lane runs the unconfigured V3 build (StillFirefox.start refuses a build with a server compiled in)";
