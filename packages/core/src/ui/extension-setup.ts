@@ -181,7 +181,16 @@ export function createExtensionUiController(
     void purchase
       .getState()
       .then((state) => {
-        if (controller.accountRevision !== revision) return;
+        // An account change while this read was in flight makes its answer stale. On a committed
+        // paid page, the account-status watcher's first sighting of the SAME account is not one:
+        // that read is local session metadata while this one asks the server, so it usually lands
+        // first and bumps the revision, which silently skipped the page-open re-check below (R4).
+        // Folds away with the paid tier off.
+        if (
+          controller.accountRevision !== revision &&
+          !(PAID_TIER_ENABLED && controller.recheckAccess && state.userId !== null && state.userId === controller.userId)
+        )
+          return;
         if (!purchase.readAccountStatus) controller.userId = state.userId;
         // Rehydrate the cross-popup-death flows (the popup dies on every focus loss — rehydration
         // is the design): a pending OTP lands straight on code entry (AE2), a pending checkout on

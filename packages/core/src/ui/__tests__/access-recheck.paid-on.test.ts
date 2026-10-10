@@ -18,7 +18,15 @@ function access(state: AccessState): BenefitAccessSnapshot {
     [id, FEATURE_REGISTRY.some(row => row.id === id && row.tier === "pro") ? state : prior])) as BenefitAccessSnapshot["states"] };
 }
 
-async function page(options: { userId?: string | null; committed?: boolean; pending?: { startedAt?: number; tabId?: number } | null } = {}) {
+async function page(options: {
+  userId?: string | null;
+  committed?: boolean;
+  pending?: { startedAt?: number; tabId?: number } | null;
+  /** The page's account-status read (getSyncStatus): the account it reports, answered at once. */
+  status?: string | null;
+  /** Holds the background's getState answer until opened. */
+  stateGate?: Promise<void>;
+} = {}) {
   const f = await browser();
   const events: string[] = [];
   let snapshot = access("verification_required");
@@ -40,7 +48,15 @@ async function page(options: { userId?: string | null; committed?: boolean; pend
   });
   const deps = {
     ...p.deps,
-    getState: async () => ({ userId: options.userId === undefined ? "synthetic-account" : options.userId, entitled: false, pendingOtp: null, checkoutPending: options.pending ?? null }),
+    getState: async () => {
+      if (options.stateGate) await options.stateGate;
+      return { userId: options.userId === undefined ? "synthetic-account" : options.userId, entitled: false, pendingOtp: null, checkoutPending: options.pending ?? null };
+    },
+    ...(options.status === undefined ? {} : {
+      readAccountStatus: async () => options.status == null ? null : {
+        accountId: options.status, email: null, lastSyncedAt: null, pendingUpload: false, cloudReachable: true, updatedAt: 0,
+      },
+    }),
     checkout: { ...p.deps.checkout, reconcile, setPending },
   };
   let binding: { current(): { access: BenefitAccessSnapshot }; stop(): void } | undefined;
@@ -99,6 +115,40 @@ describe("committed paid page access re-check", () => {
     const h = await page({ committed: false, pending: { startedAt: Date.now() - 60_000 } });
     await vi.waitFor(() => expect(h.controller.paywallOpen).toBe(true));
     expect(h.controller.checkoutFlow).toBe("checking");
+  });
+
+  // The account-status read is local (session metadata) while getState verifies the session over
+  // the network, so the page usually learns its account first. That first observation is not an
+  // account change, and must not cancel the page-open re-check.
+  it("re-checks once on open when the account-status read lands before the background's state", async () => {
+    const g = gate();
+    const h = await page({ status: "synthetic-account", stateGate: g.promise });
+    await vi.waitFor(() => expect(h.controller.userId).toBe("synthetic-account"));
+    expect(h.reconcile).not.toHaveBeenCalled();
+    g.open();
+    await vi.waitFor(() => expect(h.binding().current().access.states["youtube.comments"]).toBe("locked"));
+    await flush(); await flush();
+    expect(h.reconcile).toHaveBeenCalledOnce();
+  });
+
+  it("re-checks once on open when the background's state lands first", async () => {
+    const h = await page({ status: "synthetic-account" });
+    await vi.waitFor(() => expect(h.reconcile).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.controller.userId).toBe("synthetic-account"));
+    await flush(); await flush();
+    expect(h.reconcile).toHaveBeenCalledOnce();
+  });
+
+  it("drops the open re-check when the account changed before the background answered", async () => {
+    for (const status of ["another-account", null]) {
+      const g = gate();
+      const h = await page({ status, stateGate: g.promise });
+      // Signed in elsewhere first (the observed account differs from the one getState reports).
+      h.controller.accountRevision++;
+      g.open();
+      await flush(); await flush(); await flush();
+      expect(h.reconcile).not.toHaveBeenCalled();
+    }
   });
 
   it("signed out at open, nothing reconciles", async () => {
