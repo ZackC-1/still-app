@@ -64,11 +64,13 @@ export interface CheckoutAvailabilityChrome {
  * so the card never offers a checkout that createCheckout would refuse for policy. Without a sales
  * allowance (every non-QA route) nothing is registered and the card's question reads "no".
  *
- * It also ends the checkout-pending record when the session finishes a managed checkout. The
- * settings card records its checkout tab there, so sign-out or an account switch closes the tab and
- * supported-site visits reconcile until the purchase lands. A confirmed purchase already clears
- * the record; a checkout that finished unpaid (the session clears its stored operation on any
- * terminal completion) must not keep supported-site visits reconciling for nothing.
+ * It also ends the checkout-pending record when a managed checkout finished without a purchase.
+ * The settings card records its checkout tab there, so sign-out or an account switch closes the tab
+ * and supported-site visits reconcile until the purchase lands. A confirmed purchase already clears
+ * the record (after the entitlement write). A finished checkout is seen as the session clearing its
+ * stored operation (any terminal completion: unpaid, refunded or access observed). The record is
+ * ended only when the reconcile that follows writes a definitive "not entitled" answer. If that
+ * read fails after a payment, the record stays and visits keep reconciling until it lands.
  *
  * Call it in the worker's first synchronous pass, where createExtensionSession is called today.
  */
@@ -79,16 +81,29 @@ export function createSessionWithCheckoutAvailability(
 ): ExtensionSession {
   const operation = deps.stores.checkoutOperation;
   const pending = deps.stores.checkoutPending;
+  const records = deps.records;
+  // The session cleared its stored checkout operation and no new checkout has started since.
+  let finished = false;
   const session = create(operation ? {
     ...deps,
+    records: {
+      getRecord: (sessionUserId?: string) => records.getRecord(sessionUserId),
+      setRecord: async (record) => {
+        await records.setRecord(record);
+        if (finished && record.entitled === false) {
+          finished = false;
+          // Best effort: a failed clear only means one more reconcile on a later visit.
+          await pending.set(null).catch(() => {});
+        }
+      },
+    },
     stores: {
       ...deps.stores,
       checkoutOperation: {
         get: () => operation.get(),
         set: async (value) => {
           await operation.set(value);
-          // Best effort: a failed clear only means one more reconcile on a later visit.
-          if (value === null) await pending.set(null).catch(() => {});
+          finished = value === null;
         },
       },
     },

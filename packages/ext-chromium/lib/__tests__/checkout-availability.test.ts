@@ -88,7 +88,7 @@ const OPERATION = "11111111-1111-4111-8111-111111111111";
 
 /** The real session over the real sandbox backend port; only the network, storage and browser
  * edges are synthetic (the same harness shape as core's sandbox checkout recovery suite). */
-function realSession(options: { completion?: string; fresh?: boolean } = {}) {
+function realSession(options: { completion?: string; fresh?: boolean; read?: "entitled" | "not-entitled" | "unknown" } = {}) {
   let identity: { userId: string; sessionId: string } | null = { userId: ACCOUNT_A, sessionId: "session-a" };
   const { host } = chromeHost();
   const invoke = vi.fn(async (name: string) => ({
@@ -97,6 +97,10 @@ function realSession(options: { completion?: string; fresh?: boolean } = {}) {
     error: null as unknown,
   }));
   const backend = new SupabaseBackendPort({ functions: { invoke } } as unknown as SupabaseClient, { routeProfile: "shared-hosted-sandbox" });
+  // As background.ts does: the scoped reconciler answers the entitlement read.
+  const read = vi.fn(async () => options.read ?? "not-entitled");
+  backend.reconcileEntitlementChecked = async () => "ok";
+  backend.readEntitlement = read;
   const records = {
     getRecord: vi.fn(async () => (options.fresh ? { entitled: false, userId: ACCOUNT_A, updatedAt: Date.now() } : null)),
     setRecord: vi.fn(async () => {}),
@@ -118,7 +122,7 @@ function realSession(options: { completion?: string; fresh?: boolean } = {}) {
     identity: { get: async () => ACCOUNT_A, set: async () => {} }, closeTab,
     clearAuthStorage: async () => { identity = null; },
   }, host);
-  return { session, stores, closeTab, invoke, replace(next: typeof identity) { identity = next; } };
+  return { session, stores, closeTab, invoke, records, read, replace(next: typeof identity) { identity = next; } };
 }
 
 /** What the settings card does on Buy, through the same session actions its messages reach. */
@@ -153,13 +157,40 @@ describe("a settings-page checkout in the real session", () => {
     expect(await h.session.onNudge()).toBe("reconciled");
   });
 
-  it("a checkout that finished unpaid ends the pending record, so visits stop reconciling", async () => {
-    const h = realSession({ fresh: true, completion: "closed_unpaid" });
+  it.each(["closed_unpaid", "refunded"])("a checkout that finished %s ends the pending record, so visits stop reconciling", async (completion) => {
+    const h = realSession({ fresh: true, completion });
     await settingsBuy(h);
-    await h.session.reconcile();
+    expect(await h.session.reconcile()).toBe("not-entitled");
     expect(h.stores.checkoutOperation.value).toBeNull();
     expect(h.stores.checkoutPending.value).toBeNull();
     expect(await h.session.onNudge()).toBe("no-op");
+  });
+
+  it("paid but the entitlement read failed: the record stays, and visits keep reconciling", async () => {
+    const h = realSession({ fresh: true, completion: "access_observed", read: "unknown" });
+    await settingsBuy(h);
+    expect(await h.session.reconcile()).toBe("unknown");
+    expect(h.stores.checkoutOperation.value).toBeNull();
+    expect(h.stores.checkoutPending.value).toEqual({ startedAt: 1, tabId: 41 });
+    expect(await h.session.onNudge()).toBe("reconciled");
+  });
+
+  it("paid and confirmed: the record ends after the entitlement write, as before", async () => {
+    const h = realSession({ fresh: true, completion: "access_observed", read: "entitled" });
+    await settingsBuy(h);
+    expect(await h.session.reconcile()).toBe("entitled");
+    expect(h.records.setRecord).toHaveBeenCalledWith(expect.objectContaining({ entitled: true, userId: ACCOUNT_A }));
+    expect(h.stores.checkoutPending.value).toBeNull();
+  });
+
+  it("a sign-out purge does not end the next account's checkout record early", async () => {
+    const h = realSession({ fresh: true });
+    await settingsBuy(h);
+    await h.session.signOut(); // clears the operation and the record
+    h.replace({ userId: ACCOUNT_A, sessionId: "session-a2" });
+    await settingsBuy(h);
+    expect(await h.session.reconcile()).toBe("not-entitled"); // checkout still open
+    expect(h.stores.checkoutPending.value).toEqual({ startedAt: 1, tabId: 41 });
   });
 
   it("starting another checkout does not end an existing pending record", async () => {
