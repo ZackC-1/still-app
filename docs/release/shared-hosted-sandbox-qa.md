@@ -176,7 +176,10 @@ catalog/configuration drift. Designated QA accounts' own free-settings writes ar
 ## Disable and recover
 
 Disable new initiation and account grants first. Retain paid operation, transaction and revocation
-records; continue only reviewed recovery/refund work whose authority remains safe. Unsafe signing
+records; continue only reviewed recovery/refund work whose authority remains safe. Deleting a QA
+account keeps its checkout operations with the account id cleared and deactivates its web rights
+once migration 0022 is applied; before that, deletion removes the account's checkout operations
+and leaves a paid right detached but active. Unsafe signing
 authority requires unavailable responses, with existing bounded proof expiry recorded explicitly.
 
 Restore only QA bundles changed by the packet. If the live RPC wrapper change regresses, use the

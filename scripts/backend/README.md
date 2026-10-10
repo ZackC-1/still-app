@@ -458,6 +458,19 @@ also fingerprints every existing scoped ledger field, excluding only the newly a
 column. The accepted runner keeps these comparisons private. Live concurrent account or settings
 changes may require the owner's private comparison after a verified apply.
 
+### Account deletion keeps payment records (0022)
+
+Deploy `0022_account_deletion_keeps_payment_records.sql` alone, after 0021 is verified, through
+the protected migration operation; it replaces no earlier routine. Its read-only gate
+`deploy/verify/0022_account_deletion_keeps_payment_records.sql` checks the owner-only
+`BEFORE DELETE` trigger on `auth.users` that deactivates a deleted account's active
+RevenueCat-sourced rights, the QA checkout operation's `ON DELETE SET NULL` account reference, and
+that no detached RevenueCat-sourced right is still active. Its private invariant requires every
+existing row to stay byte-identical except the one-time repair of rights already detached by an
+earlier deletion, whose identity and count are still compared. Apple-sourced rights stay
+accountless (0020). `rehearse-qa-sandbox.sh` rehearses the upgrade from a seeded 0021 deletion.
+The QA Stripe webhook's deleted-account refund path needs the next QA function deployment.
+
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
 nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column

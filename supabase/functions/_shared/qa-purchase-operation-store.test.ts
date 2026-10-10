@@ -173,3 +173,22 @@ Deno.test("driver failure is sanitized without releasing or retrying the unknown
   }
   assertEquals(calls, 5);
 });
+Deno.test("deleted-account refund uses the exact status RPC and accepts only a kept record with no account", async () => {
+  const kept = { ...bound(), holder: null, status: "refunded" as const, paid_at: TIME };
+  const f = fixture(kept);
+  assertEquals(await f.store.recordDeletedAccountRefund(OP, SESSION), kept);
+  assertEquals(f.calls, [{ text: "select public.qa_sandbox_record_checkout_status(?::uuid, ?, 'refunded') as result", values: [OP, SESSION] }]);
+  // A record that still names an account, another Session/operation or a non-refunded state is refused.
+  for (const raw of [{ ...kept, holder: HOLDER }, { ...kept, holder: "bad" }, { ...kept, stripe_session_id: "cs_test_other" },
+    { ...kept, operation_id: OTHER }, { ...kept, status: "access_observed" }, { ...kept, paid_at: null }]) {
+    await assertRejects(() => fixture(raw).store.recordDeletedAccountRefund(OP, SESSION));
+  }
+  // Scoped reads still never accept a record without an account.
+  await assertRejects(() => fixture(kept).store.read(OP, HOLDER));
+  await assertRejects(() => fixture({ ...bound(), holder: null }).store.recordStatus(OP, SESSION, "session_bound"));
+  const denied = fixture(kept);
+  for (const [op, session] of [["bad", SESSION], [OP, "cs_live_other"], [OP, "cs_test_bad\n"]]) {
+    await assertRejects(() => denied.store.recordDeletedAccountRefund(op!, session!));
+  }
+  assertEquals(denied.calls, []);
+});
