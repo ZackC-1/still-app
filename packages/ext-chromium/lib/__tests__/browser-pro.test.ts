@@ -13,9 +13,13 @@ import {
   KEEP_ALIVE_MS,
   VISIBLE_RECHECK_SPACING_MS,
   askCheckoutAvailable,
+  CHECKOUT_TAB_MARK_KEY,
+  extensionCheckoutTabs,
+  sessionPendingStore,
   createBrowserPro,
   proOwnership,
   type BrowserProDeps,
+  type CheckoutPendingLike,
   type BrowserProState,
   type ProOwnership,
 } from "../browser-pro.js";
@@ -45,7 +49,10 @@ function page(initial: DocumentVisibilityState = "visible") {
   return value;
 }
 
-function harness(options: { recheck?: AccessState; outcome?: CheckoutReconcileOutcome; available?: boolean; checkout?: WebCheckoutOutcome; tab?: number | undefined } = {}) {
+function harness(options: {
+  recheck?: AccessState; outcome?: CheckoutReconcileOutcome; available?: boolean; checkout?: WebCheckoutOutcome; tab?: number | undefined;
+  record?: { value: CheckoutPendingLike | null }; openTabs?: Set<number>;
+} = {}) {
   let clock = 1_000_000;
   const visible = page();
   let next = { access: access(options.recheck ?? "locked"), outcome: options.outcome ?? "not-entitled" as CheckoutReconcileOutcome };
@@ -59,14 +66,30 @@ function harness(options: { recheck?: AccessState; outcome?: CheckoutReconcileOu
   const checkout = {
     createCheckout: vi.fn(async (): Promise<WebCheckoutOutcome> => options.checkout ?? { kind: "checkout-url", url: "https://checkout.invalid/x" }),
     openCheckoutTab: vi.fn(async (_url: string) => ("tab" in options ? options.tab : 7)),
-    setPending: vi.fn((_pending: { startedAt?: number; tabId?: number } | null) => {}),
   };
+  // The background's one checkout-pending record, shared by every page using this store.
+  const record = options.record ?? { value: null as CheckoutPendingLike | null };
+  const pending = {
+    read: vi.fn(async () => record.value),
+    write: vi.fn(async (value: CheckoutPendingLike | null) => { record.value = value; }),
+  };
+  const open = options.openTabs ?? new Set<number>();
+  const tabs = {
+    focus: vi.fn(async (r: { startedAt: number; tabId: number }) => open.has(r.tabId)),
+    remember: vi.fn(async (_r: { startedAt: number; tabId: number }) => {}),
+    close: vi.fn(async (tabId: number) => { open.delete(tabId); }),
+  };
+  checkout.openCheckoutTab.mockImplementation(async (_url: string) => {
+    const tab = "tab" in options ? options.tab : 7 + open.size;
+    if (tab !== undefined) open.add(tab);
+    return tab;
+  });
   const available = vi.fn(async () => options.available ?? true);
   const states: BrowserProState[] = [];
-  const deps: BrowserProDeps = { controller, checkout, available, page: visible as unknown as BrowserProDeps["page"], now: () => clock };
+  const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, page: visible as unknown as BrowserProDeps["page"], now: () => clock };
   const flow = createBrowserPro(deps, state => states.push(state));
   return {
-    flow, controller, checkout, available, page: visible, states,
+    flow, controller, checkout, available, page: visible, states, pending, tabs, record, open,
     get state() { return flow.state; },
     advance(ms: number) { clock += ms; },
     answer(state: AccessState, outcome: CheckoutReconcileOutcome = "not-entitled") { next = { access: access(state), outcome }; },
@@ -77,7 +100,7 @@ function harness(options: { recheck?: AccessState; outcome?: CheckoutReconcileOu
   };
 }
 
-const settle = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 
 describe("proOwnership reads only the access observation", () => {
   it.each([
@@ -109,6 +132,58 @@ describe("askCheckoutAvailable", () => {
 
   it("a torn worker is no", async () => {
     expect(await askCheckoutAvailable({ sendMessage: async () => { throw new Error("gone"); } })).toBe(false);
+  });
+});
+
+describe("checkout tabs and the pending record", () => {
+  function tabsApi(options: { mark?: unknown; gone?: boolean; windows?: boolean } = {}) {
+    const session: Record<string, unknown> = options.mark === undefined ? {} : { [CHECKOUT_TAB_MARK_KEY]: options.mark };
+    const api = {
+      storage: { session: { get: vi.fn(async (key: string) => (key in session ? { [key]: session[key] } : {})),
+        set: vi.fn(async (items: Record<string, unknown>) => { Object.assign(session, items); }) } },
+      tabs: {
+        get: vi.fn(async (tabId: number) => { if (options.gone) throw new Error(`No tab with id: ${tabId}`); return { windowId: 2 }; }),
+        update: vi.fn(async () => ({})),
+        remove: vi.fn(async () => {}),
+      },
+      ...(options.windows === false ? {} : { windows: { update: vi.fn(async () => ({})) } }),
+    };
+    return { api, session };
+  }
+
+  it("focuses only a tab this browser session opened for that very record", async () => {
+    const record = { startedAt: 5, tabId: 7 };
+    const ours = tabsApi({ mark: record });
+    expect(await extensionCheckoutTabs(ours.api).focus(record)).toBe(true);
+    expect(ours.api.tabs.update).toHaveBeenCalledWith(7, { active: true });
+    expect(ours.api.windows?.update).toHaveBeenCalledWith(2, { focused: true });
+    for (const mark of [undefined, { startedAt: 5, tabId: 8 }, { startedAt: 6, tabId: 7 }]) {
+      const other = tabsApi({ mark });
+      expect(await extensionCheckoutTabs(other.api).focus(record)).toBe(false);
+      expect(other.api.tabs.update).not.toHaveBeenCalled();
+    }
+    expect(await extensionCheckoutTabs(tabsApi({ mark: record, gone: true }).api).focus(record)).toBe(false);
+    // Firefox for Android: no windows API, the tab still comes forward.
+    expect(await extensionCheckoutTabs(tabsApi({ mark: record, windows: false }).api).focus(record)).toBe(true);
+  });
+
+  it("remembers what it opened and closes quietly", async () => {
+    const h = tabsApi();
+    const tabs = extensionCheckoutTabs(h.api);
+    await tabs.remember({ startedAt: 5, tabId: 7 });
+    expect(h.session[CHECKOUT_TAB_MARK_KEY]).toEqual({ startedAt: 5, tabId: 7 });
+    h.api.tabs.remove.mockRejectedValueOnce(new Error("gone"));
+    await expect(tabs.close(7)).resolves.toBeUndefined();
+  });
+
+  it("reads and writes the record through the session protocol, awaited", async () => {
+    const sendMessage = vi.fn(async (message: { action?: string }) =>
+      message.action === "getState" ? { userId: ACCOUNT, checkoutPending: { startedAt: 1, tabId: 2 } } : "ok");
+    const store = sessionPendingStore({ sendMessage });
+    expect(await store.read()).toEqual({ startedAt: 1, tabId: 2 });
+    await store.write({ startedAt: 3 });
+    expect(sendMessage).toHaveBeenLastCalledWith({ kind: SESSION_MESSAGE_KIND, action: "setCheckoutPending", pending: { startedAt: 3 } });
+    expect(await sessionPendingStore({ sendMessage: async () => { throw new Error("torn"); } }).read()).toBeNull();
   });
 });
 
@@ -216,9 +291,11 @@ describe("the browser Still Pro flow", () => {
     expect(h.checkout.createCheckout).toHaveBeenCalledOnce();
     expect(h.checkout.openCheckoutTab).toHaveBeenCalledWith("https://checkout.invalid/x");
     expect(h.state.purchase).toBe("waiting");
-    // The pending record is written before the tab opens, then carries the tab for teardown.
-    expect(h.checkout.setPending.mock.calls).toEqual([[{ startedAt: 1_000_000 }], [{ startedAt: 1_000_000, tabId: 7 }]]);
-    expect(h.checkout.setPending.mock.invocationCallOrder[0]).toBeLessThan(h.checkout.openCheckoutTab.mock.invocationCallOrder[0]!);
+    // The pending record is written before the tab opens, then carries the tab for teardown, and
+    // this browser session remembers opening that tab for that record.
+    expect(h.pending.write.mock.calls).toEqual([[{ startedAt: 1_000_000 }], [{ startedAt: 1_000_000, tabId: 7 }]]);
+    expect(h.pending.write.mock.invocationCallOrder[0]).toBeLessThan(h.checkout.openCheckoutTab.mock.invocationCallOrder[0]!);
+    expect(h.tabs.remember).toHaveBeenCalledWith({ startedAt: 1_000_000, tabId: 7 });
     h.flow.buy(); await settle();
     expect(h.checkout.createCheckout).toHaveBeenCalledOnce(); // no second checkout while waiting
     // Coming back from the checkout re-checks at once, whatever the spacing.
@@ -263,20 +340,88 @@ describe("the browser Still Pro flow", () => {
     h.observe("none"); await settle();
     h.flow.buy(); await settle();
     expect(h.state.purchase).toBe("failed");
-    expect(h.checkout.setPending).not.toHaveBeenCalled();
+    expect(h.pending.write).not.toHaveBeenCalled();
     h.checkout.createCheckout.mockResolvedValueOnce({ kind: "checkout-url", url: "https://checkout.invalid/y" });
     h.flow.retry(); await settle();
     expect(h.available).toHaveBeenCalledTimes(2);
     expect(h.checkout.openCheckoutTab).toHaveBeenCalledWith("https://checkout.invalid/y");
   });
 
-  it("an ended session opens the normal sign-in instead of a failure", async () => {
+  it("an ended session the page still reads as signed in fails calmly, with no hidden sign-in", async () => {
     const h = harness({ checkout: { kind: "auth-required" } });
     h.observe("none"); await settle();
     h.flow.buy(); await settle();
-    expect(h.controller.openSignIn).toHaveBeenCalledOnce();
+    expect(h.controller.openSignIn).not.toHaveBeenCalled();
+    expect(h.state.purchase).toBe("failed");
+    expect(h.pending.write).not.toHaveBeenCalled();
+  });
+
+  it("Buy twice brings the open checkout tab forward instead of opening a second", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.page.show("hidden"); h.page.show("visible"); await settle(); // back without paying
     expect(h.state.purchase).toBe("idle");
-    expect(h.checkout.setPending).not.toHaveBeenCalled();
+    h.flow.buy(); await settle();
+    expect(h.tabs.focus).toHaveBeenLastCalledWith({ startedAt: 1_000_000, tabId: 7 });
+    expect(h.checkout.createCheckout).toHaveBeenCalledOnce();
+    expect(h.checkout.openCheckoutTab).toHaveBeenCalledOnce();
+    expect(h.record.value).toEqual({ startedAt: 1_000_000, tabId: 7 });
+    expect(h.state.purchase).toBe("waiting");
+  });
+
+  it("a closed checkout tab is replaced by a new one, recorded in its place", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.open.delete(7); // the person closed it
+    h.page.show("hidden"); h.advance(5); h.page.show("visible"); await settle();
+    h.flow.buy(); await settle();
+    expect(h.checkout.openCheckoutTab).toHaveBeenCalledTimes(2);
+    expect(h.record.value).toEqual({ startedAt: 1_000_005, tabId: 7 });
+  });
+
+  it("a second settings page brings the first page's checkout tab forward", async () => {
+    const record = { value: null as CheckoutPendingLike | null };
+    const openTabs = new Set<number>();
+    const first = harness({ record, openTabs });
+    const second = harness({ record, openTabs });
+    first.observe("none"); second.observe("none"); await settle();
+    first.flow.buy(); await settle();
+    second.flow.buy(); await settle();
+    expect(second.checkout.createCheckout).not.toHaveBeenCalled();
+    expect(second.tabs.focus).toHaveBeenCalledWith({ startedAt: 1_000_000, tabId: 7 });
+    expect([...openTabs]).toEqual([7]);
+    expect(record.value).toEqual({ startedAt: 1_000_000, tabId: 7 });
+  });
+
+  it("two pages buying at once keep one recorded tab and close the other", async () => {
+    const record = { value: null as CheckoutPendingLike | null };
+    const openTabs = new Set<number>();
+    const first = harness({ record, openTabs });
+    const second = harness({ record, openTabs });
+    first.observe("none"); second.observe("none"); await settle();
+    second.advance(1); // a different start
+    first.flow.buy(); second.flow.buy(); await settle();
+    // The later record wins; the tab opened under the replaced record is closed, not orphaned.
+    expect(openTabs.size).toBe(1);
+    expect(record.value?.tabId).toBe([...openTabs][0]);
+    expect(first.tabs.close.mock.calls.length + second.tabs.close.mock.calls.length).toBe(1);
+  });
+
+  it("a sign-out while the tab opened closes that tab and records nothing", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.checkout.openCheckoutTab.mockImplementationOnce(async () => {
+      h.record.value = null; // the background's sign-out purge ran meanwhile
+      h.open.add(9);
+      return 9;
+    });
+    h.flow.buy(); await settle();
+    expect(h.tabs.close).toHaveBeenCalledWith(9);
+    expect(h.record.value).toBeNull();
+    expect(h.tabs.remember).not.toHaveBeenCalled();
+    expect(h.state.purchase).toBe("idle");
   });
 
   it("a checkout tab that did not open is a failure, not an endless wait", async () => {
@@ -284,7 +429,19 @@ describe("the browser Still Pro flow", () => {
     h.observe("none"); await settle();
     h.flow.buy(); await settle();
     expect(h.state.purchase).toBe("failed");
-    expect(h.checkout.setPending.mock.calls.at(-1)).toEqual([null]);
+    expect(h.record.value).toBeNull();
+  });
+
+  it("a tab that did not open leaves a record another page wrote meanwhile", async () => {
+    const h = harness({ tab: undefined });
+    h.observe("none"); await settle();
+    h.checkout.openCheckoutTab.mockImplementationOnce(async () => {
+      h.record.value = { startedAt: 42, tabId: 3 }; // another settings page's Buy
+      return undefined;
+    });
+    h.flow.buy(); await settle();
+    expect(h.state.purchase).toBe("failed");
+    expect(h.record.value).toEqual({ startedAt: 42, tabId: 3 });
   });
 
   it("already owned on the server re-checks instead of opening a checkout", async () => {

@@ -73,6 +73,108 @@ export async function askCheckoutAvailable(runtime: BrowserProRuntime = extensio
   }
 }
 
+/** The background's checkout-pending record, as the session protocol carries it. */
+export interface CheckoutPendingLike {
+  readonly startedAt?: number;
+  readonly tabId?: number;
+}
+
+/**
+ * The background's checkout-pending record, read and written through the session protocol and
+ * awaited (unlike the popup's fire-and-forget setter), so a write has landed before the next read.
+ * Its tab is closed on sign-out or an account switch, and supported-site visits reconcile while it
+ * exists. The background clears it on a confirmed purchase or a checkout that finished unpaid.
+ */
+export interface CheckoutPendingStore {
+  read(): Promise<CheckoutPendingLike | null>;
+  write(pending: CheckoutPendingLike | null): Promise<void>;
+}
+
+export function sessionPendingStore(runtime: BrowserProRuntime = extensionRuntime()): CheckoutPendingStore {
+  return {
+    async read() {
+      try {
+        const state = (await runtime.sendMessage({ kind: BROWSER_PRO_SESSION_KIND, action: "getState" })) as
+          { checkoutPending?: unknown } | null | undefined;
+        const pending = state?.checkoutPending;
+        return pending && typeof pending === "object" ? (pending as CheckoutPendingLike) : null;
+      } catch {
+        return null;
+      }
+    },
+    async write(pending) {
+      try {
+        await runtime.sendMessage({ kind: BROWSER_PRO_SESSION_KIND, action: "setCheckoutPending", pending });
+      } catch {
+        /* the record is best effort; a lost write only costs the tab close or a visit reconcile */
+      }
+    },
+  };
+}
+
+/**
+ * The checkout tabs this card opens. A record's tab is trusted only when this browser session
+ * remembers opening it for that very record: tab ids restart after a browser restart, so a stale
+ * record could otherwise name someone else's tab.
+ */
+export interface CheckoutTabs {
+  /** Bring the record's checkout tab forward. False when it is gone or not one this card opened. */
+  focus(record: { readonly startedAt: number; readonly tabId: number }): Promise<boolean>;
+  remember(record: { readonly startedAt: number; readonly tabId: number }): Promise<void>;
+  close(tabId: number): Promise<void>;
+}
+
+export const CHECKOUT_TAB_MARK_KEY = "still:pro-checkout-tab";
+
+interface TabsApi {
+  storage: { session: { get(key: string): Promise<Record<string, unknown>>; set(items: Record<string, unknown>): Promise<void> } };
+  tabs: {
+    get(tabId: number): Promise<{ windowId?: number }>;
+    update(tabId: number, properties: { active: boolean }): Promise<unknown>;
+    remove(tabId: number): Promise<void>;
+  };
+  windows?: { update(windowId: number, properties: { focused: boolean }): Promise<unknown> };
+}
+
+export function extensionCheckoutTabs(api?: TabsApi): CheckoutTabs {
+  const resolve = (): TabsApi => {
+    if (api) return api;
+    const scope = globalThis as unknown as { browser?: TabsApi & { runtime?: { id?: string } }; chrome: TabsApi };
+    return scope.browser?.runtime?.id ? scope.browser : scope.chrome;
+  };
+  return {
+    async focus(record) {
+      try {
+        const tabs = resolve();
+        const mark = (await tabs.storage.session.get(CHECKOUT_TAB_MARK_KEY))[CHECKOUT_TAB_MARK_KEY] as
+          { startedAt?: unknown; tabId?: unknown } | undefined;
+        if (mark?.tabId !== record.tabId || mark?.startedAt !== record.startedAt) return false;
+        const tab = await tabs.tabs.get(record.tabId);
+        await tabs.tabs.update(record.tabId, { active: true });
+        // Firefox for Android has no windows API; bringing the tab forward is enough there.
+        if (typeof tab.windowId === "number") await tabs.windows?.update(tab.windowId, { focused: true }).catch(() => {});
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async remember(record) {
+      try {
+        await resolve().storage.session.set({ [CHECKOUT_TAB_MARK_KEY]: { startedAt: record.startedAt, tabId: record.tabId } });
+      } catch {
+        /* without the mark a later Buy opens a fresh tab, as before */
+      }
+    },
+    async close(tabId) {
+      try {
+        await resolve().tabs.remove(tabId);
+      } catch {
+        /* already closed */
+      }
+    },
+  };
+}
+
 export type BrowserProController = Pick<
   UiController,
   "userId" | "signInOpen" | "canSignIn" | "openSignIn" | "recheckAccess"
@@ -80,13 +182,12 @@ export type BrowserProController = Pick<
 
 export interface BrowserProDeps {
   readonly controller: BrowserProController;
-  /**
-   * The existing background-backed checkout seam (lib/purchase-wiring.ts). `setPending` writes the
-   * background's checkout-pending record: its tab is closed on sign-out or an account switch, and
-   * the supported-site nudge reconciles while it exists. The background clears it on a confirmed
-   * purchase or a finished checkout.
-   */
-  readonly checkout: Pick<UiCheckout, "createCheckout" | "openCheckoutTab" | "setPending">;
+  /** The existing background-backed checkout seam (lib/purchase-wiring.ts). */
+  readonly checkout: Pick<UiCheckout, "createCheckout" | "openCheckoutTab">;
+  /** Defaults to the session protocol's getState / setCheckoutPending. */
+  readonly pending?: CheckoutPendingStore;
+  /** Defaults to the extension's tabs, windows and session storage. */
+  readonly tabs?: CheckoutTabs;
   /** Defaults to askCheckoutAvailable over the extension runtime. */
   readonly available?: () => Promise<boolean>;
   readonly page?: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
@@ -124,6 +225,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   const now = deps.now ?? (() => Date.now());
   const available = deps.available ?? (() => askCheckoutAvailable());
   const page = deps.page ?? document;
+  const pendingStore = deps.pending ?? sessionPendingStore();
+  const tabs = deps.tabs ?? extensionCheckoutTabs();
   let state: BrowserProState = INITIAL_BROWSER_PRO_STATE;
   let seen: BrowserProObservation | null = null;
   let generation = 0;
@@ -244,31 +347,51 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (stopped || state.channel !== "ready" || state.purchase === "opening" || state.purchase === "waiting") return;
     if (seen?.userId == null || seen.ownership !== "none") return;
     const ticket = generation;
+    const live = () => !stopped && ticket === generation;
     set({ purchase: "opening" });
+    // A checkout tab from an earlier Buy (here or on another settings page) is brought forward
+    // rather than joined by a second one, which a later sign-out would not know to close.
+    const existing = await pendingStore.read();
+    if (!live()) return;
+    if (typeof existing?.startedAt === "number" && typeof existing.tabId === "number" &&
+        await tabs.focus({ startedAt: existing.startedAt, tabId: existing.tabId })) {
+      if (live()) set({ purchase: "waiting" });
+      return;
+    }
+    if (!live()) return;
     let outcome: Awaited<ReturnType<UiCheckout["createCheckout"]>>;
     try {
       outcome = await deps.checkout.createCheckout();
     } catch {
       outcome = { kind: "unavailable" };
     }
-    if (stopped || ticket !== generation) return;
+    if (!live()) return;
     if (outcome.kind === "checkout-url") {
       set({ purchase: "waiting" });
       // Recorded BEFORE the tab opens, then with its id: sign-out or another account signing in
       // closes that tab (it carries this account), and supported-site visits reconcile while it
       // exists, so a purchase unlocks even if this page is never shown again.
-      const pending = { startedAt: now() };
-      deps.checkout.setPending(pending);
+      const startedAt = now();
+      await pendingStore.write({ startedAt });
       const tab = await deps.checkout.openCheckoutTab(outcome.url);
-      if (ticket !== generation) return;
+      const latest = await pendingStore.read();
+      const ours = latest?.startedAt === startedAt;
       if (tab === undefined) {
-        // No tab opened: say so rather than wait for a return that cannot come. (set() replaced
-        // `state` meanwhile, so read it afresh.)
-        deps.checkout.setPending(null);
-        if (current().purchase === "waiting") set({ purchase: "failed" });
+        // No tab opened: say so rather than wait for a return that cannot come, and end only the
+        // record this Buy wrote. (set() replaced `state` meanwhile, so read it afresh.)
+        if (ours) await pendingStore.write(null);
+        if (live() && current().purchase === "waiting") set({ purchase: "failed" });
         return;
       }
-      deps.checkout.setPending({ ...pending, tabId: tab });
+      if (!ours || !live()) {
+        // While the tab opened, a sign-out or account switch purged the record, or another
+        // settings page replaced it: this tab must not outlive its account or go unrecorded.
+        await tabs.close(tab);
+        if (live() && current().purchase === "waiting") set({ purchase: "idle" });
+        return;
+      }
+      await pendingStore.write({ startedAt, tabId: tab });
+      await tabs.remember({ startedAt, tabId: tab });
       return;
     }
     if (outcome.kind === "already-entitled") {
@@ -277,13 +400,11 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       void recheck();
       return;
     }
-    if (outcome.kind === "auth-required") {
-      // The session ended: the normal sign-in, which the page shows once the account reads as
-      // signed out. Signing in again re-checks and offers Buy afresh.
-      set({ purchase: "idle" });
-      deps.controller.openSignIn();
-      return;
-    }
+    // Unavailable, or an ended session (auth-required) the page still reads as signed in: the
+    // calm failure, whose Try again asks the background again. Opening sign-in here would show
+    // nothing until the page noticed the sign-out, then pop up unasked. (A sign-out the page has
+    // noticed changes the account, which already dropped this answer above; the signed-out card
+    // offers sign-in itself.)
     set({ purchase: "failed" });
   }
 

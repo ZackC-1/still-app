@@ -91,16 +91,31 @@ async function host(options: Fixture = {}) {
     }
     return original(message);
   });
-  const tabsCreate = vi.fn(async (_options: { url: string }) => ({ id: 7 }));
-  Object.assign(chrome.storage, { session: { set: vi.fn(async () => {}), get: async () => ({}) } });
+  const openTabs = new Set<number>();
+  let nextTab = 7;
+  const tabsCreate = vi.fn(async (_options: { url: string }) => { const id = nextTab++; openTabs.add(id); return { id }; });
+  const tabsUpdate = vi.fn(async (_tabId: number, _props: { active: boolean }) => ({}));
+  const sessionArea: Record<string, unknown> = {};
+  Object.assign(chrome.storage, { session: {
+    set: vi.fn(async (items: Record<string, unknown>) => { Object.assign(sessionArea, structuredClone(items)); }),
+    get: async (key: string) => (key in sessionArea ? { [key]: structuredClone(sessionArea[key]) } : {}),
+  } });
   Object.assign(chrome.runtime, { sendMessage, openOptionsPage: vi.fn(async () => {}), getPlatformInfo: async () => ({ os: "mac" }) });
-  Object.assign(chrome, { tabs: { create: tabsCreate } });
+  Object.assign(chrome, {
+    tabs: {
+      create: tabsCreate,
+      get: async (tabId: number) => { if (!openTabs.has(tabId)) throw new Error("No tab"); return { id: tabId, windowId: 1 }; },
+      update: tabsUpdate,
+      remove: vi.fn(async (tabId: number) => { openTabs.delete(tabId); }),
+    },
+    windows: { update: vi.fn(async () => ({})) },
+  });
   vi.stubEnv("VITE_SUPABASE_URL", "https://fixture.invalid");
   vi.stubEnv("VITE_SUPABASE_ANON_KEY", "fixture-public-key");
   vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
   visibility("visible");
   return {
-    ...f, messages, tabsCreate,
+    ...f, messages, tabsCreate, tabsUpdate, openTabs,
     get pending() { return pending; },
     actions: () => messages.map(message => String(message.action ?? message.kind)),
     set(next: { after?: AccessState; outcome?: Fixture["outcome"]; available?: boolean; checkout?: Record<string, unknown> }) {
@@ -146,6 +161,34 @@ describe("paid-tier browser Still Pro card", () => {
     await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
     expect(typeof f.pending?.startedAt).toBe("number");
     expect(intent(f.messages)).toEqual([]);
+  });
+
+  it("Buy again brings the open checkout tab forward instead of opening a second", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    await fireEvent.click(await within(card).findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
+    visibility("hidden"); visibility("visible"); // back without paying
+    await fireEvent.click(await within(card).findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.tabsUpdate).toHaveBeenCalledWith(7, { active: true }));
+    expect(f.tabsCreate).toHaveBeenCalledOnce();
+    expect(f.actions().filter(action => action === "createCheckout")).toHaveLength(1);
+    expect(f.pending).toMatchObject({ tabId: 7 });
+  });
+
+  it("a second settings page brings the first page's checkout tab forward", async () => {
+    const f = await host();
+    render(OptionsApp);
+    await fireEvent.click(await within(await region()).findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
+    for (const instance of mounted.instances.splice(0)) await unmount(instance);
+    cleanup();
+    render(OptionsApp); // another settings page in the same browser session
+    await fireEvent.click(await within(await region()).findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.tabsUpdate).toHaveBeenCalledWith(7, { active: true }));
+    expect(f.tabsCreate).toHaveBeenCalledOnce();
+    expect([...f.openTabs]).toEqual([7]);
   });
 
   it("shows Purchased after the purchase completes, and stops after a refund on the next re-check", async () => {
