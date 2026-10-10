@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { FEATURE_REGISTRY, type AccessState, type BenefitAccessSnapshot } from "@still/shared-types";
 import { initialAccessSnapshot, ACCESS_BENEFITS } from "@still/core/entitlement";
 import type { AccessRecheck, CheckoutReconcileOutcome } from "@still/core/ui";
@@ -315,6 +318,37 @@ describe("the browser Still Pro flow", () => {
     expect(h.controller.recheckAccess).not.toHaveBeenCalled();
     h.observe("verify", ACCOUNT); await settle();
     expect(h.state.restore?.state).toBe("nothing");
+  });
+
+  it("closing the sign-in sheet drops a signed-out Restore; an account change clears a shown result", async () => {
+    const h = harness();
+    h.observe("verify", null); await settle();
+    h.flow.restore();
+    h.controller.signInOpen = true; h.observe("verify", null);
+    h.controller.signInOpen = false; h.observe("verify", null); await settle();
+    h.observe("verify", ACCOUNT); await settle();
+    expect(h.state.restore).toBeUndefined(); // the dropped request did not run after sign-in
+    h.flow.restore(); await settle();
+    expect(h.state.restore).toEqual({ state: "nothing" });
+    h.observe("verify", OTHER); await settle();
+    expect(h.state.restore).toBeUndefined();
+  });
+
+  it("a failed Restore offers Try again, which checks again", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.answer("verification_required", "unknown");
+    h.flow.restore(); await settle();
+    expect(h.state.restore?.state).toBe("failed");
+    h.answer("purchased", "entitled");
+    h.state.restore?.onAction?.(); await settle();
+    expect(h.state.restore).toEqual({ state: "restored" });
+  });
+
+  it("shares no module with the free-period Restore wrapper (that would change shipped V3 chunks)", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "browser-pro.ts"), "utf8");
+    const imports = source.split("\n").filter(line => /^\s*(import|export)\b.*from\s+"/.test(line) || /^\s*}\s*from\s+"/.test(line));
+    expect(imports.join("\n")).not.toMatch(/browser-settings-restore|settings-restore/);
   });
 
   it("stop removes the page listener and ignores later results", async () => {

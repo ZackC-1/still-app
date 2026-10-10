@@ -1,10 +1,6 @@
 import { FEATURE_REGISTRY, type BenefitAccessSnapshot } from "@still/shared-types";
 import type { AccessRecheck, UiCheckout, UiController } from "@still/core/ui";
 import type { RestoreStatusCardProps } from "@still/core/ui/v3/extension-settings-presentation";
-import {
-  createBrowserSettingsRestore,
-  type BrowserRestoreAnswer,
-} from "@still/core/ui/v3/browser-settings-restore";
 
 // The Chrome and Firefox settings page's Still Pro card in paid-tier builds (owner decisions,
 // 10 October 2026): Buy without a price on this surface (the checkout page shows it), a working
@@ -14,6 +10,12 @@ import {
 // Authority stays where it was: what the card shows as Still Pro comes from the committed access
 // observation (`access.states`), never from a reconcile's own answer. Free blocking, free sync and
 // the free controls never wait on anything here.
+//
+// Bundle note: this module takes no value from modules that only the free-period RestoreSettings
+// wrapper uses (such as browser-settings-restore). Builds with the paid tier off still emit this
+// card's chunk, unreferenced; sharing a module with RestoreSettings would split it into a new
+// chunk and change the shipped V3 settings page. Restore therefore has its own small flow below,
+// with the same rules and the same RestoreStatusCard states.
 
 /** Equal to SESSION_MESSAGE_KIND and CHECKOUT_AVAILABLE_ACTION (pinned by test). Spelled here so
  * this page module takes no value from the background's message modules. */
@@ -196,19 +198,47 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   }
 
   // Restore is the scoped re-check. "Restored" and "nothing" are read from the fresh access
-  // observation, so the shared restore card never claims what the authority does not show.
-  const restoreFlow = createBrowserSettingsRestore({
-    check: async (): Promise<BrowserRestoreAnswer> => {
-      const result = await recheck();
-      if (!result) return "unknown";
-      const ownership = proOwnership(result.access);
-      if (ownership === "owned") return "entitled";
-      if (result.outcome === "not-entitled" && ownership === "none") return "not-entitled";
-      return result.outcome === "auth-required" ? "auth-required" : "unknown";
-    },
-    openSignIn: () => deps.controller.openSignIn(),
-    publish: (restore) => set({ restore }),
-  });
+  // observation, so the restore card never claims what the authority does not show. Signed out,
+  // the normal sign-in comes first and the check runs once it lands; closing the sheet drops the
+  // request. One check at a time; an account change forgets a running or shown result.
+  let restoreFlight = false;
+  let restoreAwaitingSignIn = false;
+  let restoreFor: string | null = null;
+  async function runRestore(userId: string): Promise<void> {
+    restoreFlight = true;
+    restoreFor = userId;
+    const ticket = generation;
+    set({ restore: { state: "checking" } });
+    const result = await recheck();
+    if (stopped || ticket !== generation) return;
+    restoreFlight = false;
+    const ownership = result ? proOwnership(result.access) : null;
+    if (ownership === "owned") set({ restore: { state: "restored" } });
+    else if (result?.outcome === "not-entitled" && ownership === "none") set({ restore: { state: "nothing" } });
+    else set({ restore: { state: "failed", onAction: () => requestRestore() } });
+  }
+  function requestRestore(): void {
+    if (stopped || restoreFlight || restoreAwaitingSignIn) return;
+    const userId = seen?.userId ?? null;
+    if (userId !== null) {
+      void runRestore(userId);
+      return;
+    }
+    restoreAwaitingSignIn = true;
+    deps.controller.openSignIn();
+  }
+  function observeRestore(previous: BrowserProObservation | null, next: BrowserProObservation): void {
+    if (previous && previous.userId !== next.userId && restoreFor !== null && next.userId !== restoreFor) {
+      restoreFlight = false;
+      restoreFor = null;
+      set({ restore: undefined });
+    }
+    if (!restoreAwaitingSignIn) return;
+    if (next.userId !== null) {
+      restoreAwaitingSignIn = false;
+      void runRestore(next.userId);
+    } else if (!next.signInOpen && previous?.signInOpen) restoreAwaitingSignIn = false;
+  }
 
   async function buy(): Promise<void> {
     if (stopped || state.channel !== "ready" || state.purchase === "opening" || state.purchase === "waiting") return;
@@ -285,7 +315,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         set({ channel: "unknown", purchase: "idle" });
       }
       // A Restore waiting on this sign-in runs its re-check now (shared with the one below).
-      restoreFlow.observe({ userId: next.userId, signInOpen: next.signInOpen });
+      observeRestore(previous, next);
       // Signed in on this page: the background's sign-in check may have recorded "none" without
       // changing storage, so read it now rather than waiting for the refresh timer.
       if (switched && next.userId !== null) void recheck();
@@ -307,7 +337,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       });
     },
     restore(): void {
-      restoreFlow.request();
+      requestRestore();
     },
     get state(): BrowserProState {
       return state;
@@ -315,7 +345,6 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     stop(): void {
       stopped = true;
       clearKeepAlive();
-      restoreFlow.stop();
       page.removeEventListener("visibilitychange", onVisibility);
     },
   };
