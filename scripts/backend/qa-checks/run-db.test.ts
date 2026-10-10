@@ -281,6 +281,18 @@ Deno.test({
         await runCheck(checker!, resolveRequest({ check: "DB-31" }));
       });
 
+      await t.step("an executable security-definer event trigger (like Supabase's rls_auto_enable) is not a widening", async () => {
+        await admin.unsafe(
+          `create function public.qa_checks_event_trigger_probe() returns event_trigger language plpgsql security definer set search_path = '' as 'begin end'; ` +
+          `grant execute on function public.qa_checks_event_trigger_probe() to public`,
+        );
+        try {
+          await runCheck(checker!, resolveRequest({ check: "DB-31" }));
+        } finally {
+          await admin.unsafe(`drop function public.qa_checks_event_trigger_probe()`);
+        }
+      });
+
       await t.step("an admin session is refused by the session proof", async () => {
         const [session] = await admin.begin("read only", (tx) => tx.unsafe(SESSION_SQL));
         assertThrows(() => requireCheckerSession(session as never), CheckError);
