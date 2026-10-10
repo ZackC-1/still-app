@@ -227,6 +227,18 @@ describe("the browser Still Pro flow", () => {
     expect(h.state.purchase).toBe("idle");
   });
 
+  it("coming back from the checkout re-checks even right after another re-check", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    h.flow.buy(); await settle();
+    h.advance(1_000); // well inside the spacing
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+    expect(h.state.purchase).toBe("idle");
+  });
+
   it("Buy that completes shows through the access observation", async () => {
     const h = harness();
     h.observe("none"); await settle();

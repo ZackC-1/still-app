@@ -162,6 +162,14 @@ describe("a settings-page checkout in the real session", () => {
     expect(await h.session.onNudge()).toBe("no-op");
   });
 
+  it("starting another checkout does not end an existing pending record", async () => {
+    const h = realSession();
+    await h.session.setCheckoutPending({ startedAt: 1, tabId: 40 });
+    expect(await h.session.createCheckout()).toMatchObject({ kind: "checkout-url" });
+    expect(h.stores.checkoutOperation.value).not.toBeNull();
+    expect(h.stores.checkoutPending.value).toEqual({ startedAt: 1, tabId: 40 });
+  });
+
   it("a checkout still open keeps the record", async () => {
     const h = realSession({ fresh: true, completion: "session_bound" });
     await settingsBuy(h);
