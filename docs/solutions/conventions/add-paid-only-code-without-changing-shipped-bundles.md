@@ -46,24 +46,38 @@ Some ways of writing a gate fold away in the minified bundle. Others leave bytes
   therefore uses its own listener (`lib/checkout-availability.ts`). It has the same message kind and
   the same `isExtensionPageSender` rule, and is registered only through the folded factory choice.
 
-## Unconfigured-lane caveat
+## The unreferenced paid chunk
 
-In the unconfigured lane (no Supabase values), the options page's lazy settings wrappers are still
-emitted as unreferenced chunk files, even though no entry imports them. Their contents can change
-with paid-only edits while every reachable file stays identical. Check which files reference a
-changed chunk before treating a difference as shipped behaviour.
+When `PAID_TIER_ENABLED` is the only thing that removes an `import()` (the build-time env check
+alone does not), the bundler still emits the lazy chunk as an unreferenced file. This happens in
+the unconfigured lane and in a store-shaped build with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`.
+That file's own bytes change with paid-only edits, which is expected and harmless. But if the paid
+chunk imports a module that a *shipped* lazy chunk also uses, the bundler moves that module into a
+new shared chunk. The shipped chunk and the entry that names it then change. The first version of
+the browser Still Pro card imported the free-period Restore flow (`browser-settings-restore`). That
+changed `RestoreSettings` and the options entry in the V3 store-shaped build. Keep paid-only lazy
+chunks to modules that are either theirs alone or already in a chunk shared with the entry
+(`lib/__tests__/browser-pro.test.ts` pins this for the card). Before treating a difference as
+shipped behaviour, check which files reference a changed chunk.
 
 ## Verification
 
-Build both lanes before and after, and compare every output file with
+Build every relevant profile before and after, and compare every output file with
 `node scripts/bundles/identity.mjs snapshot … / diff …` in the same checkout (base commit checked out,
-then the branch). For this change, it reported the configured lane byte-identical across Chrome,
-Firefox, the Safari extension and the app web view. Unconfigured Safari and app web view were identical; unconfigured Chrome and
-Firefox differed only in the unreferenced chunks above. A source copy with the switch flipped
-confirmed that the paid build does contain the new code.
+then the branch). Include the store package's public values (`scripts/release/package.mjs`
+`PUBLIC_ENV_KEYS`: Supabase, PostHog, and the modern-settings flag both unset and `true`), not just
+the CI lanes. For this change:
+
+- Store-shaped with modern settings unset (2.x), and the plain configured lane: byte-identical
+  across Chrome, Firefox, the Safari extension and the app web view.
+- Store-shaped with modern settings on, and the unconfigured lane: Safari and the app web view were
+  identical. Chrome and Firefox differed only in the unreferenced paid chunk file.
+
+A source copy with the switch flipped confirmed that the paid build does contain the new code.
 
 ## Prevention
 
 Gate every paid-only addition with the compiled constant, at a point the bundler can fold. Then
-diff the configured build before claiming the shipped bundles are unchanged. If a diff shows only
+diff the store-shaped builds before claiming the shipped bundles are unchanged. If a diff shows only
 renamed minified identifiers, look for a new import or a kept variable rather than real new logic.
+If it shows a new shared chunk, look for a module the paid chunk now shares with a shipped one.
