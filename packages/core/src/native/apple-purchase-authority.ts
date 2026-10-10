@@ -11,6 +11,13 @@ export interface ApplePurchaseAuthorityDeps {
   readonly verifyLocal: (body: { readonly schema: 1; readonly transaction: NativeApplePurchaseEvidence }) => Promise<unknown>;
   readonly fulfillLink: ApplePurchaseLinkAuthority["fulfill"];
   readonly now?: () => number;
+  /** The SDK's current bearer, read without verifying it. "none" means the SDK holds no session
+   * at all and is treated as signed out: the SDK drops a session after Auth refuses it, and also
+   * after some refresh failures once the token has expired (for example a 429 or an unparseable
+   * 4xx), an accepted trade-off that only ever removes access. "unknown" is any read failure. */
+  readonly readSessionToken?: () => Promise<{ readonly status: "session"; readonly accessToken: string } | { readonly status: "none" | "unknown" }>;
+  /** Ends this app's signed-in session the ordinary way, which also clears native account rights. */
+  readonly endSession?: () => Promise<void>;
 }
 
 const unavailable = () => new Error("Apple purchase requires verification");
@@ -98,7 +105,28 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
   async function refreshAccountAccess(): Promise<BenefitAccessSnapshot> {
     const epoch = accountEpoch;
     const current = () => epoch === accountEpoch;
-    const before = await deps.readVerifiedAccount();
+    // Read the bearer before any SDK verification: verifying a revoked session makes the SDK
+    // discard it, and native must still be able to ask hosted Auth about that exact token.
+    const held = deps.readSessionToken ? await deps.readSessionToken().catch(() => ({ status: "unknown" as const })) : { status: "unknown" as const };
+    if (!current()) throw unavailable();
+    if (held.status === "none") {
+      // The SDK signed out on its own (a refused refresh: deleted account or revoked session).
+      // Ending the app session publishes signed-out to native, which removes account rights.
+      await deps.endSession?.().catch(() => {});
+      throw unavailable();
+    }
+    let before: Awaited<ReturnType<typeof deps.readVerifiedAccount>> | undefined;
+    try { before = await deps.readVerifiedAccount(); } catch { before = undefined; }
+    if (!before && held.status === "session" && deps.bridge.reconcileAccountAccess) {
+      // The SDK could not confirm the account. Native asks hosted Auth about the same token
+      // itself; only a definitive refusal ends the stored account rights, offline keeps them.
+      // Deliberately not gated by the account epoch: on a revoked session the SDK discards it and
+      // announces sign-out (advancing the epoch) before this read rejects. Native scopes clearing
+      // to the token's own subject being the account it still has bound, so a stale token for
+      // another or replaced account changes nothing.
+      await deps.bridge.reconcileAccountAccess(held.accessToken).catch(() => {});
+      throw unavailable();
+    }
     if (!current() || !before?.emailConfirmed || !deps.bridge.reconcileAccountAccess) throw unavailable();
     const token = await deps.readAccessToken();
     if (!current() || !token || token.accountId !== before.id || !token.accessToken ||

@@ -1574,6 +1574,7 @@ export async function readProtection({
   token,
   runId,
   includeApprovals,
+  name = ENVIRONMENT_NAME,
 }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository))) {
     throw new Refusal("input-invalid", "Bad repository name");
@@ -1597,9 +1598,9 @@ export async function readProtection({
       );
     return response.json();
   };
-  const env = encodeURIComponent(ENVIRONMENT_NAME);
+  const env = encodeURIComponent(name);
   const environment = await get(`/environments/${env}`);
-  if (!environment) return checkProtection({ environment: null });
+  if (!environment) return checkProtection({ environment: null, name });
   const branches = await get(
     `/environments/${env}/deployment-branch-policies?per_page=100`,
   );
@@ -1609,7 +1610,7 @@ export async function readProtection({
       throw new Refusal("input-invalid", "Bad run id");
     approvals = (await get(`/actions/runs/${Number(runId)}/approvals`)) ?? [];
   }
-  return checkProtection({ environment, branches, approvals });
+  return checkProtection({ environment, branches, approvals, name });
 }
 
 // ── Rendering (public, privacy-safe) ───────────────────────────────────────────────────────────

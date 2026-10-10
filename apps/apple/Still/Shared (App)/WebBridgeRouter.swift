@@ -346,15 +346,30 @@ final class WebBridgeRouter {
       let lineage = accessAccountLineage
       retryVerifiedRevocations()
       let revocationLineage = accessRevocations.generation
+      // Hosted Auth's definitive refusal (deleted account, revoked session) of the bound account's
+      // own token removes that account's stored rights, so Safari stops honouring them. Offline,
+      // timeouts, server errors and an expired token are not refusals and keep what is stored.
+      func endsAccount(_ check: NativeAccessSessionCheck) -> Bool {
+        guard case .rejected(let subject) = check else { return false }
+        if subject == accountAtStart, accessAccountLineage == lineage, accountSyncStatus.peek()?.accountId == accountAtStart {
+          accessAccountLineage += 1
+          try? entitlement.clearAccessAccount()
+        }
+        return true
+      }
       Task {
-        guard self.accessRevocations.ready,
-          let session = await verifier.verify(accessToken: token), session.accountId == accountAtStart,
+        guard self.accessRevocations.ready else { reply(nil, "still: account session requires verification"); return }
+        let first = await verifier.check(accessToken: token)
+        if endsAccount(first) { reply(nil, "still: account session ended"); return }
+        guard case .verified(let session) = first, session.accountId == accountAtStart,
           self.accessAccountLineage == lineage, self.accountSyncStatus.peek()?.accountId == accountAtStart,
           let generation = try? self.entitlement.prepareAccountAccess(session, expectedGeneration: expectedGeneration)
         else { reply(nil, "still: account session requires verification"); return }
         do {
           let snapshot = try await runtime.fetch(accessToken: token, session: session)
-          guard let current = await verifier.verify(accessToken: token), current.accountId == session.accountId,
+          let again = await verifier.check(accessToken: token)
+          if endsAccount(again) { reply(nil, "still: account session ended"); return }
+          guard case .verified(let current) = again, current.accountId == session.accountId,
             current.sessionId == session.sessionId, self.accessAccountLineage == lineage,
             self.accountSyncStatus.peek()?.accountId == accountAtStart,
             self.accessRevocations.permitsInstall(revocationLineage)

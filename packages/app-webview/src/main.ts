@@ -179,6 +179,13 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       },
       verifyLocal: fulfillment.verifyLocal,
       fulfillLink: fulfillment.fulfillLink,
+      readSessionToken: async () => {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) return { status: "unknown" };
+        return data.session ? { status: "session", accessToken: data.session.access_token } : { status: "none" };
+      },
+      // `session` is assigned below, before any account refresh can run.
+      endSession: () => session.signOutEverywhere(),
     });
     applePurchaseAuthority = authority;
     // This callback does no SDK work: Supabase holds its auth lock while notifying listeners.
