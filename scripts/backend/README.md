@@ -471,6 +471,30 @@ earlier deletion, whose identity and count are still compared. Apple-sourced rig
 accountless (0020). `rehearse-qa-sandbox.sh` rehearses the upgrade from a seeded 0021 deletion.
 The QA Stripe webhook's deleted-account refund path needs the next QA function deployment.
 
+Deploy order: apply 0022 alone in a low-traffic window, confirm its gate returns `[]`, then
+deploy the QA functions from the merge commit. Before applying, confirm read-only that the
+operator can attach the trigger and reference Auth users:
+`select has_table_privilege('postgres','auth.users','TRIGGER'), has_table_privilege('postgres','auth.users','REFERENCES');`
+must return two `true` values. The migration sets `lock_timeout = '5s'`; a lock timeout or a
+deadlock with a concurrent sign-in or reconcile aborts the whole transaction with nothing applied,
+so retry the same operation.
+
+Break-glass (reviewed, owner-approved operation only): if the trigger ever blocks account
+deletion, `postgres` may be unable to drop or disable it, because `auth.users` is owned by
+`supabase_auth_admin`. Instead replace only the routine body, keeping its name, signature,
+owner, `security definer`, `search_path` and ACL:
+
+```sql
+create or replace function private.deactivate_deleted_account_rights() returns trigger
+language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
+begin return old; end;
+$$;
+```
+
+Deletions then keep working (rights are only detached, as before 0022) and the 0022 gate reports
+`routine_body`. Restore the reviewed body with a new forward migration that also re-runs the
+one-time orphan repair, then confirm the gate returns `[]` again.
+
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
 nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column

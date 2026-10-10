@@ -38,7 +38,7 @@ subjects_test() {
 }
 deletion_test() {
   deno test --frozen --config supabase/functions/deno.json \
-    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,STILL_DELETION_AUTH_URL,STILL_DELETION_SERVICE_ROLE_KEY,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
     --allow-read=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql \
     --allow-net=127.0.0.1:54322 supabase/tests/account_deletion_payment_records_test.ts
 }
@@ -146,4 +146,15 @@ post_0022=$(psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
 if [[ $post_0022 != '[]' ]]; then echo "0022 end-state check failed: $post_0022" >&2; exit 1; fi
 echo '0022 upgrade, bounded repair and end-state check: PASS.'
 deletion_test
+# The same deletion through GoTrue's own admin API, so the trigger runs under the role and
+# transaction GoTrue uses (supabase_auth_admin), not only a direct SQL delete by postgres.
+supabase stop --project-id still-app --no-backup >/dev/null
+supabase start --exclude studio,imgproxy,mailpit,logflare,vector,realtime,storage-api,edge-runtime >/dev/null
+supabase db reset --local --no-seed --version 0022 >/dev/null
+STILL_DELETION_AUTH_URL='http://127.0.0.1:54321/auth/v1' \
+STILL_DELETION_SERVICE_ROLE_KEY=$(supabase status -o json | jq -er '.SERVICE_ROLE_KEY') \
+  deno test --frozen --config supabase/functions/deno.json \
+    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,STILL_DELETION_AUTH_URL,STILL_DELETION_SERVICE_ROLE_KEY,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+    --allow-read=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql \
+    --allow-net=127.0.0.1:54321,127.0.0.1:54322 supabase/tests/account_deletion_payment_records_test.ts
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

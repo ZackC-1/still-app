@@ -4,7 +4,7 @@
 -- routine is owner-only, and no orphaned RevenueCat-sourced right is still active.
 -- No account, transaction identity or ledger row is returned: only fixed issue codes.
 with expected_routine(sig,body_md5) as (values
- ('private.deactivate_deleted_account_rights()','63073a9934ab4cfeb882f223e854016f')
+ ('private.deactivate_deleted_account_rights()','2010a51887cb8dcd32cc16d41bb68661')
 ), routine as (
  select e.*,p.oid,p.proowner,p.prosecdef,p.prolang,p.proconfig,p.prosrc,p.proacl,p.prorettype,p.prokind,p.proretset
  from expected_routine e left join pg_catalog.pg_proc p on p.oid=pg_catalog.to_regprocedure(e.sig)

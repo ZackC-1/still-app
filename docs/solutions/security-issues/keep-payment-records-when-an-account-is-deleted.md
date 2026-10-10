@@ -48,14 +48,18 @@ Foreign-key actions run as internal `AFTER` triggers named `RI_ConstraintTrigger
 same-timing triggers in name order, and uppercase sorts before lowercase, so a user `AFTER DELETE`
 trigger sees `holder` already cleared by `ON DELETE SET NULL` and cannot find the account's rights.
 A `BEFORE DELETE` trigger still sees the rows. It locks the account's `access_observations` rows
-before the rights, the order `commit_access_observation` and `transfer_access_right` use.
+before the rights. The QA wrappers lock the `auth.users` row first, so they queue behind a
+deletion. A production reconcile holds its observation row and then needs a key-share lock on
+`auth.users` for its insert's foreign-key check, so it can deadlock with a deletion of the same
+account, as the existing cascade already could; PostgreSQL aborts one side and it is retried.
 
 ## Where it does not apply
 
-Apple-sourced rights are not deactivated. Since 0020 they are accountless: `active` is Apple's
-refund verdict for local access on the purchaser's Apple ID, and `false` is treated as a permanent
-refund. Deletion already detaches them, and 0020 refuses to re-link a detached right. Changing
-that requires an explicit owner decision because it would remove access Apple still says was paid.
+Owner decision (10 Oct 2026): Apple-sourced Pro rights are kept after Still account deletion.
+They belong to the purchaser's Apple ID and Restore must keep working. Since 0020 they are
+accountless: `active` is Apple's refund verdict for local access, and `false` is treated as a
+permanent refund, so the trigger never touches them. Deletion already detaches them, and 0020
+refuses to re-link a detached right to any account.
 
 `public.revenuecat_events` keeps its RevenueCat app user id and payload; it already survived
 deletion and the privacy notice discloses retained billing events.
@@ -73,6 +77,14 @@ deletion and the privacy notice discloses retained billing events.
 - `supabase/tests/account_deletion_payment_records_test.ts` runs in the GitHub-hosted security
   rehearsal (`rehearse-qa-sandbox.sh`): upgrade from a seeded 0021 deletion, private-row
   invariant, end-state gate, deletion, deleted-account refund and gate drift probes.
+
+## Break-glass
+
+`auth.users` is owned by `supabase_auth_admin`, so `postgres` may be unable to drop or disable the
+trigger. If it ever blocks deletion, a reviewed operation replaces only the routine body with
+`begin return old; end;` (deletions keep working; the 0022 gate reports `routine_body`), and a new
+forward migration later restores the body and re-runs the orphan repair. See
+`scripts/backend/README.md`.
 
 ## Prevention
 

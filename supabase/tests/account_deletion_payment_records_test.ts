@@ -15,12 +15,17 @@ const B = "b2222222-0000-4000-8000-000000000002";
 const right = (account: "a" | "b" | "c", n: number) => `${account}2222222-1000-4000-8000-00000000000${n}`;
 const operation = (account: "a" | "b" | "c") => `${account}2222222-2000-4000-8000-000000000001`;
 const GATE = "scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql";
+// Set only by rehearse-qa-sandbox.sh's GoTrue phase: the local CLI's own Auth URL and its
+// synthetic service-role key for this disposable stack. Never a hosted project.
+const authUrl = Deno.env.get("STILL_DELETION_AUTH_URL");
+const serviceKey = Deno.env.get("STILL_DELETION_SERVICE_ROLE_KEY");
+const viaGoTrue = enabled && authUrl === "http://127.0.0.1:54321/auth/v1" && !!serviceKey;
 
 type Row = { holder: string | null; active: boolean; ownership_revision: string; verified_at: string };
 
 Deno.test({
   name: "account deletion keeps payment records, clears the account id and deactivates web rights",
-  ignore: !enabled,
+  ignore: !enabled || viaGoTrue,
   fn: async (t) => {
     const admin = connection(target!);
     const gate = await Deno.readTextFile(GATE);
@@ -105,6 +110,46 @@ Deno.test({
     } finally {
       await qa?.end();
       await admin`alter role still_qa_sandbox_writer nologin password null`;
+      await admin.end();
+    }
+  },
+});
+
+Deno.test({
+  name: "GoTrue admin deleteUser (as supabase_auth_admin) runs the same deletion transaction",
+  ignore: !viaGoTrue,
+  fn: async () => {
+    const admin = connection(target!);
+    const gate = await Deno.readTextFile(GATE);
+    const auth = (method: string, path: string, body?: unknown) => fetch(`${authUrl}${path}`, {
+      method, headers: { apikey: serviceKey!, authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    try {
+      const created = await auth("POST", "/admin/users", { email: "deletion-gotrue@example.invalid", email_confirm: true });
+      assertEquals(created.status, 200);
+      const id = (await created.json()).id as string;
+      const web = crypto.randomUUID(), apple = crypto.randomUUID(), op = crypto.randomUUID();
+      await admin`insert into private.access_rights(right_id,environment,provider_key,provider_product,holder,ownership_revision,active,verified_at,provider_source) values
+        (${web}::uuid,'sandbox',${"d1".repeat(32)},'still_pro_v3',${id}::uuid,0,true,1000,'revenuecat'),
+        (${apple}::uuid,'sandbox',${"d2".repeat(32)},'still_pro_v3',${id}::uuid,1,true,1000,'apple')`;
+      await admin`insert into private.qa_sandbox_purchase_operations(operation_id,holder,configuration_hash,stripe_session_id,status,creation_started_at,paid_at)
+        values(${op}::uuid,${id}::uuid,${"c".repeat(64)},'cs_test_DeletionGoTrue','access_observed',now(),now())`;
+      // The same hard delete delete-user requests (shouldSoftDelete=false), executed by GoTrue.
+      const deleted = await auth("DELETE", `/admin/users/${id}`, { should_soft_delete: false });
+      assertEquals(deleted.status, 200);
+      await deleted.body?.cancel();
+      assertEquals((await admin`select id from auth.users where id = ${id}::uuid`).length, 0);
+      const rows = await admin`select right_id::text, holder::text, active, ownership_revision::text from private.access_rights
+        where right_id in (${web}::uuid, ${apple}::uuid) order by provider_source desc`;
+      assertEquals(Array.from(rows), [
+        { right_id: web, holder: null, active: false, ownership_revision: "1" },
+        { right_id: apple, holder: null, active: true, ownership_revision: "1" },
+      ]);
+      const kept = await admin`select holder::text, stripe_session_id from private.qa_sandbox_purchase_operations where operation_id = ${op}::uuid`;
+      assertEquals(Array.from(kept), [{ holder: null, stripe_session_id: "cs_test_DeletionGoTrue" }]);
+      assertEquals((await admin.unsafe(gate))[0]?.coalesce, []);
+    } finally {
       await admin.end();
     }
   },

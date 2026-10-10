@@ -44,8 +44,11 @@ language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
   v_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
 begin
-  -- Observation rows first: the order commit_access_observation and transfer_access_right lock
-  -- in, so an in-flight reconcile and this deletion never wait on each other in a cycle.
+  -- Observation rows before rights, the order commit/transfer use for this ledger. The QA wrappers
+  -- lock the auth.users row first, so they queue behind this deletion. A production reconcile holds
+  -- its observation row before its insert's key-share check on auth.users, so it can deadlock with
+  -- a deletion of the same account, exactly as the existing cascade could before 0022: PostgreSQL
+  -- aborts one transaction and the caller retries.
   perform 1 from private.access_observations where holder = old.id order by environment for update;
   -- The same state change as a canonical refund observation of an active right.
   update private.access_rights
