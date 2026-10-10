@@ -124,8 +124,11 @@ const PRODUCTION_TEXT = {
   "no-baseline": "unknown: no successful DB-01 baseline run was found",
 };
 
-/** The full report for one run (encrypted before it leaves the runner). */
-export function renderReport({ programId, check, labels, holders, results, refKey, production, verdict }) {
+/**
+ * The full report for one run (encrypted before it leaves the runner).
+ * @param {{ programId: string, check: any, labels: string[], holders: string[], results: any[], refKey: string, production?: string, verdict: string, notes?: string[] }} input
+ */
+export function renderReport({ programId, check, labels, holders, results, refKey, production, verdict, notes = [] }) {
   let withheld = 0;
   const sections = results.map(({ query, rows }) => {
     const rendered = renderQuery(query, rows, { refKey });
@@ -143,6 +146,7 @@ export function renderReport({ programId, check, labels, holders, results, refKe
     `- QA account(s): ${accounts}`,
     `- Expected (from the programme): ${check.expected}`,
     ...(production ? [`- Production unchanged since baseline: ${PRODUCTION_TEXT[production]}`] : []),
+    ...notes.map((note) => `- Note: ${note}`),
     "- Session: narrow read-only role, read-only transaction, rolled back. References are keyed short hashes, never raw ids.",
     ...(withheld ? [`- ${withheld} value(s) withheld because they did not match the expected shape.`] : []),
     "",

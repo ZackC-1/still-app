@@ -14,10 +14,12 @@ import {
   CHECKER_ROLE,
   CheckError,
   compareProduction,
+  notesFor,
   productionDigest,
   requireCheckerSession,
   runCheck,
   SESSION_SQL,
+  UnavailableError,
   verdictFor,
 } from "./run.ts";
 
@@ -53,7 +55,8 @@ Deno.test({
       const run = await runCheck(checker!, request);
       const production = run.productionRows ? "unchanged" : undefined;
       const verdict = verdictFor(request, run, production);
-      return { run, text: renderReport({ ...request, holders: run.holders, results: run.results, refKey: REF_KEY, production, verdict }) };
+      const notes = notesFor(request, run);
+      return { run, text: renderReport({ ...request, holders: run.holders, results: run.results, refKey: REF_KEY, production, verdict, notes }) };
     };
     try {
       await admin.begin(async (tx) => {
@@ -66,7 +69,9 @@ Deno.test({
         await tx`delete from still_qa_checks.qa_alias_owner`;
         await tx`delete from auth.users where id in ${tx(all)}`;
         for (const { label, holder: h } of LABEL_IDS) {
-          await tx`insert into auth.users(id, email, email_confirmed_at) values (${h}, ${`Owner+stillqa-${label}@example.invalid`}, clock_timestamp())`;
+          // The Preserved QA account is an older account, not an owner "+stillqa-" alias.
+          const email = label === "preserved" ? "older.account@example.invalid" : `Owner+stillqa-${label}@example.invalid`;
+          await tx`insert into auth.users(id, email, email_confirmed_at) values (${h}, ${email}, clock_timestamp())`;
         }
         await tx`insert into auth.users(id, email, email_confirmed_at) values
           (${CUSTOMER}, 'customer@example.invalid', clock_timestamp()),
@@ -84,7 +89,7 @@ Deno.test({
         await tx`insert into private.access_rights(right_id, environment, provider_key, provider_product, holder, active, verified_at, provider_source)
           values (${id(206)}, 'sandbox', ${hex("f")}, 'still_pro_v3', ${CUSTOMER}, true, 1, 'revenuecat')`;
         await tx`insert into still_qa_checks.qa_alias_owner(base_sha256) values (encode(sha256(convert_to(${OWNER_BASE}, 'UTF8')), 'hex'))`;
-        for (const { label, holder: h } of LABEL_IDS) {
+        for (const { label, holder: h } of LABEL_IDS.filter((l) => l.label !== "preserved")) {
           await tx`insert into still_qa_checks.qa_accounts(label, holder) values (${label}, ${h})`;
         }
         const doc = (on: boolean) => ({
@@ -119,6 +124,8 @@ Deno.test({
           await assertRejects(() => admin`update still_qa_checks.qa_accounts set holder = ${other} where label = 'fresh'`);
         }
         await assertRejects(() => admin`insert into still_qa_checks.qa_accounts(label, holder) values ('nobody', ${CUSTOMER})`);
+        // The non-alias Preserved QA account can never be registered: the alias rule is not weakened.
+        await assertRejects(() => admin`insert into still_qa_checks.qa_accounts(label, holder) values ('preserved', ${holder("preserved")})`);
       });
 
       await t.step("the real role passes the session proof", async () => {
@@ -138,8 +145,12 @@ Deno.test({
           assert(!text.includes(String(fingerprint).slice(0, 16)), `${input} printed the production fingerprint`);
           assert(!text.includes("<withheld>"), `${input} withheld a value: ${text}`);
         }
-        assertEquals((await report("setup")).run.results[0].rows.length, 9);
-        assertEquals(verdictFor(resolveRequest({ check: "setup" }), (await report("setup")).run), "pass");
+        const setup = await report("setup");
+        assertEquals(setup.run.results[0].rows.length, 8);
+        assertEquals(verdictFor(resolveRequest({ check: "setup" }), setup.run), "pass");
+        assertEquals(notesFor(resolveRequest({ check: "setup" }), setup.run).length, 1);
+        assert(setup.text.includes("Preserved QA account (preserved): not registered (not a QA alias)"));
+        assertEquals(verdictFor(resolveRequest({ check: "DB-02" }), (await report("DB-02")).run), "pass");
       });
 
       await t.step("non-QA rights, pre-run holder-less rights, customers and old erasure jobs are invisible", async () => {
@@ -163,6 +174,25 @@ Deno.test({
         ));
         assertEquals(Number(visible.qa_holderless), 1);
         assertEquals(Number(visible.recent_jobs), 1);
+      });
+
+      await t.step("checks naming the unregistered Preserved QA account answer unavailable, not fail", async () => {
+        for (const input of ["DB-03", "DB-04", "DB-23"]) {
+          await assertRejects(() => runCheck(checker!, resolveRequest({ check: input, account: "preserved" })), UnavailableError);
+        }
+        await assertRejects(
+          () => runCheck(checker!, resolveRequest({ check: "DB-06", account: "qa-a", accountB: "preserved" })),
+          UnavailableError,
+        );
+        // A required label that is missing is still a failure, never "unavailable".
+        await admin`delete from still_qa_checks.qa_accounts where label = 'fresh'`;
+        try {
+          const error = await assertRejects(() => runCheck(checker!, resolveRequest({ check: "DB-15", account: "fresh" })), CheckError);
+          assert(!(error instanceof UnavailableError));
+          assertEquals(verdictFor(resolveRequest({ check: "setup" }), (await report("setup")).run), "fail");
+        } finally {
+          await admin`insert into still_qa_checks.qa_accounts(label, holder) values ('fresh', ${holder("fresh")})`;
+        }
       });
 
       await t.step("a paid-lane label that is not a sandbox member is out of scope and refused", async () => {
