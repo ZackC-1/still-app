@@ -37,6 +37,7 @@ function launch(env = {}, responseError = null) {
   let analyticsFactory;
   let analyticsDeps;
   let subjectIssuerClient;
+  let subjectIssuerKey;
   const analyticsStub = () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} });
   const client = {
     functions: { invoke: async (name, options) => { calls.push({ name, options }); return { data: { synthetic: true }, error: responseError }; } },
@@ -59,7 +60,7 @@ function launch(env = {}, responseError = null) {
     buildChannelEnvelope: value => value === "test" ? { build_channel: "test" } : undefined,
     createAppAnalytics: (deps) => { analyticsFactory = "2.x"; analyticsDeps = deps; return analyticsStub(); },
     createDefaultOnAppAnalytics: (deps) => { analyticsFactory = "default-on"; analyticsDeps = deps; return analyticsStub(); },
-    supabaseSubjectIssuer: (client) => { subjectIssuerClient = client; return async () => ({ state: "active", subject: "synthetic" }); },
+    supabaseSubjectIssuer: (client, projectKey) => { subjectIssuerClient = client; subjectIssuerKey = projectKey; return async () => ({ state: "active", subject: "synthetic" }); },
     createClient() { clientCount++; return client; },
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },
     packagedAccessTrust: config => ({ environment: config.environment === "sandbox" ? "sandbox" : "production", keys: [] }),
@@ -76,7 +77,7 @@ function launch(env = {}, responseError = null) {
     isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
+  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, subjectIssuerKey: () => subjectIssuerKey, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
 
 test("usage analytics is on by default exactly where the V3 screens are", () => {
@@ -85,9 +86,10 @@ test("usage analytics is on by default exactly where the V3 screens are", () => 
 });
 
 test("V3 signed-in devices ask for their own identity through the configured client; 2.x never does", async () => {
-  const v3 = launch();
+  const v3 = launch({ VITE_POSTHOG_KEY: "phc_synthetic" });
   assert.equal(typeof v3.analyticsDeps.issueSubject, "function");
   assert.ok(v3.subjectIssuerClient(), "the issuer uses the app's configured Supabase client");
+  assert.equal(v3.subjectIssuerKey(), "phc_synthetic", "and the PostHog project key the app sends events with");
   assert.deepEqual(await v3.analyticsDeps.issueSubject({ originProof: "a".repeat(64) }, new AbortController().signal, "synthetic"), { state: "active", subject: "synthetic" });
   const legacy = launch({ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined });
   assert.equal("issueSubject" in legacy.analyticsDeps, false);

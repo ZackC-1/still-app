@@ -10,7 +10,7 @@ import type { AnalyticsKeyValue } from "./identity.js";
 import { createAppleConsentStore } from "./apple-consent-store.js";
 import { createAppAnalytics, type AppAnalytics, type AppAnalyticsDeps } from "./apple-app.js";
 import { STATE_KEY, analyticsConfigured } from "./client.js";
-import { originProof } from "./derive.js";
+import { originProof, toHex } from "./derive.js";
 import { isAnalyticsId } from "./identity.js";
 import { NOTICE_KEY, type SubjectDeps } from "./extension-host.js";
 import type { NativeBridge } from "../native/bridge.js";
@@ -214,35 +214,51 @@ export interface SubjectIssuingClient {
   readonly functions: {
     invoke(
       name: string,
-      options: { body: { originProof: string }; headers: Record<string, string>; signal: AbortSignal },
+      options: {
+        body: { originProof: string; projectKeySha256: string };
+        headers: Record<string, string>;
+        signal: AbortSignal;
+      },
     ): Promise<{ readonly data: unknown; readonly error: unknown }>;
   };
 }
 
+/** Lowercase hex SHA-256 of the trimmed PostHog project key this build sends events with. */
+export async function projectKeySha256(projectKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(projectKey.trim()) as BufferSource);
+  return toHex(new Uint8Array(digest));
+}
+
 /**
- * Ask `analytics-identify` for this device's identity for `account`: the request carries only the
- * origin proof (a one-way hash; derive.ts), with that account's own session and nothing else. The
- * server issues or returns the device's subject (never the account id), attaches the account's
- * email to it on the server, and answers `{state: "active", subject}` or `{state: "stopped"}`. Until
- * the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on it answers 503: this throws, and what the
- * signed-in device recorded keeps waiting on the device, bound to the account.
+ * Ask `analytics-identify` for this device's identity for `account`. The request carries only the
+ * origin proof (a one-way hash; derive.ts) and `projectKeySha256`, the digest of the public PostHog
+ * project key this build sends events with, so the server issues identities (and attaches emails)
+ * only for builds that report to its own project; a test build gets `{state: "test_channel"}` and
+ * nothing is written. It goes with that account's own session and nothing else. The server issues
+ * or returns the device's subject (never the account id), attaches the account's email to it on the
+ * server, and answers `{state: "active", subject}` or `{state: "stopped"}`.
+ *
+ * Until the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on it answers 503. A 503, a 429 or a
+ * `test_channel` answer throws (never a stop): what the signed-in device recorded keeps waiting on
+ * the device, bound to the account, and the issuer waits SUBJECT_RETRY_MS before asking again.
  */
 export function supabaseSubjectIssuer(
   client: SubjectIssuingClient,
+  projectKey: string | undefined,
   now: () => number = Date.now,
 ): SubjectDeps["issue"] {
-  // While the server refuses (503 until its switch is on, 429 when rate limited), wait before asking
-  // again instead of asking at every Still screen: signed-in use just keeps waiting on the device.
   let retryAt = 0;
+  let keyDigest: Promise<string> | null = null;
   return async (body, signal, account) => {
     if (now() < retryAt) throw new Error("Per-device identities are unavailable; retrying later");
+    if (!projectKey?.trim()) throw new Error("No PostHog project key in this build");
     const { data, error } = await client.auth.getSession();
     const session = data.session;
     // Refuse a session for anyone else: the identity must be issued to this account only.
     if (error || !session || session.user.id.toLowerCase() !== account.toLowerCase())
       throw new Error("No session for this account");
     const reply = await client.functions.invoke("analytics-identify", {
-      body: { originProof: body.originProof },
+      body: { originProof: body.originProof, projectKeySha256: await (keyDigest ??= projectKeySha256(projectKey)) },
       headers: { Authorization: `Bearer ${session.access_token}` },
       signal,
     });
@@ -250,6 +266,11 @@ export function supabaseSubjectIssuer(
       const status = (reply.error as { context?: { status?: unknown } }).context?.status;
       if (status === 503 || status === 429) retryAt = now() + SUBJECT_RETRY_MS;
       throw reply.error;
+    }
+    if ((reply.data as { state?: unknown } | null)?.state === "test_channel") {
+      // This build does not report to the server's project (a QA or test build): like unavailable.
+      retryAt = now() + SUBJECT_RETRY_MS;
+      throw new Error("This build's analytics are not the live project's; no identity is issued");
     }
     return reply.data;
   };
