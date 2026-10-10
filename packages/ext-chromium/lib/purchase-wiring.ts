@@ -1,4 +1,5 @@
 import { browser } from "wxt/browser";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { extensionSupabaseConfig, readAccountDeletionResult, readBackendRouteProfile, type BackendRouteProfile } from "@still/core/sync";
 import { STRINGS, type ExtensionPurchaseDeps, type UiController } from "@still/core/ui";
 import {
@@ -15,11 +16,13 @@ import {
 // gate as the background's client (fail-safe: no config → no injection → the popup renders the
 // explanatory Safari-shaped state, AE7 semantics on an unconfigured build).
 
-/** The web display price for the paywall CTA. Defined HERE, never in shared core strings, so no
- * web price string can reach an Apple-target bundle (3.1.3 anti-steering). Display-only: the real
- * charge amount is fixed server-side by the RevenueCat Web Billing product ($1.99 one-time —
- * docs/monetization-design.md §5); keep the two in step when either changes. */
-export const WEB_DISPLAY_PRICE = "$1.99";
+/** The retired 2.x web price. It is NOT the Still Pro price (V3 Still Pro is $9.99 one-time, D514)
+ * and no build may show it. It stays only so builds compiled with the paid tier off keep the
+ * shipped 2.x bytes; those builds never mount the paywall that would read it. Builds compiled
+ * with PAID_TIER_ENABLED on carry no browser price at all (see `displayPrice` below). Defined
+ * HERE, never in shared core strings, so no web price string can reach an Apple-target bundle
+ * (3.1.3 anti-steering). */
+export const LEGACY_WEB_DISPLAY_PRICE = "$1.99";
 
 /** Send one session message and settle to the structured fail-safe on ANY transport failure
  * (unreachable background, dead worker, undefined response) — never a throw into the UI. */
@@ -68,7 +71,13 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
 /** Build the UI capability injection from a session sender; exported for seam-level translation pins. */
 export function createExtensionPurchaseDeps(sendMessage: SessionSender, routeProfile: BackendRouteProfile = "production"): ExtensionPurchaseDeps {
   return {
-    displayPrice: routeProfile === "shared-hosted-sandbox" ? "$9.99" : WEB_DISPLAY_PRICE,
+    // Owner decision (10 October 2026): Chrome and Firefox offer Still Pro with no price; the
+    // checkout page shows it. Paid builds therefore pass no price, so the paywall's buy button
+    // reads "Get Still Pro" alone and no compiled price reaches them. With the paid tier off this
+    // folds to the original expression, keeping the shipped bytes (that build never shows it).
+    displayPrice: PAID_TIER_ENABLED
+      ? null
+      : routeProfile === "shared-hosted-sandbox" ? "$9.99" : LEGACY_WEB_DISPLAY_PRICE,
     getState: () => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getState" }),
     readAccountStatus: async () => {
       const status = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getSyncStatus" });

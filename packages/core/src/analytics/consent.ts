@@ -1,5 +1,6 @@
 import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
 import { deriveAnonymousId, deriveDeviceId } from "./derive.js";
+import { USAGE_ON_BY_DEFAULT_BUILD } from "./build-basis.js";
 
 // One device-local permission authority. Old On and native/store permission never imply that
 // the approved current usage/email/AI purposes and recipients have been accepted.
@@ -32,6 +33,10 @@ export interface AnalyticsPermission {
   };
 }
 export interface AnalyticsPrivacyPolicy {
+  /** "adr-0004": usage sharing on by default with a per-device off switch (default-on.ts). Accepted
+   * only in builds compiled with that basis (build-basis.ts); there it needs no capability evidence,
+   * because ADR 0004's disclosure promises none. Absent: the capability-evidence gate below. */
+  readonly basis?: "adr-0004";
   readonly permissionVersion: string;
   readonly context: "ordinary" | "private" | "unknown";
   readonly capabilities: Partial<
@@ -86,6 +91,10 @@ export function readAnalyticsPermission(value: unknown): AnalyticsPermission | n
 }
 /** Trusted host evidence, never an event/page boolean. Unknown capabilities hold collection. */
 export function privacyPolicyReady(policy: AnalyticsPrivacyPolicy | undefined): boolean {
+  // Folded away in 2.x builds (build-basis.ts). Elsewhere a host passes this basis only from its V3
+  // branch; the permission version must still match the stored permission exactly.
+  if (USAGE_ON_BY_DEFAULT_BUILD && policy?.basis === "adr-0004")
+    return policy.context === "ordinary" && REVISION.test(policy.permissionVersion);
   return (
     policy?.context === "ordinary" &&
     typeof policy.permissionVersion === "string" &&

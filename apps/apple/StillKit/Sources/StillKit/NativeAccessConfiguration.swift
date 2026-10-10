@@ -101,6 +101,32 @@ public struct VerifiedNativeAccessSession {
   }
 }
 
+/// Hosted Auth's answer about one access token.
+public enum NativeAccessSessionCheck {
+  case verified(VerifiedNativeAccessSession)
+  /// Auth definitively refused the token's account or session: the account was deleted, the
+  /// session was revoked or signed out, or the user is banned. `subject` is the token's own,
+  /// unverified `sub`; it only scopes which bound account the refusal may end.
+  case rejected(subject: String?)
+  /// Offline, timeout, redirect, server error, an expired or malformed token, an unconfirmed
+  /// email, or any other answer. Callers keep what is stored.
+  case unavailable
+
+  /// Only these documented Auth error codes, on a 401/403/404, end an account's stored rights.
+  /// An expired token ("bad_jwt") is not one of them: the account may be fine. Both Auth error
+  /// formats are read: the default `{"code":403,"error_code":"…","msg":…}` and the
+  /// `X-Supabase-Api-Version: 2024-01-01` form `{"code":"…","message":…}`. Anything else is not
+  /// a refusal.
+  static let definitiveErrorCodes: Set<String> = ["user_not_found", "session_not_found", "user_banned"]
+  static func isDefinitiveRejection(status: Int, body: Data) -> Bool {
+    guard [401, 403, 404].contains(status), body.count <= 65_536,
+      let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+      let code = (object["error_code"] as? String) ?? (object["code"] as? String)
+    else { return false }
+    return definitiveErrorCodes.contains(code)
+  }
+}
+
 public final class NativeAccessSessionVerifier {
   private let endpoint: URL
   private let publicKey: String
@@ -108,7 +134,12 @@ public final class NativeAccessSessionVerifier {
     endpoint = baseURL.appendingPathComponent("auth/v1/user"); self.publicKey = publicKey
   }
   public func verify(accessToken: String) async -> VerifiedNativeAccessSession? {
-    guard accessJWTPayload(accessToken) != nil else { return nil }
+    if case .verified(let session) = await check(accessToken: accessToken) { return session }
+    return nil
+  }
+
+  public func check(accessToken: String) async -> NativeAccessSessionCheck {
+    guard let payload = accessJWTPayload(accessToken) else { return .unavailable }
     let config = URLSessionConfiguration.ephemeral
     config.urlCache = nil; config.httpCookieStorage = nil
     config.timeoutIntervalForRequest = 10; config.timeoutIntervalForResource = 10
@@ -119,9 +150,13 @@ public final class NativeAccessSessionVerifier {
     request.setValue(publicKey, forHTTPHeaderField: "apikey")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     guard let (data, response) = try? await session.data(for: request),
-      let http = response as? HTTPURLResponse, http.statusCode == 200, http.url == endpoint
-    else { return nil }
-    return VerifiedNativeAccessSession.validated(userReply: data, acceptedToken: accessToken)
+      let http = response as? HTTPURLResponse, http.url == endpoint
+    else { return .unavailable }
+    guard http.statusCode == 200 else {
+      return NativeAccessSessionCheck.isDefinitiveRejection(status: http.statusCode, body: data)
+        ? .rejected(subject: payload["sub"] as? String) : .unavailable
+    }
+    return VerifiedNativeAccessSession.validated(userReply: data, acceptedToken: accessToken).map { .verified($0) } ?? .unavailable
   }
 }
 

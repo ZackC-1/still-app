@@ -71,5 +71,5 @@ First submitted 2026-09-24: all 10 sitemap pages accepted (202 from api.indexnow
 
 Still 2.0 needs no purchase restore. Keep support available for earlier receipts and refunds.
 Apple handles Apple purchase refunds under its policies. Previous web purchases have the approved
-14-day refund window; the same wording belongs in Terms and support. Public contacts are
+seven-day refund window; the same wording belongs in Terms and support. Public contacts are
 support@stillapp.fit, privacy@stillapp.fit, and hello@stillapp.fit.
