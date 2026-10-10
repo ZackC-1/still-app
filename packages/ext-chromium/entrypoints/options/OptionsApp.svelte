@@ -104,7 +104,13 @@
     (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&
     PAID_TIER_ENABLED && settingsRuntime.atomicLocal
-    ? () => import("./InformationalProSettings.svelte")
+    ? () =>
+        import("./InformationalProSettings.svelte").then((module) => {
+          // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
+          // Restore and re-checks over this page's controller and the existing checkout seam.
+          module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout } : undefined);
+          return module;
+        })
     : freeRestore
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {

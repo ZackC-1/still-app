@@ -80,20 +80,22 @@ async function host(state: AccessState = "locked", modern = true, configured = t
 const money = (messages: Record<string, unknown>[]) => messages.filter(message => ["createCheckout", "setCheckoutPending", "restore"].includes(String(message.action)) || (message.action === "setPurchaseIntent" && message.active !== false));
 
 describe("actual paid-V3 informational options destination", () => {
-  it("mounts the compact unverified Pro card from the current access authority, focuses it, and leaves legacy Restore unavailable", async () => {
+  it("mounts the compact unverified Pro card from the current access authority, focuses it, and never uses the legacy Boolean Restore", async () => {
     const f = await host(); const before = structuredClone(f.store);
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
     expect(await within(region).findByText("Still Pro can't be bought here yet.")).toBeTruthy();
     expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(within(region).queryByText("Related videos")).toBeNull();
-    const restore = within(region).getByRole("button", { name: "Restore purchase" }) as HTMLButtonElement;
-    expect(restore.disabled).toBe(true); await fireEvent.click(restore);
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
     if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
     await fireEvent.click(await screen.findByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" }));
     expect(document.activeElement).toBe(region);
     expect(f.messages.filter(message => message.kind === "observeBenefits")).toHaveLength(1);
+    // Signed out, Restore is the scoped re-check behind the normal sign-in; the legacy `restore`
+    // answer (deliberately "entitled" here) is never asked.
+    await fireEvent.click(within(region).getByRole("button", { name: "Restore purchase" }));
+    await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     expect(f.store).toEqual(before);
     expect(money(f.messages)).toEqual([]);
   });
@@ -148,7 +150,8 @@ describe("actual paid-V3 informational options destination", () => {
         expect(within(region).queryByRole("button", { name: "Restore purchase" })).toBeNull();
       } else {
         await within(region).findByText("Still Pro needs to be verified again.");
-        expect(within(region).getByRole("button", { name: "Restore purchase" })).toHaveProperty("disabled", true);
+        // The scoped Restore (sign-in first here) stays available; the legacy one is never asked.
+        expect(within(region).getByRole("button", { name: "Restore purchase" })).toHaveProperty("disabled", false);
       }
     }
     expect(money(f.messages)).toEqual([]);
@@ -175,7 +178,7 @@ describe("actual paid-V3 informational options destination", () => {
     await chrome.storage.local.set({ "still:entitlement": { entitled: true, updatedAt: Date.now(), access: { generation: 1 } } });
     await waitFor(() => expect(f.messages.filter(message => message.kind === "observeBenefits")).toHaveLength(2));
     expect(screen.queryByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" })).toBeNull();
-    expect(within(region).getByRole("button", { name: "Restore purchase" })).toHaveProperty("disabled", true);
+    expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     lock.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(document.activeElement).not.toBe(region);
     // A second invalidation fences the old locked answer. Only the fresh held observation wins.
