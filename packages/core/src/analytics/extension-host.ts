@@ -15,6 +15,7 @@ import {
 import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
 import { ANON_INDEX_LIMIT, originProof } from "./derive.js";
 import type { AccountErasureService, ErasureService, ErasureWithdrawal } from "./erasure.js";
+import { USAGE_ON_BY_DEFAULT_BUILD } from "./build-basis.js";
 import type {
   UiAccountErasureView,
   UiAnalytics,
@@ -135,6 +136,9 @@ export interface ExtensionAnalyticsHost {
   flushWhenReady(): Promise<void>;
   /** Identify the install, and once per account have the server attach the email. */
   identify(userId: string, options?: TrackOptions): Promise<void>;
+  /** V3 builds only: forget this device's cached per-device identities for the account the client
+   * reported as (a host that confirms "nobody" itself, as the Safari extension does). */
+  readonly forgetSubjects?: (reportingAs: string | null) => Promise<void>;
   readonly listener: (
     message: unknown,
     sender: MessageSender,
@@ -199,6 +203,11 @@ export interface SubjectDeps {
    * this, or any account-wide deletion, to the device "stop sharing" erasure (`ErasureService`):
    * this device's signed-out (anonymous) data stays until sharing is turned off on this device. */
   readonly onStopped: () => Promise<void>;
+  /** V3 builds: `issue` reads an identity already issued on this device (the Safari extension reads
+   * the Apple app's from the App Group) and makes no network request. A background start may then
+   * use it (it cannot mark a visit), and it is authoritative: a cached identity it no longer
+   * confirms is forgotten, never reused. Honoured only in V3 builds (build-basis.ts). */
+  readonly local?: boolean;
 }
 
 interface StoredSubject {
@@ -434,7 +443,16 @@ export function createAccountIdentifier(deps: {
     if (!client.isLatestAsk(ask)) return;
     const current = () => client.isLatestAsk(ask) && client.isCurrent(fence);
     const before = await client.captureObservation();
-    const known = before ? await cachedSubject(account, before.permission.origin) : null;
+    let known = before ? await cachedSubject(account, before.permission.origin) : null;
+    // A local issuer is the authority for this device's identity: check the cached one against it
+    // first, so an identity retired elsewhere (an account deleted, sharing stopped) is never reused.
+    if (USAGE_ON_BY_DEFAULT_BUILD && deps.subjects?.local === true && before && known) {
+      const live = await requestSubject(account, before);
+      if (live !== known) {
+        await forgetEntry({ account, origin: before.permission.origin, subject: known });
+        known = null;
+      }
+    }
     const confirmedHere =
       before !== null && client.accountConfirmed && known !== null && (await client.signedInAs()) === known;
     if (!client.isLatestAsk(ask)) return;
@@ -447,7 +465,7 @@ export function createAccountIdentifier(deps: {
     const observation = await client.captureObservation();
     if (!observation || !current()) return;
     let subject = await cachedSubject(account, observation.permission.origin);
-    if (!subject && options.quiet) {
+    if (!subject && options.quiet && !(USAGE_ON_BY_DEFAULT_BUILD && deps.subjects?.local === true)) {
       // A background start never calls the server (its timing would mark a site visit): events
       // wait unattributed until an ordinary Still screen obtains the subject. But a request that a
       // Still screen already started for this same account and origin is awaited: this quiet ask
@@ -740,6 +758,8 @@ export function createExtensionAnalyticsHost(
   return {
     client,
     identify,
+    // Folded away in 2.x builds (build-basis.ts).
+    ...(USAGE_ON_BY_DEFAULT_BUILD ? { forgetSubjects: (reportingAs: string | null) => accounts.forgetSubjects(reportingAs) } : {}),
     onInstalled(details, observation) {
       if (stopped) return;
       if (details.reason === "install") {

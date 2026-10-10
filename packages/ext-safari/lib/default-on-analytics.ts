@@ -16,7 +16,9 @@ import {
 // Signed in, it reports under the same per-device identity as the app (owner decision 50): the app
 // asks Still's server for it and publishes it to the App Group; the extension reads it through the
 // read-only `analyticsSubject` lane, only for the account the app reports as signed in and only
-// under the same permission origin. It never calls the server itself and never ends sharing.
+// under the same permission origin. It never calls the server itself and never ends sharing. Being a
+// local read, it is consulted at every background start too, so signed-in use is attributed without
+// a popup being opened, and an identity the app withdrew is dropped at once.
 //
 // Passed only from the background's V3 branch, a build-time choice that folds away in 2.x builds.
 
@@ -30,6 +32,9 @@ export function defaultOnSafariAnalytics(sendNative: SendNative): {
   return {
     privacyPolicy: DEFAULT_ON_USAGE_POLICY,
     subjects: {
+      // A local App Group read, no network: a background start may use it, and it is checked
+      // before a cached identity is reused (an identity retired elsewhere is never reused).
+      local: true,
       async issue(body, _signal, account) {
         const entry = (
           (await sendNative({ kind: "analyticsSubject" })) as { analyticsSubject?: unknown } | null
