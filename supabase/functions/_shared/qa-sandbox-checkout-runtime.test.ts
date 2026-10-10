@@ -48,6 +48,7 @@ function setup() {
           (status === "closed_unpaid" && ["session_bound","recovery_required"].includes(state.row.status)) || transitions.includes(`${state.row.status}:${status}`));
         state.row = { ...state.row, status, paid_at: ["paid_verified","import_pending","imported","access_observed","refunded"].includes(status) ? state.row.paid_at ?? now() : state.row.paid_at };
         calls.push(status); if (state.disableOnStatus && status === "access_observed") state.enabled = false; if (state.invalidateOnStatus && status === "access_observed") state.fence = false; return Promise.resolve({ ...state.row }); },
+      recordDeletedAccountRefund: () => { throw new Error("checkout routes never settle a deleted account's refund"); },
     },
     billing: {
       createCheckout: (operation,started) => { assert(Number.isSafeInteger(started) && started > 0 && started <= Date.now()); assertEquals(operation,{ operationId: OP, holderId: HOLDER }); state.creates++; if (state.disableOnCreate) state.enabled = false; return Promise.resolve(outcome()); },

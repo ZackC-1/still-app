@@ -10,9 +10,11 @@ fi
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
 readonly qa_database_url='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 upgrade_root=''
+deletion_root=''
 cleanup() {
   supabase stop --project-id still-app --no-backup >/dev/null 2>&1 || return 1
   if [[ -n $upgrade_root ]]; then rm -rf "$upgrade_root"; fi
+  if [[ -n $deletion_root ]]; then rm -rf "$deletion_root"; fi
   if [[ -n $(docker ps -aq --filter label=com.supabase.cli.project=still-app) || -n $(docker volume ls -q --filter label=com.supabase.cli.project=still-app) ]]; then
     echo 'Disposable QA database cleanup incomplete.' >&2; return 1
   fi
@@ -33,6 +35,12 @@ subjects_test() {
     --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
     --allow-read=scripts/backend/deploy/operations/qa-sandbox-subjects-enable.sql,scripts/backend/deploy/operations/qa-sandbox-subjects-disable.sql \
     --allow-net=127.0.0.1:54322 supabase/tests/qa_sandbox_subjects_operation_test.ts
+}
+deletion_test() {
+  deno test --frozen --config supabase/functions/deno.json \
+    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,STILL_DELETION_AUTH_URL,STILL_DELETION_SERVICE_ROLE_KEY,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+    --allow-read=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql \
+    --allow-net=127.0.0.1:54322 supabase/tests/account_deletion_payment_records_test.ts
 }
 head_creator_audit() {
   # Reuse the reviewed U1 fixture only on this disposable database. QA's own gate has
@@ -104,4 +112,49 @@ head_creator_audit
 # the emergency restore, which removes the wrappers.
 supabase db reset --local --no-seed --version 0021 >/dev/null
 subjects_test
+# 0022 (account deletion keeps payment records): upgrade from exactly 0021 after a characterized
+# pre-0022 deletion (a detached right left active, its checkout operation deleted). Every other
+# private row must be preserved; then deletion and a later deleted-account refund are exercised.
+supabase db reset --local --no-seed --version 0021 >/dev/null
+psql "$qa_database_url" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/account_deletion_payment_records_seed.sql
+deletion_root=$(mktemp -d "$RUNNER_TEMP/account-deletion-upgrade.XXXXXX")
+mkdir -p "$deletion_root/supabase/migrations"
+cp supabase/config.toml "$deletion_root/supabase/"
+for migration in supabase/migrations/*.sql; do
+  name=${migration##*/}
+  if (( 10#${name%%_*} <= 10#0022 )); then cp "$migration" "$deletion_root/supabase/migrations/"; fi
+done
+psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.invariant.sql > "$deletion_root/invariant-before.json"
+pre_0022=$(psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql | tail -n 1)
+if [[ $pre_0022 != *'"missing_trigger"'* || $pre_0022 != *'"orphaned_active_right"'* ]]; then
+  echo 'The 0022 end-state check did not report the absent trigger and the pre-0022 orphan.' >&2; exit 1
+fi
+supabase migration up --local --workdir "$deletion_root" >/dev/null
+psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.invariant.sql > "$deletion_root/invariant-after.json"
+if [[ ! -s $deletion_root/invariant-before.json ]] || ! cmp -s "$deletion_root/invariant-before.json" "$deletion_root/invariant-after.json"; then
+  echo '0022 changed a private row outside its bounded orphan repair.' >&2; exit 1
+fi
+post_0022=$(psql "$qa_database_url" -X -qAt --set=ON_ERROR_STOP=1 \
+  --command='set session characteristics as transaction read only' \
+  --file=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql | tail -n 1)
+if [[ $post_0022 != '[]' ]]; then echo "0022 end-state check failed: $post_0022" >&2; exit 1; fi
+echo '0022 upgrade, bounded repair and end-state check: PASS.'
+deletion_test
+# The same deletion through GoTrue's own admin API, so the trigger runs under the role and
+# transaction GoTrue uses (supabase_auth_admin), not only a direct SQL delete by postgres.
+supabase stop --project-id still-app --no-backup >/dev/null
+supabase start --exclude studio,imgproxy,mailpit,logflare,vector,realtime,storage-api,edge-runtime >/dev/null
+supabase db reset --local --no-seed --version 0022 >/dev/null
+STILL_DELETION_AUTH_URL='http://127.0.0.1:54321/auth/v1' \
+STILL_DELETION_SERVICE_ROLE_KEY=$(supabase status -o json | jq -er '.SERVICE_ROLE_KEY') \
+  deno test --frozen --config supabase/functions/deno.json \
+    --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_ACCESS_TEST_DATABASE_URL,STILL_DELETION_AUTH_URL,STILL_DELETION_SERVICE_ROLE_KEY,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+    --allow-read=scripts/backend/deploy/verify/0022_account_deletion_keeps_payment_records.sql \
+    --allow-net=127.0.0.1:54321,127.0.0.1:54322 supabase/tests/account_deletion_payment_records_test.ts
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

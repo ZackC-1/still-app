@@ -458,6 +458,43 @@ also fingerprints every existing scoped ledger field, excluding only the newly a
 column. The accepted runner keeps these comparisons private. Live concurrent account or settings
 changes may require the owner's private comparison after a verified apply.
 
+### Account deletion keeps payment records (0022)
+
+Deploy `0022_account_deletion_keeps_payment_records.sql` alone, after 0021 is verified, through
+the protected migration operation; it replaces no earlier routine. Its read-only gate
+`deploy/verify/0022_account_deletion_keeps_payment_records.sql` checks the owner-only
+`BEFORE DELETE` trigger on `auth.users` that deactivates a deleted account's active
+RevenueCat-sourced rights, the QA checkout operation's `ON DELETE SET NULL` account reference, and
+that no detached RevenueCat-sourced right is still active. Its private invariant requires every
+existing row to stay byte-identical except the one-time repair of rights already detached by an
+earlier deletion, whose identity and count are still compared. Apple-sourced rights stay
+accountless (0020). `rehearse-qa-sandbox.sh` rehearses the upgrade from a seeded 0021 deletion.
+The QA Stripe webhook's deleted-account refund path needs the next QA function deployment.
+
+Deploy order: apply 0022 alone in a low-traffic window, confirm its gate returns `[]`, then
+deploy the QA functions from the merge commit. Before applying, confirm read-only that the
+operator can attach the trigger and reference Auth users:
+`select has_table_privilege('postgres','auth.users','TRIGGER'), has_table_privilege('postgres','auth.users','REFERENCES');`
+must return two `true` values. The migration sets `lock_timeout = '5s'`; a lock timeout or a
+deadlock with a concurrent sign-in or reconcile aborts the whole transaction with nothing applied,
+so retry the same operation.
+
+Break-glass (reviewed, owner-approved operation only): if the trigger ever blocks account
+deletion, `postgres` may be unable to drop or disable it, because `auth.users` is owned by
+`supabase_auth_admin`. Instead replace only the routine body, keeping its name, signature,
+owner, `security definer`, `search_path` and ACL:
+
+```sql
+create or replace function private.deactivate_deleted_account_rights() returns trigger
+language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
+begin return old; end;
+$$;
+```
+
+Deletions then keep working (rights are only detached, as before 0022) and the 0022 gate reports
+`routine_body`. Restore the reviewed body with a new forward migration that also re-runs the
+one-time orphan repair, then confirm the gate returns `[]` again.
+
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
 nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column

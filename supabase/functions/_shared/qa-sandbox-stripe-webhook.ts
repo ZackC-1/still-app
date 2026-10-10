@@ -80,12 +80,29 @@ function scoped(operation: QaPurchaseOperation | null, operationId: string, hold
     operation.configuration_hash === hash && operation.creation_started_at !== null &&
     Number.isFinite(Date.parse(operation.creation_started_at)) && (operation.stripe_session_id === null || operation.stripe_session_id === session);
 }
+/**
+ * Account deletion keeps the checkout operation with its account id cleared and has already
+ * deactivated the account's rights (migration 0022), so a later canonical full refund only needs
+ * the payment record marked refunded: no account is recreated, observed or granted anything. The
+ * write is keyed by the exact operation and bound Session Stripe reported fully refunded. An
+ * unknown or unbound operation is refused and retried, as before. If a transient read failure sends
+ * a live account's operation here, the (true) refunded status is kept, the acknowledgement is
+ * refused, and Stripe's retry completes the ordinary scoped path below.
+ */
+async function deletedAccountRefund(canonical: Exclude<QaChargeRefund, { status: "unknown" }>, checkout: QaSandboxStripeWebhookDeps["checkout"]): Promise<Response> {
+  const settled = await checkout.operations.recordDeletedAccountRefund(canonical.operationId, canonical.sessionId);
+  if (settled.configuration_hash !== checkout.configurationHash || settled.creation_started_at === null ||
+    Math.abs(Date.parse(settled.creation_started_at) - canonical.createdAtMs) > 300_000) return reply(502);
+  return reply(200);
+}
 async function refund(chargeId: string, deps: QaSandboxStripeWebhookDeps): Promise<Response> {
   const canonical: QaChargeRefund = await deps.refunds.readChargeRefund(chargeId);
   if (canonical.status === "unknown") return reply(502);
   if (canonical.status !== "full_refund") return reply(200);
   const checkout = deps.checkout;
-  let operation = await checkout.operations.read(canonical.operationId, canonical.holderId);
+  // A deleted account's scoped read fails (no Auth row, no membership) or finds nothing.
+  let operation = await checkout.operations.read(canonical.operationId, canonical.holderId).catch(() => null);
+  if (!operation) return await deletedAccountRefund(canonical, checkout);
   if (!scoped(operation, canonical.operationId, canonical.holderId, checkout.configurationHash, canonical.sessionId) ||
     Math.abs(Date.parse(operation.creation_started_at!) - canonical.createdAtMs) > 300_000 || operation.status === "closed_unpaid") return reply(502);
   if (!operation.stripe_session_id) operation = await checkout.operations.bindSession(operation.operation_id, operation.holder, canonical.sessionId, checkout.configurationHash);
