@@ -104,5 +104,10 @@ final class ExtensionBridgeAuthorityTests: XCTestCase {
     let source = try String(contentsOf: handler, encoding: .utf8)
     XCTAssertTrue(source.contains("private let bridge = SettingsBridge.safariExtension(store: .appGroup())"))
     XCTAssertFalse(source.contains("SettingsBridge(store:"))
+    // Its benefit read resolves under the app-bound account session (one purchase everywhere).
+    XCTAssertTrue(source.contains("private let entitlementBridge = EntitlementBridge.safariExtension(store: .appGroup())"))
+    XCTAssertFalse(source.contains("EntitlementBridge(store:"))
+    // The background reads this lane's reply under `entitlement` (packages/ext-safari).
+    XCTAssertTrue(source.contains("payload = [\"entitlement\": entitlementJSON]"))
   }
 }
