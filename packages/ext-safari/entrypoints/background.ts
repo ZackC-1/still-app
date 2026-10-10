@@ -18,6 +18,7 @@ import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 import { defaultOnSafariAnalytics } from "../lib/default-on-analytics.js";
 import { safariPlatformAnswer } from "../lib/access-platform.js";
+import { parseNativeBenefitReply } from "../lib/native-benefits.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -54,6 +55,9 @@ export default defineBackground(() => {
   const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= safariPlatformAnswer());
   const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", PAID_TIER_ENABLED ? await devicePlatform() : undefined), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
+    // The handler replies on its entitlement lane. Paid off never reaches this closure, so the
+    // lines below it are left as the shipped 2.x bytes; paid builds read the actual lane.
+    if (PAID_TIER_ENABLED) return parseNativeBenefitReply(reply);
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;
     if (!value || typeof value !== "object" || (value as { ok?: unknown }).ok !== true) throw new Error("Native benefit authority unavailable");

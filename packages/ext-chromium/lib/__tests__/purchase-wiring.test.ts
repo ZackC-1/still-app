@@ -3,6 +3,7 @@ import type { UiController } from "@still/core/ui";
 import {
   createExtensionPurchaseDeps,
   createSessionSender,
+  LEGACY_WEB_DISPLAY_PRICE,
   restoreHandler,
   type SessionSender,
 } from "../purchase-wiring.js";
@@ -29,9 +30,11 @@ function controllerStub() {
 }
 
 describe("purchase wiring protocol translations", () => {
-  it("shows the QA lifetime price only for the explicit sandbox profile", () => {
+  it("keeps the shipped 2.x values in builds with the paid tier off (where no paywall can show them)", () => {
+    // Pins the dormant build's bytes, not a price anyone sees: the paid-tier-off popup never
+    // mounts the paywall. Builds with the paid tier on pass no price (purchase-wiring.paid-on.test.ts).
     const sender = senderFor(null);
-    expect(createExtensionPurchaseDeps(sender).displayPrice).toBe("$1.99");
+    expect(createExtensionPurchaseDeps(sender).displayPrice).toBe(LEGACY_WEB_DISPLAY_PRICE);
     expect(createExtensionPurchaseDeps(sender, "shared-hosted-sandbox").displayPrice).toBe("$9.99");
   });
   it("distinguishes signed-out status from transport failure and retries through the background", async () => {

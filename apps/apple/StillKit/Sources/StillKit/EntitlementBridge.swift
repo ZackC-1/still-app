@@ -619,6 +619,24 @@ public struct EntitlementBridge {
   private let proposalSource: EntitlementSource
   private let readOnly: Bool
   private let accessContext: () -> NativeAccessContext
+  /// Set only by `safariExtension`: benefits resolve under the account session the app bound.
+  private var boundSessionBenefits: (paidMode: Bool, platform: SafariAccessPlatform)?
+
+  /// The Safari extension's read-only lane. Its benefit read uses the account and session the app
+  /// itself verified against hosted Auth and committed to the shared record (the same context as
+  /// the app's own `observeAppleBenefits`), so a signed-in account's server-signed rights, such as
+  /// a web purchase, reach Safari. No request supplies identity, time or mode; the extension has no
+  /// StoreKit evidence of its own, so ownership is `.unknown`. Paid off returns the free snapshot.
+  public static func safariExtension(
+    store: SharedEntitlementStore,
+    paidMode: Bool = MonetizationConfig.paidTierEnabled,
+    platform: SafariAccessPlatform = .current,
+    now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) }
+  ) -> EntitlementBridge {
+    var bridge = EntitlementBridge(store: store, now: now, readOnly: true)
+    bridge.boundSessionBenefits = (paidMode, platform)
+    return bridge
+  }
 
   public init(
     store: SharedEntitlementStore,
@@ -647,7 +665,9 @@ public struct EntitlementBridge {
       } catch { return "{\"ok\":false}" }
     case .getBenefitAccess:
       do {
-        let snapshot = try store.observeBenefits(wall: now(), context: accessContext()).1
+        let snapshot = try boundSessionBenefits.map {
+          try store.observeAppleBenefits(wall: now(), ownership: .unknown, paidMode: $0.paidMode, platform: $0.platform)
+        } ?? store.observeBenefits(wall: now(), context: accessContext()).1
         let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
         let data = try JSONSerialization.data(withJSONObject: ["ok": true, "snapshot": value], options: [.sortedKeys])
         return String(data: data, encoding: .utf8) ?? "{\"ok\":false}"
