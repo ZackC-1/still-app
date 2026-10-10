@@ -71,7 +71,7 @@ restore as a 2.0.0 reviewer step. Keep owner-edited submitted Apple text and acc
 ## 5. Support playbook
 
 Earlier buyers can use 2.0.0 without restoring or recovering a purchase. Receipt/refund enquiries go
-to `support@stillapp.fit`; web refunds use the approved 14-day window, Apple refunds go through Apple.
+to `support@stillapp.fit`; web refunds use the approved seven-day window, Apple refunds go through Apple.
 Account export requests go to `privacy@stillapp.fit`. Do not automatically grant entitlements or
 merge accounts to solve a free-feature support request.
 

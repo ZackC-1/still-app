@@ -62,7 +62,7 @@ historical billing events, support mail or provider backups/logs. Those have the
 handling. Do not represent anonymous SDK identifiers as “zero data” or purchase analytics as
 advertising tracking without evidence of that use.
 
-Prior web purchases use the approved 14-day refund window. Apple handles Apple refunds.
+Prior web purchases use the approved seven-day refund window. Apple handles Apple refunds.
 `support@stillapp.fit` handles receipt/refund questions. A former buyer does not need purchase
 recovery to use any 2.0.0 feature.
 
