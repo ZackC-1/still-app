@@ -173,6 +173,14 @@ scope denials without receipts, JWTs, personal identities or browsing data. Stop
 paid write outside sandbox scope, unmanaged checkout, cross-environment acceptance or unexpected
 catalog/configuration drift. Designated QA accounts' own free-settings writes are expected.
 
+## Database checks during QA
+
+The programme's "Claude runs this" database steps (DB-01 to DB-38) use the protected
+[read-only check route](qa-readonly-database-checks.md): one owner-approved workflow run per step,
+a closed catalogue of reviewed SELECTs, a narrow read-only role limited to QA accounts, and output
+with no emails or raw ids. Its database part is a separate owner-approved install; until it is
+installed, the owner pastes the programme's prepared read-only queries into the SQL editor instead.
+
 ## Disable and recover
 
 Disable new initiation and account grants first. Retain paid operation, transaction and revocation

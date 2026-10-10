@@ -7,6 +7,7 @@ on:
       - "scripts/backend/**"
       - ".github/workflows/supabase-security-rehearsal.yml"
       - ".github/workflows/security-audit.yml"
+      - ".github/workflows/supabase-readonly-checks.yml"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +18,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  qa-readonly-checks:
+    name: Read-only QA check route (disposable database)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Disposable runner only; no environment, provider credentials or deployment authority.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.3"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: "2.119.0"
+      - name: Verify pinned tooling
+        run: test "$(supabase --version)" = '2.119.0'
+      - name: Session proof and failure text (no database)
+        run: deno test --frozen --config supabase/functions/deno.json scripts/backend/qa-checks/run.test.ts
+      - name: Install the candidate twice and run every check as the narrow role
+        run: bash scripts/backend/rehearse-qa-readonly-checks.sh
+      - name: Failure/cancellation cleanup
+        if: always()
+        run: supabase stop --project-id still-app --no-backup
   qa-sandbox:
     name: Fixed sandbox SQL isolation and recovery
     runs-on: ubuntu-24.04

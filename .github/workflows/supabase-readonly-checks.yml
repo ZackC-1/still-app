@@ -1,0 +1,138 @@
+name: Supabase read-only QA check
+
+# Protected, read-only database checks for the owner QA programme (owner decision, 10 Oct 2026).
+# Manual dispatch from main only. One run answers one programme step ("DB-07") from the closed,
+# reviewed catalogue in scripts/backend/qa-checks/catalogue.mjs; there is no free-form SQL input.
+# Inputs are a check id and QA account LABELS only; never an email or id. Labels resolve inside the
+# database through the owner-filled QA registry.
+# The job waits for the owner's approval in the `supabase-readonly-checks` environment, which holds
+# ONLY the read-only connection secret STILL_QA_READONLY_DB_URL (role still_qa_readonly_checker).
+# It then re-checks that the environment is owner-only and that the owner approved this run, and
+# runs the check in a read-only transaction that is always rolled back. Output is counts, states,
+# timestamps and short hashed references only. No Supabase CLI, no write credential, no deploy.
+# Runbook: docs/release/qa-readonly-database-checks.md
+run-name: "Read-only QA check ${{ inputs.check }} ${{ inputs.account }} ${{ inputs.account_b }}"
+on:
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Programme step to check (setup proves the route itself)"
+        required: true
+        default: setup
+        type: choice
+        options:
+          - setup
+          - DB-01
+          - DB-02
+          - DB-03
+          - DB-04
+          - DB-05
+          - DB-06
+          - DB-07
+          - DB-08
+          - DB-09
+          - DB-10
+          - DB-11
+          - DB-12
+          - DB-13
+          - DB-14
+          - DB-15
+          - DB-16
+          - DB-17
+          - DB-18
+          - DB-19
+          - DB-20
+          - DB-21
+          - DB-22
+          - DB-23
+          - DB-24
+          - DB-25
+          - DB-26
+          - DB-27
+          - DB-28
+          - DB-29
+          - DB-30
+          - DB-31
+          - DB-32
+          - DB-33
+          - DB-34
+          - DB-35
+          - DB-37
+          - DB-38
+      account:
+        description: "QA account label, for checks about one account (the first account for two-account checks)"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - preserved
+          - web-chrome
+          - web-firefox
+          - web-android
+          - fresh
+          - refund-web
+          - qa-a
+          - qa-b
+          - delete
+      account_b:
+        description: "Second QA account label, only for DB-06, DB-11, DB-19 and DB-20"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - preserved
+          - web-chrome
+          - web-firefox
+          - web-android
+          - fresh
+          - refund-web
+          - qa-a
+          - qa-b
+          - delete
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-readonly-checks
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The read-only secret is released only after the owner approves this run.
+    environment: supabase-readonly-checks
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.8.3"
+      - name: Confirm owner approval and environment protection (read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/backend/qa-checks/protection.mjs
+      - name: Run the read-only check (read-only role and transaction, rolled back)
+        env:
+          QA_CHECK_ID: ${{ inputs.check }}
+          QA_CHECK_ACCOUNT: ${{ inputs.account }}
+          QA_CHECK_ACCOUNT_B: ${{ inputs.account_b }}
+          STILL_QA_CHECKS_DB_URL: ${{ secrets.STILL_QA_READONLY_DB_URL }}
+          STILL_QA_CHECKS_CA_PEM: ${{ vars.STILL_QA_READONLY_CA_PEM }}
+        run: >-
+          deno run --frozen --config supabase/functions/deno.json --no-prompt
+          --allow-env=QA_CHECK_ID,QA_CHECK_ACCOUNT,QA_CHECK_ACCOUNT_B,STILL_QA_CHECKS_DB_URL,STILL_QA_CHECKS_CA_PEM,GITHUB_STEP_SUMMARY,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+          --allow-net --allow-write="$GITHUB_STEP_SUMMARY"
+          scripts/backend/qa-checks/run.ts
