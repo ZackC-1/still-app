@@ -103,10 +103,10 @@ async function readError(status: number, body: string | null, project = "proj-st
   finally { globalThis.fetch = real; }
 }
 Deno.test("RevenueCat 404 resource_missing (customer never created) is a complete, empty list for that account", async () => {
-  for (const body of [RC_CUSTOMER_MISSING, { type: "resource_missing" }, { ...RC_CUSTOMER_MISSING, param: "customer_id" },
-    { ...RC_CUSTOMER_MISSING, message: null, param: null }]) {
+  for (const body of [RC_CUSTOMER_MISSING, { ...RC_CUSTOMER_MISSING, param: "customer_id" },
+    { ...RC_CUSTOMER_MISSING, param: null }]) {
     const { access, urls } = await readError(404, JSON.stringify(body));
-    assertEquals(access, { status: "verified", rights: [], complete: true }, JSON.stringify(body));
+    assertEquals(access, { status: "verified", rights: [], complete: true, customerMissing: true }, JSON.stringify(body));
     // The absence is read only from this project's purchases list for the authenticated holder.
     assertEquals(urls, [`https://api.revenuecat.com/v2/projects/proj-still/customers/${HOLDER}/purchases?environment=sandbox&limit=100`]);
   }
@@ -124,6 +124,9 @@ Deno.test("every other 404, missing/malformed body, retryable or non-404 error s
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Project not found" })],
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Could not find app associated with this project" })],
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: 42 })],
+    [404, JSON.stringify({ type: "resource_missing" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: null })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, object: undefined })],
     [400, missing], [401, missing], [403, missing], [410, missing], [429, missing], [500, missing], [503, missing],
   ] as const) {
     assertEquals((await readError(status, body)).access, { status: "unavailable" }, `${status} ${body}`);

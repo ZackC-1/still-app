@@ -1,7 +1,10 @@
 import type { AccessEnvironment } from "@still/shared-types";
 import type { ProviderRight } from "./access-issuer.ts";
 
-export type ProviderAccess = { readonly status: "verified"; readonly rights: readonly ProviderRight[]; readonly complete?: boolean }
+export type ProviderAccess = { readonly status: "verified"; readonly rights: readonly ProviderRight[]; readonly complete?: boolean;
+  /** RevenueCat has no customer for this holder yet (first-page 404). Absence for the access check;
+   * not proof that a refund has been recorded, so the refund webhook keeps retrying. */
+  readonly customerMissing?: true }
   | { readonly status: "unavailable" };
 export interface RevenueCatAccessClient {
   getRights(holder: string, environment: AccessEnvironment): Promise<ProviderAccess>;
@@ -82,14 +85,13 @@ async function customerNotFound(response: Response): Promise<boolean> {
   if (response.status !== 404) return false;
   let body: unknown;
   try { body = await response.json(); } catch { return false; }
-  if (!object(body) || body.type !== "resource_missing") return false;
-  if (body.object !== undefined && body.object !== "error") return false;
+  // Only the live-verified shape counts; a bare or message-less resource_missing stays unavailable.
+  if (!object(body) || body.type !== "resource_missing" || body.object !== "error") return false;
   if (body.retryable === true) return false;
   if (body.param !== undefined && body.param !== null && body.param !== "customer_id") return false;
   // Observed 2026-10-10: "Could not find customer ID associated with this project". A wrong project
   // id is refused earlier with 403 authorization_error, so a present message must name the customer.
-  if (body.message !== undefined && body.message !== null &&
-      (typeof body.message !== "string" || !/\bcustomer\b/i.test(body.message))) return false;
+  if (typeof body.message !== "string" || !/\bcustomer\b/i.test(body.message)) return false;
   return true;
 }
 
@@ -127,7 +129,7 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
         // is created. Every other non-OK answer — another 404 type, an empty or malformed body, a
         // retryable error, 403/429/5xx, or a 404 on a later page — stays unavailable.
         if (!response.ok) {
-          if (page === 0 && await customerNotFound(response)) return { status: "verified", rights: [], complete: true };
+          if (page === 0 && await customerNotFound(response)) return { status: "verified", rights: [], complete: true, customerMissing: true };
           return unavailable;
         }
         const list: unknown = await response.json();

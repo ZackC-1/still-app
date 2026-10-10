@@ -31,7 +31,7 @@ function setup() {
   const state = { row: { operation_id: OP, holder: HOLDER, environment: "sandbox", configuration_hash: HASH, stripe_session_id: SESSION,
     status: "session_bound", creation_started_at: NOW, paid_at: null, created_at: NOW, updated_at: NOW } as QaPurchaseOperation,
     reads: 0, creates: 0, imports: 0, recoveries: 0, begins: 0, commits: 0, signs: 0, refunds: 0, enabled: false, confirmed: false,
-    paid: true, pending: false, expired: false, unknown: false, importFails: false, rcUnavailable: false, active: false,
+    paid: true, pending: false, expired: false, unknown: false, importFails: false, rcUnavailable: false, customerMissing: false, active: false,
     negative: true, complete: true, known: true, stale: false, full: true, partial: false, mutations: [] as string[], snapshots: [] as unknown[] };
   const deps: QaSandboxStripeWebhookDeps = { secret: SECRET, checkout: { configurationHash: HASH, jwtSecret: "",
     accounts: { confirmed: () => Promise.resolve(state.confirmed) }, membership: { enabled: () => Promise.resolve(state.enabled) },
@@ -55,7 +55,7 @@ function setup() {
       trackCompletedPurchase: () => { state.imports++; return Promise.resolve({ status: state.importFails ? "unavailable" : "tracked" }); },
     }, access: {
       signer: { environment: "sandbox",sign: () => { state.signs++; throw Error("must never sign"); } },
-      provider: { getRights: () => Promise.resolve(state.rcUnavailable ? { status: "unavailable" } : { status: "verified",complete: state.complete,
+      provider: { getRights: () => Promise.resolve(state.rcUnavailable ? { status: "unavailable" } : state.customerMissing ? { status: "verified",complete: true,rights: [],customerMissing: true } : { status: "verified",complete: state.complete,
         rights: state.active ? [{ key: KEY,product: "still_pro_v3" }] : state.negative ? [{ key: KEY,product: "still_pro_v3",state: "revoked" }] : [] }) },
       rights: {
         begin: () => { state.begins++; return Promise.resolve(OP); },
@@ -158,6 +158,14 @@ Deno.test("full refund terminalizes before canonical negative lookup and duplica
   assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200);
   assertEquals([s.state.begins,s.state.commits,s.state.signs],[2,1,0]);
   assertEquals(s.state.mutations,["refunded"]);
+});
+Deno.test("refund for a customer RevenueCat has not created yet retries instead of acknowledging", async () => {
+  const s = setup(); s.state.customerMissing = true;
+  assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,502);
+  assertEquals([s.state.row.status,s.state.commits,s.state.signs],["refunded",0,0]);
+  s.state.customerMissing = false;
+  assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200);
+  assertEquals(s.state.commits,1);
 });
 Deno.test("refund before import blocks delayed completed notification from importing or granting", async () => {
   const s = setup();
