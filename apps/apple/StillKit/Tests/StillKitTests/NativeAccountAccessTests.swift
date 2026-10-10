@@ -25,6 +25,55 @@ final class NativeAccountAccessTests: XCTestCase {
     XCTAssertEqual(record.rights.count, 1); XCTAssertEqual(record.appleBindings.count, 0)
     XCTAssertEqual(record.rights.first?.clock?.wallAtReceipt, f.now)
   }
+  /// One purchase everywhere: a signed-in account's server-signed right (a web purchase) that the
+  /// app committed reaches the Safari extension's read-only lane, scoped to each Safari's extras.
+  func testSafariExtensionLaneSeesTheAppBoundAccountRight() throws {
+    func states(_ store: SharedEntitlementStore, _ platform: SafariAccessPlatform, paid: Bool = true) throws -> [String: String] {
+      let reply = EntitlementBridge.safariExtension(store: store, paidMode: paid, platform: platform, now: { self.f.now + 1 }).handle(.getBenefitAccess)
+      let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+      XCTAssertEqual(body["ok"] as? Bool, true)
+      return try XCTUnwrap((body["snapshot"] as? [String: Any])?["states"] as? [String: String])
+    }
+    let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: f.trust)
+    let session = try f.verifiedSession()
+    let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)
+    // Before any account right: nothing paid is unlocked, and the old default lane agrees.
+    XCTAssertFalse(try states(store, .mac).values.contains("purchased"))
+    _ = try store.installAccountAccess(snapshot([f.envelope(f.claims(holder: f.account).canonical())]),
+      session: session, expectedGeneration: generation, wall: f.now)
+    let mac = try states(store, .mac), phone = try states(store, .mobile)
+    XCTAssertEqual(Set(mac.filter { $0.value == "purchased" }.keys),
+      Set(NativeAppleAccessCapabilities.pro(for: .mac)))
+    XCTAssertEqual(mac.filter { $0.value == "purchased" }.count, 12)
+    XCTAssertEqual(Set(phone.filter { $0.value == "purchased" }.keys),
+      Set(NativeAppleAccessCapabilities.pro(for: .mobile)))
+    XCTAssertEqual(phone.filter { $0.value == "purchased" }.count, 9)
+    for desktopOnly in NativeAppleAccessCapabilities.safariDesktopLayoutPro { XCTAssertEqual(phone[desktopOnly], "unsupported") }
+    // A request-supplied (default, unbound) context never matches the account holder.
+    let unbound = EntitlementBridge(store: store, now: { self.f.now + 1 }, readOnly: true,
+      accessContext: { NativeAccessContext(paidMode: true, supported: NativeAppleAccessCapabilities.supported(paidMode: true, platform: .mac)) })
+    XCTAssertFalse(unbound.handle(.getBenefitAccess).contains("purchased"))
+    // The lane stays read-only and paid off is the free snapshot.
+    let readonly = EntitlementBridge.safariExtension(store: store, paidMode: true, platform: .mac)
+    XCTAssertThrowsError(try readonly.prepareAccountAccess(session, expectedGeneration: generation))
+    XCTAssertThrowsError(try readonly.clearAccessAccount())
+    XCTAssertFalse(try states(store, .mac, paid: false).values.contains("purchased"))
+    // Signing out in the app (account cleared) removes the account right from Safari too.
+    _ = try store.changeAccessAccount(nil)
+    XCTAssertFalse(try states(store, .mac).values.contains("purchased"))
+  }
+  func testSafariExtensionLaneIgnoresAnotherAccountsSession() throws {
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust)
+    let session = try f.verifiedSession()
+    let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)
+    _ = try store.installAccountAccess(snapshot([f.envelope(f.claims(holder: f.account).canonical())]),
+      session: session, expectedGeneration: generation, wall: f.now)
+    // A later different verified session (another sign-in) advances the generation: the earlier
+    // account proof no longer counts until the app reconciles again under the new session.
+    _ = try store.changeAccessSession(accountId: f.account, sessionId: f.right)
+    let reply = EntitlementBridge.safariExtension(store: store, paidMode: true, platform: .mac, now: { self.f.now + 1 }).handle(.getBenefitAccess)
+    XCTAssertFalse(reply.contains("purchased"))
+  }
   func testGenerationRejectsLogoutAndSameAccountReplacementWithoutWriting() throws {
     let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: f.trust)
     let session = try f.verifiedSession()
