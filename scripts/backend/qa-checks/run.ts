@@ -79,6 +79,9 @@ select current_user as "user", r.rolsuper as superuser, r.rolbypassrls as bypass
   pg_catalog.has_database_privilege(pg_catalog.current_database(), 'CREATE') as database_create,
   (select count(*)::int from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema')
+      -- Trigger and event-trigger functions cannot be called directly (only fired by the server),
+      -- the same exclusion migration 0014 makes; this covers Supabase's own rls_auto_enable().
+      and p.prorettype not in ('pg_catalog.trigger'::pg_catalog.regtype, 'pg_catalog.event_trigger'::pg_catalog.regtype)
       and pg_catalog.has_function_privilege(p.oid, 'EXECUTE')
       and n.nspname || '.' || p.proname <> all (array[${DEFINER_ALLOW_LIST.map((f) => `'${f}'`).join(", ")}]::text[])) as definer_execute,
   coalesce((select pg_catalog.string_agg(c, '|' order by c) from pg_catalog.pg_db_role_setting s,
