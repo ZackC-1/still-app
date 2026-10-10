@@ -202,6 +202,40 @@ public struct AccountAccessRevocation: Codable, Equatable {
     revision = try c.decode(Int.self, forKey: Key(stringValue: "revision")!)
   }
 }
+/// One app-observed ownership answer, kept so the read-only Safari lane can tell "verifiably no
+/// purchase" (locked) from "not known" (verification required). It never grants anything.
+/// `none` is true only for a definitive no-purchase answer. Account answers name the holder and
+/// the record generation they were observed under; Apple answers leave both null. Written only by
+/// paid-mode paths, with every member explicit so a rewrite replaces the stored value whole.
+public struct OwnershipEvidence: Codable, Equatable {
+  public let none: Bool
+  public let observedAt: Int
+  public let holder: String?
+  public let generation: Int?
+  init(none: Bool, observedAt: Int, holder: String? = nil, generation: Int? = nil) {
+    self.none = none; self.observedAt = observedAt; self.holder = holder; self.generation = generation
+  }
+  private enum CodingKeys: String, CodingKey { case none, observedAt, holder, generation }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    guard c.allKeys.count == 4 else { throw AccessProofFailure.invalid }
+    none = try c.decode(Bool.self, forKey: .none)
+    observedAt = try c.decode(Int.self, forKey: .observedAt)
+    holder = try c.decodeIfPresent(String.self, forKey: .holder)
+    generation = try c.decodeIfPresent(Int.self, forKey: .generation)
+    guard accessInteger(observedAt), holder.map(accessUUID) ?? true, generation.map(accessInteger) ?? true,
+      (holder == nil) == (generation == nil) else { throw AccessProofFailure.invalid }
+  }
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(none, forKey: .none); try c.encode(observedAt, forKey: .observedAt)
+    try c.encode(holder, forKey: .holder); try c.encode(generation, forKey: .generation)
+  }
+}
+/// How long a definitive no-purchase answer keeps Safari's Still Pro rows "locked" rather than
+/// "verification required". Both grant nothing; the bound only ages out an old answer.
+public let ownershipAbsenceWindowMilliseconds = 7 * 24 * 60 * 60 * 1000
+
 public struct AccessCacheRecord: Codable, Equatable {
   public var schema = 1
   public var accountId: String?
@@ -213,8 +247,11 @@ public struct AccessCacheRecord: Codable, Equatable {
   public var revocations: [AccessRevocation] = []
   public var accountRevocations: [AccountAccessRevocation] = []
   public var localProtection: LocalProtectionRecord?
+  /// Paid-mode ownership answers (see `OwnershipEvidence`); absent on every older record.
+  public var appleEvidence: OwnershipEvidence?
+  public var accountEvidence: OwnershipEvidence?
   public init() {}
-  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, accountRevocations, localProtection, appleBindings }
+  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, accountRevocations, localProtection, appleBindings, appleEvidence, accountEvidence }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     schema = try c.decode(Int.self, forKey: .schema)
@@ -227,6 +264,9 @@ public struct AccessCacheRecord: Codable, Equatable {
     guard accountRevocations.count <= 64, accountRevocations.allSatisfy({ accessUUID($0.holder) && accessUUID($0.right) && accessInteger($0.revision) }),
       Set(accountRevocations.map { $0.holder + ":" + $0.right }).count == accountRevocations.count else { throw AccessProofFailure.invalid }
     appleBindings = try c.decodeIfPresent([CachedAppleRightBinding].self, forKey: .appleBindings) ?? []
+    // Malformed evidence is only unknown evidence; it never makes the signed rights unreadable.
+    appleEvidence = (try? c.decodeIfPresent(OwnershipEvidence.self, forKey: .appleEvidence))
+    accountEvidence = (try? c.decodeIfPresent(OwnershipEvidence.self, forKey: .accountEvidence))
     if c.contains(.localProtection), !(try c.decodeNil(forKey: .localProtection)) {
       localProtection = try? c.decode(LocalProtectionRecord.self, forKey: .localProtection)
       localProtectionUnavailable = !(localProtection?.valid ?? false)
@@ -242,6 +282,8 @@ public struct AccessCacheRecord: Codable, Equatable {
     if !accountRevocations.isEmpty { try c.encode(accountRevocations, forKey: .accountRevocations) }
     if !appleBindings.isEmpty { try c.encode(appleBindings, forKey: .appleBindings) }
     try c.encodeIfPresent(localProtection, forKey: .localProtection)
+    try c.encodeIfPresent(appleEvidence, forKey: .appleEvidence)
+    try c.encodeIfPresent(accountEvidence, forKey: .accountEvidence)
   }
 }
 

@@ -55,6 +55,10 @@ const SECRETS_KIND = "supabase-qa-secrets";
 const SECRETS_OPERATION = "qa-sandbox-secrets";
 /** Loaded on demand, like operations.mjs, to keep this module free of import cycles. */
 const secretsOperation = () => import("./qa-secrets-operation.mjs");
+/** Plan kind of the four analytics-subjects operations (analytics-subjects.mjs, loaded on demand). */
+const ANALYTICS_KIND = "supabase-analytics-subjects";
+const isAnalyticsName = (operation) => /^analytics-/.test(operation);
+const analyticsOperations = () => import("./analytics-subjects.mjs");
 /** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
 const operations = () => import("./operations.mjs");
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
@@ -514,6 +518,8 @@ export const invariantPath = (file) =>
 /** Every file the deploy relies on, with its planned hash. */
 export function boundFiles(plan) {
   if (plan?.kind === "supabase-exact-qa-functions") return plan.files;
+  // The analytics operations bind their tooling, pinned SQL and bundled sources in one list.
+  if (plan?.kind === ANALYTICS_KIND) return plan.files;
   // The secrets operation binds its pinned SQL, role facts and its tooling.
   if (plan?.kind === SECRETS_KIND) return [...plan.files, ...plan.tooling];
   // An operation's apply uses only the deploy tooling and its own SQL and check.
@@ -567,7 +573,7 @@ export async function checkFreshness({ git, plan, tipRef }) {
     }
   }
   // An operation adds nothing to migration history, so newer migrations on main do not matter.
-  if (isOperation(plan) || plan.kind === SECRETS_KIND)
+  if (isOperation(plan) || plan.kind === SECRETS_KIND || plan.kind === ANALYTICS_KIND)
     return { tip, mode: "files-identical" };
   if (plan.kind === "supabase-exact-qa-functions") {
     const history = (await migrationsAt(git, tip)).map(({ version, name }) => ({ version, name }));
@@ -1574,6 +1580,7 @@ export async function readProtection({
   token,
   runId,
   includeApprovals,
+  name = ENVIRONMENT_NAME,
 }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository))) {
     throw new Refusal("input-invalid", "Bad repository name");
@@ -1597,9 +1604,9 @@ export async function readProtection({
       );
     return response.json();
   };
-  const env = encodeURIComponent(ENVIRONMENT_NAME);
+  const env = encodeURIComponent(name);
   const environment = await get(`/environments/${env}`);
-  if (!environment) return checkProtection({ environment: null });
+  if (!environment) return checkProtection({ environment: null, name });
   const branches = await get(
     `/environments/${env}/deployment-branch-policies?per_page=100`,
   );
@@ -1609,7 +1616,7 @@ export async function readProtection({
       throw new Refusal("input-invalid", "Bad run id");
     approvals = (await get(`/actions/runs/${Number(runId)}/approvals`)) ?? [];
   }
-  return checkProtection({ environment, branches, approvals });
+  return checkProtection({ environment, branches, approvals, name });
 }
 
 // ── Rendering (public, privacy-safe) ───────────────────────────────────────────────────────────
@@ -1878,8 +1885,11 @@ export async function main(
     const operation = String(env.DEPLOY_OPERATION ?? "").trim();
     if (env.DEPLOY_MODE === "baseline-only" && operation !== "qa-sandbox-functions")
       throw new Refusal("mode-invalid", "baseline-only is reserved for the fixed QA function operation");
-    if (["rotate", "disable"].includes(env.DEPLOY_MODE) && operation !== SECRETS_OPERATION)
-      throw new Refusal("mode-invalid", "rotate and disable are modes of the qa-sandbox-secrets operation only");
+    if (
+      ["rotate", "disable"].includes(env.DEPLOY_MODE) && operation !== SECRETS_OPERATION &&
+      !(env.DEPLOY_MODE === "rotate" && operation === "analytics-subjects-secrets")
+    )
+      throw new Refusal("mode-invalid", "rotate and disable are modes of qa-sandbox-secrets (and rotate of analytics-subjects-secrets) only");
     if (operation === SECRETS_OPERATION && String(env.DEPLOY_BASELINE_SHA256 ?? "").trim() !== "")
       throw new Refusal("operation-input-invalid", "qa-sandbox-secrets takes no baseline_sha256");
     const request = {
@@ -1889,6 +1899,24 @@ export async function main(
       functions: env.DEPLOY_FUNCTIONS,
       mainRef: option(args, "--main-ref") ?? "HEAD",
     };
+    if (isAnalyticsName(operation)) {
+      const analytics = await analyticsOperations();
+      if (!analytics.isAnalyticsOperation(operation))
+        throw new Refusal("operation-unknown", "Unknown analytics operation");
+      const plan = await analytics.createAnalyticsPlan({ ...request, cwd, exec, operation,
+        sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+        projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF, mode: env.DEPLOY_MODE ?? "plan-only",
+        policyMode: env.DEPLOY_POLICY_MODE, expectedRevision: env.DEPLOY_POLICY_EXPECTED_REVISION,
+        subjectsSha256: env.DEPLOY_SUBJECTS_SHA256, baselineSha256: env.DEPLOY_BASELINE_SHA256 });
+      const expect = option(args, "--expect-digest");
+      if (expect !== undefined) assertSamePlan(plan, expect);
+      if (option(args, "--out"))
+        await writeFile(option(args, "--out"), `${JSON.stringify(plan, null, 2)}\n`);
+      if (args.includes("--summary")) await writeSummary(analytics.renderAnalyticsPlan(plan), env);
+      if (env.GITHUB_OUTPUT) await appendFile(env.GITHUB_OUTPUT, `plan-digest=${plan.digest}\n`);
+      say(args.includes("--print") ? analytics.renderAnalyticsPlan(plan) : plan.digest);
+      return 0;
+    }
     const ops =
       operation === "" || operation === "migrations" || operation === "qa-sandbox-functions" ||
       operation === SECRETS_OPERATION
@@ -1971,6 +1999,12 @@ export async function main(
       say(`deploy directory ready (${option(args, "--stage")})`);
       return 0;
     }
+    if (plan.kind === ANALYTICS_KIND) {
+      await (await analyticsOperations()).prepareAnalyticsWorkdir({
+        exec, cwd, plan, dir: option(args, "--dir") });
+      say(`deploy directory ready (${option(args, "--stage")})`);
+      return 0;
+    }
     await prepareWorkdir({
       exec,
       cwd,
@@ -2013,6 +2047,15 @@ export async function main(
       say(text);
       return 0;
     }
+    if (receipt?.kind === ANALYTICS_KIND || (!receipt && isAnalyticsName(operation))) {
+      const text = (await analyticsOperations()).renderAnalyticsFinal(
+        receipt?.kind === ANALYTICS_KIND ? receipt : null,
+        { applyOutcome: env.APPLY_OUTCOME, operation },
+      );
+      await writeSummary(text, env);
+      say(text);
+      return 0;
+    }
     if (receipt?.kind === "supabase-exact-qa-functions" || operation === "qa-sandbox-functions") {
       const qa = await import("./qa-functions.mjs");
       const text = qa.renderQaFinal(receipt, context);
@@ -2050,6 +2093,20 @@ export async function main(
       await writeSummary(text, env);
       say(text);
       return ["verified", "baseline-read-only"].includes(receipt.status) ? 0 : 1;
+    }
+    if (plan.kind === ANALYTICS_KIND) {
+      // The module re-checks the approval, digest, mode, target, every bound file and every gate.
+      const mod = await analyticsOperations();
+      const receipt = await mod.runAnalyticsOperation({ plan, env, platform, cwd, exec,
+        sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+        onProgress: async (r) => {
+          if (option(args, "--receipt"))
+            await writeFile(option(args, "--receipt"), JSON.stringify(r));
+        } });
+      const text = mod.renderAnalyticsFinal(receipt);
+      await writeSummary(text, env);
+      say(text);
+      return ["verified", "no-change"].includes(receipt.status) ? 0 : 1;
     }
     if (plan.kind === SECRETS_KIND) {
       // The module re-checks the approval, digest, mode, target and every pinned file itself.
@@ -2133,6 +2190,14 @@ export async function main(
     requireRunner(env, platform);
     const plan = await readPlan();
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
+    if (plan.kind === ANALYTICS_KIND) {
+      const mod = await analyticsOperations();
+      const result = await mod.runAnalyticsReplay({ exec, plan, dir: option(args, "--dir"),
+        conn, cwd, log: say });
+      await writeSummary(mod.renderAnalyticsReplay(result), env);
+      say(JSON.stringify({ status: result.status, proofs: result.proofs }));
+      return result.status === "verified" ? 0 : 1;
+    }
     if (plan.kind === SECRETS_KIND) {
       const mod = await secretsOperation();
       const result = await mod.runSecretsReplay({ exec, plan, dir: option(args, "--dir"),

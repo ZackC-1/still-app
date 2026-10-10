@@ -23,7 +23,7 @@ import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
-import { buildChannelEnvelope, createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
+import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, supabaseSubjectIssuer, type AnalyticsKeyValue, type SubjectDeps } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -93,10 +93,15 @@ const backendRouteProfile = readAppleBackendProfile(
 
 let controller: UiController;
 let identifyOnServer: (() => Promise<void>) | undefined;
+/** V3 only: requests this device's analytics identity for the signed-in account (set below). */
+let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
 // Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
 // the "Share usage data" switch; this owns the client. It waits for the native context and does
 // nothing outside the app or in a build without a PostHog key.
-const analytics = createAppAnalytics({
+// With the V3 screens (D04), usage sharing is on by default with the existing one-time notice and
+// switch, per ADR 0004; the Safari extension follows the App Group permission. Every 2.x build
+// folds appleSettingsMode to "legacy", so this choice folds to createAppAnalytics, byte-for-byte.
+const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics : createAppAnalytics)({
   bridge,
   config: {
     key: import.meta.env.VITE_POSTHOG_KEY,
@@ -105,6 +110,13 @@ const analytics = createAppAnalytics({
   envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
   store: storageKeyValue(safeStorage()),
   identifyOnServer: () => identifyOnServer?.() ?? Promise.resolve(),
+  // V3: signed-in use reports under this device's own server-issued identity (owner decision 50).
+  ...(appleSettingsMode !== "legacy"
+    ? {
+        issueSubject: (body: { originProof: string }, signal: AbortSignal, account: string) =>
+          analyticsSubjectIssuer?.(body, signal, account) ?? Promise.reject(new Error("No sign-in in this build")),
+      }
+    : {}),
 });
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
@@ -128,6 +140,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     const { error } = await supabase.functions.invoke("analytics-identify", { body: {} });
     if (error) throw error;
   };
+  if (appleSettingsMode !== "legacy") analyticsSubjectIssuer = supabaseSubjectIssuer(supabase);
   // Deterministic App Review sign-in (plan 2026-07-15-002, R13): Apple-build-only env. Both the
   // gate and the value are build-time — extension builds never define this, so the review branch
   // is dead code everywhere else (fail closed; gate-production-trust-by-build-mode).
@@ -166,6 +179,13 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       },
       verifyLocal: fulfillment.verifyLocal,
       fulfillLink: fulfillment.fulfillLink,
+      readSessionToken: async () => {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) return { status: "unknown" };
+        return data.session ? { status: "session", accessToken: data.session.access_token } : { status: "none" };
+      },
+      // `session` is assigned below, before any account refresh can run.
+      endSession: () => session.signOutEverywhere(),
     });
     applePurchaseAuthority = authority;
     // This callback does no SDK work: Supabase holds its auth lock while notifying listeners.

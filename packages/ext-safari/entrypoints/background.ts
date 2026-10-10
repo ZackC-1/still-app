@@ -16,7 +16,9 @@ import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, reque
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
+import { defaultOnSafariAnalytics } from "../lib/default-on-analytics.js";
 import { safariPlatformAnswer } from "../lib/access-platform.js";
+import { parseNativeBenefitReply } from "../lib/native-benefits.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -53,6 +55,9 @@ export default defineBackground(() => {
   const devicePlatform = (): Promise<AccessPlatform> => (accessPlatform ??= safariPlatformAnswer());
   const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => packagedAccessContext("safari", PAID_TIER_ENABLED ? await devicePlatform() : undefined), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
+    // The handler replies on its entitlement lane. Paid off never reaches this closure, so the
+    // lines below it are left as the shipped 2.x bytes; paid builds read the actual lane.
+    if (PAID_TIER_ENABLED) return parseNativeBenefitReply(reply);
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;
     if (!value || typeof value !== "object" || (value as { ok?: unknown }).ok !== true) throw new Error("Native benefit authority unavailable");
@@ -88,6 +93,16 @@ export default defineBackground(() => {
     requestQuietFlush: () => requestQuietFlush(browser.alarms),
     isTrustedPage: (sender) =>
       sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
+    // V3 builds follow the Apple app's default-on usage permission (lib/default-on-analytics.ts),
+    // selected by the same build-time opt-ins as the app's own V3 screens. Every 2.x build folds
+    // this away, byte-for-byte.
+    ...((import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+    (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+      import.meta.env.VITE_SUPABASE_URL &&
+      import.meta.env.VITE_SUPABASE_ANON_KEY)
+      ? defaultOnSafariAnalytics((message) => browser.runtime.sendNativeMessage(NATIVE_APP, message))
+      : {}),
   });
   browser.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
   browser.runtime.onMessage.addListener(analytics.listener);

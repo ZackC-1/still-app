@@ -181,6 +181,15 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
     expect(c.paywallPrice).toBe("$1.99");
   });
 
+  it("leaves the paywall price empty when the host passes none (paid browser builds)", async () => {
+    installChrome();
+    const { deps } = makePurchase();
+    const c = createExtensionUiController({ ...deps, displayPrice: null });
+    await flush();
+    expect(c.host.canPurchase).toBe(true);
+    expect(c.paywallPrice).toBeNull();
+  });
+
   it("opens the checkout tab with the URL from the checkout outcome", async () => {
     installChrome();
     const { deps, openCheckoutTab } = makePurchase({ state: snapshot({ userId: "user-1" }) });

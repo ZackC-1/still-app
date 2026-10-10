@@ -76,6 +76,49 @@ export interface DeleteOptions {
 export interface PostHogErasurePort {
   readonly canDelete: boolean;
   deleteByDistinctIds(distinctIds: readonly string[], options?: DeleteOptions): Promise<ErasureOutcome | "bad_request">;
+  /** The provider proof (providerCheck below). Absent: the check answers unavailable. */
+  providerCheck?(): Promise<ProviderCheck>;
+}
+
+/**
+ * Every code the provider proof can report. Fixed words only: never a key, id, token, project name
+ * or response text. The protected switch-on operation (scripts/backend/deploy/analytics-subjects.mjs)
+ * keeps the same list.
+ */
+export const PROVIDER_CHECK_CODES = [
+  "provider_unconfigured",
+  "project_read_ok",
+  "project_read_forbidden",
+  "project_read_unavailable",
+  "project_read_rejected",
+  "project_read_network",
+  "project_read_shape",
+  "project_key_matches",
+  "project_key_mismatch",
+  "delete_scope_ok",
+  "delete_forbidden",
+  "delete_unavailable",
+  "delete_rejected",
+  "delete_network",
+  "delete_shape",
+  "delete_found_person",
+] as const;
+export type ProviderCheckCode = typeof PROVIDER_CHECK_CODES[number];
+export interface ProviderCheck {
+  readonly ok: boolean;
+  readonly codes: readonly ProviderCheckCode[];
+}
+
+const statusCode = (status: number, prefix: "project_read" | "delete"): ProviderCheckCode =>
+  status === 401 || status === 403
+    ? `${prefix}_forbidden`
+    : status === 429 || status >= 500
+    ? `${prefix}_unavailable`
+    : `${prefix}_rejected`;
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -174,6 +217,60 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
     });
     await res.body?.cancel();
     if (!res.ok) throw new Error(`PostHog identify failed: ${res.status}`);
+  }
+
+  /**
+   * The provider proof the switch-on operation requires before per-device identities start:
+   *   (a) GET the project with the personal key: 200, and SHA-256 of its public `api_token` equals
+   *       SHA-256 of POSTHOG_PROJECT_KEY, so deletions target the same project that receives the
+   *       events and emails (the key needs PostHog's project:read scope for this);
+   *   (b) bulk_delete one random, never-used distinct id: 202, persons_found 0, no deletion errors,
+   *       which proves the key holds person:write on that project without touching anyone.
+   * Only fixed codes are returned; no key, token, id or response text.
+   */
+  async providerCheck(): Promise<ProviderCheck> {
+    if (!this.canDelete || !this.config.projectKey?.trim()) return { ok: false, codes: ["provider_unconfigured"] };
+    const codes: ProviderCheckCode[] = [];
+    const base = `${trimSlash(this.config.apiHost!)}/api/projects/${this.config.projectId}`;
+    const headers = { Authorization: `Bearer ${this.config.personalApiKey!.trim()}` };
+    try {
+      const res = await this.fetchImpl(`${base}/`, { method: "GET", headers });
+      const body = await readJson(res);
+      if (res.status !== 200) codes.push(statusCode(res.status, "project_read"));
+      else {
+        const token = (body as { api_token?: unknown } | null)?.api_token;
+        if (typeof token !== "string" || !token) codes.push("project_read_shape");
+        else {
+          codes.push("project_read_ok");
+          const same = (await sha256Hex(token.trim())) === (await sha256Hex(this.config.projectKey.trim()));
+          codes.push(same ? "project_key_matches" : "project_key_mismatch");
+        }
+      }
+    } catch {
+      codes.push("project_read_network");
+    }
+    try {
+      const res = await this.fetchImpl(`${base}/persons/bulk_delete/`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ distinct_ids: [crypto.randomUUID()], delete_events: true, delete_recordings: true }),
+      });
+      const body = await readJson(res);
+      if (res.status !== 202) codes.push(statusCode(res.status, "delete"));
+      else {
+        const b = body as Record<string, unknown> | null;
+        const errors = b?.deletion_errors;
+        if (!b || typeof b !== "object" || !Number.isSafeInteger(b.persons_found) ||
+          (errors !== undefined && !Array.isArray(errors))) codes.push("delete_shape");
+        else if (b.persons_found !== 0 || (Array.isArray(errors) && errors.length > 0)) codes.push("delete_found_person");
+        else codes.push("delete_scope_ok");
+      }
+    } catch {
+      codes.push("delete_network");
+    }
+    const ok = codes.includes("project_read_ok") && codes.includes("project_key_matches") &&
+      codes.includes("delete_scope_ok");
+    return { ok, codes };
   }
 
   async deleteByDistinctIds(

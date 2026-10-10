@@ -94,8 +94,11 @@ fingerprint. These names describe tooling under preparation, not installed confi
 Planned for the sandbox secrets install: `SUPABASE_QA_SECRETS_ACCESS_TOKEN`, a separate Supabase
 personal access token limited to project secrets (read and write; no database or function access).
 It is stored only as a `supabase-production` environment secret, is passed only to the apply step
-of the protected `qa-sandbox-secrets` operation, never sits on a developer machine, and is revoked
-when sandbox testing ends. The existing `SUPABASE_PRODUCTION_ACCESS_TOKEN` cannot write secrets.
+of the protected `qa-sandbox-secrets` operation and of the two analytics operations that write a
+function secret (`analytics-subjects-secrets`, `analytics-subjects-switch`; see
+[signed-in analytics](release/analytics-subjects-switch-on.md)), and never sits on a developer
+machine. Revoking it when sandbox testing ends also removes the protected way to switch signed-in
+analytics off, so replace it first. The existing `SUPABASE_PRODUCTION_ACCESS_TOKEN` cannot write secrets.
 
 Owner-only protection must be verified before either `baseline-only` or `apply` reaches that
 environment. A baseline read writes no functions or settings, and does not require every QA secret

@@ -9,6 +9,8 @@ name: Supabase operation rehearsal
 # subjects rehearsal uses its own synthetic accounts; the subjects_sha256 below is a placeholder).
 # The qa-sandbox-secrets rehearsal runs the secrets module unchanged against this database with its
 # Management API and GitHub reads stubbed in memory: synthetic values, no token, no network.
+# Each analytics-subjects plan rehearses the whole analytics lifecycle the same way (secrets,
+# functions, schedule, switch, and back); the switch row also builds the three real bundles.
 # No environment, secret or production access; it never deploys anything.
 on:
   pull_request:
@@ -63,6 +65,12 @@ jobs:
           - operation: qa-sandbox-secrets
             policy_mode: none
             mode: disable
+          - operation: analytics-subjects-secrets
+            policy_mode: none
+            mode: apply
+          - operation: analytics-subjects-switch
+            policy_mode: enable
+            mode: apply
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,6 +78,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        if: startsWith(matrix.operation, 'analytics-')
+        with:
+          deno-version: "2.8.3"
       - name: Install pinned Supabase CLI (checksum verified)
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
@@ -95,6 +107,6 @@ jobs:
           DEPLOY_FUNCTIONS: ""
         run: |
           DEPLOY_SHA="$(git rev-parse HEAD)" node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/operation-plan.json" --summary \
-            --source-dir "$RUNNER_TEMP/qa-source"
+            --source-dir "$RUNNER_TEMP/qa-source" --artifact-dir "$RUNNER_TEMP/qa-uploads"
       - name: Rehearse the operation on a throwaway database
         run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/operation-plan.json" "$RUNNER_TEMP/replay"

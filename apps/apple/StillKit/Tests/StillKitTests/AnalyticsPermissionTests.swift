@@ -22,6 +22,57 @@ final class AnalyticsPermissionTests: XCTestCase {
     }
   }
 
+  func testTheExtensionReadsTheAppsPermissionReadOnly() {
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: { XCTFail("the permission lane creates no identity"); return "" })
+    let ask: [String: Any] = ["kind": "analyticsPermission"]
+    // Nothing chosen yet (the app grants its default at launch): no permission, nothing written.
+    XCTAssertTrue(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsPermission"] is NSNull)
+    XCTAssertTrue(group.values.isEmpty)
+    // A 2.1 "off" stays off.
+    group.set(false, forKey: AnalyticsIdentityStore.consentKey)
+    XCTAssertEqual(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsPermission"] as? Bool, false)
+    // The app's granted record, then its stop, exactly as stored.
+    XCTAssertEqual(store.commitAnalyticsPermission(permission())["ok"] as? Bool, true)
+    let granted = store.extensionReply(rawBody: ask, platform: "macos", device: "desktop")?["analyticsPermission"] as? [String: Any]
+    XCTAssertEqual(granted?["state"] as? String, "granted")
+    XCTAssertEqual(granted?["origin"] as? String, permission()["origin"] as? String)
+    store.setConsent(false)
+    let stopped = store.extensionReply(rawBody: ask, platform: "macos", device: "desktop")?["analyticsPermission"] as? [String: Any]
+    XCTAssertEqual(stopped?["state"] as? String, "stopped")
+    XCTAssertEqual(group.values.count, 1, "reads never write")
+    // Other kinds still fall through.
+    XCTAssertNil(store.extensionReply(rawBody: ["kind": "commitAnalyticsPermission"], platform: "ios", device: "phone"))
+  }
+
+  func testTheAppPublishesItsPerDeviceIdentityAndTheExtensionReadsIt() {
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: { XCTFail("no identity is created"); return "" })
+    let ask: [String: Any] = ["kind": "analyticsSubject"]
+    XCTAssertTrue(store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsSubject"] is NSNull)
+    let entry: [String: Any] = [
+      "account": "00000000-0000-4000-8000-0000000000aa",
+      "originProof": String(repeating: "b", count: 64),
+      "subject": "00000000-0000-4000-8000-0000000000bb",
+    ]
+    XCTAssertEqual(store.publishAnalyticsSubject(entry)["ok"] as? Bool, true)
+    let read = store.extensionReply(rawBody: ask, platform: "ios", device: "phone")?["analyticsSubject"] as? [String: String]
+    XCTAssertEqual(read?["subject"], "00000000-0000-4000-8000-0000000000bb")
+    XCTAssertEqual(read?["account"], "00000000-0000-4000-8000-0000000000aa")
+    // Refused, and nothing changes: the account as the subject, an uppercase id, a short proof, extra keys.
+    var same = entry; same["subject"] = entry["account"]
+    var upper = entry; upper["subject"] = "00000000-0000-4000-8000-0000000000BB"
+    var short = entry; short["originProof"] = "abc"
+    var extra = entry; extra["email"] = "x@example.com"
+    for bad in [same, upper, short, extra] {
+      XCTAssertEqual(store.publishAnalyticsSubject(bad)["ok"] as? Bool, false)
+    }
+    XCTAssertEqual(store.analyticsSubject?["subject"], "00000000-0000-4000-8000-0000000000bb")
+    // An account deletion clears it.
+    XCTAssertEqual(store.publishAnalyticsSubject(NSNull())["ok"] as? Bool, true)
+    XCTAssertNil(store.analyticsSubject)
+  }
+
   func testGrantIsReadBackFromSameSlotAndLegacyOffRetainsStopAuthority() {
     let group = MemoryKeyValue()
     let store = AnalyticsIdentityStore(group: group)

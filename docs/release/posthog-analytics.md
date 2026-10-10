@@ -1,6 +1,7 @@
 # PostHog usage analytics: setup and operations
 
-Current for Still 2.1. The decision and its boundaries are [ADR 0004](../adr/0004-first-party-usage-analytics.md);
+Current for Still 2.1, with the V3 differences marked. The decision and its boundaries are
+[ADR 0004](../adr/0004-first-party-usage-analytics.md), including its V3 consent section;
 the build plan is [2026-09-23 usage analytics](../plans/2026-09-23-001-feat-usage-analytics-plan.md).
 Portal state changes; verify it directly before acting. Never put keys in this file, a commit or chat.
 
@@ -9,16 +10,16 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Surface | Sends | Consent |
 |---|---|---|
 | Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; one-time notice; switch in options |
-| Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
+| Firefox extension background | the same | On exactly while the optional `technicalAndInteraction` permission is granted (offered in Firefox's install prompt; the settings switch requests or withdraws it); no notice |
 | iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, switch flips (`where: app`), active days, sign-in funnel | On by default; one-time notice; switch in the app |
-| Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |
+| Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch (V3: the app's App Group permission, read only; nothing before the app has launched once) |
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
 Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
-  funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
+  funnel; `sharing_turned_off` in 2.1 only, `analytics_choice_made` in V3). Each is checked against `packages/core/src/analytics/events.ts` and
   carries `surface` (chrome, firefox, firefox-android, safari-ios, safari-macos, app-ios,
   app-macos), `store` (ios, macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
@@ -178,9 +179,19 @@ different surfaces, so label every insight with the definition it uses.
 - **New accounts.** `account_created` is sent by the server once per account created since the 2.1
   launch, when the account first shares usage. Break it down by the person's first store. It counts
   only people who share usage.
-- **Opt-out rate.** `sharing_turned_off` is sent once when someone turns sharing off with Still's own
-  switch (not when Firefox's permission is withdrawn in the add-on manager). Read Firefox separately:
-  it is an opt-in sample.
+- **Opt-out rate.** 2.1: `sharing_turned_off` is sent once when someone turns sharing off with
+  Still's own switch (not when Firefox's permission is withdrawn in the add-on manager). V3 sends
+  nothing when sharing is turned off, so the opt-out rate cannot be read from events; V3 records
+  `analytics_choice_made {choice: share}` when someone turns it back on (with a new anonymous id, so
+  that device starts a new person). Read Firefox separately: it is an opt-in sample.
+- **Signed-in devices (V3).** A signed-in device reports under its own per-device subject (owner
+  decision 50), which carries the account's email as a person property; two devices of one account
+  are two persons with the same email. Until `ANALYTICS_SUBJECTS_ENABLED` is on, signed-in devices
+  send nothing (their events wait on the device), so V3 numbers undercount signed-in people until
+  then. Signed-out use, including everything before a first sign-in, is always reported.
+- **Person split at upgrade (V3).** A device upgrading from 2.1 starts a new permission with new
+  ids, so its 2.1 person and its V3 person are different people, and it sees the notice again. Do
+  not read the upgrade week as new installs: use `updated` (from 2.1) to separate them.
 - **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
   someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on
   a device and keeps using it (a fresh anonymous id, on purpose); a device whose first sync arrived
@@ -196,7 +207,7 @@ different surfaces, so label every insight with the definition it uses.
   confirmation never comes (a lookup that keeps failing), those events wait; they are never sent under
   a guessed account. When an account is deleted, or a device learns its session ended, everything
   still waiting under it is dropped before any queued event is sent; if the device's storage refuses
-  the drop, or cannot be read, no queued event is sent until it succeeds. The one standalone
+  the drop, or cannot be read, no queued event is sent until it succeeds. In 2.1, the one standalone
   `sharing_turned_off` attempt is separate from the queue: it names the anonymous id once the
   account is forgotten, and is skipped altogether if the forget overtakes it.
 - **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives
@@ -273,10 +284,38 @@ Until then no per-device identity is ever created, so an account deletion cannot
 connected to an app or extension, and the server switch above turned on, only in a build that
 already has the account-bound hold: while someone is signed in and their device has no identity
 yet, what they do waits, belongs only to that account, and is thrown away if they sign out or
-another account signs in. That is in this change. Also, a new build that turns analytics on
-without per-device identities reports nothing at all for signed-in people (their use waits and is
-never sent). So switching analytics on in a new build and connecting per-device identities must
-ship together, in the same release.
+another account signs in. V3 builds have the hold and are connected (Chrome and Firefox ask from
+the settings page or popup, the Apple app at sign-in and launch, the Safari extension reads the
+app's identity from the App Group). Until the switch is on they ask, get 503, and keep waiting;
+older 2.1 clients never use this path.
+
+**What the owner must do to switch signed-in analytics on** (each an owner-approved protected
+deploy step; never the Supabase CLI from a working checkout):
+
+1. Confirm the hard gate above (0017, 0018 and the current `delete-user` deployed and verified, the
+   GoTrue deletion rehearsal green).
+2. Set the function secrets `ANALYTICS_ERASER_DB_URL` (the eraser login), `ANALYTICS_EVENT_ID_SECRET`
+   (at least 32 random characters) and, for the deletion worker, `ANALYTICS_ERASURE_WORKER_TOKEN`.
+3. Deploy `analytics-identify` (and `analytics-erasure` with the worker token) so they read them.
+   No function code changes in this release: the V3 clients use the existing per-device request.
+4. Schedule the deletion worker (`analytics-erasure`, called with the worker token, every 15
+   minutes; see "How often to run the worker"). Without it, deleting an account only records the
+   account's per-device subjects for deletion; their PostHog persons and events are deleted when the
+   worker runs. Do not switch identities on before the worker is scheduled.
+5. Set `ANALYTICS_SUBJECTS_ENABLED=true` on the functions and redeploy `analytics-identify` so it
+   reads the new value. For QA, set it on the sandbox project first and check with a V3 QA package
+   that a signed-in device's events appear under a random subject carrying the account email.
+
+These steps are the four protected operations in
+[analytics-subjects-switch-on.md](analytics-subjects-switch-on.md): secrets, functions (which also
+deploys the current `delete-user`), the worker schedule, then the switch. Each refuses unless the
+steps before it are verified, and none uses the Supabase CLI, the dashboard or the SQL editor. That
+page also records the hosted state. There is no separate Supabase sandbox project: "sandbox first"
+means the throwaway-database rehearsal every step runs before approval, then a production-channel
+check right after switching on, with the one-approval switch-off ready. `analytics-identify` gives
+an identity only to a device that sends `projectKeySha256` equal to the digest of the server's
+`POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
+`{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
 
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.

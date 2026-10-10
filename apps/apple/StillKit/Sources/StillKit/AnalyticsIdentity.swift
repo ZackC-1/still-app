@@ -52,6 +52,9 @@ public final class AnalyticsIdentityStore {
   static let anchorKey = "still.analytics.anchor"
   static let consentKey = "still.analytics.consent"
   static let noticeKey = "still.analytics.notice-seen"
+  /// The per-device analytics identity the app was issued for the signed-in account (owner
+  /// decision 50), so the Safari extension on this device reports under the same one. Local only.
+  static let subjectKey = "still.analytics.subject"
   static let lastVersionKey = "still.analytics.last-version"
   /// Set once the app has read the install record. The Safari extension can create the record
   /// first (it runs on page loads); the app's first read still has to report the install or update
@@ -278,15 +281,62 @@ public final class AnalyticsIdentityStore {
     group.set(true, forKey: Self.noticeKey)
   }
 
+  // MARK: Per-device identity (the app writes it; the extension reads it)
+
+  /// The identity the app's server issued for `account` under the permission whose origin proof is
+  /// `originProof`, or nil. Strict: lowercase UUIDs, a 64-hex proof, a subject that is not the account.
+  public var analyticsSubject: [String: String]? {
+    guard let raw = group.string(forKey: Self.subjectKey), raw.utf8.count <= 512,
+          let data = raw.data(using: .utf8),
+          let value = try? JSONSerialization.jsonObject(with: data) else { return nil }
+    return Self.readSubject(value)
+  }
+
+  /// The `setAnalyticsSubject` bridge write (trusted app frame only): a valid entry replaces the
+  /// stored one; `null` clears it (an account deletion). Anything else is refused and changes nothing.
+  public func publishAnalyticsSubject(_ value: Any) -> [String: Any] {
+    if value is NSNull {
+      group.set(nil, forKey: Self.subjectKey)
+      return ["ok": true]
+    }
+    guard let entry = Self.readSubject(value),
+          let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]),
+          let raw = String(data: data, encoding: .utf8) else { return ["ok": false] }
+    group.set(raw, forKey: Self.subjectKey)
+    return ["ok": analyticsSubject == entry]
+  }
+
+  private static func readSubject(_ value: Any) -> [String: String]? {
+    guard let v = value as? [String: Any], Set(v.keys) == Set(["account", "originProof", "subject"]),
+          let account = v["account"] as? String, isId(account), account == account.lowercased(),
+          let subject = v["subject"] as? String, isId(subject), subject == subject.lowercased(),
+          subject != account,
+          let proof = v["originProof"] as? String,
+          proof.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { return nil }
+    return ["account": account, "originProof": proof, "subject": subject]
+  }
+
   // MARK: Native message lanes
 
-  /// The Safari extension's read-only lane: `{kind:"analyticsContext"}` →
-  /// `{analytics:{installId, anchorId, consent, platform, device}}`. Unknown kinds return nil.
-  /// `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
-  /// handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  /// The Safari extension's read-only lanes. Unknown kinds return nil.
+  ///
+  ///   * `{kind:"analyticsContext"}` → `{analytics:{installId, anchorId, consent, platform, device}}`.
+  ///     `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
+  ///     handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  ///   * `{kind:"analyticsPermission"}` → `{analyticsPermission: <record> | false | null}`: the app's
+  ///     usage-sharing permission as stored, so a V3 extension reports only under the app's choice.
+  ///     It never creates ids, grants, stops or writes anything.
+  ///   * `{kind:"analyticsSubject"}` → `{analyticsSubject: {account, originProof, subject} | null}`:
+  ///     the per-device identity the app was issued for the signed-in account. Read only.
   public func extensionReply(rawBody: Any, platform: String, device: String) -> [String: Any]? {
-    guard let body = rawBody as? [String: Any], body["kind"] as? String == "analyticsContext"
-    else { return nil }
+    guard let body = rawBody as? [String: Any] else { return nil }
+    if body["kind"] as? String == "analyticsPermission" {
+      return ["analyticsPermission": analyticsPermissionReply()["permission"] ?? NSNull()]
+    }
+    if body["kind"] as? String == "analyticsSubject" {
+      return ["analyticsSubject": analyticsSubject ?? NSNull()]
+    }
+    guard body["kind"] as? String == "analyticsContext" else { return nil }
     let install = extensionInstall()
     return ["analytics": [
       "installId": install.installId,

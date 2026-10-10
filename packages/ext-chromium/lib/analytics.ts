@@ -8,6 +8,7 @@ import {
   type AnalyticsKeyValue,
   type AnalyticsSend,
   type ExtensionAnalyticsHost,
+  type SubjectDeps,
 } from "@still/core/analytics";
 import type { UiAnalytics } from "@still/core/ui";
 import { isExtensionPageSender } from "./session-messages.js";
@@ -18,10 +19,11 @@ import { isFirefoxAndroid, type RuntimePlatform } from "./runtime-platform.js";
 //
 //   * Ids: an install id in chrome.storage.local and a person anchor in chrome.storage.sync, which
 //     follows the person's Google or Firefox account to their other computers.
-//   * Consent. Chrome starts on, with the one-time notice and the settings switch as the off
-//     path. Firefox starts off until the person grants the optional `technicalAndInteraction`
-//     data-collection permission (at install, or from Still's settings); that permission IS the
-//     switch there, so the two can never disagree.
+//   * Consent. Intended: Chrome starts on, with the one-time notice and the settings switch as the
+//     off path; Firefox follows the optional `technicalAndInteraction` data-collection permission.
+//     This 2.x wrapper is kept byte-for-byte for the shipped 2.x bundles, but it supplies none of
+//     the permission/policy inputs the current core client requires, so it reports nothing. V3
+//     builds use default-on-analytics.ts, which implements the intended behaviour.
 
 export { ANALYTICS_MESSAGE_KIND } from "@still/core/analytics";
 
@@ -68,6 +70,11 @@ export interface BackgroundAnalyticsDeps {
   readonly sleep?: (ms: number) => Promise<void>;
   /** Firefox permission check; injectable for tests. */
   readonly firefoxPermissionGranted?: () => Promise<boolean>;
+  /** Firefox permission withdrawal (V3 default-on builds, default-on-analytics.ts); injectable for tests. */
+  readonly firefoxPermissionRevoke?: () => Promise<unknown>;
+  /** V3 default-on builds: request this device's identity for a signed-in account
+   * (supabaseSubjectIssuer). Read only by default-on-analytics.ts. */
+  readonly issueSubject?: SubjectDeps["issue"];
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;

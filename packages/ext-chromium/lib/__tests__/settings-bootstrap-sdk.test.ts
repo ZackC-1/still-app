@@ -40,7 +40,12 @@ vi.mock("../analytics.js", () => ({
     flushWhenReady: vi.fn(),
   }),
 }));
+// V3 builds choose the default-on factory (lib/default-on-analytics.ts); same stub.
+vi.mock("../default-on-analytics.js", async () => ({
+  createDefaultOnBackgroundAnalytics: (await import("../analytics.js")).createBackgroundAnalytics,
+}));
 vi.mock("@still/core/analytics", () => ({
+  supabaseSubjectIssuer: () => async () => null,
   buildChannelEnvelope: () => undefined,
   createIndexedDbKeyValue: () => ({}),
   QUIET_FLUSH_ALARM: "quiet",

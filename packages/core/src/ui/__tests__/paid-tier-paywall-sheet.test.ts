@@ -86,6 +86,19 @@ describe("PaywallSheet: sheet mechanics with the paid tier on", () => {
     expect(cta.disabled).toBe(true); // busy — no duplicate checkout taps
   });
 
+  it("a host that passes no price (the Chrome/Firefox paid build) shows Get Still Pro with no price", () => {
+    // Owner decision (10 October 2026): the browser shows no price; the checkout page shows it.
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    c.paywallPrice = null;
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: STRINGS.paywall.cta })).toBeTruthy();
+    expect(dialog.textContent).not.toContain("·");
+    expect(dialog.textContent).not.toMatch(/\d+[.,]\d{2}/);
+  });
+
   it("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
     const c = controller();
     c.userId = "u";

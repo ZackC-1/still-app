@@ -15,8 +15,8 @@ promise of permanent pricing.
 | Service | Behavior while enabled |
 |---|---|
 | YouTube | Remove Shorts shelves and entry points; open direct Shorts links in the normal watch player. Preserve ordinary videos, search and navigation. |
-| Instagram | Remove Reels surfaces and block direct Reels routes. Preserve ordinary posts and messages. |
-| Facebook | Remove Reels surfaces and block direct Reels routes. Preserve ordinary posts and messages. |
+| Instagram | Remove Reels surfaces and stop the Reels feed. Preserve ordinary posts and messages. A shared single-Reel link (`instagram.com/reel/<code>`) stays playable; Still only stops moving on to the next Reel and the Reels feed. In shipped 2.x, direct Reels routes show Still's placeholder; the single-Reel behavior is the V3 owner decision (October 10, 2026). |
+| Facebook | Remove Reels surfaces and stop the Reels feed. Preserve ordinary posts and messages. A shared single-Reel link (`facebook.com/reel/<id>`) stays playable; Still only stops moving on to the next Reel and the Reels feed. In shipped 2.x, direct Reels routes show Still's placeholder; the single-Reel behavior is the V3 behavior. |
 | TikTok | Block the whole website, including its web profiles and messages. The native app is unaffected. |
 
 Controls consist of a global switch and one switch per service. A fresh install defaults to all
@@ -145,7 +145,7 @@ Use the published [privacy policy](https://stillapp.fit/privacy/) and
 [retention runbook](release/counter-retention.md).
 
 Public contacts: `support@stillapp.fit`, `privacy@stillapp.fit`, `hello@stillapp.fit`. Earlier web
-purchases have a 14-day refund window; Apple handles Apple purchase refunds. The owner currently
+purchases have a seven-day refund window; Apple handles Apple purchase refunds. The owner currently
 uses manual operational monitoring; check email capacity before a large campaign.
 
 ## Version and evidence boundaries

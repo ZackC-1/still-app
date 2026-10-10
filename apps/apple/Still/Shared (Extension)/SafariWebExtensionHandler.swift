@@ -16,6 +16,7 @@
 //  receipt — ADR 0003); this is how paid Pro blocking reaches Safari's content scripts. The
 //  extension never computes OR WRITES entitlement itself: this lane is read-only — the extension
 //  process has no receipt oracle, and a writable lane would be an entitlement-forgery surface.
+//  {kind:"getBenefitAccess"} (paid builds) rides the same lane: { entitlement: "{ok,snapshot}" }.
 //
 
 import SafariServices
@@ -29,7 +30,8 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
     // Atomic commands (initialize, scope, acknowledge) belong to the app and are refused here.
     private let bridge = SettingsBridge.safariExtension(store: .appGroup())
-    private let entitlementBridge = EntitlementBridge(store: .appGroup(), readOnly: true)
+    // Read-only; benefits resolve under the account session the app verified and bound.
+    private let entitlementBridge = EntitlementBridge.safariExtension(store: .appGroup())
     private let accountSyncStatus = AccountSyncStatusStore.appGroup()
     private let analytics = AnalyticsIdentityStore.appGroup()
 
