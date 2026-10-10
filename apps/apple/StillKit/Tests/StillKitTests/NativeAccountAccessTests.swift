@@ -62,7 +62,7 @@ final class NativeAccountAccessTests: XCTestCase {
     _ = try store.changeAccessAccount(nil)
     XCTAssertFalse(try states(store, .mac).values.contains("purchased"))
   }
-  func testSafariExtensionLaneIgnoresAnotherAccountsSession() throws {
+  func testSafariExtensionLaneIgnoresANewSessionUntilReconciled() throws {
     let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust)
     let session = try f.verifiedSession()
     let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)

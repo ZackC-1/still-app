@@ -288,3 +288,52 @@ describe("Apple account-only authority composition", () => {
     await expect(h.authority.refreshAccountAccess()).rejects.toThrow();
   });
 });
+
+describe("Apple account session that Auth or the SDK has ended", () => {
+  const held = (status: "session" | "none" | "unknown") => vi.fn(async () =>
+    status === "session" ? {status, accessToken: "held-bearer"} as const : {status} as const);
+  it("an SDK with no session ends the app session and asks native nothing", async () => {
+    const h = await setup();
+    const endSession = vi.fn(async () => {});
+    const authority = createApplePurchaseAuthority({...h.deps, readSessionToken: held("none"), endSession});
+    await expect(authority.refreshAccountAccess()).rejects.toThrow();
+    expect(endSession).toHaveBeenCalledOnce();
+    expect(h.deps.readVerifiedAccount).not.toHaveBeenCalled();
+    expect(h.bridge.reconcileAccountAccess).not.toHaveBeenCalled();
+  });
+  it.each([["refused", null], ["threw", "throw"]] as const)("an account the SDK %s to confirm hands the held bearer to native, which alone decides", async (_label, outcome) => {
+    const h = await setup();
+    const endSession = vi.fn(async () => {});
+    if (outcome === "throw") h.deps.readVerifiedAccount.mockRejectedValue(new Error("offline or refused"));
+    else h.deps.readVerifiedAccount.mockResolvedValue(null as never);
+    h.bridge.reconcileAccountAccess.mockRejectedValue(new Error("still: account session ended"));
+    const authority = createApplePurchaseAuthority({...h.deps, readSessionToken: held("session"), endSession});
+    await expect(authority.refreshAccountAccess()).rejects.toThrow();
+    expect(h.bridge.reconcileAccountAccess).toHaveBeenCalledExactlyOnceWith("held-bearer");
+    expect(endSession).not.toHaveBeenCalled();
+    expect(h.bridge.observeBenefits).not.toHaveBeenCalled();
+  });
+  it("an unreadable SDK session neither ends the session nor asks native", async () => {
+    const h = await setup();
+    const endSession = vi.fn(async () => {});
+    h.deps.readVerifiedAccount.mockRejectedValue(new Error("offline"));
+    const authority = createApplePurchaseAuthority({...h.deps, readSessionToken: held("unknown"), endSession});
+    await expect(authority.refreshAccountAccess()).rejects.toThrow();
+    expect(endSession).not.toHaveBeenCalled();
+    expect(h.bridge.reconcileAccountAccess).not.toHaveBeenCalled();
+  });
+  it("an account change during the bearer read does nothing", async () => {
+    const h = await setup();
+    const endSession = vi.fn(async () => {});
+    const authority = createApplePurchaseAuthority({...h.deps, endSession,
+      readSessionToken: vi.fn(async () => { authority.invalidateAccount(); return {status: "none"} as const; })});
+    await expect(authority.refreshAccountAccess()).rejects.toThrow();
+    expect(endSession).not.toHaveBeenCalled();
+  });
+  it("a held session that confirms reconciles exactly as before", async () => {
+    const h = await setup();
+    const authority = createApplePurchaseAuthority({...h.deps, readSessionToken: held("session"), endSession: vi.fn(async () => {})});
+    expect(await authority.refreshAccountAccess()).toBe(h.snapshot);
+    expect(h.bridge.reconcileAccountAccess).toHaveBeenCalledExactlyOnceWith("transient-bearer");
+  });
+});
