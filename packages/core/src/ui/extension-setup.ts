@@ -12,6 +12,7 @@ import {
 import type { ExtensionSessionState } from "../sync/extension-session.js";
 import {
   UiController,
+  type AccessRecheck,
   type AuthPersistence,
   type UiAnalytics,
   type UiAuth,
@@ -153,6 +154,26 @@ export function createExtensionUiController(
   // the historical Boolean cache cannot verify Pro; subsequent epochs use the same watcher.
   if (PAID_TIER_ENABLED && options?.onCommittedPopupBinding)
     void entitlement.refreshAccess();
+  // A committed paid page's access re-check: the scoped reconcile, then a fresh read of the access
+  // authority. A "none" answer usually changes nothing in storage, so without this read the page
+  // would keep its earlier "verify again" observation until its refresh timer, by which time the
+  // short-lived "known none" evidence has lapsed (R4). Folds away with the paid tier off.
+  if (PAID_TIER_ENABLED && purchase && options?.onCommittedPopupBinding) {
+    const checkout = purchase.checkout;
+    // One re-check at a time: the page-open check and a page's own request share a flight.
+    let flight: Promise<AccessRecheck> | null = null;
+    controller.recheckAccess = () =>
+      (flight ??= (async () => {
+        try {
+          const outcome = await checkout.reconcile();
+          // An observation already in flight may predate the reconcile: let it land, then read again.
+          await entitlement.refreshAccess();
+          return { outcome, access: await entitlement.refreshAccess() };
+        } finally {
+          flight = null;
+        }
+      })());
+  }
 
   if (purchase) {
     const revision = controller.accountRevision;
@@ -178,7 +199,7 @@ export function createExtensionUiController(
         // reconciles whenever the cached answer is more than a day old, and the whole path returns
         // with the switch.
         if (PAID_TIER_ENABLED && state.userId !== null && state.checkoutPending === null) {
-          void purchase.checkout.reconcile();
+          void (controller.recheckAccess ? controller.recheckAccess() : purchase.checkout.reconcile());
         }
       })
       .catch(() => {

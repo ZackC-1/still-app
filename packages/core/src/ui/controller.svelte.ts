@@ -1,4 +1,4 @@
-import type { ServiceId, StillSettings } from "@still/shared-types";
+import type { BenefitAccessSnapshot, ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import { isValidEmail } from "./email.js";
@@ -117,6 +117,13 @@ export type CheckoutReconcileOutcome =
   | "not-entitled"
   | "auth-required"
   | "unknown";
+
+/** One page-requested access re-check: the reconcile's answer and the access observation read
+ * after it settled. The observation, never the outcome, is what the page may show as Still Pro. */
+export interface AccessRecheck {
+  readonly outcome: CheckoutReconcileOutcome;
+  readonly access: BenefitAccessSnapshot;
+}
 
 /** Reconcile fast-poll: 3s × 10 per popup-open window, then stop. Every poll is a live RevenueCat
  * query server-side — the cap is deliberate (plan Risks); reopening the popup starts a fresh
@@ -297,6 +304,13 @@ export class UiController {
   accountManagedByApp = false;
   extensionMatchesApp = $state<boolean | null>(null);
   retrySync: (() => Promise<void>) | undefined;
+  /**
+   * Paid-tier committed pages only (set by createExtensionUiController): one scoped reconcile,
+   * then a fresh read of the access authority, so a "known none" or a revocation shows without
+   * waiting for the page's refresh timer. `declare` keeps it out of the emitted class, so builds
+   * compiled with the paid tier off carry no trace of it.
+   */
+  declare recheckAccess?: () => Promise<AccessRecheck>;
 
   reconciling = $state(false);
   cloudReachable = $state(true);
