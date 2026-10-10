@@ -34,6 +34,8 @@ function launch(env = {}, responseError = null) {
   let invalidations = 0;
   let accountRefreshes = 0;
   const events = [];
+  let analyticsFactory;
+  const analyticsStub = () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} });
   const client = {
     functions: { invoke: async (name, options) => { calls.push({ name, options }); return { data: { synthetic: true }, error: responseError }; } },
     auth: { onAuthStateChange(callback) { authEvent = callback; }, getSession: async () => ({ data: { session: null } }) },
@@ -53,7 +55,8 @@ function launch(env = {}, responseError = null) {
     NativeBridge: Bridge,
     appleSettingsCacheOptions: () => ({}),
     buildChannelEnvelope: value => value === "test" ? { build_channel: "test" } : undefined,
-    createAppAnalytics: () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} }),
+    createAppAnalytics: () => { analyticsFactory = "2.x"; return analyticsStub(); },
+    createDefaultOnAppAnalytics: () => { analyticsFactory = "default-on"; return analyticsStub(); },
     createClient() { clientCount++; return client; },
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },
     packagedAccessTrust: config => ({ environment: config.environment === "sandbox" ? "sandbox" : "production", keys: [] }),
@@ -70,8 +73,13 @@ function launch(env = {}, responseError = null) {
     isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
+  return { analyticsFactory, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
+
+test("usage analytics is on by default exactly where the V3 screens are", () => {
+  assert.equal(launch().analyticsFactory, "default-on");
+  assert.equal(launch({ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }).analyticsFactory, "2.x");
+});
 
 test("explicit QA profile routes both Apple fulfillment requests and modern sync to QA", async () => {
   const host = launch({ VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox", VITE_ACCESS_ENVIRONMENT: "sandbox" });

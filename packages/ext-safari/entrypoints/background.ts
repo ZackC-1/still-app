@@ -16,6 +16,7 @@ import { buildChannelEnvelope, createIndexedDbKeyValue, QUIET_FLUSH_ALARM, reque
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { wireSafariTiktokHost } from "../lib/tiktok-host.js";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
+import { defaultOnSafariAnalytics } from "../lib/default-on-analytics.js";
 import { safariPlatformAnswer } from "../lib/access-platform.js";
 import { parseNativeBenefitReply } from "../lib/native-benefits.js";
 
@@ -92,6 +93,16 @@ export default defineBackground(() => {
     requestQuietFlush: () => requestQuietFlush(browser.alarms),
     isTrustedPage: (sender) =>
       sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
+    // V3 builds follow the Apple app's default-on usage permission (lib/default-on-analytics.ts),
+    // selected by the same build-time opt-ins as the app's own V3 screens. Every 2.x build folds
+    // this away, byte-for-byte.
+    ...((import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+    (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+      import.meta.env.VITE_SUPABASE_URL &&
+      import.meta.env.VITE_SUPABASE_ANON_KEY)
+      ? defaultOnSafariAnalytics((message) => browser.runtime.sendNativeMessage(NATIVE_APP, message))
+      : {}),
   });
   browser.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
   browser.runtime.onMessage.addListener(analytics.listener);

@@ -6,6 +6,7 @@ problem_type: maintainability
 module: packages/ext-chromium
 applies_when: Adding behaviour that must exist only in builds compiled with PAID_TIER_ENABLED on
 date: 2026-10-10
+last_updated: 2026-10-10
 status: active
 tags: [bundles, paid-tier, rolldown, extensions]
 ---
@@ -31,6 +32,11 @@ Some ways of writing a gate fold away in the minified bundle. Others leave bytes
 - A value import used only inside a folded branch, from a module with no top-level side effects.
 - Dynamic `import()` of a paid-only chunk inside a folded branch. In the configured lane the chunk is
   not emitted at all.
+- A branch inside a shared core module gated by an imported constant built from inline build flags,
+  when no host can make the choice for it. `packages/core/src/analytics/build-basis.ts` exports
+  `USAGE_ON_BY_DEFAULT_BUILD` (the V3 flags compared to `"true"`); the default-on branch it guards in
+  `privacyPolicyReady` disappears from every 2.x bundle (verified 2026-10-10). Core otherwise reads
+  no build values, so keep this to one module, and mock it in tests that need the other value.
 
 ## What leaves bytes behind
 
