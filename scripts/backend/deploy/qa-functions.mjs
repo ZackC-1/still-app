@@ -457,6 +457,36 @@ function qaMetadata(item, upload) {
   ) refuse("qa-deployed-metadata-differs");
 }
 
+const BODY_SIZE_KEYS = Object.freeze([
+  "original_size",
+  "compressed_size",
+  "module_count",
+]);
+
+// The body endpoint's metadata part describes the stored bundle. Every key it may carry is listed
+// here and checked; an unknown key still refuses, so a format change is reviewed, not absorbed.
+function bodyMetadataMatches(metadata, upload, deployed) {
+  if (
+    metadata === null || typeof metadata !== "object" || Array.isArray(metadata)
+  ) return false;
+  const allowed = ["deno2_entrypoint_path", "deployment_id", ...BODY_SIZE_KEYS];
+  if (Object.keys(metadata).some((key) => !allowed.includes(key))) return false;
+  if (
+    typeof metadata.deno2_entrypoint_path !== "string" ||
+    !`/${metadata.deno2_entrypoint_path}`.endsWith(`/${upload.file}`)
+  ) return false;
+  if (
+    "deployment_id" in metadata &&
+    (typeof metadata.deployment_id !== "string" ||
+      !/^[a-z0-9]{20}_[0-9a-f-]{36}_[1-9][0-9]*$/.test(metadata.deployment_id) ||
+      !metadata.deployment_id.endsWith(`_${deployed.version}`))
+  ) return false;
+  return BODY_SIZE_KEYS.every((key) =>
+    !(key in metadata) ||
+    (Number.isSafeInteger(metadata[key]) && metadata[key] > 0)
+  );
+}
+
 async function readback({ api, upload, posted, bytes }) {
   const metadata = async () =>
     inventory([await api(`/functions/${upload.name}`)])[0];
@@ -486,12 +516,7 @@ async function readback({ api, upload, posted, bytes }) {
   }
   if (
     !file || !file.equals(bytes) || sha256(file) !== upload.sha256 ||
-    (metadataPart &&
-      (Object.keys(metadataPart).some((key) =>
-        key !== "deno2_entrypoint_path"
-      ) ||
-        typeof metadataPart.deno2_entrypoint_path !== "string" ||
-        !metadataPart.deno2_entrypoint_path.endsWith(`/${upload.file}`)))
+    (metadataPart && !bodyMetadataMatches(metadataPart, upload, before))
   ) refuse("qa-deployed-source-differs");
   const after = await metadata();
   if (!same(before, after)) refuse("qa-deployed-version-moved");
