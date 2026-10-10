@@ -96,7 +96,8 @@ async function refund(chargeId: string, deps: QaSandboxStripeWebhookDeps): Promi
   // Start before provider latency; this invalidates earlier delayed positive observations.
   const token = await access.rights.begin(operation.holder, "sandbox");
   const observation = await access.provider.getRights(operation.holder, "sandbox");
-  if (observation.status !== "verified") return reply(502);
+  // A customer RevenueCat has not created yet cannot show the refund; retry until it can.
+  if (observation.status !== "verified" || observation.customerMissing) return reply(502);
   const negatives = observation.rights.filter(right => right.state === "revoked");
   // Never invent a Session/RC purchase relation, revoke by absence or create an unknown right.
   // SQL accepts known negative keys only, including a disabled/banned former provider holder.

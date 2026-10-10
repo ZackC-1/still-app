@@ -85,7 +85,7 @@ Deno.test("duplicate transaction or incomplete/hostile pagination cannot produce
   assertEquals(await read([], { next_page: "/v2/projects/proj-other/customers/other/purchases?environment=sandbox" }), { status: "unavailable" });
   assertEquals(await read([], { next_page: "/v2/projects/proj-still/customers/" + HOLDER + "/purchases?environment=production" }), { status: "unavailable" });
 });
-Deno.test("provider transport and 404 do not mean never purchased", async () => {
+Deno.test("provider transport and a bodiless 404 do not mean never purchased", async () => {
   const real = globalThis.fetch;
   try {
     for (const status of [404, 403, 429, 500]) {
@@ -93,6 +93,63 @@ Deno.test("provider transport and 404 do not mean never purchased", async () => 
       assertEquals(await new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [MAPPING]).getRights(HOLDER, "sandbox"), { status: "unavailable" });
     }
   } finally { globalThis.fetch = real; }
+});
+const RC_CUSTOMER_MISSING = { object: "error", type: "resource_missing", message: "Could not find customer ID associated with this project",
+  retryable: false, doc_url: "https://errors.rev.cat/resource-missing" };
+async function readError(status: number, body: string | null, project = "proj-still") {
+  const real = globalThis.fetch; const urls: string[] = [];
+  globalThis.fetch = ((input: string) => { urls.push(input); return Promise.resolve(new Response(body, { status })); }) as typeof fetch;
+  try { return { access: await new HttpRevenueCatAccessClient("synthetic-secret", project, [MAPPING]).getRights(HOLDER, "sandbox"), urls }; }
+  finally { globalThis.fetch = real; }
+}
+Deno.test("RevenueCat 404 resource_missing (customer never created) is a complete, empty list for that account", async () => {
+  for (const body of [RC_CUSTOMER_MISSING, { ...RC_CUSTOMER_MISSING, param: "customer_id" },
+    { ...RC_CUSTOMER_MISSING, param: null }]) {
+    const { access, urls } = await readError(404, JSON.stringify(body));
+    assertEquals(access, { status: "verified", rights: [], complete: true, customerMissing: true }, JSON.stringify(body));
+    // The absence is read only from this project's purchases list for the authenticated holder.
+    assertEquals(urls, [`https://api.revenuecat.com/v2/projects/proj-still/customers/${HOLDER}/purchases?environment=sandbox&limit=100`]);
+  }
+});
+Deno.test("every other 404, missing/malformed body, retryable or non-404 error stays unavailable", async () => {
+  const missing = JSON.stringify(RC_CUSTOMER_MISSING);
+  for (const [status, body] of [
+    [404, null], [404, ""], [404, "not json"], [404, "[]"], [404, "null"], [404, JSON.stringify({})],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, type: "parameter_error" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, type: "Resource_Missing" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, object: "list" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, retryable: true })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, param: "project_id" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, param: "app_id" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Project not found" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Could not find app associated with this project" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: 42 })],
+    [404, JSON.stringify({ type: "resource_missing" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: null })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, object: undefined })],
+    [400, missing], [401, missing], [403, missing], [410, missing], [429, missing], [500, missing], [503, missing],
+  ] as const) {
+    assertEquals((await readError(status, body)).access, { status: "unavailable" }, `${status} ${body}`);
+  }
+});
+Deno.test("a customer-missing 404 after the first page, or a timed-out read, never proves absence", async () => {
+  const real = globalThis.fetch; let calls = 0;
+  globalThis.fetch = (() => Promise.resolve(++calls === 1
+    ? new Response(JSON.stringify({ object: "list", items: [], next_page: `/v2/projects/proj-still/customers/${HOLDER}/purchases?environment=sandbox&starting_after=x` }))
+    : new Response(JSON.stringify(RC_CUSTOMER_MISSING), { status: 404 }))) as typeof fetch;
+  try { assertEquals(await new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [MAPPING]).getRights(HOLDER, "sandbox"), { status: "unavailable" }); }
+  finally { globalThis.fetch = real; }
+  assertEquals(calls, 2);
+  globalThis.fetch = (() => Promise.reject(new DOMException("timed out", "TimeoutError"))) as typeof fetch;
+  try { assertEquals(await new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [MAPPING]).getRights(HOLDER, "sandbox"), { status: "unavailable" }); }
+  finally { globalThis.fetch = real; }
+});
+Deno.test("missing configuration never turns a customer-missing 404 into absence", async () => {
+  for (const project of ["", "bad/project"]) assertEquals((await readError(404, JSON.stringify(RC_CUSTOMER_MISSING), project)).access, { status: "unavailable" });
+  const real = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify(RC_CUSTOMER_MISSING), { status: 404 }))) as typeof fetch;
+  try { assertEquals(await new HttpRevenueCatAccessClient("", "proj-still", [MAPPING]).getRights(HOLDER, "sandbox"), { status: "unavailable" }); }
+  finally { globalThis.fetch = real; }
 });
 Deno.test("mapping must be explicit, bounded and map immutable product/entitlement pair", () => {
   assertEquals(parseAccessProductMappings(JSON.stringify([MAPPING])), [MAPPING]);

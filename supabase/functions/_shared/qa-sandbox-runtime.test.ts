@@ -44,7 +44,7 @@ async function setup() {
   const values = await inputs(); const config = await readQaSandboxAppleConfig(name => values[name]); assert(config);
   const calls: { rpc: string; values: unknown[] }[] = [];
   const state = { enabled: true, confirmed: true, fence: true, negative: false, localRefund: false,
-    providerFails: false, providerThrow: false, linked: false, appleFails: false, productionTx: false, membershipFails: false };
+    providerFails: false, providerThrow: false, linked: false, appleFails: false, productionTx: false, membershipFails: false, ledgerEmpty: false };
   const now = Date.now(); const right = { right: RIGHT, holder: A, revision: 1, verified_at: now };
   const revoked = [{ right: RIGHT, revision: 2 }];
   const sql = Object.assign((strings: TemplateStringsArray, ...parameters: unknown[]) => {
@@ -63,7 +63,7 @@ async function setup() {
     if (rpc === "qa_sandbox_commit_access_observation") {
       const rights = parameters[2] as ProviderRight[];
       const removals = state.localRefund || rights.some(r => r.state === "revoked");
-      return Promise.resolve([{ result: { status: "committed", rights: removals ? [] : [right],
+      return Promise.resolve([{ result: { status: "committed", rights: removals || (state.ledgerEmpty && !rights.length) ? [] : [right],
         observed_rights: removals || !rights.length ? [] : [right], revocations: removals ? revoked : [], issuer_time: now } }]);
     }
     if (rpc === "qa_sandbox_read_access_removals") return Promise.resolve([{ result: state.negative || state.localRefund
@@ -188,6 +188,38 @@ Deno.test("actual composed HTTP RevenueCat client uses sandbox purchases and rej
     assertEquals((await (await handleQaSandboxReconcile(request(await token()), runtime.reconcile)).json()).access.status, "verified");
     wrong = true;
     assertEquals((await (await handleQaSandboxReconcile(request(await token()), runtime.reconcile)).json()).access, { status: "unavailable" });
+  } finally { globalThis.fetch = original; }
+});
+Deno.test("QA reconcile answers verified-none for a never-purchased account only on RevenueCat's customer-missing 404", async () => {
+  const original = globalThis.fetch;
+  const run = async (body: string | null, patch: Partial<Awaited<ReturnType<typeof setup>>["state"]> = { ledgerEmpty: true }) => {
+    const s = await setup(); Object.assign(s.state, patch); const urls: unknown[] = [];
+    globalThis.fetch = (input) => { urls.push(input); return Promise.resolve(new Response(body, { status: 404 })); };
+    const provider = new HttpRevenueCatAccessClient("synthetic-qa-only", "proj_qa", JSON.parse(s.values.STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON));
+    const runtime = await createQaSandboxRuntime(s.config, { sql: s.sql, provider, appleVerifier: s.verifier, accounts: { confirmed: () => Promise.resolve(s.state.confirmed) } });
+    const response = await handleQaSandboxReconcile(request(await token()), runtime.reconcile);
+    return { status: response.status, result: await response.json(), urls, s };
+  };
+  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Could not find customer ID associated with this project", retryable: false });
+  try {
+    const none = await run(missing);
+    assertEquals(none.status, 200);
+    assertEquals(none.result.access.status, "none"); assertEquals(none.result.access.environment, "sandbox");
+    assertEquals(none.result.access.proofs, []);
+    // Bound to the JWT subject: the provider read, the observation and the final fence all name A.
+    assertEquals(none.urls, [`https://api.revenuecat.com/v2/projects/proj_qa/customers/${A}/purchases?environment=sandbox&limit=100`]);
+    assertEquals(none.s.calls.find(call => call.rpc === "qa_sandbox_commit_access_observation")?.values.slice(0, 3), [A, OBS, []]);
+    assertEquals(none.s.calls.some(call => call.rpc === "qa_sandbox_confirm_access_observation"), true);
+    // Any other 404 body stays unavailable exactly as before.
+    for (const body of [null, "{}", JSON.stringify({ type: "parameter_error" }), JSON.stringify({ type: "resource_missing", param: "project_id" })]) {
+      assertEquals((await run(body)).result.access, { status: "unavailable" }, String(body));
+    }
+    // An account with any recorded right is never told "none" by a provider 404.
+    assertEquals((await run(missing, { ledgerEmpty: false })).result.access.status, "unavailable");
+    // Losing the account binding (final fence, live confirmation) withholds the answer entirely.
+    assertEquals((await run(missing, { ledgerEmpty: true, fence: false })).result.access, { status: "unavailable" });
+    const unconfirmed = await run(missing, { ledgerEmpty: true, confirmed: false });
+    assertEquals(unconfirmed.status, 403); assertEquals(unconfirmed.urls, []);
   } finally { globalThis.fetch = original; }
 });
 
