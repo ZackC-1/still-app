@@ -20,12 +20,17 @@ import {
 export const BROWSER_PRO_SESSION_KIND = "still:session";
 export const BROWSER_PRO_AVAILABLE_ACTION = "checkoutAvailable";
 
-/** A page shown again re-checks at most this often. */
-export const VISIBLE_RECHECK_SPACING_MS = 5_000;
+/**
+ * A page shown again re-checks at most this often, and not at all while Still Pro shows as owned
+ * (the page-open check and Restore still re-check an owner). Coming back from an open checkout
+ * always re-checks: that return is when a purchase completes.
+ */
+export const VISIBLE_RECHECK_SPACING_MS = 30_000;
 /**
  * While a visible page shows Buy, the short-lived "known none" evidence (about a minute) is
  * renewed shortly before it lapses, so the card does not fall back to "verify again" under a
- * person reading it. Bounded per showing of the page; showing it again starts a new allowance.
+ * person reading it. Bounded for the page's whole lifetime; after that, showing the page again
+ * or Restore re-checks.
  */
 export const KEEP_ALIVE_MS = 45_000;
 export const KEEP_ALIVE_LIMIT = 10;
@@ -73,8 +78,13 @@ export type BrowserProController = Pick<
 
 export interface BrowserProDeps {
   readonly controller: BrowserProController;
-  /** The existing background-backed checkout seam (lib/purchase-wiring.ts). */
-  readonly checkout: Pick<UiCheckout, "createCheckout" | "openCheckoutTab">;
+  /**
+   * The existing background-backed checkout seam (lib/purchase-wiring.ts). `setPending` writes the
+   * background's checkout-pending record: its tab is closed on sign-out or an account switch, and
+   * the supported-site nudge reconciles while it exists. The background clears it on a confirmed
+   * purchase or a finished checkout.
+   */
+  readonly checkout: Pick<UiCheckout, "createCheckout" | "openCheckoutTab" | "setPending">;
   /** Defaults to askCheckoutAvailable over the extension runtime. */
   readonly available?: () => Promise<boolean>;
   readonly page?: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
@@ -144,11 +154,13 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     }, KEEP_ALIVE_MS);
   }
 
-  async function askChannel(): Promise<void> {
+  /** `quiet` re-asks behind the current answer (no "checking" flash): a page shown again learns
+   * that sales were switched off, or on, without the card blinking. */
+  async function askChannel(quiet = false): Promise<void> {
     if (stopped || channelFlight || seen?.userId == null) return;
     channelFlight = true;
     const ticket = generation;
-    set({ channel: "checking" });
+    if (!quiet || state.channel === "unknown") set({ channel: "checking" });
     let allowed: boolean;
     try {
       allowed = (await available()) === true;
@@ -160,7 +172,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     set({ channel: allowed ? "ready" : "unavailable" });
   }
 
-  async function recheck(): Promise<AccessRecheck | null> {
+  async function recheck(refreshChannel = false): Promise<AccessRecheck | null> {
     const run = deps.controller.recheckAccess;
     if (stopped || !run || seen?.userId == null) return null;
     lastRecheckAt = now();
@@ -177,7 +189,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     // Buy is offered again (a second create resumes the same server-held checkout).
     if (returning && state.purchase === "waiting") set({ purchase: "idle" });
     if (proOwnership(result.access) === "none") {
-      if (state.channel === "unknown") void askChannel();
+      if (state.channel === "unknown" || refreshChannel) void askChannel(true);
       armKeepAlive();
     }
     return result;
@@ -212,16 +224,34 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (stopped || ticket !== generation) return;
     if (outcome.kind === "checkout-url") {
       set({ purchase: "waiting" });
+      // Recorded BEFORE the tab opens, then with its id: sign-out or another account signing in
+      // closes that tab (it carries this account), and supported-site visits reconcile while it
+      // exists, so a purchase unlocks even if this page is never shown again.
+      const pending = { startedAt: now() };
+      deps.checkout.setPending(pending);
       const tab = await deps.checkout.openCheckoutTab(outcome.url);
-      // No tab opened: say so rather than wait for a return that cannot come. (set() replaced
-      // `state` meanwhile, so read it afresh.)
-      if (ticket === generation && tab === undefined && current().purchase === "waiting") set({ purchase: "failed" });
+      if (ticket !== generation) return;
+      if (tab === undefined) {
+        // No tab opened: say so rather than wait for a return that cannot come. (set() replaced
+        // `state` meanwhile, so read it afresh.)
+        deps.checkout.setPending(null);
+        if (current().purchase === "waiting") set({ purchase: "failed" });
+        return;
+      }
+      deps.checkout.setPending({ ...pending, tabId: tab });
       return;
     }
     if (outcome.kind === "already-entitled") {
       // The background already reconciled before answering; read the access it recorded.
       set({ purchase: "idle" });
       void recheck();
+      return;
+    }
+    if (outcome.kind === "auth-required") {
+      // The session ended: the normal sign-in, which the page shows once the account reads as
+      // signed out. Signing in again re-checks and offers Buy afresh.
+      set({ purchase: "idle" });
+      deps.controller.openSignIn();
       return;
     }
     set({ purchase: "failed" });
@@ -233,8 +263,9 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       clearKeepAlive();
       return;
     }
-    keepAliveCount = 0;
-    if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck();
+    if (state.purchase === "waiting") void recheck(true);
+    else if (seen?.ownership === "owned") return;
+    else if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck(true);
     else if (seen?.ownership === "none") armKeepAlive();
   }
   page.addEventListener("visibilitychange", onVisibility);
@@ -250,7 +281,6 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // Before anything runs for the new account, so its own checks are not fenced off.
         generation += 1;
         channelFlight = false;
-        keepAliveCount = 0;
         clearKeepAlive();
         set({ channel: "unknown", purchase: "idle" });
       }

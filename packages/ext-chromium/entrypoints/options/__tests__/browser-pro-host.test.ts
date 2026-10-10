@@ -68,6 +68,7 @@ async function host(options: Fixture = {}) {
   let available = options.available ?? true;
   let checkout = options.checkout ?? { kind: "checkout-url", url: CHECKOUT_URL };
   const accountId: string | null = options.signedIn === false ? null : ACCOUNT;
+  let pending: Record<string, unknown> | null = null;
   const messages: Record<string, unknown>[] = [];
   const original = chrome.runtime.sendMessage.bind(chrome.runtime);
   const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
@@ -76,7 +77,8 @@ async function host(options: Fixture = {}) {
     if (message.kind === "still:analytics") return undefined;
     if (message.kind === "still:session") {
       switch (message.action) {
-        case "getState": return { userId: accountId, entitled: false, pendingOtp: null, checkoutPending: null };
+        case "getState": return { userId: accountId, entitled: false, pendingOtp: null, checkoutPending: pending };
+        case "setCheckoutPending": pending = (message.pending as Record<string, unknown> | null) ?? null; return "ok";
         case "getSyncStatus": return accountId ? { accountId, email: "fixture@still.test", lastSyncedAt: 1, pendingUpload: false, cloudReachable: true, updatedAt: 1 } : null;
         case "getVerifiedAccount": return accountId ? { id: accountId, email: "fixture@still.test", emailConfirmed: true } : null;
         case "reconcile": snapshot = access(after); return outcome;
@@ -99,6 +101,7 @@ async function host(options: Fixture = {}) {
   visibility("visible");
   return {
     ...f, messages, tabsCreate,
+    get pending() { return pending; },
     actions: () => messages.map(message => String(message.action ?? message.kind)),
     set(next: { after?: AccessState; outcome?: Fixture["outcome"]; available?: boolean; checkout?: Record<string, unknown> }) {
       after = next.after ?? after; outcome = next.outcome ?? outcome;
@@ -108,8 +111,9 @@ async function host(options: Fixture = {}) {
 }
 
 const region = () => screen.findByRole("region", { name: "Still Pro" });
-const paid = (messages: Record<string, unknown>[]) =>
-  messages.filter(message => message.action === "setCheckoutPending" || (message.action === "setPurchaseIntent" && message.active !== false));
+/** A purchase intent would reopen the legacy paywall (with its compiled price) after sign-in. */
+const intent = (messages: Record<string, unknown>[]) =>
+  messages.filter(message => message.action === "setPurchaseIntent" && message.active !== false);
 
 describe("paid-tier browser Still Pro card", () => {
   it("re-checks when the page opens, reads access after the reconcile, and offers Buy with no price", async () => {
@@ -129,7 +133,7 @@ describe("paid-tier browser Still Pro card", () => {
     expect(actions).not.toContain("createCheckout");
   });
 
-  it("Buy calls the background's createCheckout, opens the hosted checkout and waits without a pending flag", async () => {
+  it("Buy calls the background's createCheckout, opens the hosted checkout and records its tab", async () => {
     const f = await host();
     render(OptionsApp);
     const card = await region();
@@ -138,8 +142,10 @@ describe("paid-tier browser Still Pro card", () => {
     expect(f.actions().filter(action => action === "createCheckout")).toHaveLength(1);
     const waiting = within(card).getByRole("button", { name: "Waiting for checkout…" }) as HTMLButtonElement;
     expect(waiting.disabled).toBe(true);
-    // The legacy paywall's persisted pending flag would reopen that sheet in the popup.
-    expect(paid(f.messages)).toEqual([]);
+    // The pending record carries the tab, so sign-out or an account switch closes it.
+    await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
+    expect(typeof f.pending?.startedAt).toBe("number");
+    expect(intent(f.messages)).toEqual([]);
   });
 
   it("shows Purchased after the purchase completes, and stops after a refund on the next re-check", async () => {
@@ -162,13 +168,46 @@ describe("paid-tier browser Still Pro card", () => {
     await waitFor(() => expect(f.actions().filter(action => action === "observeBenefits").length).toBe(reads + 2));
     expect(screen.getByText("Still Pro and sync")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull());
-    // Refunded: the server revokes, and the next re-check no longer shows Purchased.
-    f.set({ after: "locked", outcome: "not-entitled" });
-    offset = 20_000;
+    // An owner's page shown again does not re-check.
+    const settled = f.actions().filter(action => action === "reconcile").length;
+    offset = 60_000;
     visibility("hidden");
     visibility("visible");
-    await waitFor(() => expect(screen.queryByText("Purchased")).toBeNull());
+    await flush();
+    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(settled);
+    // Refunded: the server revokes, and the next re-check (opening the page) drops Purchased.
+    f.set({ after: "locked", outcome: "not-entitled" });
+    for (const instance of mounted.instances.splice(0)) await unmount(instance);
+    cleanup();
+    render(OptionsApp);
     expect(await within(await region()).findByRole("button", { name: "Get Still Pro" })).toBeTruthy();
+    expect(screen.queryByText("Purchased")).toBeNull();
+  });
+
+  it("reopened with a settings checkout pending, the page re-checks and never shows the legacy priced sheet", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    await fireEvent.click(await within(card).findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
+    for (const instance of mounted.instances.splice(0)) await unmount(instance);
+    cleanup();
+    const before = f.actions().filter(action => action === "reconcile").length;
+    render(OptionsApp);
+    await within(await region()).findByRole("button", { name: "Get Still Pro" });
+    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(before + 1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\$\d/);
+    expect(f.pending).toMatchObject({ tabId: 7 }); // still pending: only the background ends it
+  });
+
+  it("drops a pending record older than the pending lifetime when the page opens", async () => {
+    const f = await host();
+    await chrome.runtime.sendMessage({ kind: "still:session", action: "setCheckoutPending", pending: { startedAt: Date.now() - 25 * 60 * 60_000, tabId: 3 } });
+    render(OptionsApp);
+    await within(await region()).findByRole("button", { name: "Get Still Pro" });
+    await waitFor(() => expect(f.pending).toBeNull());
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("offers no Buy when the background says this build may not sell here", async () => {
@@ -205,7 +244,7 @@ describe("paid-tier browser Still Pro card", () => {
     await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
     await screen.findByText("Still Pro is restored on this device.");
     await screen.findByText("Purchased");
-    expect(paid(f.messages)).toEqual([]);
+    expect(intent(f.messages)).toEqual([]);
   });
 
   it("a reconcile that says entitled without access to show is not reported as restored", async () => {

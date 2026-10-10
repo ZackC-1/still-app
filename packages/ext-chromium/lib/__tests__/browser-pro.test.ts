@@ -56,6 +56,7 @@ function harness(options: { recheck?: AccessState; outcome?: CheckoutReconcileOu
   const checkout = {
     createCheckout: vi.fn(async (): Promise<WebCheckoutOutcome> => options.checkout ?? { kind: "checkout-url", url: "https://checkout.invalid/x" }),
     openCheckoutTab: vi.fn(async (_url: string) => ("tab" in options ? options.tab : 7)),
+    setPending: vi.fn((_pending: { startedAt?: number; tabId?: number } | null) => {}),
   };
   const available = vi.fn(async () => options.available ?? true);
   const states: BrowserProState[] = [];
@@ -138,9 +139,9 @@ describe("the browser Still Pro flow", () => {
     expect(h.available).toHaveBeenCalledTimes(2);
   });
 
-  it("re-checks when the page is shown again, spaced", async () => {
+  it("re-checks when the page is shown again, spaced, and not for an owner", async () => {
     const h = harness();
-    h.observe("owned"); await settle();
+    h.observe("verify"); await settle();
     h.page.show("hidden"); h.page.show("visible"); await settle();
     expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
     h.advance(VISIBLE_RECHECK_SPACING_MS - 1);
@@ -149,23 +150,47 @@ describe("the browser Still Pro flow", () => {
     h.advance(1);
     h.page.show("hidden"); h.page.show("visible"); await settle();
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+    expect(VISIBLE_RECHECK_SPACING_MS).toBeGreaterThanOrEqual(30_000);
+    h.observe("owned");
+    h.advance(VISIBLE_RECHECK_SPACING_MS * 4);
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
   });
 
-  it("renews a visible known none before it lapses, a bounded number of times per showing", async () => {
+  it("a page shown again asks about Buy again behind the current answer, so a switched-off sale hides Buy", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    expect(h.state.channel).toBe("ready");
+    h.available.mockResolvedValue(false);
+    const published: string[] = [];
+    h.advance(VISIBLE_RECHECK_SPACING_MS);
+    const before = h.states.length;
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    for (const state of h.states.slice(before)) published.push(state.channel);
+    expect(h.available).toHaveBeenCalledTimes(2);
+    expect(h.state.channel).toBe("unavailable");
+    expect(published).not.toContain("checking"); // no flash while it asks
+  });
+
+  it("renews a visible known none before it lapses, a bounded number of times per page lifetime", async () => {
     vi.useFakeTimers();
     const h = harness();
     h.observe("none"); await settle();
     for (let i = 0; i < KEEP_ALIVE_LIMIT + 3; i++) { await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS); }
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
-    // Hidden stops it; shown again re-checks and starts a fresh allowance.
+    // Hidden stops it. Shown again re-checks once, but the renewal allowance does not restart.
     h.page.show("hidden");
     await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
     h.advance(VISIBLE_RECHECK_SPACING_MS);
     h.page.show("visible"); await settle();
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 1);
-    await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS);
-    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 2);
+    await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 1);
+    // Nor does another account signing in.
+    h.observe("none", OTHER); await settle();
+    await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 2); // its sign-in check only
   });
 
   it("does not renew anything that is not a known none, or while hidden", async () => {
@@ -188,9 +213,14 @@ describe("the browser Still Pro flow", () => {
     expect(h.checkout.createCheckout).toHaveBeenCalledOnce();
     expect(h.checkout.openCheckoutTab).toHaveBeenCalledWith("https://checkout.invalid/x");
     expect(h.state.purchase).toBe("waiting");
+    // The pending record is written before the tab opens, then carries the tab for teardown.
+    expect(h.checkout.setPending.mock.calls).toEqual([[{ startedAt: 1_000_000 }], [{ startedAt: 1_000_000, tabId: 7 }]]);
+    expect(h.checkout.setPending.mock.invocationCallOrder[0]).toBeLessThan(h.checkout.openCheckoutTab.mock.invocationCallOrder[0]!);
     h.flow.buy(); await settle();
     expect(h.checkout.createCheckout).toHaveBeenCalledOnce(); // no second checkout while waiting
+    // Coming back from the checkout re-checks at once, whatever the spacing.
     h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
     expect(h.state.purchase).toBe("idle");
   });
 
@@ -213,18 +243,25 @@ describe("the browser Still Pro flow", () => {
     expect(verify.checkout.createCheckout).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [{ kind: "unavailable" }],
-    [{ kind: "auth-required" }],
-  ] as const)("%j fails calmly; Try again asks the background again and buys", async (outcome) => {
-    const h = harness({ checkout: outcome });
+  it("a checkout that cannot start fails calmly; Try again asks the background again and buys", async () => {
+    const h = harness({ checkout: { kind: "unavailable" } });
     h.observe("none"); await settle();
     h.flow.buy(); await settle();
     expect(h.state.purchase).toBe("failed");
+    expect(h.checkout.setPending).not.toHaveBeenCalled();
     h.checkout.createCheckout.mockResolvedValueOnce({ kind: "checkout-url", url: "https://checkout.invalid/y" });
     h.flow.retry(); await settle();
     expect(h.available).toHaveBeenCalledTimes(2);
     expect(h.checkout.openCheckoutTab).toHaveBeenCalledWith("https://checkout.invalid/y");
+  });
+
+  it("an ended session opens the normal sign-in instead of a failure", async () => {
+    const h = harness({ checkout: { kind: "auth-required" } });
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    expect(h.controller.openSignIn).toHaveBeenCalledOnce();
+    expect(h.state.purchase).toBe("idle");
+    expect(h.checkout.setPending).not.toHaveBeenCalled();
   });
 
   it("a checkout tab that did not open is a failure, not an endless wait", async () => {
@@ -232,6 +269,7 @@ describe("the browser Still Pro flow", () => {
     h.observe("none"); await settle();
     h.flow.buy(); await settle();
     expect(h.state.purchase).toBe("failed");
+    expect(h.checkout.setPending.mock.calls.at(-1)).toEqual([null]);
   });
 
   it("already owned on the server re-checks instead of opening a checkout", async () => {
