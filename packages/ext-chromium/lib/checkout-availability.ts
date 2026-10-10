@@ -63,6 +63,13 @@ export interface CheckoutAvailabilityChrome {
  * question answered from the very same `canCreateCheckout` the session's createCheckout consults,
  * so the card never offers a checkout that createCheckout would refuse for policy. Without a sales
  * allowance (every non-QA route) nothing is registered and the card's question reads "no".
+ *
+ * It also ends the checkout-pending record when the session finishes a managed checkout. The
+ * settings card records its checkout tab there, so sign-out or an account switch closes the tab and
+ * supported-site visits reconcile until the purchase lands. A confirmed purchase already clears
+ * the record; a checkout that finished unpaid (the session clears its stored operation on any
+ * terminal completion) must not keep supported-site visits reconciling for nothing.
+ *
  * Call it in the worker's first synchronous pass, where createExtensionSession is called today.
  */
 export function createSessionWithCheckoutAvailability(
@@ -70,7 +77,22 @@ export function createSessionWithCheckoutAvailability(
   host: CheckoutAvailabilityChrome = chrome as unknown as CheckoutAvailabilityChrome,
   create: (deps: ExtensionSessionDeps) => ExtensionSession = createExtensionSession,
 ): ExtensionSession {
-  const session = create(deps);
+  const operation = deps.stores.checkoutOperation;
+  const pending = deps.stores.checkoutPending;
+  const session = create(operation ? {
+    ...deps,
+    stores: {
+      ...deps.stores,
+      checkoutOperation: {
+        get: () => operation.get(),
+        set: async (value) => {
+          await operation.set(value);
+          // Best effort: a failed clear only means one more reconcile on a later visit.
+          if (value === null) await pending.set(null).catch(() => {});
+        },
+      },
+    },
+  } : deps);
   const salesAllowed = deps.canCreateCheckout;
   if (salesAllowed) {
     host.runtime.onMessage.addListener(createCheckoutAvailabilityRouter(

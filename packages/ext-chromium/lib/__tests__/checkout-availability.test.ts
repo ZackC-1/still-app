@@ -2,7 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionSession, ExtensionSessionDeps } from "@still/core/sync";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  SupabaseBackendPort,
+  type CheckoutOperationRecord,
+  type CheckoutPendingRecord,
+  type ExtensionSession,
+  type ExtensionSessionDeps,
+  type ExtensionSessionSync,
+  type PersistedSlot,
+} from "@still/core/sync";
 import {
   CHECKOUT_AVAILABLE_ACTION,
   createCheckoutAvailabilityRouter,
@@ -23,6 +32,20 @@ function ask(listener: SessionMessageListener, message: unknown, sender: { id?: 
     handled = listener(message, sender, (response) => resolve({ handled, response }));
     if (!handled) resolve({ handled, response: undefined });
   });
+}
+
+function chromeHost() {
+  const listeners: SessionMessageListener[] = [];
+  const host: CheckoutAvailabilityChrome = {
+    runtime: { id: ID, getURL: (path: string) => ORIGIN + path, onMessage: { addListener: (listener) => listeners.push(listener) } },
+  };
+  return { host, listeners };
+}
+
+function slot<T>(initial: unknown = null) {
+  const storage = { value: initial, get: vi.fn(async () => storage.value),
+    set: vi.fn(async (value: T | null) => { storage.value = value; }) };
+  return storage satisfies PersistedSlot<T> & { value: unknown };
 }
 
 describe("checkout availability router", () => {
@@ -59,38 +82,120 @@ describe("checkout availability router", () => {
   });
 });
 
+const ACCOUNT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ACCOUNT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const OPERATION = "11111111-1111-4111-8111-111111111111";
+
+/** The real session over the real sandbox backend port; only the network, storage and browser
+ * edges are synthetic (the same harness shape as core's sandbox checkout recovery suite). */
+function realSession(options: { completion?: string; fresh?: boolean } = {}) {
+  let identity: { userId: string; sessionId: string } | null = { userId: ACCOUNT_A, sessionId: "session-a" };
+  const { host } = chromeHost();
+  const invoke = vi.fn(async (name: string) => ({
+    data: name === "qa-sandbox-create-web-checkout" ? { operation_id: OPERATION, status: "session_bound", checkout_url: "https://checkout.stripe.com/c/pay/cs_test_synthetic" }
+      : name === "qa-sandbox-complete-web-checkout" ? { operation_id: OPERATION, status: options.completion ?? "session_bound" } : {},
+    error: null as unknown,
+  }));
+  const backend = new SupabaseBackendPort({ functions: { invoke } } as unknown as SupabaseClient, { routeProfile: "shared-hosted-sandbox" });
+  const records = {
+    getRecord: vi.fn(async () => (options.fresh ? { entitled: false, userId: ACCOUNT_A, updatedAt: Date.now() } : null)),
+    setRecord: vi.fn(async () => {}),
+  };
+  const auth = {
+    signInWithMagicLink: vi.fn(async () => ({})), signOut: vi.fn(async () => {}),
+    currentUserId: vi.fn(async () => identity?.userId ?? null),
+    currentSettingsSession: vi.fn(async () => identity), requestCode: vi.fn(async () => ({ kind: "sent" as const })),
+    verifyCode: vi.fn(async () => ({ kind: "verified" as const, userId: identity!.userId })),
+  };
+  const sync = { onSignedIn: vi.fn(async () => {}), onEntitlementConfirmed: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}), deleteAccount: vi.fn(async () => {}), resume: vi.fn(async () => {}),
+    getState: vi.fn(() => ({ confirmed: false })) } as unknown as ExtensionSessionSync;
+  const stores = { pendingOtp: slot(null), checkoutPending: slot<CheckoutPendingRecord>(null), nudgeStamp: slot<number>(),
+    checkoutOperation: slot<CheckoutOperationRecord>(null) };
+  const closeTab = vi.fn(async (_tabId: number) => {});
+  const session = createSessionWithCheckoutAvailability({
+    auth, backend, records, sync, stores, canCreateCheckout: vi.fn(async () => true),
+    identity: { get: async () => ACCOUNT_A, set: async () => {} }, closeTab,
+    clearAuthStorage: async () => { identity = null; },
+  }, host);
+  return { session, stores, closeTab, invoke, replace(next: typeof identity) { identity = next; } };
+}
+
+/** What the settings card does on Buy, through the same session actions its messages reach. */
+async function settingsBuy(h: ReturnType<typeof realSession>) {
+  expect(await h.session.createCheckout()).toMatchObject({ kind: "checkout-url" });
+  await h.session.setCheckoutPending({ startedAt: 1 });
+  await h.session.setCheckoutPending({ startedAt: 1, tabId: 41 });
+}
+
+describe("a settings-page checkout in the real session", () => {
+  it("sign-out closes the checkout tab the settings card opened", async () => {
+    const h = realSession();
+    await settingsBuy(h);
+    await h.session.signOut();
+    expect(h.closeTab).toHaveBeenCalledWith(41);
+    expect(h.stores.checkoutPending.value).toBeNull();
+  });
+
+  it("another account signing in closes that tab before anything of theirs lands", async () => {
+    const h = realSession();
+    await settingsBuy(h);
+    h.replace({ userId: ACCOUNT_B, sessionId: "session-b" });
+    await h.session.verifyCode("synthetic@example.invalid", "000000");
+    expect(h.closeTab).toHaveBeenCalledWith(41);
+    expect(h.stores.checkoutPending.value).toBeNull();
+  });
+
+  it("supported-site visits reconcile while it is pending, even with a fresh cached answer", async () => {
+    const h = realSession({ fresh: true });
+    expect(await h.session.onNudge()).toBe("no-op");
+    await settingsBuy(h);
+    expect(await h.session.onNudge()).toBe("reconciled");
+  });
+
+  it("a checkout that finished unpaid ends the pending record, so visits stop reconciling", async () => {
+    const h = realSession({ fresh: true, completion: "closed_unpaid" });
+    await settingsBuy(h);
+    await h.session.reconcile();
+    expect(h.stores.checkoutOperation.value).toBeNull();
+    expect(h.stores.checkoutPending.value).toBeNull();
+    expect(await h.session.onNudge()).toBe("no-op");
+  });
+
+  it("a checkout still open keeps the record", async () => {
+    const h = realSession({ fresh: true, completion: "session_bound" });
+    await settingsBuy(h);
+    await h.session.reconcile();
+    expect(h.stores.checkoutPending.value).toEqual({ startedAt: 1, tabId: 41 });
+  });
+});
+
 describe("createSessionWithCheckoutAvailability", () => {
-  function host() {
-    const listeners: SessionMessageListener[] = [];
-    const chromeHost: CheckoutAvailabilityChrome = {
-      runtime: { id: ID, getURL: (path: string) => ORIGIN + path, onMessage: { addListener: (listener) => listeners.push(listener) } },
-    };
-    return { chromeHost, listeners };
-  }
   function session(userId: string | null): ExtensionSession {
     return { getState: vi.fn(async () => ({ userId, entitled: false, checkoutPending: null, pendingOtp: null })) } as unknown as ExtensionSession;
   }
+  const stores = () => ({ pendingOtp: slot(null), checkoutPending: slot(null), nudgeStamp: slot<number>() });
 
   it("answers from the same canCreateCheckout the session uses, only for a signed-in session", async () => {
     const canCreateCheckout = vi.fn(async () => true);
-    const deps = { canCreateCheckout } as unknown as ExtensionSessionDeps;
-    const signedIn = host();
+    const deps = { canCreateCheckout, stores: stores() } as unknown as ExtensionSessionDeps;
+    const signedIn = chromeHost();
     const created = session("11111111-1111-4111-8111-111111111111");
     const create = vi.fn(() => created);
-    expect(createSessionWithCheckoutAvailability(deps, signedIn.chromeHost, create)).toBe(created);
+    expect(createSessionWithCheckoutAvailability(deps, signedIn.host, create)).toBe(created);
     expect(create).toHaveBeenCalledWith(deps);
     expect((await ask(signedIn.listeners[0]!, REQUEST)).response).toBe(true);
     expect(canCreateCheckout).toHaveBeenCalledOnce();
 
-    const signedOut = host();
-    createSessionWithCheckoutAvailability(deps, signedOut.chromeHost, () => session(null));
+    const signedOut = chromeHost();
+    createSessionWithCheckoutAvailability(deps, signedOut.host, () => session(null));
     expect((await ask(signedOut.listeners[0]!, REQUEST)).response).toBe(false);
     expect(canCreateCheckout).toHaveBeenCalledOnce(); // no policy request for a signed-out page
   });
 
   it("a route without a sales allowance registers nothing", () => {
-    const h = host();
-    createSessionWithCheckoutAvailability({} as ExtensionSessionDeps, h.chromeHost, () => session("x"));
+    const h = chromeHost();
+    createSessionWithCheckoutAvailability({ stores: stores() } as unknown as ExtensionSessionDeps, h.host, () => session("x"));
     expect(h.listeners).toEqual([]);
   });
 
