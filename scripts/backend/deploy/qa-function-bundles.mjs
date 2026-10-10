@@ -24,6 +24,31 @@ export const QA_FUNCTIONS = Object.freeze([
   ["qa-sandbox-stripe-webhook", false],
 ].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
 
+/**
+ * A closed set of routes compiled together. `perRouteConfig` routes each carry their own
+ * `supabase/functions/<name>/deno.json` and a matching `import_map` line in config.toml (the QA
+ * routes); the other routes are the long-lived production functions, which have neither and are
+ * bundled with the shared import map. Every route's `verify_jwt` must match config.toml.
+ */
+const routeSet = (kind, routes, perRouteConfig) =>
+  Object.freeze({ kind, routes, perRouteConfig });
+export const QA_BUNDLE_SET = routeSet(
+  "still-qa-function-bundles",
+  QA_FUNCTIONS,
+  true,
+);
+/** Production analytics routes, in deploy order (see analytics-subjects.mjs). */
+export const ANALYTICS_FUNCTIONS = Object.freeze([
+  ["analytics-erasure", false],
+  ["analytics-identify", true],
+  ["delete-user", true],
+].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
+export const ANALYTICS_BUNDLE_SET = routeSet(
+  "still-analytics-function-bundles",
+  ANALYTICS_FUNCTIONS,
+  false,
+);
+
 const CONFIG = "supabase/functions/deno.json";
 const LOCK = "supabase/functions/deno.lock";
 const FLAGS = Object.freeze([
@@ -137,16 +162,16 @@ async function toolchain(exec, cwd) {
   };
 }
 
-function checkConfig(text) {
+function checkConfig(text, set) {
   // Only interpret the closed route sections and their two required settings;
   // duplicates and unfamiliar values are rejected rather than guessed.
-  for (const { name, verifyJwt } of QA_FUNCTIONS) {
+  for (const { name, verifyJwt } of set.routes) {
     const sections = [...text.matchAll(/^\s*\[([^\]\n]+)\]\s*(?:#.*)?$/gm)];
     const matches = sections.filter((section) =>
       section[1] === `functions.${name}`
     );
     if (matches.length !== 1) {
-      refuse("Missing or duplicate fixed QA function configuration");
+      refuse("Missing or duplicate fixed function configuration");
     }
     const start = matches[0].index + matches[0][0].length;
     const next = sections.find((section) => section.index >= start);
@@ -155,13 +180,17 @@ function checkConfig(text) {
       ...body.matchAll(/^\s*verify_jwt\s*=\s*(true|false)\s*(?:#.*)?$/gm),
     ];
     if (jwt.length !== 1 || jwt[0][1] !== String(verifyJwt)) {
-      refuse(`QA JWT configuration differs: ${name}`);
+      refuse(`Function JWT configuration differs: ${name}`);
     }
     const maps = [
       ...body.matchAll(/^\s*import_map\s*=\s*"([^"\n]+)"\s*(?:#.*)?$/gm),
     ];
-    if (maps.length !== 1 || maps[0][1] !== `./functions/${name}/deno.json`) {
-      refuse("Unbound QA import map");
+    if (
+      set.perRouteConfig
+        ? maps.length !== 1 || maps[0][1] !== `./functions/${name}/deno.json`
+        : /^\s*import_map\s*=/m.test(body)
+    ) {
+      refuse("Unbound function import map");
     }
   }
 }
@@ -196,16 +225,19 @@ function checkGraph(graph, rootSpecifier) {
   }
 }
 
-async function sourceClosure(sourceDir, exec) {
+async function sourceClosure(sourceDir, exec, set) {
   const paths = new Set(["supabase/config.toml", CONFIG, LOCK, ...TOOLING]);
-  for (const { name } of QA_FUNCTIONS) {
-    paths.add(`supabase/functions/${name}/deno.json`);
+  for (const { name } of set.routes) {
+    if (set.perRouteConfig) paths.add(`supabase/functions/${name}/deno.json`);
     paths.add(`supabase/functions/${name}/index.ts`);
   }
   for (const path of paths) await regularFile(sourceDir, path);
-  checkConfig(await readFile(join(sourceDir, "supabase/config.toml"), "utf8"));
+  checkConfig(
+    await readFile(join(sourceDir, "supabase/config.toml"), "utf8"),
+    set,
+  );
   const lock = JSON.parse(await readFile(join(sourceDir, LOCK), "utf8"));
-  for (const { name } of QA_FUNCTIONS) {
+  for (const { name } of set.routes) {
     const entry = `supabase/functions/${name}/index.ts`;
     const graph = JSON.parse(
       await run(exec, [
@@ -302,7 +334,12 @@ async function artifactInventory(artifactDir, expected) {
 }
 
 /** Compile all fixed QA routes. No remote deployment or provider calls occur. */
-export async function buildQaFunctionBundles(
+export const buildQaFunctionBundles = (options) =>
+  buildFunctionBundles(QA_BUNDLE_SET, options);
+
+/** Compile every route of one closed set. No remote deployment or provider calls occur. */
+export async function buildFunctionBundles(
+  set,
   { sourceDir, artifactDir, exec = defaultExec },
 ) {
   sourceDir = resolve(sourceDir);
@@ -314,11 +351,11 @@ export async function buildQaFunctionBundles(
     refuse("Uploads must be outside the source tree");
   }
   const compiler = await toolchain(exec, sourceDir);
-  const sources = await sourceClosure(sourceDir, exec);
+  const sources = await sourceClosure(sourceDir, exec, set);
   await mkdir(artifactDir, { recursive: true });
   await artifactInventory(artifactDir, []);
   const functions = [];
-  for (const { name, verifyJwt } of QA_FUNCTIONS) {
+  for (const { name, verifyJwt } of set.routes) {
     const file = `${name}.js`;
     await run(exec, [
       "bundle",
@@ -341,17 +378,22 @@ export async function buildQaFunctionBundles(
   }
   const manifest = {
     protocol: 1,
-    kind: "still-qa-function-bundles",
+    kind: set.kind,
     toolchain: compiler,
     sources,
     functions,
   };
-  await verifyQaFunctionBundles({ sourceDir, artifactDir, manifest, exec });
+  await verifyFunctionBundles(set, { sourceDir, artifactDir, manifest, exec });
   return manifest;
 }
 
-/** Recheck a caller-bound manifest against current sources and sealed uploads. */
-export async function verifyQaFunctionBundles(
+/** Recheck a caller-bound QA manifest against current sources and sealed uploads. */
+export const verifyQaFunctionBundles = (options) =>
+  verifyFunctionBundles(QA_BUNDLE_SET, options);
+
+/** Recheck a caller-bound manifest of one closed set against current sources and uploads. */
+export async function verifyFunctionBundles(
+  set,
   { sourceDir, artifactDir, manifest, exec = defaultExec },
 ) {
   sourceDir = resolve(sourceDir);
@@ -368,20 +410,20 @@ export async function verifyQaFunctionBundles(
       "sources",
       "toolchain",
     ]) ||
-    manifest.protocol !== 1 || manifest.kind !== "still-qa-function-bundles" ||
+    manifest.protocol !== 1 || manifest.kind !== set.kind ||
     !same(
       manifest.functions?.map(({ name, verifyJwt, file }) => ({
         name,
         verifyJwt,
         file,
       })),
-      QA_FUNCTIONS.map((route) => ({ ...route, file: `${route.name}.js` })),
+      set.routes.map((route) => ({ ...route, file: `${route.name}.js` })),
     )
   ) refuse("Invalid fixed QA bundle manifest");
   if (!same(await toolchain(exec, sourceDir), manifest.toolchain)) {
     refuse("Deno toolchain identity drift");
   }
-  if (!same(await sourceClosure(sourceDir, exec), manifest.sources)) {
+  if (!same(await sourceClosure(sourceDir, exec, set), manifest.sources)) {
     refuse("QA source closure or hash drift");
   }
   await artifactInventory(
@@ -392,7 +434,7 @@ export async function verifyQaFunctionBundles(
     const actual = await closedUpload(artifactDir, route.file, exec);
     if (
       !same(route, {
-        ...QA_FUNCTIONS.find(({ name }) => name === route.name),
+        ...set.routes.find(({ name }) => name === route.name),
         file: route.file,
         ...actual,
       })

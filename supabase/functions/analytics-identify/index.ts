@@ -23,8 +23,10 @@ const eraserUrl = Deno.env.get("ANALYTICS_ERASER_DB_URL") ?? "";
 const eraserSql = eraserUrl ? createWriterSql(eraserUrl) : null;
 // Released clients still need an abuse budget when per-device identity setup is disabled.
 // Reuse an existing narrow role: both roles already hold the limiter RPC, never client grants.
+// The released (2.1) body prefers the writer login, which is already proven in production, so a
+// problem with the newer eraser login can never break it; the eraser is the fallback.
 const writerUrl = Deno.env.get("ENTITLEMENT_WRITER_DB_URL") ?? "";
-const limiterSql = eraserSql ?? (writerUrl ? createWriterSql(writerUrl) : null);
+const limiterSql = (writerUrl ? createWriterSql(writerUrl) : null) ?? eraserSql;
 const limiter = limiterSql ? new PgRateLimiter(limiterSql) : null;
 const subjects = eraserSql
   ? {
@@ -57,10 +59,29 @@ const accounts = {
   },
 };
 
+// The PostHog project this server writes emails and account_created into, as a SHA-256 digest: a
+// V3 client must claim the same project to get an identity (handler.ts, server-enforced channel).
+const projectKey = postHogConfig.projectKey?.trim() ?? "";
+const projectKeyDigest: Promise<string | null> = projectKey
+  ? crypto.subtle.digest("SHA-256", new TextEncoder().encode(projectKey)).then((digest) =>
+    [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
+  )
+  : Promise.resolve(null);
+
 // HARD GATE: off unless exactly "true". Not before the account-deletion reorder and the subject
 // snapshot (migration 0017) are deployed and verified.
 const subjectsEnabled = Deno.env.get("ANALYTICS_SUBJECTS_ENABLED") === "true";
 
-Deno.serve((req) =>
-  handleAnalyticsIdentify(req, { jwtSecret, jwksUrl, expected, accounts, posthog, limiter, subjectsEnabled, subjects })
+Deno.serve(async (req) =>
+  handleAnalyticsIdentify(req, {
+    jwtSecret,
+    jwksUrl,
+    expected,
+    accounts,
+    posthog,
+    limiter,
+    subjectsEnabled,
+    subjects,
+    projectKeySha256: await projectKeyDigest,
+  })
 );

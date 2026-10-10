@@ -18,6 +18,12 @@ import {
 } from "./operations.mjs";
 import { QA_OPERATION } from "./qa-functions.mjs";
 import {
+  ANALYTICS_OPERATIONS,
+  SECRETS_OP as ANALYTICS_SECRETS_OP,
+  SECRETS_TOKEN_ENV as ANALYTICS_SECRETS_TOKEN_ENV,
+  SWITCH_OP as ANALYTICS_SWITCH_OP,
+} from "./analytics-subjects.mjs";
+import {
   QA_SECRETS_OPERATION,
   QA_SECRETS_TOKEN_ENV,
   STAGED_SECRETS,
@@ -174,21 +180,24 @@ test("only the approved apply job is bound to the environment and sees only the 
   assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
   assert.deepEqual(secretSteps[0].env, {
     SUPABASE_DB_URL: "${{ secrets.SUPABASE_PRODUCTION_DB_URL }}",
-    // Least privilege: the functions token is withheld from qa-sandbox-secrets, which uses only
-    // its own Secrets-only token.
-    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
+    // Least privilege: the functions token is withheld from qa-sandbox-secrets and
+    // analytics-subjects-secrets, which use only the Secrets-only token.
+    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && inputs.operation != '${ANALYTICS_SECRETS_OP}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
     // The test-account list reaches the apply step only for qa-sandbox-subjects.
     QA_SANDBOX_SUBJECT_EMAILS_JSON: scoped(
       "qa-sandbox-subjects",
       "QA_SANDBOX_SUBJECT_EMAILS_JSON",
     ),
-    // The Secrets-only token and the 19 staged values reach it only for qa-sandbox-secrets.
+    // The 19 staged values reach it only for qa-sandbox-secrets.
     ...Object.fromEntries(
       SECRETS_ONLY.map((name) => [name, scoped(QA_SECRETS_OPERATION, name)]),
     ),
+    // The Secrets-only token also reaches the two analytics operations that write a secret.
+    [QA_SECRETS_TOKEN_ENV]: `\${{ (inputs.operation == '${QA_SECRETS_OPERATION}' || inputs.operation == '${ANALYTICS_SECRETS_OP}' || inputs.operation == '${ANALYTICS_SWITCH_OP}') && secrets.${QA_SECRETS_TOKEN_ENV} || '' }}`,
     GH_TOKEN: "${{ github.token }}",
   });
   assert.equal(SECRETS_ONLY.length, 20);
+  assert.equal(ANALYTICS_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);
   assert.match(secretSteps[0].run, /deploy\.mjs apply /);
   assert.ok(!JSON.stringify(plan).includes("secrets."));
   assert.equal(
@@ -316,6 +325,7 @@ test("operations are a closed choice that defaults to migrations and leaves migr
     ...Object.keys(WORKFLOW_OPERATIONS),
     QA_OPERATION,
     QA_SECRETS_OPERATION,
+    ...Object.keys(ANALYTICS_OPERATIONS),
   ]);
   const { policy_mode, policy_expected_revision, subjects_sha256 } =
     workflow.on.workflow_dispatch.inputs;
@@ -353,14 +363,17 @@ test("every operation retains authority checks and uses only its fixed rehearsal
   assert.doesNotMatch(plan.if, /operation/);
   assert.equal(
     apply.if,
-    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets')) && needs.plan.outputs.environment-ready == 'true'",
+    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets') || (inputs.mode == 'rotate' && inputs.operation == 'analytics-subjects-secrets')) && needs.plan.outputs.environment-ready == 'true'",
   );
   for (const [jobName, job] of Object.entries({ plan, apply })) {
     const conditionals = job.steps.filter((step) =>
       /operation/.test(step.if ?? ""),
     );
     const expected = new Map([
-      ["denoland/setup-deno", "inputs.operation == 'qa-sandbox-functions'"],
+      [
+        "denoland/setup-deno",
+        "inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-')",
+      ],
       [
         "Install pinned Supabase CLI (checksum verified)",
         "inputs.operation != 'qa-sandbox-functions'",
@@ -492,13 +505,25 @@ test("the pull-request operation rehearsal has no environment or secret and cove
   // Every registry row (every operation and mode) is rehearsed exactly once, and the secrets
   // operation in each of its writing modes.
   const rows = job.strategy.matrix.include;
+  const analytics = (row) => Object.hasOwn(ANALYTICS_OPERATIONS, row.operation);
   assert.deepEqual(
     rows
-      .filter((row) => row.operation !== QA_SECRETS_OPERATION)
+      .filter((row) => row.operation !== QA_SECRETS_OPERATION && !analytics(row))
       .map((row) => resolveOperation(row.operation, row.policy_mode))
       .sort(),
     Object.keys(OPERATIONS).sort(),
   );
+  // Each analytics plan rehearses the whole lifecycle; the switch row also builds the bundles.
+  assert.deepEqual(
+    rows.filter(analytics).map((row) => [row.operation, row.policy_mode, row.mode]),
+    [
+      [ANALYTICS_SECRETS_OP, "none", "apply"],
+      [ANALYTICS_SWITCH_OP, "enable", "apply"],
+    ],
+  );
+  const deno = job.steps.find((s) => s.uses?.startsWith("denoland/setup-deno@"));
+  assert.equal(deno.if, "startsWith(matrix.operation, 'analytics-')");
+  assert.equal(deno.with["deno-version"], "2.8.3");
   assert.deepEqual(
     rows
       .filter((row) => row.operation === QA_SECRETS_OPERATION)

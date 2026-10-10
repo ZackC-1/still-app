@@ -22,6 +22,8 @@ import { readBoundedBody } from "../_shared/request-body.ts";
 //   {"action":"device","erasureKey":<64 hex>,"anonIndex":<0..255>}  → 202 {state}
 //   {"action":"status","erasureKey":<64 hex>}                       → 200 {state}
 //   {"action":"work"} with the worker token in Authorization        → 200 {claimed, ...}
+//   {"action":"provider-check"} with the worker token               → 200 {ok, codes}: the PostHog
+//                                                                       provider proof (fixed codes)
 //
 // Account-wide erasure (U5-W3 packet B, owner decisions 60 and 61), signed in only:
 //
@@ -169,6 +171,18 @@ export async function handleAnalyticsErasure(req: Request, deps: AnalyticsErasur
         const limit = await limited(deps, req, "analytics-erasure-status", STATUS_IP_LIMIT);
         if (limit) return limit;
         return jsonResponse(200, { state: deviceErasureState(await deps.store.erasureStatus(body.erasureKey)) });
+      }
+      case "provider-check": {
+        // Called by the protected switch-on operation through pg_net with the worker token (read
+        // from Vault inside the database); answers fixed codes only.
+        const auth = req.headers.get("Authorization") ?? "";
+        if (deps.workerToken.length === 0 || !constantTimeEqual(auth, deps.workerToken)) {
+          return jsonResponse(401, { error: "unauthorized" });
+        }
+        if (!hasExactly(body, ["action"])) return invalid();
+        if (!deps.posthog.providerCheck) return unavailable();
+        const check = await deps.posthog.providerCheck();
+        return jsonResponse(200, { ok: check.ok, codes: check.codes });
       }
       case "work": {
         const auth = req.headers.get("Authorization") ?? "";

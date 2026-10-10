@@ -306,6 +306,17 @@ deploy step; never the Supabase CLI from a working checkout):
    reads the new value. For QA, set it on the sandbox project first and check with a V3 QA package
    that a signed-in device's events appear under a random subject carrying the account email.
 
+These steps are the four protected operations in
+[analytics-subjects-switch-on.md](analytics-subjects-switch-on.md): secrets, functions (which also
+deploys the current `delete-user`), the worker schedule, then the switch. Each refuses unless the
+steps before it are verified, and none uses the Supabase CLI, the dashboard or the SQL editor. That
+page also records the hosted state. There is no separate Supabase sandbox project: "sandbox first"
+means the throwaway-database rehearsal every step runs before approval, then a production-channel
+check right after switching on, with the one-approval switch-off ready. `analytics-identify` gives
+an identity only to a device that sends `projectKeySha256` equal to the digest of the server's
+`POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
+`{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
+
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.
 `delete-user` is safe to deploy before or after 0018: before it, its new first step simply fails

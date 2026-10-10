@@ -53,7 +53,7 @@ once a version ships.
 | Backend retention | [Counter runbook](counter-retention.md): current behavior, safe maintenance and recovery. |
 | QA database checks | [Read-only check route](qa-readonly-database-checks.md): owner-approved, read-only verification of the owner QA programme's DB-xx steps. |
 | Sync log noise | [Expected log noise](sync-log-noise.md): why older 2.1 apps' refused saves show up in server logs after new sync, and how to filter them. |
-| Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. |
+| Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. Switching on signed-in (per-device) analytics: [protected operations](analytics-subjects-switch-on.md). |
 | Marketing and assets | [Listing drafts](store-listing-copy.md), [screenshot manifest](screenshots/store-ready/README.md), [public contacts](public-contact-addresses.md). |
 | Evidence | [Validation index](VALIDATION.md), [September 8 historical candidate](history/2026-09-08-still-2-certification.md), [September 11 contact candidate](history/2026-09-11-public-contact-update.md). |
 
