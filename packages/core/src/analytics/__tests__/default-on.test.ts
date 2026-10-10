@@ -9,6 +9,7 @@ import {
   USAGE_PERMISSION_VERSION,
   createDefaultOnUsage,
   supabaseSubjectIssuer,
+  SUBJECT_RETRY_MS,
   versionedNotice,
   type SubjectIssuingClient,
 } from "../default-on.js";
@@ -175,6 +176,15 @@ describe("default-on usage permission (Firefox: the optional technicalAndInterac
     });
   }
 
+  it("when Firefox does withdraw it, no mark stays: a grant in the add-on manager before any read turns sharing on", async () => {
+    const { browser, kv, usage } = firefox(true);
+    await usage.permission();
+    await usage.commit(false);
+    expect(kv.data[FIREFOX_STOPPED_KEY]).toBeNull();
+    browser.granted = true; // granted again in the add-on manager, with no read in between
+    expect((await usage.permission())?.state).toBe("granted");
+  });
+
   it("the off mark is dropped once Firefox reports the permission withdrawn, so a later grant there turns sharing on", async () => {
     const { browser, kv, usage } = firefox(true, "refuses");
     await usage.permission();
@@ -280,6 +290,29 @@ describe("per-device identity requests (supabaseSubjectIssuer)", () => {
       await expect(supabaseSubjectIssuer(c)(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
       expect(invoke).not.toHaveBeenCalled();
     }
+  });
+
+  it("after a 503 or 429 it waits before asking again, instead of asking at every screen", async () => {
+    for (const status of [503, 429]) {
+      let clock = 1_000;
+      const { c, invoke } = client(
+        { access_token: "t", user: { id: ACCOUNT } },
+        { data: null, error: Object.assign(new Error(String(status)), { context: { status } }) },
+      );
+      const issue = supabaseSubjectIssuer(c, () => clock);
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      expect(invoke).toHaveBeenCalledTimes(1);
+      clock += SUBJECT_RETRY_MS;
+      await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+      expect(invoke).toHaveBeenCalledTimes(2);
+    }
+    // Any other failure (a network error) is tried again at the next screen.
+    const { c, invoke } = client({ access_token: "t", user: { id: ACCOUNT } }, { data: null, error: new Error("network") });
+    const issue = supabaseSubjectIssuer(c);
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    await expect(issue(PROOF, new AbortController().signal, ACCOUNT)).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 
   it("a refused request (503 while the server switch is off) throws, so the device keeps waiting", async () => {

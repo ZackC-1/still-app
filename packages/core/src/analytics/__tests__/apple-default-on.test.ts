@@ -21,6 +21,10 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
     /** The App Group cannot be read. */
     unreadable: false,
     subject: null as unknown,
+    subjectWrites: 0,
+    refuseSubject: false,
+    /** Reads start failing once the next permission write has been taken. */
+    unreadableAfterCommit: false,
   };
   const record = () => (typeof native.slot === "object" ? native.slot : null);
   const permissionReply = () => ({ ok: true, permission: record() ?? (native.slot === false ? false : null) });
@@ -32,8 +36,10 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
           if (native.unreadable) throw new Error("unreadable");
           return permissionReply();
         case "setAnalyticsSubject":
+          if (native.refuseSubject) return JSON.stringify({ ok: false });
           native.subject = message.subject;
-          return { ok: true };
+          native.subjectWrites += 1;
+          return JSON.stringify({ ok: true });
         case "commitAnalyticsPermission": {
           if (native.refuseCommit) return { ok: false };
           const value = message.permission;
@@ -47,7 +53,9 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
             if (!parsed) return { ok: false };
             native.slot = parsed;
           }
-          return permissionReply();
+          const reply = permissionReply();
+          if (native.unreadableAfterCommit) native.unreadable = true;
+          return reply;
         }
         case "analyticsContext":
           return {
@@ -85,9 +93,10 @@ function setup(
   initial?: boolean | AnalyticsPermission,
   defaultOn = true,
   issueSubject?: (body: { originProof: string }, signal: AbortSignal, account: string) => Promise<unknown>,
+  reuse?: { host: ReturnType<typeof fakeNative>; store: ReturnType<typeof memory> },
 ) {
-  const host = fakeNative(initial);
-  const store = memory();
+  const host = reuse?.host ?? fakeNative(initial);
+  const store = reuse?.store ?? memory();
   const fetch = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
   let n = 0;
   const app = (defaultOn ? createDefaultOnAppAnalytics : createAppAnalytics)({
@@ -273,6 +282,68 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     await t.app.identifyAccount(ACCOUNT);
     await t.app.start();
     expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.record()?.state).toBe("stopped");
+  });
+});
+
+describe("V3 Apple app: the identity the Safari extension follows (review ADV-2, ADV-6)", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const active = async () => ({ state: "active", subject: SUBJECT });
+
+  it("publishes nothing the shared module did not confirm (a reply naming the account itself)", async () => {
+    const t = setup(undefined, true, async () => ({ state: "active", subject: ACCOUNT }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.native.subject).toBeNull();
+  });
+
+  it("republishes a cached identity at the next launch when the App Group no longer holds it", async () => {
+    const issue = vi.fn(active);
+    const first = setup(undefined, true, issue);
+    await first.app.identifyAccount(ACCOUNT);
+    await first.app.start();
+    expect(first.native.subject).toMatchObject({ account: ACCOUNT, subject: SUBJECT });
+    first.native.subject = null; // lost in the App Group
+    const next = setup(undefined, true, issue, { host: first, store: first.store });
+    await next.app.identifyAccount(ACCOUNT);
+    await next.app.start();
+    expect(issue).toHaveBeenCalledTimes(1); // the cached identity, no second request
+    expect(next.native.subject).toMatchObject({ account: ACCOUNT, subject: SUBJECT });
+  });
+
+  it("a write native refuses is tried again", async () => {
+    const t = setup(undefined, true, active);
+    t.native.refuseSubject = true;
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(t.native.subject).toBeNull();
+    t.native.refuseSubject = false;
+    await t.app.recheckSetup();
+    expect(t.native.subject).toMatchObject({ subject: SUBJECT });
+  });
+
+  it("signing out, or turning sharing off, withdraws it from the App Group", async () => {
+    const t = setup(undefined, true, active);
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(t.native.subject).not.toBeNull();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(t.native.subject).toBeNull();
+
+    const u = setup(undefined, true, active);
+    await u.app.identifyAccount(ACCOUNT);
+    await u.app.start();
+    await u.app.ui.reset();
+    expect(u.native.subject).toBeNull();
+  });
+
+  it("an off whose read-back fails is unknown, not a failure", async () => {
+    const t = setup();
+    await launch(t);
+    t.native.unreadableAfterCommit = true; // the off is taken, then the App Group cannot be read
+    await expect(t.app.ui.setSharing!(false)).resolves.toBe(false);
     expect(t.record()?.state).toBe("stopped");
   });
 });

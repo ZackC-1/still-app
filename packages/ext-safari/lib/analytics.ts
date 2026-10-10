@@ -237,8 +237,18 @@ export function createSafariBackgroundAnalytics(
       if (
         !host.client.accountConfirmed ||
         (await host.client.signedInAs()) !== null
-      )
-        await host.client.confirm(null, { forget: true, quiet: true });
+      ) {
+        // V3 builds also forget the cached per-device identity of the account that ended (its
+        // App Group entry is cleared by the app). Folded away in 2.x builds, byte-for-byte.
+        if (
+          import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" ||
+          import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true"
+        ) {
+          const reportingAs = await host.client.signedInAs();
+          await host.client.confirm(null, { forget: true, quiet: true });
+          await host.forgetSubjects?.(reportingAs);
+        } else await host.client.confirm(null, { forget: true, quiet: true });
+      }
     } else await host.identify(userId, { quiet: true });
     if (stopped || sequence !== accountSequence) return false;
     host.onStart(undefined); // settle the maintained startup gate after the actual confirmation

@@ -125,7 +125,8 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   Granted in Firefox's install prompt means on from install. The settings switch requests the
   permission inside the tap (declined: stays off) or withdraws it. If Firefox refuses or fails to
   withdraw it, Still's own off is kept by a durable "stopped by Still" mark until the switch turns
-  sharing back on (or Firefox reports the permission withdrawn). Withdrawing it in the add-on
+  sharing back on (or Firefox reports the permission withdrawn); when Firefox does withdraw it, no
+  mark remains, so a later grant in the add-on manager turns sharing on. Withdrawing it in the add-on
   manager ends the permission at the next read and discards what waits. There is no notice.
 - **Apple apps.** The app grants the permission in the App Group at its first launch with no
   recorded choice, and shows the existing one-time notice (versioned as above) and switch on the
@@ -148,8 +149,13 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   account id) and attaches the account's email to it on the server. The client never sends the
   account id or the email to PostHog. Deleting the account records every subject of the account for deletion
   (`delete-user`, migrations 0017/0018), and the scheduled `analytics-erasure` worker deletes those
-  persons and their events from PostHog; the worker must be scheduled before the switch is turned on. The Apple app publishes its subject to the App Group, and the Safari
-  extension reports under it only for the same account and permission; it never calls the server.
+  persons and their events from PostHog; the worker must be scheduled before the switch is turned on.
+  The Apple app publishes its subject to the App Group once the client has confirmed it (republished
+  when the App Group no longer holds it; withdrawn when the app signs out, sharing is turned off or
+  the server stops the identity). The Safari extension reads it, a local read with no network, at
+  every background start as well as from its pages, only for the same account and permission; it
+  drops a cached identity the App Group no longer confirms, and never calls the server. After a 503
+  or 429 a client waits 15 minutes before asking again.
   Until the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on, the server answers 503 and a signed-in
   device's events wait on the device, bound to the account (dropped if it signs out, sent once it has
   its identity, never older than 30 days). Signed-out use is reported under the device's anonymous

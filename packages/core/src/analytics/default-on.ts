@@ -2,13 +2,16 @@ import {
   CONSENT_KEY,
   createStoredConsent,
   readAnalyticsPermission,
+  samePermission,
   type AnalyticsPermission,
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
 import type { AnalyticsKeyValue } from "./identity.js";
 import { createAppleConsentStore } from "./apple-consent-store.js";
 import { createAppAnalytics, type AppAnalytics, type AppAnalyticsDeps } from "./apple-app.js";
-import { analyticsConfigured } from "./client.js";
+import { STATE_KEY, analyticsConfigured } from "./client.js";
+import { originProof } from "./derive.js";
+import { isAnalyticsId } from "./identity.js";
 import { NOTICE_KEY, type SubjectDeps } from "./extension-host.js";
 import type { NativeBridge } from "../native/bridge.js";
 import type { StillBridgeWindow } from "../storage/wkwebview-adapter.js";
@@ -155,10 +158,14 @@ export function createDefaultOnUsage(options: DefaultOnUsageOptions): DefaultOnU
       run(async () => {
         if (!enabled) {
           // The mark first, so Still's off holds even if what follows fails or Firefox keeps the
-          // permission; the next read clears it once Firefox reports the permission withdrawn.
+          // permission. It stays only while Firefox still reports the permission: once Firefox has
+          // withdrawn it, a later grant in the add-on manager must turn sharing on again.
           if (browserPermission) await store.set(FIREFOX_STOPPED_KEY, true);
           await stored.set(false);
-          await browserPermission?.revoke().catch(() => undefined);
+          if (browserPermission) {
+            await browserPermission.revoke().catch(() => undefined);
+            if (!(await browserGranted())) await store.set(FIREFOX_STOPPED_KEY, null);
+          }
           return;
         }
         if (browserPermission) {
@@ -220,8 +227,15 @@ export interface SubjectIssuingClient {
  * the server's `ANALYTICS_SUBJECTS_ENABLED` switch is on it answers 503: this throws, and what the
  * signed-in device recorded keeps waiting on the device, bound to the account.
  */
-export function supabaseSubjectIssuer(client: SubjectIssuingClient): SubjectDeps["issue"] {
+export function supabaseSubjectIssuer(
+  client: SubjectIssuingClient,
+  now: () => number = Date.now,
+): SubjectDeps["issue"] {
+  // While the server refuses (503 until its switch is on, 429 when rate limited), wait before asking
+  // again instead of asking at every Still screen: signed-in use just keeps waiting on the device.
+  let retryAt = 0;
   return async (body, signal, account) => {
+    if (now() < retryAt) throw new Error("Per-device identities are unavailable; retrying later");
     const { data, error } = await client.auth.getSession();
     const session = data.session;
     // Refuse a session for anyone else: the identity must be issued to this account only.
@@ -232,10 +246,17 @@ export function supabaseSubjectIssuer(client: SubjectIssuingClient): SubjectDeps
       headers: { Authorization: `Bearer ${session.access_token}` },
       signal,
     });
-    if (reply.error) throw reply.error;
+    if (reply.error) {
+      const status = (reply.error as { context?: { status?: unknown } }).context?.status;
+      if (status === 503 || status === 429) retryAt = now() + SUBJECT_RETRY_MS;
+      throw reply.error;
+    }
     return reply.data;
   };
 }
+
+/** How long a subject issuer waits after the server answered 503 or 429. */
+export const SUBJECT_RETRY_MS = 15 * 60_000;
 
 // ── The Apple app ─────────────────────────────────────────────────────────────────────────────
 
@@ -284,12 +305,54 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
   const consentStore = createAppleConsentStore(deps.bridge);
   const usage = createDefaultOnUsage({ store: consentStore });
   const port = () => (deps.win ?? (globalThis as unknown as StillBridgeWindow)).webkit?.messageHandlers?.still ?? null;
-  const publishSubject = async (
-    entry: { readonly account: string; readonly originProof: string; readonly subject: string } | null,
-  ): Promise<void> => {
-    // Best effort: without it the extension's signed-in use keeps waiting; it never reports wrongly.
-    await Promise.resolve(port()?.postMessage({ kind: "setAnalyticsSubject", subject: entry })).catch(() => undefined);
+
+  // ── The identity the Safari extension follows ──
+  // Published only once the shared module has confirmed it (the client's stored account state names
+  // it), republished whenever that changes, and cleared when there is none (signed out, deleted,
+  // sharing off, stopped by the server). A write counts only when native answers ok.
+  type Published = { readonly account: string; readonly originProof: string; readonly subject: string } | null;
+  let published: string | undefined; // what native last confirmed, as JSON; undefined: not yet this launch
+  const confirmedIdentity = async (): Promise<Published> => {
+    const permission = await usage.permission();
+    if (!permission) return null;
+    const state = (await deps.store.get(STATE_KEY).catch(() => null)) as Record<string, unknown> | null;
+    if (
+      !state ||
+      !isAnalyticsId(state.userId) ||
+      !isAnalyticsId(state.accountRef) ||
+      !samePermission(readAnalyticsPermission(state.permission), permission)
+    )
+      return null;
+    return {
+      account: state.accountRef.toLowerCase(),
+      originProof: await originProof(permission.origin),
+      subject: state.userId.toLowerCase(),
+    };
   };
+  let syncing: Promise<void> = Promise.resolve();
+  const syncPublished = (): Promise<void> =>
+    (syncing = syncing.then(async () => {
+      const wanted = await confirmedIdentity().catch((): Published | undefined => undefined);
+      if (wanted === undefined) return; // unknown: change nothing
+      const json = JSON.stringify(wanted);
+      if (json === published) return;
+      try {
+        const raw = await port()?.postMessage({ kind: "setAnalyticsSubject", subject: wanted });
+        const reply = (typeof raw === "string" ? JSON.parse(raw) : raw) as { ok?: unknown } | null;
+        if (reply?.ok === true) published = json;
+      } catch {
+        /* not ok: tried again at the next chance */
+      }
+    }));
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
+  const syncSoon = () => {
+    if (syncTimer !== undefined) clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => {
+      syncTimer = undefined;
+      void syncPublished();
+    }, 2_000);
+  };
+
   const issueSubject = deps.issueSubject;
   const app = createAppAnalytics({
     ...deps,
@@ -298,19 +361,13 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
     commitPermission: usage.commit,
     subjects: issueSubject
       ? {
-          async issue(body, signal, account) {
-            const reply = await issueSubject(body, signal, account);
-            const r = reply as { state?: unknown; subject?: unknown } | null;
-            if (r?.state === "active" && typeof r.subject === "string")
-              await publishSubject({
-                account: account.toLowerCase(),
-                originProof: body.originProof,
-                subject: r.subject.toLowerCase(),
-              });
-            return reply;
+          issue: issueSubject,
+          // The server stopped this device's identity: end sharing here (never a device erasure),
+          // and withdraw it from the Safari extension.
+          onStopped: async () => {
+            await usage.commit(false);
+            await syncPublished();
           },
-          // The server stopped this device's identity: end sharing here (never a device erasure).
-          onStopped: () => usage.commit(false),
         }
       : undefined,
   });
@@ -330,26 +387,36 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
     (await deps.store.get(NOTICE_VERSION_KEY).catch(() => null)) === USAGE_PERMISSION_VERSION;
   /** The latest account answer from the host: an account, nobody, or not known yet. */
   let account: string | null | undefined;
+  const thenSync = async (work: Promise<void> | void): Promise<void> => {
+    await work;
+    await syncPublished();
+  };
   return {
     ...app,
+    start: () => thenSync(app.start()),
+    recheckSetup: () => thenSync(app.recheckSetup()),
     identifyAccount(userId) {
       account = userId;
-      return app.identifyAccount(userId);
+      return thenSync(app.identifyAccount(userId));
     },
     accountAbsent() {
       account = null;
-      return app.accountAbsent();
+      return thenSync(app.accountAbsent());
     },
     ui: {
       ...ui,
+      track(name, props) {
+        ui.track(name, props);
+        syncSoon(); // an ordinary screen may have just confirmed this device's identity
+      },
       identify(userId) {
         account = userId;
         ui.identify(userId);
+        syncSoon();
       },
       async reset(options) {
         account = null;
-        await ui.reset(options);
-        if (options?.forgetAccount) await publishSubject(null);
+        await thenSync(ui.reset(options));
       },
       async sharing() {
         const state = await ui.sharing!.call(ui);
@@ -362,13 +429,15 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
       },
       async setSharing(enabled) {
         const on = await ui.setSharing!.call(ui, enabled);
-        if (!enabled && (await storedState()) !== "off") {
-          // The App Group did not take the off: try once more, then report failure so the switch
-          // keeps showing on (the Safari extension follows the App Group, not this screen).
+        // An off the App Group positively did not take (it still reads on): try once more, then
+        // report failure so the switch keeps showing on (the Safari extension follows the App
+        // Group, not this screen). A read-back that fails is unknown, not a failure.
+        if (!enabled && (await storedState()) === "on") {
           await usage.commit(false).catch(() => undefined);
-          if ((await storedState()) !== "off") throw new Error("Sharing could not be turned off");
+          if ((await storedState()) === "on") throw new Error("Sharing could not be turned off");
         }
         if (on && account !== undefined) await (account === null ? app.accountAbsent() : app.identifyAccount(account));
+        await syncPublished();
         return on;
       },
       acknowledgeNotice() {
