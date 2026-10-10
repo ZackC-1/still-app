@@ -139,6 +139,7 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
     bodies: new Map(),
     unknown: false,
     bodyMismatch: false,
+    bodyMetadata: null,
     drift: false,
     missingGate: false,
     schemaMissing: false,
@@ -320,17 +321,22 @@ async function fixture(t, mode = "apply", { existingQa = false } = {}) {
     );
     if (url.endsWith("/body")) {
       const form = new FormData();
-      form.append(
-        "file",
-        new Blob([
-          controls.bodyMismatch ? "changed source" : controls.bodies.get(name),
-        ]),
-        `${name}.js`,
-      );
-      form.set(
-        "metadata",
-        JSON.stringify({ deno2_entrypoint_path: `/source/${name}.js` }),
-      );
+      const source = controls.bodyMismatch
+        ? Buffer.from("changed source")
+        : controls.bodies.get(name);
+      form.append("file", new Blob([source]), `source/${name}.js`);
+      // The hosted body endpoint's observed shape (2026-10-09): a relative entrypoint plus
+      // deployment and size bookkeeping.
+      const { id, version } = state.functions.find((f) => f.slug === name);
+      const metadata = {
+        deployment_id: `${REF}_${id}_${version}`,
+        original_size: source.length + 509,
+        compressed_size: Math.ceil(source.length / 2),
+        module_count: 1,
+        deno2_entrypoint_path: `source/${name}.js`,
+      };
+      const sent = controls.bodyMetadata ? controls.bodyMetadata(metadata) : metadata;
+      if (sent !== undefined) form.set("metadata", JSON.stringify(sent));
       return new Response(form);
     }
     return json(state.functions.find((f) => f.slug === name));
@@ -666,6 +672,70 @@ for (const control of ["unknown", "bodyMismatch", "drift"]) {
     assert.doesNotMatch(JSON.stringify(receipt), /secret sentinel/);
   });
 }
+
+const BODY_METADATA_REFUSALS = {
+  "unknown key": (m) => ({ ...m, synthetic_new_key: 1 }),
+  "other version": (m) => ({
+    ...m,
+    deployment_id: m.deployment_id.replace(/_1$/, "_9"),
+  }),
+  "other project": (m) => ({
+    ...m,
+    deployment_id: m.deployment_id.replace(REF, "zyxwvutsrqponmlkjihg"),
+  }),
+  "other function": (m) => ({
+    ...m,
+    deployment_id: m.deployment_id.replace(
+      "qa-sandbox-product-policy",
+      "qa-sandbox-sync-settings",
+    ),
+  }),
+  "missing deployment": ({ deployment_id: _, ...m }) => m,
+  "several modules": (m) => ({ ...m, module_count: 3 }),
+  "fractional size": (m) => ({ ...m, original_size: 1.5 }),
+  "zero modules": (m) => ({ ...m, module_count: 0 }),
+  "other entrypoint": (m) => ({
+    ...m,
+    deno2_entrypoint_path: "source/other.js",
+  }),
+  "missing entrypoint": ({ deno2_entrypoint_path: _, ...m }) => m,
+  "not an object": () => ["synthetic"],
+  "missing metadata part": () => undefined,
+};
+
+for (const [label, mutate] of Object.entries(BODY_METADATA_REFUSALS)) {
+  test(`QA body metadata ${label} stops after the first write`, async (t) => {
+    const f = await fixture(t);
+    f.controls.bodyMetadata = mutate;
+    const receipt = await f.run();
+    assert.equal(receipt.status, "function-outcome-unknown");
+    assert.deepEqual(receipt.issues, ["qa-deployed-source-differs"]);
+    assert.equal(receipt.completed.length, 0);
+    assert.equal(f.controls.postCount, 1);
+  });
+}
+
+test("QA re-upload onto an existing route refuses a body from the previous version", async (t) => {
+  const f = await fixture(t, "apply", { existingQa: true });
+  f.controls.bodyMetadata = (m) => ({
+    ...m,
+    deployment_id: m.deployment_id.replace(/_(\d+)$/, (_, v) => `_${v - 1}`),
+  });
+  const receipt = await f.run();
+  assert.equal(receipt.status, "function-outcome-unknown");
+  assert.deepEqual(receipt.issues, ["qa-deployed-source-differs"]);
+  assert.equal(f.controls.postCount, 1);
+});
+
+test("QA body metadata may omit size bookkeeping", async (t) => {
+  const f = await fixture(t);
+  f.controls.bodyMetadata = ({ deno2_entrypoint_path, deployment_id }) => ({
+    deno2_entrypoint_path,
+    deployment_id,
+  });
+  const receipt = await f.run();
+  assert.equal(receipt.status, "verified");
+});
 
 for (const control of ["function", "catalog", "role"]) {
   test(`QA pre-upload ${control} drift after first verified upload stops before a second POST`, async (t) => {
