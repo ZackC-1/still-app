@@ -114,7 +114,7 @@ hosted reachability or purchase acceptance.
 
 The sandbox sales bodies list one build id per surface (`QA_SANDBOX_SALES_BUILDS` in
 `scripts/backend/deploy/operations.mjs`). Extensions present their manifest version, unique per QA
-test set (for test set 4, `2.1.1.318`). The Apple id `2.1.0` is not specific to one test set: every sandbox-routed Apple build at marketing version 2.1.0 matches it (Apple QA builds keep MARKETING_VERSION; the build number is not presented). The public App Store build is excluded because it reads the production policy environment, never this sandbox body. A new test set needs a reviewed change to those ids and
+test set (for test set 4, `2.1.1.321`). The Apple id `2.1.0` is not specific to one test set: every sandbox-routed Apple build at marketing version 2.1.0 matches it (Apple QA builds keep MARKETING_VERSION; the build number is not presented). The public App Store build is excluded because it reads the production policy environment, never this sandbox body. A new test set needs a reviewed change to those ids and
 a new sandbox sales revision.
 
 ### Building the test-account list
