@@ -465,7 +465,7 @@ Deno.test("production scoped route: RevenueCat customer-missing 404 is verified-
       rc: mockRc({}), limiter: allowAll, access: { ...access, provider } });
     return { data: await res.json(), urls, calls };
   };
-  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Customer not found", retryable: false });
+  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Could not find customer ID associated with this project", retryable: false });
   try {
     const none = await run(missing);
     assertEquals(none.data.access.status, "none"); assertEquals(none.data.access.proofs, []);

@@ -200,7 +200,7 @@ Deno.test("QA reconcile answers verified-none for a never-purchased account only
     const response = await handleQaSandboxReconcile(request(await token()), runtime.reconcile);
     return { status: response.status, result: await response.json(), urls, s };
   };
-  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Customer not found", retryable: false });
+  const missing = JSON.stringify({ object: "error", type: "resource_missing", message: "Could not find customer ID associated with this project", retryable: false });
   try {
     const none = await run(missing);
     assertEquals(none.status, 200);

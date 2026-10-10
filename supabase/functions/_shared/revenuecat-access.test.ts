@@ -94,7 +94,7 @@ Deno.test("provider transport and a bodiless 404 do not mean never purchased", a
     }
   } finally { globalThis.fetch = real; }
 });
-const RC_CUSTOMER_MISSING = { object: "error", type: "resource_missing", message: "Customer not found",
+const RC_CUSTOMER_MISSING = { object: "error", type: "resource_missing", message: "Could not find customer ID associated with this project",
   retryable: false, doc_url: "https://errors.rev.cat/resource-missing" };
 async function readError(status: number, body: string | null, project = "proj-still") {
   const real = globalThis.fetch; const urls: string[] = [];
@@ -122,6 +122,7 @@ Deno.test("every other 404, missing/malformed body, retryable or non-404 error s
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, param: "project_id" })],
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, param: "app_id" })],
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Project not found" })],
+    [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: "Could not find app associated with this project" })],
     [404, JSON.stringify({ ...RC_CUSTOMER_MISSING, message: 42 })],
     [400, missing], [401, missing], [403, missing], [410, missing], [429, missing], [500, missing], [503, missing],
   ] as const) {

@@ -86,8 +86,10 @@ async function customerNotFound(response: Response): Promise<boolean> {
   if (body.object !== undefined && body.object !== "error") return false;
   if (body.retryable === true) return false;
   if (body.param !== undefined && body.param !== null && body.param !== "customer_id") return false;
+  // Observed 2026-10-10: "Could not find customer ID associated with this project". A wrong project
+  // id is refused earlier with 403 authorization_error, so a present message must name the customer.
   if (body.message !== undefined && body.message !== null &&
-      (typeof body.message !== "string" || /project/i.test(body.message))) return false;
+      (typeof body.message !== "string" || !/\bcustomer\b/i.test(body.message))) return false;
   return true;
 }
 
