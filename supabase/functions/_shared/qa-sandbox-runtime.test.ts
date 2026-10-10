@@ -173,14 +173,19 @@ Deno.test("runtime reader uses only prefixed provider config and never falls bac
 });
 Deno.test("actual composed HTTP RevenueCat client uses sandbox purchases and rejects wrong environment", async () => {
   const s = await setup(); const original = globalThis.fetch; let wrong = false;
+  // RevenueCat's real purchases list names the entitlement without its products; the products come
+  // from the entitlement read (expand=product).
+  const entitlement = { object: "entitlement", id: "entl_qa", state: "active", project_id: "proj_qa", lookup_key: "still_pro_v3" };
   globalThis.fetch = (input, init) => {
-    assertEquals(input, `https://api.revenuecat.com/v2/projects/proj_qa/customers/${A}/purchases?environment=sandbox&limit=100`);
     assertEquals((init?.headers as Record<string,string>).Authorization, "Bearer synthetic-qa-only");
+    if (input === "https://api.revenuecat.com/v2/projects/proj_qa/entitlements/entl_qa?expand=product") {
+      return Promise.resolve(Response.json({ ...entitlement, products: { object: "list", next_page: null, items: [{ object: "product", id: "prod_qa", state: "active",
+        app_id: "app_qa", store_identifier: "still_pro_v3", type: "one_time", one_time: { is_consumable: false } }] } }));
+    }
+    assertEquals(input, `https://api.revenuecat.com/v2/projects/proj_qa/customers/${A}/purchases?environment=sandbox&limit=100`);
     return Promise.resolve(new Response(JSON.stringify({ object: "list", next_page: null, items: [{ object: "purchase", id: "purch_qa", customer_id: A,
       environment: wrong ? "production" : "sandbox", product_id: "prod_qa", store: "rc_billing", status: "owned", ownership: "purchased", purchased_at: 1000,
-      revenue_in_usd: { currency: "USD", gross: 9.99 }, entitlements: { object: "list", next_page: null, items: [{ object: "entitlement", state: "active",
-        project_id: "proj_qa", lookup_key: "still_pro_v3", products: { object: "list", next_page: null, items: [{ object: "product", id: "prod_qa", state: "active",
-          app_id: "app_qa", store_identifier: "still_pro_v3", type: "one_time", one_time: { is_consumable: false } }] } }] } }] })));
+      revenue_in_usd: { currency: "USD", gross: 9.99 }, entitlements: { object: "list", next_page: null, items: [entitlement] } }] })));
   };
   try {
     const provider = new HttpRevenueCatAccessClient("synthetic-qa-only", "proj_qa", JSON.parse(s.values.STILL_QA_SANDBOX_ACCESS_PROVIDER_PRODUCTS_JSON));
