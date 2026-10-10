@@ -98,6 +98,20 @@ function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string 
       if (!bg.listener(message, PAGE, resolve)) resolve(undefined);
     });
   const settle = () => new Promise((r) => setTimeout(r, 5));
+  /** Until the background has gone quiet: no new native read, request or queued event for 50 ms
+   * (bounded). Fixed waits raced the background's asynchronous chain on a slow CI runner. */
+  const idle = async () => {
+    const mark = () => `${sendNative.mock.calls.length}:${fetch.mock.calls.length}:${JSON.stringify(local.data[QUEUE_KEY] ?? null)}`;
+    const end = Date.now() + 3_000;
+    for (let last = ""; Date.now() < end; ) {
+      const now = mark();
+      if (now === last) return;
+      last = now;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  /** Wait for something the background does asynchronously to happen (bounded), then assert it. */
+  const eventually = (check: () => void) => vi.waitFor(check, { timeout: 3_000, interval: 10 });
   const sent = () =>
     fetch.mock.calls.flatMap((call) =>
       (JSON.parse(String((call[1] as RequestInit).body)) as { batch: { event: string }[] }).batch.map((e) => e.event),
@@ -106,14 +120,13 @@ function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string 
   /** Real use, then the quiet-flush alarm. */
   const use = async () => {
     bg.onStart();
-    await settle();
+    await idle();
     await send(OPENED);
     bg.flush();
-    await settle();
-    await settle();
+    await idle();
   };
   const bodies = () => fetch.mock.calls.map((call) => String((call[1] as RequestInit).body)).join("\n");
-  return { app, appGroup, appGroupSubject, device, local, bg, fetch, sendNative, send, sent, bodies, queue, settle, use };
+  return { app, appGroup, appGroupSubject, device, local, bg, fetch, sendNative, send, sent, bodies, queue, settle, idle, eventually, use };
 }
 
 describe("root cause: the 2.x Safari wiring supplies no permission or policy", () => {
@@ -130,7 +143,7 @@ describe("V3 Safari extension: follows the Apple app's default-on permission", (
     const t = setup();
     await t.app.permission();
     await t.use();
-    expect(t.sent()).toEqual(expect.arrayContaining(["opened"]));
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["opened"])));
     const body = String((t.fetch.mock.calls[0]![1] as RequestInit).body);
     expect(body).toContain('"surface":"safari-ios"');
     expect(body).toContain('"build_channel":"test"');
@@ -149,18 +162,21 @@ describe("V3 Safari extension: follows the Apple app's default-on permission", (
     const t = setup();
     await t.app.permission();
     await t.use();
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["opened"])));
+    await t.idle();
     t.fetch.mockClear();
     await t.send(OPENED);
     expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
     await t.app.commit(false);
     t.bg.flush();
-    await t.settle();
-    await t.settle();
+    await t.idle();
     expect(t.fetch).not.toHaveBeenCalled();
     // Turned on again in the app: a new permission, and what waited under the old one is discarded
     // before anything is sent (the extension has no switch of its own to discard it at the tap).
     await t.app.commit(true);
     await t.use();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
     expect(t.sent().filter((e) => e === "opened")).toHaveLength(1); // only the new use's
   });
 
@@ -185,7 +201,7 @@ describe("V3 Safari extension, signed in: the same per-device identity as the ap
     const permission = (await t.app.permission())!;
     t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
     await t.use();
-    expect(t.sent()).toEqual(expect.arrayContaining(["opened"]));
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["opened"])));
     expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
     expect(t.bodies()).not.toContain(ACCOUNT);
     expect(t.sendNative.mock.calls.map(([m]) => m.kind)).toContain("analyticsSubject");
@@ -224,12 +240,11 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
   /** Background only: a start, real use on a supported site, then the quiet-flush alarm. */
   const background = async (t: ReturnType<typeof setup>) => {
     t.bg.onStart();
-    await t.settle();
+    await t.idle();
     t.bg.onActivity();
-    await t.settle();
+    await t.idle();
     t.bg.flush();
-    await t.settle();
-    await t.settle();
+    await t.idle();
   };
 
   it("a background start uses the identity the app published (a local read), so the alarm sends", async () => {
@@ -239,7 +254,7 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
     await background(t);
     expect(t.sendNative.mock.calls.some(([m]) => m.kind === "track")).toBe(false);
-    expect(t.sent()).toEqual(expect.arrayContaining(["active"]));
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["active"])));
     expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
   });
 
@@ -249,7 +264,7 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     const permission = (await first.app.permission())!;
     first.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
     await background(first);
-    expect(first.bodies()).toContain(SUBJECT);
+    await first.eventually(() => expect(first.bodies()).toContain(SUBJECT));
     first.bg.stop();
 
     first.appGroupSubject.value = null; // the app cleared it
@@ -257,8 +272,7 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     await background(next);
     await next.send(OPENED); // even an opened page finds no identity to use
     next.bg.flush();
-    await next.settle();
-    await next.settle();
+    await next.idle();
     expect(next.fetch).not.toHaveBeenCalled();
     expect(next.queue()).toEqual(expect.arrayContaining(["opened"])); // waits, bound to the account
     expect(JSON.stringify(next.local.data["still:analytics:subjects"] ?? [])).not.toContain(SUBJECT);
@@ -270,11 +284,11 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     const permission = (await t.app.permission())!;
     t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
     await background(t);
-    expect(JSON.stringify(t.local.data["still:analytics:subjects"])).toContain(SUBJECT);
+    await t.eventually(() => expect(JSON.stringify(t.local.data["still:analytics:subjects"])).toContain(SUBJECT));
     t.device.account.value = null;
     t.bg.onStart();
-    await t.settle();
-    await t.settle();
-    expect(JSON.stringify(t.local.data["still:analytics:subjects"] ?? [])).not.toContain(SUBJECT);
+    await t.eventually(() =>
+      expect(JSON.stringify(t.local.data["still:analytics:subjects"] ?? [])).not.toContain(SUBJECT),
+    );
   });
 });
