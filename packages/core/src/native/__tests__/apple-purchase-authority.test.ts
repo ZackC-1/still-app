@@ -337,3 +337,20 @@ describe("Apple account session that Auth or the SDK has ended", () => {
     expect(h.bridge.reconcileAccountAccess).toHaveBeenCalledExactlyOnceWith("transient-bearer");
   });
 });
+
+describe("revoked session in the production SDK order", () => {
+  it("still hands the held bearer to native when the SDK announces sign-out before rejecting", async () => {
+    const h = await setup();
+    const endSession = vi.fn(async () => {});
+    // supabase-js getUser on session_not_found removes the session and fires SIGNED_OUT (which the
+    // app maps to invalidateAccount) before the call rejects.
+    const authority = createApplePurchaseAuthority({...h.deps, endSession,
+      readSessionToken: vi.fn(async () => ({status: "session", accessToken: "held-bearer"}) as const),
+      readVerifiedAccount: vi.fn(async () => { authority.invalidateAccount(); throw new Error("session_not_found"); })});
+    h.bridge.reconcileAccountAccess.mockRejectedValue(new Error("still: account session ended"));
+    await expect(authority.refreshAccountAccess()).rejects.toThrow();
+    expect(h.bridge.reconcileAccountAccess).toHaveBeenCalledExactlyOnceWith("held-bearer");
+    expect(h.bridge.observeBenefits).not.toHaveBeenCalled();
+    expect(endSession).not.toHaveBeenCalled();
+  });
+});

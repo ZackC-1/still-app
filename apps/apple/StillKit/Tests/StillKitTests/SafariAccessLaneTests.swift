@@ -14,9 +14,11 @@ final class SafariAccessLaneTests: XCTestCase {
       "revocations": removals, "issuer_time": issuer ?? f.now]]
     return try NativeAccountAccessSnapshot.parse(JSONSerialization.data(withJSONObject: body), trust: f.trust, holder: f.account)
   }
-  func states(_ store: SharedEntitlementStore, at wall: Int? = nil, paid: Bool = true, platform: SafariAccessPlatform = .mac) throws -> [String: String] {
+  func states(_ store: SharedEntitlementStore, at wall: Int? = nil, paid: Bool = true, platform: SafariAccessPlatform = .mac,
+              displayed: AccountSyncStatusStore.DisplayedAccount = .signedOut) throws -> [String: String] {
     let at = wall ?? f.now + 1
-    let reply = EntitlementBridge.safariExtension(store: store, paidMode: paid, platform: platform, now: { at }).handle(.getBenefitAccess)
+    let reply = EntitlementBridge.safariExtension(store: store, paidMode: paid, platform: platform, now: { at },
+      displayedAccount: { displayed }).handle(.getBenefitAccess)
     let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any], reply)
     XCTAssertEqual(body["ok"] as? Bool, true, reply)
     return try XCTUnwrap((body["snapshot"] as? [String: Any])?["states"] as? [String: String])
@@ -112,17 +114,39 @@ final class SafariAccessLaneTests: XCTestCase {
     _ = try store.observeAppleBenefits(wall: f.now, ownership: .noPurchases, paidMode: true, platform: .mac)
     let session = try f.verifiedSession()
     let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)
-    XCTAssertEqual(proRows(try states(store)), ["verification_required"], "no server answer for this account yet")
+    let shown = AccountSyncStatusStore.DisplayedAccount.account(f.account)
+    XCTAssertEqual(proRows(try states(store, displayed: shown)), ["verification_required"], "no server answer for this account yet")
     _ = try store.installAccountAccess(snapshot([], status: "unavailable"), session: session, expectedGeneration: generation, wall: f.now)
-    XCTAssertEqual(proRows(try states(store)), ["verification_required"], "unavailable is not none")
+    XCTAssertEqual(proRows(try states(store, displayed: shown)), ["verification_required"], "unavailable is not none")
     _ = try store.installAccountAccess(snapshot([], status: "none"), session: session, expectedGeneration: generation, wall: f.now)
-    XCTAssertEqual(proRows(try states(store)), ["locked"])
+    XCTAssertEqual(proRows(try states(store, displayed: shown)), ["locked"])
+    // The app showing another account, no account, or an unreadable status is not this answer.
+    for other in [AccountSyncStatusStore.DisplayedAccount.account(other), .signedOut, .unreadable] {
+      XCTAssertEqual(proRows(try states(store, displayed: other)), ["verification_required"])
+    }
     // A new session (another sign-in) needs its own answer; the old one names an older generation.
     _ = try store.changeAccessSession(accountId: f.account, sessionId: otherSession)
-    XCTAssertEqual(proRows(try states(store)), ["verification_required"])
+    XCTAssertEqual(proRows(try states(store, displayed: shown)), ["verification_required"])
     // Signing out leaves only the Apple answer, which is still a fresh none.
     _ = try store.changeAccessAccount(nil)
     XCTAssertEqual(proRows(try states(store)), ["locked"])
+  }
+  func testSignedInBeforeTheFirstSuccessfulCheckIsNotLocked() throws {
+    // The app published account A (which clears the bound account) but its first check failed.
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust)
+    _ = try store.observeAppleBenefits(wall: f.now, ownership: .noPurchases, paidMode: true, platform: .mac)
+    try EntitlementBridge(store: store, now: { self.f.now }).clearAccessAccount()
+    XCTAssertNil(try store.observeAccess(wall: f.now).0.accountId)
+    XCTAssertEqual(proRows(try states(store, displayed: .account(f.account))), ["verification_required"])
+    XCTAssertEqual(proRows(try states(store, displayed: .unreadable)), ["verification_required"])
+    XCTAssertEqual(proRows(try states(store, displayed: .signedOut)), ["locked"])
+  }
+  func testClearedOnRefusalWhileTheAppStillShowsTheAccountIsNotLocked() throws {
+    let (store, _, _) = try signedInWithRight()
+    _ = try store.observeAppleBenefits(wall: f.now, ownership: .noPurchases, paidMode: true, platform: .mac)
+    try EntitlementBridge(store: store, now: { self.f.now + 1 }).clearAccessAccount()
+    let rows = proRows(try states(store, at: f.now + 2, displayed: .account(f.account)))
+    XCTAssertEqual(rows, ["verification_required"])
   }
   func testAnUnverifiedRightIsNeverHiddenAsLocked() throws {
     let (store, _, _) = try signedInWithRight()
@@ -162,6 +186,13 @@ final class SafariAccessLaneTests: XCTestCase {
       for status in [401, 403, 404] { XCTAssertTrue(NativeAccessSessionCheck.isDefinitiveRejection(status: status, body: body(code)), "\(status) \(code)") }
       for status in [400, 429, 500, 502, 503] { XCTAssertFalse(NativeAccessSessionCheck.isDefinitiveRejection(status: status, body: body(code)), "\(status) \(code)") }
     }
+    // The 2024-01-01 API format names the code in a string `code`; a numeric legacy `code` is not one.
+    for code in ["user_not_found", "session_not_found", "user_banned"] {
+      XCTAssertTrue(NativeAccessSessionCheck.isDefinitiveRejection(status: 403,
+        body: Data("{\"code\":\"\(code)\",\"message\":\"synthetic\"}".utf8)), code)
+    }
+    XCTAssertFalse(NativeAccessSessionCheck.isDefinitiveRejection(status: 403, body: Data("{\"code\":\"bad_jwt\",\"message\":\"expired\"}".utf8)))
+    XCTAssertFalse(NativeAccessSessionCheck.isDefinitiveRejection(status: 403, body: Data("{\"code\":403,\"msg\":\"synthetic\"}".utf8)))
     for code in ["bad_jwt", "session_expired", "no_authorization", "unexpected_failure", ""] {
       XCTAssertFalse(NativeAccessSessionCheck.isDefinitiveRejection(status: 403, body: body(code)), code)
     }

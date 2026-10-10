@@ -409,21 +409,25 @@ public final class SharedEntitlementStore {
   public func observeAppleBenefits(wall: @autoclosure () -> Int, ownership: NativeAppleOwnershipObservation,
                                    paidMode: Bool = MonetizationConfig.paidTierEnabled,
                                    platform: SafariAccessPlatform = .current) throws -> BenefitAccessSnapshot {
-    try observeAppleBenefits(wall: wall, ownership: ownership, recorded: false, paidMode: paidMode, platform: platform)
+    try observeAppleBenefits(wall: wall, ownership: ownership, recorded: nil, paidMode: paidMode, platform: platform)
   }
 
   /// The Safari extension's read: the session the app bound, no StoreKit evidence of its own, and
   /// the app's recorded ownership answers. Still Pro rows are "locked" only while the app's last
   /// StoreKit answer and, when signed in, the account's last server answer for this exact session
   /// generation both said "no purchase" within `ownershipAbsenceWindowMilliseconds`; otherwise
-  /// they stay "verification required". Neither state grants anything.
-  public func observeBoundBenefits(wall: @autoclosure () -> Int,
+  /// they stay "verification required". Neither state grants anything. `displayed` is the account
+  /// the app last published: a record with no bound account counts as signed out only when the
+  /// app also shows no account (between sign-in and the first successful check, or after a
+  /// refusal while the app still shows the account, the answer is not known).
+  public func observeBoundBenefits(wall: @autoclosure () -> Int, displayed: AccountSyncStatusStore.DisplayedAccount,
                                    paidMode: Bool = MonetizationConfig.paidTierEnabled,
                                    platform: SafariAccessPlatform = .current) throws -> BenefitAccessSnapshot {
-    try observeAppleBenefits(wall: wall, ownership: .unknown, recorded: true, paidMode: paidMode, platform: platform)
+    try observeAppleBenefits(wall: wall, ownership: .unknown, recorded: displayed, paidMode: paidMode, platform: platform)
   }
 
-  private func observeAppleBenefits(wall: () -> Int, ownership: NativeAppleOwnershipObservation, recorded: Bool,
+  private func observeAppleBenefits(wall: () -> Int, ownership: NativeAppleOwnershipObservation,
+                                    recorded: AccountSyncStatusStore.DisplayedAccount?,
                                     paidMode: Bool, platform: SafariAccessPlatform) throws -> BenefitAccessSnapshot {
     if !paidMode { return try observeBenefits(wall: wall()).1 }
     return try transactionAccess { record in
@@ -441,17 +445,23 @@ public final class SharedEntitlementStore {
         supported: NativeAppleAccessCapabilities.supported(paidMode: true, platform: platform),
         accountId: record.accountId, sessionId: record.sessionId, sessionKnown: true,
         localRights: Set(verifiedAppleBindings(record).map { $0.1.claims.right }),
-        evidenceStatus: recorded ? Self.recordedOwnershipStatus(record, wall: wall) : ownership.evidenceStatus)
+        evidenceStatus: recorded.map { Self.recordedOwnershipStatus(record, wall: wall, displayed: $0) } ?? ownership.evidenceStatus)
       return resolveAccessSnapshot(record, evidence: evidence, context: context)
     }
   }
 
-  static func recordedOwnershipStatus(_ record: AccessCacheRecord, wall: Int) -> String {
+  static func recordedOwnershipStatus(_ record: AccessCacheRecord, wall: Int,
+                                      displayed: AccountSyncStatusStore.DisplayedAccount) -> String {
     func freshNone(_ value: OwnershipEvidence?) -> Bool {
       guard let value, value.none, wall >= value.observedAt else { return false }
       return wall - value.observedAt < ownershipAbsenceWindowMilliseconds
     }
     guard freshNone(record.appleEvidence) else { return "unknown" }
+    switch displayed {
+    case .unreadable: return "unknown"
+    case .signedOut: guard record.accountId == nil else { return "unknown" }
+    case .account(let shown): guard record.accountId == shown else { return "unknown" }
+    }
     if let account = record.accountId {
       guard freshNone(record.accountEvidence), record.accountEvidence?.holder == account,
         record.accountEvidence?.generation == record.generation else { return "unknown" }
@@ -659,7 +669,8 @@ public struct EntitlementBridge {
   private let readOnly: Bool
   private let accessContext: () -> NativeAccessContext
   /// Set only by `safariExtension`: benefits resolve under the account session the app bound.
-  private var boundSessionBenefits: (paidMode: Bool, platform: SafariAccessPlatform)?
+  private var boundSessionBenefits: (paidMode: Bool, platform: SafariAccessPlatform,
+    displayed: () -> AccountSyncStatusStore.DisplayedAccount)?
 
   /// The Safari extension's read-only lane. Its benefit read uses the account and session the app
   /// itself verified against hosted Auth and committed to the shared record (the same context as
@@ -671,10 +682,11 @@ public struct EntitlementBridge {
     store: SharedEntitlementStore,
     paidMode: Bool = MonetizationConfig.paidTierEnabled,
     platform: SafariAccessPlatform = .current,
-    now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) }
+    now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) },
+    displayedAccount: @escaping () -> AccountSyncStatusStore.DisplayedAccount = { AccountSyncStatusStore.appGroup().displayedAccount() }
   ) -> EntitlementBridge {
     var bridge = EntitlementBridge(store: store, now: now, readOnly: true)
-    bridge.boundSessionBenefits = (paidMode, platform)
+    bridge.boundSessionBenefits = (paidMode, platform, displayedAccount)
     return bridge
   }
 
@@ -706,7 +718,7 @@ public struct EntitlementBridge {
     case .getBenefitAccess:
       do {
         let snapshot = try boundSessionBenefits.map {
-          try store.observeBoundBenefits(wall: now(), paidMode: $0.paidMode, platform: $0.platform)
+          try store.observeBoundBenefits(wall: now(), displayed: $0.displayed(), paidMode: $0.paidMode, platform: $0.platform)
         } ?? store.observeBenefits(wall: now(), context: accessContext()).1
         let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
         let data = try JSONSerialization.data(withJSONObject: ["ok": true, "snapshot": value], options: [.sortedKeys])

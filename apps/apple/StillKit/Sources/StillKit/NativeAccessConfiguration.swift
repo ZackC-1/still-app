@@ -113,12 +113,15 @@ public enum NativeAccessSessionCheck {
   case unavailable
 
   /// Only these documented Auth error codes, on a 401/403/404, end an account's stored rights.
-  /// An expired token ("bad_jwt") is not one of them: the account may be fine.
+  /// An expired token ("bad_jwt") is not one of them: the account may be fine. Both Auth error
+  /// formats are read: the default `{"code":403,"error_code":"…","msg":…}` and the
+  /// `X-Supabase-Api-Version: 2024-01-01` form `{"code":"…","message":…}`. Anything else is not
+  /// a refusal.
   static let definitiveErrorCodes: Set<String> = ["user_not_found", "session_not_found", "user_banned"]
   static func isDefinitiveRejection(status: Int, body: Data) -> Bool {
     guard [401, 403, 404].contains(status), body.count <= 65_536,
       let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let code = object["error_code"] as? String
+      let code = (object["error_code"] as? String) ?? (object["code"] as? String)
     else { return false }
     return definitiveErrorCodes.contains(code)
   }

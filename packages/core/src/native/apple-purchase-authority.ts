@@ -12,7 +12,9 @@ export interface ApplePurchaseAuthorityDeps {
   readonly fulfillLink: ApplePurchaseLinkAuthority["fulfill"];
   readonly now?: () => number;
   /** The SDK's current bearer, read without verifying it. "none" means the SDK holds no session
-   * at all (it discards one only after Auth refused it); "unknown" is any read failure. */
+   * at all and is treated as signed out: the SDK drops a session after Auth refuses it, and also
+   * after some refresh failures once the token has expired (for example a 429 or an unparseable
+   * 4xx), an accepted trade-off that only ever removes access. "unknown" is any read failure. */
   readonly readSessionToken?: () => Promise<{ readonly status: "session"; readonly accessToken: string } | { readonly status: "none" | "unknown" }>;
   /** Ends this app's signed-in session the ordinary way, which also clears native account rights. */
   readonly endSession?: () => Promise<void>;
@@ -115,9 +117,13 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
     }
     let before: Awaited<ReturnType<typeof deps.readVerifiedAccount>> | undefined;
     try { before = await deps.readVerifiedAccount(); } catch { before = undefined; }
-    if (current() && !before && held.status === "session" && deps.bridge.reconcileAccountAccess) {
+    if (!before && held.status === "session" && deps.bridge.reconcileAccountAccess) {
       // The SDK could not confirm the account. Native asks hosted Auth about the same token
       // itself; only a definitive refusal ends the stored account rights, offline keeps them.
+      // Deliberately not gated by the account epoch: on a revoked session the SDK discards it and
+      // announces sign-out (advancing the epoch) before this read rejects. Native scopes clearing
+      // to the token's own subject being the account it still has bound, so a stale token for
+      // another or replaced account changes nothing.
       await deps.bridge.reconcileAccountAccess(held.accessToken).catch(() => {});
       throw unavailable();
     }
