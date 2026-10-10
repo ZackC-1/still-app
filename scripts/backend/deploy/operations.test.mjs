@@ -1957,13 +1957,13 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
     assert.equal(template.environment, "sandbox");
     assert.equal(template.salesEnabled, mode === "on");
     assert.deepEqual(template.builds, [...QA_SANDBOX_SALES_BUILDS]);
-    // Decision A3: QA test set 3 (main 598951be, first-parent count 311).
+    // Decision A3: QA test set 4 (main 6367c7c5, first-parent count 318).
     assert.deepEqual(
       QA_SANDBOX_SALES_BUILDS.map((b) => [b.surface, b.build]),
       [
-        ["chrome_desktop", "2.1.1.311"],
-        ["firefox_desktop", "2.1.1.311"],
-        ["firefox_android", "2.1.1.311"],
+        ["chrome_desktop", "2.1.1.318"],
+        ["firefox_desktop", "2.1.1.318"],
+        ["firefox_android", "2.1.1.318"],
         ["apple_mobile_host", "2.1.0"],
         ["apple_macos_host", "2.1.0"],
       ],
