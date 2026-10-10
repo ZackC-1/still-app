@@ -12,8 +12,9 @@
 --   job               that job's schedule, active flag, user and the SHA-256 of its command, or null
 --   recentRuns        that job's runs that succeeded in the last 35 minutes (pg_cron ran the command)
 --   recentWorkerOk    pg_net responses in the last 35 minutes with status 200 whose body is a worker
---                     report ({"claimed": ...}) that skipped nothing (PostHog deletion configured)
+--                     report ({"claimed": ...}) that skipped nothing and has failed = 0 and lost = 0
 --   recentWorkerSkipped  the same, but the report says the worker skipped (provider unconfigured)
+--   recentWorkerFailing  a worker report that skipped nothing but has failed or lost jobs
 --                     Both are 0 before pg_net is installed and null if this session may not read
 --                     pg_net's response table (the switch then refuses: worker_evidence_unreadable).
 --
@@ -54,6 +55,7 @@ responses as (
             or not pg_catalog.pg_input_is_valid(r.content, 'jsonb') then 'other'
           when pg_catalog.jsonb_typeof(r.content::jsonb) <> 'object' or not (r.content::jsonb ? 'claimed') then 'other'
           when r.content::jsonb ? 'skipped' then 'skipped'
+          when coalesce(r.content::jsonb ->> 'failed', '') <> '0' or coalesce(r.content::jsonb ->> 'lost', '') <> '0' then 'failing'
           else 'ok' end as kind
         from net._http_response r
         where r.created > pg_catalog.now() - interval '35 minutes'
@@ -68,11 +70,27 @@ responses as (
             or not pg_catalog.pg_input_is_valid(r.content, 'jsonb') then 'other'
           when pg_catalog.jsonb_typeof(r.content::jsonb) <> 'object' or not (r.content::jsonb ? 'claimed') then 'other'
           when r.content::jsonb ? 'skipped' then 'skipped'
+          when coalesce(r.content::jsonb ->> 'failed', '') <> '0' or coalesce(r.content::jsonb ->> 'lost', '') <> '0' then 'failing'
           else 'ok' end as kind
         from net._http_response r
         where r.created > pg_catalog.now() - interval '35 minutes'
       ) r
-    $q$, false, true, '')))[1]::text::int end end as skipped
+    $q$, false, true, '')))[1]::text::int end end as skipped,
+    case when n.present then case when pg_catalog.has_table_privilege('net._http_response', 'select') then
+      (pg_catalog.xpath('/row/failing/text()', pg_catalog.query_to_xml($q$
+      select pg_catalog.count(*) filter (where r.kind = 'failing') as failing
+      from (
+        select case
+          when r.status_code is distinct from 200 or r.content is null
+            or not pg_catalog.pg_input_is_valid(r.content, 'jsonb') then 'other'
+          when pg_catalog.jsonb_typeof(r.content::jsonb) <> 'object' or not (r.content::jsonb ? 'claimed') then 'other'
+          when r.content::jsonb ? 'skipped' then 'skipped'
+          when coalesce(r.content::jsonb ->> 'failed', '') <> '0' or coalesce(r.content::jsonb ->> 'lost', '') <> '0' then 'failing'
+          else 'ok' end as kind
+        from net._http_response r
+        where r.created > pg_catalog.now() - interval '35 minutes'
+      ) r
+    $q$, false, true, '')))[1]::text::int end end as failing
   from net n
 )
 select pg_catalog.json_build_object(
@@ -88,5 +106,6 @@ select pg_catalog.json_build_object(
       'username', j.username::text, 'commandSha256', j.command_sha256) from jobs j) end,
   'recentRuns', (select r.n from runs r),
   'recentWorkerOk', case when (select n.present from net n) then (select r.ok from responses r) else 0 end,
-  'recentWorkerSkipped', case when (select n.present from net n) then (select r.skipped from responses r) else 0 end
+  'recentWorkerSkipped', case when (select n.present from net n) then (select r.skipped from responses r) else 0 end,
+  'recentWorkerFailing', case when (select n.present from net n) then (select r.failing from responses r) else 0 end
 )::text;

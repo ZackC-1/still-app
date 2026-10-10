@@ -29,6 +29,21 @@ verifier, so no person ever holds the eraser password and nothing is done by han
 Secrets-only token is reused, so the owner creates no new environment secret. `delete-user` is in
 the route list because the hard gate needs its current code and no other protected path deploys it.
 
+## Security review fixes (F1–F7)
+
+- F1: a worker answer counts only with `failed = 0` and `lost = 0`; switch-on also runs a provider
+  proof inside `analytics-erasure` (`{"action":"provider-check"}`, worker-token gated, asked through
+  pg_net with the Vault token): project read with the personal key whose public token must equal
+  `POSTHOG_PROJECT_KEY`, and a bulk_delete of one random id (202, persons_found 0, no errors).
+- F2 (server half): the V3 identify body must carry `projectKeySha256`; anything but the live
+  project's digest is answered `{"state":"test_channel"}` with nothing written. The client half
+  conflicts with PR #403 and is routed separately; step 4 waits for it.
+- F3: the Secrets-only token must be refused by GET /functions (steps 1 and 4).
+- F4: the released identify body's limiter prefers the writer login.
+- F5: runbook checks after step 2. F6: `postgres` cannot revoke pg_net's grants (owned by
+  `supabase_admin`); documented, plus a role-facts comparison in step 3. F7: rotate skips the
+  history, migration and rehearsal gates.
+
 ## Verification
 
 - `node --test` over the deploy suites (analytics, workflow, deploy, operations, QA functions and

@@ -311,8 +311,11 @@ These steps are the four protected operations in
 deploys the current `delete-user`), the worker schedule, then the switch. Each refuses unless the
 steps before it are verified, and none uses the Supabase CLI, the dashboard or the SQL editor. That
 page also records the hosted state. There is no separate Supabase sandbox project: "sandbox first"
-means the throwaway-database rehearsal every step runs before approval, then the V3 QA package
-check right after switching on, with the one-approval switch-off ready.
+means the throwaway-database rehearsal every step runs before approval, then a production-channel
+check right after switching on, with the one-approval switch-off ready. `analytics-identify` gives
+an identity only to a device that sends `projectKeySha256` equal to the digest of the server's
+`POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
+`{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
 
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.

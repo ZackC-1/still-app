@@ -19,6 +19,10 @@ import {
   sha256,
 } from "./deploy.mjs";
 import {
+  PROVIDER_CHECK_CODES,
+  providerCodes,
+  proveProvider,
+  secretsTokenProbe,
   ANALYTICS_KIND,
   ANALYTICS_OPERATIONS,
   ANALYTICS_SQL,
@@ -148,6 +152,10 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
     runs: 0,
     ok: 0,
     skipped: 0,
+    failing: 0,
+    // The provider proof's answer as pg_net would record it (null: no answer yet).
+    provider: { status: 200, content: JSON.stringify({ ok: true, codes: ["project_read_ok", "project_key_matches", "delete_scope_ok"] }) },
+    providerQueued: 0,
     sqlCalls: [],
     psqlMajor: 16,
   };
@@ -167,6 +175,7 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
     recentRuns: state.runs,
     recentWorkerOk: state.ok,
     recentWorkerSkipped: state.skipped,
+    recentWorkerFailing: state.failing,
   });
   const roleFacts = () => [
     `role ${ERASER_ROLE} | login ${state.eraserLogin}`,
@@ -212,6 +221,12 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
         state.pgNet = true;
         state.command = env.STILL_ANALYTICS_WORKER_COMMAND;
         return ok("1\n");
+      case "analytics-provider-check.sql":
+        if (!env.STILL_ANALYTICS_FUNCTION_URL) return { code: 3, stdout: "", stderr: "ERROR:  22023" };
+        state.providerQueued++;
+        return ok("42\n");
+      case "analytics-provider-check.read.sql":
+        return ok(`${JSON.stringify(state.provider ? { found: true, ...state.provider } : { found: false, status: null, content: null })}\n`);
       case "analytics-erasure-schedule-disable.sql":
         state.command = null;
         return ok("");
@@ -268,6 +283,7 @@ async function harness(t, options = {}) {
       exec: db.exec,
       fetchImpl: api.fetchImpl,
       verifyBundles: async () => true,
+      provider: (args) => proveProvider({ ...args, sleep: async () => {}, polls: 2 }),
     });
     receipts.push(receipt);
     return receipt;
@@ -282,6 +298,16 @@ test("the pinned hashes are the reviewed bytes and the verification SQL is a sin
     assert.equal(sha256(await real(pin.path)), pin.sha256, pin.path);
   }
   assert.equal(lintVerificationSql((await real(ANALYTICS_SQL.verify.path)).toString()), true);
+  assert.equal(lintVerificationSql((await real(ANALYTICS_SQL.providerRead.path)).toString()), true);
+  const probe = (await real(ANALYTICS_SQL.providerCheck.path)).toString();
+  assert.match(probe, /\\bind :analytics_function_url \\g/);
+  assert.match(probe, /'\{"action":"provider-check"\}'::jsonb/);
+  assert.match(probe, /vault\.decrypted_secrets s where s\.name = 'still_analytics_erasure_worker_token'/);
+  // A worker answer counts only with failed = 0 and lost = 0.
+  assert.match(
+    (await real(ANALYTICS_SQL.verify.path)).toString(),
+    /coalesce\(r\.content::jsonb ->> 'failed', ''\) <> '0' or coalesce\(r\.content::jsonb ->> 'lost', ''\) <> '0' then 'failing'/,
+  );
   assert.equal(lintVerificationSql((await real(MIGRATION_GATE)).toString()), true);
   // The SQL that carries a value takes it only from the psql environment, as a bind parameter.
   const secrets = (await real(ANALYTICS_SQL.secrets.path)).toString();
@@ -384,15 +410,51 @@ test("the schedule command reads the token from Vault at run time and carries no
   }
 });
 
+test("the provider proof keeps the function's fixed codes and fails closed", async () => {
+  const ts = (await real("supabase/functions/_shared/posthog-erasure.ts")).toString();
+  const listed = /export const PROVIDER_CHECK_CODES = \[([\s\S]*?)\] as const;/.exec(ts)[1];
+  assert.deepEqual([...listed.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]), [...PROVIDER_CHECK_CODES]);
+  const pass = ["project_read_ok", "project_key_matches", "delete_scope_ok"];
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: true, codes: pass })), []);
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: false, codes: ["project_read_ok", "project_key_mismatch", "delete_scope_ok"] })), ["provider:project_key_mismatch"]);
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: false, codes: ["project_read_ok"] })), ["provider_check_failed"]);
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: true, codes: ["project_read_ok"] })), ["provider_check_shape"]);
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: false, codes: pass })), ["provider_check_shape"]);
+  assert.deepEqual(providerCodes(JSON.stringify({ ok: true, codes: [...pass, "phc_secret"] })), ["provider_check_shape"]);
+  assert.deepEqual(providerCodes("<html>"), ["provider_check_shape"]);
+  // The queue-and-read loop, with the model database.
+  const db = world();
+  const conn = { host: "db.abcdefghijklmnopqrst.supabase.co", port: "5432", user: "postgres", password: "x", database: "postgres", sslmode: "require" };
+  const args = { exec: db.exec, cwd: "/", conn, sourceDir: "/src", projectRef: REF, sleep: async () => {}, polls: 2 };
+  assert.deepEqual(await proveProvider(args), []);
+  db.state.provider = { status: null, content: null };
+  assert.deepEqual(await proveProvider(args), ["provider_check_http_none"]);
+  db.state.provider = { status: 401, content: null };
+  assert.deepEqual(await proveProvider(args), ["provider_check_http_401"]);
+  db.state.provider = null;
+  assert.deepEqual(await proveProvider(args), ["provider_check_unanswered"]);
+  assert.equal(db.state.providerQueued, 4);
+});
+
+test("the Secrets-only token must be refused by the functions endpoint", async () => {
+  const reply = (status) => async () => new Response("{}", { status });
+  assert.equal(await secretsTokenProbe({ fetchImpl: reply(403), projectRef: REF, token: "t" }), null);
+  assert.equal(await secretsTokenProbe({ fetchImpl: reply(401), projectRef: REF, token: "t" }), null);
+  assert.equal(await secretsTokenProbe({ fetchImpl: reply(200), projectRef: REF, token: "t" }), "secrets_token_too_broad");
+  assert.equal(await secretsTokenProbe({ fetchImpl: reply(500), projectRef: REF, token: "t" }), "secrets_token_probe_failed");
+  assert.equal(await secretsTokenProbe({ fetchImpl: async () => { throw new Error("x"); }, projectRef: REF, token: "t" }), "secrets_token_probe_failed");
+  assert.equal(await secretsTokenProbe({ fetchImpl: reply(403), projectRef: REF, token: "" }), "secrets_token_missing");
+});
+
 test("facts, gate codes and the GoTrue rehearsal read-back accept only the expected shapes", async () => {
   const good = {
     eraser: "login", pgCron: true, pgNet: true, vaultTokens: 1, vaultTokenSha256: "a".repeat(64), jobs: 1,
     job: { schedule: CRON_SCHEDULE, active: true, username: "postgres", commandSha256: "b".repeat(64) },
-    recentRuns: 1, recentWorkerOk: 1, recentWorkerSkipped: 0,
+    recentRuns: 1, recentWorkerOk: 1, recentWorkerSkipped: 0, recentWorkerFailing: 0,
   };
   assert.deepEqual(parseFacts(JSON.stringify(good)), good);
   // Unreadable pg_net responses are reported as null (both together), never guessed.
-  const unreadable = { ...good, recentWorkerOk: null, recentWorkerSkipped: null };
+  const unreadable = { ...good, recentWorkerOk: null, recentWorkerSkipped: null, recentWorkerFailing: null };
   assert.deepEqual(parseFacts(JSON.stringify(unreadable)), unreadable);
   assert.throws(() => parseFacts(JSON.stringify({ ...good, recentWorkerOk: null })), Refusal);
   for (const bad of [
@@ -532,6 +594,16 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
     assert.equal(r.writeAttempted, false);
   }
   assert.equal(h.api.secrets.has(SWITCH_SECRET), false);
+  // A Secrets-only token that can also reach functions is refused before any write.
+  const broad = await h.run(h.planFor(SECRETS_OP, "rotate"), { [SECRETS_TOKEN_ENV]: "broad-token" });
+  assert.deepEqual(broad.issues, ["analytics-gate-failed", "secrets_token_too_broad"]);
+  // Rotate is the recovery path: no history, migration or rehearsal gate; the role check stays.
+  h.api.setRehearsalGreen(false);
+  h.db.state.history = [];
+  h.db.state.gate = ["subject_snapshot_trigger:disabled"];
+  const rotated = await h.run(h.planFor(SECRETS_OP, "rotate"));
+  assert.equal(rotated.status, "verified", rotated.issues.join(" "));
+  assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "stopped-before-write", "apply keeps every gate");
 });
 
 test("functions deploy exactly three routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
@@ -623,11 +695,18 @@ test("the switch turns on only with a running schedule and a worker that deletes
   h.db.state.runs = 1;
   h.db.state.ok = null;
   h.db.state.skipped = null;
+  h.db.state.failing = null;
   assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
     "analytics-gate-failed",
     "worker_evidence_unreadable",
   ]);
   h.db.state.ok = 0;
+  h.db.state.skipped = 0;
+  h.db.state.failing = 1; // A worker run that failed or lost jobs does not count.
+  assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
+    "analytics-gate-failed",
+    "worker_failing",
+  ]);
   h.db.state.skipped = 1;
   assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
     "analytics-gate-failed",
@@ -641,16 +720,47 @@ test("the switch turns on only with a running schedule and a worker that deletes
     "function_not_at_source:delete-user",
   ]);
   h.api.functions.get("delete-user").verify_jwt = true;
+  // Last gate: the PostHog provider proof, run inside the function. It must prove the same project.
+  assert.equal(h.db.state.providerQueued, 0, "the proof runs only once everything else holds");
+  h.db.state.provider = {
+    status: 200,
+    content: JSON.stringify({ ok: false, codes: ["project_read_ok", "project_key_mismatch", "delete_scope_ok"] }),
+  };
+  assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
+    "analytics-gate-failed",
+    "provider:project_key_mismatch",
+  ]);
+  h.db.state.provider = { status: 200, content: JSON.stringify({ ok: false, codes: ["project_read_forbidden", "delete_forbidden"] }) };
+  assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
+    "analytics-gate-failed",
+    "provider:delete_forbidden",
+    "provider:project_read_forbidden",
+  ]);
+  h.db.state.provider = null;
+  assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).issues, [
+    "analytics-gate-failed",
+    "provider_check_unanswered",
+  ]);
+  assert.equal(h.api.secrets.has(SWITCH_SECRET), false);
+  // A Secrets-only token that could reach functions blocks the switch-on too (never the off).
+  h.db.state.provider = { status: 200, content: JSON.stringify({ ok: true, codes: ["project_read_ok", "project_key_matches", "delete_scope_ok"] }) };
+  assert.deepEqual((await h.run(h.planFor(SWITCH_OP, "apply", "enable"), { [SECRETS_TOKEN_ENV]: "broad-token" })).issues, [
+    "analytics-gate-failed",
+    "secrets_token_too_broad",
+  ]);
   const identify = h.api.functions.get("analytics-identify").version;
   const on = await h.run(h.planFor(SWITCH_OP, "apply", "enable"));
   assert.equal(on.status, "verified", on.issues.join(" "));
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "true");
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 1);
   assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "no-change");
-  // Emergency off: no schedule, no worker evidence needed.
+  // Emergency off: no schedule, no worker evidence, no provider proof, no token probe needed.
   h.db.state.command = null;
   h.db.state.ok = 0;
-  const off = await h.run(h.planFor(SWITCH_OP, "apply", "disable"));
+  h.db.state.provider = null;
+  const queued = h.db.state.providerQueued;
+  const off = await h.run(h.planFor(SWITCH_OP, "apply", "disable"), { [SECRETS_TOKEN_ENV]: "broad-secrets-token" });
+  assert.equal(h.db.state.providerQueued, queued);
   assert.equal(off.status, "verified");
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "false");
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 2);

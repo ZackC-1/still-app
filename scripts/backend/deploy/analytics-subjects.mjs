@@ -31,9 +31,14 @@
 //     sign in, and the Vault token matches the function secret (digests only);
 //   - schedule enable: analytics-erasure is deployed at the planned source;
 //   - switch enable: all three functions are deployed at the planned source, the schedule is present
-//     with the exact planned command, pg_cron ran it in the last 35 minutes, and a worker run in that
-//     window answered 200 with a report that skipped nothing (so PostHog deletion is configured).
-// The disable directions have no gate beyond owner approval: they are the way back.
+//     with the exact planned command, pg_cron ran it in the last 35 minutes, a worker run in that
+//     window answered 200 with a report that skipped nothing and has failed = 0 and lost = 0, and,
+//     last, the PostHog provider proof passes inside analytics-erasure (the personal key reads the
+//     project whose public token equals POSTHOG_PROJECT_KEY, and a bulk_delete of one random id is
+//     accepted with nobody found), asked through pg_net with the Vault token;
+//   - the secrets step and switch-on: the Secrets-only token must be refused by GET /functions.
+// A rotate skips the history, migration and rehearsal gates (it is the recovery path; re-running
+// it is always safe). The disable directions have no gate beyond owner approval: the way back.
 //
 // Public records (plan, logs, step summary) carry names, counts, fixed codes and hashes of public
 // code only: never a secret value, digest of a secret, password, verifier, email, account id or
@@ -164,9 +169,17 @@ export const ANALYTICS_SQL = Object.freeze({
     path: `${OPERATIONS_DIR}/analytics-erasure-schedule-disable.sql`,
     sha256: "44765b36115b5c50a3060be671290d5518ce6fb97ab7097a3ddd644d203572cb",
   }),
+  providerCheck: Object.freeze({
+    path: `${OPERATIONS_DIR}/analytics-provider-check.sql`,
+    sha256: "6462383729f01ef26335699ab03210ae5ed2a71e75afb551a9a6a8b0eb642c62",
+  }),
+  providerRead: Object.freeze({
+    path: `${OPERATIONS_DIR}/analytics-provider-check.read.sql`,
+    sha256: "f81dd072c75e299aef3afa241d2b04b4d3e2f1e4963db9eaaafa67b469e17697",
+  }),
   verify: Object.freeze({
     path: `${OPERATIONS_DIR}/analytics-subjects.verify.sql`,
-    sha256: "644037e7827d4660a10ed9ebde8a0b02e02e75c6f1b58e68123c3bea98c04a79",
+    sha256: "b4b953b191072fdbf9765ad3af47363b3571f134732ea4dd4e509b395e4c396a",
   }),
 });
 /** 0018's post-apply check: covers 0018, 0017's snapshot trigger and routes, and the eraser role. */
@@ -225,6 +238,32 @@ export function workerCommand(projectRef) {
     `body := '{"action":"work"}'::jsonb, timeout_milliseconds := ${WORKER_TIMEOUT_MS})`
   );
 }
+
+/** The analytics-erasure route on the bound project (the provider proof's target). */
+export function functionUrl(projectRef) {
+  if (!validRef(projectRef)) refuse("analytics-input-invalid");
+  return `https://${projectRef}.supabase.co/functions/v1/analytics-erasure`;
+}
+
+/** The provider proof's fixed codes (supabase/functions/_shared/posthog-erasure.ts keeps the same list). */
+export const PROVIDER_CHECK_CODES = Object.freeze([
+  "provider_unconfigured",
+  "project_read_ok",
+  "project_read_forbidden",
+  "project_read_unavailable",
+  "project_read_rejected",
+  "project_read_network",
+  "project_read_shape",
+  "project_key_matches",
+  "project_key_mismatch",
+  "delete_scope_ok",
+  "delete_forbidden",
+  "delete_unavailable",
+  "delete_rejected",
+  "delete_network",
+  "delete_shape",
+  "delete_found_person",
+]);
 
 /** Direct host and exact role name, like the other function database URLs. */
 export function eraserDbUrl(projectRef, password) {
@@ -291,9 +330,9 @@ async function pinnedFiles(sourceDir) {
     if (sha256(bytes) !== pin.sha256) refuse("analytics-sql-unpinned");
     files.push({ path: pin.path, text: bytes.toString("utf8") });
   }
-  lintVerificationSql(
-    files.find((file) => file.path === ANALYTICS_SQL.verify.path).text,
-  );
+  for (const pin of [ANALYTICS_SQL.verify, ANALYTICS_SQL.providerRead]) {
+    lintVerificationSql(files.find((file) => file.path === pin.path).text);
+  }
   return files;
 }
 
@@ -439,8 +478,9 @@ export function parseFacts(line) {
     typeof value.pgCron !== "boolean" || typeof value.pgNet !== "boolean" ||
     !count(value.vaultTokens) || !count(value.jobs) ||
     !count(value.recentRuns) || !evidence(value.recentWorkerOk) ||
-    !evidence(value.recentWorkerSkipped) ||
+    !evidence(value.recentWorkerSkipped) || !evidence(value.recentWorkerFailing) ||
     (value.recentWorkerOk === null) !== (value.recentWorkerSkipped === null) ||
+    (value.recentWorkerOk === null) !== (value.recentWorkerFailing === null) ||
     !(value.vaultTokenSha256 === null ||
       /^[a-f0-9]{64}$/.test(value.vaultTokenSha256)) ||
     (value.vaultTokens === 1) !== (value.vaultTokenSha256 !== null) ||
@@ -507,6 +547,95 @@ export async function rehearsalGreen({ fetchImpl, repository, token, sha }) {
       run?.head_sha === sha && run?.conclusion === "success" &&
       String(run?.path ?? "").split("@")[0] === REHEARSAL_WORKFLOW
     );
+}
+
+/**
+ * The Secrets-only token must not be able to read or deploy functions: GET /functions with it has to
+ * be refused (401 or 403). Read-only; returns a fixed code, or null when the token is narrow.
+ */
+export async function secretsTokenProbe({ fetchImpl, projectRef, token }) {
+  if (!validRef(projectRef) || typeof token !== "string" || !token.trim()) {
+    return "secrets_token_missing";
+  }
+  let response;
+  try {
+    response = await fetchImpl(`https://api.supabase.com/v1/projects/${projectRef}/functions`, {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+  } catch {
+    return "secrets_token_probe_failed";
+  }
+  await response.body?.cancel?.().catch(() => {});
+  if (response.status === 401 || response.status === 403) return null;
+  return response.ok ? "secrets_token_too_broad" : "secrets_token_probe_failed";
+}
+
+/** Parses the provider proof's answer: fixed codes only; anything else is a shape failure. */
+export function providerCodes(content) {
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return ["provider_check_shape"];
+  }
+  if (
+    !value || typeof value !== "object" || typeof value.ok !== "boolean" ||
+    !Array.isArray(value.codes) || value.codes.length > PROVIDER_CHECK_CODES.length ||
+    value.codes.some((code) => !PROVIDER_CHECK_CODES.includes(code))
+  ) return ["provider_check_shape"];
+  const passing = ["project_read_ok", "project_key_matches", "delete_scope_ok"];
+  const proven = passing.every((code) => value.codes.includes(code));
+  if (value.ok && proven) return [];
+  // Anything short of all three passing codes with ok:true refuses, and always names a reason.
+  const failures = value.codes.filter((code) => !passing.includes(code)).map((code) => `provider:${code}`);
+  if (value.ok !== proven) failures.push("provider_check_shape");
+  return failures.length ? failures : ["provider_check_failed"];
+}
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs the provider proof inside the analytics-erasure function: queues one pg_net request (the
+ * worker token is read from Vault inside the database), then reads pg_net's answer read-only.
+ * Returns fixed gate codes; [] when PostHog deletion is proven for the event project.
+ */
+export async function proveProvider({ exec, cwd, conn, sourceDir, projectRef, sleep = defaultSleep, polls = 20 }) {
+  const ran = await runPinnedSql({
+    exec,
+    cwd,
+    conn,
+    file: join(sourceDir, ANALYTICS_SQL.providerCheck.path),
+    variables: { STILL_ANALYTICS_FUNCTION_URL: functionUrl(projectRef) },
+    single: true,
+  });
+  if (ran.code !== 0 || !/^[1-9][0-9]{0,18}$/.test(ran.last)) return ["provider_check_not_queued"];
+  for (let attempt = 0; attempt < polls; attempt++) {
+    await sleep(3000);
+    let answer;
+    try {
+      answer = JSON.parse(
+        await runReadOnlySql({
+          exec,
+          conn,
+          target: "production",
+          cwd,
+          file: join(sourceDir, ANALYTICS_SQL.providerRead.path),
+          vars: { STILL_OPERATION_REQUEST_ID: ran.last },
+        }),
+      );
+    } catch {
+      return ["provider_check_unreadable"];
+    }
+    if (!answer?.found) continue;
+    if (answer.status !== 200) {
+      return [`provider_check_http_${Number.isSafeInteger(answer.status) ? answer.status : "none"}`];
+    }
+    return providerCodes(answer.content);
+  }
+  return ["provider_check_unanswered"];
 }
 
 /** One deployed route equals the planned single-file bundle (metadata and bytes). Never throws. */
@@ -580,6 +709,7 @@ export async function runAnalyticsOperation({
   fetchImpl = fetch,
   randomBytesImpl = randomBytes,
   verifyBundles = verifyFunctionBundles,
+  provider = proveProvider,
   onProgress = async () => {},
 }) {
   const receipt = {
@@ -702,9 +832,21 @@ export async function runAnalyticsOperation({
       functions: functionsApi ? await listFunctions() : null,
     };
     const digest = new Map(before.secrets.map((item) => [item.name, item.digest]));
-    const gated = operation === SECRETS_OP || operation === FUNCTIONS_OP ||
-      enable;
+    // A rotate is the recovery path: it skips the history, migration and rehearsal gates so it can
+    // always repair a half-finished secrets run; it keeps the role check and its own write checks.
+    const gated = (operation === SECRETS_OP && plan.mode !== "rotate") ||
+      operation === FUNCTIONS_OP || enable;
     const codes = [];
+    if (operation === SECRETS_OP && before.facts.eraser === "missing") codes.push("eraser_role_missing");
+    // The Secrets-only token must not reach functions (switch-off skips this: it must always work).
+    if (operation === SECRETS_OP || (operation === SWITCH_OP && enable)) {
+      const probe = await secretsTokenProbe({
+        fetchImpl,
+        projectRef: plan.projectRef,
+        token: env[SECRETS_TOKEN_ENV],
+      });
+      if (probe) codes.push(probe);
+    }
     if (gated) {
       const history = parseHistory(await read(join(sourceDir, HISTORY_SQL)));
       for (const version of ["0017", "0018"]) {
@@ -726,7 +868,7 @@ export async function runAnalyticsOperation({
           sha: plan.revision,
         }))
       ) codes.push("gotrue_rehearsal_not_green");
-      if (before.facts.eraser === "missing") codes.push("eraser_role_missing");
+      if (operation !== SECRETS_OP && before.facts.eraser === "missing") codes.push("eraser_role_missing");
     }
     const runtimeReady = () => {
       for (const name of REQUIRED_RUNTIME_SECRETS) {
@@ -774,8 +916,16 @@ export async function runAnalyticsOperation({
         codes.push(
           before.facts.recentWorkerSkipped > 0
             ? "worker_provider_unconfigured"
+            : before.facts.recentWorkerFailing > 0
+            ? "worker_failing"
             : "worker_not_succeeding",
         );
+      }
+      // Last, and only when everything else holds: the PostHog provider proof, run inside the
+      // function (queues one request; writes no state of Still's). Fixed codes only.
+      if (!codes.length) {
+        await requirePsql16(exec, cwd);
+        codes.push(...(await provider({ exec, cwd, conn, sourceDir, projectRef: plan.projectRef })));
       }
     }
     if (codes.length) refuse("analytics-gate-failed", codes);
@@ -822,6 +972,7 @@ export async function runAnalyticsOperation({
       }
       if (enable && before.facts.jobs > 1) refuse("analytics-schedule-duplicate");
       if (enable) await requirePsql16(exec, cwd);
+      const rolesBefore = await roleFacts();
       step(CRON_JOB, OUTCOME_UNKNOWN);
       receipt.status = enable ? "scheduling" : "unscheduling";
       receipt.writeAttempted = true;
@@ -850,6 +1001,16 @@ export async function runAnalyticsOperation({
         after.eraser !== before.facts.eraser ||
         after.vaultTokenSha256 !== before.facts.vaultTokenSha256
       ) refuse("analytics-preservation-failed");
+      // No role, login, setting or membership changed. One exception: installing pg_net for the
+      // first time creates Supabase's own supabase_functions_admin role (its install script).
+      const roleDiff = diffFacts([...rolesBefore].sort(), [...(await roleFacts())].sort());
+      const platform = (fact) =>
+        enable && !before.facts.pgNet &&
+        /^(role supabase_functions_admin \||member supabase_functions_admin of |member \S+ of supabase_functions_admin \|)/
+          .test(fact);
+      if (roleDiff.removed.length || roleDiff.added.some((fact) => !platform(fact))) {
+        refuse("analytics-role-facts-changed");
+      }
       step(CRON_JOB, enable ? "scheduled" : "unscheduled");
     } else {
       const value = enable ? "true" : "false";
@@ -1204,6 +1365,9 @@ export function rehearsalApi(projectRef) {
   const github = `https://api.github.com/repos/${REHEARSAL_REPOSITORY}`;
   const fetchImpl = async (url, init = {}) => {
     const method = init.method ?? "GET";
+    const bearer = new Headers(init.headers).get("Authorization") ?? "";
+    // A token whose name says "secrets" stands for the Secrets-only token: functions refuse it.
+    if (url.startsWith(`${root}/functions`) && bearer.includes("secrets")) return json(403, { message: "forbidden" });
     if (url === `${root}/secrets`) {
       if (method === "GET") {
         return json(200, [...secrets].map(([name, value]) => ({ name, value: sha256(value) })));
@@ -1349,15 +1513,19 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
     DEPLOY_POLICY_MODE: p.policyMode,
     SUPABASE_PRODUCTION_PROJECT_REF: ref,
     SUPABASE_DB_URL: `postgresql://postgres:${adminPassword}@db.${ref}.supabase.co:5432/postgres?sslmode=require`,
-    [FUNCTIONS_TOKEN_ENV]: p.operation === SECRETS_OP ? "" : `rehearsal-${randomBytes(8).toString("hex")}`,
-    [SECRETS_TOKEN_ENV]: [SECRETS_OP, SWITCH_OP].includes(p.operation) ? `rehearsal-${randomBytes(8).toString("hex")}` : "",
+    [FUNCTIONS_TOKEN_ENV]: p.operation === SECRETS_OP ? "" : `rehearsal-functions-${randomBytes(8).toString("hex")}`,
+    [SECRETS_TOKEN_ENV]: [SECRETS_OP, SWITCH_OP].includes(p.operation) ? `rehearsal-secrets-${randomBytes(8).toString("hex")}` : "",
     ...extra,
   });
   const receipts = [];
+  // The provider proof needs the real analytics-erasure function and PostHog: stand-ins here
+  // (its SQL is exercised for real below; the function side has its own Deno tests).
+  let providerAnswer = [];
   const operate = async (p, extra) => {
     const receipt = await runAnalyticsOperation({
       plan: p, env: envFor(p, extra), platform: "linux", cwd, sourceDir: dir, artifactDir,
       exec: run, fetchImpl: api.fetchImpl, verifyBundles: async () => true,
+      provider: async () => providerAnswer,
     });
     receipts.push(receipt);
     return receipt;
@@ -1393,10 +1561,12 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   const noRehearsal = await operate(secretsPlan);
   api.setRehearsalGreen(true);
   const tooEarly = await operate(planFor(FUNCTIONS_OP, "apply"));
+  const broadToken = await operate(secretsPlan, { [SECRETS_TOKEN_ENV]: `rehearsal-broad-${randomBytes(8).toString("hex")}` });
   prove(
-    "negative controls: an unapproved plan, a commit without a green GoTrue rehearsal, and functions before secrets are refused before any write",
-    [unapproved, noRehearsal, tooEarly].every((r) => r.status === "stopped-before-write" && !r.writeAttempted) &&
+    "negative controls: an unapproved plan, a commit without a green GoTrue rehearsal, functions before secrets, and a secrets token that can reach functions are refused before any write",
+    [unapproved, noRehearsal, tooEarly, broadToken].every((r) => r.status === "stopped-before-write" && !r.writeAttempted) &&
       noRehearsal.issues.includes("gotrue_rehearsal_not_green") &&
+      broadToken.issues.includes("secrets_token_too_broad") &&
       tooEarly.issues.includes(`missing_secret:${ERASER_URL_SECRET}`) &&
       api.calls.secretPosts === 0 && api.calls.deploys === 0 && !(await login()),
     `${unapproved.issues[0]}; ${noRehearsal.issues.at(-1)}; ${tooEarly.issues[0]}`,
@@ -1445,19 +1615,36 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
     `${issues(scheduled)}; again ${scheduledAgain.status}`,
   );
 
+  // The provider proof's own SQL, for real: it queues one pg_net request (the worker token read from
+  // Vault in the database) and its read-back parses. The request cannot reach a function here.
+  const probeConn = parseDbUrl(envFor(planFor(SWITCH_OP, "apply", "enable")).SUPABASE_DB_URL);
+  const probe = await proveProvider({ exec: run, cwd, conn: probeConn, sourceDir: dir, projectRef: ref, polls: 5 });
+  prove(
+    "provider proof SQL: one request is queued through pg_net and its answer is read back (here it cannot reach the function, so it refuses)",
+    probe.length === 1 && ["provider_check_http_none", "provider_check_unanswered"].includes(probe[0]),
+    probe.join(" "),
+  );
+
   const noEvidence = await operate(planFor(SWITCH_OP, "apply", "enable"));
-  // Synthetic evidence of one scheduled run and one successful worker answer (rehearsal only).
+  // Synthetic evidence of scheduled runs and worker answers (rehearsal only).
   await sql(`insert into cron.job_run_details (jobid, runid, status, start_time, end_time) select j.jobid, 900000001, 'succeeded', now(), now() from cron.job j where j.jobname = '${CRON_JOB}'`);
+  await sql(`insert into net._http_response (id, status_code, content, created) values (900000003, 200, '{"claimed":2,"advanced":1,"failed":1,"lost":0,"overdue":0,"batches":1}', now())`);
+  const failing = await operate(planFor(SWITCH_OP, "apply", "enable"));
   await sql(`insert into net._http_response (id, status_code, content, created) values (900000001, 200, '{"claimed":0,"advanced":0,"failed":0,"lost":0,"overdue":0,"skipped":"provider_unconfigured"}', now())`);
   const skipped = await operate(planFor(SWITCH_OP, "apply", "enable"));
   await sql(`insert into net._http_response (id, status_code, content, created) values (900000002, 200, '{"claimed":0,"advanced":0,"failed":0,"lost":0,"overdue":0,"batches":0}', now())`);
+  providerAnswer = ["provider:project_key_mismatch"];
+  const wrongProject = await operate(planFor(SWITCH_OP, "apply", "enable"));
+  providerAnswer = [];
   const identifyBefore = version("analytics-identify");
   const enabled = await operate(planFor(SWITCH_OP, "apply", "enable"));
   prove(
-    "switch enable: refused without a scheduled run and a successful worker answer, refused while the worker skips (PostHog deletion unconfigured), then sets the switch to true and redeploys analytics-identify",
+    "switch enable: refused without a scheduled run and a clean worker answer, while the worker fails jobs, while it skips (PostHog deletion unconfigured), and when the provider proof fails; then sets the switch to true and redeploys analytics-identify",
     noEvidence.status === "stopped-before-write" && noEvidence.issues.includes("schedule_not_running") &&
       noEvidence.issues.includes("worker_not_succeeding") &&
+      failing.issues.includes("worker_failing") &&
       skipped.status === "stopped-before-write" && skipped.issues.includes("worker_provider_unconfigured") &&
+      wrongProject.status === "stopped-before-write" && wrongProject.issues.includes("provider:project_key_mismatch") &&
       enabled.status === "verified" && api.secrets.get(SWITCH_SECRET) === "true" &&
       version("analytics-identify") === identifyBefore + 1,
     issues(enabled),
@@ -1484,10 +1671,13 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   const oldUrl = api.secrets.get(ERASER_URL_SECRET);
   const oldToken = api.secrets.get(WORKER_TOKEN_SECRET);
   const oldEvent = api.secrets.get(EVENT_ID_SECRET);
+  // Rotate is the recovery path: it does not need the GoTrue rehearsal on this commit.
+  api.setRehearsalGreen(false);
   const rotated = await operate(planFor(SECRETS_OP, "rotate"));
+  api.setRehearsalGreen(true);
   const newUrl = api.secrets.get(ERASER_URL_SECRET);
   prove(
-    "secrets rotate: the eraser password and worker token change in every place (old password refused, new one signs in, Vault equals the new token); the event id secret is kept",
+    "secrets rotate (without the rehearsal gate): the eraser password and worker token change in every place (old password refused, new one signs in, Vault equals the new token); the event id secret is kept",
     rotated.status === "verified" && newUrl !== oldUrl && (await signsIn(newUrl)) && !(await signsIn(oldUrl)) &&
       api.secrets.get(WORKER_TOKEN_SECRET) !== oldToken && api.secrets.get(EVENT_ID_SECRET) === oldEvent &&
       (await vaultDigest()) === sha256(api.secrets.get(WORKER_TOKEN_SECRET)),

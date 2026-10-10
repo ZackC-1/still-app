@@ -30,9 +30,16 @@ production routes that every app calls. So the "sandbox first" step is: (1) the 
 run below rehearses the whole lifecycle on a throwaway copy of the database in GitHub (secrets,
 functions, schedule, switch on, switch off, schedule off, rotate) before asking for approval; then
 (2) after the switch is on, check it with a V3 QA package and a test account; and (3) if anything
-looks wrong, switch it off at once (one approval, no other gate). Test builds send their own events
-to the PostHog test project, but the server's email attach and deletions use the production PostHog
-secrets above, so a signed-in test account's email lands on a production PostHog person.
+looks wrong, switch it off at once (one approval, no other gate).
+
+**Test builds never get an identity.** Test builds send their events to the PostHog test project,
+while the server attaches emails and `account_created` in the live project. So `analytics-identify`
+gives a device an identity only when the device proves it sends to the live project: the request
+must carry `projectKeySha256`, the SHA-256 of the client's public PostHog project key, and it must
+equal the digest of the server's `POSTHOG_PROJECT_KEY`. Any other request (a test build, or a build
+without the field) is answered `{"state": "test_channel"}` with nothing written. **The client half
+(apps sending `projectKeySha256`) is not in this change;** until it ships in the V3 builds, every V3
+device keeps waiting even with the switch on, so step 4 waits for it.
 
 ## The owner's steps (four approvals)
 
@@ -44,7 +51,16 @@ Before starting, Claude:
    deletes accounts through GoTrue and the real `delete-user` handler. Steps 1, 2, 3 and 4 refuse
    unless this rehearsal succeeded on exactly the planned commit. No approval is needed for it.
 3. Confirms with the owner that the `SUPABASE_QA_SECRETS_ACCESS_TOKEN` environment secret still
-   exists. It is the only token that can write function secrets (steps 1 and 4 use it).
+   exists and is a Supabase token limited to project secrets. It is the only token that can write
+   function secrets (steps 1 and 4 use it). Steps 1 and 4 also check it for themselves: if it can
+   read the project's functions, they refuse (`secrets_token_too_broad`). A dedicated, narrower
+   switch token would be better still; until then, do not revoke this one while analytics is on,
+   because switch-off needs it.
+4. Before step 4 only: in PostHog, give the personal API key that `POSTHOG_PERSONAL_API_KEY` holds
+   the **project: read** scope as well as **person: write**, still limited to the one project
+   (owner, in PostHog). Step 4's provider proof reads the project with it to check that deletions
+   target the same project that receives the events. If PostHog makes a new key instead of editing
+   the old one, the secret has to be replaced through a reviewed change first.
 
 Then, for each step, Claude starts the run with the command shown and sends the owner its link. The
 owner opens it, reads the plan in the summary, clicks **Review deployments**, ticks
@@ -55,28 +71,47 @@ starting the next step.
 |---|---|---|
 | 1 | Generates, in the runner's memory only, the eraser password, the worker token and the event-id secret. Writes `ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN` and `ANALYTICS_EVENT_ID_SECRET`, gives the eraser role sign-in, and copies the worker token into Supabase Vault for the schedule. Nobody ever sees a value. | `gh workflow run supabase-production-deploy.yml --ref main -f commit=<sha> -f operation=analytics-subjects-secrets -f policy_mode=none -f mode=apply` |
 | 2 | Deploys exactly `analytics-erasure`, then `analytics-identify`, then `delete-user`, built from that commit, and reads each one back byte for byte. Stops before `delete-user` if an earlier route does not read back. | `... -f operation=analytics-subjects-functions -f policy_mode=none -f mode=apply` |
-| 3 | Schedules the deletion worker every 15 minutes (pg_cron with pg_net). The job reads the token from Vault when it runs. | `... -f operation=analytics-erasure-schedule -f policy_mode=enable -f mode=apply` |
-| 4 | **Wait 15 to 30 minutes after step 3**, so the schedule has run at least once. Sets `ANALYTICS_SUBJECTS_ENABLED=true` and redeploys `analytics-identify`. | `... -f operation=analytics-subjects-switch -f policy_mode=enable -f mode=apply` |
+| 3 | Schedules the deletion worker every 15 minutes (pg_cron with pg_net). The job reads the token from Vault when it runs. Run it soon after step 2. | `... -f operation=analytics-erasure-schedule -f policy_mode=enable -f mode=apply` |
+| 4 | **Only after the client half of the test-channel check has shipped, and 15 to 30 minutes after step 3**, so the schedule has run at least once. Proves PostHog deletion, then sets `ANALYTICS_SUBJECTS_ENABLED=true` and redeploys `analytics-identify`. | `... -f operation=analytics-subjects-switch -f policy_mode=enable -f mode=apply` |
+
+Right after step 2 (Claude, then the owner):
+
+- Prepare a reviewed revert or fix-forward commit for the three routes, so a problem can be fixed
+  through the same protected path.
+- Delete one disposable team account through the production `delete-user` (from a production
+  build, signed in as that account) and confirm the answer is `200 {"deleted": true}`.
+- Watch the `analytics-identify` logs for 5xx answers to released 2.1 apps. Their rate limiter now
+  prefers the long-proven writer login and only falls back to the eraser login.
 
 What each step refuses, before writing anything:
 
-- **Every step (except the two "off" directions):** migration history must hold 0017 and 0018;
-  0018's read-only check (which also re-checks 0017's account-deletion snapshot trigger and the
-  eraser role) must be clean, apart from the one code a later reviewed migration explains (0020
-  replaced the shared rate limiter); and the GoTrue rehearsal must have passed on the commit.
+- **Every step (except the two "off" directions and step 1's `rotate`):** migration history must
+  hold 0017 and 0018; 0018's read-only check (which also re-checks 0017's account-deletion snapshot
+  trigger and the eraser role) must be clean, apart from the one code a later reviewed migration
+  explains (0020 replaced the shared rate limiter); and the GoTrue rehearsal must have passed on the
+  commit. `rotate` is the recovery path, so it skips these and keeps only the eraser-role check, the
+  token check and its own write checks; it is always safe to run again.
+- **Steps 1 and 4 (on):** the Secrets-only token must be refused by the project's functions
+  endpoint.
 - **Step 1:** never replaces a value. A half-set state (a URL without sign-in, sign-in without a
   URL, a Vault token without the secret) refuses and names `rotate`.
 - **Step 2:** the three analytics secrets and the five PostHog secrets must exist, the eraser must
   be able to sign in, and the Vault token must match the function secret (compared by digest only).
 - **Step 3:** as step 2, and `analytics-erasure` must be deployed at exactly the planned source.
 - **Step 4:** as step 2; all three routes at exactly the planned source; the schedule present with
-  the exact planned command; pg_cron ran it in the last 35 minutes; and a worker run in that window
-  answered with a report that skipped nothing (so PostHog deletion is configured).
+  the exact planned command; pg_cron ran it in the last 35 minutes; a worker run in that window
+  answered with a report that skipped nothing and has `failed: 0` and `lost: 0`; and, last, the
+  **provider proof**: `analytics-erasure`, asked through pg_net with the Vault token, reads the
+  PostHog project with the personal key (its public token must equal `POSTHOG_PROJECT_KEY`) and
+  bulk-deletes one random, never-used id (accepted, nobody found, no errors). Only pass/fail codes
+  come back.
 
-Then check with a V3 QA package: sign in on a test device, confirm the app gets its analytics
-identity (not "unavailable"), and that the PostHog person for that device shows the test email.
-Delete a disposable test account and confirm its device's person is removed after the next worker
-run (PostHog removes the events later, in a batch).
+Then check with a **production-channel** build (a test build is answered `test_channel` by design):
+sign in with a disposable team account, confirm the app gets its analytics identity, and that the
+live PostHog person for that device shows that account's email. Then delete the account and confirm
+the device's person is removed after the next worker run (PostHog removes the events later, in a
+batch). To exercise identities with a test build instead, point the server at the PostHog test
+project; never send test accounts into the live project.
 
 ## Undo
 
@@ -104,11 +139,24 @@ Closing records carry fixed codes only. The common ones:
 | `schedule_missing`, `schedule_differs` | Run step 3 from the same commit |
 | `schedule_not_running`, `worker_not_succeeding` | Wait for the next quarter hour and retry; if it persists, check the worker token and the `analytics-erasure` logs |
 | `worker_provider_unconfigured` | The worker ran but PostHog deletion is not configured: check the PostHog personal key and project id |
+| `worker_failing` | Worker runs reported failed or lost jobs: check PostHog, the personal key and the `analytics-erasure` logs |
+| `provider:project_key_mismatch` | The personal key and project id point at a different PostHog project from the one receiving events: fix the secrets through a reviewed change |
+| `provider:project_read_forbidden`, `provider:delete_forbidden` | The personal key lacks project: read or person: write on that project |
+| `provider_check_unanswered`, `provider_check_http_<status>` | The function did not answer the proof: check that `analytics-erasure` is deployed and the worker token matches |
+| `secrets_token_too_broad` | The Secrets-only token can also reach functions: replace it with a token limited to project secrets |
 | `analytics-eraser-mismatch`, `analytics-worker-token-mismatch` | Step 1 found a half-set state: run step 1 in `rotate` mode |
 | `outcome-unknown` status | A write may or may not have happened. Do not retry blindly; follow the record's recovery line |
 
-After step 1, the QA sandbox function baseline digest changes (the eraser role gains sign-in), so
-the next `qa-sandbox-functions` apply needs a new `baseline-only` run first. That is expected.
+After step 1 (the eraser role gains sign-in) and after step 3 (the first pg_net install also creates
+Supabase's own `supabase_functions_admin` role), the QA sandbox function baseline digest changes, so
+the next `qa-sandbox-functions` apply needs a new `baseline-only` run first. That is expected. Step 3
+allows exactly that platform role and no other role change.
+
+**pg_net privileges.** On Supabase the `net` schema and its functions belong to `supabase_admin`,
+which grants USAGE to PUBLIC, `anon` and `authenticated`; the `postgres` role the deploy uses is
+not their grantor and cannot revoke those grants (a REVOKE is a silent no-op). They matter only if
+`net` were exposed through the Data API: the owner should confirm in the Supabase dashboard (API
+settings, exposed schemas) that `net` is not listed.
 
 Monitoring after the switch is on is in the PostHog runbook: the oldest-due-job query, the
 `analytics erasure overdue jobs` line and the `ANALYTICS CAPTURE DEFERRED` line.

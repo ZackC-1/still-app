@@ -22,6 +22,7 @@ import {
   classifyBulkDelete,
   combineOutcomes,
   HttpPostHogErasure,
+  PROVIDER_CHECK_CODES,
   type PostHogErasurePort,
   type PostHogSubjectPort,
   subjectEventId,
@@ -422,6 +423,79 @@ Deno.test("the worker route needs its token; a blank configured token refuses ev
   assertEquals(store.jobs[0]!.stage, "provider_delete_accepted");
 });
 
+Deno.test("the provider check needs the worker token and answers fixed codes only", async () => {
+  const store = new FakeStore();
+  const check = (token: string | null, posthog: PostHogErasurePort, body: unknown = { action: "provider-check" }) =>
+    handleAnalyticsErasure(
+      erasureRequest(body, token === null ? {} : { Authorization: token }),
+      erasureDeps(store, { posthog }),
+    );
+  const proven: PostHogErasurePort = {
+    ...fakeDeleter().port,
+    providerCheck: () => Promise.resolve({ ok: true, codes: ["project_read_ok", "project_key_matches", "delete_scope_ok"] }),
+  };
+  assertEquals((await check(null, proven)).status, 401);
+  assertEquals((await check("wrong", proven)).status, 401);
+  assertEquals((await check(WORKER_TOKEN, proven, { action: "provider-check", extra: 1 })).status, 400);
+  assertEquals((await check(WORKER_TOKEN, fakeDeleter().port)).status, 503);
+  const ok = await check(WORKER_TOKEN, proven);
+  assertEquals(await ok.json(), { ok: true, codes: ["project_read_ok", "project_key_matches", "delete_scope_ok"] });
+  assertEquals(store.calls, [], "the provider check touches no erasure state");
+});
+
+Deno.test("the provider proof reads the project with the personal key and deletes one random id", async () => {
+  const config = {
+    projectKey: "phc_live_project",
+    host: "https://us.i.posthog.com",
+    apiHost: "https://us.posthog.com",
+    projectId: "42",
+    personalApiKey: "phx_personal",
+  };
+  const script = (project: { status: number; body: unknown }, deletion: { status: number; body: unknown }) => {
+    const seen: { url: string; method: string; auth: string | null; body: string | null }[] = [];
+    const fetchImpl = ((url: string, init: RequestInit = {}) => {
+      seen.push({
+        url,
+        method: init.method ?? "GET",
+        auth: new Headers(init.headers).get("Authorization"),
+        body: typeof init.body === "string" ? init.body : null,
+      });
+      const reply = url.endsWith("/bulk_delete/") ? deletion : project;
+      return Promise.resolve(new Response(JSON.stringify(reply.body), { status: reply.status }));
+    }) as typeof fetch;
+    return { posthog: new HttpPostHogErasure(config, fetchImpl), seen };
+  };
+  const good = script({ status: 200, body: { api_token: "phc_live_project", name: "Still" } }, {
+    status: 202,
+    body: { persons_found: 0, persons_queued_for_deletion: 0, deletion_errors: [] },
+  });
+  const result = await good.posthog.providerCheck();
+  assertEquals(result, { ok: true, codes: ["project_read_ok", "project_key_matches", "delete_scope_ok"] });
+  assertEquals(good.seen.map((c) => [c.method, c.url, c.auth]), [
+    ["GET", "https://us.posthog.com/api/projects/42/", "Bearer phx_personal"],
+    ["POST", "https://us.posthog.com/api/projects/42/persons/bulk_delete/", "Bearer phx_personal"],
+  ]);
+  const ids = JSON.parse(good.seen[1]!.body!).distinct_ids;
+  assertEquals(ids.length, 1);
+  assert(/^[0-9a-f-]{36}$/.test(ids[0]), "one random uuid, never a real id");
+  for (
+    const [project, deletion, codes] of [
+      [{ status: 200, body: { api_token: "phc_test_project" } }, { status: 202, body: { persons_found: 0 } }, ["project_read_ok", "project_key_mismatch", "delete_scope_ok"]],
+      [{ status: 403, body: {} }, { status: 403, body: {} }, ["project_read_forbidden", "delete_forbidden"]],
+      [{ status: 503, body: {} }, { status: 202, body: { persons_found: 1 } }, ["project_read_unavailable", "delete_found_person"]],
+      [{ status: 200, body: {} }, { status: 202, body: { persons_found: 0, deletion_errors: ["x"] } }, ["project_read_shape", "delete_found_person"]],
+      [{ status: 200, body: { api_token: "phc_live_project" } }, { status: 200, body: { persons_found: 0 } }, ["project_read_ok", "project_key_matches", "delete_rejected"]],
+    ] as const
+  ) {
+    const run = script(project, deletion);
+    const out = await run.posthog.providerCheck();
+    assertEquals(out, { ok: false, codes: [...codes] });
+    for (const code of out.codes) assert((PROVIDER_CHECK_CODES as readonly string[]).includes(code));
+  }
+  const unconfigured = new HttpPostHogErasure({ ...config, personalApiKey: "" }, (() => Promise.reject()) as typeof fetch);
+  assertEquals(await unconfigured.providerCheck(), { ok: false, codes: ["provider_unconfigured"] });
+});
+
 Deno.test("the worker records one fixed outcome per job and reports overdue jobs", async () => {
   const store = new FakeStore();
   await store.beginDeviceErasure(KEY_1, 0);
@@ -553,6 +627,10 @@ Deno.test("jobs are combined into bulk_delete batches of at most 1,000 distinct 
 
 // ── analytics-identify: per-device subjects ──────────────────────────────────────────────────
 
+/** SHA-256 of the server's POSTHOG_PROJECT_KEY in these tests (a production-channel client). */
+const PK_SHA = "e".repeat(64);
+const TEST_CHANNEL_SHA = "d".repeat(64);
+
 function identifyRequest(jwt: string | null, body: unknown): Request {
   const headers: Record<string, string> = { "content-type": "application/json", "cf-connecting-ip": "198.51.100.9" };
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
@@ -596,6 +674,7 @@ function identifyDeps(store: FakeStore, over: Record<string, unknown> = {}) {
     subjectsEnabled: true,
     subjects: { store, limiter: limiter().port, posthog: subject.port },
     now: () => Date.parse("2026-10-05T12:00:00Z"),
+    projectKeySha256: PK_SHA,
     ...over,
   };
   return { deps, legacy: legacy.calls, subject: subject.calls, marked };
@@ -606,7 +685,7 @@ Deno.test("NEGATIVE CONTROL: the per-device path is off unless its switch is on,
   const jwt = await mintHs256({ sub: A }, SECRET);
   for (const subjectsEnabled of [undefined, false]) {
     const { deps, subject, legacy } = identifyDeps(store, { subjectsEnabled });
-    const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+    const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
     assertEquals(res.status, 503);
     assertEquals([subject, legacy], [[], []]);
   }
@@ -617,7 +696,7 @@ Deno.test("identify with an origin proof issues this device's own subject and se
   const store = new FakeStore();
   const jwt = await mintHs256({ sub: A }, SECRET);
   const { deps, legacy, subject, marked } = identifyDeps(store);
-  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(body.state, "active");
@@ -626,9 +705,9 @@ Deno.test("identify with an origin proof issues this device's own subject and se
   assertEquals(subject, [`subject:${body.subject}:a@b.co:created`]);
   assertEquals(legacy, [], "the account person is not touched on the per-device path");
   assertEquals(marked, [A]);
-  const again = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps)).json();
+  const again = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps)).json();
   assertEquals(again.subject, body.subject);
-  const other = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_2 }), deps)).json();
+  const other = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_2, projectKeySha256: PK_SHA }), deps)).json();
   assert(other.subject !== body.subject);
 });
 
@@ -636,9 +715,9 @@ Deno.test("identify answers stopped for an erased device and never reissues its 
   const store = new FakeStore();
   const jwt = await mintHs256({ sub: A }, SECRET);
   const { deps, subject } = identifyDeps(store);
-  const first = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps)).json();
+  const first = await (await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps)).json();
   await store.beginDeviceErasure(KEY_1, 0);
-  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
   assertEquals(await res.json(), { state: "stopped" });
   assertEquals(subject.length, 1, "no email write for a stopped device");
   assert(store.subjects.filter((s) => s.proof === PROOF_1).every((s) => s.subject === first.subject));
@@ -649,7 +728,7 @@ Deno.test("a subject retired while the email was attached answers stopped (ident
   store.retireAfterIssue = true;
   const jwt = await mintHs256({ sub: A }, SECRET);
   const { deps } = identifyDeps(store);
-  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
   assertEquals(await res.json(), { state: "stopped" });
   assertEquals(store.calls.filter((c) => c.startsWith("active:")).length, 1);
 });
@@ -665,13 +744,13 @@ Deno.test("the per-device path is strict, rate limited and unavailable without i
   const { deps } = identifyDeps(store, {
     subjects: { store, limiter: limited.port, posthog: subjectPostHog().port },
   });
-  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
   assertEquals(res.status, 429);
   assertEquals(limited.keys, [`analytics-identify:user:${A}`]);
   assertEquals(store.calls, []);
   const none = identifyDeps(store, { subjects: null });
-  assertEquals((await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), none.deps)).status, 503);
-  assertEquals((await handleAnalyticsIdentify(identifyRequest(null, { originProof: PROOF_1 }), none.deps)).status, 401);
+  assertEquals((await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), none.deps)).status, 503);
+  assertEquals((await handleAnalyticsIdentify(identifyRequest(null, { originProof: PROOF_1, projectKeySha256: PK_SHA }), none.deps)).status, 401);
 });
 
 Deno.test("an account past its daily limit of new devices is told to try later; nothing is written", async () => {
@@ -679,7 +758,7 @@ Deno.test("an account past its daily limit of new devices is told to try later; 
   store.dailyLimitReached = true;
   const jwt = await mintHs256({ sub: A }, SECRET);
   const { deps, subject } = identifyDeps(store);
-  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: PK_SHA }), deps);
   assertEquals(res.status, 429);
   assertEquals(res.headers.get("retry-after"), "3600");
   assertEquals([store.subjects.length, subject.length], [0, 0]);
@@ -710,11 +789,38 @@ Deno.test("IPv6 clients are limited per /64; IPv4 and mapped addresses per addre
     new Request("http://x", {
       method: "POST",
       headers: { Authorization: `Bearer ${jwt}`, "cf-connecting-ip": "2001:db8:9:9::42" },
-      body: JSON.stringify({ originProof: PROOF_1 }),
+      body: JSON.stringify({ originProof: PROOF_1, projectKeySha256: PK_SHA }),
     }),
     deps,
   );
   assertEquals(identifyLimiter.keys, [`analytics-identify:user:${A}`, "analytics-identify:ip:2001:db8:9:9::/64"]);
+});
+
+Deno.test("NEGATIVE CONTROL: only a client of this server's PostHog project gets an identity; nothing is written for any other", async () => {
+  const store = new FakeStore();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  for (
+    const [body, over] of [
+      [{ originProof: PROOF_1, projectKeySha256: TEST_CHANNEL_SHA }, {}],
+      [{ originProof: PROOF_1 }, {}],
+      [{ originProof: PROOF_1, projectKeySha256: PK_SHA }, { projectKeySha256: null }],
+      [{ originProof: PROOF_1, projectKeySha256: PK_SHA }, { projectKeySha256: "not-a-digest" }],
+    ] as const
+  ) {
+    const { deps, legacy, subject, marked } = identifyDeps(store, over);
+    const res = await handleAnalyticsIdentify(identifyRequest(jwt, body), deps);
+    assertEquals(res.status, 200);
+    assertEquals(await res.json(), { state: "test_channel" });
+    assertEquals([legacy, subject, marked], [[], [], []], "no email, no account_created, no marker");
+  }
+  assertEquals(store.calls, [], "no subject issued or read");
+  for (const body of [{ originProof: PROOF_1, projectKeySha256: "E".repeat(64) }, { originProof: PROOF_1, projectKeySha256: 7 }]) {
+    const { deps } = identifyDeps(store);
+    assertEquals((await handleAnalyticsIdentify(identifyRequest(jwt, body), deps)).status, 400);
+  }
+  // Switched off, the answer stays 503 whatever the channel claims.
+  const off = identifyDeps(store, { subjectsEnabled: false });
+  assertEquals((await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1, projectKeySha256: TEST_CHANNEL_SHA }), off.deps)).status, 503);
 });
 
 Deno.test("released 2.1 bodies keep the account-person path, unchanged", async () => {
