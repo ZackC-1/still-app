@@ -1,10 +1,11 @@
 // Privacy-safe rendering for read-only QA check results.
 //
-// Every printed value passes a declared type: counts, numbers, booleans, closed states,
+// The full report is only ever written ENCRYPTED (run.ts); the public log shows a verdict line.
+// Even so, every value passes a declared type: counts, numbers, booleans, closed states,
 // timestamps, catalog names, settings switch maps, version strings, truncated fingerprints, and
-// short hashed references in place of raw ids. Anything else (an email, token, raw id, free text
+// keyed short references in place of raw ids. Anything else (an email, token, raw id, free text
 // or an unexpected shape) is replaced by "<withheld>" and counted, never printed.
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { LABELS } from "./catalogue.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,9 +16,14 @@ const IDENTITY_LIKE = /[0-9a-f]{8}-?[0-9a-f]{4}|[0-9a-f]{16,}/i;
 const keyLike = (value) => typeof value === "string" && KEY.test(value) && !IDENTITY_LIKE.test(value);
 export const WITHHELD = "<withheld>";
 
-/** A short, stable, non-reversible reference for an id: "#" + 10 hex of its SHA-256. */
-export function ref(id) {
-  return `#${createHash("sha256").update(String(id).toLowerCase()).digest("hex").slice(0, 10)}`;
+/**
+ * A short reference for an id: "#" + 10 hex of HMAC-SHA-256 under the environment's reference key.
+ * Stable across runs (same key), so Claude can match a right before and after an action, but not
+ * linkable to the id without the key.
+ */
+export function ref(id, refKey) {
+  if (typeof refKey !== "string" || !/^[0-9a-f]{64}$/.test(refKey)) throw new Error("Reference key missing or malformed");
+  return `#${createHmac("sha256", Buffer.from(refKey, "hex")).update(String(id).toLowerCase()).digest("hex").slice(0, 10)}`;
 }
 
 function integer(value, { min = 0 } = {}) {
@@ -34,7 +40,7 @@ function timestamp(value) {
 }
 
 /** Formats one value by its declared type; returns WITHHELD when it does not fit. */
-export function formatValue(value, type) {
+export function formatValue(value, type, { refKey } = {}) {
   if (value === null || value === undefined) return "none";
   const kind = typeof type === "string" ? type : type.type;
   let out;
@@ -52,7 +58,7 @@ export function formatValue(value, type) {
       out = timestamp(value);
       break;
     case "ref":
-      out = typeof value === "string" && UUID.test(value) ? ref(value) : undefined;
+      out = typeof value === "string" && UUID.test(value) ? ref(value, refKey) : undefined;
       break;
     case "version":
       out = typeof value === "string" && /^[0-9]{1,20}$/.test(value) ? value : undefined;
@@ -93,7 +99,7 @@ export function formatValue(value, type) {
 const cell = (text) => text.replace(/\|/g, "/");
 
 /** Renders the rows of one query as a Markdown table using only its declared fields. */
-export function renderQuery(query, rows) {
+export function renderQuery(query, rows, options = {}) {
   const columns = Object.keys(query.fields);
   let withheld = 0;
   const lines = [`### ${query.name}`, ""];
@@ -101,7 +107,7 @@ export function renderQuery(query, rows) {
   lines.push(`| ${columns.join(" | ")} |`, `| ${columns.map(() => "---").join(" | ")} |`);
   for (const row of rows.slice(0, 50)) {
     const values = columns.map((c) => {
-      const text = formatValue(row[c], query.fields[c]);
+      const text = formatValue(row[c], query.fields[c], options);
       if (text === WITHHELD) withheld++;
       return cell(text);
     });
@@ -111,24 +117,33 @@ export function renderQuery(query, rows) {
   return { text: [...lines, ""].join("\n"), withheld };
 }
 
-/** The full report for one run. `results` pairs each catalogue query with its rows. */
-export function renderReport({ programId, check, labels, holders, results }) {
+const PRODUCTION_TEXT = {
+  recorded: "baseline recorded (keyed digest only; production values are never printed)",
+  unchanged: "yes",
+  changed: "NO: production rights, policy revisions or cutoff changed since the DB-01 baseline",
+  "no-baseline": "unknown: no successful DB-01 baseline run was found",
+};
+
+/** The full report for one run (encrypted before it leaves the runner). */
+export function renderReport({ programId, check, labels, holders, results, refKey, production, verdict }) {
   let withheld = 0;
   const sections = results.map(({ query, rows }) => {
-    const rendered = renderQuery(query, rows);
+    const rendered = renderQuery(query, rows, { refKey });
     withheld += rendered.withheld;
     return rendered.text;
   });
   const accounts = labels.length
-    ? labels.map((label, i) => `${LABELS[label]} (${ref(holders[i])})`).join(" and ")
+    ? labels.map((label, i) => `${LABELS[label]} (${ref(holders[i], refKey)})`).join(" and ")
     : "none (whole-database or QA-registry check)";
   return [
     `## Read-only QA check ${programId}: ${check.title}`,
     "",
+    `- Verdict: ${verdict}`,
     `- Catalogue check: \`${check.id}\`${check.programIds.length ? ` (answers ${check.programIds.join(", ")})` : ""}`,
     `- QA account(s): ${accounts}`,
     `- Expected (from the programme): ${check.expected}`,
-    "- Session: narrow read-only role, read-only transaction, rolled back. References are short hashes, never raw ids.",
+    ...(production ? [`- Production unchanged since baseline: ${PRODUCTION_TEXT[production]}`] : []),
+    "- Session: narrow read-only role, read-only transaction, rolled back. References are keyed short hashes, never raw ids.",
     ...(withheld ? [`- ${withheld} value(s) withheld because they did not match the expected shape.`] : []),
     "",
     ...sections,

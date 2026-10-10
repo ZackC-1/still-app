@@ -36,7 +36,7 @@ export const CHECK_VIEWS = Object.freeze([
   "isolation_summary",
   "retention_summary",
   "privacy_summary",
-  "erasure_jobs",
+  "erasure_jobs_last_hour",
 ]);
 const CATALOG_RELATIONS = new Set([
   "pg_class",

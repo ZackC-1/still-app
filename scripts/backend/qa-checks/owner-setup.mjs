@@ -2,36 +2,58 @@
 // make no network call and never print a password or an email.
 //
 //   node scripts/backend/qa-checks/owner-setup.mjs login --project-ref <ref> --pooler-host <host> --out <new private file>
-//     Generates a random password in memory and writes ONE private file (mode 0600, refuses to
-//     overwrite) holding: the SQL-editor statement that enables sign-in for
-//     still_qa_readonly_checker with a SCRAM-SHA-256 verifier (the password itself never reaches
-//     the database or its logs), and the session-pooler URL for the GitHub environment secret
-//     STILL_QA_READONLY_DB_URL. Delete the file after both are pasted.
+//     Generates a random password and a random reference key in memory and writes ONE private file
+//     (mode 0600, refuses to overwrite) holding: the SQL-editor statement that enables sign-in for
+//     still_qa_readonly_checker for 60 days with a SCRAM-SHA-256 verifier (the password itself
+//     never reaches the database or its logs), and the two GitHub environment secrets
+//     STILL_QA_READONLY_DB_URL and STILL_QA_READONLY_REF_KEY. Delete the file after pasting.
 //
 //   node scripts/backend/qa-checks/owner-setup.mjs registry < <private JSON {"qa-a": "<email>", ...}>
-//     Prints the SQL-editor statement that registers the nine QA labels. It carries only SHA-256
-//     digests of the lower-cased emails; the database matches them against Auth itself.
-import { createHash } from "node:crypto";
+//     Prints two SQL-editor blocks: a read-only PREVIEW that shows the owner, in the SQL editor
+//     only, each label with a masked address (z***+stillqa-refund@…) and whether it is a confirmed
+//     owner QA alias; then the COMMIT block, to run only if all nine are. Both carry only SHA-256
+//     digests (of each lower-cased email and of the tag-free base mailbox). These digests are not
+//     secret, just not readable at a glance; the database enforces the alias rule itself.
+import { createHash, randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { generatePassword, scramSha256Verifier } from "../deploy/qa-secrets.mjs";
 import { LABELS } from "./catalogue.mjs";
 
 const ROLE = "still_qa_readonly_checker";
 const EMAIL = /^[^\s@'"\\]{1,64}@[^\s@'"\\]{1,190}\.[A-Za-z]{2,24}$/;
+/** Same rule as the candidate SQL: <base local part>+stillqa-<name>@<base domain>. */
+export const QA_ALIAS = /^[^+@]+\+stillqa-[a-z0-9-]+@[^@]+$/;
+const TAG = /\+stillqa-[a-z0-9-]+@/;
+const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+const ALIAS_SQL = (base) =>
+  "u.email_confirmed_at is not null and pg_catalog.lower(u.email) ~ '^[^+@]+\\+stillqa-[a-z0-9-]+@[^@]+$' " +
+  "and pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.regexp_replace(pg_catalog.lower(u.email), '\\+stillqa-[a-z0-9-]+@', '@'), 'UTF8')), 'hex') " +
+  `= '${base}'`;
 
-export function loginArtifacts({ projectRef, poolerHost, password = generatePassword() }) {
+export function loginArtifacts({
+  projectRef,
+  poolerHost,
+  password = generatePassword(),
+  refKey = randomBytes(32).toString("hex"),
+  validUntil = new Date(Date.now() + 60 * 86400000),
+}) {
   if (!/^[a-z]{20}$/.test(projectRef ?? "")) throw new Error("--project-ref must be the 20-letter project ref");
   if (!/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(poolerHost ?? ""))
     throw new Error("--pooler-host must be the session pooler host from the Supabase Connect panel");
+  if (!/^[0-9a-f]{64}$/.test(refKey)) throw new Error("reference key must be 64 hex characters");
   const verifier = scramSha256Verifier(password);
+  const until = validUntil.toISOString().slice(0, 10);
   return [
-    "-- 1. Paste into the Supabase SQL editor (a SCRAM verifier only; no password):",
-    `alter role ${ROLE} with login password '${verifier}';`,
+    `-- 1. Paste into the Supabase SQL editor (a SCRAM verifier only; no password). Sign-in expires ${until}:`,
+    `alter role ${ROLE} with login password '${verifier}' valid until '${until}';`,
     "",
     "-- 2. GitHub > Settings > Environments > supabase-readonly-checks > secret STILL_QA_READONLY_DB_URL:",
     `postgresql://${ROLE}.${projectRef}:${password}@${poolerHost}:5432/postgres?sslmode=verify-full`,
     "",
-    "-- 3. Delete this file.",
+    "-- 3. Same environment > secret STILL_QA_READONLY_REF_KEY:",
+    refKey,
+    "",
+    "-- 4. Delete this file.",
     "",
   ].join("\n");
 }
@@ -42,22 +64,43 @@ export function registrySql(accounts) {
   const unknown = labels.filter((l) => !Object.hasOwn(LABELS, l));
   if (unknown.length) throw new Error(`Unknown labels (use ${Object.keys(LABELS).join(", ")})`);
   if (labels.length !== Object.keys(LABELS).length) throw new Error("All nine QA labels are required");
-  const digests = labels.map((label) => {
-    const email = accounts[label];
-    if (typeof email !== "string" || !EMAIL.test(email.trim())) throw new Error(`Label ${label} needs one email address`);
-    return [label, createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex")];
+  const rows = labels.map((label) => {
+    const raw = accounts[label];
+    const email = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (!EMAIL.test(email)) throw new Error(`Label ${label} needs one email address`);
+    if (!QA_ALIAS.test(email)) throw new Error(`Label ${label} is not a +stillqa-<name> alias`);
+    return { label, digest: sha256(email), base: sha256(email.replace(TAG, "@")) };
   });
-  if (new Set(digests.map(([, d]) => d)).size !== digests.length) throw new Error("Each label needs a different email");
+  if (new Set(rows.map((r) => r.digest)).size !== rows.length) throw new Error("Each label needs a different email");
+  if (new Set(rows.map((r) => r.base)).size !== 1) throw new Error("All nine aliases must belong to the same mailbox");
+  const base = rows[0].base;
+  const values = rows.map((r) => `  ('${r.label}', '${r.digest}')`).join(",\n");
+  const join = "join auth.users u on pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.lower(u.email), 'UTF8')), 'hex') = v.email_sha256";
   return [
-    "-- Registers the nine QA labels for the read-only check route. Only email digests appear here.",
+    "-- A. PREVIEW (reads only). Every one of the nine rows must show qa_alias = true and a masked",
+    "--    address you recognise. If not, stop: do not run block B.",
+    "select v.label,",
+    "  pg_catalog.left(u.email, 1) || '***' || coalesce(pg_catalog.substring(pg_catalog.lower(u.email), '(\\+stillqa-[a-z0-9-]+)@'), '') || '@…' as masked_email,",
+    `  coalesce(${ALIAS_SQL(base)}, false) as qa_alias`,
+    "from (values",
+    values,
+    ") v(label, email_sha256)",
+    `left ${join}`,
+    "order by v.label;",
+    "",
+    "-- B. COMMIT (run separately, only after A shows nine qa_alias = true rows).",
+    "begin;",
+    "insert into still_qa_checks.qa_alias_owner(base_sha256)",
+    `values ('${base}') on conflict (singleton) do update set base_sha256 = excluded.base_sha256;`,
     "insert into still_qa_checks.qa_accounts(label, holder)",
     "select v.label, u.id from (values",
-    digests.map(([label, digest]) => `  ('${label}', '${digest}')`).join(",\n"),
+    values,
     ") v(label, email_sha256)",
-    "join auth.users u on pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.lower(u.email), 'UTF8')), 'hex') = v.email_sha256",
+    join,
     "on conflict (label) do update set holder = excluded.holder, registered_at = pg_catalog.clock_timestamp();",
-    "-- Expect 9. Fewer means an email matched no account; nothing else changed.",
+    "-- Expect 9.",
     "select pg_catalog.count(*) as registered_labels from still_qa_checks.qa_accounts;",
+    "commit;",
     "",
   ].join("\n");
 }

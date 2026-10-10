@@ -177,8 +177,8 @@ catalog/configuration drift. Designated QA accounts' own free-settings writes ar
 
 The programme's "Claude runs this" database steps (DB-01 to DB-38) use the protected
 [read-only check route](qa-readonly-database-checks.md): one owner-approved workflow run per step,
-a closed catalogue of reviewed SELECTs, a narrow read-only role limited to QA accounts, and output
-with no emails or raw ids. Its database part is a separate owner-approved install; until it is
+a closed catalogue of reviewed SELECTs, a narrow read-only role limited to the owner's QA aliases,
+a one-line public log and an encrypted full report. Its database part is a separate owner-approved install; until it is
 installed, the owner pastes the programme's prepared read-only queries into the SQL editor instead.
 
 ## Disable and recover

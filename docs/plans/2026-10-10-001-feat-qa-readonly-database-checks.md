@@ -32,23 +32,34 @@ a write credential or any customer data. Runbook and programme mapping:
 - **Extended protocol always.** postgres.js uses the simple (multi-statement) protocol for a
   query without parameters; the runner forces `simple: false` (found by the disposable test).
 - **DB-36 is not read-only** (fault injection and writes); it stays an engineering record.
+- **Security review (10 Oct) changes.** Registration and visibility are bound to the owner's
+  `+stillqa-<name>` aliases through a mailbox digest (trigger plus read-time rule; no address
+  committed); paid-lane labels must also be sandbox members. The public log gets one verdict line;
+  the full report is age-encrypted to a repository-variable public key. Production is reduced to a
+  keyed digest compared with the DB-01 baseline. Rights are QA-held, QA-linked or holder-less
+  sandbox rights verified after the registry was filled; erasure jobs are last-hour counts. The
+  session proof also refuses definer EXECUTE, database CREATE and changed role settings. References
+  are HMAC-keyed. Sign-in expires after 60 days. The QA account file was not on disk, so the exact
+  alias domain could not be confirmed; the rule is domain-agnostic and bound to the owner's digest.
 
 ## Verification
 
-- `node --test scripts/backend/qa-checks/qa-checks.test.mjs`: 13 pass (catalogue closed and
-  complete, every query passes the guard, 30+ guard negative controls, views equal the candidate's
-  creates and grants and all are used, output withholding, workflow shape, protection check,
-  owner helpers).
-- `deno test scripts/backend/qa-checks/run.test.ts`: session proof and failure text.
+- `node --test scripts/backend/qa-checks/qa-checks.test.mjs`: 16 pass (catalogue closed and
+  complete, guard negative controls, production never in a printed query, one alias rule in all
+  places, views equal the candidate's creates and grants and all are used, keyed references,
+  output withholding, verdicts, workflow shape and pinning, protection check, owner helpers).
+- `deno test scripts/backend/qa-checks/run.test.ts`: 4 pass (session proof incl. definer, CREATE
+  and role settings; keyed production digest; failure text; age v1.2.1 encryption round trip).
 - `run-db.test.ts` against a disposable Supabase PostgreSQL 17.6 container with migrations
-  0001-0021 and the candidate installed twice: 7 steps pass (session proof, every catalogue input
-  with no raw id/email/session id printed, deletion check, synthetic customer invisible, base-table
-  and registry reads and writes refused, widened role refused, admin session refused). CI repeats
-  it in the `Supabase security rehearsal` workflow.
+  0001-0021 and the candidate installed twice: 10 steps pass (alias-only registration, session
+  proof, every input with nothing raw and no production fingerprint, non-QA rights/customers/older
+  erasure jobs invisible, paid-lane label without membership refused, keyed production comparison,
+  deletion check, refused reads and writes, six kinds of widened role refused, admin refused).
+  CI repeats it in the `Supabase security rehearsal` workflow.
 - Existing backend suites, `pnpm lint`, actionlint 1.7.7 and shellcheck pass.
 
 ## Remaining (owner)
 
-Install the candidate, enable sign-in, register the nine labels, create the
-`supabase-readonly-checks` environment and secret, then run `setup`. Hosted sign-in through the
+Install the candidate, create the sign-in, register the nine labels (preview then commit), create
+the environment with two secrets and the public-key variable, then approve `setup` and DB-01. Hosted sign-in through the
 session pooler and its certificate are unproven until then.

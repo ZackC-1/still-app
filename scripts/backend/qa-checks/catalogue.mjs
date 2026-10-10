@@ -86,19 +86,46 @@ const writesSummary = {
   fields: { writes: "count", newest: "timestamp" },
 };
 const policyHeads = {
-  name: "newest sales and rating policy revisions",
-  sql: "select p.environment, p.namespace, p.newest from still_qa_checks.policy_heads p order by p.environment, p.namespace",
+  name: "newest sandbox sales and rating policy revisions",
+  sql:
+    "select p.environment, p.namespace, p.newest from still_qa_checks.policy_heads p " +
+    "where p.environment = 'sandbox' order by p.namespace",
   fields: { environment: ENV, namespace: state("sales", "rating"), newest: "number" },
 };
-const productionFingerprint = {
-  name: "production rights fingerprint (compare Session 0 with Session 11)",
-  sql: "select f.rights, f.fingerprint from still_qa_checks.production_rights_fingerprint f",
-  fields: { rights: "count", fingerprint: "fingerprint" },
-};
+
+/**
+ * Production state, read only to compare it with the recorded baseline: the runner turns these
+ * rows into one keyed digest (HMAC-SHA-256) and prints only "unchanged since baseline: yes/no".
+ * Production counts, revisions and fingerprints are never printed or stored in the clear.
+ * @type {readonly CheckQuery[]}
+ */
+export const PRODUCTION_QUERIES = Object.freeze([
+  {
+    name: "production rights fingerprint",
+    sql: "select f.rights, f.fingerprint from still_qa_checks.production_rights_fingerprint f",
+    fields: { rights: "count", fingerprint: "fingerprint" },
+  },
+  {
+    name: "production policy revisions",
+    sql:
+      "select p.namespace, p.newest from still_qa_checks.policy_heads p " +
+      "where p.environment = 'production' order by p.namespace",
+    fields: { namespace: state("sales", "rating"), newest: "number" },
+  },
+  {
+    name: "production paid cutoff",
+    sql: "select count(*) as cutoffs from still_qa_checks.paid_cutoff_environments c where c.environment = 'production'",
+    fields: { cutoffs: "count" },
+  },
+]);
+
+/** Verdict helpers. Rows are the raw query rows, in catalogue order. */
+const n = (value) => Number(value);
+const allZero = (row) => Object.values(row ?? {}).every((v) => n(v) === 0);
 
 const expectations = {
   baseline:
-    "Hosted migration history ends at the expected version (0021 before this check route was installed). Exactly the designated QA accounts are enabled test accounts. The newest sandbox sales policy revision is the 'on' revision. The production rights fingerprint is captured for Session 11.",
+    "Hosted migration history ends at the expected version (0021 unless this route was installed as a numbered migration). Exactly the designated QA accounts are enabled test accounts. The newest sandbox sales policy revision is the 'on' revision. DB-01 records a keyed production baseline; DB-35 and DB-31 report whether production is unchanged since it.",
   settingsWrite:
     "settings_version goes up by exactly 1 per accepted change, settings_server_updated_at moves forward, the last write id is logged, and the changed switch holds the new value. No purchase is needed.",
   checkoutStarted:
@@ -114,10 +141,30 @@ const expectations = {
   signOut: "Only the Supabase session count drops. Settings and rights are unchanged.",
 };
 
+const BASELINE_QUERIES = [
+  {
+    name: "newest hosted migrations",
+    sql: "select m.version from still_qa_checks.migration_history m order by m.version desc limit 3",
+    fields: { version: "version" },
+  },
+  {
+    name: "QA sandbox test accounts",
+    sql: "select count(*) filter (where s.enabled) as enabled_subjects, count(*) as total_subjects from still_qa_checks.qa_subjects s",
+    fields: { enabled_subjects: "count", total_subjects: "count" },
+  },
+  policyHeads,
+  {
+    name: "sandbox paid cutoff",
+    sql: "select count(*) as sandbox_cutoffs from still_qa_checks.paid_cutoff_environments c where c.environment = 'sandbox'",
+    fields: { sandbox_cutoffs: "count" },
+  },
+];
+
 /**
  * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | { type: "state", values: string[] }} FieldType
  * @typedef {{ name: string, sql: string, params?: number[], fields: Record<string, FieldType> }} CheckQuery
- * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, queries: CheckQuery[] }} Check
+ * @typedef {"pass" | "fail" | undefined} Verdict
+ * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline") => Verdict, queries: CheckQuery[] }} Check
  */
 
 /**
@@ -131,55 +178,53 @@ export const CHECKS = Object.freeze([
     id: "setup",
     programIds: [],
     title: "Route readiness: the narrow read-only role and the QA account registry",
-    expected: "The session is the narrow read-only role; all nine QA labels are registered.",
+    expected: "The session is the narrow read-only role; all nine QA labels are registered, live owner QA aliases and (for the seven paid-lane labels) sandbox members.",
     accounts: [],
+    verdict: ([labels]) => (labels.length === 9 && labels.every((r) => r.in_scope === true) ? "pass" : "fail"),
     queries: [
       {
         name: "registered QA labels",
-        sql: "select a.label, a.auth_present from still_qa_checks.account_status a order by a.label",
-        fields: { label: "label", auth_present: "bool" },
+        sql: "select a.label, a.auth_present, a.in_scope from still_qa_checks.account_status a order by a.label",
+        fields: { label: "label", auth_present: "bool", in_scope: "bool" },
       },
     ],
   },
   {
     id: "baseline",
-    programIds: ["DB-01", "DB-35"],
-    title: "Baseline before testing (and unchanged by testing)",
+    programIds: ["DB-01"],
+    title: "Baseline before testing",
     expected: expectations.baseline,
     accounts: [],
-    queries: [
-      {
-        name: "newest hosted migrations",
-        sql: "select m.version from still_qa_checks.migration_history m order by m.version desc limit 3",
-        fields: { version: "version" },
-      },
-      {
-        name: "QA sandbox test accounts",
-        sql: "select count(*) filter (where s.enabled) as enabled_subjects, count(*) as total_subjects from still_qa_checks.qa_subjects s",
-        fields: { enabled_subjects: "count", total_subjects: "count" },
-      },
-      policyHeads,
-      {
-        name: "paid cutoff environments",
-        sql: "select c.environment from still_qa_checks.paid_cutoff_environments c order by c.environment",
-        fields: { environment: ENV },
-      },
-      productionFingerprint,
-    ],
+    production: "record",
+    queries: BASELINE_QUERIES,
+  },
+  {
+    id: "baseline-recheck",
+    programIds: ["DB-35"],
+    title: "Baseline unchanged by testing",
+    expected: expectations.baseline,
+    accounts: [],
+    production: "compare",
+    verdict: (_rows, production) => (production === "changed" ? "fail" : undefined),
+    queries: BASELINE_QUERIES,
   },
   {
     id: "account-identity",
     programIds: ["DB-02"],
     title: "Each QA label resolves to one confirmed account (no email exposed)",
     expected:
-      "Each of the nine labels maps to exactly one Auth account: present, confirmed, not banned or deleted. Sandbox membership is shown for the paid-lane accounts (the free control and the deletion account are deliberately not members).",
+      "Each of the nine labels maps to exactly one Auth account: present, confirmed, not banned or deleted, a live owner QA alias (in scope). Sandbox membership is expected for the seven paid-lane accounts (the free control and the deletion account are deliberately not members).",
     accounts: [],
+    verdict: ([rows]) =>
+      rows.length === 9 && rows.every((r) => r.auth_present && r.confirmed && !r.banned && !r.deleted && r.in_scope)
+        ? "pass"
+        : "fail",
     queries: [
       {
         name: "QA label status",
         sql:
-          "select a.label, a.holder, a.auth_present, a.confirmed, a.banned, a.deleted, a.created_at, a.subject_enabled, " +
-          "a.subject_revision from still_qa_checks.account_status a order by a.label",
+          "select a.label, a.holder, a.auth_present, a.confirmed, a.banned, a.deleted, a.created_at, a.subject_expected, " +
+          "a.subject_enabled, a.subject_revision, a.in_scope from still_qa_checks.account_status a order by a.label",
         fields: {
           label: "label",
           holder: "ref",
@@ -188,8 +233,10 @@ export const CHECKS = Object.freeze([
           banned: "bool",
           deleted: "bool",
           created_at: "timestamp",
+          subject_expected: "bool",
           subject_enabled: "bool",
           subject_revision: "number",
+          in_scope: "bool",
         },
       },
     ],
@@ -398,6 +445,7 @@ export const CHECKS = Object.freeze([
     title: "A no-purchase account stays empty after Restore",
     expected: "The account has no rights rows and no purchase operation.",
     accounts: ["account"],
+    verdict: ([[row]]) => (allZero(row) ? "pass" : "fail"),
     queries: [
       {
         name: "rows for the account",
@@ -657,8 +705,7 @@ export const CHECKS = Object.freeze([
       {
         name: "analytics erasure jobs created in the last hour",
         sql:
-          "select j.scope, j.stage, count(*) as jobs from still_qa_checks.erasure_jobs j " +
-          "where j.created_at > pg_catalog.now() - interval '1 hour' group by j.scope, j.stage order by 1, 2",
+          "select j.scope, j.stage, j.jobs from still_qa_checks.erasure_jobs_last_hour j order by j.scope, j.stage",
         fields: {
           scope: state("device", "account_deleted"),
           stage: state("stop_recorded", "provider_delete_accepted", "provider_delete_confirmed", "complete"),
@@ -672,11 +719,14 @@ export const CHECKS = Object.freeze([
     programIds: ["DB-31"],
     title: "Sandbox never touched production",
     expected:
-      "Every right held by a QA account is sandbox; no negative right points at a production right; QA accounts have no legacy entitlements; the production fingerprint equals the Session 0 value; production policy revisions unchanged.",
+      "Every right held by a QA account is sandbox; no negative right points at a production right; QA accounts have no legacy entitlements; production (rights, policy revisions, cutoff) unchanged since the DB-01 baseline.",
     accounts: [],
+    production: "compare",
+    verdict: ([, [iso]], production) =>
+      !allZero(iso) || production === "changed" ? "fail" : production === "unchanged" ? "pass" : undefined,
     queries: [
       {
-        name: "rights by environment, provider and product",
+        name: "sandbox rights by provider and product",
         sql:
           "select s.environment, s.provider_source, s.provider_product, s.total, s.active from still_qa_checks.rights_summary s " +
           "order by s.environment, s.provider_source, s.provider_product",
@@ -689,7 +739,6 @@ export const CHECKS = Object.freeze([
           "from still_qa_checks.isolation_summary i",
         fields: { qa_non_sandbox_rights: "count", cross_environment_negative_rights: "count", qa_legacy_entitlements: "count" },
       },
-      productionFingerprint,
       policyHeads,
     ],
   },
@@ -700,6 +749,8 @@ export const CHECKS = Object.freeze([
     expected:
       "No PUBLIC, anon or authenticated grant on any private table or private function; row security recorded as found.",
     accounts: [],
+    verdict: ([grants, executes, rls]) =>
+      grants.length === 0 && executes.length === 0 && rls.every((r) => r.row_security === true) ? "pass" : "fail",
     queries: [
       {
         name: "client grants on private tables",
@@ -736,6 +787,7 @@ export const CHECKS = Object.freeze([
     title: "Short-lived records really are short-lived (whole database, counts only)",
     expected: "No settings write older than 30 days; rate-limit buckets expire; no expired QA rate windows linger.",
     accounts: [],
+    verdict: ([[row]]) => (allZero(row) ? "pass" : "fail"),
     queries: [
       {
         name: "expired rows still present",
@@ -750,13 +802,13 @@ export const CHECKS = Object.freeze([
     programIds: ["DB-34"],
     title: "Test accounts are marked server-side and easy to exclude",
     expected:
-      "The sandbox member list is exactly the paid-lane QA accounts (enabled); all their rights are sandbox. Known gap: their profile rows carry no test marker, so exclusion relies on joining the member list.",
+      "The sandbox member list is exactly the paid-lane QA accounts (enabled, each an owner QA alias); all their rights are sandbox. Known gap: their profile rows carry no test marker, so exclusion relies on joining the member list.",
     accounts: [],
     queries: [
       {
         name: "sandbox members",
-        sql: "select s.label, s.enabled from still_qa_checks.qa_subjects s order by s.label",
-        fields: { label: "label", enabled: "bool" },
+        sql: "select s.label, s.enabled, s.qa_alias from still_qa_checks.qa_subjects s order by s.label",
+        fields: { label: "label", enabled: "bool", qa_alias: "bool" },
       },
       {
         name: "member profiles and non-sandbox rights",
@@ -772,6 +824,7 @@ export const CHECKS = Object.freeze([
     expected:
       "No column in public or private named like a URL, page, visit, history, title, search or referrer; settings documents hold only the known keys; rate-limit keys are hashed.",
     accounts: [],
+    verdict: ([columns, [row]]) => (columns.length === 0 && allZero(row) ? "pass" : "fail"),
     queries: [
       {
         name: "columns named like browsing data",

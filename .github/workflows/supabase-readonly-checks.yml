@@ -6,10 +6,15 @@ name: Supabase read-only QA check
 # Inputs are a check id and QA account LABELS only; never an email or id. Labels resolve inside the
 # database through the owner-filled QA registry.
 # The job waits for the owner's approval in the `supabase-readonly-checks` environment, which holds
-# ONLY the read-only connection secret STILL_QA_READONLY_DB_URL (role still_qa_readonly_checker).
+# ONLY the read-only connection secret STILL_QA_READONLY_DB_URL (role still_qa_readonly_checker)
+# and the reference key STILL_QA_READONLY_REF_KEY. Claude never approves a run; the owner does.
 # It then re-checks that the environment is owner-only and that the owner approved this run, and
-# runs the check in a read-only transaction that is always rolled back. Output is counts, states,
-# timestamps and short hashed references only. No Supabase CLI, no write credential, no deploy.
+# runs the check in a read-only transaction that is always rolled back.
+# This repository is PUBLIC: logs, summaries and artifacts are world-readable. The log and summary
+# get one line (check id and pass / fail / needs-review). The full report is encrypted with age to
+# the repository variable STILL_QA_READONLY_REPORT_PUBKEY and uploaded as an artifact only Claude's
+# private key can read. DB-01 also uploads a keyed production digest (meaningless without the key)
+# that DB-31 and DB-35 compare against. No Supabase CLI, no write credential, no deploy.
 # Runbook: docs/release/qa-readonly-database-checks.md
 run-name: "Read-only QA check ${{ inputs.check }} ${{ inputs.account }} ${{ inputs.account_b }}"
 on:
@@ -124,15 +129,58 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/backend/qa-checks/protection.mjs
+      - name: Install pinned age (checksum verified)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/age.tgz" \
+            https://github.com/FiloSottile/age/releases/download/v1.2.1/age-v1.2.1-linux-amd64.tar.gz
+          echo "7df45a6cc87d4da11cc03a539a7470c15b1041ab2b396af088fe9990f7c79d50  $RUNNER_TEMP/age.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/age" "$RUNNER_TEMP/qa-report" "$RUNNER_TEMP/qa-baseline-out" "$RUNNER_TEMP/qa-baseline-in"
+          tar -xzf "$RUNNER_TEMP/age.tgz" -C "$RUNNER_TEMP/age" age/age
+          test "$("$RUNNER_TEMP/age/age/age" --version)" = 'v1.2.1'
+      - name: Fetch the newest keyed production baseline (DB-31 and DB-35 only)
+        if: inputs.check == 'DB-31' || inputs.check == 'DB-35'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow supabase-readonly-checks.yml --branch main \
+            --status success --limit 100 --json databaseId,displayTitle \
+            --jq '[.[] | select(.displayTitle | startswith("Read-only QA check DB-01 "))][0].databaseId // empty')
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name qa-production-baseline --dir "$RUNNER_TEMP/qa-baseline-in" || true
+          fi
       - name: Run the read-only check (read-only role and transaction, rolled back)
         env:
           QA_CHECK_ID: ${{ inputs.check }}
           QA_CHECK_ACCOUNT: ${{ inputs.account }}
           QA_CHECK_ACCOUNT_B: ${{ inputs.account_b }}
           STILL_QA_CHECKS_DB_URL: ${{ secrets.STILL_QA_READONLY_DB_URL }}
+          STILL_QA_CHECKS_REF_KEY: ${{ secrets.STILL_QA_READONLY_REF_KEY }}
+          STILL_QA_CHECKS_REPORT_PUBKEY: ${{ vars.STILL_QA_READONLY_REPORT_PUBKEY }}
           STILL_QA_CHECKS_CA_PEM: ${{ vars.STILL_QA_READONLY_CA_PEM }}
-        run: >-
-          deno run --frozen --config supabase/functions/deno.json --no-prompt
-          --allow-env=QA_CHECK_ID,QA_CHECK_ACCOUNT,QA_CHECK_ACCOUNT_B,STILL_QA_CHECKS_DB_URL,STILL_QA_CHECKS_CA_PEM,GITHUB_STEP_SUMMARY,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
-          --allow-net --allow-write="$GITHUB_STEP_SUMMARY"
-          scripts/backend/qa-checks/run.ts
+        run: |
+          export STILL_QA_AGE_BIN="$RUNNER_TEMP/age/age/age"
+          export STILL_QA_CHECKS_REPORT_DIR="$RUNNER_TEMP/qa-report"
+          export STILL_QA_CHECKS_BASELINE_OUT="$RUNNER_TEMP/qa-baseline-out"
+          export STILL_QA_CHECKS_BASELINE_IN="$RUNNER_TEMP/qa-baseline-in"
+          deno run --frozen --config supabase/functions/deno.json --no-prompt \
+            --allow-env=QA_CHECK_ID,QA_CHECK_ACCOUNT,QA_CHECK_ACCOUNT_B,STILL_QA_CHECKS_DB_URL,STILL_QA_CHECKS_REF_KEY,STILL_QA_CHECKS_REPORT_PUBKEY,STILL_QA_CHECKS_CA_PEM,STILL_QA_AGE_BIN,STILL_QA_CHECKS_REPORT_DIR,STILL_QA_CHECKS_BASELINE_OUT,STILL_QA_CHECKS_BASELINE_IN,GITHUB_STEP_SUMMARY,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+            --allow-net --allow-run="$STILL_QA_AGE_BIN" \
+            --allow-read="$STILL_QA_CHECKS_BASELINE_IN" \
+            --allow-write="$GITHUB_STEP_SUMMARY,$STILL_QA_CHECKS_REPORT_DIR,$STILL_QA_CHECKS_BASELINE_OUT" \
+            scripts/backend/qa-checks/run.ts
+      - name: Publish the encrypted report (age; only Claude's private key reads it)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qa-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-report/report.age
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish the keyed production baseline (DB-01 only; no production values)
+        if: inputs.check == 'DB-01'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qa-production-baseline
+          path: ${{ runner.temp }}/qa-baseline-out/baseline.json
+          if-no-files-found: error
+          retention-days: 90
