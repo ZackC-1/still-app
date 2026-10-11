@@ -602,13 +602,24 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * worker token is read from Vault inside the database), then reads pg_net's answer read-only.
  * Returns fixed gate codes; [] when PostHog deletion is proven for the event project.
  */
-export async function proveProvider({ exec, cwd, conn, sourceDir, projectRef, sleep = defaultSleep, polls = 20 }) {
+export async function proveProvider({
+  exec,
+  cwd,
+  conn,
+  sourceDir,
+  projectRef,
+  // The production run always targets the bound project's analytics-erasure route. Only the
+  // plan-job rehearsal passes a loopback URL, so its throwaway database never calls a hosted project.
+  url = functionUrl(projectRef),
+  sleep = defaultSleep,
+  polls = 20,
+}) {
   const ran = await runPinnedSql({
     exec,
     cwd,
     conn,
     file: join(sourceDir, ANALYTICS_SQL.providerCheck.path),
-    variables: { STILL_ANALYTICS_FUNCTION_URL: functionUrl(projectRef) },
+    variables: { STILL_ANALYTICS_FUNCTION_URL: url },
     single: true,
   });
   if (ran.code !== 0 || !/^[1-9][0-9]{0,18}$/.test(ran.last)) return ["provider_check_not_queued"];
@@ -1616,11 +1627,17 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   );
 
   // The provider proof's own SQL, for real: it queues one pg_net request (the worker token read from
-  // Vault in the database) and its read-back parses. The request cannot reach a function here.
+  // Vault in the database) and its read-back parses. The target is deterministic and local: port 9
+  // (discard) on the database container's loopback, which refuses the connection, so the rehearsal
+  // never sends a request to a hosted project (the plan job binds the real project ref). Any answer
+  // other than a proven provider is a refusal; the production gate treats it the same way.
   const probeConn = parseDbUrl(envFor(planFor(SWITCH_OP, "apply", "enable")).SUPABASE_DB_URL);
-  const probe = await proveProvider({ exec: run, cwd, conn: probeConn, sourceDir: dir, projectRef: ref, polls: 5 });
+  const probe = await proveProvider({
+    exec: run, cwd, conn: probeConn, sourceDir: dir, projectRef: ref, polls: 5,
+    url: "http://127.0.0.1:9/functions/v1/analytics-erasure",
+  });
   prove(
-    "provider proof SQL: one request is queued through pg_net and its answer is read back (here it cannot reach the function, so it refuses)",
+    "provider proof SQL: one request is queued through pg_net to a local, refused address and its answer is read back as a refusal",
     probe.length === 1 && ["provider_check_http_none", "provider_check_unanswered"].includes(probe[0]),
     probe.join(" "),
   );
