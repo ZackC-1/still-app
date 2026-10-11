@@ -224,6 +224,7 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
       case "analytics-provider-check.sql":
         if (!env.STILL_ANALYTICS_FUNCTION_URL) return { code: 3, stdout: "", stderr: "ERROR:  22023" };
         state.providerQueued++;
+        state.providerUrl = env.STILL_ANALYTICS_FUNCTION_URL;
         return ok("42\n");
       case "analytics-provider-check.read.sql":
         return ok(`${JSON.stringify(state.provider ? { found: true, ...state.provider } : { found: false, status: null, content: null })}\n`);
@@ -427,13 +428,18 @@ test("the provider proof keeps the function's fixed codes and fails closed", asy
   const conn = { host: "db.abcdefghijklmnopqrst.supabase.co", port: "5432", user: "postgres", password: "x", database: "postgres", sslmode: "require" };
   const args = { exec: db.exec, cwd: "/", conn, sourceDir: "/src", projectRef: REF, sleep: async () => {}, polls: 2 };
   assert.deepEqual(await proveProvider(args), []);
+  // Without an explicit URL (the production run), the proof targets the bound project's route.
+  assert.equal(db.state.providerUrl, `https://${REF}.supabase.co/functions/v1/analytics-erasure`);
+  // A hosted 404 (route not deployed) is a refusal like any other non-proof.
+  db.state.provider = { status: 404, content: null };
+  assert.deepEqual(await proveProvider(args), ["provider_check_http_404"]);
   db.state.provider = { status: null, content: null };
   assert.deepEqual(await proveProvider(args), ["provider_check_http_none"]);
   db.state.provider = { status: 401, content: null };
   assert.deepEqual(await proveProvider(args), ["provider_check_http_401"]);
   db.state.provider = null;
   assert.deepEqual(await proveProvider(args), ["provider_check_unanswered"]);
-  assert.equal(db.state.providerQueued, 4);
+  assert.equal(db.state.providerQueued, 5);
 });
 
 test("the Secrets-only token must be refused by the functions endpoint", async () => {
