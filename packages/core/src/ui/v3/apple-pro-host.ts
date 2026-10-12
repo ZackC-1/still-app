@@ -470,7 +470,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     },
     async route() {
       const route = await deps.bridge.pendingAppRoute();
-      if (stopped || !route) return;
+      // still://sync belongs to the sync route (apple-sync-route); leave it pending for it.
+      if (stopped || !route || route.route !== "pro") return;
       opening = true;
       changed();
       // Acknowledge only after the current host accepted the represented destination.

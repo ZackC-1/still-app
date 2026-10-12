@@ -1,6 +1,6 @@
 // @still/core/native — the web→native action client for the Apple WKWebView host (U19 auth/purchase).
 
-export { NativeBridge, openNativeDestination, STILL_PRO_APP_URL, parseNativeAppleAccessCommit } from "./bridge.js";
+export { NativeBridge, openNativeDestination, STILL_PRO_APP_URL, STILL_SYNC_APP_URL, parseNativeAppleAccessCommit } from "./bridge.js";
 export { createApplePurchaseAuthority, type ApplePurchaseAuthorityDeps } from "./apple-purchase-authority.js";
 export type {
   AppleCredential,
@@ -15,6 +15,7 @@ export type {
   NativeAppleAccessObservation,
   NativeAppleAccessRight,
   NativeAppRoute,
+  NativeAppRouteName,
   NativeMessage,
   NativeOpenDestination,
   OpenNativeDestinationOptions,

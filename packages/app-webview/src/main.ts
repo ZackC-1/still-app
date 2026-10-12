@@ -431,6 +431,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         help: appleSettingsHelp((url) => openExternalLink(url)),
         restoreBridge: appleRestoreBridge(bridge),
         proServices: appleProServices,
+        appRoutes: bridge,
         // "Open Safari Settings" on the setup card: one fixed destination, from the tap.
         openDestination: (destination) => void openNativeDestination(destination),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),

@@ -4,13 +4,17 @@
   // this file only through a dynamic import that default builds fold away, so AppleSettings and
   // its global stylesheet exist only in bundles that opt in. Its dedicated @still/core export
   // keeps the dependency outside this package's rootDir: src. Keep this leaf out of @still/core/ui.
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import PurchaseView from "@still/core/ui/v3/PurchaseView.svelte";
   import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import {
     createAppleProHost,
     type AppleProHostDeps,
   } from "@still/core/ui/v3/apple-pro-host";
+  import {
+    createAppleSyncRoute,
+    revealAppleSyncCard,
+  } from "@still/core/ui/v3/apple-sync-route";
   import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
   import { USAGE_SWITCH_COPY } from "@still/core/ui/v3/usage-copy";
@@ -56,6 +60,8 @@
       | "linkPurchase"
     >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
+    /** The app's pending fixed route (still://sync here; still://pro rides proServices). */
+    appRoutes?: Pick<NativeBridge, "pendingAppRoute" | "acknowledgeAppRoute">;
   }
   let {
     controller: c,
@@ -66,6 +72,7 @@
     openDestination,
     onCommittedToggle,
     proServices,
+    appRoutes,
   }: Props = $props();
 
   // Finish any older observation, then read the cache after the native commit. This is the same
@@ -175,6 +182,26 @@
       window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh);
       proHost.stop();
+    };
+  });
+  // still://sync (the Safari popup's Sign in): Settings, the sync card, and sign-in when signed out.
+  $effect(() => {
+    if (!appRoutes) return;
+    const syncRoute = createAppleSyncRoute({
+      bridge: appRoutes,
+      showSettings: () => proHost?.close(),
+      canSignIn: () =>
+        c.popupState === "signed-out" || c.popupState === "pro-no-account",
+      openSignIn: () => c.openSignIn(),
+      reveal: (focus) =>
+        void tick().then(() => revealAppleSyncCard(document, focus)),
+    });
+    const route = () => void syncRoute.route();
+    window.addEventListener("still:route", route);
+    untrack(route);
+    return () => {
+      window.removeEventListener("still:route", route);
+      syncRoute.stop();
     };
   });
   const view = createPopupViewBinding(
