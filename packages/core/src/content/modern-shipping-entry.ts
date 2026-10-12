@@ -38,7 +38,8 @@ import { createPendingCover, type PendingCover } from "./pending-cover.js";
 //
 // 1. The early document_start redirect covers every core short-form route the format-2 engine
 //    sends elsewhere (YouTube Shorts, the Instagram and Facebook Reels feeds, Facebook's /reel/
-//    feed entry and the Instagram Reels viewer), not only Shorts. Firefox and Safari use it; Chromium keeps DNR and the old entry.
+//    feed entry and the Instagram Reels viewer), not only Shorts. Firefox and Safari use it;
+//    Chromium keeps DNR and the old entry.
 // 2. On Safari only, the pending cover (pending-cover.ts): blank for at most 1.5 seconds while a
 //    core route waits for settings (V3-D-052), and while a redirect Still issued is in flight.
 //
