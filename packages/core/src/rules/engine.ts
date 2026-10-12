@@ -252,6 +252,16 @@ function planSweep(surfaces: ServiceRules["surfaces"]): SweepPlan {
   };
 }
 
+/**
+ * The legacy seed's whole-site TikTok block. It is the free `tiktok.all` alias (TIKTOK_ALIAS.tier
+ * in the feature registry), but the seed, and any fetched copy, still tag it "pro" from the retired
+ * 1.x paywall. TikTok runs on the legacy engine on every browser host, so with the paid tier
+ * compiled on, the tier gate dropped it and TikTok stayed open for everyone without Still Pro
+ * (ISS-0036). Every reader checks it only behind PAID_TIER_ENABLED, so paid-off bundles are
+ * unchanged.
+ */
+export const TIKTOK_SITE_SURFACE_ID = "tt-blocksite";
+
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
   "yt-shorts-redirect",
   "yt-sidebar",
@@ -420,8 +430,9 @@ function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: Engine
   if (!PAID_TIER_ENABLED) return true;
   // Free surfaces always apply: the rule data's `tier: "free"` is authoritative, and the
   // ALWAYS_FREE_SURFACE_IDS safety-net keeps the free YouTube promise even against a fetched rule
-  // set with missing/stale tags (monetization principle 13). Everything else is Pro-gated.
-  if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || s.tier === "free") return true;
+  // set with missing/stale tags (monetization principle 13). The TikTok block is free by id for the
+  // same reason (TIKTOK_SITE_SURFACE_ID). Everything else is Pro-gated.
+  if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || s.id === TIKTOK_SITE_SURFACE_ID || s.tier === "free") return true;
   return opts.pro !== false;
 }
 
