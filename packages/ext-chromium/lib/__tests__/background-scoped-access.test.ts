@@ -553,6 +553,8 @@ describe("configured modern paid background scoped access", () => {
       scopedReply: signed(),
     });
     expect(await h.spine!.backend.reconcileEntitlementChecked()).toBe("ok");
+    // The persisted auth record is still there: an empty SDK read cannot prove a sign-out.
+    h.store["still:auth"] = "synthetic-persisted-session";
     const before = structuredClone(
       (
         h.store["still:entitlement"] as {
@@ -576,6 +578,71 @@ describe("configured modern paid background scoped access", () => {
       .access;
     expect(after.generation).toBe(before.generation);
     expect(after.rights).toHaveLength(1);
+  });
+  it("a signed-out install with no persisted auth record shows Still Pro locked (ISS-0030)", async () => {
+    const h = await start({ signedIn: false, flag: "true" });
+    const reply = (await h.message({ kind: "observeBenefits" })) as {
+      ok: boolean;
+      snapshot: { states: Record<string, string>; refreshAfterMs: number };
+    };
+    expect(reply.ok).toBe(true);
+    for (const id of ["youtube.comments", "instagram.explore", "facebook.stories"])
+      expect(reply.snapshot.states[id]).toBe("locked");
+    expect(reply.snapshot.states["youtube.shorts"]).toBe("free");
+    // No account request is needed to know a signed-out install has no account rights.
+    expect(h.requests.some((r) => /reconcile-entitlement/.test(r.path))).toBe(false);
+    // Long after any sixty-second absence window, it is still locked rather than "verify again".
+    vi.mocked(Date.now).mockReturnValue(vectors.verifiedAt + 10 * 60_000);
+    const later = (await h.message({ kind: "observeBenefits" })) as typeof reply;
+    expect(later.snapshot.states["youtube.comments"]).toBe("locked");
+  });
+  it("a paid build without sign-in (no session spine) is signed out and shows Still Pro locked", async () => {
+    const h = await start({ configured: false, flag: "true" });
+    expect(h.spine).toBeUndefined();
+    const reply = (await h.message({ kind: "observeBenefits" })) as {
+      ok: boolean;
+      snapshot: { states: Record<string, string> };
+    };
+    expect(reply.ok).toBe(true);
+    expect(reply.snapshot.states["youtube.comments"]).toBe("locked");
+  });
+  it("an unreadable auth record or an SDK error while signed out stays verification_required", async () => {
+    const h = await start({ signedIn: false, flag: "true" });
+    const local = boundary.browser.storage.local as unknown as { get: (keys: unknown) => Promise<Record<string, unknown>> };
+    const original = local.get.bind(local);
+    vi.spyOn(local, "get").mockImplementation(async (keys) => {
+      if (keys === "still:auth") throw new Error("storage unavailable");
+      return original(keys);
+    });
+    const torn = (await h.message({ kind: "observeBenefits" })) as {
+      snapshot: { states: Record<string, string> };
+    };
+    expect(torn.snapshot.states["youtube.comments"]).toBe("verification_required");
+    vi.mocked(local.get).mockRestore();
+    vi.mocked(h.client.auth.getSession).mockResolvedValueOnce({
+      data: { session: null },
+      error: new Error("synthetic refresh failure"),
+    } as unknown as Awaited<ReturnType<typeof h.client.auth.getSession>>);
+    h.emitAuth("TOKEN_REFRESHED"); // a new context, so the earlier projection is not reused
+    const failed = (await h.message({ kind: "observeBenefits" })) as typeof torn;
+    expect(failed.snapshot.states["youtube.comments"]).toBe("verification_required");
+  });
+  it("signing out after a purchase locks Still Pro and clears the account lane", async () => {
+    const h = await start({ signedIn: true, flag: "true", scopedReply: signed() });
+    vi.spyOn(Date, "now").mockReturnValue(vectors.verifiedAt);
+    expect(await h.spine!.backend.reconcileEntitlementChecked()).toBe("ok");
+    const owned = (await h.message({ kind: "observeBenefits" })) as {
+      snapshot: { states: Record<string, string> };
+    };
+    expect(owned.snapshot.states["youtube.comments"]).toBe("purchased");
+    vi.mocked(h.client.auth.getSession).mockResolvedValue({ data: { session: null }, error: null });
+    delete h.store["still:auth"];
+    h.emitAuth("SIGNED_OUT");
+    const out = (await h.message({ kind: "observeBenefits" })) as typeof owned;
+    expect(out.snapshot.states["youtube.comments"]).toBe("locked");
+    const record = (h.store["still:entitlement"] as { access: { accountId: string | null; rights: unknown[] } }).access;
+    expect(record.accountId).toBeNull();
+    expect(record.rights).toHaveLength(0);
   });
   it("token refresh after a durable proof write cannot clear the same account lane", async () => {
     const h = await start({
