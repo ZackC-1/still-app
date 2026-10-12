@@ -386,6 +386,10 @@ describe("still://sync, the Safari popup's Sign in hand-off", () => {
     await waitFor(() => expect(f.acknowledgments).toContain(40));
     expect(f.openSignIn).not.toHaveBeenCalled();
     expect(f.controller.signInOpen).toBe(false);
+    // The real Settings screen's sync card is the one brought into view and focused.
+    await waitFor(() =>
+      expect(document.activeElement?.querySelector("h2")?.textContent?.trim()).toMatch(/sync$/),
+    );
   });
 });
 
