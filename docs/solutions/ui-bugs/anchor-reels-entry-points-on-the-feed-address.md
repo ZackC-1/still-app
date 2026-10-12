@@ -34,16 +34,21 @@ the sidebar `li` holding `https://www.facebook.com/reel/?s=tab`, and a Navigatio
 
 ## Fix
 
-- Hide by **address**, not by label or landmark: any link to the Reels feed (`/reel/` with no id,
-  `/reel/following`, `/reel/profile`, `/reels`, `/watch/reels`), relative or absolute on www. and
-  m., plus the leaf `li` around it inside `nav` or `[role="navigation"]`
-  (`li:has(<link>):not(:has(li))`) so the other entries close up. The shared Reel is always
-  `/reel/<digits>`, which no prefix in the list reaches.
+- Hide by **address**, not by label or landmark: links to exactly the addresses the core routes
+  home (`/reel/`, `/reel/following/`, `/reel/profile/`, `/reels/`, `/watch/reels/`, each with or
+  without a query), relative or absolute on any Facebook host, plus the leaf `li` around them
+  inside `nav` or `[role="navigation"]` (`li:has(<link>):not(:has(li))`) so the other entries close
+  up. Keep the hidden set no wider than the routed set; the shared Reel `/reel/<digits>` is in
+  neither.
 - Route the **feed entry** in the free core (`engine.ts`), the Chromium session rule
   (`navigation-dnr.ts`, id 22) and the early document_start filter (`mayBeCoreRoute`). The link
   click hook and Navigation API hook consume the click before Facebook's router runs.
 - The feed entry handing over to its first Reel counts as the feed continuing
-  (`reelContinuation`), for the case where Still did not get to send the entry home first.
+  (`reelContinuation`). When the page is already Home, Still consumes the push but issues no
+  redirect, so the consumed route is remembered for the deliberate-link window and the following
+  page-driven replace to `/reel/<id>` is judged from it (`content/index.ts`).
+- Residual: without the Navigation API, a page-driven push and replace inside one URL-poll tick
+  is invisible; a real click is still caught by the capture-phase link hook.
 
 ## Prevention
 
