@@ -632,6 +632,15 @@ describe("configured modern paid background scoped access", () => {
     expect(after.accountId).toBe(USER);
     expect(after.generation).toBe(1);
   });
+  it("offers Get Still Pro to a conclusively signed-out page only, with no sales request", async () => {
+    const h = await start({ signedIn: false, flag: "true" });
+    const ask = () => h.message({ kind: "still:session", action: "checkoutAvailable" });
+    expect(await ask()).toBe(true);
+    // An empty SDK answer while a persisted session remains is not a conclusive sign-out.
+    h.store["still:auth"] = "synthetic-persisted-session";
+    expect(await ask()).toBe(false);
+    expect(h.requests.some((r) => r.path.endsWith("/qa-sandbox-product-policy"))).toBe(false);
+  });
   it("an unreadable auth record or an SDK error while signed out stays verification_required", async () => {
     const h = await start({ signedIn: false, flag: "true" });
     const local = boundary.browser.storage.local as unknown as { get: (keys: unknown) => Promise<Record<string, unknown>> };

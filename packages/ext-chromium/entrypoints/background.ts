@@ -699,7 +699,16 @@ function createSessionSpine(
   // Paid-tier builds also answer the settings page's "may I offer Buy?" from this same
   // canCreateCheckout (lib/checkout-availability.ts). The choice folds away with the compiled
   // switch off, leaving exactly createExtensionSession.
-  const session = (PAID_TIER_ENABLED ? createSessionWithCheckoutAvailability : createExtensionSession)({
+  // Its answer to a signed-out page needs a conclusive sign-out, the same answer the access
+  // context uses (readAccessSession null).
+  const session = (PAID_TIER_ENABLED
+    ? (deps: Parameters<typeof createExtensionSession>[0]) => createSessionWithCheckoutAvailability(deps, undefined, undefined,
+      async () => (await readAccessSession({
+        getSession: () => client.auth.getSession(),
+        currentSettingsSession: () => port.currentSettingsSession(),
+        persistedAuthAbsent,
+      }).catch(() => undefined)) === null)
+    : createExtensionSession)({
     auth,
     backend,
     records: entitlements,
