@@ -25,6 +25,20 @@ final class OnboardingTests: XCTestCase {
     XCTAssertEqual(OnboardingCopy.macOSEnableSteps.count, 4)
   }
 
+  func testSiteListsFollowTheOwnerOrderInstagramFacebookYouTubeTikTok() {
+    let order = ["Instagram", "Facebook", "YouTube", "TikTok"]
+    let lists = [
+      OnboardingCopy.enableSteps(iOS18OrLater: true)[2],
+      OnboardingCopy.enableSteps(iOS18OrLater: false)[2],
+      OnboardingCopy.macOSEnableSteps[2],
+    ]
+    for line in lists {
+      let positions = order.compactMap { line.range(of: $0)?.lowerBound }
+      XCTAssertEqual(positions.count, 4, line)
+      XCTAssertEqual(positions, positions.sorted(), "sites must read Instagram, Facebook, YouTube, TikTok: \(line)")
+    }
+  }
+
   func testIOSVariantsShareEverythingButTheSettingsPath() {
     let ios18 = OnboardingCopy.enableSteps(iOS18OrLater: true)
     let earlier = OnboardingCopy.enableSteps(iOS18OrLater: false)

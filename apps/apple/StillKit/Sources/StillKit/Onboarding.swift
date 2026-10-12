@@ -86,7 +86,7 @@ public enum OnboardingCopy {
       iOS18OrLater
         ? "Go to Apps → Safari → Extensions → Still"
         : "Go to Safari → Extensions → Still",
-      "Turn on Still, then allow YouTube, Instagram, TikTok, and Facebook",
+      "Turn on Still, then allow Instagram, Facebook, YouTube, and TikTok",
       "Close Safari, then reopen it",
     ]
   }
@@ -96,7 +96,7 @@ public enum OnboardingCopy {
   public static let macOSEnableSteps: [String] = [
     "Click “\(openButtonTitle(for: .safariExtensionSettings))” below",
     "In Extensions, switch on Still",
-    "Allow Still on YouTube, Instagram, TikTok, and Facebook",
+    "Allow Still on Instagram, Facebook, YouTube, and TikTok",
     "Quit Safari (⌘Q) and reopen it",
   ]
 }
