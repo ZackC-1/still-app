@@ -14,7 +14,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CHROMIUM_EXTENSION = process.env.STILL_CHROMIUM_EXTENSION
   ? resolve(process.env.STILL_CHROMIUM_EXTENSION)
   : resolve(HERE, "../../packages/ext-chromium/dist/chrome-mv3");
-const SAFARI_EXTENSION = resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
+// STILL_SAFARI_EXTENSION does the same for the Safari bundle (e.g. the paid-tier-on build that
+// tests/playwright/paid-tier-free-outcome.spec.ts loads).
+const SAFARI_EXTENSION = process.env.STILL_SAFARI_EXTENSION
+  ? resolve(process.env.STILL_SAFARI_EXTENSION)
+  : resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
 const FIXTURE_DIR = resolve(HERE, "../fixtures");
 
 // Chromium writes into an unpacked extension it loads (_metadata/generated_indexed_rulesets), so

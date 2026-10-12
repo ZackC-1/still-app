@@ -185,5 +185,21 @@ jobs:
           STILL_TEST_SYNC_CONFIGURED: "true"
         run: pnpm exec playwright test --project=fixtures
 
+      # Third pass: the paid tier compiled on (V3 Pro and paid sandbox QA builds). Every shipped 2.x
+      # build keeps it off, so the two lanes above never run the paid tier gate; a free outcome
+      # broken only there (ISS-0036: TikTok left open without Still Pro) needs this guard. The
+      # builds use no backend and modify no source file (scripts/qa/paid-tier-extension.mjs).
+      - name: Build paid-tier-on extensions (no backend)
+        if: steps.detect.outputs.present == 'true'
+        run: node scripts/qa/paid-tier-extension.mjs all
+
+      - name: Run paid-tier-on Playwright free-outcome tests (gating)
+        if: steps.detect.outputs.present == 'true'
+        env:
+          STILL_TEST_PAID_TIER: "true"
+          STILL_CHROMIUM_EXTENSION: .output/test-paid-tier/chrome
+          STILL_SAFARI_EXTENSION: .output/test-paid-tier/safari
+        run: pnpm exec playwright test --project=fixtures tests/playwright/paid-tier-free-outcome.spec.ts
+
       # The real-site smoke layer is intentionally NOT run here — it is non-gating
       # and lives in a separate, retry-allowed job (KTD10). It must never block merge.
