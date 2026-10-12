@@ -349,28 +349,26 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <section class="card card-stack">
-    <h2 class="section-label">Help</h2>
-    <div class="account">
-      <button
-        type="button"
-        class="link"
-        disabled={!help.onGuide}
-        onclick={help.onGuide}>Setup guide</button
-      >
-      <button
-        type="button"
-        class="link"
-        disabled={!help.onSupport}
-        onclick={help.onSupport}>Contact support</button
-      >
-      <button
-        type="button"
-        class="link"
-        disabled={!help.onPrivacy}
-        onclick={help.onPrivacy}>Privacy policy</button
-      >
-    </div>
+  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. -->
+  <section class="card card-stack" aria-label="Help">
+    <button
+      type="button"
+      class="link"
+      disabled={!help.onGuide}
+      onclick={help.onGuide}>Setup guide</button
+    >
+    <button
+      type="button"
+      class="link"
+      disabled={!help.onSupport}
+      onclick={help.onSupport}>Contact support</button
+    >
+    <button
+      type="button"
+      class="link"
+      disabled={!help.onPrivacy}
+      onclick={help.onPrivacy}>Privacy policy</button
+    >
   </section>
   <ConfirmationDialog
     open={confirming}

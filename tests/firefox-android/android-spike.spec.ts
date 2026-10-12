@@ -525,7 +525,7 @@ test("Firefox for Android spike", async () => {
   expect.soft(granted, "the four sites can be granted on Firefox for Android").toBe(true);
   await pageScreenshot(bidi, firstRun, "first-run-after-allow");
   const firstRunAllowed = await firstRun.evaluate<boolean>(
-    `document.body.textContent.includes("Allowed on YouTube, Instagram, Facebook and TikTok.")`,
+    `document.body.textContent.includes("Allowed on Instagram, Facebook, YouTube, and TikTok.")`,
   );
   record("first-run page shows the granted state", firstRunAllowed ? "pass" : "fail", { firstRunAllowed });
 

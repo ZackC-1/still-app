@@ -90,6 +90,11 @@ describe("controlled extension first-run", () => {
     props.consent = { status: "saved", choice: "off" };
     const view = render(FirstRun, { props });
     expect(screen.getByText("Still is on.")).toBeVisible();
+    // Owner copy (ISS-0029): no "visit as usual" line, and the sites in the owner's order.
+    expect(screen.queryByText(/as usual/)).toBeNull();
+    expect(
+      screen.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok."),
+    ).toBeVisible();
     expect(
       screen.getByText("You chose not to share your email and usage data."),
     ).toBeVisible();
@@ -171,7 +176,7 @@ describe("controlled extension first-run", () => {
       expect(screen.queryByText(/Signed in as/)).toBeNull();
       expect(
         screen.getByText(
-          "Free. Keep your settings updated across every supported surface.",
+          "Free. Keep your block settings consistent across every supported device and browser.",
         ),
       ).toBeVisible();
       view.unmount();

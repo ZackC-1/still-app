@@ -32,7 +32,8 @@
 </script>
 
 <section class="card card-stack">
-  <h2 class="section-label">
+  <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
+  <h2 class="card-title">
     {owned ? "Still Pro and sync" : "Settings sync"}
   </h2>
   {#if owned}
@@ -143,7 +144,7 @@
     {/if}
   {:else}
     <p class="muted">
-      Free. Keep your settings updated across every supported surface
+      Free. Keep your block settings consistent across every supported device and browser.
     </p>
     <button
       type="button"

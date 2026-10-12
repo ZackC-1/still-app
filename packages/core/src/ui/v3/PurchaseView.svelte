@@ -90,8 +90,6 @@
     verify: {
       tone: "caution",
       text: "Still Pro needs to be verified again.",
-      detail:
-        "Go online and sign in. Free controls and your saved choices stay.",
       actionLabel: "Verify now",
     },
   } satisfies Record<string, OperationStatus>;
@@ -165,7 +163,7 @@
     <div class="ob-main" style="justify-content:flex-start;gap:16px;">
       <h1>Still Pro</h1>
       <p class="lede">
-        More control over YouTube, Instagram and Facebook. One payment. Access
+        More control over Instagram, Facebook and YouTube. One payment. Access
         forever. No subscription
       </p>
       <section class="card card-stack">

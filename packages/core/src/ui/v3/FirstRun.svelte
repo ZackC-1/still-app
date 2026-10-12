@@ -104,9 +104,7 @@
       <img class="word" src={WORDMARK_DATA_URL} alt="" />
     </div>
     <h1>{ready ? "Still is on." : "One step to finish setup."}</h1>
-    {#if ready}<p class="lede">
-        Visit YouTube, Instagram, Facebook or TikTok as usual.
-      </p>{:else if setupDescription?.verified}<p class="lede">
+    {#if !ready && setupDescription?.verified}<p class="lede">
         {setupDescription.text}
       </p>{/if}
     <section class="card">
@@ -121,7 +119,7 @@
               >{/if}</span
           >
           {#if allowed}<span class="b"
-              >Allowed on YouTube, Instagram, Facebook and TikTok.</span
+              >Allowed on Instagram, Facebook, YouTube, and TikTok.</span
             >{:else if permission.guidance?.verified}<span class="b"
               >{permission.guidance.text}</span
             >{/if}
@@ -189,7 +187,7 @@
           <span class="b"
             >{signedIn
               ? `Signed in as ${sync.account!.address}.`
-              : "Free. Keep your settings updated across every supported surface."}</span
+              : "Free. Keep your block settings consistent across every supported device and browser."}</span
           >
           {#if !signedIn}<div class="a">
               <button

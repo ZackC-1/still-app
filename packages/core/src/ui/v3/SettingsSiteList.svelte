@@ -13,7 +13,7 @@
     onServiceChange,
     onFeatureChange,
     sectionMemory,
-    services = ["youtube", "instagram", "facebook", "tiktok"],
+    services = ["instagram", "facebook", "youtube", "tiktok"],
     features,
     labels = {},
     onProAction,

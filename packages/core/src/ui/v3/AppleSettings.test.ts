@@ -372,7 +372,7 @@ describe("controlled D04 Apple settings", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Free. Keep your settings updated across every supported surface",
+        "Free. Keep your block settings consistent across every supported device and browser.",
       ),
     ).toBeTruthy();
     props.sync.account = {
@@ -1455,7 +1455,7 @@ describe("D04 optional paid and combined-consent producers", () => {
     const { props } = await fixture("free");
     const restore = { state: "nothing" as const };
     const helpSection = () =>
-      screen.getByRole("heading", { name: "Help" }).closest("section");
+      screen.getByRole("region", { name: "Help" }).closest("section");
     const view = render(AppleSettings, {
       props: { ...props, pro: undefined, restore, sharing: undefined },
     });
@@ -1775,7 +1775,7 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
       screen.getByText(
         "No Still Pro purchase was found for this Apple Account.",
       ),
-      screen.getByRole("heading", { name: "Help" }),
+      screen.getByRole("region", { name: "Help" }),
     ];
     for (let i = 1; i < order.length; i++)
       expect(
@@ -1831,5 +1831,33 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     expect(cardRestore).toHaveBeenCalledOnce();
     expect(onRestore).not.toHaveBeenCalled();
     withPro.unmount();
+  });
+});
+
+describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", () => {
+  it("lists the sites Instagram, Facebook, YouTube, TikTok and uses the shared sync card copy and heading", async () => {
+    const { props } = await fixture();
+    render(AppleSettings, { props });
+    expect(
+      [...document.querySelectorAll(".service-row .name")].map((name) => name.textContent?.trim()),
+    ).toEqual(["Instagram Blocker", "Facebook Blocker", "YouTube Blocker", "TikTok Blocker"]);
+    expect(screen.getByRole("heading", { name: "Settings sync" }).className).toBe("card-title");
+    expect(
+      screen.getByText("Free. Keep your block settings consistent across every supported device and browser."),
+    ).toBeVisible();
+  });
+
+  it("draws Help as the three links only: no heading, divider or note", async () => {
+    const { props } = await fixture();
+    render(AppleSettings, { props });
+    expect(screen.queryByRole("heading", { name: "Help" })).toBeNull();
+    expect(screen.queryByText(/Contact support opens your email app/)).toBeNull();
+    const help = screen.getByRole("region", { name: "Help" });
+    expect(within(help).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual([
+      "Setup guide",
+      "Contact support",
+      "Privacy policy",
+    ]);
+    expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
   });
 });

@@ -41,7 +41,7 @@ test("a new install opens the first-run page once, without a combined consent qu
   await expect(page).toHaveTitle("Welcome to Still");
   // Chrome grants the four declared hosts at install and the background saves the defaults.
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
-  await expect(page.getByText("Allowed on YouTube, Instagram, Facebook and TikTok.")).toBeVisible();
+  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok.")).toBeVisible();
   await expect(page.getByText("Pin Still to your toolbar")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Still settings" })).toBeEnabled();
   await expect(page.getByText("Share your email and usage data with Still?")).toHaveCount(0);
