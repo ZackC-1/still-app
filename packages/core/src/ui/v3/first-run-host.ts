@@ -33,6 +33,13 @@ export const FIRST_RUN_PIN_GUIDANCE: Record<FirstRunBrowser, string> = {
   firefox:
     "Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar.",
 };
+/** Where the browser did not say whether Still is pinned (a failed or missing report), the step
+ * must read true either way (ISS-0031): it never tells someone to pin what is already pinned. */
+export const FIRST_RUN_PIN_GUIDANCE_UNKNOWN: Record<FirstRunBrowser, string> = {
+  chrome: "If Still isn't in your toolbar, click the puzzle piece, then the pin next to Still.",
+  firefox:
+    "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+};
 
 /** What the browser says about Still's access to its four declared sites. "unknown" until the
  * browser has answered; "pending" only while a request this page made is open; "denied" only when
@@ -49,7 +56,8 @@ export interface FirstRunHostObservations {
     readonly globalOn: boolean;
     readonly services: Readonly<Record<ServiceId, boolean>>;
   } | null;
-  /** Chrome's own pinned report, or null where the browser cannot tell (Firefox, older Chrome). */
+  /** The browser's own pinned report (`action.getUserSettings().isOnToolbar`: Chrome 91+, desktop
+   * Firefox 116+), or null where the browser did not say. */
   readonly pinned: boolean | null;
   /** False only where the browser itself reports a platform with no toolbar to pin Still to
    * (Firefox for Android). The pin step is then left out, not reworded. Absent means true. */
@@ -97,9 +105,12 @@ export function firstRunHostProps(host: FirstRunHostObservations): FirstRunHostP
       ? {}
       : {
           pin: {
-            pinned: browser === "chrome" && host.pinned === true,
-            verified: browser === "chrome" && host.pinned !== null,
-            guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE[browser] },
+            pinned: host.pinned === true,
+            verified: host.pinned !== null,
+            guidance: {
+              verified: true,
+              text: (host.pinned === null ? FIRST_RUN_PIN_GUIDANCE_UNKNOWN : FIRST_RUN_PIN_GUIDANCE)[browser],
+            },
           },
         }),
     sync: signedIn

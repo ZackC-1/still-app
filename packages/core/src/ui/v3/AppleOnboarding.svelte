@@ -149,7 +149,7 @@
         <h1>Welcome to Still</h1>
         <p class="lede">
           Still removes Shorts, Reels and the TikTok website when you browse in
-          Safari. It doesn't work inside the YouTube, Instagram, Facebook or
+          Safari. It doesn't work inside the Instagram, Facebook, YouTube or
           TikTok apps.
         </p>
         <p class="caption">Free. No account needed.</p>
@@ -208,7 +208,7 @@
         {@render mark()}
         <h1>You're set</h1>
         <p class="lede">
-          Open Safari and visit YouTube, Instagram, Facebook or TikTok. You can
+          Open Safari and visit Instagram, Facebook, YouTube or TikTok. You can
           change anything in Settings.
         </p>
         <p class="caption">

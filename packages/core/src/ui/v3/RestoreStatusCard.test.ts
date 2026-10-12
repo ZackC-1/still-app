@@ -47,3 +47,11 @@ describe("RestoreStatusCard nothing-found wording", () => {
     },
   );
 });
+
+describe("RestoreStatusCard verify-again wording (owner, ISS-0029 item 6)", () => {
+  it("shows only the one line and its Verify now action", () => {
+    const view = render(RestoreStatusCard, { props: { state: "verify" } });
+    expect(lines(view)).toEqual(["Still Pro needs to be verified again.", "Verify now"]);
+    expect(view.container.textContent).not.toContain("Go online and sign in");
+  });
+});

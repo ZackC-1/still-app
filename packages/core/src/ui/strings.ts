@@ -261,7 +261,8 @@ export const STRINGS = {
     // The settings row. States what is shared and, in the same breath, what never is.
     title: "Share usage data",
     body: "Helps improve Still. Never includes the sites or videos you visit.",
-    // The one-time notice where analytics starts on by default (Chrome and the Apple apps).
+    // The 2.x one-time notice where analytics starts on by default (Chrome and the Apple apps). V3
+    // screens show no notice and use v3/usage-copy.ts for the switch (owner, 2026-10-12).
     notice: "Still shares usage data to help improve the app. It never includes the sites or videos you visit.",
     noticeOk: "OK",
     noticeTurnOff: "Turn off",

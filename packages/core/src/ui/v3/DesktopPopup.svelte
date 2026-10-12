@@ -35,7 +35,7 @@
     onSeePro,
     account,
     sectionMemory,
-    services = ["youtube", "instagram", "facebook", "tiktok"],
+    services = ["instagram", "facebook", "youtube", "tiktok"],
     labels = {},
     features,
     heroTitle,
@@ -295,7 +295,7 @@
         {#if !account || account.address}<p class="muted sync-row-sub">
             {account
               ? account.address
-              : "Free. Keep your settings updated across every supported surface."}
+              : "Free. Keep your block settings consistent across every supported device and browser."}
           </p>{/if}
       </div>
       {#if !account && onSignIn}<button
@@ -345,16 +345,12 @@
         var(--service-card-padding-block, var(--space-3))
     );
   }
-  /* The approved desktop reference's section heading cascade wins over the
-     generic SettingsCard typography. Keep that result without review chrome. */
+  /* "Settings sync" uses the shared card heading (15px, semibold, ink), the same as the Still Pro
+     and Share usage data headings on every surface (owner, 12 Oct); only its spacing stays. */
   .sync-row-title {
     margin: 0 0 4px;
-    font-size: 17px;
-    letter-spacing: -0.01em;
   }
   .d28-invitation .sync-row-title {
     margin: 0;
-    font-size: calc(15px * var(--text-scale, 1));
-    letter-spacing: normal;
   }
 </style>

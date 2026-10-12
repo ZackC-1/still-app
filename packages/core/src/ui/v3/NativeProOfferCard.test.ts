@@ -8,6 +8,7 @@ afterEach(cleanup);
 
 const checking = "Checking your Still Pro access…";
 const verify = "Still Pro needs to be verified again.";
+// Removed by the owner (ISS-0029 item 6): the verify state is one line plus Restore purchase.
 const verifyDetail =
   "Go online and sign in. Free controls and your saved choices stay.";
 const buy = () => screen.queryByRole("button", { name: "Get Still Pro" });
@@ -68,7 +69,10 @@ describe("native Still Pro card verify presentation", () => {
         expected.line,
       );
       expect(screen.getByText(verify)).toBeVisible();
-      expect(screen.getByText(verifyDetail)).toBeVisible();
+      expect(screen.queryByText(verifyDetail)).toBeNull();
+      expect(
+        section.querySelector(".status-line .status-body")!.textContent!.trim(),
+      ).toBe(verify);
       expect(screen.queryByText(checking)).toBeNull();
       expect(buy()).toBeNull();
       expect(
