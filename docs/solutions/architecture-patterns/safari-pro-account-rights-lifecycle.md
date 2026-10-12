@@ -75,9 +75,52 @@ Accepted, display only: a seven-day-old "no purchase" can still show Locked afte
 another device until the app checks again, and a fresh device's StoreKit `.noPurchases` counts as
 an Apple "none". Neither grants anything; See Pro opens the app, which checks again.
 
+**"Signed out" includes the stored JSON null (ISS-0030).** `AccountSyncStatusStore.clear()` writes
+a JSON `null`, and the app publishes that null on sign-out and on every launch without an account
+(`AppleSession.resumeAccount`). `displayedAccount()` first treated any stored bytes it could not
+decode as `.unreadable`, so a signed-out or never-signed-in Mac or iPhone showed every Safari Still
+Pro row as "verification required" (greyed switches, no See Pro) while the app itself showed Get
+Still Pro. It now reads a stored null as `.signedOut`; other undecodable bytes stay `.unreadable`.
+The earlier `SafariAccessLaneTests` injected `.signedOut` directly and so never exercised the
+store's real bytes. The end-to-end cases now drive the real `AccountSyncStatusStore` in the order
+the router writes it. Lesson: when a test injects a value that production derives from storage,
+add at least one test that writes the storage the way production does.
+
+**Freshness and later purchases.** The app records a conclusive StoreKit answer whenever its
+Settings screen reads benefits: at launch, about once a minute while it is open
+(`refreshAfterMs`), and after a purchase or restore. Safari
+treats an Apple "no purchase" as conclusive for seven days. After that, with no newer app
+answer, it shows "verification required" again. Safari cannot ask StoreKit itself, so it never
+reaches "locked" without an app answer. A purchase in the app installs the local Apple right and
+records `purchaseHistory`. Safari's next native read shows the rows as purchased: the background
+keeps a snapshot for at most 60 seconds (`refreshAfterMs`). A purchase made on another device
+under the same Apple ID reaches this Safari only after this device's app checks again.
+
+**A web buyer signing in sees Locked briefly (display only).** Someone who bought on the web and
+then signs in to the Mac or iPhone app was signed out until that moment. If the app had a fresh
+Apple "none", their Safari rows were Locked. Signing in goes in this order:
+
+1. The router's `setAccountSyncStatus` writes the account status.
+2. It clears the bound account.
+3. The app's first account check binds the session and installs the web purchase.
+
+A fresh Safari read between steps 1 and 3 says "verification required", because the displayed
+account does not match the record yet. But the Safari background can keep its signed-out
+snapshot for up to 60 seconds (`refreshAfterMs`). So the popup can keep showing Locked for up to
+60 seconds, plus the time the account check takes. After that, it shows purchased.
+
+Nothing is granted, removed or stored differently during this window. Locked and "verification
+required" never turn an extra on, and they never touch saved choices. The purchase applies on the
+first Safari read after the account check installs it. Shortening the window would mean dropping
+the snapshot whenever the account status changes. That costs extra native reads, for a brief
+display state only.
+
 ## Verification
 
-- `SafariAccessLaneTests`, `NativeAccountAccessTests` (StillKit `swift test`), and
+- `SafariAccessLaneTests` (including the end-to-end ISS-0030 cases over the real account-status
+  store), `AccountSyncStatusTests`, `native-account-status-router.test.ts` (compiles the real
+  `setAccountSyncStatus` and `signOut` router arms with StillKit and checks Safari locks), `NativeAccountAccessTests` (StillKit `swift test`),
+  `ext-safari/lib/__tests__/native-benefits.test.ts` (the native snapshot reaches the popup cache), and
   `native-account-router.test.ts`, which compiles and runs the real router arm.
 - `apple-purchase-authority.test.ts` covers the production SDK order (sign-out before rejection).
 - Shipped 2.x bundles stay byte-identical: see

@@ -74,6 +74,29 @@ final class AccountSyncStatusTests: XCTestCase {
     XCTAssertTrue(reply["accountSyncStatus"] is NSNull)
   }
 
+  /// ISS-0030: the app publishes a JSON null on sign-out and on every launch without an account
+  /// (`AppleSession.resumeAccount`). Safari must read that as signed out, never as unreadable.
+  func testDisplayedAccountReadsTheAppsClearedStatusAsSignedOut() throws {
+    let backing = InMemoryBacking()
+    let app = AccountSyncStatusStore(backing: backing)
+    let safari = AccountSyncStatusStore(backing: backing)
+    XCTAssertEqual(safari.displayedAccount(), .signedOut, "nothing ever stored")
+    XCTAssertTrue(app.save(rawStatus: status()))
+    XCTAssertEqual(safari.displayedAccount(), .account("11111111-1111-4111-8111-111111111111"))
+    XCTAssertTrue(app.save(rawStatus: NSNull()))
+    XCTAssertEqual(safari.displayedAccount(), .signedOut, "sign-out / launch without an account")
+    XCTAssertTrue(app.save(rawStatus: status()))
+    app.clear()
+    XCTAssertEqual(safari.displayedAccount(), .signedOut)
+    for raw in ["null", " null\n"] {
+      XCTAssertEqual(AccountSyncStatusStore(backing: InMemoryBacking(Data(raw.utf8))).displayedAccount(), .signedOut, raw)
+    }
+    // Anything else that does not decode stays unreadable: it is not evidence of no account.
+    for raw in ["garbage", "{}", "[]", "0", "\"null\"", "{\"accountId\":\"invalid\"}"] {
+      XCTAssertEqual(AccountSyncStatusStore(backing: InMemoryBacking(Data(raw.utf8))).displayedAccount(), .unreadable, raw)
+    }
+  }
+
   func testNullableFieldsStayExplicitAndBoundaryValuesAreAccepted() throws {
     let store = AccountSyncStatusStore(backing: InMemoryBacking())
     var value = status()

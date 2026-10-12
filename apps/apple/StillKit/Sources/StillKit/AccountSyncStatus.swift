@@ -62,13 +62,18 @@ public final class AccountSyncStatusStore {
     return try? JSONDecoder().decode(AccountSyncStatus.self, from: data)
   }
 
-  /// The account the app last published, telling "nothing stored" (signed out) apart from a stored
-  /// status that cannot be read. Display state only: it never authenticates anything.
+  /// The account the app last published, telling signed out apart from a stored status that
+  /// cannot be read. Display state only: it never authenticates anything.
+  ///
+  /// Signed out is nothing stored or the JSON null that `clear()` writes. The app writes that
+  /// null on sign-out and on every launch without an account, so reading it as unreadable kept
+  /// every signed-out Safari install at "verification required" (ISS-0030).
   public enum DisplayedAccount: Equatable, Sendable { case signedOut, account(String), unreadable }
   public func displayedAccount() -> DisplayedAccount {
     guard let data = backing.read() else { return .signedOut }
-    guard let record = try? JSONDecoder().decode(AccountSyncStatus.self, from: data) else { return .unreadable }
-    return .account(record.accountId)
+    if let record = try? JSONDecoder().decode(AccountSyncStatus.self, from: data) { return .account(record.accountId) }
+    if (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) is NSNull { return .signedOut }
+    return .unreadable
   }
 
   @discardableResult
