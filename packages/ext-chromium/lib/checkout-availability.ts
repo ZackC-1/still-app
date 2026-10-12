@@ -112,9 +112,10 @@ export function createSessionWithCheckoutAvailability(
   const salesAllowed = deps.canCreateCheckout;
   if (salesAllowed) {
     host.runtime.onMessage.addListener(createCheckoutAvailabilityRouter(
-      // Signed out (ISS-0030), Buy is offered as sign-in first wherever this route sells at all;
-      // no policy request is made for a signed-out page. The signed-in answer (and createCheckout
-      // itself) still asks the fresh sales allowance.
+      // Signed out (ISS-0030), Get Still Pro is offered as sign-in first wherever this route has a
+      // sales allowance at all; no policy request is made for a signed-out page, so a remote
+      // sales-off switch is only seen after sign-in, when the signed-in answer (and createCheckout
+      // itself) asks the fresh allowance and the card says it can't be bought here yet.
       async () => (await session.getState()).userId === null || (await salesAllowed()) === true,
       host.runtime.id,
       host.runtime.getURL(""),
