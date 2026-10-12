@@ -62,7 +62,7 @@ describe("Safari popup cache passes the native benefit answer through unchanged"
     const supported = accessCapabilities({ paidMode: true, host: "safari", platform });
     const base = initialAccessSnapshot({ paidMode: true, supported });
     const states = Object.fromEntries(Object.entries(base.states).map(([benefit, state]) =>
-      [benefit, state === "verification_required" ? proState : state]));
+      [benefit, state === "checking" ? proState : state])); // the seed's supported paid extras
     return lane({ ok: true, snapshot: { ...base, states } });
   }
   function safariCache(platform: AccessPlatform, reply: () => unknown) {
@@ -106,7 +106,7 @@ describe("Safari popup cache passes the native benefit answer through unchanged"
 
   it("never turns a failed native read into locked", async () => {
     const { cache } = safariCache("desktop", () => ({ entitlement: JSON.stringify({ ok: false }) }));
-    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    expect(cache.currentAccess("youtube.comments")).toBe("checking"); // nothing asked yet
     await expect(cache.refreshAccess()).resolves.toBeDefined();
     expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
     expect(cache.currentAccess("youtube.shorts")).toBe("free");
