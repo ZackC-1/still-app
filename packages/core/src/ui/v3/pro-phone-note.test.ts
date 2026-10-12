@@ -87,7 +87,7 @@ describe("Still Pro offer note about phones", () => {
     expect(screen.queryByText(GENERAL)).toBeNull();
   });
 
-  it("shows on the Apple app's offer card for iPhone/iPad and Mac", () => {
+  it("is left off the Apple app's offer card on iPhone/iPad and Mac (owner, ISS-0029 item 11)", () => {
     const base = {
       ownership: "none" as const,
       channel: "ready" as const,
@@ -96,10 +96,10 @@ describe("Still Pro offer note about phones", () => {
       onRestore: vi.fn(),
     };
     const mac = render(NativeProOfferCard, { props: base });
-    expect(screen.getByText(GENERAL)).toBeVisible();
+    expect(screen.queryByText(GENERAL)).toBeNull();
     mac.unmount();
     render(NativeProOfferCard, { props: { ...base, phone: true } });
-    expect(screen.getByText(PHONE)).toBeVisible();
+    expect(screen.queryByText(PHONE)).toBeNull();
   });
 
   it("shows under the extras list on the full purchase screen", () => {

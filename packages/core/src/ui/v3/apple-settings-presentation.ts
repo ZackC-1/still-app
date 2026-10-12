@@ -13,7 +13,7 @@ export interface NativeProOfferCardProps extends Omit<
   ProOfferCardProps,
   "confirmedAccount" | "onSignIn" | "offer"
 > {
-  offer?: { price: string; priceNote?: string; refundNote?: string };
+  offer?: { price: string; priceNote?: string };
   /** Signed local fulfillment is pending; recovery is separate from a new acquisition. */
   verificationRequired?: boolean;
 }

@@ -214,15 +214,6 @@
   }
 </script>
 
-{#snippet syncCaption()}
-  <!-- Owner decision 7: name Still Pro only while a paid producer actually offers it. -->
-  {#if !sync.account}<p class="caption">
-      {pro
-        ? "Optional. Blocking and Still Pro work without an account."
-        : "Optional. Blocking works without an account."}
-    </p>{/if}
-{/snippet}
-
 <div class="still-ui app" data-host="apple">
   <section class="hero compact" class:off={!settings.globalOn}>
     <div class="hero-text">
@@ -268,7 +259,6 @@
   <SyncCard
     owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
-    accountActions={syncCaption}
     account={sync.account
       ? {
           // The shared card renders these only; the native epoch stays in this fence.
@@ -321,12 +311,6 @@
       />
     </div>
   {/if}
-  {#if proActionReady}<p
-      class="caption"
-      style="margin-block-start:-4px;padding-inline:4px;"
-    >
-      No account needed. Payment is handled by Apple.
-    </p>{/if}
   {#if freeRestoreShown}
     <!-- Free period (owner decision 17): the Still Pro card's slot holds only its plain Restore
       link, so past purchasers can restore; no offer, Buy or price. -->

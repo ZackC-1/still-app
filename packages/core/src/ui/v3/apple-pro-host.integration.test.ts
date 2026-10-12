@@ -275,8 +275,10 @@ const GENERAL_NOTE =
   "On iPhone, iPad and Firefox for Android, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.";
 describe("Still Pro offer note follows only a confirmed platform", () => {
   async function notes(expected: string, other: string) {
+    // The settings card no longer carries the note (owner, ISS-0029 item 11); the Still Pro screen
+    // that Get Still Pro opens before any purchase still does.
     const card = await screen.findByRole("region", { name: "Still Pro" });
-    await waitFor(() => expect(card).toHaveTextContent(expected));
+    expect(card).not.toHaveTextContent(expected);
     expect(card).not.toHaveTextContent(other);
     await fireEvent.click(
       await screen.findByRole("button", { name: "Get Still Pro" }),

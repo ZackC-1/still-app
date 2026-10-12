@@ -333,43 +333,25 @@ describe("controlled D04 Apple settings", () => {
     view.unmount();
   });
 
-  it("tells a confirmed iPhone/iPad buyer which Still Pro extras work there, and everyone else the general note", async () => {
+  it("leaves the device line off the app's Still Pro card on iPhone, iPad and Mac (owner, ISS-0029 item 11)", async () => {
     const { props } = await fixture("locked");
-    const phone = render(AppleSettings, { props: { ...props, phone: true } });
-    const card = () => screen.getByRole("region", { name: "Still Pro" });
-    expect(
-      within(card()).getByText(
-        "On this device, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.",
-      ),
-    ).toBeVisible();
-    phone.unmount();
-    // A Mac, and the "ios" starting value before any setup read confirmed the platform.
-    for (const platform of ["mac", "ios"] as const) {
-      const view = render(AppleSettings, { props: { ...props, platform } });
-      expect(
-        within(card()).getByText(
-          "On iPhone, iPad and Firefox for Android, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.",
-        ),
-      ).toBeVisible();
+    for (const extra of [{ phone: true }, { platform: "mac" as const }, { platform: "ios" as const }]) {
+      const view = render(AppleSettings, { props: { ...props, ...extra } });
+      const card = screen.getByRole("region", { name: "Still Pro" });
+      expect(card).not.toHaveTextContent(/extras work/);
+      expect(card).not.toHaveTextContent(/need a computer/);
       view.unmount();
     }
   });
 
-  it("renders the native optional-account caption without changing the shared card's default", async () => {
+  it("renders the shared sync card as its heading, one line and Sign in, with no optional-account caption", async () => {
     const plain = render(SyncCard, { props: {} });
-    expect(
-      screen.queryByText(
-        "Optional. Blocking and Still Pro work without an account.",
-      ),
-    ).toBeNull();
+    expect(screen.queryByText(/without an account/)).toBeNull();
     plain.unmount();
     const { props } = await fixture();
     const view = render(AppleSettings, { props });
-    expect(
-      screen.getByText(
-        "Optional. Blocking and Still Pro work without an account.",
-      ),
-    ).toBeTruthy();
+    // Owner, ISS-0029 item 11: "Optional. Blocking and Still Pro work without an account." is gone.
+    expect(screen.queryByText(/without an account/)).toBeNull();
     expect(
       screen.getByText(
         "Free. Keep your block settings consistent across every supported device and browser.",
@@ -1498,35 +1480,19 @@ describe("D04 optional paid and combined-consent producers", () => {
   });
 });
 
-describe("D04 optional-account caption follows the paid producer (owner decision 7)", () => {
-  const SHORT = "Optional. Blocking works without an account.";
-  const DESIGN = "Optional. Blocking and Still Pro work without an account.";
-
+describe("D04 sync card carries no optional-account caption (owner, ISS-0029 item 11)", () => {
   it.each(["locked", "free", "purchased"] as const)(
-    "reads the blocking-only line while Still Pro is not offered and the design line once it is (%s access)",
+    "with or without a Still Pro producer, signed out or in (%s access)",
     async (state) => {
       const { props } = await fixture(state);
-      const view = render(AppleSettings, {
-        props: { ...props, pro: undefined },
-      });
-      expect(screen.getByText(SHORT)).toBeVisible();
-      expect(screen.getByText(SHORT).textContent?.trim()).toBe(SHORT);
-      expect(screen.queryByText(DESIGN)).toBeNull();
-      expect(document.body.textContent).not.toContain("Still Pro work");
+      const view = render(AppleSettings, { props: { ...props, pro: undefined } });
+      expect(screen.queryByText(/without an account/)).toBeNull();
       await view.rerender(props);
-      expect(screen.getByText(DESIGN)).toBeVisible();
-      expect(screen.getByText(DESIGN).textContent?.trim()).toBe(DESIGN);
-      expect(screen.queryByText(SHORT)).toBeNull();
-      await view.rerender({
-        ...props,
-        pro: undefined,
-        sync: {
-          ...props.sync,
-          account: { address: "actual-supplied@still.test", confirmed: true },
-        },
-      });
-      expect(screen.queryByText(SHORT)).toBeNull();
-      expect(screen.queryByText(DESIGN)).toBeNull();
+      expect(screen.queryByText(/without an account/)).toBeNull();
+      // Nor the old "No account needed. Payment is handled by Apple." under a ready offer, nor the
+      // refund note: the card is heading, price note, Get Still Pro and Restore purchase.
+      expect(screen.queryByText(/Payment is handled by Apple/)).toBeNull();
+      expect(screen.queryByText(/refund process/)).toBeNull();
       view.unmount();
     },
   );
@@ -1682,7 +1648,7 @@ describe("D04 native purchase entry requires a non-blank offer price", () => {
     },
   );
 
-  it("still offers Buy, the lock action and the Apple caption for a padded real price", async () => {
+  it("still offers Buy and the lock action for a padded real price, without the old Apple caption", async () => {
     const { props } = await fixture("locked");
     const buy = vi.fn();
     props.pro = {
@@ -1694,8 +1660,8 @@ describe("D04 native purchase entry requires a non-blank offer price", () => {
     };
     const view = render(AppleSettings, { props });
     expect(
-      screen.getByText("No account needed. Payment is handled by Apple."),
-    ).toBeVisible();
+      screen.queryByText("No account needed. Payment is handled by Apple."),
+    ).toBeNull();
     await fireEvent.click(
       screen.getByRole("button", { name: "Get Still Pro" }),
     );
@@ -1727,9 +1693,7 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     expect(
       screen.queryByText("No account needed. Payment is handled by Apple."),
     ).toBeNull();
-    expect(
-      screen.getByText("Optional. Blocking works without an account."),
-    ).toBeVisible();
+    expect(screen.queryByText(/without an account/)).toBeNull();
     const card = links[0]!.closest("section")!;
     expect(card.textContent?.trim()).toBe("Restore purchase");
     await fireEvent.click(links[0]!);

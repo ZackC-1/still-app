@@ -971,16 +971,16 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("signed out with no Still Pro producer, the caption names blocking only", async () => {
+  it("signed out, the sync card is its one line and Sign in, with no optional-account caption (ISS-0029 item 11)", async () => {
     const f = await composeAtomic();
     await f.hydrated;
     await renderHost(f);
     expect(
-      await screen.findByText("Optional. Blocking works without an account."),
+      await screen.findByText(
+        "Free. Keep your block settings consistent across every supported device and browser.",
+      ),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Blocking and Still Pro work without an account/),
-    ).toBeNull();
+    expect(screen.queryByText(/without an account/)).toBeNull();
     f.authority.stop();
   });
 
