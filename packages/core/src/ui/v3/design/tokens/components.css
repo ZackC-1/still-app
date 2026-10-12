@@ -176,7 +176,9 @@
 .sync-row-title { margin: 0; font-size: calc(15px * var(--text-scale, 1)); font-weight: 600; }
 .sync-row-sub { font-size: calc(13px * var(--text-scale, 1)); line-height: 1.35; }
 .primary.inline { white-space: nowrap; min-inline-size: max-content; flex: none; min-block-size: 36px; padding: var(--space-2) var(--space-3); font-size: calc(14px * var(--text-scale, 1)); }
-.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-inline: var(--space-1); font-size: calc(13px * var(--text-scale, 1)); }
+/* Footer links sit well inside the popup's edges so a sheet's rounded corners (iPhone Safari) never
+   clip them (owner, 12 Oct): 16px on each side, plus the popup's own 12px. */
+.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-inline: var(--space-4); font-size: calc(13px * var(--text-scale, 1)); }
 .open-options { background: transparent; border: none; color: var(--link); font: inherit; padding: 0; cursor: pointer; text-align: start; }
 .open-options:hover { color: var(--link-pressed); text-decoration: underline; text-underline-offset: 2px; }
 
@@ -224,7 +226,9 @@
 }
 .app[data-density="compact"] { max-block-size: var(--popup-max-block-size, 600px); }
 .app[data-density="compact"] > :not(.site-scroll) { flex-shrink: 0; }
-.app[data-density="compact"] .site-scroll { flex: 0 1 auto; min-block-size: 0; max-block-size: var(--site-scroll-max, 312px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; border-radius: var(--radius-card); }
+/* scroll-padding: a row scrolled into view (keyboard focus, larger text) is never left a fraction of a
+   pixel under the list's edge. */
+.app[data-density="compact"] .site-scroll { flex: 0 1 auto; min-block-size: 0; max-block-size: var(--site-scroll-max, 312px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; border-radius: var(--radius-card); scroll-padding-block: var(--space-1); }
 .services[data-paused="true"] .service-row .name { color: var(--ink-secondary); }
 
 /* Access tag: words + lock carry the meaning, never color */

@@ -205,6 +205,41 @@ describe("the browser Still Pro flow", () => {
     expect(h.state.channel).toBe("unavailable");
   });
 
+  it("signed out and known none asks about Get Still Pro once, re-checks nothing and never buys (ISS-0030)", async () => {
+    const h = harness();
+    h.observe("verify", null); h.observe("checking", null); await settle();
+    expect(h.available).not.toHaveBeenCalled();
+    h.observe("none", null); h.observe("none", null); await settle();
+    expect(h.available).toHaveBeenCalledOnce();
+    expect(h.state.channel).toBe("ready");
+    expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+    h.flow.buy(); await settle();
+    expect(h.checkout.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("signing in after a signed-out answer forgets it, re-checks, and asks again for the account", async () => {
+    const h = harness({ available: true });
+    h.observe("none", null); await settle();
+    expect(h.state.channel).toBe("ready");
+    h.available.mockResolvedValueOnce(false);
+    h.observe("none", ACCOUNT); await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    expect(h.available).toHaveBeenCalledTimes(2);
+    expect(h.state.channel).toBe("unavailable"); // the account's own answer, not the signed-out one
+  });
+
+  it("a signed-out answer still in flight when someone signs in is dropped", async () => {
+    let release!: (value: boolean) => void;
+    const h = harness();
+    h.available.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve; }));
+    h.observe("none", null); await settle();
+    expect(h.state.channel).toBe("checking");
+    h.available.mockResolvedValueOnce(false);
+    h.observe("none", ACCOUNT); await settle();
+    release(true); await settle();
+    expect(h.state.channel).toBe("unavailable");
+  });
+
   it("re-checks when someone signs in on this page, and forgets the old account's answers", async () => {
     const h = harness();
     h.observe("verify", null); await settle();

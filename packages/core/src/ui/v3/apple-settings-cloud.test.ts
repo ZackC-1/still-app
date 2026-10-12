@@ -177,6 +177,8 @@ async function composeCloud(options: { modernSettings: boolean; start?: "upgrade
   };
 }
 
+const SYNC_LINE = "Free. Keep your block settings consistent across every supported device and browser.";
+
 async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>) {
   const Host = await loadHost();
   return render(Host, {
@@ -185,11 +187,12 @@ async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>) {
 }
 
 describe("Apple atomic-cloud composition (configured, modern sync flag on)", () => {
-  it("signed out: D04 shows saved choices, the decision 7 caption and a working Sign in, and nothing reaches the server", async () => {
+  it("signed out: D04 shows saved choices, the sync card's one line and a working Sign in, and nothing reaches the server", async () => {
     const f = await composeCloud({ modernSettings: true });
     await renderHost(f);
-    expect(await screen.findByText("Optional. Blocking works without an account.")).toBeInTheDocument();
-    expect(screen.queryByText(/Blocking and Still Pro work without an account/)).toBeNull();
+    expect(await screen.findByText(SYNC_LINE)).toBeInTheDocument();
+    // The optional-account caption is gone (owner, ISS-0029 item 11).
+    expect(screen.queryByText(/without an account/)).toBeNull();
     const signIn = screen.getByRole("button", { name: "Sign in" });
     expect(signIn).toBeEnabled();
     await fireEvent.click(signIn);
@@ -212,7 +215,7 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
     expect(requireModernSettings(saved).services).toMatchObject({ tiktok: false, facebook: true });
     expect(await screen.findByText(EMAIL)).toBeInTheDocument();
     expect(await screen.findByText(STRINGS.sync.synced)).toBeInTheDocument();
-    expect(screen.queryByText("Optional. Blocking works without an account.")).toBeNull();
+    expect(screen.queryByText(SYNC_LINE)).toBeNull();
     expect(f.server.invoke.mock.calls.every(([name]) => name === "sync-settings" || name === "reconcile-entitlement")).toBe(true);
 
     // A deliberate D04 choice is one committed native intent, then one receipt-bound operation.
@@ -228,7 +231,7 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
   it("signed out, a D04 choice is one committed native intent and never reaches the server", async () => {
     const f = await composeCloud({ modernSettings: true });
     await renderHost(f);
-    await screen.findByText("Optional. Blocking works without an account.");
+    await screen.findByText(SYNC_LINE);
     expect(await f.authority.binding.setService("youtube", false)).toEqual({ status: "committed" });
     await waitFor(async () => expect(requireModernSettings((await f.native.storage.get())!).services.youtube).toBe(false));
     // Give any write-through a chance to run: still nothing for the server.

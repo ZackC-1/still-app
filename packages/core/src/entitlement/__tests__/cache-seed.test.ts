@@ -14,12 +14,12 @@ function adapter(observe: () => Promise<BenefitAccessSnapshot>): EntitlementAdap
 }
 
 describe("EntitlementCache seed for a late platform answer", () => {
-  it("an unknown-platform seed never offers a desktop-layout extra; a desktop answer reseeds it as verifiable", () => {
+  it("an unknown-platform seed never offers a desktop-layout extra; a desktop answer reseeds it as still being checked", () => {
     const cache = new EntitlementCache(adapter(() => new Promise(() => {})), { access: packagedAccessContext("firefox", "unknown") });
     expect(cache.currentAccess("youtube.endscreen")).toBe("unsupported");
-    expect(cache.currentAccess("youtube.autoplay")).toBe("verification_required");
+    expect(cache.currentAccess("youtube.autoplay")).toBe("checking");
     cache.seedAccess(packagedAccessContext("firefox", "desktop"));
-    expect(cache.currentAccess("youtube.endscreen")).toBe("verification_required");
+    expect(cache.currentAccess("youtube.endscreen")).toBe("checking");
     cache.seedAccess(packagedAccessContext("firefox", "android"));
     expect(cache.currentAccess("youtube.endscreen")).toBe("unsupported");
     expect(cache.currentAccess("youtube.shorts")).toBe("free");

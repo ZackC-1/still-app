@@ -31,8 +31,7 @@
     verify: {
       tone: "caution",
       text: "Still Pro needs to be verified again.",
-      detail:
-        "Go online and sign in. Free controls and your saved choices stay.",
+      detail: undefined,
       action: "Verify now",
     },
   } as const;

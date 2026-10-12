@@ -58,7 +58,8 @@
     "./ui/v3/apple-pro-host": "./src/ui/v3/apple-pro-host.ts",
     "./ui/v3/PurchaseView.svelte": "./src/ui/v3/PurchaseView.svelte",
     "./ui/v3/tiktok-blocked-host": "./src/ui/v3/tiktok-blocked-host.ts",
-    "./ui/v3/tiktok-blocked-presentation": "./src/ui/v3/tiktok-blocked-presentation.ts"
+    "./ui/v3/tiktok-blocked-presentation": "./src/ui/v3/tiktok-blocked-presentation.ts",
+    "./ui/v3/usage-copy": "./src/ui/v3/usage-copy.ts"
   },
   "scripts": {
     "test": "vitest run",
