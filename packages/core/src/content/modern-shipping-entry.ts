@@ -105,8 +105,8 @@ export function mayBeCoreRoute(url: URL): boolean {
   const path = url.pathname;
   if (on("youtube")) return path.startsWith("/shorts/");
   if (on("instagram")) return path.startsWith("/reels");
-  // "/reel" covers the plural /reels feed and the /reel/ feed entry (its shared /reel/<id> declines).
-  if (on("facebook")) return path.startsWith("/reel") || path.startsWith("/watch/reels");
+  // The /reel/ feed entry passes; a shared /reel/<digits> never builds a session here.
+  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels") || /^\/reel(?:\/(?!\d)|$)/.test(path);
   return false;
 }
 

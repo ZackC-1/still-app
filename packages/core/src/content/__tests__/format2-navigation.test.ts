@@ -560,7 +560,27 @@ describe("Facebook's /reel/ feed entry (the top-menu Reels tab, ISS-0035)", () =
     expect(h.push).not.toHaveBeenCalled();
     expect(h.entries).toEqual(["https://www.facebook.com/reel/111", "https://www.facebook.com/"]);
   });
-  it("a shared Reel opened in-app still plays", async () => {
+  it("on Home, the feed entry's hand-over to its first Reel is stopped too, for a short while", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const h = await host("https://www.facebook.com/");
+      // Not an anchor click: the page's own router pushes the entry, and Still is already Home.
+      expect(h.navigate("https://www.facebook.com/reel/?s=tab", { userInitiated: false })).toHaveBeenCalledOnce();
+      expect(h.assign).not.toHaveBeenCalled();
+      expect(h.navigate("https://www.facebook.com/reel/1234567890", { navigationType: "replace", userInitiated: false })).toHaveBeenCalledOnce();
+      h.win.history.replaceState({}, "", "/reel/1234567890");
+      expect(h.replaceState).not.toHaveBeenCalled();
+      expect(h.win.location.href).toBe("https://www.facebook.com/");
+      // A Reel the person opens is deliberate, and after the window a page move is judged as usual.
+      expect(h.navigate("https://www.facebook.com/reel/1234567890", { userInitiated: true })).not.toHaveBeenCalled();
+      vi.setSystemTime(Date.now() + 3_000);
+      h.win.history.pushState({}, "", "/reel/1234567890");
+      expect(h.push).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+    it("a shared Reel opened in-app still plays", async () => {
     const h = await host(origin);
     h.win.history.pushState({}, "", "/reel/1234567890/");
     expect(h.push).toHaveBeenCalledOnce();
