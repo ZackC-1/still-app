@@ -48,7 +48,7 @@ describe("WKBenefitAccessAdapter", () => {
       (message as { kind: string }).kind === "getBenefitAccess" ? { ok: true, snapshot: purchasedSnapshot() } : null,
     );
     const cache = new EntitlementCache(new WKBenefitAccessAdapter(new NativeBridge(win)), paid);
-    for (const id of PRO) expect(cache.currentAccess(id)).toBe("verification_required");
+    for (const id of PRO) expect(cache.currentAccess(id)).toBe("checking");
     await cache.refreshAccess();
     for (const id of PRO) expect(cache.currentAccess(id)).toBe("purchased");
   });
