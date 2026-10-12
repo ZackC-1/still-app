@@ -22,9 +22,12 @@
     proOwnership,
     type BrowserProState,
   } from "../../lib/browser-pro.js";
+  import { useSiteAccessCard } from "../../lib/site-access-card.svelte.js";
 
   const props: ExtensionSettingsProps = $props();
   const deps = bound;
+  // ISS-0037: warn at the top when the browser withholds Still's four sites, with Allow.
+  const siteAccess = useSiteAccessCard();
   let flowState = $state.raw<BrowserProState>(INITIAL_BROWSER_PRO_STATE);
   const flow = deps
     ? createBrowserPro(deps, (next) => {
@@ -79,4 +82,9 @@
 </script>
 
 <!-- Keep the approved compact card; the existing full purchase view owns the inventory. -->
-<ExtensionSettings {...props} {pro} restore={flowState.restore} />
+<ExtensionSettings
+  {...props}
+  {pro}
+  restore={flowState.restore}
+  siteAccess={siteAccess.current}
+/>

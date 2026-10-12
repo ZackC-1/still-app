@@ -91,13 +91,13 @@
         where: "options",
       });
   };
-  // Free-period "Restore purchase" (owner decisions 62 and 73): V3 new-sync builds only. The
-  // inline build-time check folds to false on configured 2.x and unconfigured builds, which keep
-  // loading ExtensionSettings exactly as before; the Restore wrapper and its check live only in the
-  // lazily loaded wrapper chunk, which this page binds to its controller when it loads it.
-  const freeRestore = Boolean(
-    import.meta.env.VITE_SUPABASE_URL &&
-      import.meta.env.VITE_SUPABASE_ANON_KEY &&
+  // Free V3 builds load the settings page through RestoreSettings: the free-period "Restore
+  // purchase" link (owner decisions 62 and 73; bound only where the build has the sign-in spine)
+  // and the site access warning (ISS-0037). The inline build-time check (modernSettingsRuntime's
+  // atomicLocal rule) folds to false on configured 2.x builds, which keep loading ExtensionSettings
+  // exactly as before; the wrapper and its checks live only in its lazily loaded chunk.
+  const freeV3Settings = Boolean(
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
   );
   const loadSettings =
@@ -111,7 +111,7 @@
           module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout } : undefined);
           return module;
         })
-    : freeRestore
+    : freeV3Settings
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {
           module.bindSettingsRestore(purchase ? controller : undefined);

@@ -11,8 +11,11 @@
   } from "@still/core/ui/v3/popup-invitation-flow";
   import { popupInvitationHost } from "../../lib/invitation-popup-host.js";
   import { openRatingReview, ratingCardPresentation } from "../../lib/rating-card.js";
+  import { useSiteAccessCard } from "../../lib/site-access-card.svelte.js";
 
   let props: DesktopPopupProps = $props();
+  // ISS-0037: warn at the top when the browser withholds Still's four sites, with Allow.
+  const siteAccess = useSiteAccessCard();
   const host = popupInvitationHost();
   let shown = $state.raw<{
     installation: string;
@@ -90,4 +93,9 @@
   );
 </script>
 
-<DesktopPopup {...props} {invitation} invitationVariant="d28" />
+<DesktopPopup
+  {...props}
+  {invitation}
+  invitationVariant="d28"
+  siteAccess={siteAccess.current}
+/>

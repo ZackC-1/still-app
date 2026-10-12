@@ -294,15 +294,17 @@ describe("Restore wrapper forwarding", () => {
   });
 });
 
-describe("the build-time Restore gate", () => {
-  it("is on exactly for configured builds that run the V3 interface (new sync), never 2.x or unconfigured", async () => {
+describe("the build-time settings wrapper gate", () => {
+  it("is on exactly for builds that run the V3 interface, never configured 2.x", async () => {
     // The gate must stay an inline import.meta.env expression so the bundler folds it away in
     // configured 2.x builds. This evaluates that exact expression over every build input combination.
+    // Restore itself is bound only where the build has the sign-in spine (tests above); the wrapper
+    // also carries the site access warning (ISS-0037), which every V3 build shows.
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const { runsV3Interface } = await import("../../../wxt.config.js");
     const source = readFileSync(resolve(import.meta.dirname, "../OptionsApp.svelte"), "utf8");
-    const match = /const freeRestore = Boolean\(([\s\S]*?)\);/.exec(source);
+    const match = /const freeV3Settings = Boolean\(([\s\S]*?)\);/.exec(source);
     expect(match).not.toBeNull();
     const expression = match![1]!.replaceAll("import.meta.env", "env");
     expect(expression).not.toMatch(/import\.meta|purchase|controller/);
@@ -311,8 +313,7 @@ describe("the build-time Restore gate", () => {
       for (const key of [undefined, "", "synthetic-public-key"])
         for (const modern of [undefined, "", "false", "true"]) {
           const env = { VITE_SUPABASE_URL: url, VITE_SUPABASE_ANON_KEY: key, VITE_MODERN_SETTINGS_SYNC_ENABLED: modern };
-          const configured = Boolean(url) && Boolean(key);
-          expect(gate(env), JSON.stringify(env)).toBe(configured && runsV3Interface(env));
+          expect(gate(env), JSON.stringify(env)).toBe(runsV3Interface(env));
         }
   });
 });
