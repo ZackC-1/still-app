@@ -82,10 +82,14 @@ test("J1.FD there is no account wall: the pin step, an optional sync step, and a
   const page = await firstRunTab(firefox);
   const body = await text(page);
   expect(body).toContain("Pin Still to your toolbar");
-  // Firefox's own wording: the gear menu, not Chrome's pin button.
-  expect(body).toContain(
+  // ISS-0031: step 2 follows Firefox's own pinned report (action.getUserSettings): done when
+  // Firefox already put Still on the toolbar, otherwise Firefox's own wording (the gear menu, not
+  // Chrome's pin button). Never both.
+  const pinnedDone = body.includes("Still is pinned.");
+  const pinGuidance = body.includes(
     "Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar.",
   );
+  expect(pinnedDone !== pinGuidance, "step 2 is either done or instructs, never both").toBe(true);
   expect(body).toContain("Settings sync");
   expect(body).toContain("Optional");
   expect(await page.count("[role=dialog], dialog[open]")).toBe(0);

@@ -21,9 +21,7 @@
   let browserName = $derived(browser === "chrome" ? "Chrome" : "Firefox");
   let allowed = $derived(permission.verified && permission.state === "granted");
   let ready = $derived(allowed && blocking.verified && blocking.state === "on");
-  let pinned = $derived(
-    browser === "chrome" && pin !== undefined && pin.verified && pin.pinned,
-  );
+  let pinned = $derived(pin !== undefined && pin.verified && pin.pinned);
   let signedIn = $derived(
     sync.account?.confirmed && Boolean(sync.account.address.trim()),
   );

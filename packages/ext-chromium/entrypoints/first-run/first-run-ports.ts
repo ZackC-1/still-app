@@ -1,5 +1,6 @@
 import type { UiAnalytics } from "@still/core/ui";
 import type { FirstRunSiteAccess } from "@still/core/ui/v3/first-run-host";
+import { isFirefoxAndroid, type RuntimePlatform } from "../../lib/runtime-platform.js";
 
 /** The existing page analytics minus event recording. The closed event schema has no first-run
  * surface, so this page records no events; the usage-sharing switch and the account attribution
@@ -114,18 +115,33 @@ export function observeSiteAccess(
   };
 }
 
-/** The slice of chrome.action this page uses (Chrome 91+; the change event is Chrome 130+). */
+/** The slice of chrome.action this page uses (getUserSettings: Chrome 91+ and desktop Firefox 116+;
+ * the change event is Chrome 130+ only, so Firefox relies on the poll below). */
 export interface PinApi {
   getUserSettings?(): Promise<{ isOnToolbar?: boolean }>;
   onUserSettingsChanged?: BrowserEvent;
 }
 
+/**
+ * Where the page reads the pinned report from (ISS-0031): the browser's action API on Chrome and on
+ * desktop Firefox (both report `isOnToolbar`), and nowhere on Firefox for Android, which has no
+ * toolbar and shows no pin step. `platform` is the browser's own answer, never the window size.
+ */
+export function firstRunPinApi(
+  isFirefox: boolean,
+  platform: RuntimePlatform,
+  action: PinApi | undefined,
+): PinApi | undefined {
+  return isFirefoxAndroid(isFirefox, platform) ? undefined : action;
+}
+
 const PIN_POLL_MS = 2_000;
 
 /**
- * Chrome's own report of whether Still is pinned, or null where the browser does not say (Firefox,
- * older Chrome, or a failed read). Pinning happens in the browser's toolbar, outside this page, so
- * the report is re-read on Chrome's change event and on a short poll while the page is visible.
+ * The browser's own report of whether Still is pinned (Chrome or desktop Firefox), or null where
+ * the browser does not say (no API, no `isOnToolbar` in the answer, or a failed read). Pinning
+ * happens in the browser's toolbar, outside this page, so the report is re-read on Chrome's change
+ * event and on a short poll while the page is visible.
  */
 export function observePinned(
   api: PinApi | undefined,

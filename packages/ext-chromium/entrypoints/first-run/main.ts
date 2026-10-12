@@ -11,7 +11,7 @@ import { extensionPurchaseDeps } from "../../lib/purchase-wiring.js";
 import { emailConsent } from "../../lib/email-consent.js";
 import { createPageAnalytics } from "../../lib/analytics.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
-import { declaredSiteOrigins, firstRunAnalytics, type PinApi } from "./first-run-ports.js";
+import { declaredSiteOrigins, firstRunAnalytics, firstRunPinApi, type PinApi } from "./first-run-ports.js";
 import FirstRunApp from "./FirstRunApp.svelte";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { isFirefoxAndroid, runtimePlatformFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
@@ -67,8 +67,11 @@ function init(isFirefox: boolean, platform: RuntimePlatform): void {
       legacy,
       permissions: chrome.permissions,
       origins: declaredSiteOrigins(chrome.runtime.getManifest()),
-      action: isFirefox ? undefined : (chrome.action as unknown as PinApi),
-      // Firefox for Android has no toolbar to pin Still to, so that step is left out there.
+      // Both browsers report whether Still is pinned (action.getUserSettings().isOnToolbar: Chrome
+      // 91+, desktop Firefox 116+; the Firefox build requires 140+), so step 2 shows "Still is
+      // pinned." on either (ISS-0031). Firefox for Android has no toolbar to pin Still to, so that
+      // step is left out there and nothing is asked.
+      action: firstRunPinApi(isFirefox, platform, chrome.action as unknown as PinApi),
       toolbar: !isFirefoxAndroid(isFirefox, platform),
       onOpenSettings: () => void chrome.runtime.openOptionsPage(),
       onOpenPrivacy: () => {

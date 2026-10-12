@@ -45,7 +45,8 @@
     legacy?: LegacyPopupAuthority;
     permissions?: SiteAccessApi;
     origins: readonly string[];
-    /** Chrome's action API for the pinned report; Firefox passes nothing. */
+    /** The browser's action API for the pinned report (Chrome, desktop Firefox); absent where
+     * there is no toolbar (Firefox for Android). */
     action?: PinApi;
     /** False in Firefox for Android (the browser's own platform answer): no toolbar, no pin step. */
     toolbar?: boolean;
@@ -65,7 +66,7 @@
       : undefined;
     requestSiteAccess = access?.request;
     const stopPinned = observePinned(
-      browser === "chrome" ? action : undefined,
+      toolbar ? action : undefined,
       (next) => (pinned = next),
     );
     const stopChoices = binding

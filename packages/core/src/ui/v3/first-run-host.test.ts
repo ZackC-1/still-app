@@ -5,6 +5,7 @@ import FirstRun from "./FirstRun.svelte";
 import {
   FIRST_RUN_PAGE,
   FIRST_RUN_PIN_GUIDANCE,
+  FIRST_RUN_PIN_GUIDANCE_UNKNOWN,
   FIRST_RUN_SETUP_DESCRIPTION,
   firstRunHostProps,
   firstRunPermissionGuidance,
@@ -57,6 +58,12 @@ describe("first-run host mapping", () => {
       chrome: "Click the puzzle piece in the toolbar, then the pin next to Still.",
       firefox:
         "Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar.",
+    });
+    // ISS-0031: where the browser did not say, the step reads true whether or not Still is pinned.
+    expect(FIRST_RUN_PIN_GUIDANCE_UNKNOWN).toEqual({
+      chrome: "If Still isn't in your toolbar, click the puzzle piece, then the pin next to Still.",
+      firefox:
+        "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
     });
   });
 
@@ -119,17 +126,27 @@ describe("first-run host mapping", () => {
     ).toEqual({ state: "off", verified: true });
   });
 
-  it("reports pinning only from Chrome's own answer; Firefox stays instructions", () => {
-    expect(firstRunHostProps(host({ pinned: true })).pin).toMatchObject({ pinned: true, verified: true });
-    expect(firstRunHostProps(host({ pinned: false })).pin).toMatchObject({ pinned: false, verified: true });
-    expect(firstRunHostProps(host({ pinned: null })).pin).toMatchObject({ pinned: false, verified: false });
-    const firefox = firstRunHostProps(host({ browser: "firefox", pinned: true })).pin;
-    expect(firefox).toEqual({
-      pinned: false,
-      verified: false,
-      guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE.firefox },
-    });
-  });
+  it.each(["chrome", "firefox"] as const)(
+    "%s: reports pinning only from the browser's own answer (ISS-0031)",
+    (browser) => {
+      expect(firstRunHostProps(host({ browser, pinned: true })).pin).toEqual({
+        pinned: true,
+        verified: true,
+        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE[browser] },
+      });
+      expect(firstRunHostProps(host({ browser, pinned: false })).pin).toEqual({
+        pinned: false,
+        verified: true,
+        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE[browser] },
+      });
+      // No answer: never claimed pinned, and the instruction reads true either way.
+      expect(firstRunHostProps(host({ browser, pinned: null })).pin).toEqual({
+        pinned: false,
+        verified: false,
+        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE_UNKNOWN[browser] },
+      });
+    },
+  );
 
   it("leaves the pin step out only where the browser reports no toolbar (Firefox for Android)", () => {
     expect(firstRunHostProps(host({ browser: "firefox", pinned: null, toolbar: false }))).not.toHaveProperty("pin");
@@ -138,7 +155,7 @@ describe("first-run host mapping", () => {
       expect(firstRunHostProps(host({ browser: "firefox", pinned: null, toolbar })).pin).toEqual({
         pinned: false,
         verified: false,
-        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE.firefox },
+        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE_UNKNOWN.firefox },
       });
       expect(firstRunHostProps(host({ toolbar })).pin).toMatchObject({ pinned: false, verified: true });
     }
@@ -182,7 +199,7 @@ describe("first-run host mapping rendered by the approved component", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One step to finish setup.");
     expect(screen.getByText(FIRST_RUN_SETUP_DESCRIPTION)).toBeInTheDocument();
     expect(screen.getByText(firstRunPermissionGuidance("firefox"))).toBeInTheDocument();
-    expect(screen.getByText(FIRST_RUN_PIN_GUIDANCE.firefox)).toBeInTheDocument();
+    expect(screen.getByText(FIRST_RUN_PIN_GUIDANCE_UNKNOWN.firefox)).toBeInTheDocument();
     screen.getByRole("button", { name: "Allow" }).click();
     expect(requestSiteAccess).toHaveBeenCalledOnce();
   });
@@ -195,12 +212,19 @@ describe("first-run host mapping rendered by the approved component", () => {
     });
     expect(screen.queryByText("Pin Still to your toolbar")).toBeNull();
     expect(screen.queryByText(FIRST_RUN_PIN_GUIDANCE.firefox)).toBeNull();
+    expect(screen.queryByText(FIRST_RUN_PIN_GUIDANCE_UNKNOWN.firefox)).toBeNull();
     const steps = [...container.querySelectorAll("ol.steps > li.step")];
     expect(steps).toHaveLength(2);
     expect(steps.map((step) => step.querySelector(".num")?.textContent?.trim())).toEqual(["1", "2"]);
     expect(steps[0]).toHaveTextContent("Allow Still on supported sites");
     expect(steps[1]).toHaveTextContent("Settings sync");
     expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
+  });
+
+  it("desktop Firefox, already pinned: step 2 shows Still is pinned., as on Chrome (ISS-0031)", () => {
+    render(FirstRun, { props: firstRunHostProps(host({ browser: "firefox", pinned: true })) });
+    expect(screen.getByText("Still is pinned.")).toBeVisible();
+    expect(screen.queryByText(FIRST_RUN_PIN_GUIDANCE.firefox)).toBeNull();
   });
 
   it("desktop Firefox keeps the three numbered steps", () => {

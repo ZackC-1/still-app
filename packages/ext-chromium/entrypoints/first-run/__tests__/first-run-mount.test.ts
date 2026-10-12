@@ -169,12 +169,45 @@ describe("first-run host mount", () => {
     });
     const sharing = await screen.findByRole("switch", { name: "Share usage data" });
     expect(sharing.getAttribute("aria-checked")).toBe("false");
-    expect(screen.queryByText(/Still shares usage data to help improve the app/)).toBeNull();
+    expect(screen.queryByText(/Still shares usage data/)).toBeNull();
     expect(page.setSharing).not.toHaveBeenCalled();
+    // No pinned report from the browser: the instruction reads true either way (ISS-0031).
     expect(
-      screen.getByText("Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar."),
+      screen.getByText(
+        "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+      ),
     ).toBeTruthy();
     await waitFor(() => expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("desktop Firefox: step 2 follows Firefox's own pinned report, as on Chrome (ISS-0031)", async () => {
+    installBrowser();
+    const page = pageAnalytics(false, false);
+    const controller = createExtensionUiController(undefined, { analytics: firstRunAnalytics(page) });
+    let onToolbar = false;
+    const getUserSettings = vi.fn(async () => ({ isOnToolbar: onToolbar }));
+    render(FirstRunApp, {
+      props: {
+        controller,
+        browser: "firefox",
+        permissions: permissionsApi(true),
+        origins: ORIGINS,
+        action: { getUserSettings },
+      },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText("Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar."),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("Still is pinned.")).toBeNull();
+    // Pinned outside the page (Firefox has no change event): the visibility re-read picks it up.
+    onToolbar = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(screen.getByText("Still is pinned.")).toBeTruthy());
+    expect(
+      screen.queryByText("Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar."),
+    ).toBeNull();
   });
 
   it("Firefox for Android: no pin step, the same Allow request, and the sign-in step renumbered", async () => {
@@ -183,7 +216,14 @@ describe("first-run host mount", () => {
     const controller = createExtensionUiController(undefined, { analytics: firstRunAnalytics(page) });
     const permissions = permissionsApi(false);
     render(FirstRunApp, {
-      props: { controller, browser: "firefox", permissions, origins: ORIGINS, toolbar: false },
+      props: {
+        controller,
+        browser: "firefox",
+        permissions,
+        origins: ORIGINS,
+        toolbar: false,
+        action: { getUserSettings: vi.fn(async () => ({ isOnToolbar: true })) },
+      },
     });
     const allow = await screen.findByRole("button", { name: "Allow" });
     await waitFor(() => expect((allow as HTMLButtonElement).disabled).toBe(false));
@@ -197,6 +237,7 @@ describe("first-run host mount", () => {
     ]);
     await fireEvent.click(allow);
     expect(permissions.request).toHaveBeenCalledWith({ origins: ORIGINS });
+    expect(screen.queryByText("Still is pinned.")).toBeNull();
     expect(page.track).not.toHaveBeenCalled();
   });
 
