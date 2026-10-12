@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.7",
+  "version": "3.0.8",
   "services": {
     "youtube": {
       "matches": [
@@ -178,7 +178,14 @@
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
-            "[role=\"tab\"][aria-label^=\"Reels,\" i] > *"
+            "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
+            "[role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
+            "a:is([href=\"/reel/\"], [href^=\"/reel/?\"], [href^=\"/reel/following\"], [href^=\"/reel/profile\"], [href=\"/reels\"], [href^=\"/reels?\"], [href=\"/reels/\"], [href^=\"/reels/?\"], [href^=\"/watch/reels\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reel/\"], [href^=\"/reel/?\"], [href^=\"/reel/following\"], [href^=\"/reel/profile\"], [href=\"/reels\"], [href^=\"/reels?\"], [href=\"/reels/\"], [href^=\"/reels/?\"], [href^=\"/watch/reels\"])):not(:has(li))",
+            "a:is([href=\"https://www.facebook.com/reel/\"], [href^=\"https://www.facebook.com/reel/?\"], [href^=\"https://www.facebook.com/reel/following\"], [href^=\"https://www.facebook.com/reel/profile\"], [href=\"https://www.facebook.com/reels\"], [href^=\"https://www.facebook.com/reels?\"], [href=\"https://www.facebook.com/reels/\"], [href^=\"https://www.facebook.com/reels/?\"], [href^=\"https://www.facebook.com/watch/reels\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://www.facebook.com/reel/\"], [href^=\"https://www.facebook.com/reel/?\"], [href^=\"https://www.facebook.com/reel/following\"], [href^=\"https://www.facebook.com/reel/profile\"], [href=\"https://www.facebook.com/reels\"], [href^=\"https://www.facebook.com/reels?\"], [href=\"https://www.facebook.com/reels/\"], [href^=\"https://www.facebook.com/reels/?\"], [href^=\"https://www.facebook.com/watch/reels\"])):not(:has(li))",
+            "a:is([href=\"https://m.facebook.com/reel/\"], [href^=\"https://m.facebook.com/reel/?\"], [href^=\"https://m.facebook.com/reel/following\"], [href^=\"https://m.facebook.com/reel/profile\"], [href=\"https://m.facebook.com/reels\"], [href^=\"https://m.facebook.com/reels?\"], [href=\"https://m.facebook.com/reels/\"], [href^=\"https://m.facebook.com/reels/?\"], [href^=\"https://m.facebook.com/watch/reels\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://m.facebook.com/reel/\"], [href^=\"https://m.facebook.com/reel/?\"], [href^=\"https://m.facebook.com/reel/following\"], [href^=\"https://m.facebook.com/reel/profile\"], [href=\"https://m.facebook.com/reels\"], [href^=\"https://m.facebook.com/reels?\"], [href=\"https://m.facebook.com/reels/\"], [href^=\"https://m.facebook.com/reels/?\"], [href^=\"https://m.facebook.com/watch/reels\"])):not(:has(li))"
           ]
         },
         {
@@ -248,6 +255,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "ccc844d766a6040ff0f2f0aa7c04f294de9aba8e341093cfa149e8c65c3b6c431c31a68e1553fd4e61d68857cfcc5b2d36500951ae51fc8580fdb46f6bbcbc08"
+    "value": "a8ee74002000d81b90d405d6f66be00b102837575cb3657dddaa2aaafd5e915d914332084bc0702f1dfca9a05aa233701529f2c17753c273d4b21cf36e3a090b"
   }
 }

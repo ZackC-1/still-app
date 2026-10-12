@@ -418,6 +418,21 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#keep-menu-home")).toBeVisible();
 });
 
+// Facebook's current navigation on the legacy lane (configured 2.x builds, unchanged seed): the
+// top-menu tab is hidden by its "Reels" label, and every /reel/ address, the feed entry included,
+// shows Still's placeholder, so the Reels feed stays closed there too (ISS-0035).
+test("facebook current navigation on the legacy lane: the Reels tab is hidden and the Reels feed entry shows the placeholder", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
+  await page.goto("https://www.facebook.com/");
+  await expect(page.locator("#top-reels-tab")).toBeHidden();
+  for (const id of ["#keep-top-home", "#keep-top-friends", "#keep-side-groups", "#keep-side-marketplace"])
+    await expect(page.locator(id), id).toBeVisible();
+  await page.goto("https://www.facebook.com/reel/?s=tab");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+});
+
 // A person named Reels is not a Reel. Facebook's people directory lists everyone whose name
 // contains the word, and each result's photo link carries that name as its accessible name, so a
 // rule that hid any link labelled with the word took their photos with it. Measured on the live
