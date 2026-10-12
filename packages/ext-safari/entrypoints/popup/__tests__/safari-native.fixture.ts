@@ -66,6 +66,14 @@ export async function installSafari(options: {
         };
       case "getEntitlement":
         return { entitlement: options.entitlement ? JSON.stringify(options.entitlement) : "" };
+      case "openAppRoute":
+        // The app's handler (StillAppRoute): the Mac opens the app; an iPhone extension cannot.
+        return {
+          openAppRoute: {
+            ok: options.platform === "mac" && (message.route === "pro" || message.route === "sync"),
+            route: message.route === "pro" || message.route === "sync" ? message.route : null,
+          },
+        };
       default:
         return {};
     }
@@ -85,6 +93,7 @@ export async function installSafari(options: {
     return undefined;
   });
   const openOptionsPage = vi.fn(async () => {});
+  const createTab = vi.fn(async (_properties: { url: string }) => ({}));
   const set = vi.fn(async (items: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(items)) {
       const oldValue = store[key];
@@ -102,6 +111,7 @@ export async function installSafari(options: {
       sendMessage,
       openOptionsPage,
     },
+    tabs: { create: createTab },
     storage: {
       local: {
         get: async (key: string | string[]) => {
@@ -127,6 +137,7 @@ export async function installSafari(options: {
     messages,
     sendNativeMessage,
     openOptionsPage,
+    createTab,
     nativeKinds: () => native.map((m) => m.kind),
     nativeRecord,
     setNativeDown(down: boolean) {

@@ -77,6 +77,14 @@ export interface DesktopPopupProps {
   onPurchase?: () => void;
   /** Navigation to the actual Pro destination; a feature lock never starts checkout. */
   onSeePro?: () => void;
+  /**
+   * Safari popups only (Mac and iPhone/iPad). When true, onSeePro (Get Still Pro and every lock
+   * chip) and onSignIn hand off to the Still app instead of acting in the popup: Apple purchases
+   * happen only in the app's StoreKit flow (App Store Review Guidelines 3.1.1/3.1.3) and the app owns
+   * the account on Safari. The popup says "Opens the Still app" under those actions and shows no
+   * price or checkout. Absent or false everywhere else (Chrome, Firefox, Firefox for Android).
+   */
+  appHandoff?: boolean;
   account?: {
     address?: string;
     status?: {

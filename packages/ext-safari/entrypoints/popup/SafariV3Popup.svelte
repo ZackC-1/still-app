@@ -5,13 +5,16 @@
   // dynamic import that default builds fold away, so these components and their global stylesheet
   // exist only in opted-in builds.
   //
+  // Get Still Pro, every lock chip and Sign in hand off to the Still app (lib/app-handoff,
+  // ISS-0032): Apple purchases happen only in the app's StoreKit flow, and the app owns the account
+  // on Safari. appHandoff tells the shared popup so; it offers those actions only where access is
+  // conclusively locked (Pro) or nobody is signed in (Sign in). No onPurchase: no price and no
+  // checkout link in Safari (App Store Review Guidelines 3.1.1 and 3.1.3).
+  //
   // Not offered here, deliberately:
-  //  - "Open Still" / "See Still Pro": no onSeePro. Nothing renders it while the paid tier is off,
-  //    and the route to the app's Access & purchases section is a separate Apple app-link unit that
-  //    must land before paid launch (owner decision 14).
-  //  - Sign in, sign out, delete account, sync retry: the Apple app owns the account on Safari.
-  //    The account display is read-only (appManagedPopupAccount) and the account slot carries only
-  //    the settings recovery action.
+  //  - Sign out, delete account, sync retry: the Apple app owns the account on Safari. The account
+  //    display is read-only (appManagedPopupAccount) and the account slot carries only the settings
+  //    recovery action.
   //  - Setup and invitations: no verified Safari observation exists for them.
   import DesktopPopup from "@still/core/ui/v3/DesktopPopup.svelte";
   import MobilePopup from "@still/core/ui/v3/MobilePopup.svelte";
@@ -29,14 +32,19 @@
     safariPopupFillsSheet,
     type SafariPopupSurface,
   } from "../../lib/safari-v3.js";
+  import type { SafariAppRoute } from "../../lib/app-handoff.js";
 
   interface Props {
     /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
     composition: SafariV3Composition;
     surface: SafariPopupSurface;
     onSettings: () => void;
+    /** Opens the Still app at a fixed destination (createSafariAppHandoff for this surface). */
+    openApp: (route: SafariAppRoute) => void;
   }
-  let { composition, surface, onSettings }: Props = $props();
+  let { composition, surface, onSettings, openApp }: Props = $props();
+  const onSeePro = () => openApp("pro");
+  const onSignIn = () => openApp("sync");
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -124,6 +132,9 @@
       onServiceChange={ready.commands.service}
       onFeatureChange={ready.commands.feature}
       {onSettings}
+      {onSeePro}
+      {onSignIn}
+      appHandoff
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
@@ -139,6 +150,9 @@
       onServiceChange={ready.commands.service}
       onFeatureChange={ready.commands.feature}
       {onSettings}
+      {onSeePro}
+      {onSignIn}
+      appHandoff
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
