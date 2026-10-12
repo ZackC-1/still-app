@@ -75,9 +75,32 @@ Accepted, display only: a seven-day-old "no purchase" can still show Locked afte
 another device until the app checks again, and a fresh device's StoreKit `.noPurchases` counts as
 an Apple "none". Neither grants anything; See Pro opens the app, which checks again.
 
+**"Signed out" includes the stored JSON null (ISS-0030).** `AccountSyncStatusStore.clear()` writes
+a JSON `null`, and the app publishes that null on sign-out and on every launch without an account
+(`AppleSession.resumeAccount`). `displayedAccount()` first treated any stored bytes it could not
+decode as `.unreadable`, so a signed-out or never-signed-in Mac or iPhone showed every Safari Still
+Pro row as "verification required" (greyed switches, no See Pro) while the app itself showed Get
+Still Pro. It now reads a stored null as `.signedOut`; other undecodable bytes stay `.unreadable`.
+The earlier `SafariAccessLaneTests` injected `.signedOut` directly and so never exercised the
+store's real bytes. The end-to-end cases now drive the real `AccountSyncStatusStore` in the order
+the router writes it. Lesson: when a test injects a value that production derives from storage,
+add at least one test that writes the storage the way production does.
+
+**Freshness and later purchases.** The app records a conclusive StoreKit answer whenever its
+Settings screen reads benefits: at launch, about once a minute while it is open
+(`refreshAfterMs`), and after a purchase or restore. Safari
+treats an Apple "no purchase" as conclusive for seven days. After that, with no newer app
+answer, it shows "verification required" again. Safari cannot ask StoreKit itself, so it never
+reaches "locked" without an app answer. A purchase in the app installs the local Apple right and
+records `purchaseHistory`. Safari's next native read shows the rows as purchased: the background
+keeps a snapshot for at most 60 seconds (`refreshAfterMs`). A purchase made on another device
+under the same Apple ID reaches this Safari only after this device's app checks again.
+
 ## Verification
 
-- `SafariAccessLaneTests`, `NativeAccountAccessTests` (StillKit `swift test`), and
+- `SafariAccessLaneTests` (including the end-to-end ISS-0030 cases over the real account-status
+  store), `AccountSyncStatusTests`, `NativeAccountAccessTests` (StillKit `swift test`),
+  `ext-safari/lib/__tests__/native-benefits.test.ts` (the native snapshot reaches the popup cache), and
   `native-account-router.test.ts`, which compiles and runs the real router arm.
 - `apple-purchase-authority.test.ts` covers the production SDK order (sign-out before rejection).
 - Shipped 2.x bundles stay byte-identical: see
