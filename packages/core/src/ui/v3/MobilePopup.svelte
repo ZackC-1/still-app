@@ -30,7 +30,7 @@
     onPurchase,
     account,
     sectionMemory,
-    services = ["youtube", "instagram", "facebook", "tiktok"],
+    services = ["instagram", "facebook", "youtube", "tiktok"],
     labels = {},
     features,
     invitation,
@@ -266,7 +266,7 @@
         <p class="muted sync-row-sub">
           {account
             ? account.address
-            : "Free. Keep your settings updated across every supported surface."}
+            : "Free. Keep your block settings consistent across every supported device and browser."}
         </p>
       </div>
       {#if !account && onSignIn}<button

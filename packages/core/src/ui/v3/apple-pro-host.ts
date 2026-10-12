@@ -522,7 +522,6 @@ export function createAppleProHost(deps: AppleProHostDeps) {
                 offer: {
                   price: offer.price,
                   priceNote: "One-time purchase. Lifetime access.",
-                  refundNote: "Apple purchases follow Apple's refund process.",
                 },
               }
             : {}),

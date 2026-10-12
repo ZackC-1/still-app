@@ -876,9 +876,42 @@ describe("D04 host", () => {
     );
     expect(screen.queryByText("Share email and usage data")).toBeNull();
     expect(screen.queryByText(/Share your email and usage data/)).toBeNull();
+    // ISS-0029: the switch carries the owner's V3 subtext.
+    expect(
+      screen.getByText(
+        "Helps to improve Still. Never shares the websites, pages or videos you visit.",
+      ),
+    ).toBeInTheDocument();
     await fireEvent.click(usage);
     expect(f.setSharing).toHaveBeenCalledWith(false);
     await waitFor(() => expect(usage).toHaveAttribute("aria-checked", "false"));
+    f.authority.stop();
+  });
+
+  it("draws no one-time notice even when the analytics host reports one unacknowledged (ISS-0029)", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    const controller = new UiController({
+      cache: f.cache,
+      host: { canPurchase: true },
+      analytics: {
+        track: vi.fn(),
+        identify: vi.fn(),
+        reset: vi.fn(),
+        sharing: async () => ({ enabled: true, noticeNeeded: true }),
+        setSharing: vi.fn(async (next: boolean) => next),
+        acknowledgeNotice: vi.fn(),
+      },
+    });
+    await renderHost(f, { controller });
+    expect(
+      await screen.findByRole("switch", { name: STRINGS.usage.title }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(STRINGS.usage.notice)).toBeNull();
+    expect(screen.queryByRole("button", { name: STRINGS.usage.noticeOk })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: STRINGS.usage.noticeTurnOff }),
+    ).toBeNull();
     f.authority.stop();
   });
 
@@ -938,16 +971,16 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("signed out with no Still Pro producer, the caption names blocking only", async () => {
+  it("signed out, the sync card is its one line and Sign in, with no optional-account caption (ISS-0029 item 11)", async () => {
     const f = await composeAtomic();
     await f.hydrated;
     await renderHost(f);
     expect(
-      await screen.findByText("Optional. Blocking works without an account."),
+      await screen.findByText(
+        "Free. Keep your block settings consistent across every supported device and browser.",
+      ),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Blocking and Still Pro work without an account/),
-    ).toBeNull();
+    expect(screen.queryByText(/without an account/)).toBeNull();
     f.authority.stop();
   });
 

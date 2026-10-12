@@ -90,6 +90,11 @@ describe("controlled extension first-run", () => {
     props.consent = { status: "saved", choice: "off" };
     const view = render(FirstRun, { props });
     expect(screen.getByText("Still is on.")).toBeVisible();
+    // Owner copy (ISS-0029): no "visit as usual" line, and the sites in the owner's order.
+    expect(screen.queryByText(/as usual/)).toBeNull();
+    expect(
+      screen.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok."),
+    ).toBeVisible();
     expect(
       screen.getByText("You chose not to share your email and usage data."),
     ).toBeVisible();
@@ -138,17 +143,25 @@ describe("controlled extension first-run", () => {
       view.unmount();
     },
   );
-  it("requires a verified Chrome pin observation and never claims Firefox pin completion", async () => {
+  it.each(["chrome", "firefox"] as const)(
+    "%s: claims pin completion only from a verified pinned observation (ISS-0031)",
+    async (browser) => {
+      const props = fixture();
+      props.browser = browser;
+      props.pin!.pinned = true;
+      const view = render(FirstRun, { props });
+      expect(screen.queryByText("Still is pinned.")).toBeNull();
+      props.pin!.verified = true;
+      await view.rerender(props);
+      expect(screen.getByText("Still is pinned.")).toBeVisible();
+      expect(screen.queryByText("Private supplied pin guidance.")).toBeNull();
+      view.unmount();
+    },
+  );
+  it("shows the pin guidance while the browser reports Still not pinned", async () => {
     const props = fixture();
-    props.browser = "chrome";
-    props.pin!.pinned = true;
+    props.pin = { ...props.pin!, pinned: false, verified: true };
     const view = render(FirstRun, { props });
-    expect(screen.queryByText("Still is pinned.")).toBeNull();
-    props.pin!.verified = true;
-    await view.rerender(props);
-    expect(screen.getByText("Still is pinned.")).toBeVisible();
-    props.browser = "firefox";
-    await view.rerender(props);
     expect(screen.queryByText("Still is pinned.")).toBeNull();
     expect(screen.getByText("Private supplied pin guidance.")).toBeVisible();
     props.pin!.guidance = { verified: false, text: "Unverified browser menu." };
@@ -171,7 +184,7 @@ describe("controlled extension first-run", () => {
       expect(screen.queryByText(/Signed in as/)).toBeNull();
       expect(
         screen.getByText(
-          "Free. Keep your settings updated across every supported surface.",
+          "Free. Keep your block settings consistent across every supported device and browser.",
         ),
       ).toBeVisible();
       view.unmount();

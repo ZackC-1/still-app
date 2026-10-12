@@ -810,6 +810,8 @@ describe("App usage sharing", () => {
     const { unmount } = render(App, { controller: roomy });
     await settle();
     expect(screen.getByRole("switch", { name: STRINGS.usage.title })).toBeTruthy();
+    // 2.x builds (the flags unset here) keep the 2.1 subtext; V3 builds use v3/usage-copy.ts.
+    expect(screen.getByText(STRINGS.usage.body)).toBeTruthy();
     unmount();
 
     const compact = sharingController({ enabled: true, noticeNeeded: false });

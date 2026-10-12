@@ -98,9 +98,10 @@ let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
 // Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
 // the "Share usage data" switch; this owns the client. It waits for the native context and does
 // nothing outside the app or in a build without a PostHog key.
-// With the V3 screens (D04), usage sharing is on by default with the existing one-time notice and
-// switch, per ADR 0004; the Safari extension follows the App Group permission. Every 2.x build
-// folds appleSettingsMode to "legacy", so this choice folds to createAppAnalytics, byte-for-byte.
+// With the V3 screens (D04), usage sharing is on by default with the "Share usage data" switch as
+// the one control (no one-time notice since 2026-10-12), per ADR 0004; the Safari extension
+// follows the App Group permission. Every 2.x build folds appleSettingsMode to "legacy", so this
+// choice folds to createAppAnalytics, byte-for-byte.
 const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics : createAppAnalytics)({
   bridge,
   config: {

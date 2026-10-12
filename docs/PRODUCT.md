@@ -132,8 +132,10 @@ service-provider logs mean “nothing ever leaves the device when signed out” 
 From 2.1, usage analytics goes to PostHog under [ADR 0004](adr/0004-first-party-usage-analytics.md):
 installs and updates by store, returning installs, setup, toggles, the sign-in funnel and active
 days. Nothing about the sites people visit is ever sent: no page, video, search or visit. It starts on
-with a one-time notice and a per-device **Share usage data** switch on Chrome and the Apple apps
-(the Safari extension follows the app); Firefox sends nothing until its optional
+with a per-device **Share usage data** switch on Chrome and the Apple apps (the Safari extension
+follows the app; 2.1 also showed a one-time notice, which V3 replaces with the switch alone: "Helps to
+improve Still. Never shares the websites, pages or videos you visit."); Firefox sends nothing until
+its optional
 `technicalAndInteraction` permission is granted. Signed-in usage is linked to the account, and the
 server attaches the email. Account deletion also deletes the PostHog person and events.
 
