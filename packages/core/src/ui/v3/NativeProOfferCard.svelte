@@ -51,12 +51,6 @@
       <span class="glyph"><Glyph name="clock" size={16} /></span>
       <div class="status-body">
         <span>Your purchase needs to be verified.</span>
-        <span
-          class="muted"
-          style="font-size:calc(12.5px * var(--text-scale, 1));"
-        >
-          Go online and verify it. Your free controls and saved choices stay.
-        </span>
       </div>
     </div>
   {:else if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}

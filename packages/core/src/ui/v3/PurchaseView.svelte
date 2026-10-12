@@ -187,8 +187,6 @@
         {@render status({
           tone: "caution",
           text: "Your purchase needs to be verified.",
-          detail:
-            "Go online and verify it. Your free controls and saved choices stay.",
           actionLabel: "Verify now",
           onAction: props.native.verified ? props.native.onVerify : undefined,
         })}

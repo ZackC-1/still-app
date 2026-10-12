@@ -16,6 +16,9 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
+In V3 the switch's subtext reads "Helps to improve Still. Never shares the websites, pages or videos
+you visit." (ADR 0004, 2026-10-12). It must stay true to the closed event schema.
+
 Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in

@@ -95,3 +95,15 @@ describe("popup footer (item 12): links clear of rounded sheet corners", () => {
     expect(footer).toContain("padding-inline: var(--space-4);");
   });
 });
+
+describe("verify states (item 6): one line plus its action", () => {
+  it("the app card's purchase-needs-verifying state has no extra line", async () => {
+    const { default: NativeProOfferCard } = await import("./NativeProOfferCard.svelte");
+    const view = render(NativeProOfferCard, {
+      props: { ownership: "none", channel: "ready", verificationRequired: true, onRestore: vi.fn() },
+    });
+    const body = view.container.querySelector(".status-line .status-body")!;
+    expect(body.textContent?.trim()).toBe("Your purchase needs to be verified.");
+    expect(view.container.textContent).not.toContain("Go online");
+  });
+});

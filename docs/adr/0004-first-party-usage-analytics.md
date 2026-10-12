@@ -173,14 +173,15 @@ Owner decision, 2026-10-12 (owner QA, ISS-0029): the V3 screens asked about usag
 one-time notice ("Still shares usage data… Turn off / OK") and the "Share usage data" switch. V3 keeps
 only the switch, on every surface (the Chrome and Firefox welcome and settings pages, Firefox for
 Android, the Mac and iPhone apps), with the subtext "Helps to improve Still. Never shares the
-websites you visit or website activity." The switch shows sharing on from the first screen (the
-Chrome welcome page that opens at install; the Apple app's settings screen) and is the off path.
+websites, pages or videos you visit." (the owner's wording, corrected the same day; see the
+`active` bullet below). The switch shows sharing on from the first screen (the Chrome welcome page
+that opens at install; the Apple app's settings screen) and is the off path.
 
 - **Truth of the subtext.** It is checked against the closed schema (`events.ts`): no event carries
   a page, video, search, address or a site someone visited; `site` and `switch` name only which of
   Still's own controls a person changed in Still's own screens; `active` is a day of use with no
-  site; content scripts send nothing; background-start events carry only their day. Any new event
-  must keep it true or change this copy first.
+  site; content scripts send nothing themselves; background-start events carry only their day. Any
+  new event must keep it true or change this copy first.
 - **No change to the permission.** `USAGE_DISCLOSURE` describes the permission (on by default, off
   switch, what is sent), which is unchanged, so its SHA-256 permission version stays the same: no
   device's choice is re-read, re-granted or stopped by this change, and no device starts a new
@@ -195,16 +196,20 @@ Chrome welcome page that opens at install; the Apple app's settings screen) and 
 - **Disclosures.** The privacy policy and the store privacy declarations already disclose the
   collection and the off switch; the policy's sentence that the apps and Chrome "tell you so the
   first time you open them" now points at the switch.
-- **2.1 upgraders (accepted, 2026-10-12).** A Chrome device updating from 2.1 gets the default-on
-  permission at update and sees no on-screen notice: the welcome page opens only on a fresh install,
-  and the popup has no switch. This is accepted, with no on-update tab: those people already saw the
+- **2.1 upgraders (accepted, 2026-10-12).** A Chrome or Apple device updating from 2.1 gets the
+  default-on permission at update and no longer sees the notice again. On Chrome the welcome page
+  opens only on a fresh install and the popup has no switch; in the Apple apps the switch is on the
+  settings screen. This is accepted, with no on-update tab or prompt: those people already saw the
   2.1 usage-data notice for the same on-by-default collection, the store listing and privacy policy
   disclose it, and the switch stays in Still's settings.
-- **The daily `active` event (reviewed, 2026-10-12).** It can be recorded when the background
-  starts on a day Still's screens are never opened. It is rounded to the day and names no site,
-  page or address, and the background also starts for reasons unrelated to site visits (browser
-  start, alarms), so it is "Still ran today", not website activity. The subtext stands and the
-  analytics behaviour is unchanged.
+- **The daily `active` event and the wording (owner decision, 2026-10-12).** In the extensions a
+  background-start `active` comes from the content script's nudge, that is, from a supported site
+  being opened. It is rounded to the day and names no site, page or address, but on a day Still's
+  own screens are never opened it can reflect that one of the four supported sites was opened that
+  day. The first wording ("Never shares the websites you visit or website activity.") was therefore
+  not accurate. The owner chose to reword the subtext to the accurate sentence ("Never shares the
+  websites, pages or videos you visit.") rather than drop the signal; the analytics behaviour is
+  unchanged.
 
 Builds without these flags (every 2.x store package) are byte-for-byte unchanged by this section.
 In current source those 2.x hosts supply no permission record, so a 2.x package rebuilt from this

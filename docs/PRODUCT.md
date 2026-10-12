@@ -134,7 +134,8 @@ installs and updates by store, returning installs, setup, toggles, the sign-in f
 days. Nothing about the sites people visit is ever sent: no page, video, search or visit. It starts on
 with a per-device **Share usage data** switch on Chrome and the Apple apps (the Safari extension
 follows the app; 2.1 also showed a one-time notice, which V3 replaces with the switch alone: "Helps to
-improve Still. Never shares the websites you visit or website activity."); Firefox sends nothing until its optional
+improve Still. Never shares the websites, pages or videos you visit."); Firefox sends nothing until
+its optional
 `technicalAndInteraction` permission is granted. Signed-in usage is linked to the account, and the
 server attaches the email. Account deletion also deletes the PostHog person and events.
 

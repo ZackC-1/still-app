@@ -147,7 +147,7 @@ describe("first-run host mount", () => {
     expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull();
     expect(
-      screen.getByText("Helps to improve Still. Never shares the websites you visit or website activity."),
+      screen.getByText("Helps to improve Still. Never shares the websites, pages or videos you visit."),
     ).toBeTruthy();
     expect(screen.queryByText(/as usual/)).toBeNull();
     const sharing = screen.getByRole("switch", { name: "Share usage data" });

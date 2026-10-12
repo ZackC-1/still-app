@@ -879,7 +879,7 @@ describe("D04 host", () => {
     // ISS-0029: the switch carries the owner's V3 subtext.
     expect(
       screen.getByText(
-        "Helps to improve Still. Never shares the websites you visit or website activity.",
+        "Helps to improve Still. Never shares the websites, pages or videos you visit.",
       ),
     ).toBeInTheDocument();
     await fireEvent.click(usage);
