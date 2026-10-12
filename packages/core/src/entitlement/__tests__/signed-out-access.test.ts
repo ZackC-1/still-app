@@ -165,3 +165,43 @@ describe("signed-out Still Pro access through the background writer (ISS-0030)",
     expect((await authority.observeBenefits()).states[PRO]).toBe("purchased");
   });
 });
+
+describe("a signed-out open never flashes verify again (ISS-0030)", () => {
+  /** chrome.storage.local that reports every set to onChanged, identical writes included (Firefox). */
+  function noisyStore() {
+    const store: Record<string, unknown> = {};
+    const listeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
+    const area = {
+      get: vi.fn(async () => structuredClone(store)),
+      set: vi.fn(async (values: Record<string, unknown>) => {
+        const changes: Record<string, chrome.storage.StorageChange> = {};
+        for (const [key, value] of Object.entries(values)) {
+          changes[key] = { oldValue: structuredClone(store[key]), newValue: structuredClone(value) };
+          store[key] = structuredClone(value);
+        }
+        for (const listener of [...listeners]) listener(changes, "local");
+      }),
+    };
+    vi.stubGlobal("chrome", { storage: { local: area, onChanged: {
+      addListener: (listener: Parameters<typeof listeners.add>[0]) => listeners.add(listener),
+      removeListener: (listener: Parameters<typeof listeners.add>[0]) => listeners.delete(listener),
+    } } });
+    return store;
+  }
+
+  it.each(["first-ever open", "a later open"])("%s goes from checking straight to locked", async (when) => {
+    const store = noisyStore();
+    const { r } = reconciler(none);
+    if (when === "a later open") await writer(() => null, r).observeBenefits(); // a previous popup
+    const { EntitlementCache } = await import("../cache.js");
+    const cache = new EntitlementCache(writer(() => null, r), { access: { paidMode: true, supported: new Set([PRO, "youtube.shorts"]) } });
+    const seen: string[] = [cache.currentAccess(PRO)];
+    cache.subscribeAccess((snapshot) => seen.push(snapshot.states[PRO]));
+    const stop = cache.watch();
+    await cache.refreshAccess();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    stop();
+    expect(store["still:entitlement"]).toBeDefined(); // the observation did write
+    expect(seen).toEqual(["checking", "locked"]);
+  });
+});

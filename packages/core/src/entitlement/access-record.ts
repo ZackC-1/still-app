@@ -46,7 +46,8 @@ export type AccessMutation =
 /** Must execute within the existing durable entitlement writer's transaction. Consumers receive
  * evidence only after this entire result has committed. No caller creates trusted online proof. */
 export async function mutateAccessRecord(current: AccessCacheRecord, mutation: AccessMutation, trust: AccessTrust): Promise<{ readonly record: AccessCacheRecord; readonly evidence: readonly ScopedAccessEvidence[] }> {
-  if (mutation.kind === "session" && current.accountId === (mutation.session?.userId ?? null) && current.sessionId === (mutation.session?.sessionId ?? null)) {
+  // A record that never had a session (sessionId absent) is already signed out: no lifecycle bump.
+  if (mutation.kind === "session" && current.accountId === (mutation.session?.userId ?? null) && (current.sessionId ?? null) === (mutation.session?.sessionId ?? null)) {
     if (mutation.session && (!isAccessUUID(mutation.session.userId) || !isAccessUUID(mutation.session.sessionId))) throw new Error("Invalid access session");
     return { record: current, evidence: [] };
   }

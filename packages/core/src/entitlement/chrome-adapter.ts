@@ -311,16 +311,21 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
    * not trigger a feedback loop; changed latches/rights/session/protection always invalidate. */
   subscribeAccess(listener: () => void): () => void {
     let previous: string | undefined;
-    const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
-      if (area !== "local" || !(STORAGE_KEY in changes)) return;
-      const raw = changes[STORAGE_KEY]?.newValue as { access?: AccessCacheRecord } | undefined;
-      let signature: string;
+    const material = (raw: { access?: AccessCacheRecord } | undefined): string => {
       try {
         const access = parseAccessCacheRecord(raw?.access);
-        signature = JSON.stringify({ ...access, rights: access.rights.map(right => ({ ...right, clock: right.clock && {
+        return JSON.stringify({ ...access, rights: access.rights.map(right => ({ ...right, clock: right.clock && {
           proofIdentity: right.clock.proofIdentity, expired: right.clock.expired, paused: right.clock.paused, revoked: right.clock.revoked,
         } })) });
-      } catch { signature = "unreadable"; }
+      } catch { return "unreadable"; }
+    };
+    const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+      if (area !== "local" || !(STORAGE_KEY in changes)) return;
+      const signature = material(changes[STORAGE_KEY]?.newValue as { access?: AccessCacheRecord } | undefined);
+      // The first event compares against the value it replaced, so a page's own first
+      // observation write (or Firefox's event for an identical write) is not a material change
+      // that would hold an access answer the page has just resolved (ISS-0030 first-paint flash).
+      previous ??= material(changes[STORAGE_KEY]?.oldValue as { access?: AccessCacheRecord } | undefined);
       if (signature === previous) return;
       previous = signature;
       listener();
