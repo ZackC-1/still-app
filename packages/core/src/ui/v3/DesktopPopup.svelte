@@ -16,6 +16,7 @@
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import "./design/styles.css";
 
   let {
@@ -42,6 +43,7 @@
     invitation,
     invitationVariant,
     desktopSetup,
+    siteAccess,
   }: DesktopPopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -168,6 +170,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if desktopSetup}
     {#key desktopSetup}
       <section class="card card-stack">

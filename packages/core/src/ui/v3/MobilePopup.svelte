@@ -10,6 +10,7 @@
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import "./design/styles.css";
 
   let {
@@ -34,6 +35,7 @@
     labels = {},
     features,
     invitation,
+    siteAccess,
   }: MobilePopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -131,6 +133,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if setup}
     <section class="card card-stack">
       <div class="status-line" data-tone="caution">

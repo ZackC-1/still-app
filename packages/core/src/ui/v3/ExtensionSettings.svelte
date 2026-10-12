@@ -9,6 +9,7 @@
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
   import "./design/styles.css";
@@ -32,6 +33,7 @@
     sharing,
     privacyActions,
     setup,
+    siteAccess,
     help,
   }: ExtensionSettingsProps = $props();
   let deleteTarget = $state<{
@@ -208,6 +210,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if setup}
     <section class="card card-stack">
       <h2 class="section-label">Setup</h2>
