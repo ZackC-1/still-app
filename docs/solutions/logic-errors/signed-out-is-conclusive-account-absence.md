@@ -74,9 +74,15 @@ storage failure. Signing out also clears account proofs from the access record d
   seed means nothing is known yet, so the first paint shows the checking state rather than a false
   "verify again". A failed or expired authority read still turns it into `verification_required`
   (`EntitlementCache.holdAccess`).
+- A page's first storage event is compared with the value it replaced, and a record that never had
+  a session is already signed out (no lifecycle bump). Without this, the page's own first
+  observation write (and Firefox's event for identical writes) was treated as a material change.
+  That held the just-resolved answer as `verification_required` for a moment on every open.
 - The browser settings card offers Get Still Pro to a signed-out install wherever the build sells. The
   background's availability answer is yes for a signed-out page without a policy request; the button
-  opens the normal sign-in, and Buy then asks the fresh sales allowance as before.
+  opens the normal sign-in, and Buy then asks the fresh sales allowance as before. Only a conclusive
+  sign-out (the same `readAccessSession` null) counts. The session's `userId: null` alone can also
+  mean a failed read or an expired-token refresh error, which answers no.
 
 ## Verification
 
@@ -107,6 +113,10 @@ These checks cover browser hosts only. Safari takes its answer from the native a
 (`nativeObservation`) and needs its own conclusive "not owned" from StoreKit or RevenueCat.
 
 ## Known limits
+
+- By design, a signed-out observation removes account-bound rights from the stored access record
+  (local Apple rights stay). Signing back in restores them on the next account check, normally
+  within a minute.
 
 - The SDK itself removes a session after a refresh that fails with a non-retryable error once the
   access token has expired (for example a rate-limit or a captive-portal page). From then on the
