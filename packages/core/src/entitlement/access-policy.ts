@@ -222,9 +222,15 @@ export function packagedAccessContext(host?: AccessHost, platform?: AccessPlatfo
     localRights: new Set(), evidenceStatus: "unknown" };
 }
 
+/**
+ * A page's or engine's seed before the access authority answers. A supported paid extra is
+ * `checking`: nothing is known yet, so it never grants, never offers a purchase and never says
+ * "verify again". A failed or expired authority read turns it into `verification_required`
+ * (EntitlementCache.holdAccess); only an authority answer can make it `locked` or a grant.
+ */
 export function initialAccessSnapshot(context: Pick<TrustedAccessContext, "paidMode" | "supported"> = packagedAccessContext()): BenefitAccessSnapshot {
   const states = Object.fromEntries(ACCESS_BENEFITS.map(benefit => [benefit,
-    !context.supported.has(benefit) ? "unsupported" : !context.paidMode || benefit === "tiktok.all" || FEATURE_REGISTRY.some(f => f.id === benefit && f.tier === "free") ? "free" : "verification_required",
+    !context.supported.has(benefit) ? "unsupported" : !context.paidMode || benefit === "tiktok.all" || FEATURE_REGISTRY.some(f => f.id === benefit && f.tier === "free") ? "free" : "checking",
   ])) as Record<BenefitId, AccessState>;
   return Object.freeze({ schema: 1, generation: 0, states: Object.freeze(states), refreshAfterMs: context.paidMode ? 60_000 : null, independentProtection: Object.freeze([]) });
 }

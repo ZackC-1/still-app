@@ -32,8 +32,9 @@ export function isCheckoutAvailableRequest(message: unknown): message is Checkou
 }
 
 /**
- * Background listener. `check` is the session's signed-in state together with the same fresh
- * sales allowance createCheckout consults. Any failure, and every non-page sender, is "no".
+ * Background listener. `check` answers from the session's signed-in state: conclusively signed
+ * out, yes (the card's Get Still Pro opens sign-in first); signed in, the same fresh sales
+ * allowance createCheckout consults; unknown, no. Any failure, and every non-page sender, is "no".
  */
 export function createCheckoutAvailabilityRouter(
   check: () => Promise<boolean>,
@@ -78,6 +79,12 @@ export function createSessionWithCheckoutAvailability(
   deps: ExtensionSessionDeps,
   host: CheckoutAvailabilityChrome = chrome as unknown as CheckoutAvailabilityChrome,
   create: (deps: ExtensionSessionDeps) => ExtensionSession = createExtensionSession,
+  /**
+   * True only for a conclusive sign-out (the background's readAccessSession answering null).
+   * getState's `userId: null` alone is not proof: a failed read or an expired-token refresh
+   * error reads the same. Absent, a signed-out page is never offered Buy.
+   */
+  conclusivelySignedOut: () => Promise<boolean> = async () => false,
 ): ExtensionSession {
   const operation = deps.stores.checkoutOperation;
   const pending = deps.stores.checkoutPending;
@@ -111,7 +118,13 @@ export function createSessionWithCheckoutAvailability(
   const salesAllowed = deps.canCreateCheckout;
   if (salesAllowed) {
     host.runtime.onMessage.addListener(createCheckoutAvailabilityRouter(
-      async () => (await session.getState()).userId !== null && (await salesAllowed()) === true,
+      // Conclusively signed out (ISS-0030), Get Still Pro is offered as sign-in first wherever
+      // this route has a sales allowance at all; no policy request is made for that page, so a
+      // remote sales-off switch is only seen after sign-in, when the signed-in answer (and
+      // createCheckout itself) asks the fresh allowance. An unknown account state is "no".
+      async () => (await session.getState()).userId !== null
+        ? (await salesAllowed()) === true
+        : (await conclusivelySignedOut()) === true,
       host.runtime.id,
       host.runtime.getURL(""),
     ));
