@@ -243,7 +243,7 @@
   // Platform starts as the narrower iOS inventory and follows any later successful observation.
   let platform = $state<AppleSettingsProps["platform"]>("ios");
   // Whether a setup read has confirmed the platform. A read that times out or observes nothing
-  // leaves it false, so a Mac is never told "On this device… need a computer".
+  // leaves it false, so a Mac is never treated as a phone.
   let platformKnown = $state(false);
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
   $effect(() =>

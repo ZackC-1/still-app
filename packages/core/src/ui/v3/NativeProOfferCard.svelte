@@ -41,8 +41,8 @@
 
 <section class="card card-stack" aria-label="Still Pro">
   <!-- The app card is heading, "One-time purchase. Lifetime access.", Get Still Pro and Restore
-    purchase (owner, 12 Oct 2026, ISS-0029 item 11): no device line or refund note here. The Still
-    Pro page (PurchaseView) keeps the line about which extras need a computer. -->
+    purchase (owner, 12 Oct 2026, ISS-0029 item 11): no device line or refund note. No Still Pro
+    surface states a number of extras (owner rule, 12 Oct 2026). -->
   <!-- Mirrors ProOfferCard: verify and failed ownership or a failed purchase show their own
     state, never the spinner. A residual held access counts as checking unless verify is held. -->
   {#if verificationRequired}

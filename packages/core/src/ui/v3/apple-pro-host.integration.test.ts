@@ -269,33 +269,31 @@ async function compose(
     },
   };
 }
-const PHONE_NOTE =
-  "On this device, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.";
-const GENERAL_NOTE =
-  "On iPhone, iPad and Firefox for Android, 9 of the 12 extras work. End-of-video suggestions, live chat and desktop sidebar ads need a computer.";
-describe("Still Pro offer note follows only a confirmed platform", () => {
-  async function notes(expected: string, other: string) {
-    // The settings card no longer carries the note (owner, ISS-0029 item 11); the Still Pro screen
-    // that Get Still Pro opens before any purchase still does.
+// Owner rule (12 Oct 2026, ISS-0029): no Still Pro surface states a number of extras, on any
+// platform answer, neither the settings card nor the Still Pro screen that Get Still Pro opens.
+const EXTRAS_COUNT = /\b\d+ of the \d+\b|extras work|need(?:s)? a computer/i;
+describe("Still Pro states no number of extras on any platform answer", () => {
+  async function noCount() {
     const card = await screen.findByRole("region", { name: "Still Pro" });
-    expect(card).not.toHaveTextContent(expected);
-    expect(card).not.toHaveTextContent(other);
+    expect(card).not.toHaveTextContent(EXTRAS_COUNT);
     await fireEvent.click(
       await screen.findByRole("button", { name: "Get Still Pro" }),
     );
-    expect(await screen.findByText(expected)).toBeVisible();
-    expect(screen.queryByText(other)).toBeNull();
+    expect(
+      await screen.findByRole("button", { name: "Get Still Pro" }),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent(EXTRAS_COUNT);
   }
-  it("a setup read that times out (a Mac that never answered) keeps the general note", async () => {
+  it("a setup read that times out (a Mac that never answered)", async () => {
     await compose({ observeSetup: () => new Promise(() => {}) });
     await new Promise((resolve) => setTimeout(resolve, 2_200));
-    await notes(GENERAL_NOTE, PHONE_NOTE);
+    await noCount();
   });
-  it("a read that observes nothing keeps the general note", async () => {
+  it("a read that observes nothing", async () => {
     await compose({ observeSetup: async () => null });
-    await notes(GENERAL_NOTE, PHONE_NOTE);
+    await noCount();
   });
-  it("a confirmed Mac gets the general note", async () => {
+  it("a confirmed Mac", async () => {
     await compose({
       observeSetup: async () => ({
         ok: true,
@@ -304,9 +302,9 @@ describe("Still Pro offer note follows only a confirmed platform", () => {
         enableLocation: "safariExtensionSettings",
       }),
     });
-    await notes(GENERAL_NOTE, PHONE_NOTE);
+    await noCount();
   });
-  it("a confirmed iPhone/iPad (the iOS app on iPad reports ios) gets the phone note", async () => {
+  it("a confirmed iPhone/iPad (the iOS app on iPad reports ios)", async () => {
     await compose({
       observeSetup: async () => ({
         ok: true,
@@ -315,7 +313,7 @@ describe("Still Pro offer note follows only a confirmed platform", () => {
         enableLocation: "settingsAppStillPage",
       }),
     });
-    await notes(PHONE_NOTE, GENERAL_NOTE);
+    await noCount();
   });
 });
 
