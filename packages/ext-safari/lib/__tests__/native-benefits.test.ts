@@ -49,11 +49,12 @@ describe("parseNativeBenefitReply", () => {
   });
 });
 
-// ISS-0030: the Safari background's paid wiring (background.ts) with the native handler's reply.
-// The extension's own context is signed out with unknown evidence; the app's native snapshot is
-// the authority, so its "locked" rows must reach the popup as locked, and a later "purchased"
-// must replace them on the next read.
-describe("Safari native benefit authority reaches the popup cache", () => {
+// ISS-0030 pass-through guard: the adapter and cache the Safari background wires (background.ts)
+// must not rewrite the app's native answer. The extension's own context is signed out with
+// unknown evidence; the native snapshot is the authority, so its "locked" rows must reach the
+// popup as locked, and a later "purchased" must replace them on the next read. The bug itself was
+// in the native answer and is covered by StillKit's SafariAccessLaneTests.
+describe("Safari popup cache passes the native benefit answer through unchanged", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
   const proRows = FEATURE_REGISTRY.filter(feature => feature.tier !== "free").map(feature => feature.id as BenefitId);
@@ -105,7 +106,9 @@ describe("Safari native benefit authority reaches the popup cache", () => {
 
   it("never turns a failed native read into locked", async () => {
     const { cache } = safariCache("desktop", () => ({ entitlement: JSON.stringify({ ok: false }) }));
-    await cache.refreshAccess().catch(() => {});
     expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    await expect(cache.refreshAccess()).resolves.toBeDefined();
+    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    expect(cache.currentAccess("youtube.shorts")).toBe("free");
   });
 });

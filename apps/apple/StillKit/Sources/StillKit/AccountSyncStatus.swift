@@ -71,9 +71,9 @@ public final class AccountSyncStatusStore {
   public enum DisplayedAccount: Equatable, Sendable { case signedOut, account(String), unreadable }
   public func displayedAccount() -> DisplayedAccount {
     guard let data = backing.read() else { return .signedOut }
+    if let record = try? JSONDecoder().decode(AccountSyncStatus.self, from: data) { return .account(record.accountId) }
     if (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) is NSNull { return .signedOut }
-    guard let record = try? JSONDecoder().decode(AccountSyncStatus.self, from: data) else { return .unreadable }
-    return .account(record.accountId)
+    return .unreadable
   }
 
   @discardableResult

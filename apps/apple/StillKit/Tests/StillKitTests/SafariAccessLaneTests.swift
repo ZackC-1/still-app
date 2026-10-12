@@ -162,15 +162,15 @@ final class SafariAccessLaneTests: XCTestCase {
 
   /// The app and the Safari extension share one entitlement store and one account-status store,
   /// as they share the App Group. Safari reads the status the app really stored.
-  struct Lane {
+  struct SharedStores {
     let store: SharedEntitlementStore
     let status: AccountSyncStatusStore
   }
-  func lane() -> Lane {
-    Lane(store: SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust),
+  func makeStores() -> SharedStores {
+    SharedStores(store: SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust),
          status: AccountSyncStatusStore(backing: InMemoryBacking()))
   }
-  func safari(_ lane: Lane, at wall: Int? = nil, platform: SafariAccessPlatform = .mac) throws -> [String: String] {
+  func safari(_ lane: SharedStores, at wall: Int? = nil, platform: SafariAccessPlatform = .mac) throws -> [String: String] {
     let at = wall ?? f.now + 1
     let reply = EntitlementBridge.safariExtension(store: lane.store, paidMode: true, platform: platform, now: { at },
       displayedAccount: { lane.status.displayedAccount() }).handle(.getBenefitAccess)
@@ -179,11 +179,11 @@ final class SafariAccessLaneTests: XCTestCase {
     return try XCTUnwrap((body["snapshot"] as? [String: Any])?["states"] as? [String: String])
   }
   /// The app's `getBenefitAccess` route: its fresh StoreKit answer, recorded for Safari.
-  func appObserves(_ lane: Lane, _ ownership: NativeAppleOwnershipObservation, at wall: Int? = nil) throws {
+  func appObserves(_ lane: SharedStores, _ ownership: NativeAppleOwnershipObservation, at wall: Int? = nil) throws {
     _ = try lane.store.observeAppleBenefits(wall: wall ?? f.now, ownership: ownership, paidMode: true, platform: .mac)
   }
   /// The app's launch without an account (`resumeAccount` → `setAccountSyncStatus(null)`).
-  func appPublishesSignedOut(_ lane: Lane) { XCTAssertTrue(lane.status.save(rawStatus: NSNull())) }
+  func appPublishesSignedOut(_ lane: SharedStores) { XCTAssertTrue(lane.status.save(rawStatus: NSNull())) }
   func accountStatus() -> [String: Any] {
     ["accountId": f.account, "email": NSNull(), "lastSyncedAt": NSNull(), "pendingUpload": false,
      "cloudReachable": true, "updatedAt": 1]
@@ -199,7 +199,7 @@ final class SafariAccessLaneTests: XCTestCase {
   }
 
   func testSignedOutAndStoreKitNoneIsLockedOnMacAndIPhone() throws {
-    let l = lane()
+    let l = makeStores()
     appPublishesSignedOut(l)
     try appObserves(l, .noPurchases)
     assertEveryProRow(try safari(l), "locked", platform: .mac)
@@ -209,31 +209,31 @@ final class SafariAccessLaneTests: XCTestCase {
     }
   }
   func testNeverSignedInWithNothingStoredIsAlsoLocked() throws {
-    let l = lane()
+    let l = makeStores()
     try appObserves(l, .noPurchases)
     assertEveryProRow(try safari(l), "locked", platform: .mac)
   }
   func testNoAppAnswerYetStaysVerificationRequired() throws {
-    let l = lane()
+    let l = makeStores()
     appPublishesSignedOut(l)
     assertEveryProRow(try safari(l), "verification_required", platform: .mac)
     assertEveryProRow(try safari(l, platform: .mobile), "verification_required", platform: .mobile)
   }
   func testStoreKitUnavailableOrFailedStaysVerificationRequired() throws {
-    let l = lane()
+    let l = makeStores()
     appPublishesSignedOut(l)
     try appObserves(l, .unknown)
     assertEveryProRow(try safari(l), "verification_required", platform: .mac)
   }
   func testAStaleAppAnswerStaysVerificationRequired() throws {
-    let l = lane()
+    let l = makeStores()
     appPublishesSignedOut(l)
     try appObserves(l, .noPurchases)
     assertEveryProRow(try safari(l, at: f.now + ownershipAbsenceWindowMilliseconds - 1), "locked", platform: .mac)
     assertEveryProRow(try safari(l, at: f.now + ownershipAbsenceWindowMilliseconds), "verification_required", platform: .mac)
   }
   func testSignedInWithAnUnreachableServerStaysVerificationRequired() throws {
-    let l = lane()
+    let l = makeStores()
     try appObserves(l, .noPurchases)
     // The router's setAccountSyncStatus: publish the account, then bind its verified session.
     XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
@@ -247,7 +247,7 @@ final class SafariAccessLaneTests: XCTestCase {
     assertEveryProRow(try safari(l), "locked", platform: .mac)
   }
   func testSigningOutOfTheAppLocksWithTheAppleAnswer() throws {
-    let l = lane()
+    let l = makeStores()
     try appObserves(l, .noPurchases)
     XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
     let session = try f.verifiedSession()
@@ -260,7 +260,7 @@ final class SafariAccessLaneTests: XCTestCase {
     assertEveryProRow(try safari(l, platform: .mobile), "locked", platform: .mobile)
   }
   func testAnApplePurchaseStillUnlocksSignedOut() throws {
-    let l = lane()
+    let l = makeStores()
     appPublishesSignedOut(l)
     try appObserves(l, .noPurchases)
     assertEveryProRow(try safari(l), "locked", platform: .mac)
@@ -270,7 +270,7 @@ final class SafariAccessLaneTests: XCTestCase {
     assertEveryProRow(try safari(l, at: f.now + 2, platform: .mobile), "purchased", platform: .mobile)
   }
   func testASignedInWebPurchaseStillUnlocks() throws {
-    let l = lane()
+    let l = makeStores()
     try appObserves(l, .noPurchases)
     XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
     let session = try f.verifiedSession()
