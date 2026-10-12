@@ -54,7 +54,9 @@ for (const { control, page: spec, name } of ALL_PAGES)
 
     // Nothing marked, no extras class, no extras CSS, no placeholder.
     const residue = await stillResidue(page);
-    expect(residue.attributes, "no data-still-* markers").toEqual([]);
+    // Only the free Reels core's own profile mark may appear (it is set on profile addresses with
+    // the extras On or Off); no extras marker.
+    expect(residue.attributes.filter((marker) => marker !== "html#[data-still-instagram-profile]"), "no extras data-still-* markers").toEqual([]);
     for (const word of EXTRAS_FEATURE_WORDS)
       expect(residue.classes.filter((c) => c.slice(c.indexOf(".still-")).includes(word)), `no ${word} class`).toEqual([]);
     expect(residue.classes.filter((c) => EXTRAS_FEATURE_CLASS.test(c)), "no extras feature class on any element").toEqual([]);
