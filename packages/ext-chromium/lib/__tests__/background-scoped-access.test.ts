@@ -606,6 +606,32 @@ describe("configured modern paid background scoped access", () => {
     expect(reply.ok).toBe(true);
     expect(reply.snapshot.states["youtube.comments"]).toBe("locked");
   });
+  it("signing in on a signed-out install leaves locked through the real auth wiring, then shows the account's purchase", async () => {
+    const h = await start({ signedIn: false, flag: "true", scopedReply: signed() });
+    type Reply = { snapshot: { states: Record<string, string> } };
+    expect(((await h.message({ kind: "observeBenefits" })) as Reply).snapshot.states["youtube.comments"]).toBe("locked");
+    await h.client.auth.verifyOtp({ email: "synthetic@example.test", token: "000000", type: "email" });
+    h.emitAuth("SIGNED_IN");
+    // Signed in but not yet reconciled: unknown, never the signed-out lock or a grant.
+    expect(((await h.message({ kind: "observeBenefits" })) as Reply).snapshot.states["youtube.comments"]).toBe("verification_required");
+    expect(await h.spine!.backend.reconcileEntitlementChecked()).toBe("ok");
+    expect(((await h.message({ kind: "observeBenefits" })) as Reply).snapshot.states["youtube.comments"]).toBe("purchased");
+  });
+  it("a build without sign-in keeps an earlier account's session and rights as unknown, never signed out", async () => {
+    const access = { schema: 1, accountId: USER, sessionId: SESSION, generation: 1, rights: [], revocations: [] };
+    const h = await start({
+      configured: false,
+      flag: "true",
+      initial: { [KEY]: legacy(), "still:auth": "synthetic-persisted-session", "still:entitlement": { access } },
+    });
+    const reply = (await h.message({ kind: "observeBenefits" })) as {
+      snapshot: { states: Record<string, string> };
+    };
+    expect(reply.snapshot.states["youtube.comments"]).toBe("verification_required");
+    const after = (h.store["still:entitlement"] as { access: typeof access }).access;
+    expect(after.accountId).toBe(USER);
+    expect(after.generation).toBe(1);
+  });
   it("an unreadable auth record or an SDK error while signed out stays verification_required", async () => {
     const h = await start({ signedIn: false, flag: "true" });
     const local = boundary.browser.storage.local as unknown as { get: (keys: unknown) => Promise<Record<string, unknown>> };

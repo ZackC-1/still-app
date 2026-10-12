@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import vectors from "../../../../../tests/access-proof/vectors.json";
 import { ChromeEntitlementAdapter } from "../chrome-adapter.js";
 import { createAccountAccessReconciler, verifyAccountAccessResponse } from "../account-access-transport.js";
-import type { AccessTrust } from "../access-proof.js";
+import { verifyAccessProof, type AccessTrust } from "../access-proof.js";
 import { EMPTY_ACCESS_RECORD, type AccessCacheRecord } from "../access-record.js";
 import type { TrustedAccessContext } from "../access-policy.js";
 
@@ -146,6 +146,22 @@ describe("signed-out Still Pro access through the background writer (ISS-0030)",
     expect((await authority.observeBenefits()).states[PRO]).toBe("verification_required");
     expect(await authority.commitAccountAccess(session, verified, () => true)).toBe("committed");
     authority.invalidateBenefitSnapshot();
+    expect((await authority.observeBenefits()).states[PRO]).toBe("purchased");
+  });
+  it("signed out, an independently verified local Apple right still grants; absence only covers the account lane", async () => {
+    chromeStore();
+    const local = vectors.vectors.find((v) => v.name === "paid-apple-local")!.envelope;
+    const proof = await verifyAccessProof(local, trust);
+    if (proof.status !== "verified") throw new Error("synthetic local proof");
+    const right = proof.proof.claims.right;
+    const { r } = reconciler(none);
+    const authority = new ChromeEntitlementAdapter(() => vectors.verifiedAt, {
+      authority: true, trust,
+      context: () => ({ paidMode: true, supported: new Set([PRO]), localRights: new Set([right]), session: null,
+        evidenceStatus: r.evidenceStatus(null), evidenceDeadline: r.evidenceDeadline() }),
+    });
+    await authority.mutateAccess({ kind: "install", proof: proof.proof, generation: 0, issuerNow: vectors.verifiedAt,
+      wall: vectors.verifiedAt, localRights: new Set([right]) });
     expect((await authority.observeBenefits()).states[PRO]).toBe("purchased");
   });
 });

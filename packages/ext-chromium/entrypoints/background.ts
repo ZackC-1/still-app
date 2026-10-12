@@ -186,10 +186,12 @@ export default defineBackground(() => {
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
     // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent;
     // an authoritative signed-out answer (null) is conclusive account absence (ISS-0030).
-    // A build with no sign-in at all (no session spine) can only ever be signed out.
+    // A build that cannot set up sign-in (no session spine) is signed out only while no
+    // persisted session exists: a misconfigured build must not drop an earlier account's rights.
     const verified = verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined)
-      : signInUnavailable ? null : undefined;
-    // Signed out is absent even in a build without the account reconciler (it has no account).
+      : signInUnavailable && await persistedAuthAbsent() ? null : undefined;
+    // Signed out is absent (mirrors the reconciler's evidenceStatus(null)), also in a build
+    // without the account reconciler, where there is no account lane at all.
     return { ...context, session: verified, evidenceStatus: verified === null ? "absent" : scopedAccountEvidence?.(verified) ?? "unknown",
       evidenceDeadline: scopedEvidenceDeadline?.() ?? null };
   }, evidenceDeadline: () => scopedEvidenceDeadline?.() ?? null });
