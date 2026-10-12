@@ -64,13 +64,14 @@ test("the V3 welcome page shows no usage notice, and its switch carries the owne
   await expect(page.getByRole("button", { name: "Turn off" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "OK" })).toHaveCount(0);
   await expect(page.getByText(/as usual/)).toHaveCount(0);
+  // The copy sits in whichever shared chunk the bundler chose, so read every chunk of each build.
   for (const dir of ["chrome-mv3", "firefox-mv3"]) {
     const chunks = resolve(CHROMIUM_EXTENSION, "..", dir, "chunks");
-    const firstRun = readdirSync(chunks).filter((name) => /^first-run-[\w-]{8}\.js$/.test(name));
-    expect(firstRun, `${dir} first-run chunk`).toHaveLength(1);
-    const source = readFileSync(join(chunks, firstRun[0]!), "utf8");
-    expect(source, dir).toContain(USAGE_SUBTEXT);
-    expect(source, dir).not.toContain("website activity");
+    const sources = readdirSync(chunks)
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => readFileSync(join(chunks, name), "utf8"));
+    expect(sources.some((source) => source.includes(USAGE_SUBTEXT)), `${dir} carries the subtext`).toBe(true);
+    expect(sources.some((source) => source.includes("website activity")), `${dir} first wording`).toBe(false);
   }
 });
 
