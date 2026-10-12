@@ -215,7 +215,7 @@ describe("createSessionWithCheckoutAvailability", () => {
   }
   const stores = () => ({ pendingOtp: slot(null), checkoutPending: slot(null), nudgeStamp: slot<number>() });
 
-  it("answers from the same canCreateCheckout the session uses, only for a signed-in session", async () => {
+  it("answers a signed-in session from the same canCreateCheckout the session uses; signed out is sign-in first", async () => {
     const canCreateCheckout = vi.fn(async () => true);
     const deps = { canCreateCheckout, stores: stores() } as unknown as ExtensionSessionDeps;
     const signedIn = chromeHost();
@@ -228,7 +228,8 @@ describe("createSessionWithCheckoutAvailability", () => {
 
     const signedOut = chromeHost();
     createSessionWithCheckoutAvailability(deps, signedOut.host, () => session(null));
-    expect((await ask(signedOut.listeners[0]!, REQUEST)).response).toBe(false);
+    // ISS-0030: a signed-out page may show Get Still Pro, which opens sign-in before any Buy.
+    expect((await ask(signedOut.listeners[0]!, REQUEST)).response).toBe(true);
     expect(canCreateCheckout).toHaveBeenCalledOnce(); // no policy request for a signed-out page
   });
 

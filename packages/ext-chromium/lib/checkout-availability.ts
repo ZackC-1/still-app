@@ -32,8 +32,9 @@ export function isCheckoutAvailableRequest(message: unknown): message is Checkou
 }
 
 /**
- * Background listener. `check` is the session's signed-in state together with the same fresh
- * sales allowance createCheckout consults. Any failure, and every non-page sender, is "no".
+ * Background listener. `check` answers from the session's signed-in state: signed out, yes (the
+ * card's Get Still Pro opens sign-in first); signed in, the same fresh sales allowance
+ * createCheckout consults. Any failure, and every non-page sender, is "no".
  */
 export function createCheckoutAvailabilityRouter(
   check: () => Promise<boolean>,
@@ -111,7 +112,10 @@ export function createSessionWithCheckoutAvailability(
   const salesAllowed = deps.canCreateCheckout;
   if (salesAllowed) {
     host.runtime.onMessage.addListener(createCheckoutAvailabilityRouter(
-      async () => (await session.getState()).userId !== null && (await salesAllowed()) === true,
+      // Signed out (ISS-0030), Buy is offered as sign-in first wherever this route sells at all;
+      // no policy request is made for a signed-out page. The signed-in answer (and createCheckout
+      // itself) still asks the fresh sales allowance.
+      async () => (await session.getState()).userId === null || (await salesAllowed()) === true,
       host.runtime.id,
       host.runtime.getURL(""),
     ));
