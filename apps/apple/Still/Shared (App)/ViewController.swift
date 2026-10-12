@@ -105,7 +105,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 
         observeExternalSettingsChanges()
         appRouteToken = NotificationCenter.default.addObserver(
-            forName: StillProRoute.changed, object: nil, queue: .main
+            forName: StillAppRoute.changed, object: nil, queue: .main
         ) { [weak self] _ in
             // Fixed event only: the page reads the trusted pending route through the bridge.
             self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('still:route'))")

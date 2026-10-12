@@ -23,7 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { StillProRoute.receive(url) }
+        for url in urls { StillAppRoute.receive(url) }
     }
 
 }
