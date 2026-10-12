@@ -41,7 +41,7 @@ describe("browser Pro offer static list and existing authority", () => {
       within(card)
         .getAllByRole("listitem")
         .map((item) => item.textContent),
-    ).toEqual(["Comments", "Stories and Highlights"]);
+    ).toEqual(["Stories and Highlights", "Comments"]); // Instagram first (owner, 12 Oct)
     expect(within(card).queryByRole("switch")).toBeNull();
     expect(screen.queryByText("$fixture-price")).toBeNull();
     expect(input.onBuy).not.toHaveBeenCalled();

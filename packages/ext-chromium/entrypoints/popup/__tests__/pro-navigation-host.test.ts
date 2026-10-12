@@ -121,6 +121,37 @@ describe("live popup/App/browser Pro navigation", () => {
     expect(f.openOptionsPage).not.toHaveBeenCalled();
   });
 
+  it("before the background answers the rows are checking, never verify; a signed-out answer shows Still Pro locks (ISS-0030)", async () => {
+    await browser();
+    session();
+    const { controller } = capture();
+    const f = await desktopFixture("locked");
+    let answer: ((snapshot: typeof f.props.access) => void) | undefined;
+    const access = new EntitlementCache({
+      get: async () => false,
+      set: async () => {},
+      subscribe: () => () => {},
+      observeBenefits: () => new Promise(resolve => { answer = resolve; }),
+    }, { access: { paidMode: true, supported: new Set(ACCESS_BENEFITS) } });
+    const binding = createDesktopPopupBinding(f.cache, access);
+    stops.push(binding.stop);
+    vi.stubEnv("FIREFOX", "");
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    render(PopupApp, { props: { controller, committedPopupBinding: binding, browser: "Chrome", platform: Promise.resolve("desktop" as const), surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE, proDestinationReady: true } });
+    const youtube = await screen.findByRole("button", { name: "YouTube Blocker" });
+    if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
+    expect(document.querySelectorAll('[data-access="checking"]').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-access="verify"]')).toBeNull();
+    if (!answer) void access.refreshAccess();
+    await waitFor(() => expect(answer).toBeDefined());
+    answer!(f.props.access);
+    await screen.findByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" });
+    expect(document.querySelector('[data-access="checking"]')).toBeNull();
+    expect(document.querySelector('[data-access="verify"]')).toBeNull();
+    expect(screen.getAllByText("Still Pro").length).toBeGreaterThan(0);
+  });
+
   it("withdraws navigation when its host destination is replaced or unavailable", async () => {
     const f = await popup("Chrome");
     await f.view.rerender({ ...f.props, proDestinationReady: false });

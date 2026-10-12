@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   declaredSiteOrigins,
   firstRunAnalytics,
+  firstRunPinApi,
   observePinned,
   observeSiteAccess,
   type SiteAccessApi,
@@ -209,5 +210,18 @@ describe("first-run analytics", () => {
     expect(await analytics.setSharing!(false)).toBe(false);
     analytics.acknowledgeNotice!();
     expect(page.acknowledgeNotice).toHaveBeenCalledOnce();
+  });
+});
+
+describe("firstRunPinApi (ISS-0031)", () => {
+  const action = { getUserSettings: async () => ({ isOnToolbar: true }) };
+  it("reads the pinned report on Chrome and on desktop Firefox", () => {
+    expect(firstRunPinApi(false, "unknown", action)).toBe(action);
+    expect(firstRunPinApi(true, "desktop", action)).toBe(action);
+    // A Firefox whose platform answer never came is still a toolbar browser here.
+    expect(firstRunPinApi(true, "unknown", action)).toBe(action);
+  });
+  it("never reads it on Firefox for Android, which has no toolbar", () => {
+    expect(firstRunPinApi(true, "android", action)).toBeUndefined();
   });
 });

@@ -16,7 +16,7 @@ import {
   backendRouteEnvironmentMatches,
   type ExtensionSession,
 } from "@still/core/sync";
-import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
+import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage, persistedAuthAbsent, readAccessSession } from "../lib/auth-storage.js";
 import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
@@ -172,6 +172,7 @@ export default defineBackground(() => {
   let scopedAccountEvidence: ((session: TrustedAccessContext["session"]) => "absent" | "unknown") | null = null;
   let verifiedAccessSession: (() => Promise<TrustedAccessContext["session"]>) | null = null;
   let scopedEvidenceDeadline: (() => number | null) | null = null;
+  let signInUnavailable = false;
   const accessTrust = packagedAccessTrust({
     environment: import.meta.env.VITE_ACCESS_ENVIRONMENT as string | undefined,
     publicKeys: import.meta.env.VITE_ACCESS_PUBLIC_KEYS as string | undefined,
@@ -183,9 +184,15 @@ export default defineBackground(() => {
     const context = await hostAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium", accessPlatform);
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
-    // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.
-    const verified = verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined) : undefined;
-    return { ...context, session: verified, evidenceStatus: scopedAccountEvidence?.(verified) ?? "unknown",
+    // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent;
+    // an authoritative signed-out answer (null) is conclusive account absence (ISS-0030).
+    // A build that cannot set up sign-in (no session spine) is signed out only while no
+    // persisted session exists: a misconfigured build must not drop an earlier account's rights.
+    const verified = verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined)
+      : signInUnavailable && await persistedAuthAbsent() ? null : undefined;
+    // Signed out is absent (mirrors the reconciler's evidenceStatus(null)), also in a build
+    // without the account reconciler, where there is no account lane at all.
+    return { ...context, session: verified, evidenceStatus: verified === null ? "absent" : scopedAccountEvidence?.(verified) ?? "unknown",
       evidenceDeadline: scopedEvidenceDeadline?.() ?? null };
   }, evidenceDeadline: () => scopedEvidenceDeadline?.() ?? null });
   chrome.runtime.onMessage.addListener(createEntitlementMessageRouter(entitlements, chrome.runtime.id, chrome.runtime.getURL("")));
@@ -228,6 +235,7 @@ export default defineBackground(() => {
     : cache.hydrate();
   const spine = createSessionSpine(cache, entitlements, order, settingsRuntime, accessTrust);
   const session = spine?.session ?? null;
+  signInUnavailable = spine === null;
   scopedAccountEvidence = spine?.accessEvidence ?? null;
   scopedEvidenceDeadline = spine?.accessEvidenceDeadline ?? null;
   // Sync invitation ledger (U13-P2): every ledger transaction runs in this worker's serialized
@@ -274,14 +282,14 @@ export default defineBackground(() => {
   }
   if (spine) {
     const accessAuth = new SupabaseAuthPort(spine.client);
-    verifiedAccessSession = async () => {
-      // SDK token/claims verification may persist a refreshed token through `order`; finish it
-      // before any entitlement writer enters that queue. A failed proof is unknown, not absent.
-      const { data, error } = await spine.client.auth.getSession();
-      if (error) return undefined;
-      if (!data.session) return undefined;
-      return (await accessAuth.currentSettingsSession()) ?? undefined;
-    };
+    // SDK token/claims verification may persist a refreshed token through `order`; finish it
+    // before any entitlement writer enters that queue. A failed proof is unknown, not absent;
+    // signed out (null) needs the SDK's empty answer AND a readably absent auth record.
+    verifiedAccessSession = () => readAccessSession({
+      getSession: () => spine.client.auth.getSession(),
+      currentSettingsSession: () => accessAuth.currentSettingsSession(),
+      persistedAuthAbsent,
+    });
   }
 
   // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
@@ -691,7 +699,16 @@ function createSessionSpine(
   // Paid-tier builds also answer the settings page's "may I offer Buy?" from this same
   // canCreateCheckout (lib/checkout-availability.ts). The choice folds away with the compiled
   // switch off, leaving exactly createExtensionSession.
-  const session = (PAID_TIER_ENABLED ? createSessionWithCheckoutAvailability : createExtensionSession)({
+  // Its answer to a signed-out page needs a conclusive sign-out, the same answer the access
+  // context uses (readAccessSession null).
+  const session = (PAID_TIER_ENABLED
+    ? (deps: Parameters<typeof createExtensionSession>[0]) => createSessionWithCheckoutAvailability(deps, undefined, undefined,
+      async () => (await readAccessSession({
+        getSession: () => client.auth.getSession(),
+        currentSettingsSession: () => port.currentSettingsSession(),
+        persistedAuthAbsent,
+      }).catch(() => undefined)) === null)
+    : createExtensionSession)({
     auth,
     backend,
     records: entitlements,

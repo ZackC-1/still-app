@@ -104,7 +104,7 @@ describe("controlled D01 presentation", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
     expect(
       screen.queryByText(
-        "Free. Keep your settings updated across every supported surface.",
+        "Free. Keep your block settings consistent across every supported device and browser.",
       ),
     ).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent(

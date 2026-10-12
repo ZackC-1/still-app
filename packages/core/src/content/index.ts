@@ -105,7 +105,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const pageSession = createEnginePageSession(deps.ruleSetV2 ?? ruleSet);
   // Only for a script built without an entitlement cache (the shipping entry always supplies one,
   // seeded for its host). Host-less is right here: no Still Pro state in this snapshot is ever
-  // effective ("unsupported" or, paid on, "verification_required"), so the host cannot change
+  // effective ("unsupported" or, paid on, "checking"), so the host cannot change
   // what applies; the host-aware `capabilities` above decide what each host may run.
   const fallbackAccess = initialAccessSnapshot();
   const teardowns: Array<() => void> = [];

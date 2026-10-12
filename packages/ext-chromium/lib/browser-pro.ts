@@ -262,7 +262,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   /** `quiet` re-asks behind the current answer (no "checking" flash): a page shown again learns
    * that sales were switched off, or on, without the card blinking. */
   async function askChannel(quiet = false): Promise<void> {
-    if (stopped || channelFlight || seen?.userId == null) return;
+    if (stopped || channelFlight || seen === null) return;
     channelFlight = true;
     const ticket = generation;
     if (!quiet || state.channel === "unknown") set({ channel: "checking" });
@@ -444,7 +444,12 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (next.ownership === "none" && next.userId !== null) {
         if (state.channel === "unknown") void askChannel();
         armKeepAlive();
-      } else clearKeepAlive();
+      } else {
+        clearKeepAlive();
+        // Signed out and known not to own it (ISS-0030): ask whether Get Still Pro may be offered
+        // (it opens the normal sign-in first; Buy itself still needs the account).
+        if (next.ownership === "none" && state.channel === "unknown") void askChannel();
+      }
     },
     buy(): void {
       void buy();

@@ -6,8 +6,8 @@ import { USAGE_ON_BY_DEFAULT_BUILD } from "./build-basis.js";
 // the approved current usage/email/AI purposes and recipients have been accepted under the
 // capability-evidence basis. The one exception is the ADR 0004 default-on basis (default-on.ts,
 // V3 builds only): there a 2.1 On, or no choice at all, is carried to a fresh default-on
-// permission, and the one-time notice is shown again because the disclosure changed
-// (NOTICE_VERSION_KEY); a 2.1 Off stays off.
+// permission (V3 shows no one-time notice since 2026-10-12; the switch is the one control); a 2.1
+// Off stays off.
 
 export const CONSENT_KEY = "still:analytics:enabled";
 export const PRIVACY_CAPABILITIES = [

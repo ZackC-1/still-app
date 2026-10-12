@@ -141,6 +141,8 @@ Sign-in is optional and enables free cross-device settings sync. It uses an emai
 
 New in 2.1: first-party usage analytics with a one-time notice and a "Share usage data" switch in Settings. It records product events only (for example, setup steps and switch changes); never page addresses, videos, searches or page content. It is declared in the App Privacy section, is not used for tracking or advertising, and the App Tracking Transparency prompt is not required. Deleting an account also deletes its analytics data.
 
+V3 copy (use instead of the 2.1 paragraph above for a V3 submission; ADR 0004, 2026-10-12): First-party usage analytics is on by default, with a single "Share usage data" switch in Settings (no separate one-time notice). It records product events only (for example, setup steps and switch changes); never the websites, pages or videos someone visits, searches or page content. It is declared in the App Privacy section, is not used for tracking or advertising, and the App Tracking Transparency prompt is not required. Deleting an account also deletes its analytics data.
+
 Purchase infrastructure remains in the project for historical entitlements, with paid features disabled. No in-app purchase is needed to use Still.
 ```
 

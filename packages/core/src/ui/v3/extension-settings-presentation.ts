@@ -44,7 +44,8 @@ export interface SharedDataProps {
 export interface ProOfferCardProps {
   /** Descriptive, capability-filtered inventory; no switches, saved-choice changes or authority. */
   controls?: readonly { site: string; label: string }[];
-  /** True where the surface draws the phone-layout inventory (iPhone/iPad, Firefox for Android). */
+  /** True where the surface draws the phone-layout inventory (iPhone/iPad, Firefox for Android).
+   * Unread since 12 Oct 2026: no Still Pro copy states a number of extras (owner rule). */
   phone?: boolean;
   ownership: "none" | "owned" | "checking" | "verify" | "failed";
   channel: "ready" | "unverified" | "unavailable";
@@ -146,8 +147,9 @@ export interface ExtensionSettingsProps extends Pick<
   sync: SyncCardProps;
   /**
    * True only when the browser confirmed a phone platform (Firefox for Android, iPhone/iPad
-   * Safari). Pending or unknown is not a phone here: the Still Pro offer then shows its general
-   * note, which is true on every surface, even while the rows are drawn as phone rows.
+   * Safari). Pending or unknown is not a phone here, even while the rows are drawn as phone rows.
+   * No Still Pro copy reads it since 12 Oct 2026 (owner rule: never state a number of extras);
+   * hosts keep passing it so the device-specific seam stays in one place.
    */
   phone?: boolean;
   pro?: Omit<
