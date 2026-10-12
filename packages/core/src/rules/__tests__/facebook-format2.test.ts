@@ -311,9 +311,10 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     it("the same entries hide when Facebook writes them relative, absolute or on m.facebook.com, inside a <nav> too", () => {
       const s = session();
       for (const href of [
-        "/reel/", "/reel/?s=tab", "/reel/following/", "/reel/profile/", "/reels/", "/reels", "/reels/?ref=bookmarks", "/watch/reels/",
+        "/reel/", "/reel/?s=tab", "/reel/following/", "/reel/profile/", "/reels/", "/reels/?ref=bookmarks", "/watch/reels/",
         "https://www.facebook.com/reel/", "https://www.facebook.com/reel/?s=bookmark", "https://www.facebook.com/reels/",
         "https://m.facebook.com/reel/?s=tab", "https://m.facebook.com/reels/", "https://m.facebook.com/watch/reels/",
+        "https://web.facebook.com/reel/?s=tab", "https://facebook.com/reel/following/",
       ]) {
         document.body.innerHTML = `<nav><ul><li id="entry"><div><a href="${href}">Reels</a></div></li><li id="keep"><a href="/">Home</a></li></ul></nav>`;
         s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
@@ -327,6 +328,8 @@ describe("captured Facebook through the maintained format2 compiler", () => {
       for (const href of [
         "/reel/1234567890/", "/reel/1234567890?s=tab", "https://www.facebook.com/reel/1234567890", "/reelestate/", "/reels_tab",
         "/stillapp/reels/", "/groups/reels/", "https://example.com/reel/?s=tab", "/l.php?u=https%3A%2F%2Fwww.facebook.com%2Freel%2F",
+        "/reel/followingx/", "/reel/profilepage/", "/watch/reelsx/", "/reelsx/", "/reel/profile/1234567890/",
+        "/reel/following/1234567890", "https://web.facebook.com/reel/1234567890",
       ]) {
         document.body.innerHTML = `<div role="navigation"><ul><li id="item"><div><a href="${href}" id="link">A destination</a></div></li></ul></div>`;
         s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);

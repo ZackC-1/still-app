@@ -421,7 +421,7 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
 // Facebook's current navigation on the legacy lane (configured 2.x builds, unchanged seed): the
 // top-menu tab is hidden by its "Reels" label, and every /reel/ address, the feed entry included,
 // shows Still's placeholder, so the Reels feed stays closed there too (ISS-0035).
-test("facebook current navigation on the legacy lane: the Reels tab is hidden and the Reels feed entry shows the placeholder", async ({ context, extensionId }) => {
+test("facebook current navigation on the legacy lane (pin): the Reels tab is hidden and the Reels feed entry shows the placeholder", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
