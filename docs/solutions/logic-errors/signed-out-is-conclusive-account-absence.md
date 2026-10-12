@@ -60,8 +60,9 @@ storage failure. Signing out also clears account proofs from the access record d
 - `readAccessSession` ([auth-storage.ts](../../../packages/ext-chromium/lib/auth-storage.ts)) answers
   `null` only when the SDK reads no session without an error **and** a direct read of the persisted
   auth record succeeds and finds nothing. An SDK error, claims that do not verify, a persisted record
-  the SDK did not return, or unreadable storage all stay `undefined`. A paid build with no sign-in at
-  all (no session spine) is always signed out.
+  the SDK did not return, or unreadable storage all stay `undefined`. A paid build that cannot set up
+  sign-in (no session spine) is signed out only while no persisted session exists, so a misconfigured
+  build cannot drop an earlier account's rights.
 - `evidenceStatus(null)` is `absent`. The background also maps `null` to `absent` when the build has
   no account reconciler.
 - [chrome-adapter.ts](../../../packages/core/src/entitlement/chrome-adapter.ts) gives signed-out
@@ -89,16 +90,31 @@ storage failure. Signing out also clears account proofs from the access record d
   signed out with no auth record is locked without any reconcile request; an unreadable auth record
   or SDK error stays `verification_required`; a build without sign-in is locked; sign-out after a
   purchase locks. The existing "missing SDK session is unknown" case now models a persisted record.
-- Settings and popup host tests cover Get Still Pro leading to sign-in, no offer where the build does
-  not sell, and the checking seed before the background answers.
-- `tests/playwright/pro-access-signed-out.spec.ts` checks both CI lanes, where the paid tier is
-  compiled off: rows are dormant, shown locked, and nothing says verify. When it was run locally
-  against paid-on builds (unconfigured, and configured with the QA sandbox route and modern settings),
-  every Pro row was locked with the Still Pro lock and settings showed Get Still Pro. The same spec
-  failed on those builds without the fix.
+- Settings, popup host and `browser-pro` unit tests cover: Get Still Pro leading to sign-in; no offer
+  where the build does not sell; a signed-out answer being dropped when someone signs in; and the
+  checking seed before the background answers. The background suite also signs in on a signed-out
+  install through the real auth wiring (locked, then `verification_required`, then purchased after
+  reconciling), and a local Apple right still grants while signed out.
+- `tests/playwright/pro-access-signed-out.spec.ts` is only a dormancy guard in CI, because both CI
+  lanes compile the paid tier off (rows are dormant, shown locked, and nothing says verify). During
+  this fix it was also run by hand against paid-on builds (unconfigured, and configured with the QA
+  sandbox route and modern settings). Every Pro row was locked with the Still Pro lock and settings
+  showed Get Still Pro. Without the fix, the same builds failed it.
+- Firefox for Android runs the same background and settings page as desktop Firefox, so these tests
+  cover it through that shared code. No test exercises an Android-only path.
 
 These checks cover browser hosts only. Safari takes its answer from the native app
 (`nativeObservation`) and needs its own conclusive "not owned" from StoreKit or RevenueCat.
+
+## Known limits
+
+- The SDK itself removes a session after a refresh that fails with a non-retryable error once the
+  access token has expired (for example a rate-limit or a captive-portal page). From then on the
+  install really is signed out, so its rows show locked with the offer instead of "verify". The
+  account rights come back on the next sign-in. Plain offline refresh failures keep the session and
+  stay `undefined`.
+- A signed-out page never fetches the sales policy, so a remote sales-off switch appears only after
+  sign-in ("Still Pro can't be bought here yet").
 
 ## Prevention
 

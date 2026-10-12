@@ -8,6 +8,9 @@ import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.j
 //   locked with the "Still Pro" lock action, and no row or card asks to verify again.
 // - Paid tier compiled OFF (both CI lanes): Still Pro rows are dormant (shown locked, no action),
 //   and still nothing asks to verify again or shows the checking spinner once the page settles.
+//   In CI this is a dormancy guard only: the ISS-0030 regression lives in paid-on builds, so its
+//   gating coverage is the unit and host suites (signed-out-access, background-scoped-access,
+//   browser-pro-host). Run this spec against a paid-on build to check the real states.
 // Rows need committed schema-2 settings (the V3 popup and settings), so they run only in the
 // unconfigured lane, as the dormancy spec does. The page-wide check runs in BOTH lanes.
 
@@ -62,7 +65,9 @@ for (const surface of ["popup", "options"] as const)
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/${surface}.html`);
     await expect(page.getByRole("switch").first()).toBeVisible();
-    await page.waitForTimeout(800); // let the background's access answer and late cards land
+    // The V3 pages seed Still Pro rows as checking until the background answers; wait for that
+    // answer (legacy configured pages have no such rows and pass straight through).
+    await expect(page.locator('[data-access="checking"]')).toHaveCount(0);
     await expect(page.getByText(VERIFY_AGAIN)).toHaveCount(0);
     await expect(page.locator('[data-access="verify"]')).toHaveCount(0);
     if (PAID_TIER_ENABLED && surface === "options" && syncConfigured) {
