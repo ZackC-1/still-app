@@ -1,6 +1,15 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { initialAccessSnapshot, packagedAccessContext } from "@still/core/entitlement";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  ChromeEntitlementAdapter,
+  DESKTOP_LAYOUT_ONLY_PRO,
+  EntitlementCache,
+  accessCapabilities,
+  initialAccessSnapshot,
+  packagedAccessContext,
+  type AccessPlatform,
+} from "@still/core/entitlement";
+import { FEATURE_REGISTRY, type BenefitId } from "@still/shared-types";
 import { parseNativeBenefitReply } from "../native-benefits.js";
 
 // A purchased snapshot as the native handler commits it (shape only; values are synthetic).
@@ -37,5 +46,66 @@ describe("parseNativeBenefitReply", () => {
     const background = readFileSync(new URL("../../entrypoints/background.ts", import.meta.url), "utf8");
     expect(background).toContain("if (PAID_TIER_ENABLED) return parseNativeBenefitReply(reply);");
     expect(background.match(/parseNativeBenefitReply/g)).toHaveLength(2); // the import and the folded call
+  });
+});
+
+// ISS-0030: the Safari background's paid wiring (background.ts) with the native handler's reply.
+// The extension's own context is signed out with unknown evidence; the app's native snapshot is
+// the authority, so its "locked" rows must reach the popup as locked, and a later "purchased"
+// must replace them on the next read.
+describe("Safari native benefit authority reaches the popup cache", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const proRows = FEATURE_REGISTRY.filter(feature => feature.tier !== "free").map(feature => feature.id as BenefitId);
+  function nativeReply(platform: AccessPlatform, proState: "locked" | "verification_required" | "purchased") {
+    const supported = accessCapabilities({ paidMode: true, host: "safari", platform });
+    const base = initialAccessSnapshot({ paidMode: true, supported });
+    const states = Object.fromEntries(Object.entries(base.states).map(([benefit, state]) =>
+      [benefit, state === "verification_required" ? proState : state]));
+    return lane({ ok: true, snapshot: { ...base, states } });
+  }
+  function safariCache(platform: AccessPlatform, reply: () => unknown) {
+    vi.stubGlobal("chrome", { storage: { local: {} } });
+    const supported = accessCapabilities({ paidMode: true, host: "safari", platform });
+    const adapter = new ChromeEntitlementAdapter(Date.now, {
+      authority: true,
+      // Signed out with nothing of its own: the shape packagedAccessContext gives every Safari read.
+      context: () => ({ paidMode: true, supported, localRights: new Set(), evidenceStatus: "unknown" }),
+      nativeObservation: async () => parseNativeBenefitReply(reply()),
+    });
+    return { adapter, cache: new EntitlementCache(adapter, { access: { paidMode: true, supported } }) };
+  }
+
+  for (const [platform, count] of [["desktop", 12], ["ios", 9]] as const) {
+    it(`shows every supported Still Pro row locked on ${platform} when the app says no purchase`, async () => {
+      const { cache } = safariCache(platform, () => nativeReply(platform, "locked"));
+      await cache.refreshAccess();
+      const supportedPro = proRows.filter(id => platform === "desktop" || !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(id));
+      expect(supportedPro).toHaveLength(count);
+      for (const id of supportedPro) expect(cache.currentAccess(id)).toBe("locked");
+      if (platform === "ios") for (const id of DESKTOP_LAYOUT_ONLY_PRO) expect(cache.currentAccess(id)).toBe("unsupported");
+      expect(cache.currentAccess("youtube.shorts")).toBe("free");
+    });
+  }
+
+  it("keeps an inconclusive native answer as verification required, and a later purchase unlocks", async () => {
+    let reply = nativeReply("desktop", "verification_required");
+    const { adapter, cache } = safariCache("desktop", () => reply);
+    await cache.refreshAccess();
+    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    reply = nativeReply("desktop", "locked");
+    adapter.invalidateAccessContext();
+    await cache.refreshAccess();
+    expect(cache.currentAccess("youtube.comments")).toBe("locked");
+    reply = nativeReply("desktop", "purchased");
+    adapter.invalidateAccessContext();
+    await cache.refreshAccess();
+    for (const id of proRows) expect(cache.currentAccess(id)).toBe("purchased");
+  });
+
+  it("never turns a failed native read into locked", async () => {
+    const { cache } = safariCache("desktop", () => ({ entitlement: JSON.stringify({ ok: false }) }));
+    await cache.refreshAccess().catch(() => {});
+    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
   });
 });
