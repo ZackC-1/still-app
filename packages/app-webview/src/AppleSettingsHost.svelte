@@ -13,6 +13,7 @@
   } from "@still/core/ui/v3/apple-pro-host";
   import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
+  import { USAGE_SWITCH_COPY } from "@still/core/ui/v3/usage-copy";
   import {
     STRINGS,
     SignInSheet,
@@ -309,28 +310,10 @@
   }
 </script>
 
-<!-- The existing Apple usage-sharing control and copy, driven by the native analytics consent
-     through the controller. It is not the combined email-plus-usage choice. -->
+<!-- The existing Apple usage-sharing switch, driven by the native analytics consent through the
+     controller: the one usage-data control, with no one-time notice (owner, 12 Oct 2026; ADR 0004
+     "V3 consent"). It is not the combined email-plus-usage choice. -->
 {#snippet usageActions()}
-  {#if c.usageNoticeVisible}
-    <section class="card card-stack" aria-live="polite">
-      <p class="muted">{STRINGS.usage.notice}</p>
-      <div class="inline-actions">
-        <button
-          type="button"
-          class="link"
-          onclick={() => c.toggleUsageSharing()}
-          >{STRINGS.usage.noticeTurnOff}</button
-        >
-        <button
-          type="button"
-          class="secondary"
-          onclick={() => c.dismissUsageNotice()}
-          >{STRINGS.usage.noticeOk}</button
-        >
-      </div>
-    </section>
-  {/if}
   {#if c.usageSharing !== null}
     <section class="card card-stack">
       <div class="sync-row">
@@ -339,9 +322,9 @@
             class="row-title"
             id="usage-sharing-title"
             style="font-size:calc(15px * var(--text-scale, 1));font-weight:600;"
-            >{STRINGS.usage.title}</span
+            >{USAGE_SWITCH_COPY.title}</span
           ><span class="muted sync-row-sub" id="usage-sharing-body"
-            >{STRINGS.usage.body}</span
+            >{USAGE_SWITCH_COPY.body}</span
           >
         </div>
         <SettingsSwitch

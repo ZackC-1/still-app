@@ -9,9 +9,9 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 
 | Surface | Sends | Consent |
 |---|---|---|
-| Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; one-time notice; switch in options |
+| Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; switch on the welcome page and in options (V3 has no one-time notice since 2026-10-12; 2.1 showed one) |
 | Firefox extension background | the same | On exactly while the optional `technicalAndInteraction` permission is granted (offered in Firefox's install prompt; the settings switch requests or withdraws it); no notice |
-| iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, switch flips (`where: app`), active days, sign-in funnel | On by default; one-time notice; switch in the app |
+| iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, switch flips (`where: app`), active days, sign-in funnel | On by default; switch in the app (V3 has no one-time notice since 2026-10-12; 2.1 showed one) |
 | Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch (V3: the app's App Group permission, read only; nothing before the app has launched once) |
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
@@ -190,7 +190,8 @@ different surfaces, so label every insight with the definition it uses.
   send nothing (their events wait on the device), so V3 numbers undercount signed-in people until
   then. Signed-out use, including everything before a first sign-in, is always reported.
 - **Person split at upgrade (V3).** A device upgrading from 2.1 starts a new permission with new
-  ids, so its 2.1 person and its V3 person are different people, and it sees the notice again. Do
+  ids, so its 2.1 person and its V3 person are different people (V3 builds before 2026-10-12 also
+  showed the notice again). Do
   not read the upgrade week as new installs: use `updated` (from 2.1) to separate them.
 - **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
   someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on

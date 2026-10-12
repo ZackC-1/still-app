@@ -1,7 +1,8 @@
 # ADR-0004: First-party usage analytics, with no browsing data by construction
 
 Date: 2026-09-23 · Status: accepted (owner decision; ships with Still 2.1). Consent reaffirmed for V3
-by the owner on 2026-10-10; see [V3 consent](#v3-consent-2026-10-10).
+by the owner on 2026-10-10; see [V3 consent](#v3-consent-2026-10-10). V3's one-time notice replaced
+by the always-visible switch on 2026-10-12; see [One usage-data control](#one-usage-data-control-2026-10-12).
 
 ## Context
 
@@ -32,8 +33,8 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 4. **The email is attached server-side.** `analytics-identify` (verify_jwt) sets the account's
    email on its PostHog person from the auth record; no client sends an email to PostHog.
    `delete-user` deletes the PostHog person and events with the account.
-5. **Consent.** On by default with a one-time notice and a per-device "Share usage data" switch on
-   Chrome and the Apple apps (the Safari extension follows the app's switch). Firefox allows usage
+5. **Consent.** On by default with a one-time notice (V3: none since 2026-10-12, the switch alone)
+   and a per-device "Share usage data" switch on Chrome and the Apple apps (the Safari extension follows the app's switch). Firefox allows usage
    data only as the optional `technicalAndInteraction` permission, which Firefox offers in its own
    install prompt: sharing is on exactly while that permission is granted. Nothing is queued while
    off, and turning it off discards what was waiting. V3 builds implement this through a per-device
@@ -90,7 +91,8 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   `analytics_choice_made {choice: "share"}` when it is turned back on.
 - New accounts are counted by the server once per account, never inferred by a client.
 - Chrome and Firefox send `installed` and `setup_completed` at install, before the one-time notice
-  is seen (owner decision, 2026-09-23): counting every install outweighs holding them, and the store
+  is seen (2.1; V3 has no notice since 2026-10-12, so before the switch is seen) (owner decision,
+  2026-09-23): counting every install outweighs holding them, and the store
   privacy declarations and the privacy policy disclose the collection up front.
 - Consent is re-read before every request and fails closed; anything waiting is discarded when
   sharing turns out to be off, however it was switched off.
@@ -113,7 +115,8 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   stops collection and discards what waits; deleting the account deletes what was sent). The
   capability-evidence gate remains for any other policy.
 - **Chrome.** The first read with no recorded choice grants the permission, so `installed` and
-  `setup_completed` are reported from install. The one-time notice ("Still shares usage data to
+  `setup_completed` are reported from install. Until 2026-10-12 (see
+  [One usage-data control](#one-usage-data-control-2026-10-12)), the one-time notice ("Still shares usage data to
   help improve the app. It never includes the sites or videos you visit.", Turn off / OK) and the
   "Share usage data" row on the first-run and settings pages ("Helps improve Still. Never includes
   the sites or videos you visit.") show it on and are the off path. The notice is versioned by the
@@ -129,16 +132,16 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   mark remains, so a later grant in the add-on manager turns sharing on. Withdrawing it in the add-on
   manager ends the permission at the next read and discards what waits. There is no notice.
 - **Apple apps.** The app grants the permission in the App Group at its first launch with no
-  recorded choice, and shows the existing one-time notice (versioned as above) and switch on the
-  settings screen. While sharing is off the switch stays visible, showing off; when the state cannot
+  recorded choice, and showed the existing one-time notice (versioned as above; removed 2026-10-12)
+  and shows the switch on the settings screen. While sharing is off the switch stays visible, showing off; when the state cannot
   be read the switch is hidden. An off that the App Group does not take is reported as a failure, so
   the switch keeps showing on rather than claiming an off the Safari extension would not follow.
 - **Safari extension.** Reads the app's record through the native handler's read-only
   `analyticsPermission` lane and never grants, stops or writes one. Before the app has created the
   record it reports nothing. When the app turns sharing off it stops sending at once; events that
   were waiting in the extension are never sent and are discarded when sharing is next allowed.
-- **Upgrades from 2.1.** The 2.1 "on" value (or no value) counts as no choice, so sharing is on,
-  and the notice is shown again because the disclosure changed; a 2.1 "off" stays off. The
+- **Upgrades from 2.1.** The 2.1 "on" value (or no value) counts as no choice, so sharing is on
+  (until 2026-10-12 the notice was shown again because the disclosure changed); a 2.1 "off" stays off. The
   permission's ids are new, so the device's 2.1 person and its V3 person are different people in
   PostHog (a person split at upgrade).
 - **Turning sharing off** fences work in flight, discards the queue and sends nothing.
@@ -163,6 +166,45 @@ app) behave as follows. `packages/core/src/analytics/default-on.ts` is the autho
   device's events wait on the device, bound to the account (dropped if it signs out, sent once it has
   its identity, never older than 30 days). Signed-out use is reported under the device's anonymous
   id.
+
+### One usage-data control (2026-10-12)
+
+Owner decision, 2026-10-12 (owner QA, ISS-0029): the V3 screens asked about usage data twice, the
+one-time notice ("Still shares usage data… Turn off / OK") and the "Share usage data" switch. V3 keeps
+only the switch, on every surface (the Chrome and Firefox welcome and settings pages, Firefox for
+Android, the Mac and iPhone apps), with the subtext "Helps to improve Still. Never shares the
+websites you visit or website activity." The switch shows sharing on from the first screen (the
+Chrome welcome page that opens at install; the Apple app's settings screen) and is the off path.
+
+- **Truth of the subtext.** It is checked against the closed schema (`events.ts`): no event carries
+  a page, video, search, address or a site someone visited; `site` and `switch` name only which of
+  Still's own controls a person changed in Still's own screens; `active` is a day of use with no
+  site; content scripts send nothing; background-start events carry only their day. Any new event
+  must keep it true or change this copy first.
+- **No change to the permission.** `USAGE_DISCLOSURE` describes the permission (on by default, off
+  switch, what is sent), which is unchanged, so its SHA-256 permission version stays the same: no
+  device's choice is re-read, re-granted or stopped by this change, and no device starts a new
+  anonymous person. On stays on, off stays off.
+- **No notice is asked for, at the source.** The default-on hosts answer `noticeNeeded: false`
+  (the extension host with `noticeApplies: false`; the Apple app's `sharing()`), so no screen shows
+  a notice and the rating prompt no longer waits on one; the V3-only screens (the welcome page and
+  the Apple settings screen) no longer draw one at all. The shared UI controller and the 2.x path
+  are unchanged. The versioned acknowledgement keys stay readable and unused.
+- **Firefox** is unchanged: the switch still requests or withdraws the optional
+  `technicalAndInteraction` permission, and Firefox's own install prompt still offers it.
+- **Disclosures.** The privacy policy and the store privacy declarations already disclose the
+  collection and the off switch; the policy's sentence that the apps and Chrome "tell you so the
+  first time you open them" now points at the switch.
+- **2.1 upgraders (accepted, 2026-10-12).** A Chrome device updating from 2.1 gets the default-on
+  permission at update and sees no on-screen notice: the welcome page opens only on a fresh install,
+  and the popup has no switch. This is accepted, with no on-update tab: those people already saw the
+  2.1 usage-data notice for the same on-by-default collection, the store listing and privacy policy
+  disclose it, and the switch stays in Still's settings.
+- **The daily `active` event (reviewed, 2026-10-12).** It can be recorded when the background
+  starts on a day Still's screens are never opened. It is rounded to the day and names no site,
+  page or address, and the background also starts for reasons unrelated to site visits (browser
+  start, alarms), so it is "Still ran today", not website activity. The subtext stands and the
+  analytics behaviour is unchanged.
 
 Builds without these flags (every 2.x store package) are byte-for-byte unchanged by this section.
 In current source those 2.x hosts supply no permission record, so a 2.x package rebuilt from this

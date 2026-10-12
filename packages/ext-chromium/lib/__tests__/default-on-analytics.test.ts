@@ -109,8 +109,8 @@ describe("root cause: the 2.x wrapper supplies no permission or policy, so nothi
   });
 });
 
-describe("V3 Chrome: on by default, with the one-time notice and a working switch", () => {
-  it("reports from install, even when the start's account answer lands right after onInstalled, and the notice shows until acknowledged", async () => {
+describe("V3 Chrome: on by default, with the switch as the one control", () => {
+  it("reports from install, even when the start's account answer lands right after onInstalled, and asks for no notice", async () => {
     const t = setup(createDefaultOnBackgroundAnalytics);
     await install(t);
     expect(t.permission()).toMatchObject({ state: "granted", version: USAGE_PERMISSION_VERSION });
@@ -119,8 +119,7 @@ describe("V3 Chrome: on by default, with the one-time notice and a working switc
     expect(String(request[0])).toBe("https://us.i.posthog.com/batch/");
     expect(String((request[1] as RequestInit).body)).toContain('"build_channel":"test"');
 
-    expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: true });
-    await t.send({ action: "acknowledgeNotice" });
+    // No one-time notice since 2026-10-12 (ADR 0004 "One usage-data control").
     expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: false });
   });
 
@@ -245,11 +244,13 @@ describe("V3 Chrome: install timing", () => {
   });
 });
 
-describe("V3 Chrome: the notice follows the disclosure version", () => {
-  it("a 2.1 upgrader who acknowledged the 2.1 notice sees it again; acknowledging records this version", async () => {
+describe("V3 Chrome: no notice, whatever the acknowledgement record says (2026-10-12)", () => {
+  it("a 2.1 upgrader who acknowledged the 2.1 notice stays on and is asked for no notice", async () => {
     const t = setup(createDefaultOnBackgroundAnalytics, { local: memory({ [CONSENT_KEY]: true, [NOTICE_KEY]: true }) });
     await install(t);
-    expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: true });
+    expect(t.permission()).toMatchObject({ state: "granted", version: USAGE_PERMISSION_VERSION });
+    expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: false });
+    // An acknowledgement from an older page still records this version; nothing reads it.
     await t.send({ action: "acknowledgeNotice" });
     expect(t.local.data[NOTICE_VERSION_KEY]).toBe(USAGE_PERMISSION_VERSION);
     expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: false });

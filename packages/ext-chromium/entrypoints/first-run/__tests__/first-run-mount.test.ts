@@ -139,13 +139,19 @@ describe("first-run host mount", () => {
     });
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Still is on."));
     expect(screen.getByText("Still is pinned.")).toBeTruthy();
-    // No combined email-and-usage question; the existing one-time notice and switch instead.
+    // No combined email-and-usage question, and no one-time notice: the existing switch, with the
+    // owner's subtext, is the one usage-data control (ISS-0029 item 3). The page draws no notice
+    // even where an analytics host reports one as unacknowledged (the default-on host never does).
     expect(screen.queryByText("Share your email and usage data with Still?")).toBeNull();
-    expect(screen.getByText(/Still shares usage data to help improve the app/)).toBeTruthy();
+    expect(screen.queryByText(/Still shares usage data/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull();
+    expect(
+      screen.getByText("Helps to improve Still. Never shares the websites you visit or website activity."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/as usual/)).toBeNull();
     const sharing = screen.getByRole("switch", { name: "Share usage data" });
     expect(sharing.getAttribute("aria-checked")).toBe("true");
-    await fireEvent.click(screen.getByRole("button", { name: "OK" }));
-    expect(page.acknowledgeNotice).toHaveBeenCalledOnce();
     await fireEvent.click(sharing);
     expect(page.setSharing).toHaveBeenCalledWith(false);
     await fireEvent.click(screen.getByRole("button", { name: "Open Still settings" }));

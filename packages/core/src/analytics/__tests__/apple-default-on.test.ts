@@ -132,14 +132,14 @@ describe("root cause: without the default-on wiring the Apple app reports nothin
   });
 });
 
-describe("V3 Apple app: on by default, with the existing notice and switch", () => {
-  it("grants in the App Group at the first launch, reports it, and shows the one-time notice", async () => {
+describe("V3 Apple app: on by default, with the switch as the one control", () => {
+  it("grants in the App Group at the first launch, reports it, and asks for no notice (2026-10-12)", async () => {
     const t = setup();
     await launch(t);
     expect(t.record()).toMatchObject({ state: "granted", version: USAGE_PERMISSION_VERSION });
     expect(t.sent()).toEqual(["installed", "setup_step", "opened", "active"]);
     expect(String((t.fetch.mock.calls[0]![1] as RequestInit).body)).toContain('"surface":"app-ios"');
-    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: true });
+    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: false });
     t.app.ui.acknowledgeNotice!();
     await Promise.resolve();
     expect(t.native.noticeSeen).toBe(true);
@@ -223,11 +223,11 @@ describe("V3 Apple app: review follow-ups", () => {
     expect(next.fetch).not.toHaveBeenCalled();
   });
 
-  it("a 2.1 upgrader who saw the 2.1 notice sees the notice again for the new disclosure", async () => {
+  it("a 2.1 upgrader who saw the 2.1 notice stays on and is asked for no notice", async () => {
     const t = setup(true);
     t.native.noticeSeen = true; // the 2.1 notice
     await launch(t);
-    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: true });
+    expect(await t.app.ui.sharing!()).toEqual({ enabled: true, noticeNeeded: false });
     t.app.ui.acknowledgeNotice!();
     await Promise.resolve();
     expect(t.store.data[NOTICE_VERSION_KEY]).toBe(USAGE_PERMISSION_VERSION);

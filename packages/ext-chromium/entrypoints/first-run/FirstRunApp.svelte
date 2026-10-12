@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { STRINGS, type UiController } from "@still/core/ui";
+  import type { UiController } from "@still/core/ui";
   import type {
     CommittedPopupBinding,
     LegacyPopupAuthority,
@@ -8,6 +8,7 @@
   import { DEFAULT_SETTINGS } from "@still/shared-types";
   import FirstRun from "@still/core/ui/v3/FirstRun.svelte";
   import Toggle from "@still/core/ui/v3/Toggle.svelte";
+  import { USAGE_SWITCH_COPY } from "@still/core/ui/v3/usage-copy";
   import SignInSheet from "@still/core/ui/components/SignInSheet.svelte";
   import {
     firstRunHostProps,
@@ -117,24 +118,12 @@
   );
 </script>
 
-<!-- The existing usage-sharing control, unchanged in meaning: the same switch, the same one-time
-     notice where sharing starts on (Chrome), and on Firefox the same data-collection permission
-     prompt behind the switch. There is no combined email-and-usage choice to ask yet, so FirstRun
-     receives no `consent` and renders this in that place instead (the D03 settings precedent). -->
+<!-- The existing usage-sharing switch, the one usage-data control on this page (owner, 12 Oct
+     2026; ADR 0004 "V3 consent"): it shows sharing on from install on Chrome and is the off path;
+     on Firefox the same data-collection permission prompt sits behind it. There is no one-time
+     notice. There is no combined email-and-usage choice to ask yet, so FirstRun receives no
+     `consent` and renders this in that place instead (the D03 settings precedent). -->
 {#snippet usageActions()}
-  {#if c.usageNoticeVisible}
-    <section class="card card-stack" aria-live="polite">
-      <p class="card-body">{STRINGS.usage.notice}</p>
-      <div class="choice-actions">
-        <button type="button" class="link" onclick={() => c.toggleUsageSharing()}
-          >{STRINGS.usage.noticeTurnOff}</button
-        >
-        <button type="button" class="secondary" onclick={() => c.dismissUsageNotice()}
-          >{STRINGS.usage.noticeOk}</button
-        >
-      </div>
-    </section>
-  {/if}
   {#if c.usageSharing !== null}
     <section class="card card-stack">
       <div class="sync-row">
@@ -143,8 +132,8 @@
             class="row-title"
             id="usage-t"
             style="font-size:calc(15px * var(--text-scale, 1));font-weight:600;"
-            >{STRINGS.usage.title}</span
-          ><span class="muted sync-row-sub" id="usage-s">{STRINGS.usage.body}</span>
+            >{USAGE_SWITCH_COPY.title}</span
+          ><span class="muted sync-row-sub" id="usage-s">{USAGE_SWITCH_COPY.body}</span>
         </div>
         <Toggle
           checked={c.usageSharing}

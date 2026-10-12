@@ -11,6 +11,8 @@
   import SignInSheet from "./components/SignInSheet.svelte";
   import Logo from "./components/Logo.svelte";
   import { STRINGS } from "./strings.js";
+  import { USAGE_ON_BY_DEFAULT_BUILD } from "../analytics/build-basis.js";
+  import { USAGE_SWITCH_COPY } from "./v3/usage-copy.js";
   import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "./config.js";
   import type { SurfaceGuidance } from "./surface-guidance.js";
   import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
@@ -552,11 +554,12 @@
     </a>
   {/if}
 
-  <!-- Usage sharing. The one-time notice appears where sharing starts on (Chrome and the Apple
-       apps) and carries its own off switch, so the compact popup needs no extra row. In the popup it
+  <!-- Usage sharing. 2.x builds: the one-time notice appears where sharing starts on (Chrome and
+       the Apple apps) and carries its own off switch, so the compact popup needs no extra row. In the popup it
        floats over the bottom edge until answered, because the browser refuses a popup taller than
        600px and the popup already uses that height. Roomier surfaces show it inline and keep a
-       permanent settings row; Firefox, where sharing starts off, uses that row to ask. -->
+       permanent settings row; Firefox, where sharing starts off, uses that row to ask. V3 builds
+       show no notice: the switch, with the V3 subtext, is the one control (ADR 0004). -->
   {#snippet usageActions()}
     {#if c.usageNoticeVisible}
       <section class="usage-notice card" aria-live="polite">
@@ -575,7 +578,11 @@
       <section class="usage card">
         <div class="usage-text">
           <span class="usage-title">{STRINGS.usage.title}</span>
-          <span class="usage-sub">{STRINGS.usage.body}</span>
+          <span class="usage-sub"
+            >{USAGE_ON_BY_DEFAULT_BUILD
+              ? USAGE_SWITCH_COPY.body
+              : STRINGS.usage.body}</span
+          >
         </div>
         <Toggle
           checked={c.usageSharing}
@@ -880,6 +887,10 @@
   {/if}
   {#if settingsHost && !settingsReady}
     <section class="sync card">
+      <!-- Shown only while the V3 settings page is loading or unavailable. It keeps its heading so
+           shipped 2.x bundles stay byte-identical (a Svelte {#if} here would change them even
+           though it folds; docs/solutions/conventions/add-paid-only-code-without-changing-shipped-
+           bundles.md); the loaded settings page draws Help without one (ISS-0029). -->
       <h2 class="sync-title">Help</h2>
       <button
         type="button"

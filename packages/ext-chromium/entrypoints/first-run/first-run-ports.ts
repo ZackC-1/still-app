@@ -2,8 +2,8 @@ import type { UiAnalytics } from "@still/core/ui";
 import type { FirstRunSiteAccess } from "@still/core/ui/v3/first-run-host";
 
 /** The existing page analytics minus event recording. The closed event schema has no first-run
- * surface, so this page records no events; the usage-sharing switch, its one-time notice and the
- * account attribution that the existing sign-in carries keep their existing meaning. */
+ * surface, so this page records no events; the usage-sharing switch and the account attribution
+ * that the existing sign-in carries keep their existing meaning. */
 export function firstRunAnalytics(page: UiAnalytics): UiAnalytics {
   return { ...page, track: () => {} };
 }
