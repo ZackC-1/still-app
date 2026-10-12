@@ -7,7 +7,7 @@ import { extrasRouteMatches, resolveExtrasRoute, type ExtrasRouteTable } from ".
 import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
-import { INSTAGRAM_REELS_LAYOUT, type LayoutRule } from "./instagram.js";
+import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, type LayoutRule } from "./instagram.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -146,8 +146,6 @@ const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
  * (/reels/<code>/) are matched first, so a first segment of "reels" never reaches this pattern.
  */
 const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
-/** Instagram's web app hosts. Its other subdomains (about., help.) are not profiles. */
-const INSTAGRAM_APP_HOST = /^(?:www\.|m\.)?instagram\.com$/;
 
 /**
  * The item a Reel viewer shows, and the profile whose modal shows it (null for the global

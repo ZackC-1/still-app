@@ -192,6 +192,14 @@ test("format-2 instagram profile: the grid closes up without holes, the tab row 
     expect(messages.y - home.y).toBe(56);
   };
   await expectClosedUp();
+  // The profile mark comes from the address, and follows in-app moves off and back onto a profile.
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-profile", "");
+  await page.evaluate(() => history.pushState(null, "", "/explore/"));
+  await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-profile");
+  await expect.poll(async () => (await tileBoxes(page)).length).toBe(12); // Instagram's own layout
+  await page.evaluate(() => history.pushState(null, "", "/someuser/"));
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-profile", "");
+  await expectClosedUp();
   const toggle = await stillSwitch(context, extensionId);
   await toggle();
   // Off: Instagram's own layout, all twelve tiles in four rows of three.

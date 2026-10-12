@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEnginePageSession, type EnginePageSession } from "../engine.js";
-import { INSTAGRAM_REELS_LAYOUT, INSTAGRAM_REELS_RULES } from "../instagram.js";
+import { INSTAGRAM_PROFILE_MARKER, INSTAGRAM_REELS_LAYOUT, INSTAGRAM_REELS_RULES, isInstagramProfilePage } from "../instagram.js";
 import { ruleSet, DEFAULT_SETTINGS_V2, access } from "./format2-fixtures.js";
 const bundle = { ...ruleSet, services: { instagram: INSTAGRAM_REELS_RULES } };
 const sessions: EnginePageSession[] = [];
@@ -36,6 +36,9 @@ const visible = (node: Element) => {
   return true;
 };
 function render(file: string) {
+  // The content script's marker hook sets the profile mark from the address; the profile fixture
+  // stands for a profile page.
+  document.documentElement.toggleAttribute(INSTAGRAM_PROFILE_MARKER.attribute, file === "instagram-profile.html");
   document.body.innerHTML = new DOMParser().parseFromString(
     readFileSync(resolve("../../tests/fixtures", file), "utf8"),
     "text/html",
@@ -50,6 +53,7 @@ beforeEach(() => {
   document.head.innerHTML = "";
   document.body.innerHTML = "";
   document.documentElement.className = "site-theme";
+  document.documentElement.removeAttribute(INSTAGRAM_PROFILE_MARKER.attribute);
 });
 afterEach(() => {
   for (const s of sessions.splice(0)) s.stop?.();
@@ -216,12 +220,52 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     for (const r of rows) expect(getComputedStyle(r).display).not.toBe("contents");
     for (const t of tiles) expect(visible(t)).toBe(true);
   });
+  it("a grid Instagram is virtualizing (non-zero inline padding) keeps its own layout; only Reel links hide", () => {
+    render("instagram-profile.html");
+    const grid = document.getElementById("profile-grid")!;
+    grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 3892px; position: relative;");
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/"), document);
+    expect(getComputedStyle(grid).flexWrap).not.toBe("wrap");
+    for (const row of grid.children) {
+      expect(getComputedStyle(row).display).not.toBe("contents");
+      for (const tile of row.children) expect(visible(tile), tile.id).toBe(true);
+    }
+    // The badge rule still hides the Reel links themselves (holes, as before this change).
+    expect(visible(document.querySelector('#grid-reel-1 a')!)).toBe(false);
+    grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 7784px; padding-top: 0px; position: relative;");
+    expect(getComputedStyle(grid).flexWrap).not.toBe("wrap");
+    // Back at the top with nothing unmounted: the wrap layout returns.
+    grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;");
+    expect(getComputedStyle(grid).flexWrap).toBe("wrap");
+    expect(visible(document.getElementById("grid-reel-1")!)).toBe(false);
+  });
+  it("the tab rule never hides a wrapper that also holds another tab", () => {
+    render("instagram-profile.html");
+    const tabs = document.getElementById("profile-tabs")!;
+    tabs.innerHTML = '<div id="all-tabs"><a href="/someuser/">Posts</a><a href="/someuser/reels/" id="lone-reels">Reels</a></div>';
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/"), document);
+    expect(visible(document.getElementById("all-tabs")!)).toBe(true);
+    expect(visible(document.getElementById("lone-reels")!)).toBe(false);
+  });
+  it("the profile mark follows the address: a profile's pages and its post dialogs, web app hosts only", () => {
+    const at = (href: string) => isInstagramProfilePage(new URL(href));
+    for (const href of ["https://www.instagram.com/someuser/", "https://instagram.com/some.user_9", "https://m.instagram.com/someuser/tagged/",
+      "https://www.instagram.com/me/saved/all-posts/", "https://www.instagram.com/someuser/p/C0de/", "https://www.instagram.com/someuser/reel/C0de/"])
+      expect(at(href), href).toBe(true);
+    for (const href of ["https://www.instagram.com/", "https://www.instagram.com/explore/", "https://www.instagram.com/direct/inbox/",
+      "https://www.instagram.com/p/C0de/", "https://www.instagram.com/reel/C0de/", "https://www.instagram.com/someuser/p/C0de/c/1/",
+      "https://www.instagram.com/reels/", "https://www.instagram.com/stories/someuser/", "https://www.instagram.com/accounts/edit/",
+      "https://www.instagram.com/someuser/reels/", "https://about.instagram.com/features/", "https://www.instagram.com/Explore/"])
+      expect(at(href), href).toBe(false);
+  });
   it("the packaged tile hide and the compiled layout select the same tile boxes", () => {
     // The layout ships in code and the hide in rule data: if either drifts, holes come back.
     const tileBoxes = INSTAGRAM_REELS_LAYOUT[2]!.selector;
     const hides = INSTAGRAM_REELS_RULES.surfaces[0]!;
     if (hides.action !== "hide") throw new Error("Reels data only hides");
     expect(hides.selectors.filter((selector) => selector.startsWith(`${tileBoxes}:has(`))).toHaveLength(1);
+    // ...and it is the selector the profile mark exists for, so the content script sets the mark.
+    expect(hides.selectors).toContain(INSTAGRAM_PROFILE_MARKER.ruleSelector);
   });
   it("a post dialog over the profile is never the grid: its comment and Reel links keep their layout", () => {
     render("instagram-profile.html");
@@ -243,9 +287,9 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       expect(visible(node), id).toBe(true);
     }
   });
-  it("profile rules stay off Home, Explore and post pages, which have no profile tab row", () => {
+  it("profile rules stay off pages without the profile mark (Home, Explore, posts, search)", () => {
     render("instagram-profile.html");
-    document.getElementById("profile-tabs")!.remove();
+    document.documentElement.removeAttribute(INSTAGRAM_PROFILE_MARKER.attribute);
     session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/explore/"), document);
     const grid = document.getElementById("profile-grid")!;
     expect(getComputedStyle(grid).flexWrap).not.toBe("wrap");

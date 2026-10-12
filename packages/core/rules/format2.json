@@ -99,9 +99,9 @@
             "article:has(> a[href^=\"/reel/\"])",
             "article:has(a[href^=\"/reels/\"]:not([href^=\"/reels/audio/\"]) video)",
             "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)",
-            "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"])",
+            "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
-            "body:has([role=\"tablist\"] :is(a[href$=\"/tagged/\"], a[href$=\"/reels/\"]:not([href=\"/reels/\"]))) div:not([role=\"dialog\"] *):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])"
+            "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])"
           ]
         },
         {
@@ -251,6 +251,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "aeb8ad715a60f235fe37f57426354da1cea4925bc41f80a48da394caf629ca36e75f1f0f3debdbe4374d511ec43276cea90c9a257582a68f04513c61aa64460e"
+    "value": "7c542975010422b2504daf3ee73618ad539a28868a225dc243685998e20aae3443298688fb733691e808459e7491a6f0b10dbe9ecab1a63a0b55ac3901f3510e"
   }
 }
