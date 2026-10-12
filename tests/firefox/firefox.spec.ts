@@ -55,6 +55,8 @@ test.beforeAll(async () => {
       return "<!doctype html><title>watch</title>watch";
     const host = url.hostname;
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
+    // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
+    if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
     if (host.endsWith("instagram.com")) return fixture("instagram.html");
     if (host.endsWith("facebook.com")) return fixture("facebook.html");
     if (host.endsWith("tiktok.com")) return fixture("tiktok.html");
@@ -146,6 +148,24 @@ test("instagram: a Reel post and the Reels link follow the paid-tier switch, an 
     await waitHiddenPresent(tab, "#reels-link");
   }
   expect(await tab.isVisible("#keep-post")).toBe(true);
+  await tab.close();
+});
+
+test("instagram current desktop markup: the Reels menu item, the profile Reels tab and grid Reels go without holes", async () => {
+  const tab = await firefox.openTab("https://www.instagram.com/profileuser/");
+  await waitWorking(tab, "instagram");
+  for (const id of ["#menu-reels", "#profile-reels-tab-slot", "#grid-reel-1", "#grid-reel-4", "#grid-reel-6"])
+    await waitHiddenPresent(tab, id);
+  for (const id of ["#keep-menu-home", "#keep-menu-messages", "#keep-tab-posts", "#keep-tab-tagged", "#keep-tile-1", "#keep-tile-6"])
+    expect(await tab.isVisible(id), id).toBe(true);
+  // Six posts, three to a line, all the same size: no hole and no stretched tile.
+  const boxes = await tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#profile-grid > div > div")]
+    .map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
+    .map((box) => [Math.round(box.x), Math.round(box.y), Math.round(box.width)])`);
+  expect(boxes).toHaveLength(6);
+  expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
+  expect(new Set(boxes.map((box) => box[0])).size).toBe(3);
+  expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
   await tab.close();
 });
 

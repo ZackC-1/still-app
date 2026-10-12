@@ -7,6 +7,7 @@ import { extrasRouteMatches, resolveExtrasRoute, type ExtrasRouteTable } from ".
 import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
+import { INSTAGRAM_REELS_LAYOUT, type LayoutRule } from "./instagram.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -511,6 +512,15 @@ const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
   facebook: FACEBOOK_EXTRAS.routes,
 });
 
+/**
+ * Layout repairs a free hide needs, per service and feature (never rule data): declarations other
+ * than display:none can only come from packaged code. Emitted after that feature's hides, under
+ * the same owned feature class, so they apply exactly while the feature hides.
+ */
+const PACKAGED_LAYOUT: Readonly<Partial<Record<ServiceId, Readonly<Partial<Record<BenefitId, readonly LayoutRule[]>>>>>> = Object.freeze({
+  instagram: Object.freeze({ "instagram.reels": INSTAGRAM_REELS_LAYOUT }),
+});
+
 /** Still Pro features a packaged content handler implements, per service (never rule data). */
 const PACKAGED_EXTRAS_HANDLERS: Readonly<Partial<Record<ServiceId, readonly BenefitId[]>>> = Object.freeze({
   youtube: YOUTUBE_EXTRAS.handlers ?? [],
@@ -577,7 +587,12 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       compiledSelectors += values.length;
       // :is() keeps EVERY comma-list branch below the same owned feature gate. One rule per
       // selector lets a browser reject unsupported syntax without discarding its neighbours.
-      rules.set(benefit, values.map(selector => `.${featureClass(benefit)} :is(${selector}){display:none!important}`));
+      // Packaged layout repairs a hide needs (compiled code, never rule data) follow its hides.
+      const layout = PACKAGED_LAYOUT[id as ServiceId]?.[benefit] ?? [];
+      rules.set(benefit, [
+        ...values.map(selector => `.${featureClass(benefit)} :is(${selector}){display:none!important}`),
+        ...layout.map(rule => `.${featureClass(benefit)} :is(${rule.selector}){${rule.declarations}}`),
+      ]);
     }
     css.set(id as ServiceId, rules);
     const routeOnly = (extrasRoutes[id as ServiceId] ?? []).map(route => route.feature).filter(feature => !plan.has(feature));

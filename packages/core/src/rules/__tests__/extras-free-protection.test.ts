@@ -27,7 +27,7 @@ const EXTRAS: Record<"youtube" | "instagram" | "facebook", ServiceExtras> = {
 };
 const PIN_SHA256: Record<string, string> = {
   "youtube-shorts-discovery": "febe2fb0e8b15f05e5057b6926bab9d29f7d8d7aa922768e10a55eef29fb687c",
-  "instagram-reels-discovery": "ba60b3ff28c65a72e21433a15b8aa5fabb603894e33bb4472a8a7443489f3849",
+  "instagram-reels-discovery": "810f4bdb84a0f971031ec530f75b1f3c638692486d4cdcfa0b54b57d4ba90aa4",
   "facebook-reels-discovery": "8959e052c543da19c176122440f212fd53a0ccdefb5e606949ec7ddb3f8b3866",
 };
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");

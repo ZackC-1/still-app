@@ -41,10 +41,13 @@
       "service": "instagram",
       "feature": "instagram.reels",
       "selectors": [
-        "nav a[href=\"/reels/\"]",
+        "a[href=\"/reels/\"]",
         "article:has(> a[href^=\"/reel/\"])",
         "article:has(a[href^=\"/reels/\"]:not([href^=\"/reels/audio/\"]) video)",
-        "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)"
+        "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)",
+        "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"])",
+        "[role=\"tablist\"] a[href$=\"/reels/\"]",
+        "body:has([role=\"tablist\"] :is(a[href$=\"/tagged/\"], a[href$=\"/reels/\"]:not([href=\"/reels/\"]))) div:not([role=\"dialog\"] *):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])"
       ]
     },
     "facebook-reels-discovery": {
