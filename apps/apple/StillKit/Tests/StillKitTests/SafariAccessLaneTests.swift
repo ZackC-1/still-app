@@ -154,6 +154,136 @@ final class SafariAccessLaneTests: XCTestCase {
     XCTAssertEqual(proRows(try states(store, at: f.now + paidAccessWindowMilliseconds + 1)), ["verification_required"])
   }
 
+  // MARK: ISS-0030 — the app's real published account status, end to end
+  //
+  // The app publishes a JSON null account status on sign-out and on every launch without an
+  // account; earlier tests injected `.signedOut` and so never saw that Safari read the stored null
+  // as "unreadable" and kept every Still Pro row at "verification required".
+
+  /// The app and the Safari extension share one entitlement store and one account-status store,
+  /// as they share the App Group. Safari reads the status the app really stored.
+  struct Lane {
+    let store: SharedEntitlementStore
+    let status: AccountSyncStatusStore
+  }
+  func lane() -> Lane {
+    Lane(store: SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust),
+         status: AccountSyncStatusStore(backing: InMemoryBacking()))
+  }
+  func safari(_ lane: Lane, at wall: Int? = nil, platform: SafariAccessPlatform = .mac) throws -> [String: String] {
+    let at = wall ?? f.now + 1
+    let reply = EntitlementBridge.safariExtension(store: lane.store, paidMode: true, platform: platform, now: { at },
+      displayedAccount: { lane.status.displayedAccount() }).handle(.getBenefitAccess)
+    let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any], reply)
+    XCTAssertEqual(body["ok"] as? Bool, true, reply)
+    return try XCTUnwrap((body["snapshot"] as? [String: Any])?["states"] as? [String: String])
+  }
+  /// The app's `getBenefitAccess` route: its fresh StoreKit answer, recorded for Safari.
+  func appObserves(_ lane: Lane, _ ownership: NativeAppleOwnershipObservation, at wall: Int? = nil) throws {
+    _ = try lane.store.observeAppleBenefits(wall: wall ?? f.now, ownership: ownership, paidMode: true, platform: .mac)
+  }
+  /// The app's launch without an account (`resumeAccount` → `setAccountSyncStatus(null)`).
+  func appPublishesSignedOut(_ lane: Lane) { XCTAssertTrue(lane.status.save(rawStatus: NSNull())) }
+  func accountStatus() -> [String: Any] {
+    ["accountId": f.account, "email": NSNull(), "lastSyncedAt": NSNull(), "pendingUpload": false,
+     "cloudReachable": true, "updatedAt": 1]
+  }
+  func assertEveryProRow(_ states: [String: String], _ expected: String, platform: SafariAccessPlatform,
+                         file: StaticString = #filePath, line: UInt = #line) {
+    let rows = NativeAppleAccessCapabilities.pro(for: platform)
+    XCTAssertEqual(rows.count, platform == .mac ? 12 : 9, file: file, line: line)
+    for row in rows { XCTAssertEqual(states[row], expected, row, file: file, line: line) }
+    if platform == .mobile {
+      for row in NativeAppleAccessCapabilities.safariDesktopLayoutPro { XCTAssertEqual(states[row], "unsupported", row, file: file, line: line) }
+    }
+  }
+
+  func testSignedOutAndStoreKitNoneIsLockedOnMacAndIPhone() throws {
+    let l = lane()
+    appPublishesSignedOut(l)
+    try appObserves(l, .noPurchases)
+    assertEveryProRow(try safari(l), "locked", platform: .mac)
+    assertEveryProRow(try safari(l, platform: .mobile), "locked", platform: .mobile)
+    for feature in PackagedFeatureRegistry.features where feature.tier == "free" {
+      XCTAssertEqual(try safari(l)[feature.id], "free", feature.id)
+    }
+  }
+  func testNeverSignedInWithNothingStoredIsAlsoLocked() throws {
+    let l = lane()
+    try appObserves(l, .noPurchases)
+    assertEveryProRow(try safari(l), "locked", platform: .mac)
+  }
+  func testNoAppAnswerYetStaysVerificationRequired() throws {
+    let l = lane()
+    appPublishesSignedOut(l)
+    assertEveryProRow(try safari(l), "verification_required", platform: .mac)
+    assertEveryProRow(try safari(l, platform: .mobile), "verification_required", platform: .mobile)
+  }
+  func testStoreKitUnavailableOrFailedStaysVerificationRequired() throws {
+    let l = lane()
+    appPublishesSignedOut(l)
+    try appObserves(l, .unknown)
+    assertEveryProRow(try safari(l), "verification_required", platform: .mac)
+  }
+  func testAStaleAppAnswerStaysVerificationRequired() throws {
+    let l = lane()
+    appPublishesSignedOut(l)
+    try appObserves(l, .noPurchases)
+    assertEveryProRow(try safari(l, at: f.now + ownershipAbsenceWindowMilliseconds - 1), "locked", platform: .mac)
+    assertEveryProRow(try safari(l, at: f.now + ownershipAbsenceWindowMilliseconds), "verification_required", platform: .mac)
+  }
+  func testSignedInWithAnUnreachableServerStaysVerificationRequired() throws {
+    let l = lane()
+    try appObserves(l, .noPurchases)
+    // The router's setAccountSyncStatus: publish the account, then bind its verified session.
+    XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
+    let session = try f.verifiedSession()
+    let generation = try l.store.prepareAccountAccess(session, expectedGeneration: try l.store.observeAccess(wall: f.now).0.generation)
+    assertEveryProRow(try safari(l), "verification_required", platform: .mac)
+    _ = try l.store.installAccountAccess(snapshot([], status: "unavailable"), session: session, expectedGeneration: generation, wall: f.now)
+    assertEveryProRow(try safari(l), "verification_required", platform: .mac)
+    // The server's own "none" for this session is conclusive.
+    _ = try l.store.installAccountAccess(snapshot([], status: "none"), session: session, expectedGeneration: generation, wall: f.now)
+    assertEveryProRow(try safari(l), "locked", platform: .mac)
+  }
+  func testSigningOutOfTheAppLocksWithTheAppleAnswer() throws {
+    let l = lane()
+    try appObserves(l, .noPurchases)
+    XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
+    let session = try f.verifiedSession()
+    _ = try l.store.prepareAccountAccess(session, expectedGeneration: try l.store.observeAccess(wall: f.now).0.generation)
+    assertEveryProRow(try safari(l), "verification_required", platform: .mac)
+    // The router's signOut: clear the bound account, then the displayed status (a JSON null).
+    try EntitlementBridge(store: l.store, now: { self.f.now }).clearAccessAccount()
+    l.status.clear()
+    assertEveryProRow(try safari(l), "locked", platform: .mac)
+    assertEveryProRow(try safari(l, platform: .mobile), "locked", platform: .mobile)
+  }
+  func testAnApplePurchaseStillUnlocksSignedOut() throws {
+    let l = lane()
+    appPublishesSignedOut(l)
+    try appObserves(l, .noPurchases)
+    assertEveryProRow(try safari(l), "locked", platform: .mac)
+    _ = try l.store.installAppleAccess(f.request(), nativePurchase: f.native(), wall: f.now)
+    try appObserves(l, .purchaseHistory, at: f.now + 1)
+    assertEveryProRow(try safari(l, at: f.now + 2), "purchased", platform: .mac)
+    assertEveryProRow(try safari(l, at: f.now + 2, platform: .mobile), "purchased", platform: .mobile)
+  }
+  func testASignedInWebPurchaseStillUnlocks() throws {
+    let l = lane()
+    try appObserves(l, .noPurchases)
+    XCTAssertTrue(l.status.save(rawStatus: accountStatus()))
+    let session = try f.verifiedSession()
+    let generation = try l.store.prepareAccountAccess(session, expectedGeneration: try l.store.observeAccess(wall: f.now).0.generation)
+    _ = try l.store.installAccountAccess(snapshot([f.envelope(f.claims(holder: f.account).canonical())]),
+      session: session, expectedGeneration: generation, wall: f.now)
+    assertEveryProRow(try safari(l), "purchased", platform: .mac)
+    // Signing out removes the account's right; the Apple answer then shows Locked again.
+    try EntitlementBridge(store: l.store, now: { self.f.now }).clearAccessAccount()
+    l.status.clear()
+    assertEveryProRow(try safari(l, at: f.now + 2), "locked", platform: .mac)
+  }
+
   // MARK: Durable record grammar
 
   func testEvidenceIsOptionalAndMalformedEvidenceIsOnlyUnknown() throws {
