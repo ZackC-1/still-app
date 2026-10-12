@@ -131,15 +131,23 @@ export interface EnginePageSession {
    * Format-2 only, after evaluate(settings, to): the same-origin home when moving from one Reel
    * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
    * continuing into the next Reel), else null. Moving between Reels inside one Instagram
-   * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is profile browsing and allowed.
-   * Callers apply it only to page-driven moves, never to a deliberate link activation or
-   * Back/forward.
+   * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is stopped too, to that profile
+   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Callers apply it only to
+   * page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL): string | null;
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
 const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
+
+/**
+ * Instagram's profile Reels tab: /<user>/reels/. The bare feed (/reels/) and the plural viewer
+ * (/reels/<code>/) are matched first, so a first segment of "reels" never reaches this pattern.
+ */
+const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
+/** Instagram's web app hosts. Its other subdomains (about., help.) are not profiles. */
+const INSTAGRAM_APP_HOST = /^(?:www\.|m\.)?instagram\.com$/;
 
 /**
  * The item a Reel viewer shows, and the profile whose modal shows it (null for the global
@@ -672,7 +680,7 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
     } else if (((service === "instagram" || service === "facebook") && /^\/reels\/?$/.test(url.pathname))
       || (service === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
       // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
-      // Watch. Direct/shared singular /reel/<id>, a Page's or profile's own Reels tab,
+      // Watch. Direct/shared singular /reel/<id>, a Facebook Page's or profile's own Reels tab,
       // normal/live videos, people/groups/search/messages and their query-bearing routes stay
       // usable.
       destination = new URL("/", url.origin);
@@ -682,6 +690,10 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       // then stops it advancing into another Reel.
       destination = new URL(url.href);
       destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
+    } else if (service === "instagram" && INSTAGRAM_APP_HOST.test(url.hostname) && INSTAGRAM_PROFILE_REELS_TAB.test(url.pathname)) {
+      // A profile's own Reels tab lists every Reel it has, one tap each: browsing, not a shared
+      // Reel (ISS-0034). It opens that profile's posts instead.
+      destination = new URL(`/${INSTAGRAM_PROFILE_REELS_TAB.exec(url.pathname)![1]}/`, url.origin);
     }
     return destination;
   }
@@ -719,8 +731,9 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       const current = reelViewerItem(serviceId, from);
       const next = reelViewerItem(serviceId, to);
       if (!current || !next || current.id === next.id) return null;
-      // One profile's own Reels modal: profile browsing, not the global viewer advancing.
-      if (current.owner !== null && current.owner === next.owner) return null;
+      // One profile's own modal moving on into another of its Reels returns to that profile's
+      // posts rather than Home, so someone browsing a creator stays on the creator.
+      if (current.owner !== null && current.owner === next.owner) return new URL(`/${next.owner}/`, to.origin).href;
       return new URL("/", to.origin).href;
     },
     activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId

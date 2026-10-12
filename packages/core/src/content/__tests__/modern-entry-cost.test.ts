@@ -64,6 +64,7 @@ const CANDIDATES = [
   "https://www.youtube.com/shorts/abc123",
   "https://www.instagram.com/reels/",
   "https://www.instagram.com/reels/C0de12/",
+  "https://www.instagram.com/someone/reels/",
   "https://www.facebook.com/watch/reels/",
 ];
 
@@ -82,7 +83,7 @@ describe("mayBeCoreRoute never rules out a route the engine sends elsewhere", ()
   const hosts = ["www.youtube.com", "m.youtube.com", "youtube.com", "www.instagram.com", "www.facebook.com", "m.facebook.com", "www.tiktok.com"];
   const paths = [
     "/", "/shorts", "/shorts/", "/shorts/abc123", "/shorts/abc123/", "/shorts/abc123?t=4", "/shorts/a/b",
-    "/reels", "/reels/", "/reels/C0de12", "/reels/C0de12/", "/reels/audio/1/", "/reel/C0de12/", "/someone/reels/",
+    "/reels", "/reels/", "/reels/C0de12", "/reels/C0de12/", "/reels/audio/1/", "/reel/C0de12/", "/someone/reels/", "/some.one/reels", "/someone/reels/x/",
     "/watch", "/watch/", "/watch/reels", "/watch/reels/", "/watch?v=abc", "/watch/live/", "/explore/", "/stories/x/1/",
     "/popular/cats/", "/results?search_query=shorts", "/@channel/shorts", "/REELS/", "//reels/",
   ];

@@ -203,12 +203,14 @@ test("format-2 instagram profile: the grid closes up without holes, the tab row 
   await expectClosedUp();
 });
 
-test("format-2 instagram routes: the Reels feed goes home; profiles and shared Reels stay usable", async ({ context }) => {
+test("format-2 instagram routes: the Reels feed goes home, a profile's Reels tab opens the profile; profiles and shared Reels stay usable", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram-mobile.html"));
   await page.goto("https://www.instagram.com/reels/");
   await expect(page).toHaveURL("https://www.instagram.com/");
-  for (const path of ["/someuser/reels/", "/someuser/reel/ABC123/", "/someuser/"]) {
+  await page.goto("https://www.instagram.com/someuser/reels/").catch(() => {}); // replaced while loading
+  await expect(page).toHaveURL("https://www.instagram.com/someuser/");
+  for (const path of ["/someuser/reel/ABC123/", "/someuser/", "/someuser/tagged/"]) {
     await page.goto(`https://www.instagram.com${path}`);
     await expect(page).toHaveURL(`https://www.instagram.com${path}`);
     await expect(page.locator("#still-placeholder")).toHaveCount(0);
@@ -507,15 +509,13 @@ test("format-2 instagram: a link click to one Reel does not cover the page pushi
   await expect(page).toHaveURL("https://www.instagram.com/");
 });
 
-test("format-2 instagram: moving between Reels inside one profile's modal is allowed", async ({ context }) => {
+test("format-2 instagram: one Reel opened from a profile plays, but its modal moving on to the next Reel returns to the profile", async ({ context }) => {
   const page = await context.newPage();
   await serveViewer(page, "**://*.instagram.com/**", "/some.user/reel/B2/");
   await page.goto("https://www.instagram.com/some.user/reel/A1/");
   await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+  await expect(page).toHaveURL("https://www.instagram.com/some.user/reel/A1/"); // the one Reel stays
+  await expect(page.locator("#keep-viewer")).toBeVisible();
   await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/some.user/reel/B2/"));
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL("https://www.instagram.com/some.user/reel/B2/");
-  // ...but the global viewer advancing on its own is still stopped.
-  await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/reel/C3/"));
-  await expect(page).toHaveURL("https://www.instagram.com/");
+  await expect(page).toHaveURL("https://www.instagram.com/some.user/");
 });

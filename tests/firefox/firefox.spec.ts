@@ -126,6 +126,7 @@ test("youtube: a Shorts address ends up on the watch page", async () => {
 for (const [from, to] of [
   ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
   ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
+  ["https://www.instagram.com/profileuser/reels/", "https://www.instagram.com/profileuser/"],
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
 ] as const) {
   test(`a Reels address ${from} ends up on ${to}`, async () => {
