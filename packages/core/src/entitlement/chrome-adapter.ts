@@ -275,7 +275,10 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     const supplied = this.options.context ? await this.options.context() : packagedAccessContext();
     // The status may have been read just before the expiry millisecond. Explicit absence
     // without its captured deadline is already expired, never another sixty-second window.
-    captureDeadline(supplied.evidenceStatus === "absent" && supplied.evidenceDeadline === null ? -Infinity
+    // Signed-out absence (session null) is not a reconciliation and has no such clock: the auth
+    // boundary that ends it invalidates this context, and the snapshot still refreshes normally.
+    const signedOutAbsence = supplied.evidenceStatus === "absent" && supplied.session === null;
+    captureDeadline(signedOutAbsence ? Infinity : supplied.evidenceStatus === "absent" && supplied.evidenceDeadline === null ? -Infinity
       : (supplied.evidenceDeadline !== undefined ? supplied.evidenceDeadline : this.options.evidenceDeadline?.()) ?? Infinity);
     const context: TrustedAccessContext = { ...supplied, session: supplied.session && { ...supplied.session },
       supported: new Set(supplied.supported), localRights: new Set(supplied.localRights) };
