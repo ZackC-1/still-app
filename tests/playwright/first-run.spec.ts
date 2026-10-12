@@ -1,6 +1,6 @@
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,11 +41,38 @@ test("a new install opens the first-run page once, without a combined consent qu
   await expect(page).toHaveTitle("Welcome to Still");
   // Chrome grants the four declared hosts at install and the background saves the defaults.
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
-  await expect(page.getByText("Allowed on YouTube, Instagram, Facebook and TikTok.")).toBeVisible();
+  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok.")).toBeVisible();
   await expect(page.getByText("Pin Still to your toolbar")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Still settings" })).toBeEnabled();
   await expect(page.getByText("Share your email and usage data with Still?")).toHaveCount(0);
   expect(firstRunPages(context)).toHaveLength(1);
+});
+
+// ISS-0029 item 3 (ADR 0004 "One usage-data control"): the V3 welcome page has one usage-data
+// control, the "Share usage data" switch, and no one-time "Still shares usage data… Turn off / OK"
+// notice. The CI lanes have no PostHog key, so the switch itself stays hidden here (no readable
+// sharing state); the page must still draw no notice, and the built page must carry the owner's
+// subtext and not the first wording.
+const USAGE_SUBTEXT = "Helps to improve Still. Never shares the websites, pages or videos you visit.";
+
+test("the V3 welcome page shows no usage notice, and its switch carries the owner's subtext", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
+  const page = await firstRunPage(context);
+  await page.waitForLoadState("domcontentloaded");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+  await expect(page.getByText(/Still shares usage data/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Turn off" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "OK" })).toHaveCount(0);
+  await expect(page.getByText(/as usual/)).toHaveCount(0);
+  // The copy sits in whichever shared chunk the bundler chose, so read every chunk of each build.
+  for (const dir of ["chrome-mv3", "firefox-mv3"]) {
+    const chunks = resolve(CHROMIUM_EXTENSION, "..", dir, "chunks");
+    const sources = readdirSync(chunks)
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => readFileSync(join(chunks, name), "utf8"));
+    expect(sources.some((source) => source.includes(USAGE_SUBTEXT)), `${dir} carries the subtext`).toBe(true);
+    expect(sources.some((source) => source.includes("website activity")), `${dir} first wording`).toBe(false);
+  }
 });
 
 // A real update. A command-line (--load-extension) extension is reported to onInstalled as

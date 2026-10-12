@@ -1,11 +1,9 @@
 <script lang="ts">
   import type { NativeProOfferCardProps } from "./apple-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
-  import { proPhoneNote } from "./pro-phone-note.js";
   let {
     ownership,
     channel,
-    phone = false,
     offer,
     accessHeld = false,
     accessChecking = false,
@@ -42,6 +40,9 @@
 </script>
 
 <section class="card card-stack" aria-label="Still Pro">
+  <!-- The app card is heading, "One-time purchase. Lifetime access.", Get Still Pro and Restore
+    purchase (owner, 12 Oct 2026, ISS-0029 item 11): no device line or refund note. No Still Pro
+    surface states a number of extras (owner rule, 12 Oct 2026). -->
   <!-- Mirrors ProOfferCard: verify and failed ownership or a failed purchase show their own
     state, never the spinner. A residual held access counts as checking unless verify is held. -->
   {#if verificationRequired}
@@ -50,12 +51,6 @@
       <span class="glyph"><Glyph name="clock" size={16} /></span>
       <div class="status-body">
         <span>Your purchase needs to be verified.</span>
-        <span
-          class="muted"
-          style="font-size:calc(12.5px * var(--text-scale, 1));"
-        >
-          Go online and verify it. Your free controls and saved choices stay.
-        </span>
       </div>
     </div>
   {:else if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
@@ -78,7 +73,6 @@
       >
         {offer.priceNote}
       </p>{/if}
-    {#if ownership === "none"}<p class="caption">{proPhoneNote(phone)}</p>{/if}
     {#if ready}
       <button
         type="button"
@@ -94,11 +88,7 @@
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">
-          <span>Still Pro needs to be verified again.</span><span
-            class="muted"
-            style="font-size:calc(12.5px * var(--text-scale, 1));"
-            >Go online and sign in. Free controls and your saved choices stay.</span
-          >
+          <span>Still Pro needs to be verified again.</span>
         </div>
       </div>
     {:else if ownership === "failed"}
@@ -149,9 +139,6 @@
         </div>
       </div>
     {/if}
-    {#if ready && offer?.refundNote}<p class="caption">
-        {offer.refundNote}
-      </p>{/if}
   {/if}
   <button
     type="button"

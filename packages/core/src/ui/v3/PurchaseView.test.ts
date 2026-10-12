@@ -41,7 +41,7 @@ function apple(overrides: Partial<AppleProps> = {}): AppleProps {
 }
 const buy = () => screen.queryByRole("button", { name: "Get Still Pro" });
 describe("controlled D18 purchase view", () => {
-  it("preserves the caller's capability-filtered grouping, order and empty inventory across rerenders", async () => {
+  it("preserves the caller's capability-filtered grouping and empty inventory, listing sites Instagram first", async () => {
     const input = browser({
       controls: [
         { site: "YouTube", label: "Localized comments" },
@@ -53,9 +53,11 @@ describe("controlled D18 purchase view", () => {
     expect(
       screen.getAllByRole("listitem").map((item) => item.textContent),
     ).toEqual([
+      // Site order on every surface (owner, 12 Oct): Instagram, Facebook, YouTube, TikTok. Each
+      // site keeps the caller's control order.
+      "Localized stories",
       "Localized comments",
       "Localized live chat",
-      "Localized stories",
     ]);
     expect(screen.getByText("YouTube Blocking Options")).toBeTruthy();
     expect(screen.queryByText("Facebook Blocking Options")).toBeNull();

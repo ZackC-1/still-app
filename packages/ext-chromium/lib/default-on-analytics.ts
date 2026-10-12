@@ -14,9 +14,9 @@ import type { BackgroundAnalyticsDeps } from "./analytics.js";
 // Product analytics for V3 Chrome and Firefox builds: usage sharing on by default with a per-device
 // off switch (ADR 0004, reaffirmed by the owner for V3 on 2026-10-10).
 //
-//   * Chrome: on from install. The one-time notice ("Still shares usage data...", Turn off / OK)
-//     and the "Share usage data" switch on the first-run and settings pages are the off path, and
-//     the switch turns it back on.
+//   * Chrome: on from install. The "Share usage data" switch on the first-run and settings pages is
+//     the one control (no one-time notice since 2026-10-12, ADR 0004): the off path, and the way
+//     back on.
 //   * Signed in: the device reports under its own identity, which the server issues and gives the
 //     account's email (issueSubject; off until the server's ANALYTICS_SUBJECTS_ENABLED switch).
 //   * Firefox: follows the optional `technicalAndInteraction` data-collection permission, which
@@ -75,8 +75,8 @@ export function createDefaultOnBackgroundAnalytics(
     config: deps.config,
     envelope: deps.envelope,
     appVersion: deps.appVersion,
-    // The notice flag follows the disclosure version, so an earlier acknowledgement (2.1's
-    // included) shows the notice again; everything else is this extension's local storage.
+    // The notice flag follows the disclosure version (kept readable; no notice is asked for since
+    // 2026-10-12); everything else is this extension's local storage.
     local: versionedNotice(deps.local),
     queueStore: deps.queue ?? undefined,
     identity: () =>
@@ -91,7 +91,9 @@ export function createDefaultOnBackgroundAnalytics(
     consent: () => platformKnown.then(usage.consent),
     privacyPolicy: DEFAULT_ON_USAGE_POLICY,
     commitPermission: usage.commit,
-    noticeApplies: !deps.isFirefox,
+    // No one-time notice on any V3 surface (owner, 2026-10-12; ADR 0004 "One usage-data
+    // control"): the "Share usage data" switch is the one control. Firefox never had one.
+    noticeApplies: false,
     isTrustedPage: (sender) => isExtensionPageSender(sender, runtimeId, extensionOrigin),
     identifyOnServer: deps.identifyOnServer,
     // Signed-in devices report under their own server-issued identity (owner decision 50); the

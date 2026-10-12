@@ -2,12 +2,10 @@
   import type { ProOfferCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   import StaticProControlList from "./StaticProControlList.svelte";
-  import { proPhoneNote } from "./pro-phone-note.js";
   import { PAID_TIER_ENABLED } from "@still/shared-types";
   let {
     ownership,
     controls = [],
-    phone = false,
     channel,
     offer,
     confirmedAccount,
@@ -77,7 +75,6 @@
           : offer.priceNote}
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
-    {#if ownership === "none"}<p class="caption">{proPhoneNote(phone)}</p>{/if}
     {#if canBuy}
       <button
         type="button"
@@ -93,11 +90,7 @@
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">
-          <span>Still Pro needs to be verified again.</span><span
-            class="muted"
-            style="font-size:calc(12.5px * var(--text-scale, 1));"
-            >Go online and sign in. Free controls and your saved choices stay.</span
-          >
+          <span>Still Pro needs to be verified again.</span>
         </div>
       </div>
     {:else if ownership === "failed"}

@@ -31,8 +31,11 @@ import type { StillBridgeWindow } from "../storage/wkwebview-adapter.js";
 //     switch: the record is granted while it is granted (at install, from Still's settings or from
 //     the add-on manager) and stopped as soon as it is not. Still's own off is kept even if Firefox
 //     refuses to withdraw the permission (a durable "stopped by Still" mark).
-//   * The one-time notice is versioned by the disclosure: someone who acknowledged an earlier one
-//     (the 2.1 notice included) sees it again when the disclosure changes, still on by default.
+//   * No one-time notice since 2026-10-12 (owner, ADR 0004 "One usage-data control"): the always-
+//     visible switch is the one control. The default-on hosts answer `noticeNeeded: false` (the
+//     extension host with `noticeApplies: false`, the Apple app in its `sharing()` below), so no
+//     screen shows one. The versioned acknowledgement below stays readable but is no longer asked
+//     for. Changing the switch's wording does not change USAGE_DISCLOSURE: the permission is the same.
 //   * Signed-in devices report under their own server-issued identity (owner decision 50), which
 //     the server also gives the account's email; see `supabaseSubjectIssuer`.
 //
@@ -177,7 +180,7 @@ export function createDefaultOnUsage(options: DefaultOnUsageOptions): DefaultOnU
   };
 }
 
-// ── The one-time notice, versioned by the disclosure ──────────────────────────────────────────
+// ── The one-time notice, versioned by the disclosure (not shown since 2026-10-12) ─────────────
 
 /** The disclosure version whose notice this device acknowledged. Local, never sent. */
 export const NOTICE_VERSION_KEY = "still:analytics:notice-version";
@@ -316,7 +319,8 @@ export function defaultOnAppleAnalytics(
  *     switch on) rather than shown as off while the Safari extension keeps reporting.
  *   * Turning sharing on starts a new client, which sends nothing until it is told who is signed
  *     in; the latest account answer is given again to the new one.
- *   * The notice is versioned by the disclosure (NOTICE_VERSION_KEY in the web view's storage).
+ *   * No one-time notice (2026-10-12): `sharing()` always answers `noticeNeeded: false`. An
+ *     acknowledgement still writes NOTICE_VERSION_KEY, which nothing asks for any more.
  *   * Signed-in identities: the server-issued subject is also published to the App Group, so the
  *     Safari extension on this device reports under the same one; an account deletion clears it.
  *
@@ -404,8 +408,6 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
       return null;
     }
   };
-  const noticeAcknowledged = async () =>
-    (await deps.store.get(NOTICE_VERSION_KEY).catch(() => null)) === USAGE_PERMISSION_VERSION;
   /** The latest account answer from the host: an account, nobody, or not known yet. */
   let account: string | null | undefined;
   const thenSync = async (work: Promise<void> | void): Promise<void> => {
@@ -441,9 +443,9 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
       },
       async sharing() {
         const state = await ui.sharing!.call(ui);
-        if (state) return state.enabled && !state.noticeNeeded && !(await noticeAcknowledged())
-          ? { enabled: true, noticeNeeded: true }
-          : state;
+        // No one-time notice in V3 (owner, 2026-10-12; ADR 0004 "One usage-data control"): the
+        // switch is the one control, whatever the acknowledgement record says.
+        if (state) return { enabled: state.enabled, noticeNeeded: false };
         if (!analyticsConfigured(deps.config)) return null;
         // Off on this device shows the switch (off); anything else unknown hides it, as before.
         return (await storedState()) === "off" ? { enabled: false, noticeNeeded: false } : null;
