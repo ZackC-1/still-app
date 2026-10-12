@@ -94,7 +94,7 @@ struct OnboardingView: View {
       brandMark
       Text("Still")
         .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("The short-form video disappears.\nEverything else stays.")
+      Text("Do what you came to do. Remove distractions like short-form video from your favorite sites.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -104,10 +104,10 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("Short-form video is gone")
+      Text("Distractions are gone.")
         .font(.still(size: 30, weight: .semibold, relativeTo: .title))
         .multilineTextAlignment(.center)
-      Text("Keep normal videos, posts, messages, and everything else you came to see.")
+      Text("Keep the best elements of Instagram, Facebook, YouTube, and TikTok. Remove what distracts you.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
