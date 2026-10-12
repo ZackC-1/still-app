@@ -96,10 +96,30 @@ records `purchaseHistory`. Safari's next native read shows the rows as purchased
 keeps a snapshot for at most 60 seconds (`refreshAfterMs`). A purchase made on another device
 under the same Apple ID reaches this Safari only after this device's app checks again.
 
+**A web buyer signing in sees Locked briefly (display only).** Someone who bought on the web and
+then signs in to the Mac or iPhone app was signed out until that moment. If the app had a fresh
+Apple "none", their Safari rows were Locked. Signing in goes in this order:
+
+1. The router's `setAccountSyncStatus` writes the account status.
+2. It clears the bound account.
+3. The app's first account check binds the session and installs the web purchase.
+
+A fresh Safari read between steps 1 and 3 says "verification required", because the displayed
+account does not match the record yet. But the Safari background can keep its signed-out
+snapshot for up to 60 seconds (`refreshAfterMs`). So the popup can keep showing Locked for up to
+60 seconds, plus the time the account check takes. After that, it shows purchased.
+
+Nothing is granted, removed or stored differently during this window. Locked and "verification
+required" never turn an extra on, and they never touch saved choices. The purchase applies on the
+first Safari read after the account check installs it. Shortening the window would mean dropping
+the snapshot whenever the account status changes. That costs extra native reads, for a brief
+display state only.
+
 ## Verification
 
 - `SafariAccessLaneTests` (including the end-to-end ISS-0030 cases over the real account-status
-  store), `AccountSyncStatusTests`, `NativeAccountAccessTests` (StillKit `swift test`),
+  store), `AccountSyncStatusTests`, `native-account-status-router.test.ts` (compiles the real
+  `setAccountSyncStatus` and `signOut` router arms with StillKit and checks Safari locks), `NativeAccountAccessTests` (StillKit `swift test`),
   `ext-safari/lib/__tests__/native-benefits.test.ts` (the native snapshot reaches the popup cache), and
   `native-account-router.test.ts`, which compiles and runs the real router arm.
 - `apple-purchase-authority.test.ts` covers the production SDK order (sign-out before rejection).
