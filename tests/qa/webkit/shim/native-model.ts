@@ -212,6 +212,11 @@ export class NativeModel {
       return { accountSyncStatus: this.state.accountSyncStatus ? json(this.state.accountSyncStatus) : null };
     if (m.kind === "getBenefitAccess")
       return { entitlement: json({ ok: true, snapshot: initialAccessSnapshot(packagedAccessContext()) }) };
+    if (m.kind === "openAppRoute") {
+      // StillAppRoute: exactly {kind, route:"pro"|"sync"}; only the Mac handler can open the app.
+      const valid = Object.keys(m).sort().join(",") === "kind,route" && (m.route === "pro" || m.route === "sync");
+      return { openAppRoute: { ok: valid && this.state.platform === "mac", route: valid ? m.route : null } };
+    }
     const settings = await this.settingsBridge(m);
     return { settings: typeof settings === "string" ? settings : "" };
   }
