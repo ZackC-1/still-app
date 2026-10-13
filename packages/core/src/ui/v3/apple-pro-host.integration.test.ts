@@ -290,7 +290,9 @@ describe("Still Pro states no number of extras on any platform answer", () => {
     await compose({ observeSetup: () => new Promise(() => {}) });
     await new Promise((resolve) => setTimeout(resolve, 2_200));
     await noCount();
-  });
+    // A real 2.2 s wait for the bounded setup read, plus mounting: the default 5 s budget left too
+    // little room on a loaded machine.
+  }, 10_000);
   it("a read that observes nothing", async () => {
     await compose({ observeSetup: async () => null });
     await noCount();

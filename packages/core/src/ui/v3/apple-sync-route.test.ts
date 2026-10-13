@@ -90,18 +90,62 @@ describe("createAppleSyncRoute waits for the launch's account resume", () => {
   it("a resume that never settles is waited for only a bounded time", async () => {
     const waits: number[] = [];
     const openSignIn = vi.fn();
+    const closeSignIn = vi.fn();
     const route = createAppleSyncRoute({
       bridge: { pendingAppRoute: async () => ({ route: "sync", revision: 1 }), acknowledgeAppRoute: async () => true },
       showSettings: () => {},
       accountSettled: () => new Promise(() => {}),
       canSignIn: () => true,
       openSignIn,
+      closeSignIn,
       reveal: () => {},
       wait: async (ms) => void waits.push(ms),
     });
     await route.route();
     expect(waits).toEqual([SYNC_ROUTE_ACCOUNT_WAIT_MS]);
     expect(openSignIn).toHaveBeenCalledOnce();
+    expect(closeSignIn).not.toHaveBeenCalled();
+  });
+
+  it("a session restored after the wait ran out closes the sheet it opened", async () => {
+    let signedOut = true;
+    let settle!: () => void;
+    const openSignIn = vi.fn();
+    const closeSignIn = vi.fn();
+    const route = createAppleSyncRoute({
+      bridge: { pendingAppRoute: async () => ({ route: "sync", revision: 2 }), acknowledgeAppRoute: async () => true },
+      showSettings: () => {},
+      accountSettled: () => new Promise<void>((resolve) => (settle = resolve)),
+      canSignIn: () => signedOut,
+      openSignIn,
+      closeSignIn,
+      reveal: () => {},
+      wait: async () => {},
+    });
+    await route.route();
+    expect(openSignIn).toHaveBeenCalledOnce();
+    signedOut = false;
+    settle();
+    await vi.waitFor(() => expect(closeSignIn).toHaveBeenCalledOnce());
+  });
+
+  it("a resume that ends still signed out leaves the sheet open", async () => {
+    let settle!: () => void;
+    const closeSignIn = vi.fn();
+    const route = createAppleSyncRoute({
+      bridge: { pendingAppRoute: async () => ({ route: "sync", revision: 2 }), acknowledgeAppRoute: async () => true },
+      showSettings: () => {},
+      accountSettled: () => new Promise<void>((resolve) => (settle = resolve)),
+      canSignIn: () => true,
+      openSignIn: () => {},
+      closeSignIn,
+      reveal: () => {},
+      wait: async () => {},
+    });
+    await route.route();
+    settle();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closeSignIn).not.toHaveBeenCalled();
   });
 
   it("a failed resume still lets the route land", async () => {
@@ -203,10 +247,11 @@ describe("createAppleAppRoutes", () => {
 });
 
 describe("revealAppleSyncCard", () => {
-  function screen(headings: string[]) {
+  function screen(cards: Array<{ text: string; sync?: boolean }>) {
     const root = document.createElement("div");
-    root.innerHTML = headings
-      .map((text) => `<section class="card"><h2> ${text} </h2></section>`)
+    root.innerHTML = cards
+      .map(({ text, sync }) =>
+        `<section class="card"${sync ? ' data-still-card="sync"' : ""}><h2> ${text} </h2></section>`)
       .join("");
     const scrolled: string[] = [];
     root.querySelectorAll<HTMLElement>("section").forEach((section) => {
@@ -216,22 +261,22 @@ describe("revealAppleSyncCard", () => {
     return { root, scrolled };
   }
 
-  it("scrolls to the Settings sync card and focuses it when no sheet is open", () => {
-    const { root, scrolled } = screen(["Still Pro", "Settings sync", "Help"]);
+  it("scrolls to the marked sync card and focuses it when no sheet is open", () => {
+    const { root, scrolled } = screen([{ text: "Still Pro" }, { text: "Settings sync", sync: true }, { text: "Help" }]);
     expect(revealAppleSyncCard(root, true)).toBe(true);
     expect(scrolled).toEqual(["Settings sync"]);
     expect(document.activeElement?.textContent?.trim()).toBe("Settings sync");
   });
 
-  it("only scrolls under the sign-in sheet, and finds the purchased heading", () => {
-    const { root, scrolled } = screen(["Still Pro and sync"]);
+  it("only scrolls under the sign-in sheet, whatever the heading says", () => {
+    const { root, scrolled } = screen([{ text: "Still Pro and sync", sync: true }]);
     expect(revealAppleSyncCard(root, false)).toBe(true);
     expect(scrolled).toEqual(["Still Pro and sync"]);
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("leaves the screen alone when no sync card is rendered", () => {
-    const { root, scrolled } = screen(["Still Pro", "Synchronise later", "Help"]);
+  it("goes by the marker, never the heading text", () => {
+    const { root, scrolled } = screen([{ text: "Still Pro" }, { text: "Settings sync" }, { text: "Help" }]);
     expect(revealAppleSyncCard(root, true)).toBe(false);
     expect(scrolled).toEqual([]);
   });
@@ -245,7 +290,7 @@ describe("revealAppleSyncCardWhenRendered", () => {
     const found = await revealAppleSyncCardWhenRendered(root, true, {
       wait: async () => {
         tries++;
-        if (tries === 3) root.innerHTML = '<section class="card"><h2>Settings sync</h2></section>';
+        if (tries === 3) root.innerHTML = '<section class="card" data-still-card="sync"><h2>Settings sync</h2></section>';
       },
     });
     expect(found).toBe(true);

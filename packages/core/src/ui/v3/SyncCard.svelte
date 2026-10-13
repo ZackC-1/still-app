@@ -31,7 +31,8 @@
   );
 </script>
 
-<section class="card card-stack">
+<!-- data-still-card: the Apple app's still://sync link scrolls to this card (apple-sync-route). -->
+<section class="card card-stack" data-still-card="sync">
   <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
   <h2 class="card-title">
     {owned ? "Still Pro and sync" : "Settings sync"}

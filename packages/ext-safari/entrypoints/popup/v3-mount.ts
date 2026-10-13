@@ -31,7 +31,7 @@ export function mountSafariV3Popup(
         composition,
         surface,
         onSettings: () => void browser.runtime.openOptionsPage(),
-        openApp: (route: SafariAppRoute) => void handoff(route),
+        openApp: (route: SafariAppRoute) => handoff(route),
       },
     });
     return () => {

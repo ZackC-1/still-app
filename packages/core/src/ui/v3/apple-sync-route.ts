@@ -25,6 +25,11 @@ export interface AppleSyncRouteDeps {
   /** Whether the sign-in sheet can open now: this build can sign in, and nobody is signed in. */
   readonly canSignIn: () => boolean;
   readonly openSignIn: () => void;
+  /**
+   * Closes the sign-in sheet. Used when the wait ran out, the sheet opened, and the saved session
+   * then turned out to be restored after all: signed in, the sheet must not linger open.
+   */
+  readonly closeSignIn?: () => void;
   /** Brings the sync card into view once Settings renders; `focus` is false under the sheet. */
   readonly reveal: (focus: boolean) => void;
   /** Injectable timer for the bounded account wait. */
@@ -46,16 +51,25 @@ export function createAppleSyncRoute(deps: AppleSyncRouteDeps): AppleSyncRoute {
     async route(pending) {
       const route = pending ?? (await deps.bridge.pendingAppRoute());
       if (stopped || !route || route.route !== "sync") return;
-      if (deps.accountSettled)
-        await Promise.race([
-          deps.accountSettled().catch(() => undefined),
-          wait(SYNC_ROUTE_ACCOUNT_WAIT_MS),
+      let accountSettled: Promise<unknown> | undefined;
+      let settledInTime = true;
+      if (deps.accountSettled) {
+        accountSettled = deps.accountSettled().catch(() => undefined);
+        settledInTime = await Promise.race([
+          accountSettled.then(() => true),
+          wait(SYNC_ROUTE_ACCOUNT_WAIT_MS).then(() => false),
         ]);
+      }
       if (stopped) return;
       deps.showSettings();
       const signingIn = deps.canSignIn();
       if (signingIn) deps.openSignIn();
       deps.reveal(!signingIn);
+      if (signingIn && !settledInTime && accountSettled)
+        void accountSettled.then(() => {
+          // The saved session came back after the sheet opened: signed in now, so close it.
+          if (!stopped && !deps.canSignIn()) deps.closeSignIn?.();
+        });
       // Acknowledge only after this screen took the represented destination.
       await deps.bridge.acknowledgeAppRoute(route.revision);
     },
@@ -109,15 +123,15 @@ export function createAppleAppRoutes(deps: AppleAppRoutesDeps): { route(): Promi
   };
 }
 
+/** The Settings sync card's marker (SyncCard.svelte). */
+export const SYNC_CARD_SELECTOR = '[data-still-card="sync"]';
+
 /**
- * Scrolls the rendered Settings sync card into view: the first card whose heading ends in "sync"
- * ("Settings sync", or "Still Pro and sync" once purchased). Returns whether one was found; a
- * missing card leaves the screen as it is.
+ * Scrolls the rendered Settings sync card (SYNC_CARD_SELECTOR) into view. Returns whether one was
+ * found; a missing card leaves the screen as it is.
  */
 export function revealAppleSyncCard(root: ParentNode, focus: boolean): boolean {
-  const card = Array.from(root.querySelectorAll<HTMLElement>("section.card")).find((section) =>
-    /\bsync$/i.test(section.querySelector("h2")?.textContent?.trim() ?? ""),
-  );
+  const card = root.querySelector<HTMLElement>(SYNC_CARD_SELECTOR);
   if (!card) return false;
   card.scrollIntoView?.({ block: "center" });
   if (focus) {

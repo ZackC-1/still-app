@@ -32,7 +32,7 @@
     safariPopupFillsSheet,
     type SafariPopupSurface,
   } from "../../lib/safari-v3.js";
-  import type { SafariAppRoute } from "../../lib/app-handoff.js";
+  import type { SafariAppHandoffResult, SafariAppRoute } from "../../lib/app-handoff.js";
 
   interface Props {
     /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
@@ -40,11 +40,24 @@
     surface: SafariPopupSurface;
     onSettings: () => void;
     /** Opens the Still app at a fixed destination (createSafariAppHandoff for this surface). */
-    openApp: (route: SafariAppRoute) => void;
+    openApp: (route: SafariAppRoute) => Promise<SafariAppHandoffResult>;
   }
   let { composition, surface, onSettings, openApp }: Props = $props();
-  const onSeePro = () => openApp("pro");
-  const onSignIn = () => openApp("sync");
+  // When Safari refuses the hand-off (e.g. it will not open the still:// link in a tab), say so
+  // plainly instead of a tap that does nothing. Cleared by the next attempt.
+  let handoffFailed = $state(false);
+  async function handOff(route: SafariAppRoute): Promise<void> {
+    handoffFailed = false;
+    let result: SafariAppHandoffResult;
+    try {
+      result = await openApp(route);
+    } catch {
+      result = "failed";
+    }
+    handoffFailed = result === "failed";
+  }
+  const onSeePro = () => void handOff("pro");
+  const onSignIn = () => void handOff("sync");
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -121,6 +134,9 @@
 {/snippet}
 
 <div class="popup" class:edge-to-edge={fillsSheet}>
+  {#if handoffFailed}
+    <p class="handoff-failed" role="alert">Open the Still app to continue.</p>
+  {/if}
   {#if ready && surface === "desktop"}
     <DesktopPopup
       settings={ready.settings}
@@ -174,6 +190,12 @@
     max-inline-size: 100%;
     margin-inline: auto;
     overflow: clip;
+  }
+  .handoff-failed {
+    margin: 0;
+    padding: 12px 16px 0;
+    font-size: calc(14px * var(--text-scale, 1));
+    color: var(--text-secondary, inherit);
   }
   .popup.edge-to-edge {
     /* The iPhone sheet only: fill the width Safari gives the sheet, edge to edge as designed. A

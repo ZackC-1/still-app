@@ -207,6 +207,7 @@
           c.canSignIn &&
           (c.popupState === "signed-out" || c.popupState === "pro-no-account"),
         openSignIn: () => c.openSignIn(),
+        closeSignIn: () => c.dismissSignIn(),
         reveal: (focus) =>
           void tick().then(() =>
             revealAppleSyncCardWhenRendered(document, focus),

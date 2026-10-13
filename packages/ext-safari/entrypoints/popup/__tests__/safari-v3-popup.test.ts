@@ -253,6 +253,23 @@ describe("Safari V3 popup: Sign in hands off to the Still app (ISS-0032)", () =>
   });
 });
 
+describe("Safari V3 popup: a refused hand-off says so", () => {
+  it("iPhone: when Safari will not open the still:// tab, the popup asks the person to open the app", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    const { f } = await open("atomic", { platform: "ios" });
+    f.createTab.mockRejectedValueOnce(new Error("refused"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    await fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Open the Still app to continue.");
+    expect(close).not.toHaveBeenCalled();
+    // The next attempt clears it; this one succeeds and the popup closes.
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(f.createTab).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Safari V3 popup: a failed mount", () => {
   const tracked = (f: Awaited<ReturnType<typeof installSafari>>, name: string) =>
     f.messages.filter((m) => m.action === "track" && m.name === name);
