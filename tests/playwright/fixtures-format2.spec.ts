@@ -645,3 +645,30 @@ test("format-2 instagram explore: Reel tiles go, the other posts close up four t
   await expectClosedUp();
 });
 
+/** Instagram's post viewer as Explore opens it: a dialog whose Next arrow is a button. */
+const postViewer = (code: string, kind: "reel" | "p", next: string) => `<!doctype html><html><head><title>viewer</title></head><body>
+  <main id="keep-explore">Explore</main>
+  <div role="dialog"><article id="keep-viewer"><a href="/someuser/">someuser</a><a href="/someuser/${kind}/${code}/">2d</a>
+    <button type="button" id="next" aria-label="Next">›</button></article></div>
+  <script>
+    document.getElementById("next").addEventListener("click", () => history.pushState(null, "", ${JSON.stringify(next)}));
+  </script></body></html>`;
+
+for (const [kind, expected] of [
+  ["reel", "https://www.instagram.com/"],
+  ["p", "https://www.instagram.com/p/B2/"],
+] as const)
+  test(`format-2 instagram explore viewer: Next from a ${kind === "reel" ? "Reel goes Home" : "post opens the next item (the first Reel may play)"}`, async ({ context }) => {
+    const page = await context.newPage();
+    await page.route("**://*.instagram.com/**", (route) =>
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: postViewer("A1", kind, "/p/B2/") }));
+    await page.goto("https://www.instagram.com/p/A1/");
+    await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+    await expect(page).toHaveURL("https://www.instagram.com/p/A1/"); // the opened item stays
+    await page.locator("#next").click(); // a trusted click on the viewer's own arrow: the page moves
+    await expect(page).toHaveURL(expected);
+    if (kind === "p") {
+      await page.waitForTimeout(500);
+      await expect(page).toHaveURL(expected);
+    }
+  });

@@ -7,7 +7,7 @@ import { extrasRouteMatches, resolveExtrasRoute, type ExtrasRouteTable } from ".
 import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
-import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, type LayoutRule } from "./instagram.js";
+import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, instagramPostViewerCode, type LayoutRule } from "./instagram.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -136,7 +136,7 @@ export interface EnginePageSession {
    * entry handing over to its first Reel counts as continuing too (ISS-0035). Callers apply it
    * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
-  reelContinuation?(from: URL, to: URL): string | null;
+  reelContinuation?(from: URL, to: URL, viewerShowsReel?: (code: string) => boolean): string | null;
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
@@ -730,11 +730,20 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
     applyRemovals(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     activeServiceId: () => stopped ? null : serviceId,
     effectiveFeatures: () => stopped || decision.kind !== "apply" ? [] : effective,
-    reelContinuation(from, to) {
+    reelContinuation(from, to, viewerShowsReel) {
       // Valid only for the inputs just prepared for `to`, while that service's Reels core is on.
       if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
       if (serviceId !== "instagram" && serviceId !== "facebook") return null;
       const next = reelViewerItem(serviceId, to);
+      // Instagram's post viewer (Explore opens every tile in it) moving on from a Reel it shows to
+      // any other item: the first Reel plays, the viewer does not roll on into more (ISS-0038).
+      // Home, as for every other viewer: Explore is itself a discovery feed to roll on through.
+      // The caller says whether the viewer showed `leaving` as a Reel (instagramViewerShowsReel).
+      const leaving = serviceId === "instagram" ? instagramPostViewerCode(from.pathname) : null;
+      if (leaving && viewerShowsReel) {
+        const target = instagramPostViewerCode(to.pathname) ?? next?.id;
+        if (target && target !== leaving && viewerShowsReel(leaving)) return new URL("/", to.origin).href;
+      }
       // Facebook's feed entry handing over to the Reel it chose to play first is the feed itself,
       // whenever Still did not get to send the entry home before the page moved on.
       if (next && serviceId === "facebook" && FACEBOOK_REEL_FEED.test(from.pathname)) return new URL("/", to.origin).href;

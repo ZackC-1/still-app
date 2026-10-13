@@ -28,6 +28,7 @@ import {
 import { createReapplyObserver, type Scheduler } from "./observer.js";
 import { admittedMarkers, applyMarker, createMarkerHook, SHORTS_CHIP_MARKER } from "./markers.js";
 import { createYouTubeAutoplayGuard } from "./youtube-autoplay.js";
+import { instagramPostViewerCode, instagramViewerShowsReel } from "../rules/instagram.js";
 import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 // The document_start orchestrator. It wires the engine to a live page: reads settings from the
@@ -213,6 +214,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // leads (Facebook's /reel/?s=tab while on Home). The page may still hand over to the Reel that
   // route chose; for a short while that hand-over is judged from the consumed route.
   let consumedInPlace: { readonly url: URL; readonly at: number } | null = null;
+  // Instagram's post viewer: whether the item being left is a Reel. The page still shows it when
+  // the Navigation API reports the move; the URL-watch fallback adds what its last settled poll saw.
+  let viewerSample: { readonly code: string; readonly reel: boolean } | null = null;
+  const viewerShowsReel = (code: string): boolean =>
+    instagramViewerShowsReel(doc, code) || (viewerSample?.code === code && viewerSample.reel);
   const consumeModernNavigation = (
     target: URL,
     mode: "push" | "replace" = "replace",
@@ -229,8 +235,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // deliberately opened or activated Reel, and Back/forward, are never treated as continuing.
     const consumed = consumedInPlace && Date.now() - consumedInPlace.at <= DELIBERATE_WINDOW_MS ? consumedInPlace.url : null;
     const continuation = intent === "page"
-      ? pageSession.reelContinuation?.(from ?? currentUrl(), target)
-        ?? (consumed ? pageSession.reelContinuation?.(consumed, target) : null) ?? null
+      ? pageSession.reelContinuation?.(from ?? currentUrl(), target, viewerShowsReel)
+        ?? (consumed ? pageSession.reelContinuation?.(consumed, target, viewerShowsReel) : null) ?? null
       : null;
     const decision: ReturnType<typeof pageSession.evaluate> = continuation
       ? { kind: "redirect", url: continuation } : evaluated;
@@ -291,6 +297,12 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const urlWatch = modern && !win.navigation ? createUrlChangeWatch({
     win,
     doc,
+    // Without the Navigation API the page has usually drawn the next item by the time the poll
+    // sees the move, so each settled poll remembers whether the open viewer item is a Reel.
+    onSettled: (url) => {
+      const code = url.hostname.endsWith("instagram.com") ? instagramPostViewerCode(url.pathname) : null;
+      viewerSample = code ? { code, reel: instagramViewerShowsReel(doc, code) || (viewerSample?.code === code && viewerSample.reel) } : null;
+    },
     onChange: (from, to, traverse) => {
       if (stopped || !hydrated) return;
       const intent: NavigationIntent = traverse ? "deliberate" : intents.intentFor(to);
