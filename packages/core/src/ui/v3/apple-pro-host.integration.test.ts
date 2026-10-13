@@ -353,6 +353,7 @@ describe("Apple settings to real native Pro screen integration", () => {
 describe("still://sync, the Safari popup's Sign in hand-off", () => {
   it("signed out: leaves the Still Pro screen and opens sign-in over Settings", async () => {
     const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(true);
     f.setRoute(20);
     window.dispatchEvent(new Event("still:route"));
     await waitFor(() => expect(f.acknowledgments).toContain(20));
@@ -368,6 +369,7 @@ describe("still://sync, the Safari popup's Sign in hand-off", () => {
 
   it("a sync route is taken once, and the Pro host never opens for it", async () => {
     const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(true);
     f.setRoute(30, "sync");
     window.dispatchEvent(new Event("still:route"));
     await waitFor(() => expect(f.acknowledgments).toEqual([30]));
@@ -376,6 +378,15 @@ describe("still://sync, the Safari popup's Sign in hand-off", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(f.acknowledgments).toEqual([30]);
     expect(f.openSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("a build that cannot sign in shows the sync card and opens no dead sign-in sheet", async () => {
+    const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(false);
+    f.setRoute(50, "sync");
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toContain(50));
+    expect(f.openSignIn).not.toHaveBeenCalled();
   });
 
   it("signed in: shows Settings with the account and opens no sign-in", async () => {

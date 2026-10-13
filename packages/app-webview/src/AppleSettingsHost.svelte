@@ -12,8 +12,9 @@
     type AppleProHostDeps,
   } from "@still/core/ui/v3/apple-pro-host";
   import {
+    createAppleAppRoutes,
     createAppleSyncRoute,
-    revealAppleSyncCard,
+    revealAppleSyncCardWhenRendered,
   } from "@still/core/ui/v3/apple-sync-route";
   import AppleSettings from "@still/core/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "@still/core/ui/v3/Toggle.svelte";
@@ -60,8 +61,10 @@
       | "linkPurchase"
     >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
-    /** The app's pending fixed route (still://sync here; still://pro rides proServices). */
+    /** The app's pending fixed routes (still://pro and still://sync), read by one router. */
     appRoutes?: Pick<NativeBridge, "pendingAppRoute" | "acknowledgeAppRoute">;
+    /** Settles once this launch's saved-session resume has finished (signed in or not). */
+    accountSettled?: () => Promise<unknown>;
   }
   let {
     controller: c,
@@ -73,6 +76,7 @@
     onCommittedToggle,
     proServices,
     appRoutes,
+    accountSettled,
   }: Props = $props();
 
   // Finish any older observation, then read the cache after the native commit. This is the same
@@ -165,7 +169,10 @@
   });
   $effect(() => {
     if (!proHost) return;
-    const route = () => void proHost.route();
+    // With appRoutes, the one app router below reads routes for both handlers.
+    const route = () => {
+      if (!appRoutes) void proHost.route();
+    };
     const accountAccess = () => void readCommittedAccess().catch(() => {});
     const refresh = () => {
       if (document.visibilityState === "visible") void proHost.refresh();
@@ -184,24 +191,34 @@
       proHost.stop();
     };
   });
-  // still://sync (the Safari popup's Sign in): Settings, the sync card, and sign-in when signed out.
+  // The app's fixed routes, read once per notification: still://pro opens the Still Pro screen;
+  // still://sync (the Safari popup's Sign in) shows Settings with the sync card, and sign-in when
+  // signed out, after the launch's account resume has settled.
   $effect(() => {
     if (!appRoutes) return;
-    const syncRoute = createAppleSyncRoute({
+    const routes = createAppleAppRoutes({
       bridge: appRoutes,
-      showSettings: () => proHost?.close(),
-      canSignIn: () =>
-        c.popupState === "signed-out" || c.popupState === "pro-no-account",
-      openSignIn: () => c.openSignIn(),
-      reveal: (focus) =>
-        void tick().then(() => revealAppleSyncCard(document, focus)),
+      ...(proHost ? { pro: proHost } : {}),
+      sync: createAppleSyncRoute({
+        bridge: appRoutes,
+        showSettings: () => proHost?.close(),
+        ...(accountSettled ? { accountSettled } : {}),
+        canSignIn: () =>
+          c.canSignIn &&
+          (c.popupState === "signed-out" || c.popupState === "pro-no-account"),
+        openSignIn: () => c.openSignIn(),
+        reveal: (focus) =>
+          void tick().then(() =>
+            revealAppleSyncCardWhenRendered(document, focus),
+          ),
+      }),
     });
-    const route = () => void syncRoute.route();
+    const route = () => void routes.route();
     window.addEventListener("still:route", route);
     untrack(route);
     return () => {
       window.removeEventListener("still:route", route);
-      syncRoute.stop();
+      routes.stop();
     };
   });
   const view = createPopupViewBinding(

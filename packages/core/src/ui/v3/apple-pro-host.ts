@@ -4,6 +4,7 @@ import {
 } from "@still/shared-types";
 import type {
   NativeBridge,
+  NativeAppRoute,
   NativeLifetimeOffering,
 } from "../../native/bridge.js";
 import type {
@@ -468,8 +469,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (deps.account()?.confirmed && deps.refreshAccountAccess) void refresh();
       changed();
     },
-    async route() {
-      const route = await deps.bridge.pendingAppRoute();
+    /** Takes a pending still://pro. `pending` is the route the app router already read once
+     * (createAppleAppRoutes); without it this reads the pending route itself. */
+    async route(pending?: NativeAppRoute) {
+      const route = pending ?? (await deps.bridge.pendingAppRoute());
       // still://sync belongs to the sync route (apple-sync-route); leave it pending for it.
       if (stopped || !route || route.route !== "pro") return;
       opening = true;

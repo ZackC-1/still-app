@@ -103,8 +103,10 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
     }
 
     /// Opens the containing Still app at the fixed destination. The Mac only: the app is the bundle
-    /// three levels above this extension (Still.app/Contents/PlugIns/<extension>.appex), so another
-    /// app that also claims `still:` can never receive the link.
+    /// three levels above this extension (Still.app/Contents/PlugIns/<extension>.appex), so on this
+    /// lane another app that also claims `still:` cannot receive the link. (The popup's Safari-tab
+    /// path, used on iPhone and iPad and as the Mac fallback, resolves `still:` through the system
+    /// like any custom scheme; the links carry nothing private.)
     private static func open(
         _ request: StillAppRoute.ExtensionOpenRequest, completion: @escaping (Bool) -> Void
     ) {

@@ -122,6 +122,8 @@ const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics 
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
 // Configured modern builds use issuer proofs and the native atomic installer.
+/** This launch's saved-session resume (signed in or not); resolved where no account exists. */
+let accountResume: Promise<void> = Promise.resolve();
 let applePurchaseAuthority: {
   refreshAccountAccess: NonNullable<AppleProHostDeps["refreshAccountAccess"]>;
   verifyLocalPurchase: AppleProHostDeps["verifyLocalPurchase"];
@@ -336,7 +338,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   // two enterSession pipelines (possibly for different identities) would interleave.
   // Analytics sends nothing until the resume confirms the account (onAccountEntered) or its absence
   // (onAccountAbsent); a launch without a session never sends the previous account's events.
-  void session.resumeAccount(() => authPort.currentAccount());
+  accountResume = session.resumeAccount(() => authPort.currentAccount());
 
   // Native actions only exist inside the WKWebView host. Sign in with Apple is no longer offered
   // (email-code sign-in above is the one auth path, 2026-07-06); the native SIWA bridge + the
@@ -432,6 +434,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         restoreBridge: appleRestoreBridge(bridge),
         proServices: appleProServices,
         appRoutes: bridge,
+        accountSettled: () => accountResume,
         // "Open Safari Settings" on the setup card: one fixed destination, from the tap.
         openDestination: (destination) => void openNativeDestination(destination),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
