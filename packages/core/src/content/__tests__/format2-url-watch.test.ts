@@ -171,12 +171,12 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     expect(h.replace).toHaveBeenCalledWith(`https://www.${service}.com/`);
   });
 
-  it("R11a: moving between Reels inside one profile's modal is profile browsing", async () => {
+  it("R11a: one profile's modal advancing into another Reel is stopped too, back to the profile (ISS-0034)", async () => {
     fake();
     const h = await host("https://www.instagram.com/some.user/reel/A1/");
     h.pagePush("/some.user/reel/B2/");
     await tickWatch();
-    expect(h.replace).not.toHaveBeenCalled();
+    expect(h.replace).toHaveBeenCalledWith("https://www.instagram.com/some.user/");
   });
 
   it("R11c: a link activation still counts for the page's push 2 s later", async () => {

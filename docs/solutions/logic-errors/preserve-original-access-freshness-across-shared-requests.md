@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Multiple consumers receive a cached or shared observation with a relative freshness interval
 date: 2026-10-03
-last_updated: 2026-10-07
+last_updated: 2026-10-12
 status: active
 tags: [entitlement, cache, async, clock, expiry]
 ---
@@ -65,7 +65,9 @@ old absence and can show an expired purchase offer.
 Capture `evidenceDeadline` alongside `evidenceStatus` in the trusted host context. Carry that exact
 value through queued storage, crypto and native reads; cap the returned and cached projection by
 it when the read finishes. Explicit `absent` with a null captured deadline is already expired,
-including when the expiry millisecond falls between synchronous clock samples. Snapshot-only
+including when the expiry millisecond falls between synchronous clock samples. The one exception
+is signed-out absence (`session: null`), which is not a reconciliation and has no such clock; see
+[signed out is conclusive account absence](signed-out-is-conclusive-account-absence.md). Snapshot-only
 invalidation prevents an older read from replacing a newer projection without aborting its caller.
 
 The two long-read/reset regressions in

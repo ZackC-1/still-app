@@ -139,6 +139,9 @@ const instagram = [
     ["#reel-post", "#reel-post-with-hashtags", "#nav-reels"], null],
   ["instagram mobile", "instagram-mobile.html", "https://www.instagram.com/",
     ["#ig-mobile-reel", "#ig-mobile-reels"], ["#ig-mobile-post"]],
+  ["instagram current desktop menu and profile", "instagram-profile.html", "https://www.instagram.com/someuser/",
+    ["#menu-reels", "#profile-reels-tab-slot", "#grid-reel-1", "#grid-reel-2", "#grid-reel-3", "#grid-reel-4",
+      "#grid-reel-5", "#grid-reel-6"], null],
 ] as const;
 
 for (const [name, file, url, targets, keep] of instagram)
@@ -150,12 +153,72 @@ for (const [name, file, url, targets, keep] of instagram)
     await expectHiddenRetainedReversible(page, context, extensionId, targets, keep ?? (await keepAll(page)));
   });
 
-test("format-2 instagram routes: the Reels feed goes home; profiles and shared Reels stay usable", async ({ context }) => {
+/** Each tile's box, in document order, for the tiles that are laid out. */
+const tileBoxes = (page: Page) =>
+  page.locator("#profile-grid > div > div").evaluateAll((tiles) =>
+    tiles.map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
+      .map(({ x, y, width, height }) => ({ x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) })));
+
+test("format-2 instagram profile: the grid closes up without holes, the tab row and menu close up, Off restores", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-profile.html"));
+  await page.goto("https://www.instagram.com/someuser/");
+  await expectFormat2Lane(page);
+  const grid = await page.locator("#profile-grid").boundingBox();
+  const expectClosedUp = async () => {
+    const boxes = await tileBoxes(page);
+    // Six posts remain, three to a line, every tile the same size as an untouched one: no hole and
+    // no stretched neighbour.
+    expect(boxes).toHaveLength(6);
+    const { width, height } = boxes[0]!;
+    expect(Math.abs(width - (grid!.width - 2) / 3)).toBeLessThanOrEqual(1);
+    expect(Math.abs(height - (width * 4) / 3)).toBeLessThanOrEqual(1);
+    boxes.forEach((box, index) => {
+      expect(box.width, `tile ${index}`).toBe(width);
+      expect(box.height, `tile ${index}`).toBe(height);
+      expect(Math.abs(box.x - (boxes[index % 3]!.x)), `tile ${index} column`).toBeLessThanOrEqual(0);
+      expect(Math.abs(box.y - (boxes[0]!.y + Math.floor(index / 3) * (height + 1))), `tile ${index} line`).toBeLessThanOrEqual(1);
+    });
+    // The remaining posts keep their order.
+    expect(await page.locator("#profile-grid > div > div").evaluateAll((tiles) =>
+      tiles.filter((tile) => tile.getBoundingClientRect().width > 0).map((tile) => tile.id)))
+      .toEqual(["keep-tile-1", "keep-tile-2", "keep-tile-3", "keep-tile-4", "keep-tile-5", "keep-tile-6"]);
+    // Posts and Tagged sit side by side; the menu keeps one item's pitch from Home to Messages.
+    const posts = (await page.locator("#keep-tab-posts").boundingBox())!;
+    const tagged = (await page.locator("#keep-tab-tagged").boundingBox())!;
+    expect(tagged.x - (posts.x + posts.width)).toBeLessThan(10);
+    const home = (await page.locator("#keep-menu-home").boundingBox())!;
+    const messages = (await page.locator("#keep-menu-messages").boundingBox())!;
+    expect(messages.y - home.y).toBe(56);
+  };
+  await expectClosedUp();
+  // The profile mark comes from the address, and follows in-app moves off and back onto a profile.
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-profile", "");
+  await page.evaluate(() => history.pushState(null, "", "/explore/"));
+  await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-profile");
+  await expect.poll(async () => (await tileBoxes(page)).length).toBe(12); // Instagram's own layout
+  await page.evaluate(() => history.pushState(null, "", "/someuser/"));
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-profile", "");
+  await expectClosedUp();
+  const toggle = await stillSwitch(context, extensionId);
+  await toggle();
+  // Off: Instagram's own layout, all twelve tiles in four rows of three.
+  await expect.poll(async () => (await tileBoxes(page)).length).toBe(12);
+  await expect(page.locator("#profile-reels-tab")).toBeVisible();
+  await expect(page.locator("#menu-reels")).toBeVisible();
+  await toggle();
+  await expect.poll(async () => (await tileBoxes(page)).length).toBe(6);
+  await expectClosedUp();
+});
+
+test("format-2 instagram routes: the Reels feed goes home, a profile's Reels tab opens the profile; profiles and shared Reels stay usable", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram-mobile.html"));
   await page.goto("https://www.instagram.com/reels/");
   await expect(page).toHaveURL("https://www.instagram.com/");
-  for (const path of ["/someuser/reels/", "/someuser/reel/ABC123/", "/someuser/"]) {
+  await page.goto("https://www.instagram.com/someuser/reels/").catch(() => {}); // replaced while loading
+  await expect(page).toHaveURL("https://www.instagram.com/someuser/");
+  for (const path of ["/someuser/reel/ABC123/", "/someuser/", "/someuser/tagged/"]) {
     await page.goto(`https://www.instagram.com${path}`);
     await expect(page).toHaveURL(`https://www.instagram.com${path}`);
     await expect(page.locator("#still-placeholder")).toHaveCount(0);
@@ -454,15 +517,13 @@ test("format-2 instagram: a link click to one Reel does not cover the page pushi
   await expect(page).toHaveURL("https://www.instagram.com/");
 });
 
-test("format-2 instagram: moving between Reels inside one profile's modal is allowed", async ({ context }) => {
+test("format-2 instagram: one Reel opened from a profile plays, but its modal moving on to the next Reel returns to the profile", async ({ context }) => {
   const page = await context.newPage();
   await serveViewer(page, "**://*.instagram.com/**", "/some.user/reel/B2/");
   await page.goto("https://www.instagram.com/some.user/reel/A1/");
   await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+  await expect(page).toHaveURL("https://www.instagram.com/some.user/reel/A1/"); // the one Reel stays
+  await expect(page.locator("#keep-viewer")).toBeVisible();
   await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/some.user/reel/B2/"));
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL("https://www.instagram.com/some.user/reel/B2/");
-  // ...but the global viewer advancing on its own is still stopped.
-  await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/reel/C3/"));
-  await expect(page).toHaveURL("https://www.instagram.com/");
+  await expect(page).toHaveURL("https://www.instagram.com/some.user/");
 });

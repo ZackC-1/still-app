@@ -107,7 +107,16 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
         return "ok";
       } catch { return "unavailable"; }
     },
+    /**
+     * Account evidence for the host's verified session (TrustedAccessContext.session). `null` is
+     * the host's authoritative signed-out answer: no account proof can apply, so account evidence
+     * is conclusively absent (ISS-0030) and only independent local rights can grant. That absence
+     * has no sixty-second clock; any sign-in is an auth boundary that replaces the context.
+     * `undefined` (verification unavailable) stays unknown. A signed-in session is absent only
+     * for a fresh conclusive "none" reconciliation of exactly that session.
+     */
     evidenceStatus(session: { userId: string; sessionId: string } | null | undefined): "absent" | "unknown" {
+      if (session === null) return "absent";
       const wall = deps.now?.() ?? Date.now();
       return last && session && last.epoch === deps.epoch() && last.status === "none" &&
         last.session.userId === session.userId && last.session.sessionId === session.sessionId &&
