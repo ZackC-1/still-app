@@ -132,7 +132,7 @@ const cases: VisualCase[] = [
         access: accessAll("locked"),
         host: "firefox",
         // MobilePopup admits a Firefox Android invitation only on a verified channel; no
-        // onPurchase is supplied, so no purchase button appears (the reference shows none).
+        // onSeePro is supplied, so no Still Pro card appears (the reference shows none).
         channelReady: true,
         privacyUrl: "#",
         onGlobalChange: noop,

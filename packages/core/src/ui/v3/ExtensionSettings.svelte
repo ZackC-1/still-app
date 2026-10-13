@@ -4,6 +4,7 @@
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
   import SettingsSiteList from "./SettingsSiteList.svelte";
+  import { proKnownMissing } from "./presentation.js";
   import SyncCard from "./SyncCard.svelte";
   import ProOfferCard from "./ProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
@@ -24,6 +25,7 @@
     features,
     labels,
     phone = false,
+    platformKnown = true,
     sync,
     pro,
     restore,
@@ -50,21 +52,7 @@
   $effect(() => {
     if (deleteTarget && !deleteTargetCurrent) deleteTarget = null;
   });
-  let knownMissing = $derived(
-    FEATURE_REGISTRY.some(
-      (row) => row.tier === "pro" && access.states[row.id] === "locked",
-    ) &&
-      !FEATURE_REGISTRY.some(
-        (row) =>
-          row.tier === "pro" &&
-          [
-            "checking",
-            "verification_required",
-            "purchased",
-            "protected",
-          ].includes(access.states[row.id]),
-      ),
-  );
+  let knownMissing = $derived(proKnownMissing(access));
   let accessHeld = $derived(
     FEATURE_REGISTRY.some(
       (row) =>
@@ -241,8 +229,9 @@
     {labels}
     onProAction={proActionReady ? revealPro : undefined}
   />
+  <!-- Purchased (ISS-0032): the sync card keeps its own heading and the account's sync status,
+    beside the Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
-    owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
     accountActions={sync.accountActions}
     account={sync.account
@@ -262,11 +251,13 @@
         }
       : undefined}
   />
-  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
+  {#if pro && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
     <div bind:this={proSection} style="display:contents;">
       <ProOfferCard
         {...pro}
         {phone}
+        {features}
+        {platformKnown}
         confirmedAccount={sync.account?.confirmed ?? false}
         {knownMissing}
         {accessHeld}

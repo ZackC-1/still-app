@@ -11,7 +11,7 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY } from "./shared.js";
+import { OWNER_SYNC_COPY, POPUP_PRO_CARD } from "./shared.js";
 
 const screen = "d01-desktop-popup";
 
@@ -51,6 +51,8 @@ const DE: { id: DesignId; label: string }[] = [
   { id: "yt_livechat", label: "Livechat" },
 ];
 const signedOut = [OWNER_SYNC_COPY];
+/** ISS-0032: the compact Still Pro card replaces the reference's plain purchase button. */
+const lockedOffer = [OWNER_SYNC_COPY, POPUP_PRO_CARD];
 
 const cases: VisualCase[] = [
   {
@@ -60,8 +62,8 @@ const cases: VisualCase[] = [
     caption: "Light · Pro not owned",
     theme: "light",
     frame: { kind: "popup" },
-    render: popup({ access: accessAll("locked"), onPurchase: noop }),
-    deviations: signedOut,
+    render: popup({ access: accessAll("locked"), onSeePro: noop }),
+    deviations: lockedOffer,
   },
   {
     ...base,
@@ -84,8 +86,8 @@ const cases: VisualCase[] = [
     caption: "Fresh install · collapsed",
     theme: "light",
     frame: { kind: "popup" },
-    render: popup({ access: accessAll("locked"), onPurchase: noop }),
-    deviations: signedOut,
+    render: popup({ access: accessAll("locked"), onSeePro: noop }),
+    deviations: lockedOffer,
   },
   {
     ...base,
@@ -206,9 +208,9 @@ const cases: VisualCase[] = [
     caption: "Focus on the YouTube expander",
     theme: "light",
     frame: { kind: "popup", cls: "kbd" },
-    render: popup({ access: accessAll("locked"), onPurchase: noop }),
+    render: popup({ access: accessAll("locked"), onSeePro: noop }),
     focus: { selector: '[aria-controls="site-youtube-panel"]' },
-    deviations: signedOut,
+    deviations: lockedOffer,
   },
 ];
 

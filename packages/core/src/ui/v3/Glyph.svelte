@@ -5,7 +5,14 @@
     className,
   }: {
     name:
-      "lock" | "chevron" | "check" | "alert" | "clock" | "spinner" | "close";
+      | "lock"
+      | "chevron"
+      | "check"
+      | "alert"
+      | "clock"
+      | "spinner"
+      | "close"
+      | "external";
     size?: number;
     className?: string;
   } = $props();
@@ -36,5 +43,8 @@
   {:else if name === "close"}<path d="M5.5 5.5l9 9"></path><path
       d="M14.5 5.5l-9 9"
     ></path>
+  {:else if name === "external"}<path
+      d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3"
+    ></path><path d="M11 4h5v5"></path><path d="M16 4l-7 7"></path>
   {:else}<path d="M10 2.5a7.5 7.5 0 1 1-7.5 7.5"></path>{/if}
 </svg>

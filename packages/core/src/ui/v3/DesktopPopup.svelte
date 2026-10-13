@@ -1,11 +1,14 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
+  import type { ServiceId } from "@still/shared-types";
   import {
+    proAccessChecking,
+    proKnownMissing,
     proRowsDormant,
     rowsFor,
     type DesktopPopupProps,
   } from "./presentation.js";
+  import PopupProCard from "./PopupProCard.svelte";
   import { serviceIconSrc } from "./service-icons.js";
   import PopupInvitation from "./PopupInvitation.svelte";
   import {
@@ -31,8 +34,9 @@
     privacyUrl,
     commandsDisabled = false,
     accountActions,
-    onPurchase,
     onSeePro,
+    appHandoff = false,
+    proOfferReady = true,
     account,
     sectionMemory,
     services = ["instagram", "facebook", "youtube", "tiktok"],
@@ -64,23 +68,23 @@
     failed: "alert",
     caution: "clock",
   } as const;
-  let knownMissing = $derived(
-    FEATURE_REGISTRY.some(
-      (row) => row.tier === "pro" && access.states[row.id] === "locked",
-    ) &&
-      !FEATURE_REGISTRY.some(
-        (row) =>
-          row.tier === "pro" &&
-          [
-            "checking",
-            "verification_required",
-            "purchased",
-            "protected",
-          ].includes(access.states[row.id]),
-      ),
-  );
-  let offer = $derived(Boolean(onPurchase) && knownMissing);
+  let knownMissing = $derived(proKnownMissing(access));
+  // Get Still Pro and the feature locks open the full offer (the host's Still Pro destination).
   let proDestinationReady = $derived(Boolean(onSeePro) && knownMissing);
+  function openPro() {
+    if (proDestinationReady) onSeePro?.();
+  }
+  // The card itself waits for the destination to be able to sell and, like the sync invitation,
+  // for a clear setup and account state: it never competes with fixing the free outcome.
+  let popupClear = $derived(
+    !desktopSetup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  let proCardShown = $derived(proDestinationReady && proOfferReady && popupClear);
+  // While Still is still finding out, the card's place says so (no button), where a card may follow.
+  let proCheckingShown = $derived(
+    Boolean(onSeePro) && proOfferReady && proAccessChecking(access) && popupClear,
+  );
   let dormant = $derived(proRowsDormant(access));
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
@@ -269,11 +273,8 @@
                         )
                           onFeatureChange(row.id, next);
                       }}
-                      onLock={proDestinationReady
-                        ? () => {
-                            if (proDestinationReady) onSeePro?.();
-                          }
-                        : undefined}
+                      host={appHandoff ? "safari" : "browser"}
+                      onLock={proDestinationReady ? openPro : undefined}
                     />
                   {/each}
                 {/if}
@@ -284,9 +285,10 @@
       </div>
     {/each}
   </div>
-  {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
-      >Purchase Still Pro</button
-    >{/if}
+  {#if proCardShown}<PopupProCard
+      onOpen={openPro}
+      {appHandoff}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
@@ -301,9 +303,18 @@
       {#if !account && onSignIn}<button
           type="button"
           class="primary inline"
-          onclick={onSignIn}>Sign in</button
+          class:with-glyph={appHandoff}
+          aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
+          onclick={onSignIn}
+          >Sign in{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
         >{/if}
     </div>
+    {#if !account && onSignIn && appHandoff}<p
+        class="handoff"
+        id="popup-signin-handoff"
+      >
+        <Glyph name="external" size={13} />Opens the Still app
+      </p>{/if}
     {#if account?.status}
       <div
         class="status-line"

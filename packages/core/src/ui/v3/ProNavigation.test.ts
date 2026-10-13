@@ -14,13 +14,16 @@ import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 interface Host {
   name: string;
-  /** Renders the host in the paid world; `buy` is the only purchase port it may reach. */
+  /**
+   * Renders the host in the paid world. Settings: `buy` is the only purchase port it may reach.
+   * Popups have no purchase port at all (ISS-0032): Get Still Pro navigates like the locks.
+   */
   mount(): Promise<{
-    buy: ReturnType<typeof vi.fn>;
+    buy?: ReturnType<typeof vi.fn>;
     navigate?: ReturnType<typeof vi.fn>;
     unmount: () => void;
   }>;
-  /** Settings retain a separate explicit purchase button. */
+  popup?: true;
   buyLabel: string;
 }
 
@@ -42,15 +45,13 @@ async function show(view: { unmount: () => void }) {
 const HOSTS: Host[] = [
   {
     name: "Chrome desktop popup",
-    buyLabel: "Purchase Still Pro",
+    popup: true,
+    buyLabel: "Get Still Pro",
     async mount() {
       const { props } = await desktopFixture("locked");
-      const buy = vi.fn();
       const navigate = vi.fn();
-      props.onPurchase = buy;
       props.onSeePro = navigate;
       return {
-        buy,
         navigate,
         unmount: await show(render(DesktopPopup, { props })),
       };
@@ -58,17 +59,16 @@ const HOSTS: Host[] = [
   },
   {
     name: "Firefox for Android popup",
-    buyLabel: "Purchase Still Pro",
+    popup: true,
+    buyLabel: "Get Still Pro",
     async mount() {
       const { props: desktop } = await desktopFixture("locked");
-      const buy = vi.fn();
       const navigate = vi.fn();
       const props: MobilePopupProps = {
         settings: desktop.settings,
         access: desktop.access,
         host: "firefox",
         channelReady: true,
-        onPurchase: buy,
         onSeePro: navigate,
         privacyUrl: "https://still.test/privacy",
         onGlobalChange: vi.fn(),
@@ -78,7 +78,6 @@ const HOSTS: Host[] = [
         onSignIn: vi.fn(),
       };
       return {
-        buy,
         navigate,
         unmount: await show(render(MobilePopup, { props })),
       };
@@ -138,13 +137,13 @@ describe.each(HOSTS)("latest reference Pro destination: $name", (host) => {
     const { buy, navigate, unmount } = await host.mount();
     await fireEvent.click(lock());
     expect(screen.queryByRole("dialog")).toBeNull();
-    if (host.buyLabel === "Purchase Still Pro") {
+    if (host.popup) {
       expect(navigate).toHaveBeenCalledOnce();
-      expect(buy).not.toHaveBeenCalled();
       await fireEvent.click(
         screen.getByRole("button", { name: host.buyLabel }),
       );
-      expect(buy).toHaveBeenCalledOnce();
+      expect(navigate).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("dialog")).toBeNull();
     } else {
       const card = screen.getByRole("region", { name: "Still Pro" });
       expect(card).toHaveFocus();
@@ -165,7 +164,6 @@ describe("packaged free-period access stays dormant", () => {
       const { props } = await desktopFixture();
       props.browser = browser;
       props.access = initialAccessSnapshot();
-      props.onPurchase = vi.fn();
       props.onSeePro = vi.fn();
       const unmount = await show(render(DesktopPopup, { props }));
       const opener = screen.getByRole("button", {
@@ -174,7 +172,6 @@ describe("packaged free-period access stays dormant", () => {
       expect(opener).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(opener);
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(props.onPurchase).not.toHaveBeenCalled();
       expect(props.onSeePro).not.toHaveBeenCalled();
       unmount();
     },
