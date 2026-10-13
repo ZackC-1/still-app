@@ -210,7 +210,8 @@ describe("committed per-benefit consumer", () => {
     await vi.advanceTimersByTimeAsync(0); expect(nativeObservation).toHaveBeenCalledTimes(1); stop(); await pending;
     expect(vi.getTimerCount()).toBe(0); expect(h.changed.size).toBe(0);
     release(initialAccessSnapshot({ paidMode: false, supported: benefits })); await Promise.resolve(); await Promise.resolve();
-    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    // Still the never-answered seed: the late grant was rejected.
+    expect(cache.currentAccess("youtube.comments")).toBe("checking");
     expect(vi.getTimerCount()).toBe(0);
   });
 

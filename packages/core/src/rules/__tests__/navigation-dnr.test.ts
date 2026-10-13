@@ -72,7 +72,7 @@ const HOSTS: Record<string, readonly string[]> = {
     "https://music.youtube.com", "https://www.youtube.com:8443", "https://WWW.YOUTUBE.COM", "https://user@www.youtube.com",
     "https://notyoutube.com", "https://youtube.com.example.net"],
   instagram: ["https://www.instagram.com", "https://instagram.com", "https://m.instagram.com", "https://www.instagram.com:444",
-    "https://notinstagram.com"],
+    "https://notinstagram.com", "https://about.instagram.com", "https://help.instagram.com"],
   facebook: ["https://www.facebook.com", "https://m.facebook.com", "https://facebook.com", "https://web.facebook.com",
     "https://www.facebook.com:81"],
   tiktok: ["https://www.tiktok.com"],
@@ -83,9 +83,15 @@ const PATHS: Record<string, readonly string[]> = {
     "/results"],
   instagram: ["/reels", "/reels/", "/reels/C0dE_1-x", "/reels/C0dE_1-x/", "/reels/audio", "/reels/audio/",
     "/reels/audio/123/", "/reels/audiox/", "/reel/C0dE/", "/someuser/reel/C0dE/", "/someuser/reels/", "/explore/",
-    "/reelsx", "/reels/C0dE/extra/", "/Reels/", "/reels//", "/"],
+    "/reelsx", "/reels/C0dE/extra/", "/Reels/", "/reels//", "/",
+    // Profile Reels tabs, and first segments next to "reels" (the plural viewer's own prefix).
+    "/someuser/reels", "/some.user_9/reels/", "/a/reels/", "/reel/reels/", "/reels/reels/", "/reels/reels",
+    "/Reels/reels/", "/reelz/reels/", "/reelss/reels/", "/rels/reels/", "/xeels/reels/", "/rxels/reels/",
+    "/rexls/reels/", "/reexs/reels/", "/someuser/reels/x/", "/someuser/reelsx/", "/a-b/reels/"],
   facebook: ["/reels", "/reels/", "/watch/reels", "/watch/reels/", "/watch/", "/watch", "/reel/123456",
-    "/someuser/reels_tab", "/reels/123", "/watch/reels/x", "/profile.php", "/Watch/Reels/", "/groups/x/reels", "/"],
+    "/someuser/reels_tab", "/reels/123", "/watch/reels/x", "/profile.php", "/Watch/Reels/", "/groups/x/reels", "/",
+    "/reel/", "/reel", "/reel/following/", "/reel/following", "/reel/profile/", "/reel/followingx/", "/reel/123456/",
+    "/Reel/", "/reel//", "/someuser/reel/"],
   tiktok: ["/", "/@someone/video/1", "/foryou"],
 };
 const CORPUS: readonly string[] = Object.entries(HOSTS).flatMap(([service, hosts]) =>
@@ -176,15 +182,26 @@ describe("format-2 navigation session rules", () => {
       ["https://www.facebook.com/someuser/reels_tab", null],
       ["https://www.facebook.com/reel/123456", null],
       ["https://www.facebook.com/watch/", null],
+      // ISS-0035: the top-menu Reels tab's /reel/ feed entry and the player's own feeds go home.
+      ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+      ["https://m.facebook.com/reel/", "https://m.facebook.com/"],
+      ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
+      ["https://www.facebook.com/reel/profile/?bss=1", "https://www.facebook.com/"],
+      ["https://www.facebook.com/reel/123456/?s=tab", null],
       // Decision 33: Instagram's plural viewer opens just that one Reel; the bare feed goes home;
-      // profile browsing, shared single Reels and the audio hub stay reachable.
+      // shared single Reels and the audio hub stay reachable. A profile's Reels tab opens the
+      // profile's posts (ISS-0034).
       ["https://www.instagram.com/reels/C0dE_1-x/", "https://www.instagram.com/reel/C0dE_1-x/"],
       ["https://www.instagram.com/reels/C0dE_1-x/?igsh=MTc4", "https://www.instagram.com/reel/C0dE_1-x/?igsh=MTc4"],
       ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
       ["https://www.instagram.com/reels/audio/", null],
       ["https://www.instagram.com/reels/audio/123/", null],
       ["https://www.instagram.com/someuser/reel/C0dE/", null],
-      ["https://www.instagram.com/someuser/reels/", null],
+      ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
+      ["https://www.instagram.com/some.user_9/reels?igsh=MTc4", "https://www.instagram.com/some.user_9/"],
+      ["https://www.instagram.com/reels/reels/", "https://www.instagram.com/reel/reels/"],
+      ["https://www.instagram.com/someuser/reels/x/", null],
+      ["https://about.instagram.com/features/reels/", null],
       ["https://www.instagram.com/reel/C0dE/", null],
       // TikTok's blocked page is a per-tab decision, never a network redirect.
       ["https://www.tiktok.com/@someone/video/1", null],

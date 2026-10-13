@@ -78,4 +78,12 @@ describe("composeSafariV3: a failure partway through", () => {
     expect(f.storageListenerCount()).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("asks the access authority once, so a paid seed never stays on checking", async () => {
+    await installSafari({ saved: "atomic", signedIn: true });
+    const refresh = vi.spyOn(EntitlementCache.prototype, "refreshAccess");
+    const composition = composeSafariV3("popup");
+    expect(refresh).toHaveBeenCalledOnce();
+    composition.stop();
+  });
 });

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Instagram profile — fixture</title>
+    <!--
+      Layout copied from the live page's computed styles (12 Oct 2026), so a hidden tile behaves as
+      it does on Instagram: each tile grows to fill its row (flex 1 0 0%), and its height follows its
+      width (3:4). Hiding a tile with nothing else either leaves a hole or stretches its neighbours.
+    -->
+    <style>
+      body { margin: 0; font: 14px sans-serif; display: flex; }
+      .menu { width: 72px; height: 600px; display: flex; flex-direction: column; justify-content: center; }
+      .menu a { display: block; height: 56px; }
+      .page { width: 880px; }
+      .tabs { display: flex; justify-content: center; column-gap: 4px; }
+      .tabs > div { flex: 0 1 193px; }
+      .tabs a { display: flex; justify-content: center; height: 48px; }
+      .grid > div { display: flex; margin-bottom: 1px; }
+      .grid > div > div { flex: 1 0 0%; margin-right: 1px; position: relative; }
+      .grid a { display: block; }
+      .tile { padding-bottom: 133.33%; background: #ccc; }
+    </style>
+  </head>
+  <!--
+    A signed-in Instagram profile on desktop: the left menu, the profile's tab row and its grid.
+
+    Written by hand from the structure of a live public profile (12 Oct 2026). Only structure was
+    recorded: element nesting, roles, aria-labels, the shape of each address, and the layout styles
+    above. Every handle, post code and piece of text is invented. No class name is copied: none of
+    the rules depend on one.
+
+    The shapes that matter:
+
+      * The left menu is no longer a <nav>. Its Reels item is a plain role=link anchor to /reels/
+        with an SVG titled "Reels", wrapped in span > div inside its own menu slot. A rule scoped to
+        "nav a" no longer matched it, so it stayed as a dead item (ISS-0033).
+      * The profile's tab row is div[role=tablist] > div > a[role=link], one slot per tab. The
+        Reels tab links to /<user>/reels/. Hiding only the link leaves its slot as a gap.
+      * The grid is a column (inline flex column) of rows, each row three tile boxes whose only child
+        is the tile link: /<user>/p/<code>/ for a post, /<user>/reel/<code>/ for a Reel, which also
+        carries an SVG titled "Clip". A collaboration post links to its other owner's address.
+
+    Every element whose id starts with "keep-" is a control: it must stay visible.
+  -->
+  <body>
+    <div class="menu" id="menu">
+      <div><span><div><a role="link" href="/" id="keep-menu-home"><svg aria-label="Home" role="img"><title>Home</title></svg></a></div></span></div>
+      <div id="menu-reels-slot"><span><div><a role="link" href="/reels/" id="menu-reels"><div><svg aria-label="Reels" role="img"><title>Reels</title></svg></div></a></div></span></div>
+      <div><span><div><a role="link" href="/direct/inbox/" id="keep-menu-messages"><svg aria-label="Messages" role="img"><title>Messages</title></svg></a></div></span></div>
+      <div><span><div><a role="link" href="/explore/" id="keep-menu-search"><svg aria-label="Search" role="img"><title>Search</title></svg></a></div></span></div>
+    </div>
+
+    <main class="page">
+      <header id="keep-profile-header">
+        <h2>someuser</h2>
+        <!-- Over-blocking control: a profile whose name merely begins with "reel". -->
+        <a href="/reelmaker/" id="keep-profile-lookalike">reelmaker</a>
+      </header>
+
+      <div role="tablist" class="tabs" id="profile-tabs">
+        <div><a role="link" aria-selected="true" href="/someuser/" id="keep-tab-posts"><svg aria-label="Posts" role="img"></svg><span>Posts</span></a></div>
+        <div id="profile-reels-tab-slot"><a role="link" aria-selected="false" href="/someuser/reels/" id="profile-reels-tab"><svg aria-label="Reels" role="img"></svg><span>Reels</span></a></div>
+        <div><a role="link" aria-selected="false" href="/someuser/tagged/" id="keep-tab-tagged"><svg aria-label="Tagged" role="img"></svg><span>Tagged</span></a></div>
+      </div>
+
+      <div><div><div class="grid" id="profile-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+        <div>
+          <div id="keep-tile-1"><a role="link" href="/someuser/p/Post0001/"><div class="tile"></div></a></div>
+          <div id="keep-tile-2"><a role="link" href="/someuser/p/Post0002/"><div class="tile"></div></a></div>
+          <div id="keep-tile-3"><a role="link" href="/someuser/p/Post0003/"><div class="tile"></div></a></div>
+        </div>
+        <div>
+          <div id="grid-reel-1"><a role="link" href="/someuser/reel/Reel0001/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+          <div id="keep-tile-4"><a role="link" href="/someuser/p/Post0004/"><div class="tile"></div></a></div>
+          <div id="grid-reel-2"><a role="link" href="/someuser/reel/Reel0002/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+        </div>
+        <div>
+          <div id="grid-reel-3"><a role="link" href="/someuser/reel/Reel0003/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+          <!-- A Reel tile whose badge has not rendered yet: its address alone identifies it. -->
+          <div id="grid-reel-4"><a role="link" href="/someuser/reel/Reel0004/"><div class="tile"></div></a></div>
+          <div id="keep-tile-5"><a role="link" href="/someuser/p/Post0005/"><div class="tile"></div></a></div>
+        </div>
+        <div>
+          <div id="keep-tile-6"><a role="link" href="/otheruser/p/Post0006/"><div class="tile"></div></a></div>
+          <div id="grid-reel-5"><a role="link" href="/someuser/reel/Reel0005/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+          <div id="grid-reel-6"><a role="link" href="/someuser/reel/Reel0006/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+        </div>
+      </div></div></div>
+    </main>
+  </body>
+</html>
