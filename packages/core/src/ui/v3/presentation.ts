@@ -3,6 +3,7 @@ import type {
   InvitationIntentPort,
 } from "./invitation-presentation.js";
 import type { Snippet } from "svelte";
+import type { SiteAccessCardProps } from "./site-access-presentation.js";
 import {
   FEATURE_REGISTRY,
   PAID_TIER_ENABLED,
@@ -219,6 +220,12 @@ export interface DesktopPopupProps {
   invitation?: PopupInvitationPresentation;
   /** Approved D28 typography only; ordinary D01 presentation is unchanged. */
   invitationVariant?: "d28";
+  /**
+   * ISS-0037: the browser says Still cannot run on its four sites. Drawn at the top, above the
+   * site list, with the host's request for the declared sites. Absent while access is granted or
+   * unknown, and on hosts with no such check (Safari).
+   */
+  siteAccess?: SiteAccessCardProps;
   /** Caller owns setup wording and the current verified permission action. */
   desktopSetup?: {
     title: string;

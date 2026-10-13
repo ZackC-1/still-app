@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
   import {
@@ -46,6 +47,7 @@
     invitation,
     invitationVariant,
     desktopSetup,
+    siteAccess,
   }: DesktopPopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -172,6 +174,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if desktopSetup}
     {#key desktopSetup}
       <section class="card card-stack">

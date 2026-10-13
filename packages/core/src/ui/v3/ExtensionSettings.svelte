@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import type { ExtensionSettingsProps } from "./extension-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
@@ -34,6 +35,7 @@
     sharing,
     privacyActions,
     setup,
+    siteAccess,
     help,
   }: ExtensionSettingsProps = $props();
   let deleteTarget = $state<{
@@ -196,6 +198,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if setup}
     <section class="card card-stack">
       <h2 class="section-label">Setup</h2>

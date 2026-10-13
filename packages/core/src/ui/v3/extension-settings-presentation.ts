@@ -150,6 +150,7 @@ export interface ExtensionSettingsProps extends Pick<
   | "features"
   | "labels"
   | "commandsDisabled"
+  | "siteAccess"
 > {
   sync: SyncCardProps;
   /**

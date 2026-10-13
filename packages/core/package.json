@@ -54,6 +54,7 @@
     "./ui/v3/invitation-presentation": "./src/ui/v3/invitation-presentation.ts",
     "./ui/v3/popup-invitation-flow": "./src/ui/v3/popup-invitation-flow.ts",
     "./ui/v3/presentation": "./src/ui/v3/presentation.ts",
+    "./ui/v3/site-access-presentation": "./src/ui/v3/site-access-presentation.ts",
     "./ui/v3/text-scale": "./src/ui/v3/text-scale.ts",
     "./ui/v3/apple-pro-host": "./src/ui/v3/apple-pro-host.ts",
     "./ui/v3/apple-sync-route": "./src/ui/v3/apple-sync-route.ts",
