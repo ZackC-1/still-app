@@ -5,13 +5,16 @@
   // dynamic import that default builds fold away, so these components and their global stylesheet
   // exist only in opted-in builds.
   //
+  // Get Still Pro, every lock chip and Sign in hand off to the Still app (lib/app-handoff,
+  // ISS-0032): Apple purchases happen only in the app's StoreKit flow, and the app owns the account
+  // on Safari. appHandoff tells the shared popup so; it offers those actions only where access is
+  // conclusively locked (Pro) or nobody is signed in (Sign in). No onPurchase: no price and no
+  // checkout link in Safari (App Store Review Guidelines 3.1.1 and 3.1.3).
+  //
   // Not offered here, deliberately:
-  //  - "Open Still" / "See Still Pro": no onSeePro. Nothing renders it while the paid tier is off,
-  //    and the route to the app's Access & purchases section is a separate Apple app-link unit that
-  //    must land before paid launch (owner decision 14).
-  //  - Sign in, sign out, delete account, sync retry: the Apple app owns the account on Safari.
-  //    The account display is read-only (appManagedPopupAccount) and the account slot carries only
-  //    the settings recovery action.
+  //  - Sign out, delete account, sync retry: the Apple app owns the account on Safari. The account
+  //    display is read-only (appManagedPopupAccount) and the account slot carries only the settings
+  //    recovery action.
   //  - Setup and invitations: no verified Safari observation exists for them.
   import DesktopPopup from "@still/core/ui/v3/DesktopPopup.svelte";
   import MobilePopup from "@still/core/ui/v3/MobilePopup.svelte";
@@ -29,14 +32,32 @@
     safariPopupFillsSheet,
     type SafariPopupSurface,
   } from "../../lib/safari-v3.js";
+  import type { SafariAppHandoffResult, SafariAppRoute } from "../../lib/app-handoff.js";
 
   interface Props {
     /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
     composition: SafariV3Composition;
     surface: SafariPopupSurface;
     onSettings: () => void;
+    /** Opens the Still app at a fixed destination (createSafariAppHandoff for this surface). */
+    openApp: (route: SafariAppRoute) => Promise<SafariAppHandoffResult>;
   }
-  let { composition, surface, onSettings }: Props = $props();
+  let { composition, surface, onSettings, openApp }: Props = $props();
+  // When Safari refuses the hand-off (e.g. it will not open the still:// link in a tab), say so
+  // plainly instead of a tap that does nothing. Cleared by the next attempt.
+  let handoffFailed = $state(false);
+  async function handOff(route: SafariAppRoute): Promise<void> {
+    handoffFailed = false;
+    let result: SafariAppHandoffResult;
+    try {
+      result = await openApp(route);
+    } catch {
+      result = "failed";
+    }
+    handoffFailed = result === "failed";
+  }
+  const onSeePro = () => void handOff("pro");
+  const onSignIn = () => void handOff("sync");
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -113,6 +134,9 @@
 {/snippet}
 
 <div class="popup" class:edge-to-edge={fillsSheet}>
+  {#if handoffFailed}
+    <p class="handoff-failed" role="alert">Open the Still app to continue.</p>
+  {/if}
   {#if ready && surface === "desktop"}
     <DesktopPopup
       settings={ready.settings}
@@ -124,6 +148,9 @@
       onServiceChange={ready.commands.service}
       onFeatureChange={ready.commands.feature}
       {onSettings}
+      {onSeePro}
+      {onSignIn}
+      appHandoff
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
@@ -139,6 +166,9 @@
       onServiceChange={ready.commands.service}
       onFeatureChange={ready.commands.feature}
       {onSettings}
+      {onSeePro}
+      {onSignIn}
+      appHandoff
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
@@ -160,6 +190,12 @@
     max-inline-size: 100%;
     margin-inline: auto;
     overflow: clip;
+  }
+  .handoff-failed {
+    margin: 0;
+    padding: 12px 16px 0;
+    font-size: calc(14px * var(--text-scale, 1));
+    color: var(--text-secondary, inherit);
   }
   .popup.edge-to-edge {
     /* The iPhone sheet only: fill the width Safari gives the sheet, edge to edge as designed. A

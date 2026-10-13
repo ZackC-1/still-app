@@ -140,8 +140,12 @@ export function parseNativeAppleAccessCommit(value: unknown): NativeAppleAccessC
 }
 
 export const NATIVE_PURCHASE_DEADLINE_MS = 150_000;
+/** The app's fixed destinations (StillKit StillAppRoute spells the same two URLs). */
 export const STILL_PRO_APP_URL = "still://pro";
-export interface NativeAppRoute { readonly route: "pro"; readonly revision: number }
+/** Settings sync card; signed out, the app opens sign-in over it. */
+export const STILL_SYNC_APP_URL = "still://sync";
+export type NativeAppRouteName = "pro" | "sync";
+export interface NativeAppRoute { readonly route: NativeAppRouteName; readonly revision: number }
 
 /** Native extension state only; this never proves site permission or onboarding completion. */
 export type SafariSetupObservation =
@@ -624,9 +628,10 @@ export class NativeBridge {
   async pendingAppRoute(): Promise<NativeAppRoute | null> {
     const reply = asObject(await boundedNativeRead(() => this.post({ kind: "pendingAppRoute" }), null));
     const pending = asObject(reply?.pending);
-    if (!pending || Object.keys(pending).sort().join(",") !== "revision,route" || pending.route !== "pro" ||
+    if (!pending || Object.keys(pending).sort().join(",") !== "revision,route" ||
+      (pending.route !== "pro" && pending.route !== "sync") ||
       typeof pending.revision !== "number" || !Number.isSafeInteger(pending.revision) || pending.revision < 0) return null;
-    return { route: "pro", revision: pending.revision };
+    return { route: pending.route, revision: pending.revision };
   }
 
   async acknowledgeAppRoute(revision: number): Promise<boolean> {

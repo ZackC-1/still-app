@@ -18,10 +18,15 @@
 //  process has no receipt oracle, and a writable lane would be an entitlement-forgery surface.
 //  {kind:"getBenefitAccess"} (paid builds) rides the same lane: { entitlement: "{ok,snapshot}" }.
 //
+//  The app hand-off lane, {kind:"openAppRoute", route:"pro"|"sync"}, replies { openAppRoute:
+//  {ok, route|null} } and opens nothing but StillAppRoute's two fixed destinations (Mac only).
+//
 
 import SafariServices
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 import StillKit
 import os.log
@@ -54,6 +59,17 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             message = request?.userInfo?["message"]
         }
 
+        // App hand-off lane: {kind:"openAppRoute", route:"pro"|"sync"} opens this app at one fixed
+        // destination (StillAppRoute). Never a URL from the message. On the Mac the handler opens
+        // the containing app directly; an iPhone or iPad extension cannot open its app, so it
+        // replies ok:false and the popup navigates a Safari tab to the same fixed link instead.
+        if let openRequest = message.flatMap({ StillAppRoute.extensionOpenRequest(rawBody: $0) }) {
+            Self.open(openRequest) { opened in
+                Self.complete(context, payload: openRequest.reply(opened: opened))
+            }
+            return
+        }
+
         // Account display status has a read-only lane. Unknown kinds, including status setters,
         // fall through to the settings bridge, which ignores them without writing.
         let payload: [String: Any]
@@ -72,6 +88,10 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             payload = ["settings": settingsJSON]
         }
 
+        Self.complete(context, payload: payload)
+    }
+
+    private static func complete(_ context: NSExtensionContext, payload: [String: Any]) {
         let response = NSExtensionItem()
         if #available(iOS 15.0, macOS 11.0, *) {
             response.userInfo = [SFExtensionMessageKey: payload]
@@ -80,6 +100,29 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         }
 
         context.completeRequest(returningItems: [response], completionHandler: nil)
+    }
+
+    /// Opens the containing Still app at the fixed destination. The Mac only: the app is the bundle
+    /// three levels above this extension (Still.app/Contents/PlugIns/<extension>.appex), so on this
+    /// lane another app that also claims `still:` cannot receive the link. (The popup's Safari-tab
+    /// path, used on iPhone and iPad and as the Mac fallback, resolves `still:` through the system
+    /// like any custom scheme; the links carry nothing private.)
+    private static func open(
+        _ request: StillAppRoute.ExtensionOpenRequest, completion: @escaping (Bool) -> Void
+    ) {
+        guard case .open(let destination) = request else { completion(false); return }
+        #if os(macOS)
+        let app = Bundle.main.bundleURL
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        guard app.pathExtension == "app" else { completion(false); return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open([destination.url], withApplicationAt: app, configuration: configuration) {
+            _, error in completion(error == nil)
+        }
+        #else
+        completion(false)
+        #endif
     }
 
 }

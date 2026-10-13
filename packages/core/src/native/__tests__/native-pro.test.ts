@@ -171,8 +171,17 @@ describe("native scoped Pro feedback", () => {
     expect(post).toHaveBeenCalledTimes(count);
   });
 
+  it("reads the fixed pending sync route", async () => {
+    const { bridge } = host(async () => ({ pending: { route: "sync", revision: 7 } }));
+    expect(await bridge.pendingAppRoute()).toEqual({ route: "sync", revision: 7 });
+  });
+
   it.each([
     { route: "checkout", revision: 2 },
+    { route: "sign-in", revision: 2 },
+    { route: "still://sync", revision: 2 },
+    { route: "sync", revision: -1 },
+    { route: "sync", revision: 2, email: "other" },
     { route: "pro", revision: "2" },
     { route: "pro", revision: 1.5 },
     { route: "pro", revision: 2, accountId: "other" },

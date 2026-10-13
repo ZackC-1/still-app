@@ -112,8 +112,9 @@ function statusFor(source: AppManagedAccountSource, text: AccountStatusText): Po
 
 /**
  * Popup account display. Read-only by construction: the Apple app owns sign-in, sign-out, account
- * deletion and sync retry on Safari, so no action callback is ever produced here and the popup
- * never offers one. Signed out is `undefined` (the popup's own signed-out line, with no sign-in).
+ * deletion and sync retry on Safari, so no action callback is ever produced here. Signed out is
+ * `undefined`: the popup's own signed-out line, whose Sign in hands off to the Still app
+ * (lib/app-handoff) rather than signing in here.
  */
 export function appManagedPopupAccount(
   source: AppManagedAccountSource,
@@ -134,9 +135,10 @@ export interface SettingsSyncDisplay {
 }
 
 /**
- * Settings-page sync card for Safari. As with the popup, there is no onSignIn, onSignOut,
- * onDeleteAccount or retry: the card hides every account action whose callback is absent, so the
- * extension never offers an action the Apple app owns.
+ * Settings-page sync card for Safari. There is no onSignIn, onSignOut, onDeleteAccount or retry
+ * here (the popup's Sign in hands off to the Still app instead, lib/app-handoff): the card hides
+ * every account action whose callback is absent, so the settings page never offers an action the
+ * Apple app owns.
  *
  * Signed out is an empty account, not "no account". With no account at all, SyncCard renders its
  * signed-out invitation with a Sign in button, which this build can never enable, so it would be a

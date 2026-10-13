@@ -230,6 +230,46 @@ describe("Safari V3 popup: what is never offered", () => {
   });
 });
 
+describe("Safari V3 popup: Sign in hands off to the Still app (ISS-0032)", () => {
+  it("Mac signed out: Sign in asks the app's native handler to open still://sync, then closes", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    const { f } = await open("atomic", { platform: "mac" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(f.native.filter((m) => m.kind === "openAppRoute")).toEqual([{ kind: "openAppRoute", route: "sync" }]);
+    expect(f.createTab).not.toHaveBeenCalled();
+    // Navigation only: nothing about the saved settings changes.
+    expect(writes(f.nativeKinds())).toEqual([]);
+  });
+
+  it("iPhone signed out: Sign in opens the fixed still://sync link in a Safari tab", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    const { f } = await open("atomic", { platform: "ios" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(f.createTab.mock.calls).toEqual([[{ url: "still://sync" }]]);
+    expect(f.nativeKinds()).not.toContain("openAppRoute");
+    expect(writes(f.nativeKinds())).toEqual([]);
+  });
+});
+
+describe("Safari V3 popup: a refused hand-off says so", () => {
+  it("iPhone: when Safari will not open the still:// tab, the popup asks the person to open the app", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    const { f } = await open("atomic", { platform: "ios" });
+    f.createTab.mockRejectedValueOnce(new Error("refused"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    await fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Open the Still app to continue.");
+    expect(close).not.toHaveBeenCalled();
+    // The next attempt clears it; this one succeeds and the popup closes.
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(f.createTab).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Safari V3 popup: a failed mount", () => {
   const tracked = (f: Awaited<ReturnType<typeof installSafari>>, name: string) =>
     f.messages.filter((m) => m.action === "track" && m.name === name);
