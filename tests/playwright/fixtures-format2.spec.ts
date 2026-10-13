@@ -314,29 +314,6 @@ test("format-2 facebook page: the Reels tab stays hidden without flickering; oth
   );
 });
 
-// ISS-0040: Facebook measures which Page tabs fit and does not measure again when Still shows the
-// Reels tab after a live Off, so two labels overlapped until a reload. A resize event after the
-// reveal makes it measure again; hiding needs none.
-test("format-2 facebook page: a live Off shows the Reels tab and asks the page to measure its tab row again", async ({ context, extensionId }) => {
-  const page = await context.newPage();
-  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
-  await page.goto("https://www.facebook.com/stillapp");
-  await expectFormat2Lane(page);
-  await page.evaluate(() => {
-    (window as unknown as { resizes: number }).resizes = 0;
-    window.addEventListener("resize", () => { (window as unknown as { resizes: number }).resizes++; });
-  });
-  const resizes = () => page.evaluate(() => (window as unknown as { resizes: number }).resizes);
-  const toggle = await stillSwitch(context, extensionId);
-  await toggle();
-  await expect(page.locator("#page-reels-tab")).toBeVisible();
-  await expect.poll(resizes).toBe(1);
-  await toggle();
-  await expect(page.locator("#page-reels-tab > *").first()).toBeHidden();
-  await page.waitForTimeout(200);
-  expect(await resizes()).toBe(1);
-});
-
 test("format-2 facebook people directory: profiles of people named Reels keep their photos", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));

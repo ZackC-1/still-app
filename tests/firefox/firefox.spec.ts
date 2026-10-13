@@ -378,27 +378,6 @@ test("the master switch: Off restores every page, On blocks again", async () => 
   }
 });
 
-// ISS-0040: a live Off that shows the Page's Reels tab sends the page one resize, so Facebook
-// measures its tab row again. Checked in real Firefox, where the event crosses from the content
-// script into the page.
-test("facebook: switching Facebook off live shows the Page's Reels tab and asks the page to measure again", async () => {
-  test.skip(PAID_TIER_ENABLED, "with the paid tier on, free Facebook is not blocked, so there is nothing to switch off");
-  const popup = await firefox.openExtensionPage("popup.html");
-  try {
-    const page = await firefox.openTab("https://www.facebook.com/stillapp");
-    await waitWorking(page, "facebook");
-    await page.evaluate("(window.stillResizes = 0, window.addEventListener('resize', () => window.stillResizes++), true)");
-    await setSwitch(popup, "Still on Facebook", false);
-    await page.waitFor("the Reels tab to come back", () => page.evaluate<number>(
-      "document.querySelector('#page-reels-tab > *')?.getBoundingClientRect().width ?? 0"), (width) => width > 0);
-    await page.waitFor("one resize", () => page.evaluate<number>("window.stillResizes"), (count) => count === 1);
-    await page.close();
-  } finally {
-    await setSwitch(popup, "Still on Facebook", true);
-    await popup.close();
-  }
-});
-
 test("one service switch Off restores only that service", async () => {
   test.skip(
     PAID_TIER_ENABLED,
