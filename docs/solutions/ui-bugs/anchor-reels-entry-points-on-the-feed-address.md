@@ -50,6 +50,19 @@ the sidebar `li` holding `https://www.facebook.com/reel/?s=tab`, and a Navigatio
 - Residual: without the Navigation API, a page-driven push and replace inside one URL-poll tick
   is invisible; a real click is still caught by the capture-phase link hook.
 
+## Follow-up: the server hop (ISS-0039, Firefox)
+
+Typed `facebook.com/reels` and `/watch/reels` played a Reel on Firefox while Chrome went Home.
+A same-origin `fetch(path, {redirect: "manual"})` from a signed-in page showed why: Facebook's
+server answers both with a redirect to `/reel/`, and that page's script replaces the address with
+`/reel/<id>` almost at once. Chrome's session rule catches `/reels` before the server answers.
+Firefox and Safari rely on the document_start content redirect, which rereads the address after
+its settings read and found a single Reel. Fix: the early redirect also remembers the address the
+document loaded at, and a hand-over from that loaded feed into one Reel is still sent Home
+(`earlyFormat2CoreRedirect`, `loadedHref`). The Firefox build keeps no declarativeNetRequest
+permission; the content path is its authority. The Firefox lane's router can now answer with a
+302 to model the hop.
+
 ## Prevention
 
 - When a menu entry reappears, match the full rule set against the live DOM read-only and look at
@@ -58,6 +71,8 @@ the sidebar `li` holding `https://www.facebook.com/reel/?s=tab`, and a Navigatio
 - Every short-form feed has an entry address as well as a feed address. Route both, and keep the
   shared single item (`/reel/<digits>`, `/reel/<code>/`, `/shorts/<id>` to `/watch`) outside every
   pattern.
+- When a typed feed address behaves differently between browsers, check whether the site's server
+  redirects it (`fetch(..., {redirect: "manual"})` gives `opaqueredirect`) before blaming rules.
 - Tests: `tests/fixtures/facebook-nav.html` models the current markup; the format-2 Playwright test
   clicks a forced-visible tab that mimics Facebook's push-then-replace router and asserts Home.
 

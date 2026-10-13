@@ -132,8 +132,8 @@ export interface EnginePageSession {
    * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
    * continuing into the next Reel), else null. Moving between Reels inside one Instagram
    * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is stopped too, to that profile
-   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Facebook's /reel/ feed
-   * entry handing over to its first Reel counts as continuing too (ISS-0035). Callers apply it
+   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Any Facebook Reels feed
+   * address handing over to its first Reel counts as continuing too (ISS-0035, ISS-0039). Callers apply it
    * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL): string | null;
@@ -149,11 +149,13 @@ const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
 const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
 
 /**
- * Facebook's Reels feed under /reel/: the bare entry its top-menu tab and sidebar shortcut open
- * (/reel/?s=tab, which then plays the next Reel in the feed) and the player's own "Following" and
- * "Profile" feeds. A single shared Reel is /reel/<digits> and never matches (ISS-0035).
+ * Facebook's Reels feeds: the plural /reels feed, Watch's /watch/reels feed, and the /reel/ entry
+ * its top-menu tab and sidebar shortcut open (/reel/?s=tab) with the player's own "Following" and
+ * "Profile" feeds. A typed /reels or /watch/reels is answered by Facebook's server with /reel/.
+ * Each hands over to one Reel at /reel/<digits>, a shared Reel's address, which never matches
+ * (ISS-0035, ISS-0039).
  */
-const FACEBOOK_REEL_FEED = /^\/reel(?:\/(?:following|profile))?\/?$/;
+const FACEBOOK_REELS_FEEDS = /^\/(?:reel(?:\/(?:following|profile))?|reels|watch\/reels)\/?$/;
 
 /**
  * The item a Reel viewer shows, and the profile whose modal shows it (null for the global
@@ -683,8 +685,8 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
         // Preserve deliberate playlist, time and share context; normalize only the video ID.
         destination.searchParams.set("v", id);
       }
-    } else if (((service === "instagram" || service === "facebook") && /^\/reels\/?$/.test(url.pathname))
-      || (service === "facebook" && (/^\/watch\/reels\/?$/.test(url.pathname) || FACEBOOK_REEL_FEED.test(url.pathname)))) {
+    } else if ((service === "instagram" && /^\/reels\/?$/.test(url.pathname))
+      || (service === "facebook" && FACEBOOK_REELS_FEEDS.test(url.pathname))) {
       // Category browsing only: the bare Reels feeds, Facebook's own Reels feed under Watch and
       // its /reel/ feed entry (the top-menu Reels tab). Direct/shared singular /reel/<id>, a
       // Page's or profile's own Reels tab, normal/live videos, people/groups/search/messages and
@@ -735,9 +737,9 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
       if (serviceId !== "instagram" && serviceId !== "facebook") return null;
       const next = reelViewerItem(serviceId, to);
-      // Facebook's feed entry handing over to the Reel it chose to play first is the feed itself,
-      // whenever Still did not get to send the entry home before the page moved on.
-      if (next && serviceId === "facebook" && FACEBOOK_REEL_FEED.test(from.pathname)) return new URL("/", to.origin).href;
+      // A Facebook Reels feed handing over to the Reel it chose to play first is the feed itself,
+      // whenever Still did not get to send the feed home before the page moved on.
+      if (next && serviceId === "facebook" && FACEBOOK_REELS_FEEDS.test(from.pathname)) return new URL("/", to.origin).href;
       const current = reelViewerItem(serviceId, from);
       if (!current || !next || current.id === next.id) return null;
       // One profile's own modal moving on into another of its Reels returns to that profile's

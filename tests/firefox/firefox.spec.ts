@@ -51,9 +51,14 @@ test.beforeAll(async () => {
   // Every service URL answers with the fixture for its service. A Shorts URL has no page of its own,
   // so a /watch address (where the redirect must end up) is answered with a stub.
   firefox.serve((url) => {
+    const host = url.hostname;
+    // Facebook's own server answers a typed /reels or /watch/reels with its /reel/ feed entry,
+    // whose script at once hands the address over to the first Reel (ISS-0039, recorded 12 Oct).
+    if (host.endsWith("facebook.com") && /^\/(?:watch\/)?reels\/?$/.test(url.pathname)) return { redirect: `${url.origin}/reel/` };
+    if (host.endsWith("facebook.com") && url.pathname === "/reel/")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reel/1234567890123456/")</script><p id="reels-player">a Reel</p>';
     if (url.pathname.startsWith("/watch"))
       return "<!doctype html><title>watch</title>watch";
-    const host = url.hostname;
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
@@ -132,6 +137,14 @@ for (const [from, to] of [
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
   // The top-menu Reels tab's feed entry (ISS-0035).
   ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+  // Typed feeds that Facebook's server answers with /reel/, which hands over to a Reel (ISS-0039).
+  ["https://www.facebook.com/reels", "https://www.facebook.com/"],
+  ["https://www.facebook.com/reels/", "https://www.facebook.com/"],
+  ["https://www.facebook.com/watch/reels", "https://www.facebook.com/"],
+  ["https://m.facebook.com/reels/", "https://m.facebook.com/"],
+  // Instagram's typed feeds and a profile's Reels tab (ISS-0034).
+  ["https://www.instagram.com/reels", "https://www.instagram.com/"],
+  ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
 ] as const) {
   test(`a Reels address ${from} ends up on ${to}`, async () => {
     const tab = await firefox.openTab(from);
