@@ -65,9 +65,11 @@ describe("the paid-tier switch, turned on", () => {
     expect(DEFAULT_SETTINGS.services).toHaveProperty("youtube");
   });
 
-  it("restores the engine tier gate: Pro surfaces need entitlement again, YouTube stays free", () => {
+  it("restores the engine tier gate: Pro surfaces need entitlement again, YouTube and TikTok stay free", () => {
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: false }).kind).toBe("noop");
-    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
+    // The TikTok block is the free tiktok.all alias; the seed's stale 1.x "pro" tag is ignored (ISS-0036).
+    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.tiktok.com/foryou"), { pro: false }))
+      .toEqual({ kind: "placeholder", blocked: true });
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
 
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: true }).kind).toBe("placeholder");
@@ -105,12 +107,12 @@ describe("the paid-tier switch, turned on", () => {
   it("restores locked rows and makes the paywall reachable again from a locked row", async () => {
     const c = controller(false);
     expect(c.isLocked("instagram")).toBe(true);
-    expect(c.isLocked("tiktok")).toBe(true);
+    expect(c.isLocked("tiktok")).toBe(false); // free tiktok.all (ISS-0036)
     expect(c.isLocked("facebook")).toBe(true);
     expect(c.isLocked("youtube")).toBe(false);
 
     render(App, { props: { controller: c } });
-    expect(document.querySelectorAll(".card.locked")).toHaveLength(3);
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(2);
     await fireEvent.click(document.querySelector(".lock")!);
     expect(c.paywallOpen).toBe(true);
     expect(screen.getByRole("dialog")).toBeTruthy();
