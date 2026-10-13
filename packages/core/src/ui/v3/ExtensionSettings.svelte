@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import type { ExtensionSettingsProps } from "./extension-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
@@ -9,7 +10,6 @@
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
-  import SiteAccessCard from "./SiteAccessCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
   import "./design/styles.css";

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import { untrack } from "svelte";
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
   import {
@@ -16,7 +17,6 @@
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
-  import SiteAccessCard from "./SiteAccessCard.svelte";
   import "./design/styles.css";
 
   let {

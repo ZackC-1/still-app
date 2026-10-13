@@ -95,13 +95,17 @@
   // (ISS-0037): InformationalProSettings in paid-tier builds, otherwise RestoreSettings with its
   // free-period "Restore purchase" link (owner decisions 62 and 73; bound only where the build has
   // the sign-in spine). The inline build-time check (wxt.config's runsV3Interface rule) folds to
-  // false on configured 2.x builds, which keep loading ExtensionSettings as before.
+  // false on configured 2.x builds, which keep loading ExtensionSettings as before. The paid branch
+  // keeps its own inline check: written through this constant, the bundler no longer drops the
+  // paid chunk from 2.x builds (checked with the bundle identity snapshots).
   const v3Settings = Boolean(
     !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
   );
   const loadSettings =
-    v3Settings && PAID_TIER_ENABLED && settingsRuntime.atomicLocal
+    (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&
+    PAID_TIER_ENABLED && settingsRuntime.atomicLocal
     ? () =>
         import("./InformationalProSettings.svelte").then((module) => {
           // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
