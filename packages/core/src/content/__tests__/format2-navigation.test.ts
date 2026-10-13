@@ -687,3 +687,78 @@ describe("Facebook's /reel/ feed entry (the top-menu Reels tab, ISS-0035)", () =
   });
 });
 
+
+describe("a live change that shows hidden content asks the page to measure again (ISS-0040)", () => {
+  const settle = async (h: Awaited<ReturnType<typeof host>>) => {
+    await h.cache.hydrate();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  };
+  it.each(["sites.facebook.reels", "services.facebook", "globalOn"] as const)("Off at %s fires one resize after the reveal", async (path) => {
+    const h = await host("https://www.facebook.com/stillapp/photos");
+    const resized = vi.fn();
+    window.addEventListener("resize", resized);
+    try {
+      await settle(h);
+      expect(resized).not.toHaveBeenCalled(); // hiding on load never asks
+      await h.writer.commit({ path, value: false, updatedAt: Date.now() });
+      await settle(h);
+      expect(resized).toHaveBeenCalledTimes(1);
+      // Turning it back on hides again, which needs no new measurement.
+      await h.writer.commit({ path, value: true, updatedAt: Date.now() + 1 });
+      await settle(h);
+      expect(resized).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("resize", resized);
+    }
+  });
+  it("a page Still sends elsewhere is not asked to measure", async () => {
+    const h = await host("https://www.facebook.com/stillapp/photos");
+    const resized = vi.fn();
+    window.addEventListener("resize", resized);
+    try {
+      await settle(h);
+      h.win.history.pushState({}, "", "/reels/");
+      h.script.reapply();
+      await settle(h);
+      expect(resized).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("resize", resized);
+    }
+  });
+  it("Instagram's live Off restores its profile tabs through the same layout notification", async () => {
+    const h = await host("https://www.instagram.com/someuser/");
+    const resized = vi.fn();
+    window.addEventListener("resize", resized);
+    try {
+      await settle(h);
+      await h.writer.commit({ path: "services.instagram", value: false, updatedAt: Date.now() });
+      await settle(h);
+      expect(resized).toHaveBeenCalledOnce();
+      h.script.reapply();
+      h.script.reapply();
+      await settle(h);
+      expect(resized).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("resize", resized);
+    }
+  });
+  it("stopping before the queued layout notification keeps the page untouched", async () => {
+    const h = await host("https://www.facebook.com/stillapp/photos");
+    await settle(h);
+    const pending: VoidFunction[] = [];
+    const queue = vi.spyOn(globalThis, "queueMicrotask").mockImplementation((task) => { pending.push(task); });
+    const resized = vi.fn();
+    window.addEventListener("resize", resized);
+    try {
+      await h.writer.commit({ path: "services.facebook", value: false, updatedAt: Date.now() });
+      await settle(h);
+      expect(pending.length).toBeGreaterThan(0);
+      h.script.stop();
+      for (const task of pending) task();
+      expect(resized).not.toHaveBeenCalled();
+    } finally {
+      queue.mockRestore();
+      window.removeEventListener("resize", resized);
+    }
+  });
+});

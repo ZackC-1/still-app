@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: A hide rule targets a tab or menu item that the site measures to decide what overflows, and the element keeps reappearing, flickers, or passes one check and fails the next
 date: 2026-09-24
-last_updated: 2026-09-25
+last_updated: 2026-10-12
 status: active
 tags: [facebook, selectors, tabs, overflow, flicker, selector-drift]
 ---
@@ -72,6 +72,24 @@ bounded by Facebook's own per-item feed unit instead; see
 [identify a feed card by the site's item wrapper](identify-a-feed-card-by-the-sites-item-wrapper.md).
 The replacement tab/menu rules introduce no `:has()` dependency; older Safari compatibility of
 pre-existing rules is a separate limitation.
+
+## Restoring measured tabs after a live Off
+
+A second measurement failure occurs when Still reveals a hidden tab without reloading.
+Owner QA on Facebook in Firefox found that switching the service Off restored Reels but left Followers and More drawn on top of each other until reload (ISS-0040).
+Restoring CSS visibility alone does not tell the site's JavaScript tab-layout cache to measure again.
+
+The format-2 content runtime compares effective features across committed reapply passes.
+When a feature stops applying, it queues one page-visible `resize` event after DOM and marker reconciliation, unless the page is being redirected.
+The site's handler then measures the restored contents, as it does after a window resize.
+Initial hiding and On changes do not need this notification; unchanged reapply passes do not repeat it, and script shutdown cancels a queued notification.
+The shared runtime supplies the same behavior for Instagram profile tabs and Safari content scripts.
+
+`format2-navigation.test.ts` proves Facebook service, free-row and global Off, Instagram Off, unchanged reapply, and cancellation on stop.
+Before the fix, five added cases failed; all 126 navigation tests passed after it.
+The real Firefox lane's `firefox.spec.ts` checks that the event crosses into the page after the restored tab has width; all 31 lane tests passed.
+`fixtures-format2.spec.ts` applies the same page-visible ordering check to the Chromium extension.
+These fixtures verify the integration boundary, not a signed-in live-site layout or a physical Safari device retest.
 
 ## Prevention
 
