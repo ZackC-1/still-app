@@ -36,6 +36,8 @@
       browser: "Chrome" | "Firefox";
       onSettings: () => void;
       onSeePro?: () => void;
+      /** The Pro destination would offer Get Still Pro now (see DesktopPopupProps). */
+      proOfferReady?: boolean;
       loadDesktop: () => Promise<{ default: Component<DesktopPopupProps> }>;
       sectionMemory?: DesktopPopupProps["sectionMemory"];
     };
@@ -477,6 +479,7 @@
       onSignIn={!c.userId && c.canSignIn ? () => c.openSignIn() : undefined}
       onSettings={desktopPresentation.onSettings}
       onSeePro={desktopPresentation.onSeePro}
+      proOfferReady={desktopPresentation.proOfferReady}
       sectionMemory={desktopPresentation.sectionMemory}
       privacyUrl={PRIVACY_POLICY_URL}
       account={desktopAccount}

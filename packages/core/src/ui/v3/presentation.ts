@@ -79,12 +79,16 @@ const PRO_VALUE_PHRASES: Record<string, string> = {
   "youtube.livechat": "live chat",
 };
 
-/** "a, b and c"; a serial comma only where the item before "and" itself contains "and". */
+/**
+ * "a, b and c"; a comma before the final "and" only where one of the two items it joins itself
+ * contains "and" ("Stories, Videos and Watch, and desktop sidebar ads"; on a phone, "Stories, and
+ * Videos and Watch").
+ */
 function joinPhrases(items: readonly string[]): string {
   if (items.length < 2) return items.join("");
   const head = items.slice(0, -1);
-  const last = items[items.length - 1];
-  const serial = items.length > 2 && / and /.test(head[head.length - 1]!);
+  const last = items[items.length - 1]!;
+  const serial = / and /.test(head[head.length - 1]!) || / and /.test(last);
   return `${head.join(", ")}${serial ? ", and " : " and "}${last}`;
 }
 
@@ -155,6 +159,8 @@ export interface DesktopPopupProps {
    * Navigation to the actual Still Pro destination (the browser Settings page's Still Pro card, or
    * the Still app on Safari). The popup's Get Still Pro and its feature locks both use it, only
    * while access is conclusively locked; the popup never starts a payment itself (ISS-0032).
+   * The popup's Still Pro card also waits for a clear setup and account state (as the sync
+   * invitation does) and for `proOfferReady`.
    */
   onSeePro?: () => void;
   /**
@@ -164,6 +170,13 @@ export interface DesktopPopupProps {
    * readers. Presentation only: it adds no action the host did not supply.
    */
   appHandoff?: boolean;
+  /**
+   * False while the host knows its Still Pro destination would not offer Get Still Pro right now
+   * (for example, a browser route where sales are not open). The popup's Still Pro card then stays
+   * hidden, so it never leads to "can't be bought here"; the lock chips still open the destination.
+   * Omitted: the destination decides (the Still app on Safari).
+   */
+  proOfferReady?: boolean;
   account?: {
     address?: string;
     status?: {

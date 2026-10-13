@@ -19,7 +19,8 @@
     host,
     channelReady = false,
     onSeePro,
-    appHandoff = false,
+    appHandoff,
+    proOfferReady = true,
     setup,
     onGlobalChange,
     onServiceChange,
@@ -90,6 +91,16 @@
   function openPro() {
     if (appActionReady || browserActionReady) onSeePro?.();
   }
+  // Safari actions hand off to the Still app unless the host says otherwise.
+  let handoff = $derived(appHandoff ?? host === "safari");
+  // The card waits for the destination to be able to sell and for a clear setup and account
+  // state, as the sync invitation does.
+  let proCardShown = $derived(
+    (appActionReady || browserActionReady) &&
+      proOfferReady &&
+      !setup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -234,9 +245,9 @@
       </div>
     {/each}
   </div>
-  {#if appActionReady || browserActionReady}<PopupProCard
+  {#if proCardShown}<PopupProCard
       onOpen={openPro}
-      {appHandoff}
+      appHandoff={handoff}
     />{/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
@@ -252,13 +263,13 @@
       {#if !account && onSignIn}<button
           type="button"
           class="primary inline"
-          class:with-glyph={appHandoff}
-          aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
+          class:with-glyph={handoff}
+          aria-describedby={handoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
-          >Sign in{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
+          >Sign in{#if handoff}<Glyph name="external" size={13} />{/if}</button
         >{/if}
     </div>
-    {#if !account && onSignIn && appHandoff}<p
+    {#if !account && onSignIn && handoff}<p
         class="handoff"
         id="popup-signin-handoff"
       >

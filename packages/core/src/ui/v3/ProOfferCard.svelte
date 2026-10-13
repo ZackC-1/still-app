@@ -41,12 +41,16 @@
   );
   // The value-led offer (ISS-0032, owner-approved design): shown only while access is conclusively
   // locked, as what the extras hide on each site, then the one-time terms. No counts, no price.
+  // The one-time terms sit only beside a live Get Still Pro, so the card never states purchase terms
+  // it is not offering (a closed channel, a Restore check in progress, a finished purchase).
   let valueLed = $derived(
     ownership === "none" &&
       knownMissing &&
       !accessHeld &&
       !accessChecking &&
       !accessVerify &&
+      !restoreHeld &&
+      state !== "success" &&
       controls.length === 0,
   );
   let value = $derived(valueLed ? proValueBySite(features) : []);
@@ -103,7 +107,7 @@
           </li>
         {/each}
       </ul>
-      <p class="offer-terms">One-time purchase. Lifetime access.</p>
+      {#if canBuy}<p class="offer-terms">One-time purchase. Lifetime access.</p>{/if}
     {/if}
     {#if canBuy}
       <button

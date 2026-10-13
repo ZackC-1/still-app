@@ -179,6 +179,38 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     },
   );
 
+  it("locked but the destination would not sell now: no card, yet the locks still open it", async () => {
+    const { seePro } = await mountPopup(surface, "locked", { proOfferReady: false });
+    expect(proCard()).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Instagram Blocker" }));
+    const panel = screen.getByRole("group", { name: "Instagram Blocker" });
+    await fireEvent.click(
+      within(panel).getAllByRole("button", { name: /Included in Still Pro\. / })[0]!,
+    );
+    expect(seePro).toHaveBeenCalledOnce();
+  });
+
+  it.each(["pending", "failed", "caution"] as const)(
+    "locked with a %s account status: no card (the free outcome comes first)",
+    async (tone) => {
+      await mountPopup(surface, "locked", {
+        account: { address: "person@still.test", status: { tone, text: "Fixture status" } },
+      });
+      expect(proCard()).toBeNull();
+    },
+  );
+
+  it("locked while setup is needed: no card (the free outcome comes first)", async () => {
+    await mountPopup(
+      surface,
+      "locked",
+      surface.kind === "desktop"
+        ? { desktopSetup: { title: "Fixture setup", detail: "Fixture detail", actionLabel: "Allow" } }
+        : ({ setup: {} } as Partial<DesktopPopupProps>),
+    );
+    expect(proCard()).toBeNull();
+  });
+
   it("locked without a host destination: no card and inert locks", async () => {
     const { seePro } = await mountPopup(surface, "locked", { onSeePro: undefined });
     expect(proCard()).toBeNull();
@@ -213,6 +245,17 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     await fireEvent.click(button);
     expect(signIn).toHaveBeenCalledOnce();
   });
+});
+
+it("iPhone Safari hands off to the app by default, even without the appHandoff flag", async () => {
+  const { props } = await desktopFixture("locked");
+  const { browser: _browser, ...mobile } = props;
+  render(MobilePopup, {
+    props: { ...mobile, host: "safari", onSeePro: vi.fn() } satisfies MobilePopupProps,
+  });
+  expect(screen.getByRole("button", { name: "Get Still Pro" })).toHaveAccessibleDescription(
+    "Opens the Still app",
+  );
 });
 
 describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid world", () => {
@@ -262,6 +305,31 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(onRestore).toHaveBeenCalledOnce();
   });
 
+  it("locked with Buy not open here: the value list stays, the one-time terms and Get Still Pro do not", async () => {
+    const { props } = await settingsFixture("locked");
+    render(ExtensionSettings, {
+      props: { ...props, pro: { ownership: "none", channel: "unverified", onRestore: vi.fn() } },
+    });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    expect(within(card).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(card).queryByText("One-time purchase. Lifetime access.")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(within(card).getByText("Still Pro can't be bought here yet.")).toBeVisible();
+  });
+
+  it.each([
+    ["a Restore check is in progress", { restore: { state: "checking" as const } }, {}],
+    ["the purchase just succeeded", {}, { state: "success" as const }],
+  ])("locked while %s: no value list or terms", async (_name, page, pro) => {
+    const { props } = await settingsFixture("locked");
+    render(ExtensionSettings, {
+      props: { ...props, ...page, pro: { ...ready, ...pro } },
+    });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    expect(within(card).queryByRole("listitem")).toBeNull();
+    expect(within(card).queryByText("One-time purchase. Lifetime access.")).toBeNull();
+  });
+
   it("on a phone: lists only the extras the phone draws, still without counts", async () => {
     const { props } = await settingsFixture("locked");
     render(ExtensionSettings, {
@@ -271,7 +339,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     const text = [...card.querySelectorAll(".what")].map((node) => node.textContent);
     expect(text).toEqual([
       "Stories and Highlights, Explore recommendations, suggested accounts and Threads links",
-      "Stories and Videos and Watch",
+      "Stories, and Videos and Watch",
       "Related videos, autoplay and comments",
     ]);
     expect(card.textContent).not.toMatch(/desktop sidebar ads|live chat|end-of-video/i);

@@ -35,6 +35,7 @@
     accountActions,
     onSeePro,
     appHandoff = false,
+    proOfferReady = true,
     account,
     sectionMemory,
     services = ["instagram", "facebook", "youtube", "tiktok"],
@@ -72,6 +73,14 @@
   function openPro() {
     if (proDestinationReady) onSeePro?.();
   }
+  // The card itself waits for the destination to be able to sell and, like the sync invitation,
+  // for a clear setup and account state: it never competes with fixing the free outcome.
+  let proCardShown = $derived(
+    proDestinationReady &&
+      proOfferReady &&
+      !desktopSetup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
   let dormant = $derived(proRowsDormant(access));
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
@@ -272,7 +281,7 @@
       </div>
     {/each}
   </div>
-  {#if proDestinationReady}<PopupProCard
+  {#if proCardShown}<PopupProCard
       onOpen={openPro}
       {appHandoff}
     />{/if}

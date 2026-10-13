@@ -63,8 +63,21 @@ async function options(target: HTMLElement) {
   return { view, buy, card: () => within(target).getByRole("region", { name: "Still Pro" }) };
 }
 
-async function popup(browserName: "Chrome" | "Firefox", android = false, state: "locked" | "unsupported" | "checking" = "locked", ready = true) {
+async function popup(browserName: "Chrome" | "Firefox", android = false, state: "locked" | "unsupported" | "checking" = "locked", ready = true, offer = true) {
   await browser();
+  // The background's "would Settings offer Get Still Pro?" answer (lib/checkout-availability.ts).
+  const send = chrome.runtime.sendMessage.bind(chrome.runtime) as (message: unknown) => Promise<unknown>;
+  const asked = vi.fn();
+  Object.assign(chrome.runtime, {
+    sendMessage: vi.fn(async (message: unknown) => {
+      const m = message as { kind?: string; action?: string };
+      if (m.kind === "still:session" && m.action === "checkoutAvailable") {
+        asked();
+        return offer;
+      }
+      return send(message);
+    }),
+  });
   const navigation = session();
   const { controller } = capture();
   const f = await desktopFixture(state);
@@ -84,7 +97,8 @@ async function popup(browserName: "Chrome" | "Firefox", android = false, state: 
   const view = render(PopupApp, { props });
   const youtube = await screen.findByRole("button", { name: "YouTube Blocker" });
   if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
-  return { ...navigation, view, props, binding, f };
+  await flush();
+  return { ...navigation, view, props, binding, f, asked };
 }
 
 describe("live popup/App/browser Pro navigation", () => {
@@ -118,7 +132,7 @@ describe("live popup/App/browser Pro navigation", () => {
   ] as const)("%s Android=%s: the popup's Still Pro card opens the same Settings request and never buys (ISS-0032)", async (name, android) => {
     const f = await popup(name, android);
     const before = await f.f.storage.get();
-    const card = screen.getByRole("region", { name: "Still Pro" });
+    const card = await screen.findByRole("region", { name: "Still Pro" });
     expect(within(card).getByText("Hide more on Instagram, Facebook and YouTube. One-time purchase.")).toBeTruthy();
     expect(within(card).queryByText("Opens the Still app")).toBeNull();
     await fireEvent.click(within(card).getByRole("button", { name: "Get Still Pro" }));
@@ -126,6 +140,14 @@ describe("live popup/App/browser Pro navigation", () => {
     expect(f.records[PRO_NAVIGATION_KEY]).toMatchObject({ target: "pro" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(await f.f.storage.get()).toEqual(before);
+  });
+
+  it("no Still Pro card while Settings would not offer Get Still Pro, but the locks still open it", async () => {
+    const f = await popup("Chrome", false, "locked", true, false);
+    expect(f.asked).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" }));
+    await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());
   });
 
   it.each(["unsupported", "checking"] as const)("%s access shows no Still Pro card in the popup", async state => {

@@ -81,7 +81,8 @@ describe("paid tier off: Still Pro entry stays dormant", () => {
       const view = render(MobilePopup, { props });
       expect(parts(view.container)).toEqual(["hero", "sites", "sync", "footer"]);
       expect(document.body.textContent).not.toMatch(ENTRY);
-      expect(document.body.textContent).not.toContain(HANDOFF);
+      // Safari's Sign in (free sync) opens the Still app and says so; nothing else hands off.
+      expect(screen.queryAllByText(HANDOFF)).toHaveLength(host === "safari" ? 1 : 0);
       expect(props.onSeePro).not.toHaveBeenCalled();
     },
   );
