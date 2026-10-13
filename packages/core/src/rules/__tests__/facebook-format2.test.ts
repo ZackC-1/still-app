@@ -335,6 +335,13 @@ describe("captured Facebook through the maintained format2 compiler", () => {
         s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
         expect(visible(document.getElementById("link")!), href).toBe(true);
       }
+      // A sidebar shortcut someone named "Reels" (a group, say) is theirs; only the banner's tab is
+      // matched by that label.
+      document.body.innerHTML = '<div role="banner"><div role="navigation"><ul><li id="tab"><a aria-label="Reels" href="/somewhere/">Reels</a></li></ul></div></div>'
+        + '<div role="navigation" aria-label="Shortcuts"><ul><li id="keep-shortcut"><a aria-label="Reels" href="/groups/reelsclub/">Reels</a></li></ul></div>';
+      s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
+      expect(visible(document.getElementById("tab")!)).toBe(false);
+      expect(visible(document.getElementById("keep-shortcut")!)).toBe(true);
       // A list item that holds a whole sub-list keeps it; only the entry's own leaf item goes.
       document.body.innerHTML = '<div role="navigation"><ul><li id="outer"><ul><li id="leaf"><a href="/reel/?s=tab">Reels</a></li><li id="keep-sibling"><a href="/friends/">Friends</a></li></ul></li></ul></div>';
       s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
@@ -367,7 +374,7 @@ describe("captured Facebook through the maintained format2 compiler", () => {
         s.evaluate(DEFAULT_SETTINGS_V2, fb(to));
         return s.reelContinuation?.(fb(from), fb(to)) ?? null;
       };
-      for (const from of ["/reel/?s=tab", "/reel/", "/reel/following/", "/reel/profile/"])
+      for (const from of ["/reel/?s=tab", "/reel/", "/reel/following/", "/reel/profile/", "/reels/", "/reels", "/watch/reels/", "/watch/reels"])
         expect(continuation(from, "/reel/1234567890/"), from).toBe("https://www.facebook.com/");
       expect(continuation("/reel/111/", "/reel/222/")).toBe("https://www.facebook.com/");
       for (const from of ["/", "/groups/123/", "/messages/t/1/", "/reel/1234567890/"])

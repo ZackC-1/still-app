@@ -49,7 +49,11 @@ export function assertUnconfiguredBuild(): void {
   }
 }
 
-export type Router = (url: URL) => string | null;
+/**
+ * The answer for a service URL: HTML, null for "empty page", or a server redirect (as Facebook
+ * answers a typed /reels with /reel/).
+ */
+export type Router = (url: URL) => string | null | { readonly redirect: string };
 
 export class StillFirefox {
   private route: Router = () => null;
@@ -125,7 +129,17 @@ export class StillFirefox {
       ) {
         await this.bidi.send("network.continueRequest", { request: requestId });
       } else if (SERVICE_HOST.test(url.hostname)) {
-        const html = this.route(url);
+        const answer = this.route(url);
+        if (answer !== null && typeof answer === "object") {
+          await this.bidi.send("network.provideResponse", {
+            request: requestId,
+            statusCode: 302,
+            reasonPhrase: "Found",
+            headers: [{ name: "Location", value: { type: "string", value: answer.redirect } }],
+          });
+          return;
+        }
+        const html = answer;
         const isDocument =
           event.request.destination === "document" || event.navigation;
         await this.bidi.send("network.provideResponse", {
