@@ -57,6 +57,8 @@ test.beforeAll(async () => {
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
+    // Explore in Instagram's current desktop markup (ISS-0038).
+    if (host.endsWith("instagram.com") && url.pathname === "/explore/") return fixture("instagram-explore.html");
     if (host.endsWith("instagram.com")) return fixture("instagram.html");
     // Facebook's current navigation and Reels player markup (ISS-0035) answers one group's pages.
     if (host.endsWith("facebook.com") && url.pathname.startsWith("/groups/chosen")) return fixture("facebook-nav.html");
@@ -181,6 +183,21 @@ test("instagram current desktop markup: the Reels menu item, the profile Reels t
   expect(boxes).toHaveLength(6);
   expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
   expect(new Set(boxes.map((box) => box[0])).size).toBe(3);
+  expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
+  await tab.close();
+});
+
+test("instagram explore: Reel tiles go and the other posts close up four to a line", async () => {
+  const tab = await firefox.openTab("https://www.instagram.com/explore/");
+  await waitWorking(tab, "instagram");
+  for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10"]) await waitHiddenPresent(tab, id);
+  for (const id of ["#keep-explore-1", "#keep-explore-6"]) expect(await tab.isVisible(id), id).toBe(true);
+  const boxes = await tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#explore-grid > div > div")]
+    .map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
+    .map((box) => [Math.round(box.x), Math.round(box.y), Math.round(box.width)])`);
+  expect(boxes).toHaveLength(6);
+  expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
+  expect(new Set(boxes.map((box) => box[0])).size).toBe(4);
   expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
   await tab.close();
 });

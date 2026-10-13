@@ -601,3 +601,47 @@ test("format-2 instagram: one Reel opened from a profile plays, but its modal mo
   await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/some.user/reel/B2/"));
   await expect(page).toHaveURL("https://www.instagram.com/some.user/");
 });
+
+// ── Instagram Explore (ISS-0038) ────────────────────────────────────────────────────────────────
+
+test("format-2 instagram explore: Reel tiles go, the other posts close up four to a line, Off restores", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-explore.html"));
+  await page.goto("https://www.instagram.com/explore/");
+  await expectFormat2Lane(page);
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
+  const boxes = () => page.locator("#explore-grid > div > div").evaluateAll((tiles) =>
+    tiles.map((tile) => ({ id: tile.id, box: tile.getBoundingClientRect() })).filter(({ box }) => box.width > 0)
+      .map(({ id, box }) => ({ id, x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) })));
+  const expectClosedUp = async () => {
+    const tiles = await boxes();
+    // Six posts, in order, four to a line at the rows' own tile size: no Reel and no hole.
+    expect(tiles.map((tile) => tile.id)).toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
+    tiles.forEach((tile, index) => {
+      expect(tile.width, tile.id).toBe(tiles[0]!.width);
+      expect(tile.height, tile.id).toBe(tiles[0]!.height);
+      expect(tile.x, tile.id).toBe(tiles[index % 4]!.x);
+      expect(Math.abs(tile.y - (tiles[0]!.y + Math.floor(index / 4) * (tiles[0]!.height + 1))), tile.id).toBeLessThanOrEqual(1);
+    });
+    expect(new Set(tiles.slice(0, 4).map((tile) => tile.x)).size).toBe(4);
+  };
+  await expectClosedUp();
+  // A tile opened over Explore (/p/<code>/) keeps the mark: the grid behind the viewer stays closed up.
+  await page.evaluate(() => history.pushState(null, "", "/p/ExPost0001/"));
+  await page.waitForTimeout(300);
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
+  await expectClosedUp();
+  await page.evaluate(() => history.pushState(null, "", "/explore/"));
+  // Leaving for any other page clears it.
+  await page.evaluate(() => history.pushState(null, "", "/"));
+  await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-explore");
+  await page.evaluate(() => history.pushState(null, "", "/explore/"));
+  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
+  const toggle = await stillSwitch(context, extensionId);
+  await toggle();
+  await expect.poll(async () => (await boxes()).length).toBe(16); // Instagram's own grid, Reels and all
+  await toggle();
+  await expect.poll(async () => (await boxes()).length).toBe(6);
+  await expectClosedUp();
+});
+
