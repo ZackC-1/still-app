@@ -17,6 +17,7 @@ import type { MobilePopupProps } from "./mobile-presentation.js";
 afterEach(cleanup);
 
 const ENTRY = /Get Still Pro|Hide more on|One-time purchase|Lifetime access|price is shown/;
+const HANDOFF = "Opens the Still app";
 
 /** The popup's top-level parts, in order, by their identifying class or element. */
 function parts(container: HTMLElement) {
@@ -59,6 +60,7 @@ describe("paid tier off: Still Pro entry stays dormant", () => {
       // A supplied Pro destination changes nothing while the rows are dormant.
       expect(ported.container.innerHTML).toBe(before);
       expect(document.body.textContent).not.toMatch(ENTRY);
+      expect(document.body.textContent).not.toContain(HANDOFF);
       expect(document.querySelector(".handoff")).toBeNull();
       expect(seePro).not.toHaveBeenCalled();
     },
@@ -79,9 +81,32 @@ describe("paid tier off: Still Pro entry stays dormant", () => {
       const view = render(MobilePopup, { props });
       expect(parts(view.container)).toEqual(["hero", "sites", "sync", "footer"]);
       expect(document.body.textContent).not.toMatch(ENTRY);
+      expect(document.body.textContent).not.toContain(HANDOFF);
       expect(props.onSeePro).not.toHaveBeenCalled();
     },
   );
+
+  it("a Safari host's app hand-off adds nothing Still Pro; only a signed-out Sign in says it opens the app", async () => {
+    // Settings sync is free, so the Safari popups' Sign in (which opens the Still app) is not a Still
+    // Pro entry and may show in any build. The Pro card and lock hand-offs stay dormant.
+    const { props: desktop } = await desktopFixture();
+    const { browser: _browser, ...rest } = desktop;
+    const props: MobilePopupProps = {
+      ...rest,
+      access: initialAccessSnapshot(),
+      host: "safari",
+      onSeePro: vi.fn(),
+      appHandoff: true,
+    };
+    const view = render(MobilePopup, { props });
+    expect(parts(view.container)).toEqual(["hero", "sites", "sync", "footer"]);
+    expect(document.body.textContent).not.toMatch(ENTRY);
+    expect(screen.getByRole("button", { name: "Sign in" })).toHaveAccessibleDescription(HANDOFF);
+    expect(screen.getAllByText(HANDOFF)).toHaveLength(1);
+    props.account = { address: "person@still.test" };
+    await view.rerender(props);
+    expect(screen.queryByText(HANDOFF)).toBeNull();
+  });
 
   it("Settings without a paid producer: the sync card keeps its heading and no Still Pro card appears", async () => {
     const { props } = await settingsFixture();
@@ -93,6 +118,26 @@ describe("paid tier off: Still Pro entry stays dormant", () => {
     expect(screen.queryByText("Still Pro and sync")).toBeNull();
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     expect(document.body.textContent).not.toMatch(ENTRY);
+  });
+});
+
+describe("proKnownMissing", () => {
+  const states = (base: string, other?: [string, string]) => {
+    const access = initialAccessSnapshot();
+    const next = { ...access.states } as Record<string, string>;
+    for (const id of Object.keys(next))
+      if (!["youtube.shorts", "instagram.reels", "facebook.reels", "tiktok.all"].includes(id))
+        next[id] = base;
+    if (other) next[other[0]] = other[1];
+    return { states: next } as Parameters<typeof proKnownMissing>[0];
+  };
+  it("is true only when some Still Pro row is locked and none is unsure, owned or protected", () => {
+    expect(proKnownMissing(states("locked"))).toBe(true);
+    expect(proKnownMissing(states("locked", ["youtube.comments", "unsupported"]))).toBe(true);
+    for (const other of ["checking", "verification_required", "purchased", "protected"])
+      expect(proKnownMissing(states("locked", ["youtube.comments", other])), other).toBe(false);
+    for (const all of ["unsupported", "checking", "purchased", "protected", "free"])
+      expect(proKnownMissing(states(all)), all).toBe(false);
   });
 });
 

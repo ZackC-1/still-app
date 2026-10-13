@@ -13,7 +13,10 @@ vi.mock("@still/shared-types", async (original) => ({
 }));
 
 import { FEATURE_REGISTRY, PAID_TIER_ENABLED, type AccessState } from "@still/shared-types";
-import { phoneLayoutFeatures } from "../../entitlement/access-policy.js";
+import {
+  DESKTOP_LAYOUT_ONLY_PRO,
+  phoneLayoutFeatures,
+} from "../../entitlement/access-policy.js";
 import DesktopPopup from "./DesktopPopup.svelte";
 import MobilePopup from "./MobilePopup.svelte";
 import ExtensionSettings from "./ExtensionSettings.svelte";
@@ -88,6 +91,7 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     expect(within(card).getByRole("heading", { name: "Still Pro" })).toBeVisible();
     expect(within(card).getByText(POPUP_PRO_VALUE)).toBeVisible();
     expect(card.textContent).not.toMatch(COUNT);
+    expect(card.textContent).not.toMatch(/\d/);
     expect(card.textContent).not.toMatch(PRICE);
     // Order: site list, Still Pro card, Settings sync, footer.
     const services = view.container.querySelector(".services")!;
@@ -135,7 +139,14 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
         chips++;
       }
     }
-    expect(chips).toBe(surface.kind === "desktop" ? 12 : 9);
+    const pro = FEATURE_REGISTRY.filter((row) => row.tier === "pro");
+    expect(chips).toBe(
+      surface.kind === "desktop"
+        ? pro.length
+        : pro.filter(
+            (row) => !(DESKTOP_LAYOUT_ONLY_PRO as readonly string[]).includes(row.id),
+          ).length,
+    );
     expect(seePro).toHaveBeenCalledTimes(chips);
   });
 
@@ -153,16 +164,20 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     expect(screen.queryByText(POPUP_PRO_VALUE)).toBeNull();
   });
 
-  it("mixed locked and checking access: no card until Still knows for sure", async () => {
-    const { props } = await desktopFixture("locked");
-    await mountPopup(surface, "locked", {
-      access: {
-        ...props.access,
-        states: { ...props.access.states, "youtube.related": "checking" },
-      },
-    });
-    expect(proCard()).toBeNull();
-  });
+  it.each(["checking", "verification_required", "purchased", "protected"] as const)(
+    "mixed locked and %s access: no card until Still knows for sure",
+    async (other) => {
+      const { props } = await desktopFixture("locked");
+      await mountPopup(surface, "locked", {
+        access: {
+          ...props.access,
+          states: { ...props.access.states, "youtube.related": other },
+        },
+      });
+      expect(proCard()).toBeNull();
+      expect(screen.queryByText("Get Still Pro")).toBeNull();
+    },
+  );
 
   it("locked without a host destination: no card and inert locks", async () => {
     const { seePro } = await mountPopup(surface, "locked", { onSeePro: undefined });
@@ -239,6 +254,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     const note = within(card).getByText("The price is shown at checkout.");
     expect(get.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.textContent).not.toMatch(COUNT);
+    expect(card.textContent).not.toMatch(/\d/);
     expect(card.textContent).not.toMatch(PRICE);
     await fireEvent.click(get);
     expect(onSignIn).toHaveBeenCalledOnce(); // signed out signs in first, as before
