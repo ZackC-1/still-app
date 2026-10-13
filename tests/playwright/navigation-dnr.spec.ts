@@ -84,7 +84,7 @@ test.describe("format-2 build", () => {
     const worker = await backgroundOf(context);
     const ids = await worker.evaluate(async () =>
       (await (globalThis as unknown as DnrWorker).chrome.declarativeNetRequest.getSessionRules()).map((rule) => rule.id).sort((a, b) => a - b));
-    expect(ids).toEqual([1, 2, 11, 12, 13, 21]);
+    expect(ids).toEqual([1, 2, 11, 12, 13, 14, 21]);
   });
 
   for (const [from, to] of [
@@ -92,6 +92,8 @@ test.describe("format-2 build", () => {
     ["https://m.youtube.com/shorts/abc123", "https://m.youtube.com/watch?v=abc123"],
     ["https://www.instagram.com/reels/C0dE_1/?igsh=share", "https://www.instagram.com/reel/C0dE_1/?igsh=share"],
     ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
+    // A profile's Reels tab opens the profile (ISS-0034).
+    ["https://www.instagram.com/someuser/reels/?igsh=share", "https://www.instagram.com/someuser/"],
     ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
     ["https://m.facebook.com/reels/", "https://m.facebook.com/"],
   ] as const)
@@ -109,6 +111,7 @@ test.describe("format-2 build", () => {
     "https://www.instagram.com/reels/audio/123/",
     "https://www.instagram.com/reels/audio/",
     "https://www.instagram.com/someuser/reel/C0dE/",
+    "https://www.instagram.com/someuser/tagged/",
     "https://www.instagram.com/reel/C0dE/",
     "https://www.facebook.com/someuser/reels_tab",
     "https://www.facebook.com/reel/123456",

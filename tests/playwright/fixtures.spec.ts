@@ -279,6 +279,22 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+// Instagram's current desktop markup (12 Oct 2026): the left menu is no longer a <nav>. The legacy
+// lane (configured builds) keys its menu rule on the address alone, so the Reels item stays hidden
+// there; the profile's Reels tab link is hidden too (ISS-0033, ISS-0034). The no-holes grid layout
+// is format-2 only (fixtures-format2.spec.ts); the legacy seed is unchanged.
+test("instagram current desktop menu and profile tabs: the Reels item and tab are hidden, posts stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-profile.html"));
+  await page.goto("https://www.instagram.com/someuser/");
+
+  await expect(page.locator("#menu-reels")).toBeHidden();
+  await expect(page.locator("#profile-reels-tab")).toBeHidden();
+  for (const id of ["#keep-menu-home", "#keep-menu-messages", "#keep-tab-posts", "#keep-tab-tagged", "#keep-tile-1", "#keep-tile-6"])
+    await expect(page.locator(id), id).toBeVisible();
+});
+
 // The signed-in home feed, rebuilt by hand from a real capture. It is the first surface anyone
 // opens, so it is the one place over-blocking is most expensive and under-blocking most visible.
 test("instagram home feed: Reels posts go, ordinary posts stay whole", async ({ context, extensionId }) => {
