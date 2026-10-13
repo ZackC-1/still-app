@@ -667,4 +667,18 @@ describe("a live change that shows hidden content asks the page to measure again
       window.removeEventListener("resize", resized);
     }
   });
+  it("a page Still sends elsewhere is not asked to measure", async () => {
+    const h = await host("https://www.facebook.com/stillapp/photos");
+    const resized = vi.fn();
+    window.addEventListener("resize", resized);
+    try {
+      await settle(h);
+      h.win.history.pushState({}, "", "/reels/");
+      h.script.reapply();
+      await settle(h);
+      expect(resized).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("resize", resized);
+    }
+  });
 });

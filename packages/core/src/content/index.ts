@@ -331,8 +331,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // hidden one (Facebook's Page tab row then draws two labels on top of each other until a
   // reload). When a live change stops a feature, a resize event right after this pass makes the
   // site measure again, as resizing the window would (reading layout then sees the shown tab). A
-  // microtask, not a timer: nothing is left pending once Still is off. A move that drops features
-  // (a redirect away) may fire one harmless extra resize.
+  // microtask, not a timer: nothing is left pending once Still is off. Stopping the script (an
+  // extension update or disable) sends none; the page reloads into its own layout then.
   let previousEffective: readonly BenefitId[] = [];
   const remeasureAfterReveal = (): void => {
     const view = doc.defaultView;
@@ -350,7 +350,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
       const effectiveNow = pageSession.effectiveFeatures?.() ?? [];
-      if (previousEffective.some((feature) => !effectiveNow.includes(feature))) remeasureAfterReveal();
+      // A page Still is about to send elsewhere needs no measurement.
+      if (previousEffective.some((feature) => !effectiveNow.includes(feature))
+        && pageSession.evaluate(cache.current(), url, modernOptions()).kind !== "redirect") remeasureAfterReveal();
       previousEffective = effectiveNow;
       markerHook?.reconcile(pageSession.effectiveFeatures?.() ?? []);
       autoplayGuard?.reconcile(pageSession.activeServiceId() === "youtube"
