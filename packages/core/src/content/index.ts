@@ -331,7 +331,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // hidden one (Facebook's Page tab row then draws two labels on top of each other until a
   // reload). When a live change stops a feature, a resize event right after this pass makes the
   // site measure again, as resizing the window would (reading layout then sees the shown tab). A
-  // microtask, not a timer: nothing is left pending once Still is off.
+  // microtask, not a timer: nothing is left pending once Still is off. A move that drops features
+  // (a redirect away) may fire one harmless extra resize.
   let previousEffective: readonly BenefitId[] = [];
   const remeasureAfterReveal = (): void => {
     const view = doc.defaultView;
