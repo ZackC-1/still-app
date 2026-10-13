@@ -226,9 +226,10 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item",
         "target-nav-watch-absolute", "target-nav-watch-absolute-item", "target-nav-watch-noslash", "target-nav-watch-noslash-item"])
         expect(visible(id), id).toBe(!videos);
-      // The feed Reel belongs to free Reels only: Videos never hides it.
+      // The feed Reel and the Reels menu entry belong to free Reels only: Videos never hides them
+      // (the bare /reel/ entry opens the Reels feed, ISS-0035).
       expect(visible("reel-feed-free"), "reel-feed-free").toBe(!reels);
-      expect(visible("reels-nav-free"), "reels-nav-free").toBe(true);
+      expect(visible("reels-nav-free"), "reels-nav-free").toBe(!reels);
       for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
       // Hidden feed video is quieted by the engine's media adapter; direct players never are.
       const feedVideo = document.querySelector("#target-feed-video video")!;

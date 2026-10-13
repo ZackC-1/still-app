@@ -39,7 +39,7 @@ export interface NavigationEventLike {
 export type NavigationIntent = "deliberate" | "page";
 
 /** A deliberate link activation still counts for the page's own pushState within this window. */
-const DELIBERATE_WINDOW_MS = 2_500;
+export const DELIBERATE_WINDOW_MS = 2_500;
 
 /**
  * Remembers the last link the person deliberately activated (trusted click or Enter on an

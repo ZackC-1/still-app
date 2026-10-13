@@ -59,12 +59,15 @@ const ORDINARY = [
   "https://www.facebook.com/",
   "https://www.facebook.com/watch/",
   "https://www.facebook.com/somepage/reels/",
+  "https://www.facebook.com/reel/1234567890/",
 ];
 const CANDIDATES = [
   "https://www.youtube.com/shorts/abc123",
   "https://www.instagram.com/reels/",
   "https://www.instagram.com/reels/C0de12/",
+  "https://www.instagram.com/someone/reels/",
   "https://www.facebook.com/watch/reels/",
+  "https://www.facebook.com/reel/?s=tab",
 ];
 
 describe("document_start cost of the V3 entry", () => {
@@ -82,9 +85,11 @@ describe("mayBeCoreRoute never rules out a route the engine sends elsewhere", ()
   const hosts = ["www.youtube.com", "m.youtube.com", "youtube.com", "www.instagram.com", "www.facebook.com", "m.facebook.com", "www.tiktok.com"];
   const paths = [
     "/", "/shorts", "/shorts/", "/shorts/abc123", "/shorts/abc123/", "/shorts/abc123?t=4", "/shorts/a/b",
-    "/reels", "/reels/", "/reels/C0de12", "/reels/C0de12/", "/reels/audio/1/", "/reel/C0de12/", "/someone/reels/",
+    "/reels", "/reels/", "/reels/C0de12", "/reels/C0de12/", "/reels/audio/1/", "/reel/C0de12/", "/someone/reels/", "/some.one/reels", "/someone/reels/x/",
     "/watch", "/watch/", "/watch/reels", "/watch/reels/", "/watch?v=abc", "/watch/live/", "/explore/", "/stories/x/1/",
     "/popular/cats/", "/results?search_query=shorts", "/@channel/shorts", "/REELS/", "//reels/",
+    // Facebook's /reel/ feed entry and the Reels player's own feeds (ISS-0035).
+    "/reel", "/reel/", "/reel/?s=tab", "/reel/following/", "/reel/profile/", "/reel/123456/",
   ];
   const corpus = hosts.flatMap((host) => paths.map((path) => new URL(`https://${host}${path}`)));
 
