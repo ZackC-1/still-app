@@ -7,6 +7,7 @@ import { extrasRouteMatches, resolveExtrasRoute, type ExtrasRouteTable } from ".
 import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
+import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, type LayoutRule } from "./instagram.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -130,15 +131,29 @@ export interface EnginePageSession {
    * Format-2 only, after evaluate(settings, to): the same-origin home when moving from one Reel
    * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
    * continuing into the next Reel), else null. Moving between Reels inside one Instagram
-   * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is profile browsing and allowed.
-   * Callers apply it only to page-driven moves, never to a deliberate link activation or
-   * Back/forward.
+   * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is stopped too, to that profile
+   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Facebook's /reel/ feed
+   * entry handing over to its first Reel counts as continuing too (ISS-0035). Callers apply it
+   * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL): string | null;
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
 const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
+
+/**
+ * Instagram's profile Reels tab: /<user>/reels/. The bare feed (/reels/) and the plural viewer
+ * (/reels/<code>/) are matched first, so a first segment of "reels" never reaches this pattern.
+ */
+const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
+
+/**
+ * Facebook's Reels feed under /reel/: the bare entry its top-menu tab and sidebar shortcut open
+ * (/reel/?s=tab, which then plays the next Reel in the feed) and the player's own "Following" and
+ * "Profile" feeds. A single shared Reel is /reel/<digits> and never matches (ISS-0035).
+ */
+const FACEBOOK_REEL_FEED = /^\/reel(?:\/(?:following|profile))?\/?$/;
 
 /**
  * The item a Reel viewer shows, and the profile whose modal shows it (null for the global
@@ -512,6 +527,15 @@ const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
   facebook: FACEBOOK_EXTRAS.routes,
 });
 
+/**
+ * Layout repairs a free hide needs, per service and feature (never rule data): declarations other
+ * than display:none can only come from packaged code. Emitted after that feature's hides, under
+ * the same owned feature class, so they apply exactly while the feature hides.
+ */
+const PACKAGED_LAYOUT: Readonly<Partial<Record<ServiceId, Readonly<Partial<Record<BenefitId, readonly LayoutRule[]>>>>>> = Object.freeze({
+  instagram: Object.freeze({ "instagram.reels": INSTAGRAM_REELS_LAYOUT }),
+});
+
 /** Still Pro features a packaged content handler implements, per service (never rule data). */
 const PACKAGED_EXTRAS_HANDLERS: Readonly<Partial<Record<ServiceId, readonly BenefitId[]>>> = Object.freeze({
   youtube: YOUTUBE_EXTRAS.handlers ?? [],
@@ -578,7 +602,12 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       compiledSelectors += values.length;
       // :is() keeps EVERY comma-list branch below the same owned feature gate. One rule per
       // selector lets a browser reject unsupported syntax without discarding its neighbours.
-      rules.set(benefit, values.map(selector => `.${featureClass(benefit)} :is(${selector}){display:none!important}`));
+      // Packaged layout repairs a hide needs (compiled code, never rule data) follow its hides.
+      const layout = PACKAGED_LAYOUT[id as ServiceId]?.[benefit] ?? [];
+      rules.set(benefit, [
+        ...values.map(selector => `.${featureClass(benefit)} :is(${selector}){display:none!important}`),
+        ...layout.map(rule => `.${featureClass(benefit)} :is(${rule.selector}){${rule.declarations}}`),
+      ]);
     }
     css.set(id as ServiceId, rules);
     const routeOnly = (extrasRoutes[id as ServiceId] ?? []).map(route => route.feature).filter(feature => !plan.has(feature));
@@ -656,11 +685,11 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
         destination.searchParams.set("v", id);
       }
     } else if (((service === "instagram" || service === "facebook") && /^\/reels\/?$/.test(url.pathname))
-      || (service === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
-      // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
-      // Watch. Direct/shared singular /reel/<id>, a Page's or profile's own Reels tab,
-      // normal/live videos, people/groups/search/messages and their query-bearing routes stay
-      // usable.
+      || (service === "facebook" && (/^\/watch\/reels\/?$/.test(url.pathname) || FACEBOOK_REEL_FEED.test(url.pathname)))) {
+      // Category browsing only: the bare Reels feeds, Facebook's own Reels feed under Watch and
+      // its /reel/ feed entry (the top-menu Reels tab). Direct/shared singular /reel/<id>, a
+      // Page's or profile's own Reels tab, normal/live videos, people/groups/search/messages and
+      // their query-bearing routes stay usable.
       destination = new URL("/", url.origin);
     } else if (service === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
       // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
@@ -668,6 +697,10 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       // then stops it advancing into another Reel.
       destination = new URL(url.href);
       destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
+    } else if (service === "instagram" && INSTAGRAM_APP_HOST.test(url.hostname) && INSTAGRAM_PROFILE_REELS_TAB.test(url.pathname)) {
+      // A profile's own Reels tab lists every Reel it has, one tap each: browsing, not a shared
+      // Reel (ISS-0034). It opens that profile's posts instead.
+      destination = new URL(`/${INSTAGRAM_PROFILE_REELS_TAB.exec(url.pathname)![1]}/`, url.origin);
     }
     return destination;
   }
@@ -702,11 +735,15 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       // Valid only for the inputs just prepared for `to`, while that service's Reels core is on.
       if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
       if (serviceId !== "instagram" && serviceId !== "facebook") return null;
-      const current = reelViewerItem(serviceId, from);
       const next = reelViewerItem(serviceId, to);
+      // Facebook's feed entry handing over to the Reel it chose to play first is the feed itself,
+      // whenever Still did not get to send the entry home before the page moved on.
+      if (next && serviceId === "facebook" && FACEBOOK_REEL_FEED.test(from.pathname)) return new URL("/", to.origin).href;
+      const current = reelViewerItem(serviceId, from);
       if (!current || !next || current.id === next.id) return null;
-      // One profile's own Reels modal: profile browsing, not the global viewer advancing.
-      if (current.owner !== null && current.owner === next.owner) return null;
+      // One profile's own modal moving on into another of its Reels returns to that profile's
+      // posts rather than Home, so someone browsing a creator stays on the creator.
+      if (current.owner !== null && current.owner === next.owner) return new URL(`/${next.owner}/`, to.origin).href;
       return new URL("/", to.origin).href;
     },
     activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId

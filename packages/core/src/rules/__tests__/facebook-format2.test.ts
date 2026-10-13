@@ -288,4 +288,93 @@ describe("captured Facebook through the maintained format2 compiler", () => {
       ).kind,
     ).toBe("redirect");
   });
+
+  describe("the Reels feed entries in the current navigation (ISS-0035)", () => {
+    const targets = ["top-reels-item", "top-reels-tab", "sidebar-reels-item", "sidebar-reels", "player-for-you", "player-following", "player-profile"];
+
+    it("the top-menu tab, the sidebar shortcut and the player's feed links hide; every other entry and the shared Reel stay", () => {
+      render("facebook-nav.html");
+      const keep = [...document.querySelectorAll('[id^="keep-"]')];
+      expect(keep.length).toBeGreaterThan(15);
+      const before = new Map([...targets.map((id) => document.getElementById(id)!), ...keep].map((node) => [node, node.outerHTML]));
+      const s = session();
+      for (const href of ["https://www.facebook.com/", "https://www.facebook.com/reel/1234567890123456/"]) {
+        s.applyDom(DEFAULT_SETTINGS_V2, new URL(href), document);
+        for (const id of targets) expect(visible(document.getElementById(id)!), `${href} ${id}`).toBe(false);
+        for (const node of keep) expect(visible(node), `${href} ${node.id}`).toBe(true);
+      }
+      for (const [node, html] of before) expect(node.outerHTML, node.id).toBe(html);
+      s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, new URL("https://www.facebook.com/"), document);
+      for (const id of targets) expect(visible(document.getElementById(id)!), id).toBe(true);
+    });
+
+    it("the same entries hide when Facebook writes them relative, absolute or on m.facebook.com, inside a <nav> too", () => {
+      const s = session();
+      for (const href of [
+        "/reel/", "/reel/?s=tab", "/reel/following/", "/reel/profile/", "/reels/", "/reels/?ref=bookmarks", "/watch/reels/",
+        "https://www.facebook.com/reel/", "https://www.facebook.com/reel/?s=bookmark", "https://www.facebook.com/reels/",
+        "https://m.facebook.com/reel/?s=tab", "https://m.facebook.com/reels/", "https://m.facebook.com/watch/reels/",
+        "https://web.facebook.com/reel/?s=tab", "https://facebook.com/reel/following/",
+      ]) {
+        document.body.innerHTML = `<nav><ul><li id="entry"><div><a href="${href}">Reels</a></div></li><li id="keep"><a href="/">Home</a></li></ul></nav>`;
+        s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
+        expect(visible(document.getElementById("entry")!), href).toBe(false);
+        expect(visible(document.getElementById("keep")!), href).toBe(true);
+      }
+    });
+
+    it("a shared Reel, a Page's Reels tab, lookalike names and a list holding the entry are never hidden", () => {
+      const s = session();
+      for (const href of [
+        "/reel/1234567890/", "/reel/1234567890?s=tab", "https://www.facebook.com/reel/1234567890", "/reelestate/", "/reels_tab",
+        "/stillapp/reels/", "/groups/reels/", "https://example.com/reel/?s=tab", "/l.php?u=https%3A%2F%2Fwww.facebook.com%2Freel%2F",
+        "/reel/followingx/", "/reel/profilepage/", "/watch/reelsx/", "/reelsx/", "/reel/profile/1234567890/",
+        "/reel/following/1234567890", "https://web.facebook.com/reel/1234567890",
+      ]) {
+        document.body.innerHTML = `<div role="navigation"><ul><li id="item"><div><a href="${href}" id="link">A destination</a></div></li></ul></div>`;
+        s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
+        expect(visible(document.getElementById("link")!), href).toBe(true);
+      }
+      // A list item that holds a whole sub-list keeps it; only the entry's own leaf item goes.
+      document.body.innerHTML = '<div role="navigation"><ul><li id="outer"><ul><li id="leaf"><a href="/reel/?s=tab">Reels</a></li><li id="keep-sibling"><a href="/friends/">Friends</a></li></ul></li></ul></div>';
+      s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.facebook.com/"), document);
+      expect(visible(document.getElementById("leaf")!)).toBe(false);
+      expect(visible(document.getElementById("outer")!)).toBe(true);
+      expect(visible(document.getElementById("keep-sibling")!)).toBe(true);
+    });
+
+    it("the /reel/ feed entry and the player's feeds go home; a shared /reel/<id> stays", () => {
+      const s = session();
+      for (const origin of ["https://www.facebook.com", "https://m.facebook.com"]) {
+        for (const path of ["/reel/", "/reel", "/reel/?s=tab", "/reel/?bss=1", "/reel/following/", "/reel/following", "/reel/profile/?x=1"])
+          expect(s.evaluate(DEFAULT_SETTINGS_V2, new URL(path, origin)), `${origin}${path}`).toEqual({ kind: "redirect", url: `${origin}/` });
+        for (const path of ["/reel/1234567890/", "/reel/1234567890?s=tab", "/reel/shared/", "/reel/followingx/", "/stillapp/reel/"])
+          expect(s.evaluate(DEFAULT_SETTINGS_V2, new URL(path, origin)).kind, `${origin}${path}`).toBe("apply");
+      }
+      // Off for Reels, Facebook or Still leaves the entry alone.
+      for (const settings of [
+        { ...DEFAULT_SETTINGS_V2, globalOn: false },
+        { ...DEFAULT_SETTINGS_V2, services: { ...DEFAULT_SETTINGS_V2.services, facebook: false } },
+        { ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } },
+      ])
+        expect(s.evaluate(settings, new URL("https://www.facebook.com/reel/?s=tab")).kind).not.toBe("redirect");
+    });
+
+    it("the feed entry handing over to its first Reel is the feed continuing; arriving at one Reel from elsewhere is not", () => {
+      const s = session();
+      const fb = (path: string) => new URL(path, "https://www.facebook.com");
+      const continuation = (from: string, to: string) => {
+        s.evaluate(DEFAULT_SETTINGS_V2, fb(to));
+        return s.reelContinuation?.(fb(from), fb(to)) ?? null;
+      };
+      for (const from of ["/reel/?s=tab", "/reel/", "/reel/following/", "/reel/profile/"])
+        expect(continuation(from, "/reel/1234567890/"), from).toBe("https://www.facebook.com/");
+      expect(continuation("/reel/111/", "/reel/222/")).toBe("https://www.facebook.com/");
+      for (const from of ["/", "/groups/123/", "/messages/t/1/", "/reel/1234567890/"])
+        expect(continuation(from, "/reel/1234567890/"), from).toBeNull();
+      expect(continuation("/reel/?s=tab", "/friends/")).toBeNull();
+      s.evaluate({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, fb("/reel/1234567890/"));
+      expect(s.reelContinuation?.(fb("/reel/?s=tab"), fb("/reel/1234567890/"))).toBeNull();
+    });
+  });
 });
