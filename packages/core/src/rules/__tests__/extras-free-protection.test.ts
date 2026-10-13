@@ -28,7 +28,7 @@ const EXTRAS: Record<"youtube" | "instagram" | "facebook", ServiceExtras> = {
 const PIN_SHA256: Record<string, string> = {
   "youtube-shorts-discovery": "febe2fb0e8b15f05e5057b6926bab9d29f7d8d7aa922768e10a55eef29fb687c",
   "instagram-reels-discovery": "3c77e4583037bd4c36cd291598391386cabedcaf34af50c648811f90944ea3fc",
-  "facebook-reels-discovery": "8959e052c543da19c176122440f212fd53a0ccdefb5e606949ec7ddb3f8b3866",
+  "facebook-reels-discovery": "35e88d886502fc423e739f74e5b99dcc1a9c7d495aaa9a989ffa6afaff682050",
 };
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const proOf = (service: ServiceId) => FEATURE_REGISTRY.filter((feature) => feature.service === service && feature.tier === "pro").map((feature) => feature.id as string);

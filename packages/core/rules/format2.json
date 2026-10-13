@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.8",
+  "version": "3.0.9",
   "services": {
     "youtube": {
       "matches": [
@@ -181,7 +181,23 @@
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
-            "[role=\"tab\"][aria-label^=\"Reels,\" i] > *"
+            "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
+            "[role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
+            "a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"])):not(:has(li))",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])):not(:has(li))",
+            "a:is([href=\"https://www.facebook.com/reel/\"],[href^=\"https://www.facebook.com/reel/?\"],[href=\"https://www.facebook.com/reel/following/\"],[href^=\"https://www.facebook.com/reel/following/?\"],[href=\"https://www.facebook.com/reel/profile/\"],[href^=\"https://www.facebook.com/reel/profile/?\"],[href=\"https://www.facebook.com/reels/\"],[href^=\"https://www.facebook.com/reels/?\"],[href=\"https://www.facebook.com/watch/reels/\"],[href^=\"https://www.facebook.com/watch/reels/?\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://www.facebook.com/reel/\"],[href^=\"https://www.facebook.com/reel/?\"],[href=\"https://www.facebook.com/reel/following/\"],[href^=\"https://www.facebook.com/reel/following/?\"],[href=\"https://www.facebook.com/reel/profile/\"],[href^=\"https://www.facebook.com/reel/profile/?\"])):not(:has(li))",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://www.facebook.com/reels/\"],[href^=\"https://www.facebook.com/reels/?\"],[href=\"https://www.facebook.com/watch/reels/\"],[href^=\"https://www.facebook.com/watch/reels/?\"])):not(:has(li))",
+            "a:is([href=\"https://m.facebook.com/reel/\"],[href^=\"https://m.facebook.com/reel/?\"],[href=\"https://m.facebook.com/reel/following/\"],[href^=\"https://m.facebook.com/reel/following/?\"],[href=\"https://m.facebook.com/reel/profile/\"],[href^=\"https://m.facebook.com/reel/profile/?\"],[href=\"https://m.facebook.com/reels/\"],[href^=\"https://m.facebook.com/reels/?\"],[href=\"https://m.facebook.com/watch/reels/\"],[href^=\"https://m.facebook.com/watch/reels/?\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://m.facebook.com/reel/\"],[href^=\"https://m.facebook.com/reel/?\"],[href=\"https://m.facebook.com/reel/following/\"],[href^=\"https://m.facebook.com/reel/following/?\"],[href=\"https://m.facebook.com/reel/profile/\"],[href^=\"https://m.facebook.com/reel/profile/?\"])):not(:has(li))",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://m.facebook.com/reels/\"],[href^=\"https://m.facebook.com/reels/?\"],[href=\"https://m.facebook.com/watch/reels/\"],[href^=\"https://m.facebook.com/watch/reels/?\"])):not(:has(li))",
+            "a:is([href=\"https://web.facebook.com/reel/\"],[href^=\"https://web.facebook.com/reel/?\"],[href=\"https://web.facebook.com/reel/following/\"],[href^=\"https://web.facebook.com/reel/following/?\"],[href=\"https://web.facebook.com/reel/profile/\"],[href^=\"https://web.facebook.com/reel/profile/?\"],[href=\"https://web.facebook.com/reels/\"],[href^=\"https://web.facebook.com/reels/?\"],[href=\"https://web.facebook.com/watch/reels/\"],[href^=\"https://web.facebook.com/watch/reels/?\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://web.facebook.com/reel/\"],[href^=\"https://web.facebook.com/reel/?\"],[href=\"https://web.facebook.com/reel/following/\"],[href^=\"https://web.facebook.com/reel/following/?\"],[href=\"https://web.facebook.com/reel/profile/\"],[href^=\"https://web.facebook.com/reel/profile/?\"])):not(:has(li))",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://web.facebook.com/reels/\"],[href^=\"https://web.facebook.com/reels/?\"],[href=\"https://web.facebook.com/watch/reels/\"],[href^=\"https://web.facebook.com/watch/reels/?\"])):not(:has(li))",
+            "a:is([href=\"https://facebook.com/reel/\"],[href^=\"https://facebook.com/reel/?\"],[href=\"https://facebook.com/reel/following/\"],[href^=\"https://facebook.com/reel/following/?\"],[href=\"https://facebook.com/reel/profile/\"],[href^=\"https://facebook.com/reel/profile/?\"],[href=\"https://facebook.com/reels/\"],[href^=\"https://facebook.com/reels/?\"],[href=\"https://facebook.com/watch/reels/\"],[href^=\"https://facebook.com/watch/reels/?\"])",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://facebook.com/reel/\"],[href^=\"https://facebook.com/reel/?\"],[href=\"https://facebook.com/reel/following/\"],[href^=\"https://facebook.com/reel/following/?\"],[href=\"https://facebook.com/reel/profile/\"],[href^=\"https://facebook.com/reel/profile/?\"])):not(:has(li))",
+            ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"https://facebook.com/reels/\"],[href^=\"https://facebook.com/reels/?\"],[href=\"https://facebook.com/watch/reels/\"],[href^=\"https://facebook.com/watch/reels/?\"])):not(:has(li))"
           ]
         },
         {
@@ -251,6 +267,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "7c542975010422b2504daf3ee73618ad539a28868a225dc243685998e20aae3443298688fb733691e808459e7491a6f0b10dbe9ecab1a63a0b55ac3901f3510e"
+    "value": "d690ad6a0006b2038363a9be91df61f3af3935872f8d676759ebcdafed6b5e09dc33cbd07a26ec3b75b94e54dd30ea429a0994db29e607f87116b2e1aed16a0b"
   }
 }

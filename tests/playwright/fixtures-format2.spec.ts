@@ -329,7 +329,9 @@ test("format-2 facebook people directory: profiles of people named Reels keep th
 test("format-2 facebook routes: the Reels feeds go home; sections, Pages and their tabs stay usable", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
-  for (const feed of ["/reels/", "/watch/reels", "/watch/reels/", "/watch/reels/?ref=bookmarks"]) {
+  for (const feed of ["/reels/", "/watch/reels", "/watch/reels/", "/watch/reels/?ref=bookmarks",
+    // The top-menu Reels tab's feed entry and the player's own feeds (ISS-0035).
+    "/reel/?s=tab", "/reel/", "/reel/following/", "/reel/profile/"]) {
     await page.goto(`https://www.facebook.com${feed}`).catch(() => {}); // replaced while loading
     await expect(page, feed).toHaveURL("https://www.facebook.com/");
   }
@@ -343,6 +345,78 @@ test("format-2 facebook routes: the Reels feeds go home; sections, Pages and the
     await expect(page.locator("#page-reels-tab")).toBeHidden();
     await expect(page.locator("#reel-article")).toBeHidden();
   }
+});
+
+// Facebook's current desktop navigation (ISS-0035): the top menu and the left sidebar are
+// div[role="navigation"] lists whose Reels entry opens /reel/?s=tab, the Reels feed.
+test("format-2 facebook navigation: the top-menu Reels tab and the sidebar shortcut go; every other entry stays", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
+  await page.goto("https://www.facebook.com/");
+  await expectFormat2Lane(page);
+  // The remaining entries close up: no empty slot is left where the Reels entry was.
+  const slots = await page.evaluate(() => ({
+    top: [...document.querySelectorAll("#top-menu > li")].filter((li) => li.getBoundingClientRect().height > 0).length,
+    side: [...document.querySelectorAll("#sidebar > li")].filter((li) => li.getBoundingClientRect().height > 0).length,
+  }));
+  expect(slots).toEqual({ top: 4, side: 11 });
+  await expectHiddenRetainedReversible(
+    page, context, extensionId,
+    ["#top-reels-item", "#sidebar-reels-item", "#player-for-you", "#player-following", "#player-profile"],
+    await keepAll(page),
+  );
+});
+
+test("format-2 facebook: clicking the Reels tab goes home instead of opening the Reels player; Off lets it through", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
+  // Facebook's router, as recorded: a click on the tab pushes /reel/?s=tab, then replaces it with
+  // the first Reel of the feed. The tab is forced visible so a person can click it, as if the
+  // hide had not matched, which is exactly the bypass the owner found.
+  const openReelsTab = async () => {
+    await page.evaluate(() => {
+      const tab = document.createElement("a");
+      tab.id = "forced-reels-tab";
+      tab.href = "https://www.facebook.com/reel/?s=tab";
+      tab.textContent = "Reels";
+      tab.setAttribute("style", "display:block !important; padding:20px");
+      tab.addEventListener("click", (event) => {
+        event.preventDefault();
+        history.pushState(null, "", "/reel/?s=tab");
+        setTimeout(() => history.replaceState(null, "", "/reel/1234567890123456/"), 50);
+      });
+      document.body.prepend(tab);
+    });
+    await page.locator("#forced-reels-tab").click();
+  };
+  await page.goto("https://www.facebook.com/groups/chosen/");
+  await expectFormat2Lane(page);
+  await openReelsTab();
+  await expect(page).toHaveURL("https://www.facebook.com/");
+  await page.waitForTimeout(300); // Facebook's delayed hand-over to the first Reel never lands
+  await expect(page).toHaveURL("https://www.facebook.com/");
+
+  const toggle = await stillSwitch(context, extensionId);
+  await toggle();
+  await page.goto("https://www.facebook.com/groups/chosen/");
+  await openReelsTab();
+  await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
+  await expect(page.locator("#player-for-you")).toBeVisible();
+});
+
+test("format-2 facebook: a shared Reel still opens and plays; its player's feed links are hidden", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
+  await page.goto("https://www.facebook.com/reel/1234567890123456/");
+  await expectFormat2Lane(page);
+  await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#keep-reel-player")).toBeVisible();
+  for (const id of ["#player-for-you", "#player-following", "#player-profile"]) await expect(page.locator(id), id).toBeHidden();
+  // Opening another shared Reel from a message is a deliberate click and is not stopped.
+  await page.goto("https://www.facebook.com/messages/t/1/");
+  await page.locator("#keep-shared-reel").click();
+  await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
 });
 
 test("format-2 facebook mobile: Reels hidden and retained, the tab keeps its slot, Off restores", async ({ context, extensionId }) => {

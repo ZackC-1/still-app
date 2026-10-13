@@ -37,8 +37,9 @@ import { createPendingCover, type PendingCover } from "./pending-cover.js";
 // createShippingContentEntry plus two things ruled for U7-W3:
 //
 // 1. The early document_start redirect covers every core short-form route the format-2 engine
-//    sends elsewhere (YouTube Shorts, the Instagram and Facebook Reels feeds, the Instagram Reels
-//    viewer and an Instagram profile's Reels tab), not only Shorts. Firefox and Safari use it; Chromium keeps DNR and the old entry.
+//    sends elsewhere (YouTube Shorts, the Instagram and Facebook Reels feeds, Facebook's /reel/
+//    feed entry, the Instagram Reels viewer and an Instagram profile's Reels tab), not only Shorts.
+//    Firefox and Safari use it; Chromium keeps DNR and the old entry.
 // 2. On Safari only, the pending cover (pending-cover.ts): blank for at most 1.5 seconds while a
 //    core route waits for settings (V3-D-052), and while a redirect Still issued is in flight.
 //
@@ -105,7 +106,8 @@ export function mayBeCoreRoute(url: URL): boolean {
   if (on("youtube")) return path.startsWith("/shorts/");
   // Instagram also sends a profile's Reels tab, /<user>/reels/, to that profile.
   if (on("instagram")) return path.startsWith("/reels") || /^\/[^/]+\/reels\/?$/.test(path);
-  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels");
+  // The /reel/ feed entry passes; a shared /reel/<digits> never builds a session here.
+  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels") || /^\/reel(?:\/(?!\d)|$)/.test(path);
   return false;
 }
 

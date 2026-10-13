@@ -148,6 +148,9 @@ const CORE: ReadonlyArray<readonly [string, string]> = [
   ["https://www.instagram.com/someone/reels/", "https://www.instagram.com/someone/"],
   ["https://www.facebook.com/reels/", "https://www.facebook.com/"],
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
+  // The top-menu Reels tab's feed entry and the player's own feeds (ISS-0035).
+  ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+  ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
 ];
 const NEVER: readonly string[] = [
   "https://www.instagram.com/",
