@@ -91,19 +91,17 @@
         where: "options",
       });
   };
-  // Free V3 builds load the settings page through RestoreSettings: the free-period "Restore
-  // purchase" link (owner decisions 62 and 73; bound only where the build has the sign-in spine)
-  // and the site access warning (ISS-0037). The inline build-time check (modernSettingsRuntime's
-  // atomicLocal rule) folds to false on configured 2.x builds, which keep loading ExtensionSettings
-  // exactly as before; the wrapper and its checks live only in its lazily loaded chunk.
-  const freeV3Settings = Boolean(
+  // V3 builds load the settings page through a wrapper that adds the site access warning
+  // (ISS-0037): InformationalProSettings in paid-tier builds, otherwise RestoreSettings with its
+  // free-period "Restore purchase" link (owner decisions 62 and 73; bound only where the build has
+  // the sign-in spine). The inline build-time check (wxt.config's runsV3Interface rule) folds to
+  // false on configured 2.x builds, which keep loading ExtensionSettings as before.
+  const v3Settings = Boolean(
     !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
   );
   const loadSettings =
-    (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
-      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&
-    PAID_TIER_ENABLED && settingsRuntime.atomicLocal
+    v3Settings && PAID_TIER_ENABLED && settingsRuntime.atomicLocal
     ? () =>
         import("./InformationalProSettings.svelte").then((module) => {
           // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
@@ -111,7 +109,7 @@
           module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout } : undefined);
           return module;
         })
-    : freeV3Settings
+    : v3Settings
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {
           module.bindSettingsRestore(purchase ? controller : undefined);

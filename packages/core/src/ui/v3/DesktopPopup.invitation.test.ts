@@ -113,6 +113,18 @@ describe("optional D28 desktop invitation", () => {
     },
   );
 
+  it("suppresses the invitation while the site access warning shows (ISS-0037)", async () => {
+    const { props } = await fixture();
+    props.invitation = invitationSpecimen();
+    const view = render(DesktopPopup, { props });
+    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    await view.rerender({
+      ...props,
+      siteAccess: { state: "needed", browser: "Chrome", onAllow: vi.fn() },
+    });
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+  });
+
   it("holds desktop setup until a current verified port and suppresses invitations", async () => {
     const { props, storage } = await fixture();
     const saved = await storage.get();

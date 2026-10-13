@@ -304,7 +304,7 @@ describe("the build-time settings wrapper gate", () => {
     const { resolve } = await import("node:path");
     const { runsV3Interface } = await import("../../../wxt.config.js");
     const source = readFileSync(resolve(import.meta.dirname, "../OptionsApp.svelte"), "utf8");
-    const match = /const freeV3Settings = Boolean\(([\s\S]*?)\);/.exec(source);
+    const match = /const v3Settings = Boolean\(([\s\S]*?)\);/.exec(source);
     expect(match).not.toBeNull();
     const expression = match![1]!.replaceAll("import.meta.env", "env");
     expect(expression).not.toMatch(/import\.meta|purchase|controller/);

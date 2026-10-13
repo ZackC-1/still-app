@@ -4,10 +4,12 @@ import { fixture as popupFixture } from "../../../../core/src/ui/v3/DesktopPopup
 import { fixture as settingsFixture } from "../../../../core/src/ui/v3/ExtensionSettings.test-fixtures.js";
 import { configurePopupInvitationHost } from "../../../lib/invitation-popup-host.js";
 import { stillManifest } from "../../../wxt.config.js";
+import type { SiteAccessCardPorts } from "../../../lib/site-access-card.svelte.js";
 import InvitedDesktopPopup from "../InvitedDesktopPopup.svelte";
 import FirefoxAndroidPopup from "../FirefoxAndroidPopup.svelte";
 import RestoreSettings from "../../options/RestoreSettings.svelte";
 import InformationalProSettings from "../../options/InformationalProSettings.svelte";
+import SiteAccessHarness from "./SiteAccessHarness.svelte";
 
 // ISS-0037: the V3 popup and settings wrappers ask the browser whether Still has its four declared
 // sites each time they open, warn at the top while it does not, and ask for exactly those four
@@ -71,7 +73,9 @@ describe("the V3 desktop popup's site access warning", () => {
     const { props } = await popupFixture();
     render(InvitedDesktopPopup, { props });
     await waitFor(() => expect(browser.permissions.contains).toHaveBeenCalledWith({ origins: FOUR_SITES }));
-    await new Promise((r) => setTimeout(r, 10));
+    await browser.permissions.contains.mock.results[0]!.value;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByRole("switch", { name: "Still on Instagram" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: TITLE })).toBeNull();
   });
 
@@ -159,5 +163,70 @@ describe("the V3 settings page's site access warning", () => {
     await waitFor(() => expect(browser.permissions.contains).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 10));
     expect(screen.queryByRole("region", { name: TITLE })).toBeNull();
+  });
+});
+
+describe("the popup's one invitation while the warning shows", () => {
+  it("is held, never committed, so a rating or sync ask is not spent while Still cannot work", async () => {
+    installBrowser(false);
+    const { props } = await popupFixture();
+    const commit = vi.fn(async () => true);
+    const present = vi.fn(async () => {
+      // The background decides after the browser has answered the access question.
+      await new Promise((r) => setTimeout(r, 20));
+      return {
+        installation: "install-1",
+        reservation: { kind: "rating" as const, opening: "opening-1", generation: 1 },
+      };
+    });
+    configurePopupInvitationHost({
+      controller: { userId: null, openSignIn: vi.fn() },
+      port: { present, commit },
+      opening: "opening-1",
+      surface: "chrome",
+      started: false,
+    } as unknown as Parameters<typeof configurePopupInvitationHost>[0]);
+    render(InvitedDesktopPopup, { props });
+    expect(await screen.findByRole("region", { name: TITLE })).toBeTruthy();
+    await waitFor(() => expect(present).toHaveBeenCalledOnce());
+    await new Promise((r) => setTimeout(r, 40));
+    expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+describe("useSiteAccessCard with the browser's ports", () => {
+  function ports(overrides: Partial<SiteAccessCardPorts>): () => SiteAccessCardPorts {
+    return () => ({
+      permissions: undefined,
+      manifest: stillManifest("firefox"),
+      name: "Firefox",
+      doc: document,
+      ...overrides,
+    });
+  }
+
+  it("names Firefox in the waiting line on the Firefox build", async () => {
+    const browser = installBrowser(false);
+    render(SiteAccessHarness, { props: { ports: ports({ permissions: browser.permissions }) } });
+    await fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    expect(await screen.findByText("Waiting for Firefox…")).toBeTruthy();
+  });
+
+  it("shows nothing where the browser has no permissions API", async () => {
+    render(SiteAccessHarness, { props: { ports: ports({}) } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(screen.queryByRole("region", { name: TITLE })).toBeNull();
+  });
+
+  it("does not re-ask while the page is hidden", async () => {
+    const browser = installBrowser(true);
+    const hidden = Object.assign(new EventTarget(), { visibilityState: "hidden" }) as unknown as Document;
+    render(SiteAccessHarness, {
+      props: { ports: ports({ permissions: browser.permissions, doc: hidden }) },
+    });
+    await waitFor(() => expect(browser.permissions.contains).toHaveBeenCalledOnce());
+    hidden.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(browser.permissions.contains).toHaveBeenCalledOnce();
   });
 });

@@ -146,6 +146,76 @@ describe("site access observer", () => {
     expect(seen.at(-1)).toBe("needed");
   });
 
+  it("asks nothing and stays unknown when the manifest declares no hosts", async () => {
+    expect(declaredSiteOrigins({})).toEqual([]);
+    expect(declaredSiteOrigins({ host_permissions: "*://*.youtube.com/*" })).toEqual([]);
+    expect(declaredSiteOrigins({ host_permissions: ["*://*.youtube.com/*", 7] })).toEqual([
+      "*://*.youtube.com/*",
+    ]);
+    const api = permissions(false);
+    const seen: string[] = [];
+    observeSiteAccess(api, [], (s) => seen.push(s));
+    await flush();
+    expect(seen).toEqual(["unknown"]);
+    expect(api.contains).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the newest answer when two reads overlap", async () => {
+    const answers: Array<(granted: boolean) => void> = [];
+    const api: SiteAccessApi = {
+      contains: () => new Promise<boolean>((resolve) => answers.push(resolve)),
+    };
+    const seen: string[] = [];
+    const access = observeSiteAccess(api, ORIGINS, (s) => seen.push(s));
+    void access.refresh();
+    answers[1]!(true);
+    await flush();
+    answers[0]!(false);
+    await flush();
+    expect(seen).toEqual(["granted"]);
+  });
+
+  it("holds pending through a removal during the prompt, then takes the browser's answer", async () => {
+    const api = permissions(false);
+    const seen: string[] = [];
+    const access = observeSiteAccess(api, ORIGINS, (s) => seen.push(s));
+    await flush();
+    access.request!();
+    api.fireRemoved();
+    await flush();
+    expect(seen.at(-1)).toBe("pending");
+    api.answer(false);
+    await flush();
+    expect(seen.at(-1)).toBe("denied");
+  });
+
+  it("takes a grant seen while a request's promise never settles (a popup closed under the prompt)", async () => {
+    const api = permissions(false);
+    const seen: string[] = [];
+    const access = observeSiteAccess(api, ORIGINS, (s) => seen.push(s));
+    await flush();
+    access.request!();
+    expect(seen.at(-1)).toBe("pending");
+    api.granted = true;
+    api.fireAdded();
+    await flush();
+    expect(seen.at(-1)).toBe("granted");
+  });
+
+  it("publishes nothing after it stops, even when the browser answers later", async () => {
+    const api = permissions(false);
+    const seen: string[] = [];
+    const access = observeSiteAccess(api, ORIGINS, (s) => seen.push(s));
+    await flush();
+    access.request!();
+    const before = seen.length;
+    access.stop();
+    api.granted = true;
+    api.answer(true);
+    await flush();
+    expect(seen.length).toBe(before);
+  });
+
   it("stops listening when the page goes", async () => {
     const api = permissions(true);
     const access = observeSiteAccess(api, ORIGINS, () => {});

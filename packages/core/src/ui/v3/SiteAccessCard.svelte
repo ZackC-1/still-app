@@ -11,9 +11,6 @@
   // on its four sites. The host supplies the browser's answer and the request; this only draws it.
   let { state, browser, onAllow }: SiteAccessCardProps = $props();
   const id = $props.id();
-  function allow() {
-    if (state === "needed" || state === "denied") onAllow?.();
-  }
 </script>
 
 <section
@@ -39,7 +36,7 @@
         <span>{siteAccessPendingText(browser)}</span>
       </div>
     </div>
-  {:else if onAllow}<button type="button" class="primary block" onclick={allow}
+  {:else if onAllow}<button type="button" class="primary block" onclick={() => onAllow()}
       >{state === "denied"
         ? SITE_ACCESS_COPY.retry
         : SITE_ACCESS_COPY.allow}</button

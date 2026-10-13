@@ -27,13 +27,14 @@
   onMount(() => {
     if (!host || host.started) return;
     host.started = true;
-    // The popup hides the card during its own setup state or a pending, failed or cautioned
+    // The popup hides the card during its own setup state (including the site access warning,
+    // ISS-0037: no rating or sync ask while Still cannot work) or a pending, failed or cautioned
     // account state. Say so up front, so nothing is reserved or consumed unseen.
     // The same conditions DesktopPopup uses to hide the card, read now and again right before
-    // the commit (an account status can arrive while the background decides).
+    // the commit (an account status or the browser's access answer can arrive meanwhile).
     const holdNow = (): "setup" | "error" | undefined => {
       const tone = props.account?.status?.tone;
-      return props.desktopSetup
+      return props.desktopSetup || siteAccess.current
         ? "setup"
         : tone === "pending" || tone === "failed" || tone === "caution"
           ? "error"

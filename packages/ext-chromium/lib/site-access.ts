@@ -52,8 +52,17 @@ export function observeSiteAccess(
     state = next;
     publish(next);
   };
+  // While the page's own request is open, only a grant is taken from the browser (made elsewhere,
+  // or the prompt's answer arriving before its promise does): a request whose promise never
+  // settles, as when a toolbar popup closes under the prompt, must not hold "pending" over it.
+  const grantedDuringRequest = async (): Promise<void> => {
+    const read = ++reads;
+    const granted = await api.contains({ origins: [...origins] }).catch(() => false);
+    if (granted && read === reads && requestOpen) set("granted");
+  };
   const refresh = async (): Promise<void> => {
-    if (stopped || requestOpen) return;
+    if (stopped) return;
+    if (requestOpen) return grantedDuringRequest();
     if (origins.length === 0) return set("unknown");
     const read = ++reads;
     let granted: boolean;

@@ -101,6 +101,7 @@
       (host !== "firefox" || channelReady) &&
       !(host === "safari" && invitation?.kind === "rating") &&
       !setup &&
+      !siteAccess &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   function openPro() {
