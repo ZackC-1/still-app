@@ -199,6 +199,11 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
       const context = snapshot(input);
       if (!live(context)) return false;
       return serial(context.tabId, async () => {
+        // A tab with no grant is never allowed, so answer that from one session read. The full
+        // check costs several bounded browser reads; on a starved browser they used up the whole
+        // content-script answer budget before the redirect could start, and the page fell back to
+        // the in-page block. Only "not allowed" is answered early; a grant still needs it all.
+        if ((await deps.store.get(context.tabId)) !== true) return false;
         if (!(await eligible(context))) return false;
         return (
           (await completed(context.tabId)) &&
