@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.9",
+  "version": "3.0.10",
   "services": {
     "youtube": {
       "matches": [
@@ -182,7 +182,7 @@
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
-            "[role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
+            "[role=\"banner\"] [role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
             "a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])",
             ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"])):not(:has(li))",
             ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])):not(:has(li))",
@@ -267,6 +267,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "d690ad6a0006b2038363a9be91df61f3af3935872f8d676759ebcdafed6b5e09dc33cbd07a26ec3b75b94e54dd30ea429a0994db29e607f87116b2e1aed16a0b"
+    "value": "74bb792d1ad6a667b9098fadd9d20b32d06f9b8fbc25cce79397d3137d04686d416a6d50f8812e3d9b6d42a2c1f3d2155acc632e0b1471699cb635bc16d53502"
   }
 }
