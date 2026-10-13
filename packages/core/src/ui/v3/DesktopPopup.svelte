@@ -87,7 +87,6 @@
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
-      !siteAccess &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   let setupRequested = $state.raw<

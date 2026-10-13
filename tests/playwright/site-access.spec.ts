@@ -23,7 +23,9 @@ const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 test.skip(syncConfigured, "The site access warning is on the V3 popup and settings page only.");
 test.use({ settingsProfile: "modern" });
 
-const TITLE = "Still can't work on these sites yet";
+const TITLE = "Still can't work on these sites";
+const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
+const RELOAD = "Reload open tabs to apply.";
 const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";
 
 type Probe = { requests: { origins: string[]; gesture: boolean }[]; granted: boolean };
@@ -117,8 +119,14 @@ test("popup: withheld access shows the warning at the top, and Allow asks for th
   await expectAboveSiteList(page);
   const card = page.getByRole("region", { name: TITLE });
   await expect(card.getByText(BODY)).toBeVisible();
-  await card.getByRole("button", { name: "Allow" }).click();
+  const allow = card.getByRole("button", { name: "Allow" });
+  await allow.click();
   await expect(card.getByText("Waiting for Chrome…")).toBeVisible();
+  // Focus stays on the button while Chrome's prompt is open, then moves to the "allowed" line.
+  await expect(allow).toBeFocused();
+  const allowed = page.getByRole("region", { name: ALLOWED });
+  await expect(allowed.getByRole("status")).toHaveText(RELOAD);
+  await expect(allowed.getByRole("heading", { name: ALLOWED })).toBeFocused();
   await expect(page.getByRole("region", { name: TITLE })).toHaveCount(0);
   const { requests } = await probe(page);
   expect(requests).toEqual([{ origins: await declaredHosts(page), gesture: true }]);
@@ -148,6 +156,7 @@ test("settings: withheld access shows the warning at the top, and Allow restores
   await page.goto(`chrome-extension://${extensionId}/options.html`);
   await expectAboveSiteList(page);
   await page.getByRole("region", { name: TITLE }).getByRole("button", { name: "Allow" }).click();
+  await expect(page.getByRole("region", { name: ALLOWED }).getByText(RELOAD)).toBeVisible();
   await expect(page.getByRole("region", { name: TITLE })).toHaveCount(0);
   const { requests } = await probe(page);
   expect(requests).toEqual([{ origins: await declaredHosts(page), gesture: true }]);

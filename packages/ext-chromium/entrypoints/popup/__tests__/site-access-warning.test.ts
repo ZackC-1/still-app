@@ -21,7 +21,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const TITLE = "Still can't work on these sites yet";
+const TITLE = "Still can't work on these sites";
+const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
+const RELOAD = "Reload open tabs to apply.";
 const FOUR_SITES = [
   "*://*.youtube.com/*",
   "*://*.instagram.com/*",
@@ -36,7 +38,7 @@ function installBrowser(granted: boolean) {
   let answer: (granted: boolean) => void = () => {};
   const permissions = {
     granted,
-    contains: vi.fn(async () => permissions.granted),
+    contains: vi.fn(async (_query: { origins: string[] }) => permissions.granted),
     request: vi.fn(
       () =>
         new Promise<boolean>((resolve) => {
@@ -93,7 +95,9 @@ describe("the V3 desktop popup's site access warning", () => {
     expect(browser.permissions.request).toHaveBeenCalledWith({ origins: FOUR_SITES });
     expect(await within(card).findByText("Waiting for Chrome…")).toBeTruthy();
     browser.answer(true);
-    await waitFor(() => expect(screen.queryByRole("region", { name: TITLE })).toBeNull());
+    const allowed = await screen.findByRole("region", { name: ALLOWED });
+    expect(within(allowed).getByRole("status").textContent).toBe(RELOAD);
+    expect(screen.queryByRole("region", { name: TITLE })).toBeNull();
   });
 
   it("says Chrome didn't allow it, and offers Try again, when the prompt is declined", async () => {
@@ -129,6 +133,46 @@ describe("the V3 desktop popup's site access warning", () => {
   });
 });
 
+describe("naming only the missing sites", () => {
+  it("asks site by site and names only YouTube when only youtube.com was turned off", async () => {
+    const browser = installBrowser(false);
+    browser.permissions.contains.mockImplementation(async ({ origins }: { origins: string[] }) =>
+      origins.every((origin) => origin !== "*://*.youtube.com/*"),
+    );
+    const { props } = await popupFixture();
+    render(InvitedDesktopPopup, { props });
+    const card = await screen.findByRole("region", { name: "Still can't work on this site" });
+    expect(await within(card).findByText("Still needs permission to work on YouTube.")).toBeTruthy();
+    // Allow still asks for the four declared sites; the browser prompts only for the missing one.
+    await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    expect(browser.permissions.request).toHaveBeenCalledWith({ origins: FOUR_SITES });
+  });
+});
+
+describe("the popup's invitation waits for the browser's access answer", () => {
+  it("asks the background nothing until the browser has answered", async () => {
+    const browser = installBrowser(true);
+    let answer!: (granted: boolean) => void;
+    browser.permissions.contains.mockImplementation(
+      () => new Promise<boolean>((resolve) => (answer = resolve)),
+    );
+    const present = vi.fn(async () => null);
+    configurePopupInvitationHost({
+      controller: { userId: null, openSignIn: vi.fn() },
+      port: { present, commit: vi.fn(async () => true) },
+      opening: "opening-1",
+      surface: "chrome",
+      started: false,
+    } as unknown as Parameters<typeof configurePopupInvitationHost>[0]);
+    const { props } = await popupFixture();
+    render(InvitedDesktopPopup, { props });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(present).not.toHaveBeenCalled();
+    answer(true);
+    await waitFor(() => expect(present).toHaveBeenCalledWith("opening-1", undefined));
+  });
+});
+
 describe("Firefox for Android's popup", () => {
   it("shows the same warning at the top of the phone popup", async () => {
     installBrowser(false);
@@ -153,7 +197,8 @@ describe("the V3 settings page's site access warning", () => {
     await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
     expect(browser.permissions.request).toHaveBeenCalledWith({ origins: FOUR_SITES });
     browser.answer(true);
-    await waitFor(() => expect(screen.queryByRole("region", { name: TITLE })).toBeNull());
+    expect(await screen.findByText(RELOAD)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: TITLE })).toBeNull();
   });
 
   it("free settings page: nothing while allowed", async () => {

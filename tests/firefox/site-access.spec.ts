@@ -7,7 +7,7 @@ import { FIREFOX_EXTENSION, StillFirefox, type Tab } from "./_session.js";
 // ISS-0037 (retest FX-36) in a real Firefox. Firefox lets a person turn off Still's access to a site
 // (Add-ons and themes, Still, Permissions), and lets the add-on remove its own host access, so this
 // lane withholds access for real: youtube.com is removed exactly as FX-36 does. The popup and
-// settings page must then say plainly that Still can't work on its sites, at the top, with Allow;
+// settings page must then say plainly that Still can't work on YouTube, at the top, with Allow;
 // an open settings page must notice the removal without a reload.
 //
 // Not covered here: pressing Allow. Firefox only shows its prompt for a trusted click, and BiDi has
@@ -20,8 +20,9 @@ test.skip(!firefoxBinary, "Firefox is not installed (set FIREFOX_BIN to point at
 test.skip(!built, "Firefox build missing: run `pnpm --filter @still/ext-chromium build:firefox` first");
 test.describe.configure({ mode: "serial" });
 
-const TITLE = "Still can't work on these sites yet";
-const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";
+// Only youtube.com is turned off, so the card names only YouTube.
+const TITLE = "Still can't work on this site";
+const BODY = "Still needs permission to work on YouTube.";
 
 let firefox: StillFirefox;
 test.beforeAll(async () => {
@@ -48,6 +49,7 @@ function expectWarningAboveSites(body: string) {
   expect(body).toContain(BODY);
   expect(body.indexOf(TITLE)).toBeLessThan(body.indexOf("Instagram Blocker"));
   expect(body).not.toMatch(/everywhere/i);
+  expect(body).not.toContain("Instagram, Facebook");
 }
 
 test("with all four sites allowed, the popup and settings page show no warning", async () => {
@@ -55,8 +57,8 @@ test("with all four sites allowed, the popup and settings page show no warning",
     const page = await firefox.openExtensionPage(name);
     try {
       const body = await siteListShown(page);
-      await page.holdsFor(`${name} has no warning`, async () => !(await text(page)).includes(TITLE), 500);
-      expect(body).not.toContain(TITLE);
+      await page.holdsFor(`${name} has no warning`, async () => !(await text(page)).includes("Still can't work on"), 500);
+      expect(body).not.toContain("Still can't work on");
     } finally {
       await page.close();
     }
