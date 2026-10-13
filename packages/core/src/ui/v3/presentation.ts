@@ -34,6 +34,84 @@ export function proRowsDormant(
   );
 }
 
+/**
+ * True only when access is conclusively `locked`: some Still Pro row is locked and none is still
+ * checking, needs verifying, purchased or protected. Every purchase entry (the popup's Still Pro
+ * card, lock chips that lead to the offer, the settings Get Still Pro) reads this, so nothing asks
+ * for money while Still is unsure, and a paid-off build (every Pro row `unsupported`) offers none.
+ */
+export function proKnownMissing(
+  access: Pick<BenefitAccessSnapshot, "states">,
+): boolean {
+  const states = FEATURE_REGISTRY.filter((row) => row.tier === "pro").map(
+    (row) => access.states[row.id],
+  );
+  return (
+    states.includes("locked") &&
+    !states.some((state) =>
+      ["checking", "verification_required", "purchased", "protected"].includes(
+        state,
+      ),
+    )
+  );
+}
+
+/**
+ * The popup's Still Pro card line (ISS-0032, owner-approved design, 12 Oct 2026). The same words on
+ * every popup. Owner rules: no number of extras and no price in the popup.
+ */
+export const POPUP_PRO_VALUE =
+  "Hide more on Instagram, Facebook and YouTube. One-time purchase.";
+
+/** Written as what each extra hides, for the settings Still Pro card's by-site list. */
+const PRO_VALUE_PHRASES: Record<string, string> = {
+  "instagram.stories": "Stories and Highlights",
+  "instagram.explore": "Explore recommendations",
+  "instagram.suggested": "suggested accounts",
+  "instagram.threads": "Threads links",
+  "facebook.stories": "Stories",
+  "facebook.videos": "Videos and Watch",
+  "facebook.sponsored": "desktop sidebar ads",
+  "youtube.related": "Related videos",
+  "youtube.endscreen": "end-of-video suggestions",
+  "youtube.autoplay": "autoplay",
+  "youtube.comments": "comments",
+  "youtube.livechat": "live chat",
+};
+
+/** "a, b and c"; a serial comma only where the item before "and" itself contains "and". */
+function joinPhrases(items: readonly string[]): string {
+  if (items.length < 2) return items.join("");
+  const head = items.slice(0, -1);
+  const last = items[items.length - 1];
+  const serial = items.length > 2 && / and /.test(head[head.length - 1]!);
+  return `${head.join(", ")}${serial ? ", and " : " and "}${last}`;
+}
+
+/**
+ * The settings Still Pro card's value list: per site (Instagram, Facebook, YouTube), what the extras
+ * hide, limited to the rows this surface draws (a phone omits the desktop-layout extras). No counts.
+ */
+export function proValueBySite(
+  features?: readonly FeatureId[],
+): { service: ServiceId; site: string; what: string }[] {
+  const sites = [
+    ["instagram", "Instagram"],
+    ["facebook", "Facebook"],
+    ["youtube", "YouTube"],
+  ] as const;
+  return sites.flatMap(([service, site]) => {
+    const phrases = rowsFor(service)
+      .filter(
+        (row) => row.tier === "pro" && (!features || features.includes(row.id)),
+      )
+      .map((row) => PRO_VALUE_PHRASES[row.id] ?? row.name);
+    if (phrases.length === 0) return [];
+    const what = joinPhrases(phrases);
+    return [{ service, site, what: what[0]!.toUpperCase() + what.slice(1) }];
+  });
+}
+
 /** Presentation labels/order only. Feature identity, defaults and tier remain registry-owned. */
 export function rowsFor(service: ServiceId) {
   const rows = FEATURE_REGISTRY.filter((row) => row.service === service);
@@ -73,10 +151,19 @@ export interface DesktopPopupProps {
   commandsDisabled?: boolean;
   /** Existing host-owned account operations, rendered once in this sync card. */
   accountActions?: Snippet;
-  /** Trusted caller supplies this only when an actual eligible purchase flow exists. */
-  onPurchase?: () => void;
-  /** Navigation to the actual Pro destination; a feature lock never starts checkout. */
+  /**
+   * Navigation to the actual Still Pro destination (the browser Settings page's Still Pro card, or
+   * the Still app on Safari). The popup's Get Still Pro and its feature locks both use it, only
+   * while access is conclusively locked; the popup never starts a payment itself (ISS-0032).
+   */
   onSeePro?: () => void;
+  /**
+   * The host's Get Still Pro, lock and Sign in actions hand off to the Still app (Safari on Mac,
+   * iPhone and iPad: Apple purchases and the account live in the app). The popup then says
+   * "Opens the Still app" under Get Still Pro and under Sign in, and the locks say so to screen
+   * readers. Presentation only: it adds no action the host did not supply.
+   */
+  appHandoff?: boolean;
   account?: {
     address?: string;
     status?: {

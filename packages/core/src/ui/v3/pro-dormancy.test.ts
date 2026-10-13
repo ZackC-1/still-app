@@ -45,7 +45,7 @@ const TITLES = {
 } as const;
 /** Anything that would be a purchase, price, paywall or app hand-off on any host. */
 const OFFER =
-  /Purchase Still Pro|Get Still Pro|See Still Pro in the Still app|Buy|Fixture localized price|Payment is handled|Sign in to buy/;
+  /Purchase Still Pro|Get Still Pro|See Still Pro in the Still app|Hide more on|One-time purchase|Buy|Fixture localized price|Payment is handled|Sign in to buy/;
 
 async function savedCache() {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
@@ -175,7 +175,6 @@ describe("decision 24: dormant Still Pro rows", () => {
       props.browser = browser;
       props.settings = requireModernSettings(cache.currentRecord());
       props.access = initialAccessSnapshot();
-      props.onPurchase = vi.fn();
       const saved = await storage.get();
       const view = render(DesktopPopup, { props });
       // Each section mounts its rows only while open, so tap one section at a time.
@@ -186,7 +185,6 @@ describe("decision 24: dormant Still Pro rows", () => {
         );
       }
       expect(tapped).toBe(12);
-      expect(props.onPurchase).not.toHaveBeenCalled();
       expect(props.onFeatureChange).not.toHaveBeenCalled();
       expect(await storage.get()).toEqual(saved);
       view.unmount();
@@ -203,7 +201,7 @@ describe("decision 24: dormant Still Pro rows", () => {
         host,
         channelReady: true,
         onSeePro: vi.fn(),
-        onPurchase: vi.fn(),
+        appHandoff: host === "safari",
         privacyUrl: "https://still.test/privacy",
         onGlobalChange: vi.fn(),
         onServiceChange: vi.fn(),
@@ -220,7 +218,6 @@ describe("decision 24: dormant Still Pro rows", () => {
       for (const name of ["Desktop sidebar ads", "End-of-video suggestions", "Live chat"])
         expect(screen.queryByText(name), name).toBeNull();
       expect(props.onSeePro).not.toHaveBeenCalled();
-      expect(props.onPurchase).not.toHaveBeenCalled();
       expect(await storage.get()).toEqual(saved);
       view.unmount();
     },
@@ -322,7 +319,7 @@ describe("decision 24: dormant Still Pro rows", () => {
 
   it("the same components still render a paid-world locked row as an offer port (the gate is dormancy, not the design)", async () => {
     // Control: an injected paid-world snapshot (some Pro feature `locked`) is not dormant, so a
-    // navigation reaches the real Pro destination and only explicit Purchase starts checkout.
+    // navigation reaches the real Pro destination, from the lock and from the Still Pro card.
     const { props } = await desktopFixture();
     props.access = {
       ...props.access,
@@ -333,7 +330,6 @@ describe("decision 24: dormant Still Pro rows", () => {
         ]),
       ) as typeof props.access.states,
     };
-    props.onPurchase = vi.fn();
     props.onSeePro = vi.fn();
     const view = render(DesktopPopup, { props });
     await fireEvent.click(
@@ -347,9 +343,8 @@ describe("decision 24: dormant Still Pro rows", () => {
     );
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(props.onSeePro).toHaveBeenCalledOnce();
-    expect(props.onPurchase).not.toHaveBeenCalled();
-    await fireEvent.click(screen.getByRole("button", { name: "Purchase Still Pro" }));
-    expect(props.onPurchase).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole("button", { name: "Get Still Pro" }));
+    expect(props.onSeePro).toHaveBeenCalledTimes(2);
     view.unmount();
   });
 });
