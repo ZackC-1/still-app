@@ -91,13 +91,15 @@
         where: "options",
       });
   };
-  // Free-period "Restore purchase" (owner decisions 62 and 73): V3 new-sync builds only. The
-  // inline build-time check folds to false on configured 2.x and unconfigured builds, which keep
-  // loading ExtensionSettings exactly as before; the Restore wrapper and its check live only in the
-  // lazily loaded wrapper chunk, which this page binds to its controller when it loads it.
-  const freeRestore = Boolean(
-    import.meta.env.VITE_SUPABASE_URL &&
-      import.meta.env.VITE_SUPABASE_ANON_KEY &&
+  // V3 builds load the settings page through a wrapper that adds the site access warning
+  // (ISS-0037): InformationalProSettings in paid-tier builds, otherwise RestoreSettings with its
+  // free-period "Restore purchase" link (owner decisions 62 and 73; bound only where the build has
+  // the sign-in spine). The inline build-time check (wxt.config's runsV3Interface rule) folds to
+  // false on configured 2.x builds, which keep loading ExtensionSettings as before. The paid branch
+  // keeps its own inline check: written through this constant, the bundler no longer drops the
+  // paid chunk from 2.x builds (checked with the bundle identity snapshots).
+  const v3Settings = Boolean(
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
   );
   const loadSettings =
@@ -111,7 +113,7 @@
           module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout } : undefined);
           return module;
         })
-    : freeRestore
+    : v3Settings
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {
           module.bindSettingsRestore(purchase ? controller : undefined);
@@ -169,6 +171,8 @@
           sectionMemory,
           features,
           phone,
+          // The Still Pro value list waits for Firefox's device answer (ISS-0032).
+          platformKnown: !import.meta.env.FIREFOX || platformAnswer !== null,
         }
       : undefined}
   />

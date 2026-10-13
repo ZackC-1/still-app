@@ -209,8 +209,14 @@ describe("paid-tier browser Still Pro card", () => {
     await screen.findByText("Purchased");
     // Let that re-check finish its second access read before the next return to the page.
     await waitFor(() => expect(f.actions().filter(action => action === "observeBenefits").length).toBe(reads + 2));
-    expect(screen.getByText("Still Pro and sync")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull());
+    // ISS-0032: the sync card keeps its own heading beside the Still Pro card's "Purchased".
+    expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Settings sync" })).toBeTruthy();
+    await waitFor(() => {
+      const purchased = screen.getByRole("region", { name: "Still Pro" });
+      expect(within(purchased).getByText("Purchased")).toBeTruthy();
+      expect(within(purchased).queryByRole("button")).toBeNull();
+    });
     // An owner's page shown again does not re-check.
     const settled = f.actions().filter(action => action === "reconcile").length;
     offset = 60_000;

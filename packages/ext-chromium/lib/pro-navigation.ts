@@ -21,6 +21,41 @@ function readRequest(value: unknown): Request | null {
     : null;
 }
 
+/** The last answer this browser session, so the card can show at once on the next opening (it is
+ * still re-asked every time). Session storage only: gone when the browser closes. */
+export const PRO_OFFER_READY_KEY = "still:pro-offer-ready";
+
+/**
+ * "Would the Settings page offer Get Still Pro right now?" (ISS-0032). The popup's Still Pro card
+ * shows only on a yes, so it never leads to a card that says Still Pro can't be bought here. The
+ * same question the Settings card asks (lib/browser-pro.ts askCheckoutAvailable, answered by
+ * lib/checkout-availability.ts in paid-tier builds); spelled here so the popup takes no value from
+ * the Settings card's module. Any failure, or no answer, is "no". Display only: checkout runs its
+ * own fresh check before anything opens.
+ */
+export async function askProOfferReady(): Promise<boolean> {
+  let ready: boolean;
+  try {
+    ready = (await chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" })) === true;
+  } catch {
+    ready = false;
+  }
+  try {
+    await chrome.storage?.session?.set({ [PRO_OFFER_READY_KEY]: ready });
+  } catch {
+    // The remembered answer only avoids a late card on the next opening.
+  }
+  return ready;
+}
+
+export async function lastProOfferReady(): Promise<boolean> {
+  try {
+    return (await chrome.storage?.session?.get(PRO_OFFER_READY_KEY))?.[PRO_OFFER_READY_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
 export function canNavigateToPro(): boolean {
   return Boolean(chrome.storage?.session && chrome.runtime?.openOptionsPage);
 }

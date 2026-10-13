@@ -141,9 +141,15 @@ describe("actual paid-V3 informational options destination", () => {
     await flush();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Comments\. Included in Still Pro\. See Still Pro/ })).toBeNull();
-    if (["unsupported", "purchased", "protected"].includes(state))
+    if (["unsupported", "protected"].includes(state))
       await waitFor(() => expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull());
-    else {
+    else if (state === "purchased") {
+      // ISS-0032: its own "Purchased" card beside the sync card, with nothing to buy or restore.
+      const region = await screen.findByRole("region", { name: "Still Pro" });
+      await within(region).findByText("Purchased");
+      expect(within(region).queryByRole("button")).toBeNull();
+      expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    } else {
       const region = await screen.findByRole("region", { name: "Still Pro" });
       if (state === "checking") {
         await within(region).findByText("Checking your Still Pro access…");

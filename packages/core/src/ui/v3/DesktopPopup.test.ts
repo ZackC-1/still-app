@@ -129,7 +129,6 @@ describe("controlled D01 presentation", () => {
     expect(context.supported.has("tiktok.all")).toBe(true);
     expect(access.states["tiktok.all"]).toBe("free");
     props.access = access;
-    props.onPurchase = vi.fn();
     const settled = bindWriter(cache, props);
     const saved = await storage.get();
     const view = render(DesktopPopup, { props });
@@ -174,12 +173,11 @@ describe("controlled D01 presentation", () => {
         }
       }
       expect(
-        screen.queryByRole("button", { name: "Purchase Still Pro" }),
+        screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
     }
     expect(await storage.get()).toEqual(saved);
     expect(props.onFeatureChange).not.toHaveBeenCalled();
-    expect(props.onPurchase).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "TikTok Blocker" })).toBeNull();
     const tiktok = screen.getByRole("switch", { name: "TikTok website" });
     expect(tiktok).not.toHaveAttribute("aria-disabled", "true");
@@ -217,7 +215,6 @@ describe("controlled D01 presentation", () => {
       false,
     );
     expect(props.onGlobalChange).not.toHaveBeenCalled();
-    expect(props.onPurchase).not.toHaveBeenCalled();
     props.settings = requireModernSettings(cache.currentRecord());
     await view.rerender(props);
     expect(shorts).toHaveAttribute("aria-checked", "false");
@@ -503,7 +500,6 @@ describe("controlled D01 presentation", () => {
       const { cache, props } = await fixture(state);
       await cache.setFeature("youtube.comments", true);
       props.settings = requireModernSettings(cache.currentRecord());
-      props.onPurchase = vi.fn();
       render(DesktopPopup, { props });
       await fireEvent.click(
         screen.getByRole("button", { name: "YouTube Blocker" }),
@@ -516,8 +512,7 @@ describe("controlled D01 presentation", () => {
       expect(comments).toHaveFocus();
       await fireEvent.click(comments);
       expect(props.onFeatureChange).not.toHaveBeenCalled();
-      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
-      expect(props.onPurchase).not.toHaveBeenCalled();
+      expect(screen.queryByText("Get Still Pro")).toBeNull();
       await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
       expect(props.onFeatureChange).toHaveBeenCalledWith(
         "youtube.shorts",
@@ -578,7 +573,7 @@ describe("controlled D01 presentation", () => {
       }),
     );
     expect(props.onFeatureChange).not.toHaveBeenCalled();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
     expect(screen.getByText("owner@still.test")).toBeTruthy();
     await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledOnce();
@@ -595,7 +590,6 @@ describe("controlled D01 presentation", () => {
   });
   it("routes an eligible feature lock directly to its host destination without a sheet or settings write", async () => {
     const { props, storage } = await fixture("locked");
-    props.onPurchase = vi.fn();
     props.onSeePro = vi.fn();
     const saved = await storage.get();
     render(DesktopPopup, { props });
@@ -608,27 +602,25 @@ describe("controlled D01 presentation", () => {
       }),
     );
     expect(props.onSeePro).toHaveBeenCalledOnce();
-    expect(props.onPurchase).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(await storage.get()).toEqual(saved);
     expect(props.onFeatureChange).not.toHaveBeenCalled();
   });
 
-  it("offers only a trusted eligible purchase and removes it when current access becomes uncertain", async () => {
+  it("Get Still Pro opens the Pro destination and goes away when current access becomes uncertain", async () => {
     const { props } = await fixture("locked");
-    const buy = vi.fn();
-    props.onPurchase = buy;
+    const seePro = vi.fn();
+    props.onSeePro = seePro;
     const view = render(DesktopPopup, { props });
-    await fireEvent.click(
-      screen.getByRole("button", { name: "Purchase Still Pro" }),
-    );
-    expect(buy).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole("button", { name: "Get Still Pro" }));
+    expect(seePro).toHaveBeenCalledOnce();
     props.access = {
       ...props.access,
       states: { ...props.access.states, "youtube.comments": "checking" },
     };
     await view.rerender(props);
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Still Pro" })).toBeNull();
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
@@ -639,6 +631,6 @@ describe("controlled D01 presentation", () => {
       }),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(buy).toHaveBeenCalledOnce();
+    expect(seePro).toHaveBeenCalledOnce();
   });
 });
