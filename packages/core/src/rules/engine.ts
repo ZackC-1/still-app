@@ -267,7 +267,6 @@ function planSweep(surfaces: ServiceRules["surfaces"]): SweepPlan {
   };
 }
 
-
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
   "yt-shorts-redirect",
   "yt-sidebar",

@@ -120,6 +120,17 @@ describe("paid tier compiled on: the TikTok block stays free (ISS-0036)", () => 
     expect(PRO_SERVICE_IDS).toEqual(new Set());
   });
 
+  it("every legacy seed surface stays in the free families: YouTube Shorts, Instagram/Facebook Reels, TikTok", () => {
+    // The legacy channel carries no tier gating, so a Still Pro-only surface must never be added
+    // here; Pro extras belong in format-2 (docs/ARCHITECTURE.md, rule sets).
+    const families: Record<string, RegExp> = { youtube: /shorts/i, instagram: /reel/i, facebook: /reel/i, tiktok: /tiktok/i };
+    for (const [service, rules] of Object.entries(ruleSet.services)) {
+      expect(families[service], `${service} is not a known legacy service`).toBeDefined();
+      for (const surface of rules!.surfaces)
+        expect(surface.label, `${service}/${surface.id} must be a ${families[service]} surface`).toMatch(families[service]!);
+    }
+  });
+
   it("a rule update that adds a new pro-tagged legacy surface still applies it without Still Pro", () => {
     const fetched = JSON.parse(JSON.stringify(ruleSet)) as {
       services: Record<string, { surfaces: unknown[] }>;
