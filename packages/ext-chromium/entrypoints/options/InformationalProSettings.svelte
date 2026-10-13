@@ -51,7 +51,7 @@
   );
   let pro = $derived.by((): ExtensionSettingsProps["pro"] => {
     if (ownership === "hidden") return undefined;
-    // Purchased: the settings page shows "Purchased" in its Still Pro and sync card.
+    // Purchased: the settings page shows its Still Pro card as "Purchased", beside the sync card.
     if (ownership === "owned") return { ownership: "owned", channel: "unverified" };
     if (ownership === "verify") return { ownership: "verify", channel: "unverified", onRestore };
     if (ownership === "checking" || flowState.channel === "checking")

@@ -8,7 +8,6 @@
   } from "./withdrawal-copy.js";
   let {
     account,
-    owned = false,
     onSignIn,
     accountActions,
   }: SyncCardProps = $props();
@@ -33,21 +32,7 @@
 
 <section class="card card-stack">
   <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
-  <h2 class="card-title">
-    {owned ? "Still Pro and sync" : "Settings sync"}
-  </h2>
-  {#if owned}
-    <div
-      style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block-end:12px;border-block-end:1px solid var(--border);"
-    >
-      <span
-        class="row-title"
-        style="font-size:calc(15px * var(--text-scale, 1));font-weight:600;"
-        >Still Pro</span
-      >
-      <span class="access-tag boxed">Purchased</span>
-    </div>
-  {/if}
+  <h2 class="card-title">Settings sync</h2>
   {#if account}
     {#if account.address}<p class="synced">{account.address}</p>{/if}
     {#if account.status}
