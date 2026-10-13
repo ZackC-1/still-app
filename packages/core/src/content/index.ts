@@ -327,6 +327,18 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       && (pageSession.effectiveFeatures?.() ?? []).length > 0;
   };
 
+  // ISS-0040: a site measures which of its tabs fit and does not measure again when Still shows a
+  // hidden one (Facebook's Page tab row then draws two labels on top of each other until a
+  // reload). When a live change stops a feature, a resize event right after this pass makes the
+  // site measure again, as resizing the window would (reading layout then sees the shown tab). A
+  // microtask, not a timer: nothing is left pending once Still is off.
+  let previousEffective: readonly BenefitId[] = [];
+  const remeasureAfterReveal = (): void => {
+    const view = doc.defaultView;
+    if (!view) return;
+    queueMicrotask(() => { if (!stopped) view.dispatchEvent(new view.Event("resize")); });
+  };
+
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
@@ -336,6 +348,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      const effectiveNow = pageSession.effectiveFeatures?.() ?? [];
+      if (previousEffective.some((feature) => !effectiveNow.includes(feature))) remeasureAfterReveal();
+      previousEffective = effectiveNow;
       markerHook?.reconcile(pageSession.effectiveFeatures?.() ?? []);
       autoplayGuard?.reconcile(pageSession.activeServiceId() === "youtube"
         && pageSession.effectiveFeatures?.().includes("youtube.autoplay") === true, url);
