@@ -215,7 +215,7 @@ describe("createSessionWithCheckoutAvailability", () => {
   }
   const stores = () => ({ pendingOtp: slot(null), checkoutPending: slot(null), nudgeStamp: slot<number>() });
 
-  it("answers from the same canCreateCheckout the session uses, only for a signed-in session", async () => {
+  it("answers a signed-in session from the same canCreateCheckout the session uses; signed out is sign-in first", async () => {
     const canCreateCheckout = vi.fn(async () => true);
     const deps = { canCreateCheckout, stores: stores() } as unknown as ExtensionSessionDeps;
     const signedIn = chromeHost();
@@ -227,9 +227,26 @@ describe("createSessionWithCheckoutAvailability", () => {
     expect(canCreateCheckout).toHaveBeenCalledOnce();
 
     const signedOut = chromeHost();
-    createSessionWithCheckoutAvailability(deps, signedOut.host, () => session(null));
-    expect((await ask(signedOut.listeners[0]!, REQUEST)).response).toBe(false);
+    createSessionWithCheckoutAvailability(deps, signedOut.host, () => session(null), async () => true);
+    // ISS-0030: a conclusively signed-out page may show Get Still Pro, which opens sign-in first.
+    expect((await ask(signedOut.listeners[0]!, REQUEST)).response).toBe(true);
     expect(canCreateCheckout).toHaveBeenCalledOnce(); // no policy request for a signed-out page
+  });
+
+  it("an account state that is not conclusively signed out is no, without a policy request", async () => {
+    const canCreateCheckout = vi.fn(async () => true);
+    const deps = { canCreateCheckout, stores: stores() } as unknown as ExtensionSessionDeps;
+    // getState's null userId alone (a failed read, an expired-token refresh error) is not proof.
+    const unknown = chromeHost();
+    createSessionWithCheckoutAvailability(deps, unknown.host, () => session(null), async () => false);
+    expect((await ask(unknown.listeners[0]!, REQUEST)).response).toBe(false);
+    const failing = chromeHost();
+    createSessionWithCheckoutAvailability(deps, failing.host, () => session(null), async () => { throw new Error("storage"); });
+    expect((await ask(failing.listeners[0]!, REQUEST)).response).toBe(false);
+    const defaulted = chromeHost();
+    createSessionWithCheckoutAvailability(deps, defaulted.host, () => session(null));
+    expect((await ask(defaulted.listeners[0]!, REQUEST)).response).toBe(false);
+    expect(canCreateCheckout).not.toHaveBeenCalled();
   });
 
   it("a route without a sales allowance registers nothing", () => {
@@ -241,6 +258,7 @@ describe("createSessionWithCheckoutAvailability", () => {
   it("background.ts picks it only behind the compiled paid switch", () => {
     const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
     const background = readFileSync(join(root, "entrypoints", "background.ts"), "utf8");
-    expect(background).toContain("(PAID_TIER_ENABLED ? createSessionWithCheckoutAvailability : createExtensionSession)({");
+    expect(background).toMatch(/\(PAID_TIER_ENABLED\s*\?\s*\(deps[^)]*\)\s*=>\s*createSessionWithCheckoutAvailability\(deps,[\s\S]*?: createExtensionSession\)\(\{/);
+    expect(background.match(/createSessionWithCheckoutAvailability\(/g)).toHaveLength(1);
   });
 });

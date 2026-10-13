@@ -53,3 +53,42 @@ export async function clearExtensionAuthStorage(order: AuthMutationOrder = immed
     /* best-effort — the SDK sign-out already attempted local removal too */
   }
 }
+
+/** The verified session the entitlement authority's access context carries. */
+export type AccessSession = { readonly userId: string; readonly sessionId: string };
+
+export interface AccessSessionSources {
+  /** The SDK's local session read (lazy refresh), as `client.auth.getSession()` answers. */
+  getSession(): Promise<{ readonly data: { readonly session: unknown }; readonly error: unknown }>;
+  /** The SDK's verified claims for the current session, or null. */
+  currentSettingsSession(): Promise<AccessSession | null>;
+  /** Whether the persisted auth record is readably absent. Unreadable storage is never absent. */
+  persistedAuthAbsent(): Promise<boolean>;
+}
+
+/**
+ * The background's session answer for Still Pro access (TrustedAccessContext.session):
+ * - a verified session when the SDK has one and its claims verify;
+ * - `null`, the authoritative signed-out answer, only when the SDK reads no session without an
+ *   error AND the persisted auth record is readably absent (ISS-0030: a never-signed-in install
+ *   is conclusive account absence, so its Pro rows show as locked with the offer);
+ * - `undefined` (verification unavailable) for everything else: an SDK error, claims that do not
+ *   verify, or a missing SDK session while auth storage still holds a record or cannot be read.
+ *   The auth adapter above reads a torn record as signed out, so the SDK alone cannot prove it.
+ */
+export async function readAccessSession(sources: AccessSessionSources): Promise<AccessSession | null | undefined> {
+  const { data, error } = await sources.getSession();
+  if (error) return undefined;
+  if (!data.session) return (await sources.persistedAuthAbsent().catch(() => false)) === true ? null : undefined;
+  return (await sources.currentSettingsSession()) ?? undefined;
+}
+
+/** True only when browser.storage.local answers and holds no persisted auth record. */
+export async function persistedAuthAbsent(): Promise<boolean> {
+  try {
+    const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
+    return !!stored && typeof stored === "object" && (stored as Record<string, unknown>)[AUTH_STORAGE_KEY] === undefined;
+  } catch {
+    return false;
+  }
+}

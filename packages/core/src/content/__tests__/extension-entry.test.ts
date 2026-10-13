@@ -224,14 +224,16 @@ describe("createExtensionContentEntry", () => {
     expect(captured[0]?.currentAccess("youtube.comments")).toBe("unsupported");
     expect(Object.keys(captured[0]!.currentAccessSnapshot().states)).toHaveLength(16);
     expect(listeners.size).toBeGreaterThanOrEqual(3);
-    // Exercise the registered access observer while the real script is alive.
-    for (const listener of listeners) listener({ "still:entitlement": { newValue: {} } }, "local");
+    // Exercise the registered access observer while the real script is alive, with a material
+    // change (a first event that only restates the value it replaced is ignored).
+    const changed = { access: { schema: 1, accountId: null, generation: 1, rights: [], revocations: [] } };
+    for (const listener of listeners) listener({ "still:entitlement": { newValue: changed } }, "local");
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(refreshing.mock.calls.length).toBeGreaterThan(1);
     for (const script of startedScripts) script.stop();
     expect(listeners.size).toBe(0);
     const readsAfterStop = refreshing.mock.calls.length;
-    for (const listener of listeners) listener({ "still:entitlement": { newValue: {} } }, "local");
+    for (const listener of listeners) listener({ "still:entitlement": { newValue: changed } }, "local");
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(refreshing).toHaveBeenCalledTimes(readsAfterStop);
     refreshing.mockRestore();

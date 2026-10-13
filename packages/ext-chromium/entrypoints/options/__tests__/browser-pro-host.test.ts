@@ -318,6 +318,32 @@ describe("paid-tier browser Still Pro card", () => {
     expect(f.actions()).not.toContain("checkoutAvailable");
   });
 
+  it("signed out and known not to own it, Get Still Pro is offered and starts with sign-in (ISS-0030)", async () => {
+    const f = await host({ signedIn: false, before: "locked" });
+    render(OptionsApp);
+    const card = await region();
+    const buy = await within(card).findByRole("button", { name: "Get Still Pro" });
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+    expect(within(card).queryByText("Still Pro can't be bought here yet.")).toBeNull();
+    expect(within(card).getByRole("button", { name: "Restore purchase" })).toBeTruthy();
+    await fireEvent.click(buy);
+    await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
+    // The background is asked whether this build sells at all; nothing is bought before sign-in.
+    expect(f.actions()).toContain("checkoutAvailable");
+    expect(f.actions()).not.toContain("createCheckout");
+    expect(f.actions()).not.toContain("reconcile");
+    expect(intent(f.messages)).toEqual([]);
+  });
+
+  it("signed out on a build that does not sell here, no Get Still Pro is offered", async () => {
+    await host({ signedIn: false, before: "locked", available: false });
+    render(OptionsApp);
+    const card = await region();
+    await within(card).findByText("Still Pro can't be bought here yet.");
+    expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+  });
+
   it("a checkout that cannot start shows the calm failure, and Try again asks and buys again", async () => {
     const f = await host({ checkout: { kind: "unavailable" } });
     render(OptionsApp);
