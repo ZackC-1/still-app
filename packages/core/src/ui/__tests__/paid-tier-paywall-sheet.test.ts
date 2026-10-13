@@ -118,9 +118,12 @@ describe("PaywallSheet: sheet mechanics with the paid tier on", () => {
   });
 
   it("dismissing the paywall restores focus to the trigger that opened it", async () => {
-    const c = controller(); // no auth wired → a locked-row tap opens the paywall directly
+    // The upgrade call to action opens it (no legacy row is locked with the paid tier on: every
+    // legacy service is a free outcome under V3, ISS-0036).
+    const c = controller();
+    c.userId = "u";
     render(App, { props: { controller: c } });
-    const lock = document.querySelector(".lock") as HTMLButtonElement;
+    const lock = screen.getByRole("button", { name: STRINGS.paywall.upgradeCta }) as HTMLButtonElement;
     lock.focus();
     await fireEvent.click(lock);
     expect(c.paywallOpen).toBe(true);

@@ -199,7 +199,13 @@ jobs:
           STILL_TEST_PAID_TIER: "true"
           STILL_CHROMIUM_EXTENSION: .output/test-paid-tier/chrome
           STILL_SAFARI_EXTENSION: .output/test-paid-tier/safari
-        run: pnpm exec playwright test --project=fixtures tests/playwright/paid-tier-free-outcome.spec.ts
+        # The free outcome on every service, both content lanes: TikTok (paid-tier-free-outcome,
+        # tiktok-blocked), YouTube Shorts and Instagram/Facebook Reels on the legacy seed lane
+        # (fixtures) and the format-2 lane (fixtures-format2), all without Still Pro.
+        run: >-
+          pnpm exec playwright test --project=fixtures
+          tests/playwright/paid-tier-free-outcome.spec.ts tests/playwright/tiktok-blocked.spec.ts
+          tests/playwright/fixtures.spec.ts tests/playwright/fixtures-format2.spec.ts
 
       # The real-site smoke layer is intentionally NOT run here — it is non-gating
       # and lives in a separate, retry-allowed job (KTD10). It must never block merge.

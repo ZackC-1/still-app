@@ -3,7 +3,6 @@ import type { BrowserContext, Page } from "@playwright/test";
 import { readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
@@ -251,21 +250,18 @@ test("m.youtube.com: a Shorts URL ends up on the watch page (redirect)", async (
   await expect(page).toHaveURL(/\/watch\?v=def456/);
 });
 
-test("instagram: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
+// Reels removal is a free outcome whether or not the paid tier is compiled on (V3, ISS-0036): the
+// seed's "pro" tags are left over from the retired 1.x paywall. The paid-tier-on CI step runs these
+// same cases against a paid build.
+test("instagram: a free user's Reels go, with or without the paid tier", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));
   await page.goto("https://www.instagram.com/someuser/");
 
   await expect(page.locator("#keep-post")).toBeVisible();
-  if (PAID_TIER_ENABLED) {
-    await expect(page.locator("#reel-post")).toBeVisible();
-    await expect(page.locator("#reels-link")).toBeVisible();
-    await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
-  } else {
-    await expect(page.locator("#reel-post")).toHaveCount(0);
-    await expect(page.locator("#reels-link")).toBeHidden();
-    await expect(page.locator("html")).toHaveClass(/still-pro-active/);
-  }
+  await expect(page.locator("#reel-post")).toHaveCount(0);
+  await expect(page.locator("#reels-link")).toBeHidden();
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
 });
 
 test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a normal post", async ({ context, extensionId }) => {
@@ -321,11 +317,9 @@ test("instagram home feed: Reels posts go, ordinary posts stay whole", async ({ 
   await expect(page.locator("#keep-profile-reel-link")).toBeVisible();
 });
 
-// Instagram is included for everyone while the paid tier is switched off, so the home feed gets the
-// same tier-following check every other Instagram surface has. Today both arms of the branch below
-// describe the same shipped behaviour; the test exists so that turning the paid tier back on cannot
-// quietly make the first surface anyone opens a paid one.
-test("instagram home feed: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
+// The home feed is the first surface anyone opens; turning the paid tier on must not quietly make
+// its Reels removal a paid one (ISS-0036). The paid-tier-on CI step runs this against a paid build.
+test("instagram home feed: a free user's Reels go, with or without the paid tier", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
   await page.goto("https://www.instagram.com/");
@@ -333,15 +327,9 @@ test("instagram home feed: free-user Reels behavior follows the paid-tier switch
   await expect(page.locator("#keep-photo-post")).toBeVisible();
   await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
   await expect(page.locator("#keep-post-linking-to-reels")).toBeVisible();
-  if (PAID_TIER_ENABLED) {
-    await expect(page.locator("#reel-post")).toBeVisible();
-    await expect(page.locator("#nav-reels")).toBeVisible();
-    await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
-  } else {
-    await expect(page.locator("#reel-post")).toHaveCount(0);
-    await expect(page.locator("#nav-reels")).toBeHidden();
-    await expect(page.locator("html")).toHaveClass(/still-pro-active/);
-  }
+  await expect(page.locator("#reel-post")).toHaveCount(0);
+  await expect(page.locator("#nav-reels")).toBeHidden();
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
 });
 
 test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
@@ -383,21 +371,15 @@ test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels su
   await expect(page.locator("#ig-mobile-post")).toBeVisible();
 });
 
-test("facebook: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
+test("facebook: a free user's Reels go, with or without the paid tier", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
   await page.goto("https://www.facebook.com/");
 
   await expect(page.locator("#keep-article")).toBeVisible();
-  if (PAID_TIER_ENABLED) {
-    await expect(page.locator("#reel-article")).toBeVisible();
-    await expect(page.locator("#reels-shortcut")).toBeVisible();
-    await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
-  } else {
-    await expect(page.locator("#reel-article")).toHaveCount(0);
-    await expect(page.locator("#reels-shortcut")).toBeHidden();
-    await expect(page.locator("html")).toHaveClass(/still-pro-active/);
-  }
+  await expect(page.locator("#reel-article")).toHaveCount(0);
+  await expect(page.locator("#reels-shortcut")).toBeHidden();
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
 });
 
 test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keeps a normal post", async ({ context, extensionId }) => {
@@ -707,19 +689,12 @@ async function settingsCommitted(context: BrowserContext): Promise<void> {
     .toBe(true);
 }
 
-test("tiktok: free-user whole-site blocking follows the paid-tier switch", async ({ context }) => {
+test("tiktok: a free user's TikTok is blocked, with or without the paid tier", async ({ context }) => {
   await settingsCommitted(context);
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
   await page.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
-
-  if (PAID_TIER_ENABLED) {
-    await expect(page.locator("#still-placeholder")).toHaveCount(0);
-    await expect(page.locator("#tiktok-feed")).toBeVisible();
-    expect(page.url()).toBe("https://www.tiktok.com/foryou");
-  } else {
-    await expectTikTokBlocked(page);
-  }
+  await expectTikTokBlocked(page);
 });
 
 test("tiktok: Pro user gets TikTok blocked", async ({ context, extensionId }) => {

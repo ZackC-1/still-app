@@ -145,10 +145,12 @@ describe("UiController — success payoff (plan U3/R6)", () => {
     c.dismissPaywall();
   });
 
-  it("locked rows become live toggles the moment the transition lands, previously-on services on", () => {
+  // Under V3 no legacy row is locked at all, before or after the purchase: Instagram and Facebook
+  // Reels and the TikTok block are free outcomes (ISS-0036).
+  it("no legacy row is locked before or after the transition, and settings are untouched", () => {
     const { c } = makeController();
     c.openPaywall();
-    expect(c.isLocked("instagram")).toBe(true);
+    expect(c.isLocked("instagram")).toBe(false);
     c.entitled = true;
     expect(c.isLocked("instagram")).toBe(false);
     expect(c.isLocked("tiktok")).toBe(false);

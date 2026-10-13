@@ -10,16 +10,14 @@ import seed from "../../rules/seed.json";
 // Pro surfaces.
 
 /** True when the service has at least one free surface (by tag, or by the engine's always-free
- * safety net) — its row stays a live toggle for free users. With the paid tier on, the TikTok
- * block counts as free too, exactly as the engine's tier gate applies it (ISS-0036). */
+ * safety net) — its row stays a live toggle for free users. With the paid tier on, every legacy
+ * seed service is free: its surfaces are all V3 free outcomes (FREE_OUTCOME_SURFACE_IDS in the
+ * engine), and the V3 Still Pro extras are not legacy rows (ISS-0036). The flag leads, so
+ * paid-off bundles fold it away (`false || x` is `x`). */
 export function serviceHasFreeSurface(ruleSet: SignedRuleSet, id: ServiceId): boolean {
   const service = ruleSet.services[id];
   if (!service) return false; // absent service can't block anything free
-  // The paid check leads, and names the engine's TIKTOK_SITE_SURFACE_ID by value rather than by
-  // import, so paid-off bundles fold it away entirely (an imported constant stays exported from a
-  // shared chunk even when its only use folds). paid-tier-free-outcome.test.ts pins the two.
-  return service.surfaces.some((s) => (PAID_TIER_ENABLED && s.id === "tt-blocksite") ||
-    s.tier === "free" || ALWAYS_FREE_SURFACE_IDS.has(s.id));
+  return PAID_TIER_ENABLED || service.surfaces.some((s) => s.tier === "free" || ALWAYS_FREE_SURFACE_IDS.has(s.id));
 }
 
 /** Service ids whose EVERY surface is Pro-gated under the given rule set. An absent service is
