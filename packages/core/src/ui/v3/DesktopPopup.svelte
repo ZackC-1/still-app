@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
   import {
+    proAccessChecking,
     proKnownMissing,
     proRowsDormant,
     rowsFor,
@@ -75,11 +76,14 @@
   }
   // The card itself waits for the destination to be able to sell and, like the sync invitation,
   // for a clear setup and account state: it never competes with fixing the free outcome.
-  let proCardShown = $derived(
-    proDestinationReady &&
-      proOfferReady &&
-      !desktopSetup &&
+  let popupClear = $derived(
+    !desktopSetup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  let proCardShown = $derived(proDestinationReady && proOfferReady && popupClear);
+  // While Still is still finding out, the card's place says so (no button), where a card may follow.
+  let proCheckingShown = $derived(
+    Boolean(onSeePro) && proOfferReady && proAccessChecking(access) && popupClear,
   );
   let dormant = $derived(proRowsDormant(access));
   let invitationReady = $derived(
@@ -284,7 +288,7 @@
   {#if proCardShown}<PopupProCard
       onOpen={openPro}
       {appHandoff}
-    />{/if}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">

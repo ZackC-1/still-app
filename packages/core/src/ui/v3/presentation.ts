@@ -57,6 +57,23 @@ export function proKnownMissing(
 }
 
 /**
+ * True while Still is still finding out whether this person has Still Pro: some Still Pro row is
+ * `checking` and none is purchased or protected. The popup then shows "Checking your Still Pro
+ * access…" in the Still Pro card's place, with no button (owner-approved design, state S1).
+ */
+export function proAccessChecking(
+  access: Pick<BenefitAccessSnapshot, "states">,
+): boolean {
+  const states = FEATURE_REGISTRY.filter((row) => row.tier === "pro").map(
+    (row) => access.states[row.id],
+  );
+  return (
+    states.includes("checking") &&
+    !states.some((state) => state === "purchased" || state === "protected")
+  );
+}
+
+/**
  * The popup's Still Pro card line (ISS-0032, owner-approved design, 12 Oct 2026). The same words on
  * every popup. Owner rules: no number of extras and no price in the popup.
  */
@@ -80,15 +97,20 @@ const PRO_VALUE_PHRASES: Record<string, string> = {
 };
 
 /**
- * "a, b and c"; a comma before the final "and" only where one of the two items it joins itself
- * contains "and" ("Stories, Videos and Watch, and desktop sidebar ads"; on a phone, "Stories, and
- * Videos and Watch").
+ * Joins the phrases for one site. Three or more: "a, b and c", with a serial comma only where the
+ * item before the final "and" itself contains "and" ("Stories, Videos and Watch, and desktop
+ * sidebar ads"). Two: "a and b", or "a, plus b" where either already contains "and" (on a phone,
+ * "Stories, plus Videos and Watch").
  */
 function joinPhrases(items: readonly string[]): string {
   if (items.length < 2) return items.join("");
   const head = items.slice(0, -1);
   const last = items[items.length - 1]!;
-  const serial = / and /.test(head[head.length - 1]!) || / and /.test(last);
+  if (items.length === 2)
+    return / and /.test(head[0]!) || / and /.test(last)
+      ? `${head[0]}, plus ${last}`
+      : `${head[0]} and ${last}`;
+  const serial = / and /.test(head[head.length - 1]!);
   return `${head.join(", ")}${serial ? ", and " : " and "}${last}`;
 }
 

@@ -25,6 +25,7 @@
     features,
     labels,
     phone = false,
+    platformKnown = true,
     sync,
     pro,
     restore,
@@ -256,6 +257,7 @@
         {...pro}
         {phone}
         {features}
+        {platformKnown}
         confirmedAccount={sync.account?.confirmed ?? false}
         {knownMissing}
         {accessHeld}

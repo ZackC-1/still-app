@@ -53,6 +53,8 @@
       features?: ExtensionSettingsProps["features"];
       /** A confirmed phone platform only (see ExtensionSettingsProps["phone"]). */
       phone?: ExtensionSettingsProps["phone"];
+      /** False while the device answer is pending (see ExtensionSettingsProps["platformKnown"]). */
+      platformKnown?: ExtensionSettingsProps["platformKnown"];
     };
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
@@ -463,6 +465,7 @@
       sectionMemory={settingsHost.sectionMemory}
       features={settingsHost.features}
       phone={settingsHost.phone}
+      platformKnown={settingsHost.platformKnown}
       sync={{ ...optionsSync, accountActions: optionsAccountActions }}
       privacyActions={usageActions}
       help={settingsHost.help}

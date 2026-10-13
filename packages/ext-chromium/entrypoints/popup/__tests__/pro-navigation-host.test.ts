@@ -48,6 +48,10 @@ function session() {
   return { records, set, get, openOptionsPage, listeners };
 }
 
+/** Only the options-navigation requests (the popup also remembers its last sales answer). */
+const navigationSets = (set: ReturnType<typeof vi.fn>) =>
+  set.mock.calls.filter(([values]) => PRO_NAVIGATION_KEY in (values as object));
+
 function root() {
   const target = document.createElement("main");
   document.body.append(target);
@@ -109,7 +113,7 @@ describe("live popup/App/browser Pro navigation", () => {
     const before = await f.f.storage.get();
     await fireEvent.click(screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" }));
     await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());
-    expect(f.set).toHaveBeenCalledOnce();
+    expect(navigationSets(f.set)).toHaveLength(1);
     expect(f.records[PRO_NAVIGATION_KEY]).toMatchObject({ target: "pro" });
     expect(Object.keys(f.records[PRO_NAVIGATION_KEY] as object).sort()).toEqual(["expiresAt", "target", "token"]);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -160,7 +164,7 @@ describe("live popup/App/browser Pro navigation", () => {
     const f = await popup("Chrome", false, state);
     const lock = screen.queryByRole("button", { name: /Comments\. Included in Still Pro/ });
     if (lock) await fireEvent.click(lock);
-    expect(f.set).not.toHaveBeenCalled();
+    expect(navigationSets(f.set)).toHaveLength(0);
     expect(f.openOptionsPage).not.toHaveBeenCalled();
   });
 
@@ -201,7 +205,7 @@ describe("live popup/App/browser Pro navigation", () => {
     const lock = screen.getByRole("button", { name: "Comments. Included in Still Pro." });
     expect(lock.getAttribute("aria-disabled")).toBe("true");
     await fireEvent.click(lock);
-    expect(f.set).not.toHaveBeenCalled();
+    expect(navigationSets(f.set)).toHaveLength(0);
     await f.view.rerender(f.props);
     Reflect.deleteProperty(chrome.storage, "session");
     await f.view.rerender({ ...f.props, proDestinationReady: false });

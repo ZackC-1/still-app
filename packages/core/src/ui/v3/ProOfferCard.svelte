@@ -9,6 +9,7 @@
     ownership,
     controls = [],
     features,
+    platformKnown = true,
     channel,
     offer,
     confirmedAccount,
@@ -51,6 +52,7 @@
       !accessVerify &&
       !restoreHeld &&
       state !== "success" &&
+      platformKnown &&
       controls.length === 0,
   );
   let value = $derived(valueLed ? proValueBySite(features) : []);

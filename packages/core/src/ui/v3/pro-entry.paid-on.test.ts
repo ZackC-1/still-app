@@ -162,6 +162,8 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     expect(proCard()).toBeNull();
     expect(screen.queryByText("Get Still Pro")).toBeNull();
     expect(screen.queryByText(POPUP_PRO_VALUE)).toBeNull();
+    if (state !== "checking")
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
   });
 
   it.each(["checking", "verification_required", "purchased", "protected"] as const)(
@@ -209,6 +211,25 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
         : ({ setup: {} } as Partial<DesktopPopupProps>),
     );
     expect(proCard()).toBeNull();
+  });
+
+  it("checking: a muted 'Checking your Still Pro access…' line in the card's place, with no button", async () => {
+    const { view } = await mountPopup(surface, "checking");
+    expect(screen.getByText("Checking your Still Pro access…")).toBeVisible();
+    const region = screen.getByText("Checking your Still Pro access…").closest("section")!;
+    expect(within(region).queryByRole("button")).toBeNull();
+    const services = view.container.querySelector(".services")!;
+    const sync = screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
+    expect(services.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("checking without a destination, or while the destination would not sell: no checking line", async () => {
+    const first = await mountPopup(surface, "checking", { onSeePro: undefined });
+    expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+    first.view.unmount();
+    await mountPopup(surface, "checking", { proOfferReady: false });
+    expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
   });
 
   it("locked without a host destination: no card and inert locks", async () => {
@@ -305,6 +326,19 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(onRestore).toHaveBeenCalledOnce();
   });
 
+  it("Firefox before its device answer: the value list waits instead of changing rows", async () => {
+    const { props } = await settingsFixture("locked");
+    const view = render(ExtensionSettings, {
+      props: { ...props, features: phoneLayoutFeatures(), platformKnown: false, pro: ready },
+    });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    expect(within(card).queryByRole("listitem")).toBeNull();
+    expect(within(card).getByRole("button", { name: "Get Still Pro" })).toBeVisible();
+    await view.rerender({ ...props, features: undefined, platformKnown: true, pro: ready });
+    expect(within(screen.getByRole("region", { name: "Still Pro" })).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("Stories, Videos and Watch, and desktop sidebar ads")).toBeVisible();
+  });
+
   it("locked with Buy not open here: the value list stays, the one-time terms and Get Still Pro do not", async () => {
     const { props } = await settingsFixture("locked");
     render(ExtensionSettings, {
@@ -339,7 +373,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     const text = [...card.querySelectorAll(".what")].map((node) => node.textContent);
     expect(text).toEqual([
       "Stories and Highlights, Explore recommendations, suggested accounts and Threads links",
-      "Stories, and Videos and Watch",
+      "Stories, plus Videos and Watch",
       "Related videos, autoplay and comments",
     ]);
     expect(card.textContent).not.toMatch(/desktop sidebar ads|live chat|end-of-video/i);

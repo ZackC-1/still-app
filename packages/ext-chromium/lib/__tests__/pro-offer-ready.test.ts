@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { askProOfferReady } from "../pro-navigation.js";
+import { askProOfferReady, lastProOfferReady, PRO_OFFER_READY_KEY } from "../pro-navigation.js";
 import { CHECKOUT_AVAILABLE_ACTION } from "../checkout-availability.js";
 import { SESSION_MESSAGE_KIND } from "../session-messages.js";
 
@@ -23,5 +23,23 @@ describe("askProOfferReady", () => {
     expect(await askProOfferReady()).toBe(false);
     vi.stubGlobal("chrome", { runtime: {} });
     expect(await askProOfferReady()).toBe(false);
+  });
+
+  it("remembers the last answer for this browser session, and reads anything else as no", async () => {
+    const records: Record<string, unknown> = {};
+    const session = {
+      set: vi.fn(async (values: Record<string, unknown>) => Object.assign(records, values)),
+      get: vi.fn(async (key: string) => ({ [key]: records[key] })),
+    };
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => true) }, storage: { session } });
+    expect(await lastProOfferReady()).toBe(false);
+    expect(await askProOfferReady()).toBe(true);
+    expect(records[PRO_OFFER_READY_KEY]).toBe(true);
+    expect(await lastProOfferReady()).toBe(true);
+    records[PRO_OFFER_READY_KEY] = "true";
+    expect(await lastProOfferReady()).toBe(false);
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => false) }, storage: { session } });
+    expect(await askProOfferReady()).toBe(false);
+    expect(records[PRO_OFFER_READY_KEY]).toBe(false);
   });
 });

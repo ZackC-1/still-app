@@ -10,13 +10,26 @@
   let {
     onOpen,
     appHandoff = false,
+    checking = false,
   }: {
-    onOpen: () => void;
+    onOpen?: () => void;
+    /** Still is still finding out: a muted line in the card's place, no button. */
+    checking?: boolean;
     /** Safari: Get Still Pro opens the Still app, and the card says so. */
     appHandoff?: boolean;
   } = $props();
 </script>
 
+{#if checking}
+  <section class="card card-stack" aria-labelledby="popup-pro-checking">
+    <div class="status-line" data-tone="pending" role="status">
+      <span class="glyph"><Glyph name="spinner" size={16} /></span>
+      <div class="status-body">
+        <span id="popup-pro-checking">Checking your Still Pro access…</span>
+      </div>
+    </div>
+  </section>
+{:else}
 <section class="card card-stack pro-entry" aria-labelledby="popup-pro-h">
   <div class="sync-row">
     <div class="sync-row-text">
@@ -36,3 +49,4 @@
       <Glyph name="external" size={13} />Opens the Still app
     </p>{/if}
 </section>
+{/if}

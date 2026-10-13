@@ -1,7 +1,12 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
-  import { proKnownMissing, proRowsDormant, rowsFor } from "./presentation.js";
+  import {
+    proAccessChecking,
+    proKnownMissing,
+    proRowsDormant,
+    rowsFor,
+  } from "./presentation.js";
   import PopupProCard from "./PopupProCard.svelte";
   import { DESKTOP_LAYOUT_ONLY_PRO } from "../../entitlement/access-policy.js";
   import type { MobilePopupProps } from "./mobile-presentation.js";
@@ -95,11 +100,16 @@
   let handoff = $derived(appHandoff ?? host === "safari");
   // The card waits for the destination to be able to sell and for a clear setup and account
   // state, as the sync invitation does.
-  let proCardShown = $derived(
-    (appActionReady || browserActionReady) &&
-      proOfferReady &&
-      !setup &&
+  let popupClear = $derived(
+    !setup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  let proCardShown = $derived(
+    (appActionReady || browserActionReady) && proOfferReady && popupClear,
+  );
+  // While Still is still finding out, the card's place says so (no button), where a card may follow.
+  let proCheckingShown = $derived(
+    Boolean(onSeePro) && proOfferReady && proAccessChecking(access) && popupClear,
   );
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
@@ -248,7 +258,7 @@
   {#if proCardShown}<PopupProCard
       onOpen={openPro}
       appHandoff={handoff}
-    />{/if}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
