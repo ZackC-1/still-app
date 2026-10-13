@@ -17,7 +17,6 @@ const { PRO_SERVICE_IDS } = await import("../tiers.js");
 const seed = (await import("../../../rules/seed.json")).default;
 type SignedRuleSet = import("@still/shared-types").SignedRuleSet;
 type StillSettings = import("@still/shared-types").StillSettings;
-type SettingsV2 = import("@still/shared-types").SettingsV2;
 
 const ruleSet = seed as unknown as SignedRuleSet;
 const legacyAllOn: StillSettings = {
@@ -35,8 +34,9 @@ const TIKTOK_PAGES = [
   "https://tiktok.com/",
 ];
 
-/** A fresh V3 profile's committed schema-2 settings (TikTok on, signed out). */
-function freshV2(): SettingsV2 {
+/** A fresh V3 profile's committed schema-2 settings (TikTok on, signed out). The legacy engine's
+ * `evaluate` is typed for the schema-1 shape but reads schema 2 as the content script hands it. */
+function freshV2(): StillSettings {
   return {
     schemaVersion: 2,
     globalOn: true,
@@ -47,7 +47,7 @@ function freshV2(): SettingsV2 {
       "facebook.reels": true,
     },
     pauses: [],
-  } as unknown as SettingsV2;
+  } as unknown as StillSettings;
 }
 
 describe("paid tier compiled on: the TikTok block stays free (ISS-0036)", () => {
@@ -89,9 +89,9 @@ describe("paid tier compiled on: the TikTok block stays free (ISS-0036)", () => 
   });
 
   it("TikTok Blocker Off or Still Off still leaves TikTok open", () => {
-    const off = { ...freshV2(), services: { ...freshV2().services, tiktok: false } } as SettingsV2;
+    const off = { ...freshV2(), services: { ...freshV2().services, tiktok: false } } as StillSettings;
     expect(evaluate(ruleSet, off, new URL("https://www.tiktok.com/"), { pro: false }).kind).toBe("noop");
-    const allOff = { ...freshV2(), globalOn: false } as SettingsV2;
+    const allOff = { ...freshV2(), globalOn: false } as StillSettings;
     expect(evaluate(ruleSet, allOff, new URL("https://www.tiktok.com/"), { pro: false }).kind).toBe("noop");
   });
 
