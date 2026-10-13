@@ -69,19 +69,24 @@ is a Still Pro extra.
 
 YouTube's seed surfaces were already tagged free. `format2.json` carries no tier field.
 
-- `FREE_OUTCOME_SURFACE_IDS` in `rules/engine.ts` lists those 16 ids. The tier gate treats them as
-  free, alongside the YouTube entries in `ALWAYS_FREE_SURFACE_IDS`. Matching by id also covers a
-  fetched rule set that still carries the stale tags, which retagging the seed alone would not.
+- The legacy engine's tier gate (`surfaceEnabledForTier`) no longer gates any surface by tier, with
+  or without the paid tier. A first version matched the 16 known ids instead. Review pointed out
+  that the background refreshes signed legacy rule sets, so the next rule update that adds or
+  renames a Reels or TikTok surface (tagged "pro" like its neighbours) would reopen the bug. Still
+  Pro extras live only in the format-2 rule set, so nothing paid is lost.
+- Both backgrounds' TikTok routes stop reading the entitlement for their "is this blocked?" check.
+  It no longer changes the answer, and a slow or failed read only added a way to fall back to the
+  in-page block.
 - The content script switches the packaged Pro stylesheet (the seed's "pro" hide rules, all of them
   Reels) on for everyone when the paid tier is on.
 - `rules/tiers.ts` reports every legacy service as free when the paid tier is on, so the legacy UI
   locks no row.
-- A unit test fails if a new seed surface is neither free nor deliberately classified.
-- Every reader sits behind `PAID_TIER_ENABLED` and is written so paid-off bundles fold it away
-  (the flag leads each `||`; the set is `/* @__PURE__ */`; `tiers.ts` imports no new constant).
-  `scripts/bundles/identity.mjs` reported byte-identical bundles for the unconfigured, configured
-  and store-shaped V3 profiles. A first attempt that added an id to the shared set changed every
-  bundle. A constant imported across chunks also stayed exported even after its only use folded.
+- Unit tests pin the audited list of pro-tagged seed surfaces, and a fetched set with a new
+  pro-tagged surface still applies.
+- Paid-off bundles stay byte-identical: each change folds away when the flag is off (the flag leads
+  each `||`, and `tiers.ts` imports no new constant). Check with `scripts/bundles/identity.mjs`. A
+  constant imported across chunks stayed exported even after its only use folded, which is why
+  `tiers.ts` imports nothing new.
 
 ## Prevention
 

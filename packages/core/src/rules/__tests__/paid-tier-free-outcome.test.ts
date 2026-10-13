@@ -12,7 +12,7 @@ vi.mock("@still/shared-types", async (importOriginal) => ({
 }));
 
 const { PAID_TIER_ENABLED, TIKTOK_ALIAS } = await import("@still/shared-types");
-const { ALWAYS_FREE_SURFACE_IDS, FREE_OUTCOME_SURFACE_IDS, createEnginePageSession, evaluate } = await import("../engine.js");
+const { createEnginePageSession, evaluate } = await import("../engine.js");
 const { PRO_SERVICE_IDS } = await import("../tiers.js");
 const seed = (await import("../../../rules/seed.json")).default;
 type SignedRuleSet = import("@still/shared-types").SignedRuleSet;
@@ -100,27 +100,34 @@ describe("paid tier compiled on: the TikTok block stays free (ISS-0036)", () => 
       .toBe("redirect");
   });
 
-  it("ties the exemption to the registry: the seed's TikTok block is the free tiktok.all alias", () => {
+  it("the seed's TikTok block is the free tiktok.all alias in the registry", () => {
     expect(TIKTOK_ALIAS.tier).toBe("free");
     const tiktok = ruleSet.services.tiktok!.surfaces;
     expect(tiktok.filter((s) => s.action === "blockSite").map((s) => s.id)).toEqual(["tt-blocksite"]);
-    expect(FREE_OUTCOME_SURFACE_IDS.has("tt-blocksite")).toBe(true);
   });
 
-  it("audit: every legacy seed surface is a V3 free outcome, so no seed surface needs Still Pro", () => {
-    // The seed carries only YouTube Shorts, Instagram Reels, Facebook Reels and the TikTok block;
-    // V3 Still Pro extras live in the format-2 rule set. A new seed surface must make this choice
-    // explicitly: add it to a free list, or prove it is a paid extra and change this test.
-    for (const [service, rules] of Object.entries(ruleSet.services)) {
-      for (const surface of rules!.surfaces) {
-        const free = surface.tier === "free" || ALWAYS_FREE_SURFACE_IDS.has(surface.id) ||
-          FREE_OUTCOME_SURFACE_IDS.has(surface.id);
-        expect(free, `${service}/${surface.id} (${surface.label}) must be free`).toBe(true);
-      }
-    }
-    // The legacy UI's lock list (tiers.ts) treats every legacy service as free with the paid tier
-    // on, matching this audit: no legacy row is ever locked.
+  it("audit: every enabled legacy seed surface applies without Still Pro, whatever its tier tag", () => {
+    // Under V3 the legacy seed holds only free outcomes (YouTube Shorts, Instagram and Facebook
+    // Reels, the TikTok block); Still Pro extras live in the format-2 rule set. So a pro-tagged
+    // legacy surface, packaged or fetched, must never be dropped for a person without Still Pro.
+    const proTagged = Object.values(ruleSet.services).flatMap((rules) => rules!.surfaces).filter((s) => s.tier !== "free");
+    expect(proTagged.map((s) => s.id).sort()).toEqual([
+      "fb-feed", "fb-feed-shelf", "fb-left-menu", "fb-mobile-tabs", "fb-page-tabs", "fb-reel-url",
+      "fb-search-groups", "fb-suggested", "fb-watch", "ig-explore-search", "ig-inline", "ig-nav",
+      "ig-profile-tab", "ig-reels-url", "ig-suggested", "tt-blocksite",
+    ]);
+    // The legacy UI's lock list (tiers.ts) agrees: no legacy row is ever locked with the paid tier on.
     expect(PRO_SERVICE_IDS).toEqual(new Set());
+  });
+
+  it("a rule update that adds a new pro-tagged legacy surface still applies it without Still Pro", () => {
+    const fetched = JSON.parse(JSON.stringify(ruleSet)) as {
+      services: Record<string, { surfaces: unknown[] }>;
+    };
+    fetched.services.instagram!.surfaces = [{ id: "ig-reels-url-v2", label: "A renamed Reels URL rule", tier: "pro",
+      action: "placeholder", urlMatch: "^/reels?/", enabledByDefault: true }];
+    expect(evaluate(fetched as unknown as SignedRuleSet, legacyAllOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind)
+      .toBe("placeholder");
   });
 
   it("removes Instagram and Facebook Reels on the legacy lane without Still Pro", () => {

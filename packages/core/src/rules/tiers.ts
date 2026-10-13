@@ -11,9 +11,9 @@ import seed from "../../rules/seed.json";
 
 /** True when the service has at least one free surface (by tag, or by the engine's always-free
  * safety net) — its row stays a live toggle for free users. With the paid tier on, every legacy
- * seed service is free: its surfaces are all V3 free outcomes (FREE_OUTCOME_SURFACE_IDS in the
- * engine), and the V3 Still Pro extras are not legacy rows (ISS-0036). The flag leads, so
- * paid-off bundles fold it away (`false || x` is `x`). */
+ * service is free: the legacy engine gates no surface by tier (V3 free outcomes only; see
+ * surfaceEnabledForTier), and the V3 Still Pro extras are not legacy rows (ISS-0036). The flag
+ * leads, so paid-off bundles fold it away (`false || x` is `x`). */
 export function serviceHasFreeSurface(ruleSet: SignedRuleSet, id: ServiceId): boolean {
   const service = ruleSet.services[id];
   if (!service) return false; // absent service can't block anything free

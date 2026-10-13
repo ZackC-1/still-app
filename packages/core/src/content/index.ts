@@ -351,7 +351,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     const pro = !PAID_TIER_ENABLED || (deps.entitlement?.current() ?? false);
     const opts = { pro };
     // The packaged Pro stylesheet holds the seed's "pro"-tagged hides. Under the V3 model every one
-    // is a free outcome (Instagram and Facebook Reels, FREE_OUTCOME_SURFACE_IDS in the engine), so
+    // is a free outcome (Instagram and Facebook Reels; see surfaceEnabledForTier in the engine), so
     // with the paid tier on it applies for everyone (ISS-0036). Paid off, this is `pro` exactly.
     const seedProCss = PAID_TIER_ENABLED || pro;
     const settings = cache.current();

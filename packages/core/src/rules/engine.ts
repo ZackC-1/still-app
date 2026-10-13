@@ -252,34 +252,6 @@ function planSweep(surfaces: ServiceRules["surfaces"]): SweepPlan {
   };
 }
 
-/**
- * Legacy seed surfaces that are V3 free outcomes but still carry the retired 1.x "pro" tag (in the
- * seed and in any fetched copy). Under the V3 model (D514) every one is free: the Instagram Reels
- * surfaces and the Facebook Reels surfaces (the free `instagram.reels` / `facebook.reels` core) and
- * the whole-site TikTok block (the free `tiktok.all` alias). The V3 Still Pro extras live only in
- * the format-2 rule set, so the legacy seed holds no paid surface at all. Without this list a
- * paid-on build dropped them for everyone without Still Pro: TikTok stayed open on every browser
- * host, and Reels on any page that ran the legacy lane (ISS-0036). Read only behind
- * PAID_TIER_ENABLED, so paid-off bundles drop it.
- */
-export const FREE_OUTCOME_SURFACE_IDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
-  "ig-reels-url",
-  "ig-nav",
-  "ig-inline",
-  "ig-explore-search",
-  "ig-suggested",
-  "ig-profile-tab",
-  "fb-reel-url",
-  "fb-feed",
-  "fb-feed-shelf",
-  "fb-left-menu",
-  "fb-page-tabs",
-  "fb-mobile-tabs",
-  "fb-watch",
-  "fb-search-groups",
-  "fb-suggested",
-  "tt-blocksite",
-]);
 
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
   "yt-shorts-redirect",
@@ -442,17 +414,16 @@ function queryGroup(doc: Document, list: string, selectors: readonly string[]): 
   }
 }
 
-function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
+function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], _opts: EngineOptions): boolean {
   if (!s.enabledByDefault) return false;
-  // The paid tier is dormant behind PAID_TIER_ENABLED, so every enabled surface applies for
-  // everyone. The tier data below stays authoritative and is what comes back when the switch does.
-  if (!PAID_TIER_ENABLED) return true;
-  // Free surfaces always apply: the rule data's `tier: "free"` is authoritative, and the
-  // ALWAYS_FREE_SURFACE_IDS safety-net keeps the free YouTube promise even against a fetched rule
-  // set with missing/stale tags (monetization principle 13). The Reels and TikTok surfaces are free
-  // by id for the same reason (FREE_OUTCOME_SURFACE_IDS). Everything else is Pro-gated.
-  if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || FREE_OUTCOME_SURFACE_IDS.has(s.id) || s.tier === "free") return true;
-  return opts.pro !== false;
+  // No legacy surface is gated by tier, with or without the paid tier. Under the V3 model (D514)
+  // the legacy seed holds only free outcomes: YouTube Shorts, the Instagram and Facebook Reels core
+  // and the whole-site TikTok block. Its "pro" tags (and those in any fetched legacy set) are left
+  // from the retired 1.x paywall. Gating on them left TikTok open and Reels in place for everyone
+  // without Still Pro once the paid tier was compiled on (ISS-0036); matching known ids instead
+  // would reopen that the day a rule update adds a surface. Still Pro extras live only in the
+  // format-2 rule set, which takes its tiers from the feature registry.
+  return true;
 }
 
 /** Replace the page body with the calm Still placeholder (used for placeholder/blockSite pages). */

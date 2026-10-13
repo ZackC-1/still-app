@@ -143,8 +143,8 @@ export default defineBackground(() => {
       // committed authority, and fails closed when the app's reply is unavailable.
       const record = await adapter.readNativeAuthority();
       if (!record) return null;
-      const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
-      return { settings: record.settings, options: { pro } };
+      // The legacy engine gates nothing by tier (V3: TikTok is free), so no entitlement read.
+      return { settings: record.settings, options: { pro: true } };
     },
   });
   const reconciler = reinstallAware

@@ -520,7 +520,9 @@ export default defineBackground(() => {
  */
 function wireTiktokBlockedPage(
   settingsAuthority: ChromeStorageAdapter,
-  entitlements: ChromeEntitlementAdapter,
+  // Unused since the TikTok check stopped reading Still Pro (ISS-0036); kept so paid-off bundles
+  // stay byte-identical.
+  _entitlements: ChromeEntitlementAdapter,
   platform: PlatformAnswer,
 ): void {
   // Firefox for Android never offers the one-tab allowance (owner ruling); the route then reports
@@ -564,9 +566,8 @@ function wireTiktokBlockedPage(
     readCommitted: async () => {
       const record = await settingsAuthority.get();
       if (!record) return null;
-      // Same tier gate as the content script's legacy lane (dormant while paid flags are off).
-      const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
-      return { settings: record.settings, options: { pro } };
+      // The legacy engine gates nothing by tier (V3: TikTok is free), so no entitlement read.
+      return { settings: record.settings, options: { pro: true } };
     },
     get canVerifyDocuments() {
       return gatedDocumentVerification(typeof getContexts === "function", platformGate);

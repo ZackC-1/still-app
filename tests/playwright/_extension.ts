@@ -28,7 +28,7 @@ const FIXTURE_DIR = resolve(HERE, "../fixtures");
 function requirePaidBuild(path: string): void {
   if (process.env.STILL_TEST_PAID_TIER !== "true") return;
   const marker = `${path}.paid-tier.json`;
-  let paid = false;
+  let paid: boolean;
   try {
     paid = (JSON.parse(readFileSync(marker, "utf8")) as { paidTierEnabled?: unknown }).paidTierEnabled === true;
   } catch {

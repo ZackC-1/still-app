@@ -66,21 +66,14 @@ describe("the paid-tier switch, turned on", () => {
   });
 
   // V3 (D514, ISS-0036): the legacy seed holds only free outcomes (YouTube Shorts, Instagram and
-  // Facebook Reels, the TikTok block); its stale 1.x "pro" tags no longer gate anything. The tier
-  // gate itself still works for a surface that is genuinely paid.
-  it("keeps the engine tier gate for a genuinely paid surface, while every seed surface stays free", () => {
+  // Facebook Reels, the TikTok block), so the legacy engine gates no surface by tier, even a
+  // pro-tagged one from a rule update. Still Pro extras live only in the format-2 rule set.
+  it("the legacy engine applies every enabled surface without Still Pro, whatever its tier tag", () => {
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: false }).kind).toBe("placeholder");
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.tiktok.com/foryou"), { pro: false }))
       .toEqual({ kind: "placeholder", blocked: true });
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("placeholder");
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.youtube.com/"), { pro: false }).kind).toBe("apply");
-
-    const paid = JSON.parse(JSON.stringify(ruleSet)) as { services: Record<string, { surfaces: unknown[] }> };
-    paid.services.instagram!.surfaces = [{ id: "x-paid-extra", label: "Synthetic paid surface", tier: "pro",
-      action: "placeholder", urlMatch: "^/reels?/", enabledByDefault: true }];
-    const set = paid as unknown as SignedRuleSet;
-    expect(evaluate(set, DEFAULT_SETTINGS, new URL(instagramReel), { pro: false }).kind).toBe("noop");
-    expect(evaluate(set, DEFAULT_SETTINGS, new URL(instagramReel), { pro: true }).kind).toBe("placeholder");
   });
 
   it("the content script removes Reels and applies the seed's Pro stylesheet without Still Pro", async () => {
