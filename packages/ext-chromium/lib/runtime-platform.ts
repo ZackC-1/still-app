@@ -139,6 +139,17 @@ export function popupPresentationLoader<T>(
       : loaders.desktop();
 }
 
+/**
+ * Whether `tabs.update` may carry `loadReplace` (replace the current history entry). Desktop Firefox
+ * supports it. Firefox for Android's tabs.update schema has no such property, so a call that passes
+ * it is rejected outright and the tab never moves: the TikTok blocked page then fell back to the
+ * in-page block on Android (test set 7). Chromium has no `loadReplace` either. It is used only on an
+ * explicit desktop Firefox answer (the gate below); without one, a plain navigation works everywhere.
+ */
+export function historyReplaceSupported(isFirefox: boolean, gate: Pick<PlatformGate, "open">): boolean {
+  return isFirefox && gate.open;
+}
+
 /** Whether this platform may offer the one-tab TikTok allowance. Owner ruling: Firefox for Android
  * reports it unavailable (no re-implementation there), so the gate fails closed: on Firefox it
  * opens only on an explicit "desktop" answer. Chromium is open and known at once.

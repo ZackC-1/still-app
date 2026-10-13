@@ -275,6 +275,7 @@ test("Firefox for Android spike", async () => {
   firefox.serve((url) => {
     if (url.pathname.startsWith("/watch")) return "<!doctype html><title>watch</title>watch";
     if (url.hostname.endsWith("youtube.com")) return fixture("youtube.html");
+    if (url.hostname.endsWith("tiktok.com")) return fixture("tiktok.html");
     return null;
   });
 
@@ -377,6 +378,29 @@ test("Firefox for Android spike", async () => {
       record("fixture: m.youtube.com Shorts address ends on the watch page", "fail", String(error));
       expect.soft(String(error)).toBe("");
       if (page) await fixtureEvidence(page);
+    }
+    // TikTok: the background sends the tab to Still's own "TikTok stays closed." page. Firefox for
+    // Android's tabs.update rejects `loadReplace`, which once left only the in-page block here.
+    if (page) {
+      const tab = page;
+      try {
+        await bidi.send("browsingContext.navigate", { context: tab.context, url: "https://www.tiktok.com/foryou", wait: "none" });
+        const url = await tab.waitFor(
+          "the TikTok blocked page",
+          () => tab.url().catch(() => ""),
+          (u) => u.startsWith(`${EXTENSION}/tiktok-blocked.html`),
+          20_000,
+        );
+        record("fixture: www.tiktok.com opens Still's TikTok blocked page", "pass", url);
+        await pageScreenshot(bidi, tab, "fixture-tiktok-blocked");
+      } catch (error) {
+        const shown = await tab
+          .evaluate<string>(`JSON.stringify({ url: location.href, text: document.body?.innerText.slice(0, 120) ?? "" })`)
+          .catch((reason: unknown) => String(reason));
+        record("fixture: www.tiktok.com opens Still's TikTok blocked page", "fail", `${String(error)} ${shown}`);
+        expect.soft(shown, "TikTok shows Still's blocked page, not the in-page block").toContain("tiktok-blocked.html");
+        screencap("fixture-tiktok-failed");
+      }
     }
     return page;
   };
