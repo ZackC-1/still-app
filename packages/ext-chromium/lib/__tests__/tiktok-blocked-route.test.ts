@@ -373,11 +373,12 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
     h.open(7, TIKTOK);
     const read = h.readCommitted.getMockImplementation()!;
     const set = h.sessionArea.set.getMockImplementation()!;
-    // Two settings reads (allowance check, blocked check) end at 2 s, so the pre-write check
-    // passes inside the budget. The write itself (inside its own 4 s bound) then ends at 5.5 s:
-    // only the deadline of the post-write re-check stands between it and a late redirect.
+    // The settings read (the blocked check; a tab with no grant skips the allowance's reads) ends
+    // at 2 s, so the pre-write check passes inside the budget. The write itself (inside its own 4 s
+    // bound) then ends at 5.5 s: only the deadline of the post-write re-check stands between it and
+    // a late redirect.
     h.readCommitted.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
       return read();
     });
     let wroteAt = -1;

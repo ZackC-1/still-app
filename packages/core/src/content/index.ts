@@ -395,12 +395,16 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // the app-webview path gates Pro through UiController.entitled instead of here.
     const pro = !PAID_TIER_ENABLED || (deps.entitlement?.current() ?? false);
     const opts = { pro };
+    // The packaged Pro stylesheet holds the seed's "pro"-tagged hides. Under the V3 model every one
+    // is a free outcome (Instagram and Facebook Reels; see surfaceEnabledForTier in the engine), so
+    // with the paid tier on it applies for everyone (ISS-0036). Paid off, this is `pro` exactly.
+    const seedProCss = PAID_TIER_ENABLED || pro;
     const settings = cache.current();
     const decision = pageSession.evaluate(settings, url, opts);
     switch (decision.kind) {
       case "redirect":
         setRootService(pageSession.activeServiceId());
-        setRootProActive(pro);
+        setRootProActive(seedProCss);
         if (dedupe.lastRedirect !== decision.url) {
           dedupe.lastRedirect = decision.url;
           redirectPort.replace(decision.url);
@@ -420,7 +424,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "apply":
         setRootService(pageSession.activeServiceId());
         setRootActive(true);
-        setRootProActive(pro);
+        setRootProActive(seedProCss);
         if (legacyShortsChips && pageSession.activeServiceId() === "youtube") {
           applyMarker(doc, SHORTS_CHIP_MARKER);
           prepareYouTubeChips(url);

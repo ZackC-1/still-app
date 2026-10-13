@@ -1,5 +1,5 @@
 import type { ServiceId, SignedRuleSet } from "@still/shared-types";
-import { SERVICE_IDS } from "@still/shared-types";
+import { PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
 import { ALWAYS_FREE_SURFACE_IDS } from "./engine.js";
 import seed from "../../rules/seed.json";
 
@@ -10,11 +10,14 @@ import seed from "../../rules/seed.json";
 // Pro surfaces.
 
 /** True when the service has at least one free surface (by tag, or by the engine's always-free
- * safety net) — its row stays a live toggle for free users. */
+ * safety net) — its row stays a live toggle for free users. With the paid tier on, every legacy
+ * service is free: the legacy engine gates no surface by tier (V3 free outcomes only; see
+ * surfaceEnabledForTier), and the V3 Still Pro extras are not legacy rows (ISS-0036). The flag
+ * leads, so paid-off bundles fold it away (`false || x` is `x`). */
 export function serviceHasFreeSurface(ruleSet: SignedRuleSet, id: ServiceId): boolean {
   const service = ruleSet.services[id];
   if (!service) return false; // absent service can't block anything free
-  return service.surfaces.some((s) => s.tier === "free" || ALWAYS_FREE_SURFACE_IDS.has(s.id));
+  return PAID_TIER_ENABLED || service.surfaces.some((s) => s.tier === "free" || ALWAYS_FREE_SURFACE_IDS.has(s.id));
 }
 
 /** Service ids whose EVERY surface is Pro-gated under the given rule set. An absent service is

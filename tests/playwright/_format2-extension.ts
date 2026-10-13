@@ -94,8 +94,12 @@ async function prepareCopy(dir: string, contentSource: ContentSource) {
 /** A Playwright test whose extension is a disposable copy running `content` at document_start. */
 export function createFormat2Test(contentSource: ContentSource) {
   return base.extend<{ authority: Worker }>({
+    // The setup below hashes the whole built artifact twice, copies it and bundles two entries
+    // with esbuild. That cost is the harness's, not the page's: on a busy machine it alone came
+    // close to the 30 s test timeout and flaked page assertions that pass on their own. A fixture
+    // timeout keeps it out of the test's budget.
     // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature
-    context: async ({}, use) => {
+    context: [async ({}, use) => {
       const original = await artifactHash(BUILT);
       const dir = await mkdtemp(join(tmpdir(), "still-format2-navigation-"));
       let context;
@@ -128,7 +132,7 @@ export function createFormat2Test(contentSource: ContentSource) {
             .toBe(original);
         }
       }
-    },
+    }, { timeout: 90_000 }],
     authority: async ({ context }, use) => {
       await use(context.serviceWorkers()[0]!);
     },

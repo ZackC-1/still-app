@@ -9,7 +9,7 @@
 // contract spans three subsystems; a copy of it inside each of their suites would be three places
 // to forget.
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/svelte";
+import { render, screen } from "@testing-library/svelte";
 
 vi.mock("@still/shared-types", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@still/shared-types")>()),
@@ -65,16 +65,18 @@ describe("the paid-tier switch, turned on", () => {
     expect(DEFAULT_SETTINGS.services).toHaveProperty("youtube");
   });
 
-  it("restores the engine tier gate: Pro surfaces need entitlement again, YouTube stays free", () => {
-    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: false }).kind).toBe("noop");
-    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
-    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
-
-    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: true }).kind).toBe("placeholder");
+  // V3 (D514, ISS-0036): the legacy seed holds only free outcomes (YouTube Shorts, Instagram and
+  // Facebook Reels, the TikTok block), so the legacy engine gates no surface by tier, even a
+  // pro-tagged one from a rule update. Still Pro extras live only in the format-2 rule set.
+  it("the legacy engine applies every enabled surface without Still Pro, whatever its tier tag", () => {
+    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL(instagramReel), { pro: false }).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.tiktok.com/foryou"), { pro: false }))
+      .toEqual({ kind: "placeholder", blocked: true });
+    expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("placeholder");
     expect(evaluate(ruleSet, DEFAULT_SETTINGS, new URL("https://www.youtube.com/"), { pro: false }).kind).toBe("apply");
   });
 
-  it("restores the content script gate and the static Pro stylesheet root class", async () => {
+  it("the content script removes Reels and applies the seed's Pro stylesheet without Still Pro", async () => {
     const free = createContentScript({
       win: makeWin(instagramReel),
       doc: document,
@@ -84,37 +86,30 @@ describe("the paid-tier switch, turned on", () => {
       schedule: sync,
     });
     await free.start();
-    expect(document.querySelector("#still-placeholder")).toBeNull();
-    expect(document.documentElement.classList.contains(ROOT_PRO_ACTIVE_CLASS)).toBe(false);
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
     free.stop();
 
-    const purchaser = createContentScript({
+    document.documentElement.className = "";
+    document.body.innerHTML = "";
+    const home = createContentScript({
       win: makeWin("https://www.instagram.com/someone/"),
       doc: document,
       ruleSet,
       cache: settingsCache(),
-      entitlement: new EntitlementCache(new InMemoryEntitlementAdapter(true)),
+      entitlement: new EntitlementCache(new InMemoryEntitlementAdapter(false)),
       redirectPort: { replace: vi.fn() },
       schedule: sync,
     });
-    await purchaser.start();
+    await home.start();
     expect(document.documentElement.classList.contains(ROOT_PRO_ACTIVE_CLASS)).toBe(true);
-    purchaser.stop();
+    home.stop();
   });
 
-  it("restores locked rows and makes the paywall reachable again from a locked row", async () => {
+  it("locks no legacy row: every legacy service is free with the switch on", () => {
     const c = controller(false);
-    expect(c.isLocked("instagram")).toBe(true);
-    expect(c.isLocked("tiktok")).toBe(true);
-    expect(c.isLocked("facebook")).toBe(true);
-    expect(c.isLocked("youtube")).toBe(false);
-
+    for (const id of ["youtube", "instagram", "tiktok", "facebook"] as const) expect(c.isLocked(id)).toBe(false);
     render(App, { props: { controller: c } });
-    expect(document.querySelectorAll(".card.locked")).toHaveLength(3);
-    await fireEvent.click(document.querySelector(".lock")!);
-    expect(c.paywallOpen).toBe(true);
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    c.dismissPaywall();
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(0);
   });
 
   it("restores the upgrade call to action for a signed-in user who has not bought", () => {

@@ -13,7 +13,14 @@ Run commands below from the repository root.
 Fixture tests gate CI; live-site smoke checks are separate and non-gating. Raw logged-in page
 captures must not be committed as fixtures. Build output and test reports are ignored.
 Configured and unconfigured browser fixture runs use separate builds, as defined in
-[CI](../.github/workflows/ci.yml). These tests do not replace native/physical-device validation;
+[CI](../.github/workflows/ci.yml). A third CI step builds the extensions with the paid tier
+compiled on (`node scripts/qa/paid-tier-extension.mjs`, no backend, no source edit) and runs
+`playwright/paid-tier-free-outcome.spec.ts`, `tiktok-blocked.spec.ts`, `fixtures.spec.ts` and
+`fixtures-format2.spec.ts` (the free outcome on every service, without Still Pro) against them with
+`STILL_TEST_PAID_TIER=true`,
+`STILL_CHROMIUM_EXTENSION=.output/test-paid-tier/chrome` and
+`STILL_SAFARI_EXTENSION=.output/test-paid-tier/safari`, because every shipped 2.x build keeps the
+paid tier off and the other lanes never reach its gate. These tests do not replace native/physical-device validation;
 record actual coverage in the [release evidence](../docs/release/VALIDATION.md).
 
 ## Tool environment inputs

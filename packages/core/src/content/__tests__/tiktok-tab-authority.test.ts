@@ -64,6 +64,24 @@ function host() {
 }
 
 describe("one living top-level TikTok tab authority", () => {
+  it("answers a tab with no grant from one session read, so the blocked redirect is not delayed", async () => {
+    const h = host();
+    const owner = h.create();
+    expect(await owner.isAllowed(context)).toBe(false);
+    expect(h.store.get).toHaveBeenCalledTimes(1);
+    expect(h.store.getPending).not.toHaveBeenCalled();
+    expect(h.readCommitted).not.toHaveBeenCalled();
+    // A granted tab still gets the full check: committed settings decide, not the record alone.
+    h.records.set(7, true);
+    expect(await owner.isAllowed(context)).toBe(true);
+    expect(h.readCommitted).toHaveBeenCalled();
+    h.off();
+    expect(await owner.isAllowed(context)).toBe(false);
+    // A grant record with its intent still pending (an allowance mid-write) is not yet allowed.
+    h.resume();
+    h.pending.set(7, true);
+    expect(await owner.isAllowed(context)).toBe(false);
+  });
   it("holds without verified confirmation; a boolean in caller data is not confirmation", async () => {
     const h = host();
     const owner = h.create(false);
