@@ -77,6 +77,10 @@ describe("one living top-level TikTok tab authority", () => {
     expect(h.readCommitted).toHaveBeenCalled();
     h.off();
     expect(await owner.isAllowed(context)).toBe(false);
+    // A grant record with its intent still pending (an allowance mid-write) is not yet allowed.
+    h.resume();
+    h.pending.set(7, true);
+    expect(await owner.isAllowed(context)).toBe(false);
   });
   it("holds without verified confirmation; a boolean in caller data is not confirmation", async () => {
     const h = host();

@@ -118,7 +118,8 @@ describe("paid tier compiled on: the TikTok block stays free (ISS-0036)", () => 
         expect(free, `${service}/${surface.id} (${surface.label}) must be free`).toBe(true);
       }
     }
-    // The legacy UI's lock list follows the gate: no legacy row is a paid row.
+    // The legacy UI's lock list (tiers.ts) treats every legacy service as free with the paid tier
+    // on, matching this audit: no legacy row is ever locked.
     expect(PRO_SERVICE_IDS).toEqual(new Set());
   });
 

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildEnvironment, flipPaidFlag, paidTierPlugin } from "./paid-tier-extension.mjs";
+import { buildEnvironment, flipPaidFlag, normalizeId, paidTierPlugin } from "./paid-tier-extension.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FLAG_FILE = resolve(ROOT, "packages/shared-types/src/entitlement.ts");
@@ -25,7 +25,7 @@ test("refuses a flag module that is already on, missing or ambiguous", () => {
 
 test("the transform touches only the flag module and records that it ran", () => {
   const { plugin, state } = paidTierPlugin(FLAG_FILE);
-  assert.equal(plugin.transform("export const PAID_TIER_ENABLED = false;", "/elsewhere/entitlement.ts"), null);
+  assert.equal(plugin.transform("export const OTHER = false;", "/elsewhere/entitlement.ts"), null);
   assert.equal(state.flipped, 0);
   const out = plugin.transform("export const PAID_TIER_ENABLED = false;", `${FLAG_FILE}?v=1`);
   assert.equal(out.code, "export const PAID_TIER_ENABLED = true;");
@@ -46,4 +46,14 @@ test("builds with only the V3 runtime flags: no inherited backend, analytics or 
     VITE_MODERN_SETTINGS_SYNC_ENABLED: "true",
     VITE_APPLE_ATOMIC_SETTINGS: "true",
   });
+});
+
+test("matches Vite's id forms (forward slashes, queries, a virtual prefix) and refuses a stray paid-off literal", () => {
+  const windows = "C:\\repo\\packages\\shared-types\\src\\entitlement.ts";
+  assert.equal(normalizeId(windows), "C:/repo/packages/shared-types/src/entitlement.ts");
+  const { plugin, state } = paidTierPlugin(windows);
+  const out = plugin.transform("export const PAID_TIER_ENABLED = false;", "\0C:/repo/packages/shared-types/src/entitlement.ts?used");
+  assert.equal(out.code, "export const PAID_TIER_ENABLED = true;");
+  assert.equal(state.flipped, 1);
+  assert.throws(() => plugin.transform("export const PAID_TIER_ENABLED = false;", "/elsewhere/copy/entitlement.js"), /mixed build/);
 });

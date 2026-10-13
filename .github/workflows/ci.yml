@@ -191,7 +191,9 @@ jobs:
       # builds use no backend and modify no source file (scripts/qa/paid-tier-extension.mjs).
       - name: Build paid-tier-on extensions (no backend)
         if: steps.detect.outputs.present == 'true'
-        run: node scripts/qa/paid-tier-extension.mjs all
+        # Firefox shares the Chromium content code; its paid build is checked by the real-Firefox
+        # lane on demand (tests/firefox/qa-tiktok.spec.ts), so CI builds only what it loads here.
+        run: node scripts/qa/paid-tier-extension.mjs chrome safari
 
       - name: Run paid-tier-on Playwright free-outcome tests (gating)
         if: steps.detect.outputs.present == 'true'

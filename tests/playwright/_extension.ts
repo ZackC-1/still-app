@@ -21,6 +21,22 @@ const SAFARI_EXTENSION = process.env.STILL_SAFARI_EXTENSION
   : resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
 const FIXTURE_DIR = resolve(HERE, "../fixtures");
 
+// The paid-tier-on CI step (STILL_TEST_PAID_TIER=true) must load the builds from
+// scripts/qa/paid-tier-extension.mjs, never a paid-off dist: every spec in that step otherwise passes
+// against a paid-off build too. Each build carries a marker the script writes after it proved the
+// flag was flipped.
+function requirePaidBuild(path: string): void {
+  if (process.env.STILL_TEST_PAID_TIER !== "true") return;
+  const marker = `${path}.paid-tier.json`;
+  let paid = false;
+  try {
+    paid = (JSON.parse(readFileSync(marker, "utf8")) as { paidTierEnabled?: unknown }).paidTierEnabled === true;
+  } catch {
+    paid = false;
+  }
+  if (!paid) throw new Error(`STILL_TEST_PAID_TIER=true needs a paid-tier-on build; ${marker} is missing`);
+}
+
 // Chromium writes into an unpacked extension it loads (_metadata/generated_indexed_rulesets), so
 // loading the built folder in place mutates the shipping artifact and races every spec that hashes
 // it. Each worker loads its own disposable copy, made once and removed at worker teardown.
@@ -134,11 +150,13 @@ export const test = base.extend<{
 }, { chromiumCopy: string; safariCopy: string }>({
   // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
   chromiumCopy: [async ({}, use) => {
+    requirePaidBuild(CHROMIUM_EXTENSION);
     const copy = disposableCopy(CHROMIUM_EXTENSION, "chromium");
     try { await use(copy.path); } finally { copy.remove(); }
   }, { scope: "worker" }],
   // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
   safariCopy: [async ({}, use) => {
+    requirePaidBuild(SAFARI_EXTENSION);
     const copy = disposableCopy(SAFARI_EXTENSION, "safari");
     try { await use(copy.path); } finally { copy.remove(); }
   }, { scope: "worker" }],

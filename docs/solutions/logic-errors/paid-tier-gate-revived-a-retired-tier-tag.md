@@ -17,6 +17,11 @@ tags:
 
 ## Symptom
 
+In short: with the paid tier switched on, free blocking stopped working for people without Still
+Pro. The TikTok website loaded, and Instagram and Facebook Reels stayed wherever the older rules
+engine ran. (ISS-0036 is the owner QA issue; D514 is the approved Still Pro decision; the "legacy
+lane" is the original seed rules engine, the "format-2 lane" the newer per-feature engine.)
+
 ISS-0036, owner QA test set 6: in the Chrome paid sandbox QA build (2.1.1.335), a fresh
 signed-out profile showed "Still is active" and TikTok Blocker on, yet tiktok.com, `/@tiktok`,
 `/explore` and `/messages` loaded and played. Still's "TikTok stays closed." page never appeared,
@@ -53,7 +58,7 @@ fallback were all checked and were not involved.
 
 ## Fix
 
-Audit of every seed entry tagged "pro" (`rules/seed.json`): all 15 are free outcomes in V3, none
+Audit of every seed entry tagged "pro" (`rules/seed.json`): all 16 are free outcomes in V3, none
 is a Still Pro extra.
 
 | Service | Seed surfaces | V3 outcome |
@@ -64,7 +69,7 @@ is a Still Pro extra.
 
 YouTube's seed surfaces were already tagged free. `format2.json` carries no tier field.
 
-- `FREE_OUTCOME_SURFACE_IDS` in `rules/engine.ts` lists those 15 ids. The tier gate treats them as
+- `FREE_OUTCOME_SURFACE_IDS` in `rules/engine.ts` lists those 16 ids. The tier gate treats them as
   free, alongside the YouTube entries in `ALWAYS_FREE_SURFACE_IDS`. Matching by id also covers a
   fetched rule set that still carries the stale tags, which retagging the seed alone would not.
 - The content script switches the packaged Pro stylesheet (the seed's "pro" hide rules, all of them
