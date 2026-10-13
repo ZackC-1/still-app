@@ -32,6 +32,7 @@ import {
   accessPlatformReader,
   runtimePlatformAnswerFor,
   tabAllowancePlatformGate,
+  historyReplaceSupported,
   type PlatformAnswer,
 } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
@@ -572,7 +573,10 @@ function wireTiktokBlockedPage(
     get canVerifyDocuments() {
       return gatedDocumentVerification(typeof getContexts === "function", platformGate);
     },
-    replaceHistory: Boolean(import.meta.env.FIREFOX),
+    // Only desktop Firefox accepts `loadReplace`; Firefox for Android rejects the whole call.
+    get replaceHistory() {
+      return historyReplaceSupported(Boolean(import.meta.env.FIREFOX), platformGate);
+    },
     createAuthority: (hooks) =>
       createChromeTiktokTabAuthority({
         browser: {

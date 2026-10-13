@@ -59,6 +59,9 @@ describe("TikTok blocked page release gate", () => {
     // wait for the platform answer (lib/__tests__/tiktok-blocked-route.test.ts proves both).
     expect(background).toContain('gatedDocumentVerification(typeof getContexts === "function", platformGate)');
     expect(background).toContain("afterPlatformAnswer(route.listener, platformGate, isTiktokRouteMessage)");
+    // loadReplace only on an explicit desktop Firefox answer: Firefox for Android rejects the call.
+    expect(background).toContain("return historyReplaceSupported(Boolean(import.meta.env.FIREFOX), platformGate);");
+    expect(background).not.toContain("replaceHistory: Boolean(import.meta.env.FIREFOX)");
     // The gate follows the late answer too, so it fails closed on a slow answer and reopens only
     // when the browser later says desktop.
     expect(background.replace(/\s+/g, " ")).toContain(

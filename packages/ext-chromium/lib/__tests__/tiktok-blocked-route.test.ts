@@ -16,6 +16,7 @@ import {
   askRuntimePlatform,
   gatedDocumentVerification,
   tabAllowancePlatformGate,
+  historyReplaceSupported,
   type PlatformGate,
   type RuntimePlatform,
 } from "../runtime-platform.js";
@@ -213,6 +214,43 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
     const route = h.create({ replaceHistory: true });
     await block(h, route, 3);
     expect(h.update.mock.calls[0]![1]).toEqual({ url: h.tabs.get(3)!.url, loadReplace: true });
+    await route.stop();
+  });
+
+  // Firefox for Android's tabs.update schema has no `loadReplace`, so a call carrying it is rejected
+  // and the tab never moves (test set 7: the in-page block instead of the blocked page).
+  it("Firefox for Android: the redirect leaves out loadReplace, which its tabs.update rejects", async () => {
+    const androidUpdate = (h: ReturnType<typeof host>) => {
+      const plain = h.update.getMockImplementation()!;
+      h.update.mockImplementation(async (id: number, properties: { url: string }) => {
+        if ("loadReplace" in properties)
+          throw new Error('Type error for parameter updateProperties (Unexpected property "loadReplace") for tabs.update.');
+        return plain(id, properties);
+      });
+    };
+    for (const [platform, expected] of [["android", false], ["unknown", false], ["desktop", true]] as const) {
+      const gate = tabAllowancePlatformGate(true, Promise.resolve(platform));
+      await gate.ready;
+      expect(historyReplaceSupported(true, gate), platform).toBe(expected);
+    }
+    expect(historyReplaceSupported(false, tabAllowancePlatformGate(false, Promise.resolve("desktop")))).toBe(false);
+
+    // The old wiring (always replace on Firefox) on Android: held, so only the in-page block shows.
+    let h = host();
+    androidUpdate(h);
+    let route = h.create({ replaceHistory: true });
+    h.open(3, TIKTOK);
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(3))).toEqual({ status: "held" });
+    await route.stop();
+
+    // The background's wiring: an Android answer means a plain navigation, which succeeds.
+    h = host();
+    androidUpdate(h);
+    const android = tabAllowancePlatformGate(true, Promise.resolve("android"));
+    await android.ready;
+    route = h.create({ replaceHistory: historyReplaceSupported(true, android) });
+    await block(h, route, 3);
+    expect(h.update.mock.calls.at(-1)![1]).toEqual({ url: h.tabs.get(3)!.url });
     await route.stop();
   });
 
