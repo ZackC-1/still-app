@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Instagram Explore — fixture</title>
+    <!--
+      Layout copied from the live page's computed styles (12 Oct 2026): each row is a CSS grid whose
+      column count comes from its own inline --x-gridTemplateColumns, with a 1px gap, and a tile's
+      height follows its width (3:4). A hidden tile therefore leaves room at the end of its row.
+    -->
+    <style>
+      body { margin: 0; font: 14px sans-serif; }
+      main { width: 880px; }
+      .row { display: grid; grid-template-columns: var(--x-gridTemplateColumns); column-gap: 1px; margin-bottom: 1px; }
+      .grid a { display: block; position: relative; }
+      .tile { aspect-ratio: 3 / 4; background: #ccc; }
+    </style>
+  </head>
+  <!--
+    Instagram's Explore hub (/explore/) on desktop, signed in.
+
+    Written by hand from the structure of the live page (12 Oct 2026). Only structure was recorded:
+    element nesting, roles, aria-labels, the shape of each address and the layout styles above.
+    Every post code and piece of text is invented.
+
+    The shapes that matter (ISS-0038):
+
+      * Every tile links to /p/<code>/, Reels included, so the address does not say which tiles
+        are Reels. A Reel tile's link carries a looping <video> and an SVG titled "Reel" (not the
+        profile grid's "Clip"); a carousel's carries an SVG titled "Carousel".
+      * The column is the same virtualized flex column as the profile grid. Each row is a CSS grid
+        with --x-gridTemplateColumns: repeat(4, 1fr) inline; each tile box holds a wrapper
+        (--x-width: 100%) holding the tile link.
+      * Clicking a tile opens it in the post viewer (a dialog) at /p/<code>/, whose Next arrow is a
+        button. In that dialog the link to the open item is /<user>/reel/<code>/ for a Reel and
+        /<user>/p/<code>/ for a post.
+
+    Every element whose id starts with "keep-" is a control: it must stay visible.
+  -->
+  <body>
+    <main>
+      <div><div><div class="grid" id="explore-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+        <div class="row" style="--x-gridTemplateColumns: repeat(4, 1fr);">
+          <div id="explore-reel-1"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0001/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="explore-reel-2"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0002/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="keep-explore-1"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0001/"><div class="tile"></div><div><svg aria-label="Carousel" role="img" width="24" height="24"><title>Carousel</title></svg></div></a></div></div>
+          <div id="explore-reel-3"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0003/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+        </div>
+        <div class="row" style="--x-gridTemplateColumns: repeat(4, 1fr);">
+          <div id="explore-reel-4"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0004/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="explore-reel-5"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0005/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="explore-reel-6"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0006/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="explore-reel-7"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0007/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+        </div>
+        <div class="row" style="--x-gridTemplateColumns: repeat(4, 1fr);">
+          <div id="keep-explore-2"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0002/"><div class="tile"></div><div><svg aria-label="Carousel" role="img" width="24" height="24"><title>Carousel</title></svg></div></a></div></div>
+          <div id="keep-explore-3"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0003/"><div class="tile"></div></a></div></div>
+          <div id="keep-explore-4"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0004/"><div class="tile"></div></a></div></div>
+          <div id="explore-reel-8"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0008/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+        </div>
+        <div class="row" style="--x-gridTemplateColumns: repeat(4, 1fr);">
+          <div id="keep-explore-5"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0005/"><div class="tile"></div></a></div></div>
+          <div id="explore-reel-9"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0009/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+          <div id="keep-explore-6"><div style="--x-width: 100%;"><a role="link" href="/p/ExPost0006/"><div class="tile"></div><div><svg aria-label="Carousel" role="img" width="24" height="24"><title>Carousel</title></svg></div></a></div></div>
+          <div id="explore-reel-10"><div style="--x-width: 100%;"><a role="link" href="/p/ExReel0010/"><div class="tile"><video loop playsinline></video></div><div><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div></a></div></div>
+        </div>
+      </div></div></div>
+    </main>
+  </body>
+</html>

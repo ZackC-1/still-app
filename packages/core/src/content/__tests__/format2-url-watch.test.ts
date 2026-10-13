@@ -188,6 +188,33 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     expect(h.replace).toHaveBeenCalledWith("https://www.instagram.com/some.user/");
   });
 
+  describe("Instagram's post viewer over Explore, where the page draws the next item before the poll sees it (ISS-0038)", () => {
+    const show = (code: string, kind: "reel" | "p") => {
+      document.body.innerHTML = `<main>Explore</main><div role="dialog"><article><a href="/someuser/${kind}/${code}/">2d</a></article></div>`;
+    };
+    afterEach(() => { document.body.innerHTML = ""; });
+    it("Next from a Reel goes home, from what the last settled poll saw", async () => {
+      fake();
+      show("A1", "reel");
+      const h = await host("https://www.instagram.com/p/A1/");
+      await tickWatch(); // a settled poll at /p/A1/ sees the Reel
+      show("B2", "p"); // Instagram swaps the dialog to the next item...
+      h.pagePush("/p/B2/"); // ...and pushes its address, all before the next poll
+      await tickWatch();
+      expect(h.replace).toHaveBeenCalledWith("https://www.instagram.com/");
+    });
+    it("Next from a post opens the next item, even a Reel (the first Reel may play)", async () => {
+      fake();
+      show("A1", "p");
+      const h = await host("https://www.instagram.com/p/A1/");
+      await tickWatch();
+      show("B2", "reel");
+      h.pagePush("/p/B2/");
+      await tickWatch();
+      expect(h.replace).not.toHaveBeenCalled();
+    });
+  });
+
   it("R11c: a link activation still counts for the page's push 2 s later", async () => {
     fake();
     const h = await host("https://www.instagram.com/reel/A1/");

@@ -60,8 +60,16 @@ test.beforeAll(async () => {
     if (url.pathname.startsWith("/watch"))
       return "<!doctype html><title>watch</title>watch";
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
+    // Instagram moving a loaded Reels feed or viewer on by itself as the page starts: the bare feed
+    // to one of its Reels, and the viewer to a different Reel.
+    if (host.endsWith("instagram.com") && url.searchParams.get("swap") === "feed")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reels/Sw4p1/")</script><p>a Reel</p>';
+    if (host.endsWith("instagram.com") && url.searchParams.get("swap") === "viewer")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reel/XYZ/")</script><p>a Reel</p>';
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
+    // Explore in Instagram's current desktop markup (ISS-0038).
+    if (host.endsWith("instagram.com") && url.pathname === "/explore/") return fixture("instagram-explore.html");
     if (host.endsWith("instagram.com")) return fixture("instagram.html");
     // Facebook's current navigation and Reels player markup (ISS-0035) answers one group's pages.
     if (host.endsWith("facebook.com") && url.pathname.startsWith("/groups/chosen")) return fixture("facebook-nav.html");
@@ -145,6 +153,9 @@ for (const [from, to] of [
   // Instagram's typed feeds and a profile's Reels tab (ISS-0034).
   ["https://www.instagram.com/reels", "https://www.instagram.com/"],
   ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
+  // Instagram's own hand-over as the page starts: still the feed, or a continuation.
+  ["https://www.instagram.com/reels/?swap=feed", "https://www.instagram.com/"],
+  ["https://www.instagram.com/reels/ABC/?swap=viewer", "https://www.instagram.com/"],
 ] as const) {
   test(`a Reels address ${from} ends up on ${to}`, async () => {
     const tab = await firefox.openTab(from);
@@ -194,6 +205,21 @@ test("instagram current desktop markup: the Reels menu item, the profile Reels t
   expect(boxes).toHaveLength(6);
   expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
   expect(new Set(boxes.map((box) => box[0])).size).toBe(3);
+  expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
+  await tab.close();
+});
+
+test("instagram explore: Reel tiles go and the other posts close up four to a line", async () => {
+  const tab = await firefox.openTab("https://www.instagram.com/explore/");
+  await waitWorking(tab, "instagram");
+  for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10"]) await waitHiddenPresent(tab, id);
+  for (const id of ["#keep-explore-1", "#keep-explore-6"]) expect(await tab.isVisible(id), id).toBe(true);
+  const boxes = await tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#explore-grid > div > div")]
+    .map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
+    .map((box) => [Math.round(box.x), Math.round(box.y), Math.round(box.width)])`);
+  expect(boxes).toHaveLength(6);
+  expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
+  expect(new Set(boxes.map((box) => box[0])).size).toBe(4);
   expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
   await tab.close();
 });

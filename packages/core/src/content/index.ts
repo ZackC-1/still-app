@@ -28,6 +28,7 @@ import {
 import { createReapplyObserver, type Scheduler } from "./observer.js";
 import { admittedMarkers, applyMarker, createMarkerHook, SHORTS_CHIP_MARKER } from "./markers.js";
 import { createYouTubeAutoplayGuard } from "./youtube-autoplay.js";
+import { instagramPostViewerCode, instagramViewerShowsReel } from "../rules/instagram.js";
 import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 // The document_start orchestrator. It wires the engine to a live page: reads settings from the
@@ -213,6 +214,18 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // leads (Facebook's /reel/?s=tab while on Home). The page may still hand over to the Reel that
   // route chose; for a short while that hand-over is judged from the consumed route.
   let consumedInPlace: { readonly url: URL; readonly at: number } | null = null;
+  // Instagram's post viewer: whether the item being left is a Reel. Instagram may draw the next
+  // item before it changes the address (and without the Navigation API the poll sees the move
+  // late), so each item is remembered as it is drawn at its own address: once seen as a Reel, it
+  // stays one. A short list of item codes for this page only, never page content.
+  const viewerReels: string[] = [];
+  const sampleViewer = (url: URL): void => {
+    const code = url.hostname.endsWith("instagram.com") ? instagramPostViewerCode(url.pathname) : null;
+    if (!code || viewerReels.includes(code) || !instagramViewerShowsReel(doc, code)) return;
+    viewerReels.push(code);
+    if (viewerReels.length > 20) viewerReels.shift();
+  };
+  const viewerShowsReel = (code: string): boolean => instagramViewerShowsReel(doc, code) || viewerReels.includes(code);
   const consumeModernNavigation = (
     target: URL,
     mode: "push" | "replace" = "replace",
@@ -229,8 +242,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // deliberately opened or activated Reel, and Back/forward, are never treated as continuing.
     const consumed = consumedInPlace && Date.now() - consumedInPlace.at <= DELIBERATE_WINDOW_MS ? consumedInPlace.url : null;
     const continuation = intent === "page"
-      ? pageSession.reelContinuation?.(from ?? currentUrl(), target)
-        ?? (consumed ? pageSession.reelContinuation?.(consumed, target) : null) ?? null
+      ? pageSession.reelContinuation?.(from ?? currentUrl(), target, viewerShowsReel)
+        ?? (consumed ? pageSession.reelContinuation?.(consumed, target, viewerShowsReel) : null) ?? null
       : null;
     const decision: ReturnType<typeof pageSession.evaluate> = continuation
       ? { kind: "redirect", url: continuation } : evaluated;
@@ -240,7 +253,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     if (decision.kind === "redirect" && decision.url !== target.href) {
       if (
         decision.url !== win.location.href &&
-        dedupe.lastRedirect !== decision.url
+        dedupe.lastRedirect !== decision.url &&
+        !earlyRedirectInFlight(dedupe, win.location.href)
       ) {
         dedupe.lastRedirect = decision.url;
         if (mode === "push") redirectPort.replace(decision.url, "push");
@@ -291,6 +305,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const urlWatch = modern && !win.navigation ? createUrlChangeWatch({
     win,
     doc,
+    // Without the Navigation API the page has usually drawn the next item by the time the poll
+    // sees the move, so each settled poll remembers whether the open viewer item is a Reel.
+    onSettled: (url) => sampleViewer(url),
     onChange: (from, to, traverse) => {
       if (stopped || !hydrated) return;
       const intent: NavigationIntent = traverse ? "deliberate" : intents.intentFor(to);
@@ -317,6 +334,25 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     }
   };
   teardowns.push(() => { addressObserver?.disconnect(); addressObserver = null; });
+  // While an Instagram post viewer address is open with the Reels core effective, each change to
+  // the page re-reads whether the open item is a Reel (one query), so the memory above is current
+  // when the viewer moves on. Attached only on those addresses.
+  let viewerObserver: MutationObserver | null = null;
+  const syncViewerObserver = (): void => {
+    const url = currentUrl();
+    const wanted = !stopped && hydrated && pageSession.activeServiceId() === "instagram"
+      && (pageSession.effectiveFeatures?.() ?? []).includes("instagram.reels")
+      && instagramPostViewerCode(url.pathname) !== null;
+    if (wanted) sampleViewer(url);
+    if (wanted && !viewerObserver) {
+      viewerObserver = new win.MutationObserver(() => sampleViewer(currentUrl()));
+      viewerObserver.observe(doc.documentElement, { childList: true, subtree: true });
+    } else if (!wanted && viewerObserver) {
+      viewerObserver.disconnect();
+      viewerObserver = null;
+    }
+  };
+  teardowns.push(() => { viewerObserver?.disconnect(); viewerObserver = null; });
   // Any effective feature of the service counts, not only its Reels core: a Still Pro extra's
   // routes and address-scoped markers (Instagram's search-entry mark) must follow in-page moves
   // too, even with Reels Off. While the paid tier is off no extra is ever effective, so this is
@@ -349,6 +385,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       consumeModernNavigation(url);
       urlWatch?.sync(urlWatchWanted());
       syncAddressObserver();
+      syncViewerObserver();
       return;
     }
     // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
@@ -475,6 +512,21 @@ function isYouTubeShortsUrl(url: URL): boolean {
 /** Mutable dedup cell shared between earlyShortsRedirect and createContentScript (one per page). */
 export interface RedirectDedupe {
   lastRedirect: string | null;
+  /**
+   * The address the early document_start redirect left, and until when its navigation counts as in
+   * flight. Meanwhile a later decision made from the same address (the page having moved itself
+   * during the settings read) must not replace it. It expires, so an aborted or refused load never
+   * holds the page's own later decisions back for good.
+   */
+  earlyLeaving?: { readonly href: string; readonly until: number };
+}
+
+/** How long an early redirect's navigation counts as in flight from the address it left. */
+export const EARLY_REDIRECT_HOLD_MS = 3_000;
+
+/** Whether an early redirect issued from `href` is still in flight at `now`. */
+export function earlyRedirectInFlight(dedupe: RedirectDedupe, href: string, now: number = Date.now()): boolean {
+  return dedupe.earlyLeaving !== undefined && dedupe.earlyLeaving.href === href && now < dedupe.earlyLeaving.until;
 }
 
 export interface EarlyShortsRedirectDeps {
