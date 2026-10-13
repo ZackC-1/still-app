@@ -307,6 +307,13 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     expect(getComputedStyle(grid).display).not.toBe("grid");
     expect(visible(document.getElementById("explore-reel-1")!)).toBe(true);
   });
+  it("an Explore Reel tile is told by its video alone, whatever language its badge is in", () => {
+    render("instagram-explore.html");
+    for (const svg of document.querySelectorAll('#explore-grid svg[aria-label="Reel"]')) svg.setAttribute("aria-label", "Bobina");
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/explore/"), document);
+    expect(visible(document.getElementById("explore-reel-1")!)).toBe(false);
+    expect(visible(document.getElementById("keep-explore-1")!)).toBe(true);
+  });
   it("the Explore mark stays while a tile is open over Explore, and goes on any other address", () => {
     const owns = (href: string, marked: boolean) => INSTAGRAM_EXPLORE_MARKER.owns({
       ownerDocument: { defaultView: { location: new URL(href) } },

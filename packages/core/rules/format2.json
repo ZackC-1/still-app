@@ -102,7 +102,7 @@
             "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
             "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])",
-            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"]) > div:has(> div > a[href^=\"/p/\"] svg:is([aria-label=\"Reel\"], [aria-label=\"Clip\"]))"
+            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"]) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))"
           ]
         },
         {
@@ -268,6 +268,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "b3ec8495db064154e20e4536d31aba1cd736415bddaf0a2e0e072fbf07212af179e97ebdacc3a9c0e2588898f5cd1ad2b607a8e2c876540e880c0cd6b04dc708"
+    "value": "70629e618a732fa264186792044038c6c15f6348894bb3aedd592f51ea33e758c8cd8240c8aed576b042fd149c275f153b582d91471591ec3459b3c1c865dd02"
   }
 }

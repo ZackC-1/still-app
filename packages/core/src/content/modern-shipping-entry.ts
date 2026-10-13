@@ -25,6 +25,7 @@ import {
   type ShippingContentLane,
 } from "./extension-entry.js";
 import {
+  EARLY_REDIRECT_HOLD_MS,
   earlyShortsRedirect,
   locationRedirectPort,
   type RedirectDedupe,
@@ -227,7 +228,7 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   if (decision.kind !== "redirect" || (core !== null && !handOver && decision.url !== core)) return "declined";
   if (deps.redirectDedupe.lastRedirect === decision.url) return "redirected";
   deps.redirectDedupe.lastRedirect = decision.url;
-  deps.redirectDedupe.earlyLeaving = url.href;
+  deps.redirectDedupe.earlyLeaving = { href: url.href, until: Date.now() + EARLY_REDIRECT_HOLD_MS };
   try {
     locationRedirectPort(deps.win).replace(decision.url);
   } catch {

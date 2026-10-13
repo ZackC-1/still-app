@@ -681,23 +681,31 @@ test("format-2 instagram explore: Reel tiles go, the other posts close up four t
   await expectClosedUp();
 });
 
-/** Instagram's post viewer as Explore opens it: a dialog whose Next arrow is a button. */
-const postViewer = (code: string, kind: "reel" | "p", next: string) => `<!doctype html><html><head><title>viewer</title></head><body>
+/**
+ * Instagram's post viewer as Explore opens it: a dialog whose Next arrow is a button. With
+ * `drawFirst`, the arrow draws the next item (a post) before it changes the address, so at the
+ * moment of the move the page no longer shows the item being left.
+ */
+const postViewer = (code: string, kind: "reel" | "p", next: string, drawFirst = false) => `<!doctype html><html><head><title>viewer</title></head><body>
   <main id="keep-explore">Explore</main>
-  <div role="dialog"><article id="keep-viewer"><a href="/someuser/">someuser</a><a href="/someuser/${kind}/${code}/">2d</a>
+  <div role="dialog"><article id="keep-viewer"><a href="/someuser/">someuser</a><a id="item" href="/someuser/${kind}/${code}/">2d</a>
     <button type="button" id="next" aria-label="Next">›</button></article></div>
   <script>
-    document.getElementById("next").addEventListener("click", () => history.pushState(null, "", ${JSON.stringify(next)}));
+    document.getElementById("next").addEventListener("click", () => {
+      if (${drawFirst}) document.getElementById("item").setAttribute("href", "/someuser/p/B2/");
+      history.pushState(null, "", ${JSON.stringify(next)});
+    });
   </script></body></html>`;
 
-for (const [kind, expected] of [
-  ["reel", "https://www.instagram.com/"],
-  ["p", "https://www.instagram.com/p/B2/"],
+for (const [kind, drawFirst, expected] of [
+  ["reel", false, "https://www.instagram.com/"],
+  ["reel", true, "https://www.instagram.com/"],
+  ["p", false, "https://www.instagram.com/p/B2/"],
 ] as const)
-  test(`format-2 instagram explore viewer: Next from a ${kind === "reel" ? "Reel goes Home" : "post opens the next item (the first Reel may play)"}`, async ({ context }) => {
+  test(`format-2 instagram explore viewer: Next from a ${kind === "reel" ? "Reel goes Home" : "post opens the next item (the first Reel may play)"}${drawFirst ? ", even when the next item is drawn before the address changes" : ""}`, async ({ context }) => {
     const page = await context.newPage();
     await page.route("**://*.instagram.com/**", (route) =>
-      route.fulfill({ contentType: "text/html; charset=utf-8", body: postViewer("A1", kind, "/p/B2/") }));
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: postViewer("A1", kind, "/p/B2/", drawFirst) }));
     await page.goto("https://www.instagram.com/p/A1/");
     await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
     await expect(page).toHaveURL("https://www.instagram.com/p/A1/"); // the opened item stays

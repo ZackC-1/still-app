@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { createShippingContentEntry, type ShippingContentLane } from "../extension-entry.js";
-import type { ContentScriptHandle } from "../index.js";
+import { EARLY_REDIRECT_HOLD_MS, earlyRedirectInFlight, type ContentScriptHandle, type RedirectDedupe } from "../index.js";
 import type { NavigationEventLike } from "../redirect.js";
 import {
   createCoreRouteClassifier,
@@ -296,6 +296,17 @@ describe("Safari pending cover on the V3 entry", () => {
     await r.finish();
     expect(r.h.replace).not.toHaveBeenCalled();
     expect(covered()).toBe(false);
+  });
+
+  it("an early redirect holds back other decisions from the address it left only while its load can still land", () => {
+    const dedupe: RedirectDedupe = { lastRedirect: "https://www.instagram.com/", earlyLeaving: { href: "https://www.instagram.com/reels/Sw4p1/", until: 10_000 } };
+    expect(earlyRedirectInFlight(dedupe, "https://www.instagram.com/reels/Sw4p1/", 9_999)).toBe(true);
+    // Another address: the page has moved on, nothing of ours is in flight from there.
+    expect(earlyRedirectInFlight(dedupe, "https://www.instagram.com/", 9_999)).toBe(false);
+    // The Home load was aborted or refused and the page is still there: the hold has expired.
+    expect(earlyRedirectInFlight(dedupe, "https://www.instagram.com/reels/Sw4p1/", 10_000)).toBe(false);
+    expect(earlyRedirectInFlight({ lastRedirect: null }, "https://www.instagram.com/reels/Sw4p1/", 0)).toBe(false);
+    expect(EARLY_REDIRECT_HOLD_MS).toBeLessThanOrEqual(5_000);
   });
 
   it("the loaded plural viewer opening the same Reel at its shared address is left alone", async () => {

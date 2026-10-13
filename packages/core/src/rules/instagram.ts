@@ -108,7 +108,8 @@ const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
  * The Explore grid (captured 12 Oct 2026): the same virtualized column as the profile grid (left
  * alone while its inline padding is non-zero), whose rows are CSS grids (their inline style sets
  * `--x-gridTemplateColumns: repeat(N, 1fr)`) of tile boxes; each tile box holds a wrapper holding
- * the tile's /p/<code>/ link. A Reel tile's link carries an SVG titled "Reel" and a video.
+ * the tile's /p/<code>/ link. A Reel tile's link carries a looping video (the signal that does not
+ * depend on the page's language) and an SVG titled "Reel"; photos and carousels carry neither.
  */
 const EXPLORE_COLUMN = 'div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"])';
 const EXPLORE_ROW = `${EXPLORE_COLUMN} > div:has(> div > div > a[href^="/p/"])`;
@@ -122,7 +123,7 @@ const EXPLORE_GRID = 'div:not([role="dialog"] *)'
  * so a hidden tile never stretches its neighbours: without the layout below (a virtualized column
  * or an unlisted column count) it only leaves room at the end of its row, and it is hidden always.
  */
-const EXPLORE_REEL_TILE = `${EXPLORE} ${EXPLORE_ROW} > div:has(> div > a[href^="/p/"] svg:is([aria-label="Reel"], [aria-label="Clip"]))`;
+const EXPLORE_REEL_TILE = `${EXPLORE} ${EXPLORE_ROW} > div:has(> div > a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"]))`;
 
 /**
  * Sets the Explore mark on the document root while the address is the Explore hub, and keeps it
