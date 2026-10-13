@@ -39,8 +39,9 @@ const selectors = Object.freeze([
   'a[role="tab"][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"]) > *',
   '[role="menu"] a[role="menuitemradio"][aria-checked][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"])',
   '[role="tab"][aria-label^="Reels," i] > *',
-  // ISS-0035: the top-menu Reels tab and the sidebar shortcut, by the label Facebook gives the tab.
-  '[role="navigation"] li:has(a[aria-label="Reels"]):not(:has(li))',
+  // ISS-0035: the top-menu Reels tab by its label, a fallback should its address change. Only the
+  // banner's menu: the sidebar's own shortcuts (a group or Page someone named "Reels") never match.
+  '[role="banner"] [role="navigation"] li:has(a[aria-label="Reels"]):not(:has(li))',
   ...reelsFeedEntries,
 ]);
 

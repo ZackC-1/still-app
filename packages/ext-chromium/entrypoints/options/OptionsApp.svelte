@@ -171,6 +171,8 @@
           sectionMemory,
           features,
           phone,
+          // The Still Pro value list waits for Firefox's device answer (ISS-0032).
+          platformKnown: !import.meta.env.FIREFOX || platformAnswer !== null,
         }
       : undefined}
   />

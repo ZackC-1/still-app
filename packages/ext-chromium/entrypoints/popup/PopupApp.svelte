@@ -14,7 +14,12 @@
     popupPresentationLoader,
     type RuntimePlatform,
   } from "../../lib/runtime-platform.js";
-  import { canNavigateToPro, openBrowserPro } from "../../lib/pro-navigation.js";
+  import {
+    askProOfferReady,
+    canNavigateToPro,
+    lastProOfferReady,
+    openBrowserPro,
+  } from "../../lib/pro-navigation.js";
 
   interface Props {
     controller: UiController;
@@ -71,6 +76,26 @@
         import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"),
   );
 
+  // The popup's Still Pro card appears only when the Settings page would offer Get Still Pro
+  // (ISS-0032); the lock chips navigate either way. Asked once per opening; this browser
+  // session's last answer is used meanwhile, so the card does not arrive late on every opening.
+  let proOfferReady = $state(false);
+  $effect(() => {
+    if (!destinationReady) return;
+    let live = true;
+    let answered = false;
+    void lastProOfferReady().then((ready) => {
+      if (live && !answered) proOfferReady = ready;
+    });
+    void askProOfferReady().then((ready) => {
+      answered = true;
+      if (live) proOfferReady = ready;
+    });
+    return () => {
+      live = false;
+    };
+  });
+
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
   }
@@ -113,6 +138,7 @@
           browser,
           onSettings: openOptions,
           onSeePro: destinationReady && canNavigateToPro() ? openPro : undefined,
+          proOfferReady,
           loadDesktop,
           sectionMemory,
         }

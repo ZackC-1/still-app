@@ -19,3 +19,14 @@ export const REFERENCE_DEMO_ACCOUNT: Deviation = {
     "reference-only demonstration banner omitted from the real account card; account actions and subsequent cards flow upward",
   selector: ".card:has(.synced), .card:has(.synced) ~ .card",
 };
+
+/**
+ * ISS-0032 (owner-approved design, 12 Oct 2026): a compact Still Pro card ("Hide more on
+ * Instagram, Facebook and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
+ * plain "Purchase Still Pro" button under the site list, and the cards below it move down.
+ */
+export const POPUP_PRO_CARD: Deviation = {
+  reason:
+    "owner-approved Still Pro card replaces the reference's plain purchase button; later cards move down",
+  selector: ".pro-entry, .pro-entry ~ *",
+};

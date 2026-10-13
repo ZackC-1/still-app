@@ -372,7 +372,9 @@ test("format-2 facebook: clicking the Reels tab goes home instead of opening the
   await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
   // Facebook's router, as recorded: a click on the tab pushes /reel/?s=tab, then replaces it with
   // the first Reel of the feed. The tab is forced visible so a person can click it, as if the
-  // hide had not matched, which is exactly the bypass the owner found.
+  // hide had not matched, which is exactly the bypass the owner found. With Still on, the click
+  // itself is caught before this router runs; the next test drives the router's push-then-replace
+  // directly.
   const openReelsTab = async () => {
     await page.evaluate(() => {
       const tab = document.createElement("a");
@@ -402,6 +404,40 @@ test("format-2 facebook: clicking the Reels tab goes home instead of opening the
   await openReelsTab();
   await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
   await expect(page.locator("#player-for-you")).toBeVisible();
+});
+
+// No click to catch: Facebook's own script pushes the feed entry, then hands over to its first
+// Reel 50 ms later. On Home the push is stopped where it stands, and the hand-over that follows
+// is judged from the stopped entry, so the Reel never takes over the address.
+test("format-2 facebook: the router's own push-then-replace into the Reels player stays Home; Off lets it through", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-nav.html"));
+  const routeToReels = (entry: string) => page.evaluate((entry) => new Promise<string[]>((resolve) => {
+    const seen: string[] = [];
+    try { history.pushState(null, "", entry); } catch { /* a stopped push may throw */ }
+    seen.push(location.pathname);
+    setTimeout(() => {
+      try { history.replaceState(null, "", "/reel/1234567890123456/"); } catch { /* stopped */ }
+      seen.push(location.pathname);
+      resolve(seen);
+    }, 50);
+  }), entry);
+  // The tab's entry, and the two feeds a typed address reaches (ISS-0039).
+  const entries = ["/reel/?s=tab", "/reels/", "/watch/reels/"];
+  await page.goto("https://www.facebook.com/");
+  await expectFormat2Lane(page);
+  for (const entry of entries) {
+    expect(await routeToReels(entry), entry).toEqual(["/", "/"]);
+    await page.waitForTimeout(300);
+    await expect(page, entry).toHaveURL("https://www.facebook.com/");
+  }
+
+  const toggle = await stillSwitch(context, extensionId);
+  await toggle();
+  for (const entry of entries) {
+    await page.goto("https://www.facebook.com/");
+    expect(await routeToReels(entry), entry).toEqual([new URL(entry, "https://x.invalid").pathname, "/reel/1234567890123456/"]);
+  }
 });
 
 test("format-2 facebook: a shared Reel still opens and plays; its player's feed links are hidden", async ({ context }) => {

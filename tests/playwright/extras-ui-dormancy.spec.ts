@@ -101,3 +101,24 @@ for (const surface of ["options", "popup"] as const)
     for (const label of controls) expect(offersPurchase(label), `control "${label}"`).toBe(false);
     expect(page.url()).toContain(`/${surface}.html`);
   });
+
+// ISS-0032, both lanes: CI builds compile the paid tier off, so the Still Pro entry points (the
+// popup's Still Pro card, the Safari hand-off captions, the settings value list) stay dormant and
+// the popup keeps its shipped parts. Paid-on coverage lives in pro-entry.paid-on.test.ts.
+for (const surface of ["options", "popup"] as const)
+  test(`dormant UI: ${surface} shows no Still Pro entry card or value copy`, async ({ context, extensionId }) => {
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${extensionId}/${surface}.html`);
+    await expect(page.getByRole("switch").first()).toBeVisible();
+    await page.waitForTimeout(800); // let late-rendering cards appear
+    await expect(page.locator(".pro-entry, .value-list, .handoff")).toHaveCount(0);
+    const all = (await page.locator("body").evaluate((body) => body.textContent ?? "")).replace(/\s+/g, " ");
+    for (const copy of [
+      "Get Still Pro",
+      "Hide more on Instagram, Facebook and YouTube",
+      "Opens the Still app",
+      "One-time purchase",
+      "Lifetime access",
+    ])
+      expect(all, `${surface} has no "${copy}"`).not.toContain(copy);
+  });

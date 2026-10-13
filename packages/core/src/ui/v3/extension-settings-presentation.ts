@@ -1,4 +1,5 @@
 import type { DesktopPopupProps } from "./presentation.js";
+import type { FeatureId } from "@still/shared-types";
 import type { Snippet } from "svelte";
 
 export interface OperationStatus {
@@ -24,7 +25,6 @@ export interface SyncCardProps {
      * where the build offers it (per-device identities wired); absent, nothing renders. */
     sharedData?: SharedDataProps;
   };
-  owned?: boolean;
   onSignIn?: () => void;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
@@ -44,6 +44,13 @@ export interface SharedDataProps {
 export interface ProOfferCardProps {
   /** Descriptive, capability-filtered inventory; no switches, saved-choice changes or authority. */
   controls?: readonly { site: string; label: string }[];
+  /**
+   * The rows this surface draws (a phone omits the desktop-layout extras); omitted: all. With no
+   * `controls`, the conclusively locked card lists what these extras hide on each site.
+   */
+  features?: readonly FeatureId[];
+  /** False while the surface's device answer is pending: the value list waits (see ExtensionSettingsProps). */
+  platformKnown?: boolean;
   /** True where the surface draws the phone-layout inventory (iPhone/iPad, Firefox for Android).
    * Unread since 12 Oct 2026: no Still Pro copy states a number of extras (owner rule). */
   phone?: boolean;
@@ -153,6 +160,12 @@ export interface ExtensionSettingsProps extends Pick<
    * hosts keep passing it so the device-specific seam stays in one place.
    */
   phone?: boolean;
+  /**
+   * False while the surface's own device answer is still pending (Firefox asks whether it runs on
+   * Android). The Still Pro card's by-site value list waits for it, so the list never visibly
+   * changes from the phone rows to the computer rows. Omitted: known.
+   */
+  platformKnown?: boolean;
   pro?: Omit<
     ProOfferCardProps,
     | "confirmedAccount"

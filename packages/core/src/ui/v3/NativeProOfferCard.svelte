@@ -45,7 +45,15 @@
     surface states a number of extras (owner rule, 12 Oct 2026). -->
   <!-- Mirrors ProOfferCard: verify and failed ownership or a failed purchase show their own
     state, never the spinner. A residual held access counts as checking unless verify is held. -->
-  {#if verificationRequired}
+  {#if ownership === "owned"}
+    <div class="offer-head">
+      <h2 class="card-title">Still Pro</h2>
+      <span class="access-tag boxed">Purchased</span>
+    </div>
+    <p class="card-body">
+      You have Still Pro. New controls start off, so turn on the ones you want.
+    </p>
+  {:else if verificationRequired}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="caution" role="status">
       <span class="glyph"><Glyph name="clock" size={16} /></span>
@@ -140,12 +148,12 @@
       </div>
     {/if}
   {/if}
-  <button
-    type="button"
-    class="link"
-    disabled={!restoreReady}
-    onclick={() => {
-      if (restoreReady) onRestore?.();
-    }}>Restore purchase</button
-  >
+  {#if ownership !== "owned"}<button
+      type="button"
+      class="link"
+      disabled={!restoreReady}
+      onclick={() => {
+        if (restoreReady) onRestore?.();
+      }}>Restore purchase</button
+    >{/if}
 </section>

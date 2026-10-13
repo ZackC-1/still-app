@@ -1,8 +1,14 @@
 <script lang="ts">
   import SiteAccessCard from "./SiteAccessCard.svelte";
   import { untrack } from "svelte";
-  import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
-  import { proRowsDormant, rowsFor } from "./presentation.js";
+  import type { ServiceId } from "@still/shared-types";
+  import {
+    proAccessChecking,
+    proKnownMissing,
+    proRowsDormant,
+    rowsFor,
+  } from "./presentation.js";
+  import PopupProCard from "./PopupProCard.svelte";
   import { DESKTOP_LAYOUT_ONLY_PRO } from "../../entitlement/access-policy.js";
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
@@ -19,6 +25,8 @@
     host,
     channelReady = false,
     onSeePro,
+    appHandoff,
+    proOfferReady = true,
     setup,
     onGlobalChange,
     onServiceChange,
@@ -28,7 +36,6 @@
     privacyUrl,
     commandsDisabled = false,
     accountActions,
-    onPurchase,
     account,
     sectionMemory,
     services = ["instagram", "facebook", "youtube", "tiktok"],
@@ -70,25 +77,8 @@
       "Allow",
     ],
   } as const;
-  let knownMissing = $derived(
-    FEATURE_REGISTRY.some(
-      (row) => row.tier === "pro" && access.states[row.id] === "locked",
-    ) &&
-      !FEATURE_REGISTRY.some(
-        (row) =>
-          row.tier === "pro" &&
-          [
-            "checking",
-            "verification_required",
-            "purchased",
-            "protected",
-          ].includes(access.states[row.id]),
-      ),
-  );
+  let knownMissing = $derived(proKnownMissing(access));
   let dormant = $derived(proRowsDormant(access));
-  let offer = $derived(
-    host === "firefox" && channelReady && Boolean(onPurchase) && knownMissing,
-  );
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
   );
@@ -103,9 +93,26 @@
       !setup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
+  // Get Still Pro and the feature locks open the full offer (Firefox's Settings page or the Still
+  // app); the popup never starts a payment itself (ISS-0032).
   function openPro() {
     if (appActionReady || browserActionReady) onSeePro?.();
   }
+  // Safari actions hand off to the Still app unless the host says otherwise.
+  let handoff = $derived(appHandoff ?? host === "safari");
+  // The card waits for the destination to be able to sell and for a clear setup and account
+  // state, as the sync invitation does.
+  let popupClear = $derived(
+    !setup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  let proCardShown = $derived(
+    (appActionReady || browserActionReady) && proOfferReady && popupClear,
+  );
+  // While Still is still finding out, the card's place says so (no button), where a card may follow.
+  let proCheckingShown = $derived(
+    Boolean(onSeePro) && proOfferReady && proAccessChecking(access) && popupClear,
+  );
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -239,7 +246,9 @@
                         onFeatureChange(row.id, next);
                     }}
                     host={host === "safari" ? "safari" : "browser"}
-                      onLock={appActionReady || browserActionReady ? openPro : undefined}
+                    onLock={appActionReady || browserActionReady
+                      ? openPro
+                      : undefined}
                   />
                 {/each}
               </div>
@@ -249,18 +258,10 @@
       </div>
     {/each}
   </div>
-  {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
-      >Purchase Still Pro</button
-    >{/if}
-  {#if host === "safari" && knownMissing}
-    <button
-      type="button"
-      class="secondary block"
-      aria-label="See Still Pro in the Still app"
-      aria-disabled={!appActionReady || undefined}
-      onclick={openPro}>See Still Pro</button
-    >
-  {/if}
+  {#if proCardShown}<PopupProCard
+      onOpen={openPro}
+      appHandoff={handoff}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
@@ -275,9 +276,18 @@
       {#if !account && onSignIn}<button
           type="button"
           class="primary inline"
-          onclick={onSignIn}>Sign in</button
+          class:with-glyph={handoff}
+          aria-describedby={handoff ? "popup-signin-handoff" : undefined}
+          onclick={onSignIn}
+          >Sign in{#if handoff}<Glyph name="external" size={13} />{/if}</button
         >{/if}
     </div>
+    {#if !account && onSignIn && handoff}<p
+        class="handoff"
+        id="popup-signin-handoff"
+      >
+        <Glyph name="external" size={13} />Opens the Still app
+      </p>{/if}
     {#if account?.status}
       <div
         class="status-line"

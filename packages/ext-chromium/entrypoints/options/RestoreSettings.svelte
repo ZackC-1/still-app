@@ -45,6 +45,7 @@
     features,
     labels,
     phone,
+    platformKnown,
     commandsDisabled,
     sync,
     pro,
@@ -92,6 +93,7 @@
   {features}
   {labels}
   {phone}
+  {platformKnown}
   {commandsDisabled}
   {sync}
   {pro}

@@ -268,7 +268,14 @@ describe("controlled D04 Apple settings", () => {
     expect(buy).toHaveBeenCalledTimes(2);
     props.pro = { ...props.pro, ownership: "owned", state: "idle" };
     await view.rerender(props);
-    expect(screen.getByText("Still Pro and sync")).toBeTruthy();
+    // ISS-0032: purchased shows its own "Still Pro · Purchased" card beside the sync card.
+    expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    expect(screen.getByText("Settings sync")).toBeVisible();
+    const purchased = screen.getByRole("region", { name: "Still Pro" });
+    expect(within(purchased).getByText("Purchased")).toBeVisible();
+    expect(
+      within(purchased).queryByRole("button", { name: "Restore purchase" }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
     expect(await storage.get()).toEqual(saved);

@@ -36,7 +36,7 @@ type Consent = "unasked" | "on" | "off";
 /**
  * SettingsPage.babel props, translated: signed out = Sign in only; signed in = address plus
  * Sign out / Delete account; Pro not owned = the browser offer with a ready channel and sample
- * offer (signed-out "Get Still Pro" signs in first); owned = combined "Still Pro and sync" card.
+ * offer (signed-out "Get Still Pro" signs in first); owned = the sync card beside a "Purchased" card.
  * Consent unasked = combined card with the review purposes; answered = the sharing switch with
  * no purposes and the "Delete data you already shared" request, exactly as the page wires it.
  */

@@ -3,9 +3,13 @@
   import Glyph from "./Glyph.svelte";
   import StaticProControlList from "./StaticProControlList.svelte";
   import { PAID_TIER_ENABLED } from "@still/shared-types";
+  import { proValueBySite } from "./presentation.js";
+  import { serviceIconSrc } from "./service-icons.js";
   let {
     ownership,
     controls = [],
+    features,
+    platformKnown = true,
     channel,
     offer,
     confirmedAccount,
@@ -35,6 +39,25 @@
         Boolean(offer?.price.trim())) &&
       state !== "failed" &&
       state !== "success",
+  );
+  // The value-led offer (ISS-0032, owner-approved design): shown only while access is conclusively
+  // locked, as what the extras hide on each site, then the one-time terms. No counts, no price.
+  // The one-time terms sit only beside a live Get Still Pro, so the card never states purchase terms
+  // it is not offering (a closed channel, a Restore check in progress, a finished purchase).
+  let valueLed = $derived(
+    ownership === "none" &&
+      knownMissing &&
+      !accessHeld &&
+      !accessChecking &&
+      !accessVerify &&
+      !restoreHeld &&
+      state !== "success" &&
+      platformKnown &&
+      controls.length === 0,
+  );
+  let value = $derived(valueLed ? proValueBySite(features) : []);
+  let checkoutPriced = $derived(
+    PAID_TIER_ENABLED && offer?.checkoutPriced === true,
   );
   function request() {
     if (!canBuy || state === "pending") return;
@@ -66,15 +89,28 @@
     </div>
   {:else}
     <div class="offer-head"><h2 class="card-title">Still Pro</h2></div>
-    {#if canBuy && (offer?.priceNote || (PAID_TIER_ENABLED && offer?.checkoutPriced))}<p
+    {#if canBuy && offer?.priceNote && !checkoutPriced}<p
         class="card-body"
         style="margin-block-start:-8px;"
       >
-        {PAID_TIER_ENABLED && offer.checkoutPriced
-          ? "The price is shown at checkout."
-          : offer.priceNote}
+        {offer.priceNote}
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
+    {#if valueLed}
+      <p class="card-body">Extras that hide more of what distracts you.</p>
+      <ul class="value-list">
+        {#each value as row (row.service)}
+          <li>
+            <img src={serviceIconSrc[row.service]} alt="" />
+            <div>
+              <div class="site">{row.site}</div>
+              <div class="what">{row.what}</div>
+            </div>
+          </li>
+        {/each}
+      </ul>
+      {#if canBuy}<p class="offer-terms">One-time purchase. Lifetime access.</p>{/if}
+    {/if}
     {#if canBuy}
       <button
         type="button"
@@ -86,6 +122,7 @@
       >
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
+      {#if checkoutPriced}<p class="caption">The price is shown at checkout.</p>{/if}
     {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
