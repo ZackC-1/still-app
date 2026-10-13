@@ -37,8 +37,9 @@ import { createPendingCover, type PendingCover } from "./pending-cover.js";
 // createShippingContentEntry plus two things ruled for U7-W3:
 //
 // 1. The early document_start redirect covers every core short-form route the format-2 engine
-//    sends elsewhere (YouTube Shorts, the Instagram and Facebook Reels feeds, the Instagram Reels
-//    viewer and an Instagram profile's Reels tab), not only Shorts. Firefox and Safari use it; Chromium keeps DNR and the old entry.
+//    sends elsewhere (YouTube Shorts, the Instagram and Facebook Reels feeds, Facebook's /reel/
+//    feed entry, the Instagram Reels viewer and an Instagram profile's Reels tab), not only Shorts.
+//    Firefox and Safari use it; Chromium keeps DNR and the old entry.
 // 2. On Safari only, the pending cover (pending-cover.ts): blank for at most 1.5 seconds while a
 //    core route waits for settings (V3-D-052), and while a redirect Still issued is in flight.
 //
@@ -105,7 +106,8 @@ export function mayBeCoreRoute(url: URL): boolean {
   if (on("youtube")) return path.startsWith("/shorts/");
   // Instagram also sends a profile's Reels tab, /<user>/reels/, to that profile.
   if (on("instagram")) return path.startsWith("/reels") || /^\/[^/]+\/reels\/?$/.test(path);
-  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels");
+  // The /reel/ feed entry passes; a shared /reel/<digits> never builds a session here.
+  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels") || /^\/reel(?:\/(?!\d)|$)/.test(path);
   return false;
 }
 
@@ -169,6 +171,13 @@ export interface EarlyFormat2CoreRedirectDeps {
   readonly access: () => BenefitAccessSnapshot;
   /** The host's packaged capabilities; absent, the engine's host-less default. */
   readonly capabilities?: ReadonlySet<BenefitId>;
+  /**
+   * The address this document loaded at (read at document_start). When the page rewrites its own
+   * address during the settings read, a hand-over from that loaded core route into a single Reel
+   * is still the feed (ISS-0039: Facebook answers a typed /reels with /reel/, whose script then
+   * replaces it with /reel/<id> before the settings arrive).
+   */
+  readonly loadedHref?: string;
 }
 
 /**
@@ -181,15 +190,22 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   await deps.cache.hydrate();
   const url = new URL(deps.win.location.href);
   const core = deps.classify(url);
-  if (!core) return "declined";
+  const loaded = deps.loadedHref !== undefined && deps.loadedHref !== url.href ? new URL(deps.loadedHref) : null;
+  if (!core && !(loaded && deps.classify(loaded))) return "declined";
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<typeof session.evaluate>;
   try {
     decision = session.evaluate(deps.cache.current(), url, { access: deps.access(), capabilities: deps.capabilities });
+    // The page left its loaded core route on its own before Still could decide: only the loaded
+    // feed handing over to one of its Reels is followed, under the committed settings.
+    if (!core) {
+      const home = loaded ? session.reelContinuation?.(loaded, url) ?? null : null;
+      decision = home ? { kind: "redirect", url: home } : { kind: "noop" };
+    }
   } finally {
     session.stop?.();
   }
-  if (decision.kind !== "redirect" || decision.url !== core) return "declined";
+  if (decision.kind !== "redirect" || (core !== null && decision.url !== core)) return "declined";
   if (deps.redirectDedupe.lastRedirect === decision.url) return "redirected";
   deps.redirectDedupe.lastRedirect = decision.url;
   try {
@@ -363,6 +379,7 @@ export function createModernShippingContentEntry(
           if (chosen.kind === "format2")
             return earlyFormat2CoreRedirect({
               win,
+              loadedHref: href,
               ruleSet: packaged()!,
               cache,
               classify,

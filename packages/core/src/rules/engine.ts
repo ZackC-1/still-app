@@ -132,8 +132,9 @@ export interface EnginePageSession {
    * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
    * continuing into the next Reel), else null. Moving between Reels inside one Instagram
    * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is stopped too, to that profile
-   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Callers apply it only to
-   * page-driven moves, never to a deliberate link activation or Back/forward.
+   * (/<user>/): a profile's Reels are not browsable either (ISS-0034). Any Facebook Reels feed
+   * address handing over to its first Reel counts as continuing too (ISS-0035, ISS-0039). Callers apply it
+   * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL): string | null;
 }
@@ -146,6 +147,15 @@ const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
  * (/reels/<code>/) are matched first, so a first segment of "reels" never reaches this pattern.
  */
 const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
+
+/**
+ * Facebook's Reels feeds: the plural /reels feed, Watch's /watch/reels feed, and the /reel/ entry
+ * its top-menu tab and sidebar shortcut open (/reel/?s=tab) with the player's own "Following" and
+ * "Profile" feeds. A typed /reels or /watch/reels is answered by Facebook's server with /reel/.
+ * Each hands over to one Reel at /reel/<digits>, a shared Reel's address, which never matches
+ * (ISS-0035, ISS-0039).
+ */
+const FACEBOOK_REELS_FEEDS = /^\/(?:reel(?:\/(?:following|profile))?|reels|watch\/reels)\/?$/;
 
 /**
  * The item a Reel viewer shows, and the profile whose modal shows it (null for the global
@@ -675,12 +685,12 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
         // Preserve deliberate playlist, time and share context; normalize only the video ID.
         destination.searchParams.set("v", id);
       }
-    } else if (((service === "instagram" || service === "facebook") && /^\/reels\/?$/.test(url.pathname))
-      || (service === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
-      // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
-      // Watch. Direct/shared singular /reel/<id>, a Facebook Page's or profile's own Reels tab,
-      // normal/live videos, people/groups/search/messages and their query-bearing routes stay
-      // usable.
+    } else if ((service === "instagram" && /^\/reels\/?$/.test(url.pathname))
+      || (service === "facebook" && FACEBOOK_REELS_FEEDS.test(url.pathname))) {
+      // Category browsing only: the bare Reels feeds, Facebook's own Reels feed under Watch and
+      // its /reel/ feed entry (the top-menu Reels tab). Direct/shared singular /reel/<id>, a
+      // Page's or profile's own Reels tab, normal/live videos, people/groups/search/messages and
+      // their query-bearing routes stay usable.
       destination = new URL("/", url.origin);
     } else if (service === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
       // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
@@ -726,8 +736,11 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       // Valid only for the inputs just prepared for `to`, while that service's Reels core is on.
       if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
       if (serviceId !== "instagram" && serviceId !== "facebook") return null;
-      const current = reelViewerItem(serviceId, from);
       const next = reelViewerItem(serviceId, to);
+      // A Facebook Reels feed handing over to the Reel it chose to play first is the feed itself,
+      // whenever Still did not get to send the feed home before the page moved on.
+      if (next && serviceId === "facebook" && FACEBOOK_REELS_FEEDS.test(from.pathname)) return new URL("/", to.origin).href;
+      const current = reelViewerItem(serviceId, from);
       if (!current || !next || current.id === next.id) return null;
       // One profile's own modal moving on into another of its Reels returns to that profile's
       // posts rather than Home, so someone browsing a creator stays on the creator.

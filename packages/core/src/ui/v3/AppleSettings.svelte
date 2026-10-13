@@ -256,8 +256,9 @@
     features={supportedRows}
     onProAction={proActionReady ? revealPro : undefined}
   />
+  <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
+    Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
-    owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
     account={sync.account
       ? {
@@ -297,7 +298,7 @@
     </section>
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+  {#if pro && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <!-- Checking and verify stay separate so the card shows the matching presentation;
       accessHeld covers only rights not known missing for any other reason. -->
     <div bind:this={proSection} style="display:contents;">

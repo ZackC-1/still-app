@@ -163,6 +163,15 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     expect(h.entries).toEqual([origin, home]); // Back returns to the Reel that was opened
   });
 
+  it.each(["/reel/?s=tab", "/reel/following/"])("Facebook's top-menu Reels tab entry %s goes home without the Navigation API (ISS-0035)", async (next) => {
+    fake();
+    const h = await host("https://www.facebook.com/groups/chosen/");
+    h.pagePush(next);
+    await tickWatch();
+    expect(h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+    expect(h.entries).toEqual(["https://www.facebook.com/groups/chosen/", "https://www.facebook.com/"]);
+  });
+
   it.each(["instagram", "facebook"])("a bare %s /reels/ SPA move goes home", async (service) => {
     fake();
     const h = await host(`https://www.${service}.com/`);

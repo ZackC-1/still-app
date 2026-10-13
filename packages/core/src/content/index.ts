@@ -15,6 +15,7 @@ import {
 import type { EntitlementCache } from "../entitlement/cache.js";
 import type { SettingsCache } from "../storage/cache.js";
 import {
+  DELIBERATE_WINDOW_MS,
   createNavigationIntentTracker,
   createUrlChangeWatch,
   installNavigationHooks,
@@ -208,6 +209,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     },
   }) : null;
   if (mediaQuieting) teardowns.push(() => mediaQuieting.stop());
+  // A core route consumed without sending the page anywhere, because the page already is where it
+  // leads (Facebook's /reel/?s=tab while on Home). The page may still hand over to the Reel that
+  // route chose; for a short while that hand-over is judged from the consumed route.
+  let consumedInPlace: { readonly url: URL; readonly at: number } | null = null;
   const consumeModernNavigation = (
     target: URL,
     mode: "push" | "replace" = "replace",
@@ -222,8 +227,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     const evaluated = pageSession.evaluate(settings, target, options);
     // A Reel viewer advancing on its own into a different Reel is stopped (sent home); a
     // deliberately opened or activated Reel, and Back/forward, are never treated as continuing.
+    const consumed = consumedInPlace && Date.now() - consumedInPlace.at <= DELIBERATE_WINDOW_MS ? consumedInPlace.url : null;
     const continuation = intent === "page"
-      ? pageSession.reelContinuation?.(from ?? currentUrl(), target) ?? null : null;
+      ? pageSession.reelContinuation?.(from ?? currentUrl(), target)
+        ?? (consumed ? pageSession.reelContinuation?.(consumed, target) : null) ?? null
+      : null;
     const decision: ReturnType<typeof pageSession.evaluate> = continuation
       ? { kind: "redirect", url: continuation } : evaluated;
     // Destination classification must not replace the plan backing the current DOM/media.
@@ -237,7 +245,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         dedupe.lastRedirect = decision.url;
         if (mode === "push") redirectPort.replace(decision.url, "push");
         else redirectPort.replace(decision.url);
-      }
+      } else if (!continuation) consumedInPlace = { url: target, at: Date.now() };
       return true;
     }
     dedupe.lastRedirect = null;

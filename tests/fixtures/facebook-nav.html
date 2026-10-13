@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook navigation and Reels player — fixture</title>
+  </head>
+  <body>
+    <!--
+      Facebook's current desktop navigation and Reels player (ISS-0035), rebuilt by hand from a
+      read-only structural capture of a signed-in page on 12 Oct 2026. Only the shape was recorded:
+      element nesting, roles, labels and link addresses. Every name and number here is invented.
+
+      Recorded:
+      - The top menu and the left sidebar are div[role="navigation"] lists, not <nav>. Top-menu
+        entries are li > span > div > a[aria-label]; sidebar entries are li > div > div > div > a
+        with no label.
+      - The sidebar's Reels shortcut is https://www.facebook.com/reel/?s=tab. Opening it pushes
+        /reel/?s=tab, then Facebook replaces it with /reel/<digits>, the first Reel of its feed.
+      - The Reels player's own menu: "For you" (/reel/?bss=...), "Following" (/reel/following/)
+        and "Profile" (/reel/profile/), outside any navigation landmark.
+      Assumed: the top-menu Reels tab. The captured account showed no Reels tab in its top menu;
+      the owner's account shows it as the second icon. It is modelled on its recorded neighbours
+      with the sidebar shortcut's address and the label "Reels".
+    -->
+    <div role="banner">
+      <a role="link" aria-label="Facebook" href="/" id="keep-logo">f</a>
+      <div role="navigation" aria-label="Facebook">
+        <ul id="top-menu">
+          <li id="keep-top-home"><span><div><a role="link" aria-label="Home" href="/" aria-current="page">Home</a></div></span></li>
+          <li id="top-reels-item"><span><div><a role="link" aria-label="Reels" href="https://www.facebook.com/reel/?s=tab" id="top-reels-tab">Reels</a></div></span></li>
+          <li id="keep-top-friends"><span><div><a role="link" aria-label="Friends" href="/friends/">Friends</a></div></span></li>
+          <li id="keep-top-marketplace"><span><div><a role="link" aria-label="Marketplace" href="/marketplace/?ref=app_tab">Marketplace</a></div></span></li>
+          <li id="keep-top-groups"><span><div><a role="link" aria-label="Groups" href="/groups/">Groups</a></div></span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div role="navigation" aria-label="Shortcuts">
+      <div><div>
+        <ul id="sidebar">
+          <li id="keep-side-profile"><div><div><div><a role="link" href="/profile.php?id=100000000000001">A Person</a></div></div></div></li>
+          <li id="keep-side-friends"><div><div><div><a role="link" href="/friends/">Friends</a></div></div></div></li>
+          <li id="keep-side-memories"><div><div><div><a role="link" href="/onthisday/?source=bookmark">Memories</a></div></div></div></li>
+          <li id="keep-side-saved"><div><div><div><a role="link" href="/saved/?cref=28">Saved</a></div></div></div></li>
+          <li id="keep-side-groups"><div><div><div><a role="link" href="/groups/?ref=bookmarks">Groups</a></div></div></div></li>
+          <li id="sidebar-reels-item"><div><div><div><a role="link" tabindex="0" href="https://www.facebook.com/reel/?s=tab" id="sidebar-reels"><div><i data-visualcompletion="css-img"></i></div><span><span>Reels</span></span></a></div></div></div></li>
+          <li id="keep-side-marketplace"><div><div><div><a role="link" href="/marketplace/?ref=bookmark">Marketplace</a></div></div></div></li>
+          <li id="keep-side-feeds"><div><div><div><a role="link" href="/?filter=all&amp;sk=h_chr">Feeds</a></div></div></div></li>
+          <li id="keep-side-events"><div><div><div><a role="link" href="/events?source=46&amp;action_history=null">Events</a></div></div></div></li>
+          <!-- Over-blocking controls: shortcuts whose names start with the letters "reel". -->
+          <li id="keep-side-reel-group"><div><div><div><a role="link" href="/groups/reeltalk/">Reel Talk</a></div></div></div></li>
+          <li id="keep-side-reel-page"><div><div><div><a role="link" href="https://www.facebook.com/reelestate/">Reel Estate</a></div></div></div></li>
+          <!-- A sponsored shortcut whose tracked address mentions a Reel, encoded as Facebook does. -->
+          <li id="keep-side-external"><div><div><div><a role="link" href="https://www.facebook.com/l.php?u=https%3A%2F%2Fwww.facebook.com%2Freel%2F%3Fs%3Dtab&amp;h=x">An outside link</a></div></div></div></li>
+        </ul>
+      </div></div>
+    </div>
+
+    <div role="main">
+      <!-- The Reels player's own menu: three more ways into the Reels feed. -->
+      <div id="player-menu"><div><div>
+        <div><a role="link" aria-label="For you" href="/reel/?bss=1" id="player-for-you">For you</a></div>
+        <div><a role="link" aria-label="Following" href="/reel/following/" id="player-following">Following</a></div>
+        <div><a role="link" aria-label="Profile" href="/reel/profile/" id="player-profile">Profile</a></div>
+      </div></div></div>
+      <!-- The one Reel a shared link opens stays playable (docs/PRODUCT.md). -->
+      <div role="group" aria-label="Video player" id="keep-reel-player">
+        <div role="button" aria-label="Unmute">Unmute</div>
+        <a role="link" aria-label="See Owner Profile" href="/profile.php?id=100000000000002" id="keep-reel-owner">A creator</a>
+      </div>
+      <!-- A Reel someone sent: its own /reel/<digits> address is a single shared Reel, not the feed. -->
+      <div id="keep-message"><a href="/reel/1234567890123456/" id="keep-shared-reel">A Reel a friend sent</a></div>
+      <a href="https://www.facebook.com/reel/1234567890123457" id="keep-shared-reel-absolute">Another shared Reel</a>
+    </div>
+  </body>
+</html>

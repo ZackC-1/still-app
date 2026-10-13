@@ -84,7 +84,7 @@ test.describe("format-2 build", () => {
     const worker = await backgroundOf(context);
     const ids = await worker.evaluate(async () =>
       (await (globalThis as unknown as DnrWorker).chrome.declarativeNetRequest.getSessionRules()).map((rule) => rule.id).sort((a, b) => a - b));
-    expect(ids).toEqual([1, 2, 11, 12, 13, 14, 21]);
+    expect(ids).toEqual([1, 2, 11, 12, 13, 14, 21, 22]);
   });
 
   for (const [from, to] of [
@@ -96,6 +96,10 @@ test.describe("format-2 build", () => {
     ["https://www.instagram.com/someuser/reels/?igsh=share", "https://www.instagram.com/someuser/"],
     ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
     ["https://m.facebook.com/reels/", "https://m.facebook.com/"],
+    // The top-menu Reels tab's feed entry and the player's own feeds (ISS-0035).
+    ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+    ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
+    ["https://m.facebook.com/reel/", "https://m.facebook.com/"],
   ] as const)
     test(`${from} is redirected before the page loads`, async ({ context }) => {
       const page = await context.newPage();
@@ -115,6 +119,7 @@ test.describe("format-2 build", () => {
     "https://www.instagram.com/reel/C0dE/",
     "https://www.facebook.com/someuser/reels_tab",
     "https://www.facebook.com/reel/123456",
+    "https://www.facebook.com/reel/123456/?s=tab",
     "https://www.youtube.com/watch?v=abc123",
   ])
     test(`${url} stays reachable`, async ({ context }) => {

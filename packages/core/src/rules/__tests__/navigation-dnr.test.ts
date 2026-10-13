@@ -89,7 +89,9 @@ const PATHS: Record<string, readonly string[]> = {
     "/Reels/reels/", "/reelz/reels/", "/reelss/reels/", "/rels/reels/", "/xeels/reels/", "/rxels/reels/",
     "/rexls/reels/", "/reexs/reels/", "/someuser/reels/x/", "/someuser/reelsx/", "/a-b/reels/"],
   facebook: ["/reels", "/reels/", "/watch/reels", "/watch/reels/", "/watch/", "/watch", "/reel/123456",
-    "/someuser/reels_tab", "/reels/123", "/watch/reels/x", "/profile.php", "/Watch/Reels/", "/groups/x/reels", "/"],
+    "/someuser/reels_tab", "/reels/123", "/watch/reels/x", "/profile.php", "/Watch/Reels/", "/groups/x/reels", "/",
+    "/reel/", "/reel", "/reel/following/", "/reel/following", "/reel/profile/", "/reel/followingx/", "/reel/123456/",
+    "/Reel/", "/reel//", "/someuser/reel/"],
   tiktok: ["/", "/@someone/video/1", "/foryou"],
 };
 const CORPUS: readonly string[] = Object.entries(HOSTS).flatMap(([service, hosts]) =>
@@ -180,6 +182,12 @@ describe("format-2 navigation session rules", () => {
       ["https://www.facebook.com/someuser/reels_tab", null],
       ["https://www.facebook.com/reel/123456", null],
       ["https://www.facebook.com/watch/", null],
+      // ISS-0035: the top-menu Reels tab's /reel/ feed entry and the player's own feeds go home.
+      ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+      ["https://m.facebook.com/reel/", "https://m.facebook.com/"],
+      ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
+      ["https://www.facebook.com/reel/profile/?bss=1", "https://www.facebook.com/"],
+      ["https://www.facebook.com/reel/123456/?s=tab", null],
       // Decision 33: Instagram's plural viewer opens just that one Reel; the bare feed goes home;
       // shared single Reels and the audio hub stay reachable. A profile's Reels tab opens the
       // profile's posts (ISS-0034).

@@ -278,9 +278,7 @@ describe("controlled D02 mobile presentation", () => {
         expect(input).toHaveFocus();
         await fireEvent.click(input);
         expect(
-          screen.queryByRole("button", {
-            name: "See Still Pro in the Still app",
-          }),
+          screen.queryByRole("button", { name: "Get Still Pro" }),
         ).toBeNull();
       } else if (state === "unsupported") {
         expect(within(row).queryByRole("switch")).toBeNull();
@@ -352,7 +350,7 @@ describe("controlled D02 mobile presentation", () => {
     }
     expect(props.onSeePro).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /See Still Pro/ })).toBeNull();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
     expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
     await fireEvent.click(
       screen.getByRole("switch", { name: "TikTok website" }),
@@ -407,32 +405,27 @@ describe("controlled D02 mobile presentation", () => {
     const { props } = await fixture("locked");
     const seePro = vi.fn();
     props.onSeePro = seePro;
-    props.onPurchase = vi.fn();
-    props.channelReady = true;
+    props.appHandoff = true;
     const view = render(MobilePopup, { props });
-    await fireEvent.click(
-      screen.getByRole("button", { name: "See Still Pro in the Still app" }),
-    );
+    const get = screen.getByRole("button", { name: "Get Still Pro" });
+    expect(get).toHaveAccessibleDescription("Opens the Still app");
+    await fireEvent.click(get);
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: /^.+\. Included in Still Pro\./,
-        description: "Comments",
+        name: "Comments. Included in Still Pro. Open the Still app",
       }),
     );
     // Safari's lock keeps its reference action: the Still app is where Still Pro is offered.
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(props.onSeePro).toHaveBeenCalledTimes(2);
-    expect(props.onPurchase).not.toHaveBeenCalled();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
     expect(document.body.textContent).not.toMatch(/\$|\bBuy\b/);
     props.onSeePro = undefined;
     await view.rerender(props);
-    await fireEvent.click(
-      screen.getByRole("button", { name: "See Still Pro in the Still app" }),
-    );
+    // No destination: no card, and the lock offers nothing.
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     const heldLock = screen.getByRole("button", {
       name: /^.+\. Included in Still Pro\./,
       description: "Comments",
@@ -440,47 +433,36 @@ describe("controlled D02 mobile presentation", () => {
     expect(heldLock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(heldLock);
     expect(seePro).toHaveBeenCalledTimes(2);
-    expect(props.onPurchase).not.toHaveBeenCalled();
     view.unmount();
   });
 
-  it("does not enable Firefox Android purchase until the supplied channel and access are ready", async () => {
+  it("Firefox for Android: Get Still Pro and the locks open Settings, never a payment, only while access is known locked", async () => {
     const { props } = await fixture("locked");
     props.host = "firefox";
-    props.onPurchase = vi.fn();
     props.onSeePro = vi.fn();
     const view = render(MobilePopup, { props });
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     const lock = screen.getByRole("button", {
-      name: /^.+\. Included in Still Pro\./,
-      description: "Comments",
+      name: "Comments. Included in Still Pro. See Still Pro",
     });
     await fireEvent.click(lock);
-    expect(props.onPurchase).not.toHaveBeenCalled();
     expect(props.onSeePro).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
-    expect(screen.queryByText("See Still Pro")).toBeNull();
-    props.channelReady = true;
-    await view.rerender(props);
-    // The lock goes directly to the supplied settings destination.
-    await fireEvent.click(lock);
+    // Navigation, not payment: the card needs no verified purchase channel.
+    const get = screen.getByRole("button", { name: "Get Still Pro" });
+    expect(get).not.toHaveAccessibleDescription();
+    expect(screen.queryByText("Opens the Still app")).toBeNull();
+    await fireEvent.click(get);
     expect(props.onSeePro).toHaveBeenCalledTimes(2);
-    expect(props.onPurchase).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
-    await fireEvent.click(
-      screen.getByRole("button", { name: "Purchase Still Pro" }),
-    );
-    expect(props.onPurchase).toHaveBeenCalledOnce();
     for (const state of ["checking", "verification_required"] as const) {
       props.access = {
         ...props.access,
         states: { ...props.access.states, "youtube.comments": state },
       };
       await view.rerender(props);
-      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+      expect(screen.queryByText("Get Still Pro")).toBeNull();
       await fireEvent.click(
         screen.getByRole("button", {
           name: /^.+\. Included in Still Pro\./,
@@ -488,7 +470,6 @@ describe("controlled D02 mobile presentation", () => {
         }),
       );
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(props.onPurchase).toHaveBeenCalledOnce();
       expect(props.onSeePro).toHaveBeenCalledTimes(2);
     }
     view.unmount();
@@ -608,7 +589,7 @@ describe("optional D28 mobile invitation", () => {
       within(card).getByRole("button", { name: "Sign in" }),
     );
     expect(props.invitation.accept!.request).toHaveBeenCalledOnce();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
     expect(await storage.get()).toEqual(saved);
   });
 
@@ -803,12 +784,11 @@ describe("per-issued invitation claims through MobilePopup", () => {
 
 
 describe("informational Firefox destination without a payment channel", () => {
-  it("navigates a current lock while purchase and invitation remain unavailable", async () => {
+  it("navigates a current lock and Get Still Pro while the invitation remains unavailable", async () => {
     const { props, storage } = await fixture("locked");
     props.host = "firefox";
     props.channelReady = false;
     props.onSeePro = vi.fn();
-    props.onPurchase = vi.fn();
     props.invitation = invitationSpecimen("rating", "firefox-android");
     const saved = await storage.get();
     const view = render(MobilePopup, { props });
@@ -819,8 +799,8 @@ describe("informational Firefox destination without a payment channel", () => {
     });
     await fireEvent.click(lock);
     expect(props.onSeePro).toHaveBeenCalledOnce();
-    expect(props.onPurchase).not.toHaveBeenCalled();
-    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    // Get Still Pro is navigation to Settings too, so it needs no payment channel (ISS-0032).
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(await storage.get()).toEqual(saved);
@@ -828,7 +808,6 @@ describe("informational Firefox destination without a payment channel", () => {
     props.onSeePro = undefined;
     await view.rerender(props);
     delivered();
-    expect(props.onPurchase).not.toHaveBeenCalled();
   });
 
   it.each(["unsupported", "purchased", "protected", "checking", "verification_required"] as const)(
@@ -837,7 +816,6 @@ describe("informational Firefox destination without a payment channel", () => {
       const { props, storage } = await fixture("locked");
       props.host = "firefox";
       props.onSeePro = vi.fn();
-      props.onPurchase = vi.fn();
       const saved = await storage.get();
       const view = render(MobilePopup, { props });
       await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
@@ -847,8 +825,7 @@ describe("informational Firefox destination without a payment channel", () => {
       await view.rerender(props);
       delivered();
       expect(props.onSeePro).not.toHaveBeenCalled();
-      expect(props.onPurchase).not.toHaveBeenCalled();
-      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+      expect(screen.queryByText("Get Still Pro")).toBeNull();
       expect(await storage.get()).toEqual(saved);
     },
   );
@@ -862,7 +839,6 @@ describe("current mixed Firefox access blocks informational acquisition", () => 
       const { props, storage } = await fixture("locked");
       props.host = "firefox";
       props.onSeePro = vi.fn();
-      props.onPurchase = vi.fn();
       const saved = await storage.get();
       const view = render(MobilePopup, { props });
       await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
@@ -873,8 +849,7 @@ describe("current mixed Firefox access blocks informational acquisition", () => 
       expect(lock).toHaveAttribute("aria-disabled", "true");
       await fireEvent.click(lock);
       expect(props.onSeePro).not.toHaveBeenCalled();
-      expect(props.onPurchase).not.toHaveBeenCalled();
-      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+      expect(screen.queryByText("Get Still Pro")).toBeNull();
       expect(await storage.get()).toEqual(saved);
     },
   );

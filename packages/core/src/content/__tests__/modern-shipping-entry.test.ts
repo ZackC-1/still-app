@@ -148,6 +148,9 @@ const CORE: ReadonlyArray<readonly [string, string]> = [
   ["https://www.instagram.com/someone/reels/", "https://www.instagram.com/someone/"],
   ["https://www.facebook.com/reels/", "https://www.facebook.com/"],
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
+  // The top-menu Reels tab's feed entry and the player's own feeds (ISS-0035).
+  ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+  ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
 ];
 const NEVER: readonly string[] = [
   "https://www.instagram.com/",
@@ -247,6 +250,45 @@ describe("Safari pending cover on the V3 entry", () => {
   it("an SPA move away during the read removes the cover and cancels the redirect", async () => {
     const r = await open("https://www.youtube.com/shorts/abc123", { held: true });
     r.h.setHref("https://www.youtube.com/watch?v=chosen");
+    await r.finish();
+    expect(r.h.replace).not.toHaveBeenCalled();
+    expect(covered()).toBe(false);
+  });
+
+  // ISS-0039: Facebook answers a typed /reels or /watch/reels with its /reel/ feed entry, whose own
+  // script replaces the address with the first Reel's /reel/<id> before the settings arrive.
+  it("Facebook's loaded /reel/ feed entry handing over to its first Reel during the read still goes Home", async () => {
+    const r = await open("https://www.facebook.com/reel/", { held: true });
+    expect(r.coveredAtCall).toBe(true);
+    r.h.setHref("https://www.facebook.com/reel/1234567890123456/");
+    await r.finish();
+    expect(r.h.replace).toHaveBeenCalledTimes(1);
+    expect(r.h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+    expect(r.coveredAtReplace).toEqual([true]);
+  });
+
+  it.each(OFF.facebook!)("the loaded feed entry's hand-over is left alone with %s off", async (path) => {
+    const r = await open("https://www.facebook.com/reel/", { held: true, arrange: off(path) });
+    r.h.setHref("https://www.facebook.com/reel/1234567890123456/");
+    await r.finish();
+    expect(r.h.replace).not.toHaveBeenCalled();
+    expect(covered()).toBe(false);
+  });
+
+  it.each([
+    ["https://www.instagram.com/reels/", "https://www.instagram.com/reel/C0de12/"],
+    ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
+  ])("only Facebook's feed hand-over is followed: %s -> %s during the read is not redirected", async (loaded, moved) => {
+    const r = await open(loaded, { held: true });
+    r.h.setHref(moved);
+    await r.finish();
+    expect(r.h.replace).not.toHaveBeenCalled();
+    expect(covered()).toBe(false);
+  });
+
+  it("leaving the loaded feed entry for an ordinary page during the read cancels the redirect", async () => {
+    const r = await open("https://www.facebook.com/reel/", { held: true });
+    r.h.setHref("https://www.facebook.com/groups/chosen/");
     await r.finish();
     expect(r.h.replace).not.toHaveBeenCalled();
     expect(covered()).toBe(false);

@@ -51,13 +51,20 @@ test.beforeAll(async () => {
   // Every service URL answers with the fixture for its service. A Shorts URL has no page of its own,
   // so a /watch address (where the redirect must end up) is answered with a stub.
   firefox.serve((url) => {
+    const host = url.hostname;
+    // Facebook's own server answers a typed /reels or /watch/reels with its /reel/ feed entry,
+    // whose script at once hands the address over to the first Reel (ISS-0039, recorded 12 Oct).
+    if (host.endsWith("facebook.com") && /^\/(?:watch\/)?reels\/?$/.test(url.pathname)) return { redirect: `${url.origin}/reel/` };
+    if (host.endsWith("facebook.com") && url.pathname === "/reel/")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reel/1234567890123456/")</script><p id="reels-player">a Reel</p>';
     if (url.pathname.startsWith("/watch"))
       return "<!doctype html><title>watch</title>watch";
-    const host = url.hostname;
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
     if (host.endsWith("instagram.com")) return fixture("instagram.html");
+    // Facebook's current navigation and Reels player markup (ISS-0035) answers one group's pages.
+    if (host.endsWith("facebook.com") && url.pathname.startsWith("/groups/chosen")) return fixture("facebook-nav.html");
     if (host.endsWith("facebook.com")) return fixture("facebook.html");
     if (host.endsWith("tiktok.com")) return fixture("tiktok.html");
     return null;
@@ -128,6 +135,16 @@ for (const [from, to] of [
   ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
   ["https://www.instagram.com/profileuser/reels/", "https://www.instagram.com/profileuser/"],
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
+  // The top-menu Reels tab's feed entry (ISS-0035).
+  ["https://www.facebook.com/reel/?s=tab", "https://www.facebook.com/"],
+  // Typed feeds that Facebook's server answers with /reel/, which hands over to a Reel (ISS-0039).
+  ["https://www.facebook.com/reels", "https://www.facebook.com/"],
+  ["https://www.facebook.com/reels/", "https://www.facebook.com/"],
+  ["https://www.facebook.com/watch/reels", "https://www.facebook.com/"],
+  ["https://m.facebook.com/reels/", "https://m.facebook.com/"],
+  // Instagram's typed feeds and a profile's Reels tab (ISS-0034).
+  ["https://www.instagram.com/reels", "https://www.instagram.com/"],
+  ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
 ] as const) {
   test(`a Reels address ${from} ends up on ${to}`, async () => {
     const tab = await firefox.openTab(from);
@@ -136,6 +153,17 @@ for (const [from, to] of [
     await tab.close();
   });
 }
+
+test("facebook: the top-menu Reels tab and the sidebar shortcut are hidden; other entries stay (ISS-0035)", async () => {
+  test.skip(PAID_TIER_ENABLED, "Mirrors the Chromium fixtures: with the paid tier on, this lane's profile is not blocking");
+  const tab = await firefox.openTab("https://www.facebook.com/groups/chosen/");
+  await waitWorking(tab, "facebook");
+  await waitHiddenPresent(tab, "#top-reels-item");
+  await waitHiddenPresent(tab, "#sidebar-reels-item");
+  for (const id of ["#keep-top-home", "#keep-top-friends", "#keep-side-groups", "#keep-side-marketplace", "#keep-side-reel-group"])
+    expect(await tab.isVisible(id), id).toBe(true);
+  await tab.close();
+});
 
 // With the paid tier off every surface is blocked for everyone; the branch mirrors the Chromium
 // fixtures so flipping the switch later changes both lanes the same way.

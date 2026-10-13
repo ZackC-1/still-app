@@ -25,7 +25,8 @@ import { etldPlusOne } from "./match.js";
 //   /reels/<code>/ opens that one Reel at /reel/<code>/ (query kept), except the audio hub
 //   /reels/audio/, which a higher-priority allow rule keeps reachable; a profile's Reels tab
 //   /<user>/reels/ on the web app hosts opens that profile (query dropped, as the classifier does).
-// - Facebook Reels (`facebook.reels`): the bare /reels feed and Watch's /watch/reels feed go home.
+// - Facebook Reels (`facebook.reels`): the bare /reels feed, Watch's /watch/reels feed and the
+//   /reel/ feed entry (with the player's /reel/following/ and /reel/profile/ feeds) go home.
 //   Profile and Page Reels tabs, shared /reel/<id> links and everything else stay reachable.
 // No rule matches a URL with a fragment, a port, user info or an unusual host character, so those
 // stay with the content script too. (Real Chromium matches the request URL including its fragment,
@@ -92,6 +93,9 @@ const TEMPLATES: readonly Template[] = Object.freeze([
   // without lookahead exceeds Chrome's compiled-regex budget.)
   { id: 14, feature: "instagram.reels", path: `/${PROFILE}/reels/?${ANY_QUERY}`, to: "\\1/\\2/", fallback: true, appHosts: true },
   { id: 21, feature: "facebook.reels", path: `/(?:watch/)?reels/?${ANY_QUERY}`, to: "\\1/" },
+  // Facebook's /reel/ feed entry (the top-menu Reels tab) and the player's Following and Profile
+  // feeds; a shared /reel/<digits> never matches (ISS-0035).
+  { id: 22, feature: "facebook.reels", path: `/reel(?:/(?:following|profile))?/?${ANY_QUERY}`, to: "\\1/" },
 ] as const satisfies readonly Template[]);
 
 /** Every rule id this module can produce. A sync removes all of them before adding the plan. */
