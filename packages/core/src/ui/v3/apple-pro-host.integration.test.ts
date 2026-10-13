@@ -94,7 +94,7 @@ async function compose(
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
   const writer = new AtomicSettingsWriter(storage);
   let rights = snapshot(options.initial ?? "locked");
-  let pendingRoute: { route: "pro"; revision: number } | null = null;
+  let pendingRoute: { route: "pro" | "sync"; revision: number } | null = null;
   const purchased: NativeProResult = {
     outcome: "purchased",
     receipt: "entitled",
@@ -159,6 +159,7 @@ async function compose(
                 return { pending: pendingRoute };
               case "acknowledgeAppRoute":
                 acknowledgments.push(m.revision!);
+                if (pendingRoute?.revision === m.revision) pendingRoute = null;
                 return { ok: true, revision: m.revision };
               default:
                 return null;
@@ -237,6 +238,7 @@ async function compose(
           options.eligible === false ? null : { ownershipRevision: 0 },
         linkPurchase,
       },
+      appRoutes: native,
     },
   });
   await screen.findByText("Still is active");
@@ -264,8 +266,8 @@ async function compose(
     verifyLocalPurchase,
     linkPurchase,
     acknowledgments,
-    setRoute: (revision: number) => {
-      pendingRoute = { route: "pro", revision };
+    setRoute: (revision: number, route: "pro" | "sync" = "pro") => {
+      pendingRoute = { route, revision };
     },
   };
 }
@@ -288,7 +290,9 @@ describe("Still Pro states no number of extras on any platform answer", () => {
     await compose({ observeSetup: () => new Promise(() => {}) });
     await new Promise((resolve) => setTimeout(resolve, 2_200));
     await noCount();
-  });
+    // A real 2.2 s wait for the bounded setup read, plus mounting: the default 5 s budget left too
+    // little room on a loaded machine.
+  }, 10_000);
   it("a read that observes nothing", async () => {
     await compose({ observeSetup: async () => null });
     await noCount();
@@ -345,6 +349,60 @@ describe("Apple settings to real native Pro screen integration", () => {
     ).toBeInTheDocument();
     expect(f.restore).toHaveBeenCalledOnce();
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+  });
+});
+
+describe("still://sync, the Safari popup's Sign in hand-off", () => {
+  it("signed out: leaves the Still Pro screen and opens sign-in over Settings", async () => {
+    const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(true);
+    f.setRoute(20);
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toContain(20));
+    expect(await screen.findByRole("button", { name: "Close" })).toBeInTheDocument();
+    f.setRoute(21, "sync");
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toContain(21));
+    expect(f.openSignIn).toHaveBeenCalledOnce();
+    expect(f.controller.signInOpen).toBe(true);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    expect(await screen.findByText("Still is active")).toBeInTheDocument();
+  });
+
+  it("a sync route is taken once, and the Pro host never opens for it", async () => {
+    const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(true);
+    f.setRoute(30, "sync");
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toEqual([30]));
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    window.dispatchEvent(new Event("still:route"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.acknowledgments).toEqual([30]);
+    expect(f.openSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("a build that cannot sign in shows the sync card and opens no dead sign-in sheet", async () => {
+    const f = await compose();
+    vi.spyOn(f.controller, "canSignIn", "get").mockReturnValue(false);
+    f.setRoute(50, "sync");
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toContain(50));
+    expect(f.openSignIn).not.toHaveBeenCalled();
+  });
+
+  it("signed in: shows Settings with the account and opens no sign-in", async () => {
+    const f = await compose({ accountOnly: true });
+    f.openSignIn.mockClear();
+    f.setRoute(40, "sync");
+    window.dispatchEvent(new Event("still:route"));
+    await waitFor(() => expect(f.acknowledgments).toContain(40));
+    expect(f.openSignIn).not.toHaveBeenCalled();
+    expect(f.controller.signInOpen).toBe(false);
+    // The real Settings screen's sync card is the one brought into view and focused.
+    await waitFor(() =>
+      expect(document.activeElement?.querySelector("h2")?.textContent?.trim()).toMatch(/sync$/),
+    );
   });
 });
 

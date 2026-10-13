@@ -14,11 +14,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let _ = (scene as? UIWindowScene) else { return }
-        for context in connectionOptions.urlContexts { StillProRoute.receive(context.url) }
+        for context in connectionOptions.urlContexts { StillAppRoute.receive(context.url) }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        for context in URLContexts { StillProRoute.receive(context.url) }
+        for context in URLContexts { StillAppRoute.receive(context.url) }
     }
 
 }

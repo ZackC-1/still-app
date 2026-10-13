@@ -302,7 +302,7 @@ final class WebBridgeRouter {
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {
         reply(nil, "still: invalid app route request"); return
       }
-      reply(Self.json(["pending": StillProRoute.pending() as Any? ?? NSNull()]), nil)
+      reply(Self.json(["pending": StillAppRoute.pending() as Any? ?? NSNull()]), nil)
 
     case "acknowledgeAppRoute":
       guard Set(dict.keys) == ["kind", "revision"], frame.isTrusted,
@@ -311,7 +311,7 @@ final class WebBridgeRouter {
             number.doubleValue.rounded(.down) == number.doubleValue else {
         reply(nil, "still: invalid app route acknowledgment"); return
       }
-      reply(Self.json(["ok": StillProRoute.acknowledge(number.intValue), "revision": number.intValue]), nil)
+      reply(Self.json(["ok": StillAppRoute.acknowledge(number.intValue), "revision": number.intValue]), nil)
 
     case "applePurchaseEvidence":
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {

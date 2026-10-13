@@ -322,6 +322,16 @@ describe("real Apple Pro host composition", () => {
     expect(host.open).toBe(true);
     expect(deps.bridge.acknowledgeAppRoute).toHaveBeenCalledWith(4);
   });
+  it("leaves the sync route pending for the sync handler", async () => {
+    const { host, deps } = await harness();
+    vi.mocked(deps.bridge.pendingAppRoute).mockResolvedValue({
+      route: "sync",
+      revision: 5,
+    });
+    await host.route();
+    expect(host.open).toBe(false);
+    expect(deps.bridge.acknowledgeAppRoute).not.toHaveBeenCalled();
+  });
   it("unmount fences late native feedback and route acknowledgments", async () => {
     const { host, deps, settle } = await harness();
     let finish!: (value: NativeProResult) => void;
