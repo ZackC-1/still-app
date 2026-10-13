@@ -16,12 +16,11 @@
     type FirstRunHostObservations,
     type FirstRunSiteAccess,
   } from "@still/core/ui/v3/first-run-host";
+  import { observePinned, type PinApi } from "./first-run-ports.js";
   import {
-    observePinned,
     observeSiteAccess,
-    type PinApi,
     type SiteAccessApi,
-  } from "./first-run-ports.js";
+  } from "../../lib/site-access.js";
 
   // D14 host. Blocking never waits on this page: the background initialises settings on install
   // whether or not this tab is ever looked at, and nothing here is a precondition for anything.

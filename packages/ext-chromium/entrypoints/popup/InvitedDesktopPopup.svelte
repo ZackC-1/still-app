@@ -11,8 +11,11 @@
   } from "@still/core/ui/v3/popup-invitation-flow";
   import { popupInvitationHost } from "../../lib/invitation-popup-host.js";
   import { openRatingReview, ratingCardPresentation } from "../../lib/rating-card.js";
+  import { useSiteAccessCard } from "../../lib/site-access-card.svelte.js";
 
   let props: DesktopPopupProps = $props();
+  // ISS-0037: warn at the top when the browser withholds Still's four sites, with Allow.
+  const siteAccess = useSiteAccessCard();
   const host = popupInvitationHost();
   let shown = $state.raw<{
     installation: string;
@@ -27,17 +30,19 @@
     // The popup hides the card during its own setup state or a pending, failed or cautioned
     // account state. Say so up front, so nothing is reserved or consumed unseen.
     // The same conditions DesktopPopup uses to hide the card, read now and again right before
-    // the commit (an account status can arrive while the background decides).
+    // the commit (an account status can arrive while the background decides). The site access
+    // card (ISS-0037) also holds it: no rating or sync ask while Still cannot work, or just after
+    // access came back. Nothing is asked until the browser has answered the access question, so
+    // the one card is never committed and then left beside the warning.
     const holdNow = (): "setup" | "error" | undefined => {
       const tone = props.account?.status?.tone;
-      return props.desktopSetup
+      return props.desktopSetup || siteAccess.current
         ? "setup"
         : tone === "pending" || tone === "failed" || tone === "caution"
           ? "error"
           : undefined;
     };
-    const hold = holdNow();
-    void presentInvitation(
+    void siteAccess.settled.then(() => presentInvitation(
       host.port,
       host.opening,
       (reserved) => {
@@ -49,9 +54,9 @@
             generation: reserved.reservation.generation,
           };
       },
-      hold,
+      holdNow(),
       () => holdNow() === undefined,
-    );
+    ));
   });
 
   // Someone signed in meanwhile (another window, a code entered here): the sync card has no
@@ -90,4 +95,9 @@
   );
 </script>
 
-<DesktopPopup {...props} {invitation} invitationVariant="d28" />
+<DesktopPopup
+  {...props}
+  {invitation}
+  invitationVariant="d28"
+  siteAccess={siteAccess.current}
+/>

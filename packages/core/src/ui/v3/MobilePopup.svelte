@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiteAccessCard from "./SiteAccessCard.svelte";
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
   import {
@@ -41,6 +42,7 @@
     labels = {},
     features,
     invitation,
+    siteAccess,
   }: MobilePopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -138,6 +140,7 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if siteAccess}<SiteAccessCard {...siteAccess} />{/if}
   {#if setup}
     <section class="card card-stack">
       <div class="status-line" data-tone="caution">

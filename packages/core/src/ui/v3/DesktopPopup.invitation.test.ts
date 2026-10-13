@@ -113,6 +113,21 @@ describe("optional D28 desktop invitation", () => {
     },
   );
 
+  it("never hides an invitation already shown when the site access warning appears (ISS-0037)", async () => {
+    // The host holds the invitation until the browser has answered the access question, so the one
+    // card is never committed while the warning shows. A warning that appears later (access
+    // removed while the popup is open) must not hide a card that is already spent.
+    const { props } = await fixture();
+    props.invitation = invitationSpecimen();
+    const view = render(DesktopPopup, { props });
+    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    await view.rerender({
+      ...props,
+      siteAccess: { state: "needed", browser: "Chrome", onAllow: vi.fn() },
+    });
+    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+  });
+
   it("holds desktop setup until a current verified port and suppresses invitations", async () => {
     const { props, storage } = await fixture();
     const saved = await storage.get();
