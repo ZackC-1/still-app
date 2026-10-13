@@ -7,7 +7,7 @@
   let bound: SettingsRestoreHost | undefined;
 
   /**
-   * Called by the options page each time it loads this wrapper (V3 new-sync builds only), with its
+   * Called by the options page each time it loads this wrapper (free V3 builds), with its
    * controller when the build has the sign-in spine and undefined otherwise. Unbound, the wrapper
    * renders the settings page with no Restore link.
    */
@@ -25,12 +25,15 @@
     RestoreStatusCardProps,
   } from "@still/core/ui/v3/extension-settings-presentation";
   import { createBrowserSettingsRestore } from "@still/core/ui/v3/browser-settings-restore";
+  import { useSiteAccessCard } from "../../lib/site-access-card.svelte.js";
 
-  // The V3 new-sync settings page with its free-period "Restore purchase" link (owner decisions
-  // 62 and 73). Loaded in place of ExtensionSettings only by those builds; every other prop passes
-  // through unchanged. The props are named one by one rather than spread: a rest/spread would add
-  // a Svelte runtime helper to the chunk every build shares, changing configured 2.x bundles. The
-  // wrapper test fails if ExtensionSettingsProps gains a prop this list does not forward.
+  // The free V3 settings page: its free-period "Restore purchase" link (owner decisions 62 and 73,
+  // new-sync builds with the sign-in spine) and the site access warning (ISS-0037). Loaded in place
+  // of ExtensionSettings by every free V3 build, including the unconfigured one, which has no
+  // sign-in and so binds no Restore; every other prop passes through unchanged. The props are named
+  // one by one rather than spread: a rest/spread would add a Svelte runtime helper to the chunk
+  // every build shares, changing configured 2.x bundles. The wrapper test fails if
+  // ExtensionSettingsProps gains a prop this list does not forward.
   let {
     settings,
     access,
@@ -42,6 +45,7 @@
     features,
     labels,
     phone,
+    platformKnown,
     commandsDisabled,
     sync,
     pro,
@@ -51,7 +55,8 @@
     privacyActions,
     setup,
     help,
-  }: Omit<ExtensionSettingsProps, "onRestore"> = $props();
+  }: Omit<ExtensionSettingsProps, "onRestore" | "siteAccess"> = $props();
+  const siteAccess = useSiteAccessCard();
   const host = bound;
   let card = $state.raw<RestoreStatusCardProps | undefined>(undefined);
   const flow = host
@@ -88,6 +93,7 @@
   {features}
   {labels}
   {phone}
+  {platformKnown}
   {commandsDisabled}
   {sync}
   {pro}
@@ -97,5 +103,6 @@
   {sharing}
   {privacyActions}
   {setup}
+  siteAccess={siteAccess.current}
   {help}
 />

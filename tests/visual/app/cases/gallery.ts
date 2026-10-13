@@ -157,7 +157,6 @@ function popup(paused = false, purchased = true) {
       onFeatureChange: noop,
       onSignIn: noop,
       onSettings: noop,
-      onPurchase: purchased ? undefined : noop,
       onSeePro: noop,
       sectionMemory: {
         read: () => (purchased ? "youtube" : null),
@@ -180,6 +179,7 @@ function safari() {
       onSignIn: noop,
       onSettings: noop,
       onSeePro: noop,
+      appHandoff: true,
       sectionMemory: { read: () => "facebook", write: noop },
     } satisfies MobilePopupProps,
   };

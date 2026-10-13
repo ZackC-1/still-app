@@ -10,7 +10,7 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { FrameSpec, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY } from "./shared.js";
+import { OWNER_SYNC_COPY, POPUP_PRO_CARD } from "./shared.js";
 
 const screen = "d02-mobile-popup";
 
@@ -25,8 +25,9 @@ function popup(
       settings: settingsFor(),
       access: accessAll("locked"),
       host,
-      // Safari lock rows and "See Still Pro" open the Still app (reference: working route).
+      // Safari lock rows and Get Still Pro open the Still app (reference: working route).
       onSeePro: host === "safari" ? noop : undefined,
+      appHandoff: host === "safari",
       privacyUrl: "#",
       onGlobalChange: noop,
       onServiceChange: noop,
@@ -63,7 +64,8 @@ const android: FrameSpec = {
   safeTop: 24,
   safeBottom: 16,
 };
-const signedOut = [OWNER_SYNC_COPY];
+// ISS-0032: where the Safari popup is locked, the Still Pro card replaces "See Still Pro".
+const signedOut = [OWNER_SYNC_COPY, POPUP_PRO_CARD];
 const base = { screen, component: "MobilePopup", textScale: 1 } as const;
 const DE_YT: { id: DesignId; label: string }[] = [
   { id: "yt_shorts", label: "Shorts" },

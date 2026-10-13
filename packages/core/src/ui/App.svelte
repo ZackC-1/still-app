@@ -36,6 +36,8 @@
       browser: "Chrome" | "Firefox";
       onSettings: () => void;
       onSeePro?: () => void;
+      /** The Pro destination would offer Get Still Pro now (see DesktopPopupProps). */
+      proOfferReady?: boolean;
       loadDesktop: () => Promise<{ default: Component<DesktopPopupProps> }>;
       sectionMemory?: DesktopPopupProps["sectionMemory"];
     };
@@ -51,6 +53,8 @@
       features?: ExtensionSettingsProps["features"];
       /** A confirmed phone platform only (see ExtensionSettingsProps["phone"]). */
       phone?: ExtensionSettingsProps["phone"];
+      /** False while the device answer is pending (see ExtensionSettingsProps["platformKnown"]). */
+      platformKnown?: ExtensionSettingsProps["platformKnown"];
     };
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
@@ -461,6 +465,7 @@
       sectionMemory={settingsHost.sectionMemory}
       features={settingsHost.features}
       phone={settingsHost.phone}
+      platformKnown={settingsHost.platformKnown}
       sync={{ ...optionsSync, accountActions: optionsAccountActions }}
       privacyActions={usageActions}
       help={settingsHost.help}
@@ -477,6 +482,7 @@
       onSignIn={!c.userId && c.canSignIn ? () => c.openSignIn() : undefined}
       onSettings={desktopPresentation.onSettings}
       onSeePro={desktopPresentation.onSeePro}
+      proOfferReady={desktopPresentation.proOfferReady}
       sectionMemory={desktopPresentation.sectionMemory}
       privacyUrl={PRIVACY_POLICY_URL}
       account={desktopAccount}
