@@ -5,6 +5,7 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { createContentScript, type ContentScriptHandle } from "../index.js";
 import { createEnginePageSession } from "../../rules/engine.js";
+import { instagramViewerShowsReel } from "../../rules/instagram.js";
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { ruleSet, on } from "../../rules/__tests__/format2-fixtures.js";
 import seed from "../../../rules/seed.json";
@@ -515,6 +516,49 @@ describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but do
     session.evaluate(on, new URL(to), { access, capabilities: cores });
     expect(session.reelContinuation?.(new URL(from), new URL(to))).toBe(expected);
     session.stop?.();
+  });
+  describe("Instagram's post viewer (Explore opens every tile at /p/<code>/; ISS-0038)", () => {
+    /** A page whose open post viewer shows `code` as a Reel or a post (its canonical link). */
+    const viewer = (code: string, kind: "reel" | "p", inDialog = true) => {
+      const doc = document.implementation.createHTMLDocument("viewer");
+      doc.body.innerHTML = `<main><a href="/p/Tile1/">tile</a></main>${inDialog ? '<div role="dialog">' : "<div>"}
+        <article><a href="/someuser/">someuser</a><a href="/someuser/${kind}/${code}/">2d</a><a href="/p/${code}/c/1/">1d</a></article></div>`;
+      return doc;
+    };
+    const step = (from: string, to: string, doc: Document, settings = on) => {
+      const session = createEnginePageSession(allCores);
+      session.evaluate(settings, new URL(to), { access, capabilities: cores });
+      const result = session.reelContinuation?.(new URL(from), new URL(to), (code) => instagramViewerShowsReel(doc, code)) ?? null;
+      session.stop?.();
+      return result;
+    };
+    it.each([
+      ["https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/"],
+      ["https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/?img_index=1"],
+      ["https://www.instagram.com/p/A1/", "https://www.instagram.com/reel/B2/"],
+      ["https://www.instagram.com/someuser/p/A1/", "https://www.instagram.com/someuser/p/B2/"],
+    ])("moving on from a Reel it shows: %s -> %s goes Home", (from, to) => {
+      expect(step(from, to, viewer("A1", "reel"))).toBe("https://www.instagram.com/");
+    });
+    it("the first Reel plays: a post moving on to a Reel is not stopped", () => {
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/", viewer("A1", "p"))).toBeNull();
+    });
+    it("only the viewer dialog counts, and only the item being left", () => {
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/", viewer("A1", "reel", false))).toBeNull();
+      // The dialog shows another item's Reel link (a caption mention), not the one being left.
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/", viewer("Z9", "reel"))).toBeNull();
+      // Staying on the same item (a carousel slide, a query) is not moving on.
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/p/A1/?img_index=2", viewer("A1", "reel"))).toBeNull();
+      // Leaving the viewer for an ordinary page is not moving on to another item.
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/explore/", viewer("A1", "reel"))).toBeNull();
+    });
+    it.each([
+      { ...on, sites: { ...on.sites, "instagram.reels": false } },
+      { ...on, services: { ...on.services, instagram: false } },
+      { ...on, globalOn: false },
+    ])("a committed Off leaves the post viewer alone", (settings) => {
+      expect(step("https://www.instagram.com/p/A1/", "https://www.instagram.com/p/B2/", viewer("A1", "reel"), settings)).toBeNull();
+    });
   });
   it("continuation is only answered for the inputs just prepared", () => {
     const session = createEnginePageSession(allCores);

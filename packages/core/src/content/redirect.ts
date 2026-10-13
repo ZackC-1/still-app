@@ -278,6 +278,8 @@ export function createUrlChangeWatch(input: {
   readonly win: StillWindow;
   readonly doc: Document;
   readonly onChange: (from: URL, to: URL, traverse: boolean) => void;
+  /** Each poll that finds the address unchanged: the page as it stands at that address. */
+  readonly onSettled?: (url: URL) => void;
   readonly intervalMs?: number;
 }): UrlChangeWatch {
   const { win, doc, onChange } = input;
@@ -299,7 +301,14 @@ export function createUrlChangeWatch(input: {
     }
     onChange(previous, next, traverse);
   };
-  const poll = () => report(false);
+  const poll = () => {
+    if (win.location.href !== last) return report(false);
+    try {
+      input.onSettled?.(new URL(last));
+    } catch {
+      /* a settled-page sample never breaks the poll */
+    }
+  };
   // History listeners stay attached whenever the watch is wanted, visible or not: a Back or
   // forward taken while the tab is hidden still moves the baseline, so resuming the poll never
   // mistakes that traversal for the page advancing on its own.

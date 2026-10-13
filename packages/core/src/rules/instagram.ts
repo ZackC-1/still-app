@@ -73,6 +73,77 @@ export const INSTAGRAM_PROFILE_MARKER: MarkerAdapter = Object.freeze({
   },
 });
 
+/** The Explore hub: /explore/ on a web app host (its search, tags and people pages are not). */
+export function isInstagramExploreHub(location: Pick<URL, "hostname" | "pathname">): boolean {
+  return INSTAGRAM_APP_HOST.test(location.hostname) && /^\/explore\/?$/.test(location.pathname);
+}
+
+/**
+ * The item code of Instagram's post viewer address, /p/<code>/ or /<user>/p/<code>/, else null.
+ * Explore opens every tile here, Reels included, so the address alone does not say whether the
+ * open item is a Reel.
+ */
+export function instagramPostViewerCode(pathname: string): string | null {
+  return /^\/(?:[\w.-]+\/)?p\/([\w-]+)\/?$/.exec(pathname)?.[1] ?? null;
+}
+
+/**
+ * Whether the post viewer open in `doc` shows the Reel `code`: the viewer's own link to the item
+ * it shows is its canonical address, /<user>/reel/<code>/ for a Reel and /<user>/p/<code>/ for a
+ * post (captured 12 Oct 2026). Only a dialog counts, which is where the viewer's arrows live.
+ */
+export function instagramViewerShowsReel(doc: Document, code: string): boolean {
+  if (!/^[\w-]+$/.test(code)) return false;
+  return doc.querySelector(`[role="dialog"] a[href$="/reel/${code}/"]`) !== null;
+}
+
+/**
+ * The Explore mark: set on the document root while the Reels core is effective and the address is
+ * the Explore hub (INSTAGRAM_EXPLORE_MARKER), for the same reasons as the profile mark. Explore
+ * itself stays for everyone (hiding it is a Still Pro extra); only its Reel tiles go (ISS-0038).
+ */
+const EXPLORE_MARKER_ATTRIBUTE = "data-still-instagram-explore" as const;
+const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
+/**
+ * The Explore grid (captured 12 Oct 2026): the same virtualized column as the profile grid (left
+ * alone while its inline padding is non-zero), whose rows are CSS grids (their inline style sets
+ * `--x-gridTemplateColumns: repeat(N, 1fr)`) of tile boxes; each tile box holds a wrapper holding
+ * the tile's /p/<code>/ link. A Reel tile's link carries a looping video (the signal that does not
+ * depend on the page's language) and an SVG titled "Reel"; photos and carousels carry neither.
+ */
+const EXPLORE_COLUMN = 'div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"])';
+const EXPLORE_ROW = `${EXPLORE_COLUMN} > div:has(> div > div > a[href^="/p/"])`;
+/** The column the layout below may join into one grid: never while Instagram virtualizes it. */
+const EXPLORE_GRID = 'div:not([role="dialog"] *)'
+  + ':not([style*="padding-top: "]:not([style*="padding-top: 0px"]))'
+  + ':not([style*="padding-bottom: "]:not([style*="padding-bottom: 0px"]))'
+  + ':has(> div > div > div > a[href^="/p/"])';
+/**
+ * An Explore Reel tile box; the Explore mark's consuming selector. The rows are fixed-track grids,
+ * so a hidden tile never stretches its neighbours: without the layout below (a virtualized column
+ * or an unlisted column count) it only leaves room at the end of its row, and it is hidden always.
+ */
+const EXPLORE_REEL_TILE = `${EXPLORE} ${EXPLORE_ROW} > div:has(> div > a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"]))`;
+
+/**
+ * Sets the Explore mark on the document root while the address is the Explore hub, and keeps it
+ * while a tile is open in the post viewer over Explore (/p/<code>/), so the grid behind the dialog
+ * keeps its layout and its Reels stay hidden. Any other address clears it.
+ */
+export const INSTAGRAM_EXPLORE_MARKER: MarkerAdapter = Object.freeze({
+  feature: "instagram.reels",
+  attribute: EXPLORE_MARKER_ATTRIBUTE,
+  candidates: "html",
+  ruleSelector: EXPLORE_REEL_TILE,
+  owns: (root: Element) => {
+    const location = root.ownerDocument.defaultView?.location;
+    if (!location) return false;
+    if (isInstagramExploreHub(location)) return true;
+    return root.hasAttribute(EXPLORE_MARKER_ATTRIBUTE) && INSTAGRAM_APP_HOST.test(location.hostname)
+      && instagramPostViewerCode(location.pathname) !== null;
+  },
+});
+
 /** Captured core Reels discovery targets for explicit internal format2 opt-in.
  * Media belongs to its own article; caption links and song credits are not Reel ownership.
  * Search, messages, direct/shared playback and the optional controls remain separate.
@@ -91,6 +162,8 @@ const selectors = Object.freeze([
   // A profile grid's Reel tiles: the whole tile box, which INSTAGRAM_REELS_LAYOUT lets the
   // remaining tiles fill without holes (ISS-0034).
   PROFILE_REEL_TILE,
+  // Explore's Reel tiles: the whole tile box. Explore stays; its Reels do not (ISS-0038).
+  EXPLORE_REEL_TILE,
 ]);
 
 export const INSTAGRAM_REELS_RULES: ServiceRulesV2 = Object.freeze({
@@ -118,4 +191,18 @@ export const INSTAGRAM_REELS_LAYOUT: readonly LayoutRule[] = Object.freeze([
   Object.freeze({ selector: `${PROFILE} ${GRID}`, declarations: "flex-direction:row!important;flex-wrap:wrap!important;gap:1px!important" }),
   Object.freeze({ selector: `${PROFILE} ${ROW}`, declarations: "display:contents!important" }),
   Object.freeze({ selector: `${PROFILE} ${ROW} > div`, declarations: "flex:0 0 calc((100% - 2px) / 3)!important;margin:0!important" }),
+  // Explore (ISS-0038): the column becomes one grid with the rows' own column count, and the rows
+  // stop being boxes, so the remaining tiles close up in order. The count is read from the rows'
+  // inline style; a count not listed here keeps Instagram's rows (room at the end of a row).
+  ...[2, 3, 4, 5].flatMap((columns) => {
+    // Every row says the same count (with or without a space after the comma), or no layout.
+    const column = `${EXPLORE} ${EXPLORE_GRID}:has(> div[style*="repeat(${columns},"])`
+      + `:not(:has(> div[style*="repeat("]:not([style*="repeat(${columns},"])))`;
+    return [
+      Object.freeze({ selector: column, declarations: `display:grid!important;grid-template-columns:repeat(${columns},1fr)!important;gap:1px!important` }),
+      Object.freeze({ selector: `${column} > div:has(> div > div > a[href^="/p/"])`, declarations: "display:contents!important" }),
+      // Anything else in the column (a loading row) spans the whole line instead of taking a cell.
+      Object.freeze({ selector: `${column} > :not(div:has(> div > div > a[href^="/p/"]))`, declarations: "grid-column:1/-1!important" }),
+    ];
+  }),
 ]);
