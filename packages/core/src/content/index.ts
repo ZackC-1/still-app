@@ -246,7 +246,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     if (decision.kind === "redirect" && decision.url !== target.href) {
       if (
         decision.url !== win.location.href &&
-        dedupe.lastRedirect !== decision.url
+        dedupe.lastRedirect !== decision.url &&
+        dedupe.earlyLeaving !== win.location.href
       ) {
         dedupe.lastRedirect = decision.url;
         if (mode === "push") redirectPort.replace(decision.url, "push");
@@ -483,6 +484,12 @@ function isYouTubeShortsUrl(url: URL): boolean {
 /** Mutable dedup cell shared between earlyShortsRedirect and createContentScript (one per page). */
 export interface RedirectDedupe {
   lastRedirect: string | null;
+  /**
+   * The address the early document_start redirect left (set when it issues one). While the page
+   * is still on that address its navigation is in flight, and a later decision made from the same
+   * address (the page having moved itself during the settings read) must not replace it.
+   */
+  earlyLeaving?: string;
 }
 
 export interface EarlyShortsRedirectDeps {

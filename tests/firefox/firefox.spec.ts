@@ -60,6 +60,12 @@ test.beforeAll(async () => {
     if (url.pathname.startsWith("/watch"))
       return "<!doctype html><title>watch</title>watch";
     if (host.endsWith("youtube.com")) return fixture("youtube.html");
+    // Instagram moving a loaded Reels feed or viewer on by itself as the page starts: the bare feed
+    // to one of its Reels, and the viewer to a different Reel.
+    if (host.endsWith("instagram.com") && url.searchParams.get("swap") === "feed")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reels/Sw4p1/")</script><p>a Reel</p>';
+    if (host.endsWith("instagram.com") && url.searchParams.get("swap") === "viewer")
+      return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reel/XYZ/")</script><p>a Reel</p>';
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
     // Explore in Instagram's current desktop markup (ISS-0038).
@@ -147,6 +153,9 @@ for (const [from, to] of [
   // Instagram's typed feeds and a profile's Reels tab (ISS-0034).
   ["https://www.instagram.com/reels", "https://www.instagram.com/"],
   ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
+  // Instagram's own hand-over as the page starts: still the feed, or a continuation.
+  ["https://www.instagram.com/reels/?swap=feed", "https://www.instagram.com/"],
+  ["https://www.instagram.com/reels/ABC/?swap=viewer", "https://www.instagram.com/"],
 ] as const) {
   test(`a Reels address ${from} ends up on ${to}`, async () => {
     const tab = await firefox.openTab(from);

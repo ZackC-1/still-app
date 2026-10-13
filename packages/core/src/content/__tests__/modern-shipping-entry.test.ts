@@ -275,12 +275,32 @@ describe("Safari pending cover on the V3 entry", () => {
     expect(covered()).toBe(false);
   });
 
+  // Instagram's own moves during the read: the loaded bare feed handing over to a Reel is still the
+  // feed, and the plural viewer moving on to a different Reel is a continuation; both go Home.
   it.each([
+    ["https://www.instagram.com/reels/", "https://www.instagram.com/reels/Sw4p1/"],
     ["https://www.instagram.com/reels/", "https://www.instagram.com/reel/C0de12/"],
-    ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
-  ])("only Facebook's feed hand-over is followed: %s -> %s during the read is not redirected", async (loaded, moved) => {
+    ["https://www.instagram.com/reels/ABC/", "https://www.instagram.com/reel/XYZ/"],
+    ["https://www.instagram.com/reels/ABC/", "https://www.instagram.com/reels/XYZ/"],
+  ])("Instagram's loaded %s moving to %s during the read goes Home", async (loaded, moved) => {
     const r = await open(loaded, { held: true });
     r.h.setHref(moved);
+    await r.finish();
+    expect(r.h.replace).toHaveBeenCalledTimes(1);
+    expect(r.h.replace).toHaveBeenCalledWith("https://www.instagram.com/");
+  });
+
+  it.each(OFF.instagram!)("Instagram's loaded feed hand-over is left alone with %s off", async (path) => {
+    const r = await open("https://www.instagram.com/reels/", { held: true, arrange: off(path) });
+    r.h.setHref("https://www.instagram.com/reels/Sw4p1/");
+    await r.finish();
+    expect(r.h.replace).not.toHaveBeenCalled();
+    expect(covered()).toBe(false);
+  });
+
+  it("the loaded plural viewer opening the same Reel at its shared address is left alone", async () => {
+    const r = await open("https://www.instagram.com/reels/C0de12/", { held: true });
+    r.h.setHref("https://www.instagram.com/reel/C0de12/");
     await r.finish();
     expect(r.h.replace).not.toHaveBeenCalled();
     expect(covered()).toBe(false);

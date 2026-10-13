@@ -184,7 +184,9 @@ export interface EarlyFormat2CoreRedirectDeps {
  * The format-2 early redirect for every core route. After ONE persisted settings read it rereads
  * the URL and decides with the page's own compiled classifier and the committed predicate: a saved
  * Off for Still, the service or the core control never redirects. Only a core route's own
- * destination is followed here; extras and continuation stay with the content script.
+ * destination is followed here, or Home when the page left its loaded core route on its own during
+ * the read (a feed handing over to a Reel, a viewer moving on to another); extras and later
+ * continuation stay with the content script.
  */
 export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDeps): Promise<EarlyCoreOutcome> {
   await deps.cache.hydrate();
@@ -194,25 +196,45 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   if (!core && !(loaded && deps.classify(loaded))) return "declined";
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<typeof session.evaluate>;
+  // Set when the page left its loaded core route on its own before Still could decide.
+  let handOver: string | null = null;
   try {
-    decision = session.evaluate(deps.cache.current(), url, { access: deps.access(), capabilities: deps.capabilities });
-    // The page left its loaded core route on its own before Still could decide: only the loaded
-    // feed handing over to one of its Reels is followed, under the committed settings.
-    if (!core) {
-      const home = loaded ? session.reelContinuation?.(loaded, url) ?? null : null;
-      decision = home ? { kind: "redirect", url: home } : { kind: "noop" };
+    const settings = deps.cache.current();
+    const options = { access: deps.access(), capabilities: deps.capabilities };
+    // Under the committed settings: a loaded feed that goes Home stays the feed when it hands over
+    // to a Reel (Instagram's /reels/ to /reels/<code>/ or /reel/<code>/, Facebook's /reel/ entry to
+    // its first Reel); otherwise a viewer moving on to a different Reel is a continuation. Leaving
+    // for an ordinary page is neither.
+    let loadedFeed: string | null = null;
+    if (loaded) {
+      const fromLoaded = session.evaluate(settings, loaded, options);
+      const home = new URL("/", loaded.origin).href;
+      if (fromLoaded.kind === "redirect" && fromLoaded.url === home) loadedFeed = home;
     }
+    decision = session.evaluate(settings, url, options);
+    if (loaded) {
+      // A Reel address is a core route itself or a Reel viewer item (the probe asks the same
+      // engine whether arriving from a different viewer item would be a continuation).
+      const probe = new URL(url.hostname.endsWith("facebook.com") ? "/reel/0" : "/reels/still-probe/", url.origin);
+      const reelAddress = core !== null || (probe.pathname !== url.pathname && session.reelContinuation?.(probe, url) != null);
+      handOver = loadedFeed && reelAddress ? loadedFeed : session.reelContinuation?.(loaded, url) ?? null;
+    }
+    if (handOver) decision = { kind: "redirect", url: handOver };
+    else if (!core) decision = { kind: "noop" };
   } finally {
     session.stop?.();
   }
-  if (decision.kind !== "redirect" || (core !== null && decision.url !== core)) return "declined";
+  if (decision.kind !== "redirect" || (core !== null && !handOver && decision.url !== core)) return "declined";
   if (deps.redirectDedupe.lastRedirect === decision.url) return "redirected";
   deps.redirectDedupe.lastRedirect = decision.url;
+  deps.redirectDedupe.earlyLeaving = url.href;
   try {
     locationRedirectPort(deps.win).replace(decision.url);
   } catch {
     // As in the Shorts-only path, the dedupe keeps the hydrated script from retrying the same
-    // navigation; its apply path carries on. The cover must not wait for the ceiling.
+    // navigation; its apply path carries on. The cover must not wait for the ceiling. Nothing is in
+    // flight from this address, so the script's own later decisions are not held back.
+    delete deps.redirectDedupe.earlyLeaving;
     return "failed";
   }
   return "redirected";
