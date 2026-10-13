@@ -23,7 +23,8 @@ import { etldPlusOne } from "./match.js";
 //   not `v`); any other query stays with the content script.
 // - Instagram Reels (`instagram.reels`): the bare /reels feed goes home; the plural viewer
 //   /reels/<code>/ opens that one Reel at /reel/<code>/ (query kept), except the audio hub
-//   /reels/audio/, which a higher-priority allow rule keeps reachable.
+//   /reels/audio/, which a higher-priority allow rule keeps reachable; a profile's Reels tab
+//   /<user>/reels/ on the web app hosts opens that profile (query dropped, as the classifier does).
 // - Facebook Reels (`facebook.reels`): the bare /reels feed, Watch's /watch/reels feed and the
 //   /reel/ feed entry (with the player's /reel/following/ and /reel/profile/ feeds) go home.
 //   Profile and Page Reels tabs, shared /reel/<id> links and everything else stay reachable.
@@ -59,9 +60,18 @@ interface Template {
   readonly path: string;
   /** Redirect target; `\1` is the request's own origin. Absent for an allow rule. */
   readonly to?: string;
+  /**
+   * A redirect that yields to every other rule of its service where both match (priority 1, below
+   * the ordinary redirects' 2 and the allow rules' 3).
+   */
+  readonly fallback?: true;
+  /** Only the service's web app hosts (www., m. or none), never its other subdomains. */
+  readonly appHosts?: true;
 }
 
 const ID = "([A-Za-z0-9_-]+)";
+/** An Instagram profile segment: the classifier's own `[\w.]+`. */
+const PROFILE = "([A-Za-z0-9_.]+)";
 /** Any query, as long as no fragment follows (the classifier drops it for home redirects). */
 const ANY_QUERY = "(?:\\?[^#]*)?";
 /**
@@ -78,6 +88,10 @@ const TEMPLATES: readonly Template[] = Object.freeze([
   { id: 11, feature: "instagram.reels", path: `/reels/?${ANY_QUERY}`, to: "\\1/" },
   { id: 12, feature: "instagram.reels", path: `/reels/${ID}/?(\\?[^#]*)?`, to: "\\1/reel/\\2/\\3" },
   { id: 13, feature: "instagram.reels", path: `/reels/audio/?${ANY_QUERY}` },
+  // A profile's Reels tab. /reels/reels/ also matches it, but that is the plural viewer's address
+  // (rule 12), so this rule is a fallback that yields there. (Spelling "any segment but reels" out
+  // without lookahead exceeds Chrome's compiled-regex budget.)
+  { id: 14, feature: "instagram.reels", path: `/${PROFILE}/reels/?${ANY_QUERY}`, to: "\\1/\\2/", fallback: true, appHosts: true },
   { id: 21, feature: "facebook.reels", path: `/(?:watch/)?reels/?${ANY_QUERY}`, to: "\\1/" },
   // Facebook's /reel/ feed entry (the top-menu Reels tab) and the player's Following and Profile
   // feeds; a shared /reel/<digits> never matches (ISS-0035).
@@ -166,6 +180,7 @@ export function planNavigationDnr(input: NavigationDnrInput): NavigationDnrPlan 
     if (Array.isArray(settings.pauses) && settings.pauses.includes(etldPlusOne(domain))) continue;
     const covered = new Set(service.surfaces.map((surface) => surface.feature));
     const origin = `^(https?://(?:[a-z0-9-]+\\.)*${escapeRegex(domain)})`;
+    const appOrigin = `^(https?://(?:www\\.|m\\.)?${escapeRegex(domain)})`;
     for (const template of TEMPLATES) {
       const feature = FEATURE_REGISTRY.find((entry) => entry.id === template.feature);
       if (!feature || feature.service !== serviceId || feature.tier !== "free" || !covered.has(template.feature)) continue;
@@ -173,13 +188,14 @@ export function planNavigationDnr(input: NavigationDnrInput): NavigationDnrPlan 
         continue;
       rules.push(Object.freeze({
         id: template.id,
-        // The allow rule outranks its service's redirects; redirects never overlap each other.
-        priority: template.to === undefined ? 2 : 1,
+        // The allow rule outranks its service's redirects, which never overlap each other except
+        // where a fallback redirect yields to an ordinary one.
+        priority: template.to === undefined ? 3 : template.fallback ? 1 : 2,
         action: template.to === undefined
           ? Object.freeze({ type: "allow" as const })
           : Object.freeze({ type: "redirect" as const, redirect: Object.freeze({ regexSubstitution: template.to }) }),
         condition: Object.freeze({
-          regexFilter: `${origin}${template.path}$`,
+          regexFilter: `${template.appHosts ? appOrigin : origin}${template.path}$`,
           isUrlFilterCaseSensitive: true,
           requestDomains: Object.freeze([domain]),
           resourceTypes: Object.freeze(["main_frame"] as const),

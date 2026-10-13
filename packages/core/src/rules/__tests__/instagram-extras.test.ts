@@ -81,8 +81,10 @@ describe("Instagram extras routes (paid on through the real implementation table
     for (const path of [
       "/explore/search/", "/explore/search", "/explore/search/keyword/?q=invented", "/explore/?q=invented",
       "/explore/tags/inventedtag/", "/explore/locations/", "/explore/locations/900000001/invented-place/",
-      "/popular/", "/popular/inventedtopic/", "/explore/reels/", "/explorer/", "/inventeduser/explore/",
+      "/popular/", "/popular/inventedtopic/", "/explorer/", "/inventeduser/explore/",
     ]) expect(route(`${IG}${path}`), path).toEqual(APPLY);
+    // A /<segment>/reels/ list belongs to the free core (a profile's Reels tab, ISS-0034), never extras.
+    expect(route(`${IG}/explore/reels/`)).toEqual(redirect("/explore/"));
   });
 
   it("Stories: story viewer addresses, shared links included, go to same-site Home", () => {

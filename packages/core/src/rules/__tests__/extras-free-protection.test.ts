@@ -4,7 +4,7 @@ import { FEATURE_REGISTRY, type ServiceId, type ServiceRulesV2 } from "@still/sh
 import { PACKAGED_FREE_FEATURES, PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { validateRuleSetV2 } from "../schema.js";
 import { YOUTUBE_SHORTS_RULES } from "../youtube.js";
-import { INSTAGRAM_REELS_RULES } from "../instagram.js";
+import { INSTAGRAM_PROFILE_MARKER, INSTAGRAM_REELS_RULES } from "../instagram.js";
 import { FACEBOOK_REELS_RULES } from "../facebook.js";
 import { YOUTUBE_EXTRAS } from "../youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "../instagram-extras.js";
@@ -27,7 +27,7 @@ const EXTRAS: Record<"youtube" | "instagram" | "facebook", ServiceExtras> = {
 };
 const PIN_SHA256: Record<string, string> = {
   "youtube-shorts-discovery": "febe2fb0e8b15f05e5057b6926bab9d29f7d8d7aa922768e10a55eef29fb687c",
-  "instagram-reels-discovery": "ba60b3ff28c65a72e21433a15b8aa5fabb603894e33bb4472a8a7443489f3849",
+  "instagram-reels-discovery": "3c77e4583037bd4c36cd291598391386cabedcaf34af50c648811f90944ea3fc",
   "facebook-reels-discovery": "35e88d886502fc423e739f74e5b99dcc1a9c7d495aaa9a989ffa6afaff682050",
 };
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -95,9 +95,10 @@ describe("free-protection invariants for the Still Pro extras", () => {
         expect(marker.attribute).not.toBe(SHORTS_CHIP_MARKER.attribute);
       }
     }
-    // The packaged marker list is the free Shorts chip first, then only extras markers.
-    expect(PACKAGED_MARKERS[0]).toBe(SHORTS_CHIP_MARKER);
-    expect(PACKAGED_MARKERS.slice(1).every((marker) => FEATURE_REGISTRY.some((f) => f.id === marker.feature && f.tier === "pro"))).toBe(true);
+    // The packaged marker list is the free cores' markers first (Shorts chip, Instagram profile
+    // mark), then only extras markers.
+    expect(PACKAGED_MARKERS.slice(0, 2)).toEqual([SHORTS_CHIP_MARKER, INSTAGRAM_PROFILE_MARKER]);
+    expect(PACKAGED_MARKERS.slice(2).every((marker) => FEATURE_REGISTRY.some((f) => f.id === marker.feature && f.tier === "pro"))).toBe(true);
   });
 
   it("the packaged set is exactly base then extras surfaces per service, so extras never reorder or edit free data", () => {
