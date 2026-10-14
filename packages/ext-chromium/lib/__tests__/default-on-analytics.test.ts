@@ -21,9 +21,16 @@ const RUNTIME_ID = "still-id";
 const ORIGIN = "chrome-extension://still-id/";
 const PAGE = { id: RUNTIME_ID, url: `${ORIGIN}options.html` };
 
-function memory(initial: Record<string, unknown> = {}): AnalyticsKeyValue & { data: Record<string, unknown> } {
+function memory(initial: Record<string, unknown> = {}, readDelayMs = 0): AnalyticsKeyValue & { data: Record<string, unknown> } {
   const data = { ...initial };
-  return { data, get: async (k) => structuredClone(data[k]) ?? null, set: async (k, v) => void (data[k] = structuredClone(v)) };
+  return {
+    data,
+    get: async (k) => {
+      if (readDelayMs) await new Promise((resolve) => setTimeout(resolve, readDelayMs));
+      return structuredClone(data[k]) ?? null;
+    },
+    set: async (k, v) => void (data[k] = structuredClone(v)),
+  };
 }
 
 type Factory = typeof createDefaultOnBackgroundAnalytics;
@@ -87,6 +94,15 @@ async function install(t: ReturnType<typeof setup>) {
   await t.bg.flushWhenReady();
 }
 
+/** Install reporting is fire-and-forget; startup readiness does not mean its events are queued.
+ * Flush again until both events have been sent, bounded so a missing event still fails. */
+async function expectInstallReported(t: ReturnType<typeof setup>) {
+  await vi.waitFor(async () => {
+    await t.bg.flushWhenReady();
+    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
+  }, { timeout: 3_000, interval: 10 });
+}
+
 describe("root cause: the 2.x wrapper supplies no permission or policy, so nothing can ever send", () => {
   it("Chrome: sharing reads off, the switch cannot turn it on, and no request is made", async () => {
     const t = setup(createBackgroundAnalytics);
@@ -110,11 +126,11 @@ describe("root cause: the 2.x wrapper supplies no permission or policy, so nothi
 });
 
 describe("V3 Chrome: on by default, with the switch as the one control", () => {
-  it("reports from install, even when the start's account answer lands right after onInstalled, and asks for no notice", async () => {
-    const t = setup(createDefaultOnBackgroundAnalytics);
+  it.each([0, 10])("reports from install with %i ms storage reads, even when the start's account answer lands right after onInstalled, and asks for no notice", async (readDelayMs) => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { local: memory({}, readDelayMs) });
     await install(t);
     expect(t.permission()).toMatchObject({ state: "granted", version: USAGE_PERMISSION_VERSION });
-    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
+    await expectInstallReported(t);
     const request = t.fetch.mock.calls[0]!;
     expect(String(request[0])).toBe("https://us.i.posthog.com/batch/");
     expect(String((request[1] as RequestInit).body)).toContain('"build_channel":"test"');
@@ -190,7 +206,7 @@ describe("V3 Firefox: follows the optional technicalAndInteraction permission", 
   it("on from install when granted there; the switch withdraws it and asks for it again", async () => {
     const t = setup(createDefaultOnBackgroundAnalytics, { isFirefox: true, granted: true });
     await install(t);
-    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
+    await expectInstallReported(t);
     expect(await t.send({ action: "sharing" })).toEqual({ enabled: true, noticeNeeded: false });
 
     expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
@@ -228,7 +244,7 @@ describe("V3 Chrome: install timing", () => {
     answer(null);
     for (let i = 0; i < 5; i++) await t.settle();
     await t.bg.flushWhenReady();
-    expect(t.sent()).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
+    await expectInstallReported(t);
   });
 
   it("a background stopped while the install waits records and sends nothing", async () => {
