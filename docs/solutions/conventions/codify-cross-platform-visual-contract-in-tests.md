@@ -1,7 +1,7 @@
 ---
 title: Codify cross-platform visual parity as file-content assertion tests
 date: 2026-07-10
-last_updated: 2026-09-08
+last_updated: 2026-10-14
 category: conventions
 track: knowledge
 module: packages/core/src/ui
@@ -49,7 +49,7 @@ it("uses explicit compact popup layout instead of scaling the interface", () => 
 
 Write the contract tests RED-first (session history): the implementing session wrote failing tests for the two named gaps — no explicit compact host mode existed, and service controls stayed keyboard-operable while visually disabled — confirmed RED, and only then implemented.
 
-Four companion practices reinforce the contract:
+Five companion practices reinforce the contract:
 
 1. **No CSS `zoom` for compact layouts.** `zoom:` has inconsistent cross-engine coordinate/hit-testing behavior and breaks automation. Instead `App.svelte` exposes a `data-density="compact"` attribute that swaps a block of CSS custom properties — same DOM, same coordinate space, different token values:
 
@@ -78,6 +78,15 @@ Four companion practices reinforce the contract:
    The strict 600px fit applies to default text on initial open. Larger accessibility text should
    wrap and scroll normally, without scaling down, clipping, or removing controls. Browser-document
    and toolbar measurements remain distinct from native Safari/iPhone host acceptance.
+
+5. **Compact status lines still need state and width checks.** The desktop cloud-sync summary
+   puts the current status and controller-provided last-successful-exchange timestamp together.
+   Its host regression checks timestamp updates and preserves the earlier timestamp during a
+   pending or failed upload, with an explicit “Last synced” label in those states. Rendered checks
+   established one-line success at 380px in Chromium, WebKit and Firefox; at 320px and doubled
+   text size it wraps instead of clipping. Do not use `white-space: nowrap`, shrink text, or
+   remove recovery actions to force every state onto one line. This is browser-document geometry,
+   not an installed toolbar or physical-device receipt.
 
 ## Why This Matters
 
