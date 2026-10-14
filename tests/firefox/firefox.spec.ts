@@ -140,7 +140,6 @@ test("youtube: a Shorts address ends up on the watch page", async () => {
 // is proven by the round-based tests in packages/core (modern-shipping-entry.test.ts).
 for (const [from, to] of [
   ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
-  ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
   ["https://www.instagram.com/profileuser/reels/", "https://www.instagram.com/profileuser/"],
   ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
   // The top-menu Reels tab's feed entry (ISS-0035).
@@ -161,6 +160,23 @@ for (const [from, to] of [
     const tab = await firefox.openTab(from);
     const url = await tab.waitFor("the redirect", () => tab.url(), (u) => u === to);
     expect(url).toBe(to);
+    await tab.close();
+  });
+}
+
+for (const alias of ["reel", "reels"]) {
+  test(`instagram: ${alias} keeps the first clip and its alias, then contains Next`, async () => {
+    const first = `https://www.instagram.com/${alias}/C0de12/`;
+    const tab = await firefox.openTab(first);
+    await waitWorking(tab, "instagram");
+    await tab.holdsFor("the deliberately opened clip", async () => (await tab.url()) === first);
+    const other = alias === "reel" ? "reels" : "reel";
+    await tab.evaluate(`history.pushState(null, "", "/${other}/C0de12/")`);
+    await tab.holdsFor("the same clip's alias", async () =>
+      (await tab.url()) === `https://www.instagram.com/${other}/C0de12/`);
+    await tab.evaluate('history.pushState(null, "", "/reels/NextClip/")');
+    expect(await tab.waitFor("Next to return Home", () => tab.url(),
+      (url) => url === "https://www.instagram.com/")).toBe("https://www.instagram.com/");
     await tab.close();
   });
 }
@@ -209,19 +225,29 @@ test("instagram current desktop markup: the Reels menu item, the profile Reels t
   await tab.close();
 });
 
-test("instagram explore: Reel tiles go and the other posts close up four to a line", async () => {
+test("instagram explore: discovery tiles and measured rows keep their geometry", async () => {
   const tab = await firefox.openTab("https://www.instagram.com/explore/");
   await waitWorking(tab, "instagram");
-  for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10"]) await waitHiddenPresent(tab, id);
-  for (const id of ["#keep-explore-1", "#keep-explore-6"]) expect(await tab.isVisible(id), id).toBe(true);
-  const boxes = await tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#explore-grid > div > div")]
+  for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10", "#keep-explore-1", "#keep-explore-6"])
+    expect(await tab.isVisible(id), id).toBe(true);
+  const measure = () => tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#explore-grid > div > div")]
     .map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
     .map((box) => [Math.round(box.x), Math.round(box.y), Math.round(box.width)])`);
-  expect(boxes).toHaveLength(6);
-  expect(new Set(boxes.map((box) => box[2])).size).toBe(1);
-  expect(new Set(boxes.map((box) => box[0])).size).toBe(4);
-  expect(new Set(boxes.map((box) => box[1])).size).toBe(2);
-  await tab.close();
+  const boxes = await measure();
+  expect(boxes).toHaveLength(16);
+  expect(new Set(boxes.map((box) => box[1])).size).toBe(4);
+  expect(await tab.evaluate<string[]>('[...document.querySelectorAll("#explore-grid > div")].map(row => getComputedStyle(row).display)'))
+    .toEqual(["grid", "grid", "grid", "grid"]);
+  const popup = await firefox.openExtensionPage("popup.html");
+  try {
+    await setSwitch(popup, "Still", false);
+    await tab.waitFor("Still to release the page", () => stillIsWorking(tab, "instagram"), (working) => !working);
+    expect(await measure()).toEqual(boxes);
+  } finally {
+    await setSwitch(popup, "Still", true);
+    await popup.close();
+    await tab.close();
+  }
 });
 
 test("facebook: a Reel article and the Reels shortcut follow the paid-tier switch, an ordinary post stays", async () => {

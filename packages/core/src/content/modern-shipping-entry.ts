@@ -194,7 +194,7 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
   const url = new URL(deps.win.location.href);
   const core = deps.classify(url);
   const loaded = deps.loadedHref !== undefined && deps.loadedHref !== url.href ? new URL(deps.loadedHref) : null;
-  if (!core && !(loaded && deps.classify(loaded))) return "declined";
+  if (!core && !loaded) return "declined";
   const session = createEnginePageSession(deps.ruleSet);
   let decision: ReturnType<typeof session.evaluate>;
   // Set when the page left its loaded core route on its own before Still could decide.
@@ -381,7 +381,9 @@ export function createModernShippingContentEntry(
     const redirectDedupe: RedirectDedupe = { lastRedirect: null };
 
     const core = coreDestinationOf(href);
-    const ownsEarly = deps.earlyRedirect && (core !== null || isShortsHref(href));
+    // A plural Reel may advance during hydration even though its initial alias is now allowed.
+    // Keep the existing candidate prefilter so ordinary pages incur no new early settings read.
+    const ownsEarly = deps.earlyRedirect && (core !== null || isShortsHref(href) || mayBeCoreRoute(new URL(href)));
     // The cover exists for every format-2-capable Safari page (late redirects can happen on any of
     // them); it is shown now only on a core route this page owns the early decision for.
     const cover = deps.pendingCover

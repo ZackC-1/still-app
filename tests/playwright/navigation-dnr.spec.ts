@@ -90,7 +90,6 @@ test.describe("format-2 build", () => {
   for (const [from, to] of [
     ["https://www.youtube.com/shorts/abc123?feature=share", "https://www.youtube.com/watch?feature=share&v=abc123"],
     ["https://m.youtube.com/shorts/abc123", "https://m.youtube.com/watch?v=abc123"],
-    ["https://www.instagram.com/reels/C0dE_1/?igsh=share", "https://www.instagram.com/reel/C0dE_1/?igsh=share"],
     ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
     // A profile's Reels tab opens the profile (ISS-0034).
     ["https://www.instagram.com/someuser/reels/?igsh=share", "https://www.instagram.com/someuser/"],
@@ -112,6 +111,8 @@ test.describe("format-2 build", () => {
     });
 
   for (const url of [
+    "https://www.instagram.com/reels/C0dE_1/?igsh=share",
+    "https://www.instagram.com/reels/reels/",
     "https://www.instagram.com/reels/audio/123/",
     "https://www.instagram.com/reels/audio/",
     "https://www.instagram.com/someuser/reel/C0dE/",
@@ -130,6 +131,34 @@ test.describe("format-2 build", () => {
       await expect(page).toHaveURL(url);
       expect(seen.requested).toEqual([url]);
     });
+
+  test("site canonicalization of a shared Reel to its plural alias does not loop", async ({ context }) => {
+    const page = await context.newPage();
+    const requested: string[] = [];
+    // Controlled site navigation, not a claimed recording of Instagram's redirect chain.
+    await page.route("https://www.instagram.com/**", async (route) => {
+      const url = new URL(route.request().url());
+      requested.push(url.pathname);
+      if (requested.length > 4) {
+        // Bound a regressed redirect loop so the test reports its route chain promptly.
+        await route.fulfill({ contentType: "text/html", body: "<!doctype html><main>Repeated alias redirect</main>" });
+      } else if (url.pathname === "/reel/A1/") {
+        await route.fulfill({ contentType: "text/html", body: '<!doctype html><script>location.replace("/reels/A1/?igsh=share")</script>' });
+      } else {
+        await route.fulfill({ contentType: "text/html", body: "<!doctype html><main id=player>Shared clip</main>" });
+      }
+    });
+    await page.goto("https://www.instagram.com/reel/A1/?igsh=share");
+    await expect.poll(() => requested).toEqual(["/reel/A1/", "/reels/A1/"]);
+    await expect(page.locator("#player")).toBeVisible();
+    await expect(page).toHaveURL("https://www.instagram.com/reels/A1/?igsh=share");
+    expect(requested).toEqual(["/reel/A1/", "/reels/A1/"]);
+    await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+    await page.evaluate(() => history.pushState(null, "", "/reel/A1/?igsh=share"));
+    await expect(page).toHaveURL("https://www.instagram.com/reel/A1/?igsh=share");
+    await page.evaluate(() => history.pushState(null, "", "/reels/B2/"));
+    await expect(page).toHaveURL("https://www.instagram.com/");
+  });
 
   // Fragments, pinned on real Chromium: declarativeNetRequest matches the request URL WITH its
   // fragment, so the rules (which never match a "#") leave these to the content script. The
@@ -164,7 +193,7 @@ test.describe("format-2 build", () => {
     await commit(context, extensionId, "sites.instagram.reels", true);
     expect((await dnrState(context)).domains).toEqual(["facebook.com", "instagram.com", "youtube.com"]);
     await page.goto("https://www.instagram.com/reels/C0dE_1/");
-    await expect(page).toHaveURL("https://www.instagram.com/reel/C0dE_1/");
+    await expect(page).toHaveURL("https://www.instagram.com/reels/C0dE_1/");
   });
 
   test("the real switch saves Off only after every rule is gone; a page opened that moment is left alone", async ({ context, extensionId }) => {
