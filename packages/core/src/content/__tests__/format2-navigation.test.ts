@@ -453,7 +453,7 @@ describe("Instagram profile Reels tab (ISS-0034): opens the profile's posts inst
     expect(evaluate(href).kind).toBe("apply");
   });
   it("the plural viewer keeps its own meaning for a code of \"reels\"", () => {
-    expect(evaluate("https://www.instagram.com/reels/reels/")).toEqual({ kind: "redirect", url: "https://www.instagram.com/reel/reels/" });
+    expect(evaluate("https://www.instagram.com/reels/reels/").kind).toBe("apply");
   });
   it.each([
     { ...on, sites: { ...on.sites, "instagram.reels": false } },
@@ -472,11 +472,11 @@ describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but do
     return decision;
   };
   it.each([
-    ["https://www.instagram.com/reels/C0de_1/", "https://www.instagram.com/reel/C0de_1/"],
-    ["https://www.instagram.com/reels/C0de_1", "https://www.instagram.com/reel/C0de_1/"],
-    ["https://www.instagram.com/reels/C0de_1/?igsh=share#part", "https://www.instagram.com/reel/C0de_1/?igsh=share#part"],
-  ])("Instagram plural viewer %s opens the same Reel at %s", (href, url) => {
-    expect(evaluate(href)).toEqual({ kind: "redirect", url });
+    "https://www.instagram.com/reels/C0de_1/",
+    "https://instagram.com/reels/C0de_1",
+    "https://www.instagram.com/reels/C0de_1/?igsh=share#part",
+  ])("Instagram plural viewer %s keeps the site's canonical alias", (href) => {
+    expect(evaluate(href).kind).toBe("apply");
   });
   it.each([
     "https://www.instagram.com/reels/",
@@ -507,6 +507,9 @@ describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but do
     ["https://www.instagram.com/some.user/p/P1/", "https://www.instagram.com/some.user/reel/B2/", null],
     ["https://www.instagram.com/some.user/reel/A1/", "https://www.instagram.com/some.user/p/P2/", null],
     ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reel/A1/?igsh=x", null],
+    ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reels/A1/?igsh=x", null],
+    ["https://www.instagram.com/reels/A1/", "https://www.instagram.com/reel/A1/", null],
+    ["https://instagram.com/reel/A1/", "https://www.instagram.com/reels/A1/", null],
     ["https://www.facebook.com/reel/111", "https://www.facebook.com/reel/111/", null],
     ["https://www.instagram.com/p/post/", "https://www.instagram.com/reel/B2/", null],
     ["https://www.facebook.com/reel/111", "https://www.facebook.com/watch/?v=222", null],

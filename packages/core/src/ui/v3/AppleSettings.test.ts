@@ -90,6 +90,32 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D04 Apple settings", () => {
+  it.each(["mac", "ios"] as const)("keeps canonical cards in the requested %s order", async (platform) => {
+    const { props } = await fixture("locked");
+    props.platform = platform;
+    props.pro = { ownership: "none", channel: "ready", offer: { price: "$9.99", priceNote: "One-time purchase. Lifetime access." }, onBuy: vi.fn() };
+    render(AppleSettings, { props });
+    const pro = screen.getByRole("region", { name: "Still Pro" });
+    const sync = screen.getByRole("heading", { name: "Settings sync" });
+    expect(Boolean(pro.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(platform === "mac");
+    expect(pro).toHaveTextContent("One-time purchase. Lifetime access.");
+  });
+
+  it("disables saved-setting switches while authority is unavailable", async () => {
+    const { props } = await fixture();
+    const view = render(AppleSettings, { props: { ...props, commandsDisabled: true } });
+    await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    for (const name of ["Still", "Still on YouTube", "Shorts", "Comments"]) {
+      const control = screen.getByRole("switch", { name });
+      expect(control).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(control);
+    }
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    await view.rerender({ ...props, commandsDisabled: false });
+    expect(screen.getByRole("switch", { name: "Still" })).not.toHaveAttribute("aria-disabled", "true");
+  });
   it("commits free choices without an account and retains saved choices when site or global controls are Off", async () => {
     const { props, storage, cache, settled } = await fixture();
     const view = render(AppleSettings, { props });

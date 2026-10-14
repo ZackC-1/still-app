@@ -383,6 +383,28 @@ describe("actual desktop presentation on the maintained authority", () => {
     await tick();
     expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
     expect(document.querySelectorAll("time")).toHaveLength(1);
+    const status = screen.getByText(STRINGS.sync.synced).closest('[role="status"]')!;
+    expect(status.querySelector("time")?.dateTime).toBe(new Date(1000).toISOString());
+    state.controller.lastSyncedAt = 61000;
+    await tick();
+    expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
+    expect(status.querySelector("time")?.textContent).toBe(new Date(61000).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    }));
+    state.controller.pendingUpload = true;
+    await tick();
+    expect(status.textContent).toContain(STRINGS.sync.syncing);
+    expect(status.textContent).toContain(STRINGS.sync.lastSynced);
+    expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
+    expect(screen.queryByText(STRINGS.sync.synced)).toBeNull();
+    state.controller.cloudReachable = false;
+    await tick();
+    expect(status.getAttribute("role")).toBe("alert");
+    expect(within(status as HTMLElement).getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
+    state.controller.lastSyncedAt = null;
+    await tick();
+    expect(document.querySelector("time")).toBeNull();
     expect(
       screen.getAllByRole("link", { name: "Privacy policy" }),
     ).toHaveLength(1);
@@ -392,6 +414,10 @@ describe("actual desktop presentation on the maintained authority", () => {
         ?.closest(".card")
         ?.querySelector(".sync-row-title")?.textContent,
     ).toBe("Settings sync");
+    state.controller.lastSyncedAt = 61000;
+    state.controller.userId = null;
+    await tick();
+    expect(document.querySelector("time")).toBeNull();
   });
 
   it("never reports no-op/refused writes or another actor's matching state as a successful local toggle", async () => {

@@ -102,6 +102,12 @@ export function permitsUnknownLocalEdit(record: StoredSettingsRecord): boolean {
   try { requireModernSettings(record); return true; }
   catch { return false; }
 }
+/** Signed-out account history stays local and must never create transferable requests. */
+function permitsPreviousAccountLocalEdit(record: StoredSettingsRecord): boolean {
+  const state = readAtomicSettingsState(record.atomic);
+  return state?.ownership === "previous-account" && state.pending.length === 0 &&
+    permitsUnknownLocalEdit({ ...record, atomic: { ...state, ownership: "unknown" } });
+}
 function projection(settings: SettingsV2): StoredSettingsRecord["settings"] {
   return { ...settings, pauses: [] };
 }
@@ -199,6 +205,14 @@ export class AtomicSettingsWriter {
    */
   private async releaseSignedOutOwnershipPause(current: StoredSettingsRecord): Promise<StoredSettingsRecord> {
     const state = readAtomicSettingsState(current.atomic);
+    if (state?.paused === "ordering-hold" && permitsPreviousAccountLocalEdit({
+      ...current, atomic: { ...state, paused: null },
+    })) {
+      // Preserve the held choice for display; a later deliberate command can save it.
+      const next = { ...current, atomic: { ...state, sequence: state.sequence + 1, paused: null } };
+      await this.adapter.set(structuredClone(next));
+      return next;
+    }
     if (!state || state.scope.accountId !== null || state.sequence === Number.MAX_SAFE_INTEGER ||
       state.paused !== "ownership-unconfirmed" && state.paused !== "ownership-hold") return current;
     const next: StoredSettingsRecord = { ...current, atomic: { ...state, sequence: state.sequence + 1, held: {}, paused: null } };
@@ -233,16 +247,20 @@ export class AtomicSettingsWriter {
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }
-      if (current.atomic.ownership === "unknown" && current.atomic.scope.accountId === null) {
+      if ((current.atomic.ownership === "unknown" ||
+        current.atomic.ownership === "previous-account" && current.atomic.pending.length === 0) && current.atomic.scope.accountId === null) {
         if (current.atomic.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
-        if (!permitsUnknownLocalEdit(current)) throw new SettingsStorageRecovery("atomic-command-unavailable");
+        if (!permitsUnknownLocalEdit(current) && !permitsPreviousAccountLocalEdit(current))
+          throw new SettingsStorageRecovery("atomic-command-unavailable");
         const state = current.atomic;
         let settings = requireModernSettings(current);
         const priorValue = settingsFieldValue(settings, intent.path);
         // A matching overlay alone is not a saved field; persist the person's deliberate choice.
         if (priorValue === intent.value && state.held[intent.path] === undefined)
           return { ...current, intentCommitted: false };
-        const edit = allocateSettingsFieldEdit({ value: priorValue, stamp: settings.clocks[intent.path] }, 0, intent.value);
+        // Keep the existing local ordering without inventing a receipt for the former account.
+        const revision = state.ownership === "previous-account" ? settings.clocks[intent.path].baseRevision : 0;
+        const edit = allocateSettingsFieldEdit({ value: priorValue, stamp: settings.clocks[intent.path] }, revision, intent.value);
         if (edit.status !== "edited" && edit.status !== "unchanged") throw new SettingsStorageRecovery("ordering-hold");
         const held = { ...state.held }; delete held[intent.path];
         if (edit.status === "edited") settings = { ...withField(settings, intent.path, intent.value),

@@ -202,6 +202,8 @@ export interface DesktopPopupProps {
   proOfferReady?: boolean;
   account?: {
     address?: string;
+    /** Last successful cloud exchange, not proof that every device received the settings. */
+    lastSyncedAt?: number | null;
     status?: {
       tone: "pending" | "success" | "failed" | "caution" | "info";
       text: string;

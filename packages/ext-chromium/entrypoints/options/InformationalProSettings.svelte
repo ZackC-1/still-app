@@ -85,6 +85,7 @@
 <ExtensionSettings
   {...props}
   {pro}
+  proReturnGuidance={props.phone ? "To return to Still’s controls, open a website, then choose Firefox’s three-dot menu → Extensions → Still." : undefined}
   restore={flowState.restore}
   siteAccess={siteAccess.current}
 />

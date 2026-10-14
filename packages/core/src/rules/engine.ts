@@ -144,7 +144,7 @@ const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
 
 /**
  * Instagram's profile Reels tab: /<user>/reels/. The bare feed (/reels/) and the plural viewer
- * (/reels/<code>/) are matched first, so a first segment of "reels" never reaches this pattern.
+ * (/reels/<code>/) are excluded first, so a first segment of "reels" never reaches this pattern.
  */
 const INSTAGRAM_PROFILE_REELS_TAB = /^\/([\w.]+)\/reels\/?$/;
 
@@ -692,13 +692,8 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
       // Page's or profile's own Reels tab, normal/live videos, people/groups/search/messages and
       // their query-bearing routes stay usable.
       destination = new URL("/", url.origin);
-    } else if (service === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
-      // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
-      // shared-Reel address, /reel/<code>/ (query and fragment kept); the continuation guard
-      // then stops it advancing into another Reel.
-      destination = new URL(url.href);
-      destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
-    } else if (service === "instagram" && INSTAGRAM_APP_HOST.test(url.hostname) && INSTAGRAM_PROFILE_REELS_TAB.test(url.pathname)) {
+    } else if (service === "instagram" && !INSTAGRAM_REELS_VIEWER.test(url.pathname)
+      && INSTAGRAM_APP_HOST.test(url.hostname) && INSTAGRAM_PROFILE_REELS_TAB.test(url.pathname)) {
       // A profile's own Reels tab lists every Reel it has, one tap each: browsing, not a shared
       // Reel (ISS-0034). It opens that profile's posts instead.
       destination = new URL(`/${INSTAGRAM_PROFILE_REELS_TAB.exec(url.pathname)![1]}/`, url.origin);

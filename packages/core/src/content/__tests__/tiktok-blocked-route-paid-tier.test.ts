@@ -44,6 +44,7 @@ function route(tiktok: boolean) {
     randomId: () => "request-0001-fixture",
     createAuthority: () => ({
       supported: true,
+      captureCurrentScreen: () => async () => false,
       allow: async () => false,
       isAllowed: async () => false,
       stop: async () => {},

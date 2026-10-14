@@ -15,7 +15,7 @@ import { test, expect } from "./_extension.js";
 const LEGACY = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 const MODERN_SIGN_IN = process.env.STILL_EXPECT_MODERN_SIGN_IN === "1";
 const KEY = "still:invitationLedger";
-const CARD = "Use the same settings in every browser";
+const CARD = "Settings sync";
 
 type Ledger = { milestones: number; sync: string; shown: number; reservation: unknown } | undefined;
 type StorageWorker = { chrome: { storage: { local: { get(key: string): Promise<Record<string, unknown>> } } } };
@@ -92,7 +92,7 @@ test.describe("V3 build with sign-in", () => {
     const later = await openPopup(context, extensionId);
     const card = later.getByRole("region", { name: CARD });
     await expect(card).toBeVisible();
-    await expect(card.getByText("Sign in for free settings sync. Optional.")).toBeVisible();
+    await expect(card.getByText("Free. Keep your block settings consistent across every supported device and browser.")).toBeVisible();
     // Consumed the moment it became visible, before anyone chose anything.
     expect(await ledger(context)).toMatchObject({ sync: "consumed", shown: 1, reservation: null });
     await card.getByRole("button", { name: "Not now" }).click();

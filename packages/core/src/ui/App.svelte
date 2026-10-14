@@ -213,6 +213,7 @@
     if (!c.userId) return undefined;
     return {
       address: c.accountEmail ?? undefined,
+      lastSyncedAt: c.lastSyncedAt,
       status: !c.cloudReachable
         ? {
             tone: "failed",
@@ -664,19 +665,6 @@
   {#snippet desktopAccountActions()}
     {#if c.userId}
       {@render accountManagement(false)}
-      {#if c.lastSyncedAt !== null}
-        <p class="sync-time">
-          {STRINGS.sync.lastSynced}
-          <time datetime={new Date(c.lastSyncedAt).toISOString()}
-            >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
-              month: "short",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-            })}</time
-          >
-        </p>
-      {/if}
     {/if}
     {@render settingsRecoveryAction()}
   {/snippet}

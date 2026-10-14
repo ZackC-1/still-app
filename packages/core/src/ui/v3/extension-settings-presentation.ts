@@ -160,6 +160,8 @@ export interface ExtensionSettingsProps extends Pick<
    * hosts keep passing it so the device-specific seam stays in one place.
    */
   phone?: boolean;
+  /** Host-supplied instructions for returning from the offer to its popup controls. */
+  proReturnGuidance?: string;
   /**
    * False while the surface's own device answer is still pending (Firefox asks whether it runs on
    * Android). The Still Pro card's by-site value list waits for it, so the list never visibly

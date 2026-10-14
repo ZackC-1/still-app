@@ -231,18 +231,7 @@
     return () => current.stop();
   });
   const syncFor = createAppleSettingsSync();
-  // The controller's revision is plain; its session/sync signals expose the current epoch.
-  // Derived equality prevents routine sync polling from issuing another account verification.
-  let accountRevision = $derived.by(() => {
-    void c.userId;
-    void c.accountEmail;
-    void c.authFlow;
-    void c.reconciling;
-    void c.cloudReachable;
-    void c.pendingUpload;
-    void c.lastSyncedAt;
-    return c.accountRevision;
-  });
+  let accountRevision = $derived(c.accountRevision);
   let sync = $derived.by(() => {
     void accountRevision;
     return syncFor(c);
@@ -346,6 +335,38 @@
     }),
   );
   $effect(() => reportRatingHold(ratingHold));
+  let settingsScreen: HTMLDivElement | undefined = $state();
+  let purchaseScreen: HTMLDivElement | undefined = $state();
+  let purchaseReturnFocus: HTMLElement | undefined;
+  let purchaseReturnScroll = 0;
+  $effect(() => {
+    if (!purchaseOpen || platform !== "mac") return;
+    let live = true;
+    void tick().then(() => {
+      if (!live) return;
+      purchaseScreen?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+    });
+    return () => { live = false; };
+  });
+  // Capture before hiding Settings: real browsers clear focus when its ancestor becomes hidden.
+  function openPurchase() {
+    const active = document.activeElement;
+    purchaseReturnFocus = active instanceof HTMLElement && settingsScreen?.contains(active)
+      ? active : undefined;
+    purchaseReturnScroll = document.scrollingElement?.scrollTop ?? 0;
+    proState?.pro?.onBuy?.();
+  }
+  let settingsPro = $derived(platform === "mac" && proState?.pro ? {
+    ...proState.pro,
+    onBuy: proState.pro.onBuy ? openPurchase : undefined,
+  } : proState?.pro);
+  async function closePurchase() {
+    proHost?.close();
+    await tick();
+    if (purchaseReturnFocus?.isConnected) purchaseReturnFocus.focus({ preventScroll: true });
+    if (document.scrollingElement) document.scrollingElement.scrollTop = purchaseReturnScroll;
+  }
   function retry(): void {
     if (recovering) return;
     recovering = true;
@@ -396,7 +417,9 @@
 {/snippet}
 
 {#if purchaseOpen && purchaseProps}
-  <PurchaseView {...purchaseProps} phone={platformKnown && platform === "ios"} />
+  <div bind:this={purchaseScreen}>
+    <PurchaseView {...purchaseProps} onBack={platform === "mac" ? closePurchase : purchaseProps.onBack} phone={platformKnown && platform === "ios"} />
+  </div>
   {#if canLink}<div class="still-ui app">
       <button
         type="button"
@@ -407,8 +430,13 @@
         }}>Link Still Pro to an account</button
       >
     </div>{/if}
-{:else if view.settings && view.state && view.commands}
+{/if}
+<!-- Retain section, focus and settings bindings while inspecting the offer. -->
+<div bind:this={settingsScreen} hidden={purchaseOpen}>
+{#if !purchaseOpen || platform === "mac"}
+{#if view.settings && view.state && view.commands}
   <AppleSettings
+    commandsDisabled={view.held}
     settings={view.settings}
     access={view.state.access}
     {platform}
@@ -417,7 +445,7 @@
     onServiceChange={view.commands.service}
     onFeatureChange={view.commands.feature}
     {sync}
-    pro={proState?.pro}
+    pro={settingsPro}
     link={proState?.link}
     {restore}
     onRestore={restoreBridge ? freeRestore.start : undefined}
@@ -455,6 +483,9 @@
     {@render usageActions()}
   </div>
 {/if}
+
+{/if}
+</div>
 
 {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
   <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />

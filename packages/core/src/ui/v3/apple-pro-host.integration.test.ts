@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/svelte";
 vi.mock("@still/core/invitations/rating-hold", async (original) => ({
   ...(await original<typeof import("../../invitations/rating-hold.js")>()),
@@ -23,7 +24,7 @@ import {
   FEATURE_REGISTRY,
   type BenefitAccessSnapshot,
 } from "@still/shared-types";
-import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
+import { AtomicSettingsWriter, type SettingsIntent } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { WKWebViewStorageAdapter } from "../../storage/wkwebview-adapter.js";
@@ -176,6 +177,7 @@ async function compose(
           postMessage: async (message) => {
             const m = message as { kind: string };
             if (m.kind === "get") return (await storage.get()) ?? "";
+            if (m.kind === "settingsIntent") return writer.commit(message as SettingsIntent);
             if (m.kind === "settingsAtomic")
               return writer.initialize("unknown");
             return null;
@@ -244,6 +246,7 @@ async function compose(
   await screen.findByText("Still is active");
   return {
     view,
+    cache,
     authority,
     controller,
     accountRequests,
@@ -322,6 +325,37 @@ describe("Still Pro states no number of extras on any platform answer", () => {
 });
 
 describe("Apple settings to real native Pro screen integration", () => {
+  it("all twelve Mac locks open the full offer and Close preserves focus, section and free settings", async () => {
+    const f = await compose({ observeSetup: async () => ({
+      ok: true, platform: "macos", extensionStatus: "enabled", enableLocation: "safariExtensionSettings",
+    }) });
+    await screen.findByRole("button", { name: "Get Still Pro" });
+    const saved = f.cache.currentRecord();
+    let visited = 0;
+    for (const section of ["Instagram Blocker", "Facebook Blocker", "YouTube Blocker"]) {
+      const expander = screen.getByRole("button", { name: section });
+      if (expander.getAttribute("aria-expanded") !== "true") await fireEvent.click(expander);
+      const locks = within(expander.closest(".site-section") as HTMLElement).getAllByRole("button", { name: /^.+\. Included in Still Pro\./ });
+      for (const lock of locks) {
+        lock.focus();
+        await fireEvent.click(lock);
+        const close = await screen.findByRole("button", { name: "Close" });
+        expect(close).toHaveFocus();
+        expect(screen.getByRole("heading", { name: "Still Pro" })).toBeVisible();
+        expect(f.purchase).not.toHaveBeenCalled();
+        await fireEvent.click(close);
+        await waitFor(() => expect(lock).toHaveFocus());
+        expect(expander).toHaveAttribute("aria-expanded", "true");
+        expect(f.cache.currentRecord()).toEqual(saved);
+        visited++;
+      }
+    }
+    expect(visited).toBe(12);
+    await fireEvent.click(screen.getByRole("switch", { name: "TikTok website" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "TikTok website" })).toHaveAttribute("aria-checked", "false"));
+    expect(f.purchase).not.toHaveBeenCalled();
+  });
+
   it("opens D18, buys without sign-in and shows only verified local success", async () => {
     const f = await compose();
     await fireEvent.click(

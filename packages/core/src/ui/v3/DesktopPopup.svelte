@@ -1,5 +1,6 @@
 <script lang="ts">
   import SiteAccessCard from "./SiteAccessCard.svelte";
+  import { STRINGS } from "../strings.js";
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
   import {
@@ -76,11 +77,11 @@
   function openPro() {
     if (proDestinationReady) onSeePro?.();
   }
-  // The card itself waits for the destination to be able to sell and, like the sync invitation,
-  // for a clear setup and account state: it never competes with fixing the free outcome.
+  // A normal settings refresh does not change Pro access. Keep its offer mounted while syncing;
+  // setup and sync failures still take priority, and the destination checks sales readiness.
   let popupClear = $derived(
     !desktopSetup &&
-      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+      !["failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   let proCardShown = $derived(proDestinationReady && proOfferReady && popupClear);
   // While Still is still finding out, the card's place says so (no button), where a card may follow.
@@ -145,6 +146,9 @@
       port.identity.surface === browser.toLowerCase(),
     );
   }
+  let syncInvitationShown = $derived(
+    !account && invitationReady && invitation?.kind === "sync" && invitationVisible(invitation),
+  );
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -154,6 +158,7 @@
 <div
   class="still-ui app"
   data-density="compact"
+  class:app-handoff={appHandoff}
   class:d28-invitation={invitationVariant === "d28"}
   class:invitation-scroll={invitationReady && invitationVisible(invitation)}
   style="max-inline-size: 380px;"
@@ -292,7 +297,8 @@
       onOpen={openPro}
       {appHandoff}
     />{:else if proCheckingShown}<PopupProCard checking />{/if}
-  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
+  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
+  {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
@@ -303,21 +309,19 @@
               : "Free. Keep your block settings consistent across every supported device and browser."}
           </p>{/if}
       </div>
-      {#if !account && onSignIn}<button
+      {#if !account && onSignIn}<div class:popup-action={appHandoff}><button
           type="button"
           class="primary inline"
           class:with-glyph={appHandoff}
           aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
           >Sign in{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
-        >{/if}
+        >
+        {#if appHandoff}<p class="handoff" id="popup-signin-handoff">
+          <Glyph name="external" size={13} />Opens the Still app
+        </p>{/if}
+        </div>{/if}
     </div>
-    {#if !account && onSignIn && appHandoff}<p
-        class="handoff"
-        id="popup-signin-handoff"
-      >
-        <Glyph name="external" size={13} />Opens the Still app
-      </p>{/if}
     {#if account?.status}
       <div
         class="status-line"
@@ -328,7 +332,21 @@
             ><Glyph name={statusGlyph[account.status.tone]} /></span
           >{/if}
         <div class="status-body">
-          <span>{account.status.text}</span>{#if account.status.retry}<button
+          <span class="sync-summary">
+            <span>{account.status.text}</span>
+            {#if account.lastSyncedAt != null}
+              <span aria-hidden="true"> · </span>
+              <span class="muted"><span class:sr-only={account.status.tone === "success"}>{STRINGS.sync.lastSynced} </span><time
+                  datetime={new Date(account.lastSyncedAt).toISOString()}
+                  >{new Date(account.lastSyncedAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}</time
+                ></span>
+            {/if}
+          </span>{#if account.status.retry}<button
               type="button"
               class="link status-action"
               onclick={account.status.retry}>Try again</button
@@ -338,6 +356,7 @@
     {/if}
     {#if accountActions}{@render accountActions()}{/if}
   </section>
+  {/if}
   <footer class="popup-footer">
     <button
       type="button"
@@ -349,6 +368,9 @@
 </div>
 
 <style>
+  .sync-summary {
+    overflow-wrap: anywhere;
+  }
   .app.invitation-scroll {
     overflow-y: auto;
     overscroll-behavior-y: contain;

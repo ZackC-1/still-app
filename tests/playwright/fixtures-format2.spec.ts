@@ -563,11 +563,11 @@ async function commitIntent(context: BrowserContext, extensionId: string, path: 
   await options.close();
 }
 
-test("format-2 instagram: the plural /reels/<code>/ viewer opens that Reel at /reel/<code>/; a shared /reel/<code>/ opens", async ({ context }) => {
+test("format-2 instagram: either shared Reel alias opens without rewriting the site address", async ({ context }) => {
   const page = await context.newPage();
   await serveViewer(page, "**://*.instagram.com/**", "/reel/B2/");
   await page.goto("https://www.instagram.com/reels/C0de1/?igsh=share").catch(() => {}); // replaced while loading
-  await expect(page).toHaveURL("https://www.instagram.com/reel/C0de1/?igsh=share");
+  await expect(page).toHaveURL("https://www.instagram.com/reels/C0de1/?igsh=share");
   await page.goto("https://www.instagram.com/reels/").catch(() => {});
   await expect(page).toHaveURL("https://www.instagram.com/");
   for (const shared of ["/reel/A1/", "/some.user/reel/A1/"]) {
@@ -669,46 +669,55 @@ test("format-2 instagram: one Reel opened from a profile plays, but its modal mo
 
 // ── Instagram Explore (ISS-0038) ────────────────────────────────────────────────────────────────
 
-test("format-2 instagram explore: Reel tiles go, the other posts close up four to a line, Off restores", async ({ context, extensionId }) => {
-  const page = await context.newPage();
-  await serve(page, "**://*.instagram.com/**", fixture("instagram-explore.html"));
-  await page.goto("https://www.instagram.com/explore/");
-  await expectFormat2Lane(page);
-  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
-  const boxes = () => page.locator("#explore-grid > div > div").evaluateAll((tiles) =>
-    tiles.map((tile) => ({ id: tile.id, box: tile.getBoundingClientRect() })).filter(({ box }) => box.width > 0)
-      .map(({ id, box }) => ({ id, x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) })));
-  const expectClosedUp = async () => {
-    const tiles = await boxes();
-    // Six posts, in order, four to a line at the rows' own tile size: no Reel and no hole.
-    expect(tiles.map((tile) => tile.id)).toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
-    tiles.forEach((tile, index) => {
-      expect(tile.width, tile.id).toBe(tiles[0]!.width);
-      expect(tile.height, tile.id).toBe(tiles[0]!.height);
-      expect(tile.x, tile.id).toBe(tiles[index % 4]!.x);
-      expect(Math.abs(tile.y - (tiles[0]!.y + Math.floor(index / 4) * (tiles[0]!.height + 1))), tile.id).toBeLessThanOrEqual(1);
+for (const width of [1280, 390])
+  test(`format-2 instagram explore: measured rows, mixed tiles and later batches keep geometry at ${width}px`, async ({ context, extensionId }) => {
+    const toggle = await stillSwitch(context, extensionId);
+    await toggle(); // Compare with Instagram's own layout, before any free blocking effects.
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 844 });
+    // The captured desktop structure at two widths; the width override is test scaffolding,
+    // not a claimed capture of the iPhone site's DOM or loading implementation.
+    await serve(page, "**://*.instagram.com/**", fixture("instagram-explore.html")
+      .replace("</head>", "<style>main {width:100%;max-width:880px}.row > div{min-width:0}.tile video{width:100%;height:100%}</style></head>"));
+    await page.goto("https://www.instagram.com/explore/");
+    const geometry = () => page.locator("#explore-grid, #explore-grid > div, #explore-grid > div > div").evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height, display: getComputedStyle(node).display };
+      }));
+    const original = await geometry();
+    await toggle();
+    await expectFormat2Lane(page);
+    expect(await geometry()).toEqual(original);
+    await expect(page.locator("#explore-reel-1")).toBeVisible();
+    await expect(page.locator("#keep-explore-1")).toBeVisible();
+    // A later batch retains its measured row and all cells. Nonzero virtualized padding must
+    // not switch layout strategy or introduce holes when the user scrolls back to the top.
+    await page.evaluate(() => {
+      const grid = document.getElementById("explore-grid")!;
+      for (let index = 0; index < 8; index++) {
+        const row = grid.firstElementChild!.cloneNode(true) as HTMLElement;
+        for (const node of row.querySelectorAll("[id]")) node.removeAttribute("id");
+        grid.append(row);
+      }
+      grid.insertAdjacentHTML("afterend", '<div id="loader-sentinel">Next batch</div>');
     });
-    expect(new Set(tiles.slice(0, 4).map((tile) => tile.x)).size).toBe(4);
-  };
-  await expectClosedUp();
-  // A tile opened over Explore (/p/<code>/) keeps the mark: the grid behind the viewer stays closed up.
-  await page.evaluate(() => history.pushState(null, "", "/p/ExPost0001/"));
-  await page.waitForTimeout(300);
-  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
-  await expectClosedUp();
-  await page.evaluate(() => history.pushState(null, "", "/explore/"));
-  // Leaving for any other page clears it.
-  await page.evaluate(() => history.pushState(null, "", "/"));
-  await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-explore");
-  await page.evaluate(() => history.pushState(null, "", "/explore/"));
-  await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
-  const toggle = await stillSwitch(context, extensionId);
-  await toggle();
-  await expect.poll(async () => (await boxes()).length).toBe(16); // Instagram's own grid, Reels and all
-  await toggle();
-  await expect.poll(async () => (await boxes()).length).toBe(6);
-  await expectClosedUp();
-});
+    const populated = await geometry();
+    expect(populated.filter((box) => box.display === "contents")).toHaveLength(0);
+    expect(populated.every((box) => box.height > 0 && box.width > 0)).toBe(true);
+    await page.locator("#loader-sentinel").scrollIntoViewIfNeeded();
+    await expect(page.locator("#loader-sentinel")).toBeInViewport();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await page.evaluate(() => scrollTo(0, 0));
+    await toggle();
+    expect(await geometry()).toEqual(populated);
+    await toggle();
+    expect(await geometry()).toEqual(populated);
+    await page.locator("#explore-grid").evaluate((grid) => { (grid as HTMLElement).style.paddingTop = "4060px"; });
+    const padded = await geometry();
+    await toggle();
+    expect(await geometry()).toEqual(padded);
+  });
 
 /**
  * Instagram's post viewer as Explore opens it: a dialog whose Next arrow is a button. With

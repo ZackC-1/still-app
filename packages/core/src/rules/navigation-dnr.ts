@@ -21,9 +21,10 @@ import { etldPlusOne } from "./match.js";
 //   classifier rewrites the query with URLSearchParams.set, so only a query that serialization
 //   leaves byte-for-byte unchanged is copied (one plain name=value pair of unreserved characters,
 //   not `v`); any other query stays with the content script.
-// - Instagram Reels (`instagram.reels`): the bare /reels feed goes home; the plural viewer
-//   /reels/<code>/ opens that one Reel at /reel/<code>/ (query kept), except the audio hub
-//   /reels/audio/, which a higher-priority allow rule keeps reachable; a profile's Reels tab
+// - Instagram Reels (`instagram.reels`): the bare /reels feed goes home; both single-item
+//   /reel/<code>/ and /reels/<code>/ aliases stay. Rewriting an alias can loop against the site's
+//   canonical redirect. An allow rule prevents /reels/reels/ matching a profile's Reels tab.
+//   The audio hub stays reachable; a profile's Reels tab
 //   /<user>/reels/ on the web app hosts opens that profile (query dropped, as the classifier does).
 // - Facebook Reels (`facebook.reels`): the bare /reels feed, Watch's /watch/reels feed and the
 //   /reel/ feed entry (with the player's /reel/following/ and /reel/profile/ feeds) go home.
@@ -86,10 +87,10 @@ const TEMPLATES: readonly Template[] = Object.freeze([
   { id: 1, feature: "youtube.shorts", path: `/shorts/${ID}/?`, to: "\\1/watch?v=\\2" },
   { id: 2, feature: "youtube.shorts", path: `/shorts/${ID}/?\\?(${PAIR})`, to: "\\1/watch?\\3&v=\\2" },
   { id: 11, feature: "instagram.reels", path: `/reels/?${ANY_QUERY}`, to: "\\1/" },
-  { id: 12, feature: "instagram.reels", path: `/reels/${ID}/?(\\?[^#]*)?`, to: "\\1/reel/\\2/\\3" },
+  { id: 12, feature: "instagram.reels", path: `/reels/${ID}/?(\\?[^#]*)?` },
   { id: 13, feature: "instagram.reels", path: `/reels/audio/?${ANY_QUERY}` },
   // A profile's Reels tab. /reels/reels/ also matches it, but that is the plural viewer's address
-  // (rule 12), so this rule is a fallback that yields there. (Spelling "any segment but reels" out
+  // (allow rule 12), so this rule is a fallback that yields there. (Spelling "any segment but reels" out
   // without lookahead exceeds Chrome's compiled-regex budget.)
   { id: 14, feature: "instagram.reels", path: `/${PROFILE}/reels/?${ANY_QUERY}`, to: "\\1/\\2/", fallback: true, appHosts: true },
   { id: 21, feature: "facebook.reels", path: `/(?:watch/)?reels/?${ANY_QUERY}`, to: "\\1/" },

@@ -298,7 +298,9 @@ export class UiController {
   // Sync + connectivity — the entrypoint updates these from SyncService events.
   userId = $state<string | null>(null);
   accountEmail = $state<string | null>(null);
-  accountRevision = 0;
+  // Async teardown can advance the epoch after signed-out fields have already rendered.
+  // Hosts must replace callbacks fenced to the old epoch even when those fields stay equal.
+  accountRevision = $state(0);
   lastSyncedAt = $state<number | null>(null);
   pendingUpload = $state(false);
   accountManagedByApp = false;

@@ -52,6 +52,73 @@ final class AtomicSettingsLocalOnlyTests: XCTestCase {
 
   // MARK: D1 — unknown local-only edits never queue and never reach a pending limit
 
+  private func signedOutRecord() throws -> Data {
+    var record = try root(unknownRecord())
+    var atomic = try XCTUnwrap(record["atomic"] as? [String: Any])
+    atomic["ownership"] = "previous-account"
+    atomic["scope"] = ["accountId": NSNull(), "generation": 2]
+    var values = try XCTUnwrap(record["settings"] as? [String: Any])
+    let clocks = try XCTUnwrap(values["clocks"] as? [String: Any])
+    values["clocks"] = clocks.mapValues { _ in ["baseRevision": 7, "localStep": 0] }
+    record["settings"] = values; record["atomic"] = atomic
+    return try encode(record)
+  }
+
+  func testSignedOutAccountEditsRemainLocalAcrossHosts() throws {
+    let dir = try directory()
+    let backing = AtomicSettingsBacking(directory: dir)
+    try backing.transaction { $0 = try signedOutRecord() }
+    let first = SharedSettingsStore(backing: backing)
+    let second = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
+    for i in 0..<70 {
+      let value = i % 2 != 0
+      let saved = try (i % 2 == 0 ? first : second).commitIntent(path: "globalOn", value: value, updatedAt: 100 + i)
+      XCTAssertEqual(try settings(saved.data)["globalOn"] as? Bool, value)
+      XCTAssertEqual(try state(saved.data)["paused"] as? NSNull, NSNull())
+      XCTAssertEqual(try state(saved.data)["ownership"] as? String, "previous-account")
+      XCTAssertEqual((try state(saved.data)["pending"] as? [Any])?.count, 0)
+      XCTAssertEqual(try step(saved.data, "globalOn"), i + 1)
+    }
+  }
+
+  func testSignedOutOrderingRecoveryPreservesChoicesUntilDeliberateEdit() throws {
+    var record = try root(signedOutRecord())
+    var atomic = try XCTUnwrap(record["atomic"] as? [String: Any])
+    atomic["paused"] = "ordering-hold"; atomic["held"] = ["services.youtube": false]
+    record["atomic"] = atomic
+    let recovered = try AtomicSettingsRecord.initialize(encode(record), ownership: "unknown")
+    XCTAssertEqual(try settings(recovered) as NSDictionary, record["settings"] as? NSDictionary)
+    XCTAssertEqual(try state(recovered)["held"] as? [String: Bool], ["services.youtube": false])
+    XCTAssertEqual(try state(recovered)["paused"] as? NSNull, NSNull())
+    XCTAssertEqual(try state(recovered)["sequence"] as? Int, 1)
+    XCTAssertEqual(try AtomicSettingsRecord.initialize(recovered, ownership: "unknown"), recovered)
+    let saved = try AtomicSettingsRecord.commit(recovered, path: "services.youtube", value: false, updatedAt: 100)
+    XCTAssertEqual((try settings(saved.data)["services"] as? [String: Bool])?["youtube"], false)
+    XCTAssertEqual(try state(saved.data)["held"] as? [String: Bool], [:])
+    XCTAssertEqual((try state(saved.data)["pending"] as? [Any])?.count, 0)
+  }
+
+  func testSignedOutOrderingRecoveryRefusesUnprovenShapes() throws {
+    for shape in ["anchor", "pending", "scope", "sequence", "schema"] {
+      var record = try root(signedOutRecord())
+      var atomic = try XCTUnwrap(record["atomic"] as? [String: Any])
+      atomic["paused"] = "ordering-hold"; atomic["held"] = ["globalOn": false]
+      if shape == "anchor" { atomic["anchor"] = ["version": 1, "lineage": account, "revision": 7, "mac": String(repeating: "A", count: 43)] }
+      if shape == "scope" { atomic["scope"] = ["accountId": account, "generation": 2] }
+      if shape == "sequence" { atomic["sequence"] = 9_007_199_254_740_991 }
+      if shape == "pending" {
+        atomic["pending"] = [["writeId": account, "scope": atomic["scope"]!, "receipt": NSNull(),
+          "operations": [["path": "globalOn", "value": false, "baseRevision": 7, "localStep": 1]]] as [String: Any]]
+      }
+      if shape == "schema" {
+        var values = try XCTUnwrap(record["settings"] as? [String: Any]); values["schemaVersion"] = 3; record["settings"] = values
+      }
+      record["atomic"] = atomic
+      let raw = try encode(record)
+      XCTAssertEqual(try AtomicSettingsRecord.initialize(raw, ownership: "unknown"), raw, shape)
+    }
+  }
+
   func testUnknownLocalEditsSaveInPlaceBeyondSixtyFourWithoutQueueing() throws {
     let backing = AtomicSettingsBacking(directory: try directory())
     let store = SharedSettingsStore(backing: backing)
@@ -153,7 +220,7 @@ final class AtomicSettingsLocalOnlyTests: XCTestCase {
   }
 
   func testAccountScopedAndOtherOwnershipJournalsStillQueue() throws {
-    for ownership in ["previous-account", "never-linked"] {
+    for ownership in ["never-linked"] {
       let legacy = try JSONEncoder().encode(StoredSettingsRecord(settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1), syncMetadata: nil))
       let raw = try AtomicSettingsRecord.initialize(legacy, ownership: ownership)
       let saved = try AtomicSettingsRecord.commit(raw, path: "globalOn", value: false, updatedAt: 10)

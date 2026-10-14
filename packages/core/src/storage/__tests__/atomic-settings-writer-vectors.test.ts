@@ -40,6 +40,17 @@ describe("shared atomic settings writer vectors", () => {
     expect(new Set(vectors.cases.map(c => c.name)).size).toBe(vectors.cases.length);
   });
 
+  it("recovers signed-out ordering without losing an overlay or queueing account intent", () => {
+    const c = byName("baseline/wake-releases-signed-out-ordering-hold");
+    expect(c.steps[0]!.summary).toMatchObject({ paused: null, held: { "services.instagram": false }, pendingCount: 0 });
+    expect(c.steps[1]!.digest).toBe(c.steps[0]!.digest);
+    expect(c.steps[2]!.summary).toMatchObject({ paused: null, held: {}, pendingCount: 0, updatedAt: 20 });
+    expect(c.writeIds).toEqual([]);
+    expect(c.steps[3]!.record!.atomic).toMatchObject({ ownership: "previous-account", anchor: null, pending: [] });
+    expect((c.steps[3]!.record!.settings as unknown as SettingsV2).clocks["services.instagram"])
+      .toEqual({ baseRevision: 7, localStep: 2 });
+  });
+
   it("compaction: an eligible never-linked journal never pauses; an ineligible one is immutable and holds", () => {
     const pendingIds = (c: ParityCase) => c.steps.at(-1)!.record!.atomic!.pending.map(p => p.writeId);
     const bounded = byName("compaction/never-linked-journal-stays-bounded");

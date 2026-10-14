@@ -1050,8 +1050,6 @@ describe("D04 host", () => {
   it("a new account revision with the same account still present kills the open confirmation", async () => {
     const { f, controller, confirm } = await signedIn();
     controller.accountRevision += 1;
-    // Any routine reactive change re-derives the props; the revision is read at that moment.
-    controller.lastSyncedAt = 7;
     flushSync();
     const dialog = screen.getByRole("dialog");
     const button = within(dialog).getByRole("button", {

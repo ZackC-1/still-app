@@ -116,6 +116,7 @@ describe("actual paid-V3 informational options destination", () => {
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
     await waitFor(() => expect(document.activeElement).toBe(region));
+    expect(Boolean(screen.queryByText(/To return to Still’s controls/))).toBe(name === "Firefox" && android);
     expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(money(f.messages)).toEqual([]);
   });

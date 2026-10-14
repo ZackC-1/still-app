@@ -223,7 +223,7 @@ const cases: VisualCase[] = [
     frame: tab(560, 900, { cls: "kbd-signin" }),
     render: settingsPage({ access: accessAll("locked"), consent: "off" }),
     focus: {
-      selector: "section.card:has(> h2.section-label) > button.primary.block",
+      selector: '[data-still-card="sync"] > button.primary.block',
     },
     deviations: [
       OWNER_SYNC_COPY,

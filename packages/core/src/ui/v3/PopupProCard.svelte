@@ -36,6 +36,7 @@
       <h2 class="sync-row-title" id="popup-pro-h">Still Pro</h2>
       <p class="muted sync-row-sub">{POPUP_PRO_VALUE}</p>
     </div>
+    <div class:popup-action={appHandoff}>
     <button
       type="button"
       class="primary inline"
@@ -44,9 +45,10 @@
       onclick={onOpen}
       >Get Still Pro{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
     >
-  </div>
   {#if appHandoff}<p class="handoff" id="popup-pro-handoff">
       <Glyph name="external" size={13} />Opens the Still app
     </p>{/if}
+    </div>
+  </div>
 </section>
 {/if}

@@ -14,6 +14,7 @@
   import "./design/styles.css";
   let {
     settings,
+    commandsDisabled = false,
     access,
     platform,
     phone = false,
@@ -186,6 +187,10 @@
   let proSection: HTMLDivElement | undefined = $state();
   function revealPro() {
     if (!proActionReady) return;
+    if (platform === "mac") {
+      pro?.onBuy?.();
+      return;
+    }
     const card = proSection?.querySelector<HTMLElement>(
       '[aria-label="Still Pro"]',
     );
@@ -214,12 +219,30 @@
   }
 </script>
 
-<div class="still-ui app" data-host="apple">
+{#snippet proCard()}
+  {#if pro && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+    <!-- Checking and verify stay separate so the card shows the matching presentation;
+      accessHeld covers only rights not known missing for any other reason. -->
+    <div bind:this={proSection} style="display:contents;">
+      <NativeProOfferCard
+        {...pro}
+        {phone}
+        {accessChecking}
+        {accessVerify}
+        accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
+        {restoreHeld}
+      />
+    </div>
+  {/if}
+{/snippet}
+
+<div class="still-ui app" class:mac-settings={platform === "mac"} data-host="apple">
   <section class="hero compact" class:off={!settings.globalOn}>
     <div class="hero-text">
       <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
     </div>
     <Toggle
+      disabled={commandsDisabled}
       checked={settings.globalOn}
       onChange={onGlobalChange}
       label="Still"
@@ -246,6 +269,7 @@
     </section>
   {/if}
   <SettingsSiteList
+    {commandsDisabled}
     {settings}
     {access}
     {onServiceChange}
@@ -256,6 +280,7 @@
     features={supportedRows}
     onProAction={proActionReady ? revealPro : undefined}
   />
+  {#if platform === "mac"}{@render proCard()}{/if}
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
     Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
@@ -298,20 +323,7 @@
     </section>
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if pro && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
-    <!-- Checking and verify stay separate so the card shows the matching presentation;
-      accessHeld covers only rights not known missing for any other reason. -->
-    <div bind:this={proSection} style="display:contents;">
-      <NativeProOfferCard
-        {...pro}
-        {phone}
-        {accessChecking}
-        {accessVerify}
-        accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
-        {restoreHeld}
-      />
-    </div>
-  {/if}
+  {#if platform !== "mac"}{@render proCard()}{/if}
   {#if freeRestoreShown}
     <!-- Free period (owner decision 17): the Still Pro card's slot holds only its plain Restore
       link, so past purchasers can restore; no offer, Buy or price. -->
@@ -364,3 +376,18 @@
     onCancel={cancelDelete}
   />
 </div>
+
+<style>
+  /* Mac app only: reduce vertical whitespace by 12.5%; keep text and targets their full size. */
+  .mac-settings {
+    --app-gap: calc(var(--space-3) * 0.875);
+    --services-gap: calc(var(--space-2) * 0.875);
+    --service-card-padding-block: calc(var(--space-3) * 0.875);
+    --sync-gap: calc(var(--space-3) * 0.875);
+    --sync-padding: calc(var(--space-4) * 0.875) var(--space-4);
+    padding-block: max(calc(var(--space-4) * 0.875), env(safe-area-inset-top)) max(calc(var(--space-4) * 0.875), env(safe-area-inset-bottom));
+  }
+  .mac-settings :global(.hero.compact) {
+    --hero-padding: calc(var(--space-3) * 0.875) var(--space-3);
+  }
+</style>
