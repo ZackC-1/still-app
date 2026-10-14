@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core/src/analytics
 applies_when: A client gate needs inputs (permission, policy, evidence) that tests inject; or an extension host observes events before its first account answer
 date: 2026-10-10
-last_updated: 2026-10-10
+last_updated: 2026-10-13
 status: active
 tags:
   - analytics
@@ -75,6 +75,14 @@ bundles.
 
 ## Prevention
 
+- Install reporting is asynchronous work separate from startup confirmation. `flushWhenReady()`
+  waits for the account check and flushes events already queued; it does not await the whole
+  `onInstalled` chain. Five zero-delay timer waits can finish before storage reads and identity
+  derivation queue `installed` and `setup_completed`. The production-wrapper tests use a bounded
+  `vi.waitFor` assertion that flushes on each attempt and requires both events. The install case
+  also runs with 10 ms storage reads: the old assertion reproduced the empty-event CI failure,
+  and the bounded assertion passed with the same delay. Keep negative permission and teardown
+  checks explicit; do not turn absence checks into positive retries or mock away the real host.
 - For every host, keep at least one test that builds the production factory exactly as the entry
   point does, with no `vi.mock` of the host or its gate inputs, and asserts a request is made.
 - When a seam injects evidence a gate needs, add a test proving production supplies it too.
