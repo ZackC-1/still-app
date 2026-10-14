@@ -192,7 +192,15 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     expect(seePro).toHaveBeenCalledOnce();
   });
 
-  it.each(["pending", "failed", "caution"] as const)(
+  it("locked while settings sync is pending: the Pro offer remains visible", async () => {
+    await mountPopup(surface, "locked", {
+      account: { address: "person@still.test", status: { tone: "pending", text: "Syncing your settings." } },
+    });
+    expect(proCard()).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeVisible();
+  });
+
+  it.each(["failed", "caution"] as const)(
     "locked with a %s account status: no card (the free outcome comes first)",
     async (tone) => {
       await mountPopup(surface, "locked", {
