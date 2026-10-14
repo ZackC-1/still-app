@@ -99,6 +99,20 @@ describe("TikTok blocked page host state machine", () => {
     expect(h.host.state().phase).toBe(phase);
   });
 
+  it("a current startup open reply resumes the returned destination without requesting an allowance", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "open", url: "https://www.tiktok.com/@fixture" } });
+    await h.host.start();
+    expect(h.navigate).toHaveBeenCalledExactlyOnceWith("https://www.tiktok.com/@fixture");
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
+  });
+
+  it.each([{ status: "open" }, { status: "open", url: 7 }])("malformed startup reply %j cannot navigate", async (reply) => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: reply });
+    await h.host.start();
+    expect(h.navigate).not.toHaveBeenCalled();
+    expect(h.host.state().phase).toBe("unavailable");
+  });
+
   it("request -> confirmation -> confirm -> granted -> reload replaces the page with the returned destination", async () => {
     const h = harness({
       [TIKTOK_ROUTE.screen]: { status: "blocked", tab: 7 },
@@ -206,6 +220,20 @@ describe("TikTok blocked page host state machine", () => {
 });
 
 describe("TikTok host lifetime and confirmation reply fencing", () => {
+  it.each(["stopped", "superseded"] as const)("a %s startup reply cannot navigate", async (change) => {
+    let answer!: (reply: unknown) => void;
+    const h = harness({ [TIKTOK_ROUTE.screen]: () => new Promise((resolve) => { answer = resolve; }) });
+    const first = h.host.start(); await settle();
+    if (change === "stopped") h.host.stop();
+    else {
+      h.answers.set(TIKTOK_ROUTE.screen, { status: "blocked", tab: 7 });
+      await h.host.start();
+    }
+    answer({ status: "open", url: "https://www.tiktok.com/@fixture" }); await first;
+    expect(h.navigate).not.toHaveBeenCalled();
+    h.host.stop();
+  });
+
   it("does not navigate when a reopen answer arrives after the host stops", async () => {
     let answer!: (reply: unknown) => void;
     const h = harness({

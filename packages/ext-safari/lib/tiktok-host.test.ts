@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type StillSettings } from "@still/shared-types";
-import { TIKTOK_ROUTE, type TiktokRouteReply, type TiktokRouteSender } from "@still/core/content/tiktok-blocked-route";
+import { TIKTOK_ROUTE, type TiktokCommittedSnapshot, type TiktokRouteReply, type TiktokRouteSender } from "@still/core/content/tiktok-blocked-route";
 import { answerTiktokDocumentChallenges, TIKTOK_DOCUMENT_PORT, type TiktokDocumentPort } from "@still/core/content/tiktok-document-port";
+import { createTikTokBlockedHost } from "@still/core/ui/v3/tiktok-blocked-host";
 import { wireSafariTiktokHost, type SafariTiktokBrowser } from "./tiktok-host.js";
 
 function event<T>() {
@@ -25,10 +26,11 @@ function harness(withSession = true) {
     storage: withSession ? { session: area } : {},
     tabs: { get: async (id) => { const tab=tabs.get(id); if (!tab) throw new Error("Missing tab"); return tab.url.startsWith(ORIGIN) ? { id } : { id, url: tab.url }; }, update: async (id, props) => { navigate(id,props.url); return {}; }, onRemoved: removed, onReplaced: { addListener: (fn) => { replaced.add(fn); }, removeListener: (fn) => { replaced.delete(fn); } } },
   };
-  const create = () => wireSafariTiktokHost({ browser, randomId: () => crypto.randomUUID(), readCommitted: async () => {
+  const readCommitted = vi.fn(async (): Promise<TiktokCommittedSnapshot | null> => {
     if (!nativeAvailable) throw new Error("Native committed settings unavailable");
     return { settings, options: { pro: true } };
-  } });
+  });
+  const create = () => wireSafariTiktokHost({ browser, randomId: () => crypto.randomUUID(), readCommitted });
   const send = (kind: string, sender = native(), extra = {}): Promise<TiktokRouteReply | "unhandled"> => new Promise((resolve) => {
     for (const fn of messages) if (fn({ kind, ...extra }, sender, resolve)) return;
     resolve("unhandled");
@@ -41,7 +43,7 @@ function harness(withSession = true) {
     const page: TiktokDocumentPort = { name: TIKTOK_DOCUMENT_PORT, onMessage: pageMessage, onDisconnect: pageDisconnect, postMessage: (m) => bgMessage.emit(m), disconnect };
     const retire = answerTiktokDocumentChallenges(page); connect.emit(bg); return { retire, disconnect };
   };
-  return { create, session, tabs, native, navigate, send, bind, removed, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
+  return { create, session, tabs, native, navigate, send, bind, removed, readCommitted, enable: () => { settings = structuredClone(DEFAULT_SETTINGS); }, disableMain: () => { settings = { ...settings, globalOn: false }; }, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
 }
 async function block(h: ReturnType<typeof harness>) {
   h.navigate(7,TIKTOK);
@@ -102,5 +104,86 @@ describe("Safari D29 composition over existing route and confirmed living-tab au
     h.bind(); await h.send(TIKTOK_ROUTE.request); await h.send(TIKTOK_ROUTE.confirm);
     h.tabs.delete(7); h.removed.emit(7); for(let i=0;i<30;i++) await Promise.resolve();
     expect(grants(h)).toEqual([]); await owner.stop();
+  });
+});
+
+
+describe("saved Off on a freshly reloaded Safari blocked page", () => {
+  function pageHost(h: ReturnType<typeof harness>, sender = h.native()) {
+    const navigate = vi.fn((url: string) => h.navigate(7, url));
+    const host = createTikTokBlockedHost({
+      send: ({ kind }) => h.send(kind, sender), navigate, openSettings: vi.fn(),
+      request: new URL(sender.url!).searchParams.get("r")!, document: sender.documentId!,
+    });
+    return { host, navigate };
+  }
+
+  it.each(["tiktok", "main"] as const)("%s Off reload opens the original URL with no allowance or settings write, and On blocks again", async (control) => {
+    const h = harness(); const owner = h.create(); await block(h);
+    const old = h.bind();
+    if (control === "tiktok") h.disable(); else h.disableMain();
+    const saved = structuredClone(h.settings());
+    old.disconnect(); h.navigate(7, h.tabs.get(7)!.url); h.bind();
+    const p = pageHost(h); await p.host.start();
+    expect(p.navigate).toHaveBeenCalledExactlyOnceWith(TIKTOK);
+    expect(h.tabs.get(7)!.url).toBe(TIKTOK);
+    expect(grants(h)).toEqual([]);
+    expect(h.settings()).toEqual(saved);
+    h.enable();
+    expect(await h.send(TIKTOK_ROUTE.blocked)).toEqual({ status: "redirected" });
+    expect(grants(h)).toEqual([]);
+    p.host.stop(); await owner.stop();
+  });
+
+  it("On remains blocked after a fresh reload and still requires confirmation", async () => {
+    const h = harness(); const owner = h.create(); await block(h); h.bind();
+    const p = pageHost(h); await p.host.start();
+    expect(p.host.state().phase).toBe("blocked");
+    expect(p.navigate).not.toHaveBeenCalled();
+    expect(grants(h)).toEqual([]);
+    p.host.stop(); await owner.stop();
+  });
+
+  it.each(["unreadable", "missing"] as const)("%s committed authority cannot release an Off page", async (failure) => {
+    const h = harness(); const owner = h.create(); await block(h); h.bind(); h.disable();
+    if (failure === "unreadable") h.loseNative();
+    else h.readCommitted.mockResolvedValueOnce(null);
+    const p = pageHost(h); await p.host.start();
+    expect(p.navigate).not.toHaveBeenCalled();
+    expect(grants(h)).toEqual([]);
+    p.host.stop(); await owner.stop();
+  });
+
+  it("a disconnected blocked page cannot use committed Off to navigate", async () => {
+    const h = harness(); const owner = h.create(); await block(h);
+    const connection = h.bind(); h.disable(); connection.disconnect();
+    const p = pageHost(h); await p.host.start();
+    expect(p.navigate).not.toHaveBeenCalled();
+    expect(grants(h)).toEqual([]);
+    p.host.stop(); await owner.stop();
+  });
+
+  it.each(["new-document", "new-connection", "moved-tab", "unbound-target", "foreign-target"] as const)("%s cannot release the old page while committed Off is being read", async (change) => {
+    const h = harness(); const owner = h.create(); await block(h); h.bind(); h.disable();
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      h.readCommitted.mockImplementationOnce(async () => {
+        resolve(); await new Promise<void>((done) => { release = done; });
+        return { settings: h.settings(), options: { pro: true } };
+      });
+    });
+    const p = pageHost(h); const started = p.host.start(); await entered;
+    if (change === "new-document") { h.navigate(7, h.tabs.get(7)!.url); h.bind(); }
+    else if (change === "new-connection") h.bind();
+    else if (change === "moved-tab") h.navigate(7, "https://example.com/");
+    else if (change === "unbound-target") h.session.delete("still:tiktok-origin:7");
+    else {
+      const bound = h.session.get("still:tiktok-origin:7") as { request: string };
+      h.session.set("still:tiktok-origin:7", { ...bound, target: "https://example.com/" });
+    }
+    release(); await started;
+    expect(p.navigate).not.toHaveBeenCalled();
+    expect(grants(h)).toEqual([]);
+    p.host.stop(); await owner.stop();
   });
 });

@@ -53,6 +53,8 @@ export interface TiktokRouteSender {
 /** The one-tab authority (packages/ext-chromium/lib/tiktok-tab-authority.ts) as this route uses it. */
 export interface TiktokRouteAuthority {
   readonly supported: boolean;
+  /** Capture the current blocked document once; rechecks never adopt a replacement connection. */
+  captureCurrentScreen(sender: TiktokRouteSender): () => Promise<boolean>;
   allow(sender: TiktokRouteSender): Promise<boolean>;
   isAllowed(sender: TiktokRouteSender): Promise<boolean>;
   stop(): Promise<void>;
@@ -370,8 +372,19 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
     const tab = tabOf(sender)!;
     // A newly loaded page document retires any confirmation another document opened in this tab.
     settlePending(tab, sender.documentId);
-    if (!capable(sender) || (await resolveOriginalTarget(sender)) === null)
-      return { status: "unavailable", tab };
+    if (!capable(sender)) return { status: "unavailable", tab };
+    const current = authority.captureCurrentScreen(sender);
+    const target = await resolveOriginalTarget(sender);
+    if (target === null) return { status: "unavailable", tab };
+    const snapshot = await readCommitted();
+    if (!snapshot) return { status: "unavailable", tab };
+    // Reloading the blocked document after a saved Off resumes ordinary browsing. This is not
+    // a one-tab allowance: only an authoritative, explicit Off can take this path.
+    if (snapshot.settings.globalOn === false || snapshot.settings.services.tiktok === false) {
+      if ((await resolveOriginalTarget(sender)) !== target || !(await bound(current)) || stopped)
+        return { status: "unavailable", tab };
+      return { status: "open", url: target };
+    }
     // No confirmation is open, so this succeeds only for an allowance this tab already completed.
     return { status: (await authority.allow(sender)) ? "granted" : "blocked", tab };
   }

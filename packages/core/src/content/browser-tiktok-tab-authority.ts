@@ -211,6 +211,17 @@ export function createBrowserTiktokTabAuthority(
 
   return {
     supported,
+    captureCurrentScreen(input: TiktokBrowserSender): () => Promise<boolean> {
+      const sender = capture(input);
+      const currentDocument = deps.currentDocument?.(sender);
+      return async () => {
+        try {
+          return trustedScreen(sender) && await currentPage(sender, true, currentDocument);
+        } catch {
+          return false;
+        }
+      };
+    },
     async allow(input: TiktokBrowserSender): Promise<boolean> {
       const sender = capture(input);
       try {
