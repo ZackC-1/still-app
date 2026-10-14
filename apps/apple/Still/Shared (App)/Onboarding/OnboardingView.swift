@@ -15,6 +15,11 @@
 import SwiftUI
 import StillKit
 import Combine
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct OnboardingView: View {
   /// Probe the live Safari-extension state — real on macOS, `.unknown` on iOS.
@@ -31,14 +36,14 @@ struct OnboardingView: View {
   var initialStep = 0
 
   @State private var step = 0
-  @State private var status: SafariExtensionStatus = .unknown
+  @StateObject private var statusObserver = OnboardingStatusObserver()
+  private var status: SafariExtensionStatus { statusObserver.status }
 
   /// The asset-catalog Still Blue (with its dark variant). Named lookup rather than
   /// `Color.accentColor`, which macOS remaps to the user's system accent preference.
   private static let stillBlue = Color("AccentColor")
   private let lastStep = 3
-  /// Polls the live extension state while screen 3 is on-screen, so the badge flips to "You're all
-  /// set" on its own the moment the user enables Still — no "Check again" tap needed. Real on macOS;
+  /// Polls both directions while screen 3 is active — no "Check again" tap needed. Real on macOS;
   /// a no-op on iOS (status stays `.unknown`, no API to read it).
   private let statusPoll = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -171,11 +176,15 @@ struct OnboardingView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
     // .onAppear + Task rather than .task (which is macOS 12+; the app targets macOS 11 / iOS 15).
-    .onAppear { Task { await refreshStatus() } }
-    .onReceive(statusPoll) { _ in
-      // Live-confirm: flip to "You're all set" on its own once enabled. Stop probing once confirmed.
-      if !status.isConfirmedEnabled { Task { await refreshStatus() } }
+    .onAppear { statusObserver.setActive(appIsActive, check: checkStatus) }
+    .onDisappear { statusObserver.setActive(false, check: checkStatus) }
+    .onReceive(NotificationCenter.default.publisher(for: Self.didBecomeActive)) { _ in
+      statusObserver.setActive(true, check: checkStatus)
     }
+    .onReceive(NotificationCenter.default.publisher(for: Self.willResignActive)) { _ in
+      statusObserver.setActive(false, check: checkStatus)
+    }
+    .onReceive(statusPoll) { _ in statusObserver.refresh(check: checkStatus) }
   }
 
   private var done: some View {
@@ -183,7 +192,7 @@ struct OnboardingView: View {
       glyph("checkmark.seal.fill", tint: .green)
       Text("Still is ready.")
         .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
-      Text("Short-form video is removed from enabled websites in Safari.")
+      Text(completionSubtitle)
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -195,12 +204,43 @@ struct OnboardingView: View {
     }
   }
 
+  private var completionSubtitle: String {
+    #if os(macOS)
+    return "Distractions are removed from enabled websites in Safari"
+    #else
+    return "Short-form video is removed from enabled websites in Safari."
+    #endif
+  }
+
   /// Platform-specific reminder of where Still lives once the user returns to Safari.
   private var returnToSafariTip: String {
     #if os(iOS)
     return "Back in Safari, use the Page Menu to reach Still."
     #else
     return "Back in Safari, click Still’s toolbar button."
+    #endif
+  }
+
+  // This view is presented by NS/UIHostingController, so observe the native app lifecycle.
+  private var appIsActive: Bool {
+    #if os(macOS)
+    return NSApplication.shared.isActive
+    #else
+    return UIApplication.shared.applicationState == .active
+    #endif
+  }
+  private static var didBecomeActive: Notification.Name {
+    #if os(macOS)
+    return NSApplication.didBecomeActiveNotification
+    #else
+    return UIApplication.didBecomeActiveNotification
+    #endif
+  }
+  private static var willResignActive: Notification.Name {
+    #if os(macOS)
+    return NSApplication.willResignActiveNotification
+    #else
+    return UIApplication.willResignActiveNotification
     #endif
   }
 
@@ -233,10 +273,6 @@ struct OnboardingView: View {
     #endif
   }
 
-  @MainActor private func refreshStatus() async {
-    status = await checkStatus()
-  }
-
   // MARK: Footer
 
   private var footer: some View {
@@ -252,7 +288,7 @@ struct OnboardingView: View {
       .buttonStyle(.plain)
 
       if step == 2 {
-        Button("Check again") { Task { await refreshStatus() } }
+        Button("Check again") { statusObserver.refresh(check: checkStatus) }
           .buttonStyle(.plain)
           .font(.still(size: 13, relativeTo: .footnote))
           .foregroundColor(.secondary)

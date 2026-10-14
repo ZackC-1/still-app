@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // The testable core of the 4-screen "enable the Safari extension" onboarding (U18). The SwiftUI
 // screens and the actual SFSafariExtensionManager probe live in the app target (they need
@@ -31,6 +32,36 @@ public enum SafariExtensionStatus: Equatable, Sendable {
   /// True only when we can affirmatively confirm the extension is on — the one state that lets the
   /// onboarding auto-advance past screen 3 without the user asserting they enabled it themselves.
   public var isConfirmedEnabled: Bool { self == .enabled }
+}
+
+/// The live onboarding badge. The view supplies timer/foreground events; one read runs at a time.
+@MainActor public final class OnboardingStatusObserver: ObservableObject {
+  @Published public private(set) var status: SafariExtensionStatus = .unknown
+  private var active = false
+  private var generation = 0
+  private var reading: Task<Void, Never>?
+
+  public init() {}
+
+  public func setActive(_ next: Bool, check: @escaping () async -> SafariExtensionStatus) {
+    guard active != next else { return }
+    active = next
+    generation += 1
+    reading?.cancel()
+    reading = nil
+    if active { refresh(check: check) }
+  }
+
+  public func refresh(check: @escaping () async -> SafariExtensionStatus) {
+    guard active, reading == nil else { return }
+    let observed = generation
+    reading = Task { [weak self] in
+      let next = await check()
+      guard let self, self.active, self.generation == observed, !Task.isCancelled else { return }
+      if self.status != next { self.status = next }
+      self.reading = nil
+    }
+  }
 }
 
 /// Where the button on onboarding screen 3 actually takes the reader. The two platforms differ, and
