@@ -1,0 +1,102 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick, type Component } from "svelte";
+import { resolve } from "node:path";
+import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
+import { SettingsCache } from "../../storage/cache.js";
+import { NativeBridge } from "../../native/bridge.js";
+import { UiController } from "../controller.svelte.js";
+import { STRINGS } from "../strings.js";
+import { createAppleSession } from "../../sync/apple-session.js";
+import { makeBridge } from "../../sync/__tests__/support/apple-session-harness.js";
+import { createAppleSettingsAuthority } from "./apple-settings-host.js";
+
+vi.mock("@still/shared-types", async original => ({
+  ...(await original<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: true,
+}));
+
+const HOST_PATH = resolve(import.meta.dirname, "../../../../app-webview/src/AppleSettingsHost.svelte");
+const stops: (() => void)[] = [];
+afterEach(() => { cleanup(); stops.splice(0).forEach(stop => stop()); });
+
+async function compose() {
+  const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+  const writer = new AtomicSettingsWriter(storage);
+  await writer.initialize("never-linked");
+  const cache = new SettingsCache({
+    get: storage.get.bind(storage), set: storage.set.bind(storage),
+    subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer),
+  });
+  await cache.hydrate();
+  const native = new NativeBridge({ webkit: { messageHandlers: { still: { postMessage: async () => null } } } });
+  const authority = createAppleSettingsAuthority(cache, {
+    native, initializer: { initializeAtomic: () => writer.initialize("unknown") }, hydration: cache.whenHydrated(),
+  });
+  stops.push(() => authority.stop());
+  const requestCode = vi.fn(async () => ({ kind: "sent" as const }));
+  const controller = new UiController({ cache, host: { canPurchase: true }, auth: {
+    requestCode,
+    verifyCode: async (email, code) => {
+      if (code === "000000") return { kind: "invalid-code" };
+      await session.onCodeVerified("synthetic-account", email);
+      return { kind: "verified", userId: "synthetic-account", email };
+    },
+    signOut: () => session.signOutEverywhere(),
+  } });
+  stops.push(() => controller.dispose());
+  const bridge = makeBridge();
+  const sync = {
+    onSignedIn: vi.fn(async (userId: string) => {
+      session.onSyncState({ userId, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
+    }),
+    signOut: vi.fn(async () => {
+      session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
+    }),
+    deleteAccount: vi.fn(async () => {}),
+  };
+  const session = createAppleSession({ controller, sync, bridge, exchangeAppleCredential: async () => ({ error: "Unused" }) });
+  const signOut = vi.spyOn(controller, "signOut");
+  const { default: Host } = (await import(/* @vite-ignore */ HOST_PATH)) as { default: Component<Record<string, unknown>> };
+  render(Host, { props: { controller, authority, observeSetup: async () => null, help: {} } });
+  await screen.findByRole("button", { name: "Sign in" });
+  return { controller, storage, bridge, requestCode, signOut };
+}
+
+async function enterCode(wrongFirst = false) {
+  await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+  await fireEvent.input(email, { target: { value: "reader@example.test" } });
+  await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+  const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+  if (wrongFirst) {
+    await fireEvent.input(code, { target: { value: "000000" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+    await screen.findByText(STRINGS.codeAuth.wrongCode);
+  }
+  await fireEvent.input(code, { target: { value: "123456" } });
+  await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+  await screen.findByRole("button", { name: "Sign out" });
+}
+
+describe("Apple settings host sign-in lifetime", () => {
+  it("supports repeated code sign-in after sign-out without remounting, including wrong-code retry", async () => {
+    const f = await compose();
+    const saved = await f.storage.get();
+    await enterCode();
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await f.signOut.mock.results.at(-1)!.value;
+      await tick();
+      expect(f.controller.userId).toBeNull();
+      await enterCode(true);
+      await waitFor(() => expect(f.controller.userId).toBe("synthetic-account"));
+    }
+    expect(f.requestCode).toHaveBeenCalledTimes(3);
+    expect(f.bridge.purchaseStillPro).not.toHaveBeenCalled();
+    expect(await f.storage.get()).toEqual(saved);
+  });
+});
