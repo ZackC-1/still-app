@@ -191,15 +191,15 @@ describe("format-2 navigation session rules", () => {
       // Decision 33: Instagram's plural viewer opens just that one Reel; the bare feed goes home;
       // shared single Reels and the audio hub stay reachable. A profile's Reels tab opens the
       // profile's posts (ISS-0034).
-      ["https://www.instagram.com/reels/C0dE_1-x/", "https://www.instagram.com/reel/C0dE_1-x/"],
-      ["https://www.instagram.com/reels/C0dE_1-x/?igsh=MTc4", "https://www.instagram.com/reel/C0dE_1-x/?igsh=MTc4"],
+      ["https://www.instagram.com/reels/C0dE_1-x/", null],
+      ["https://www.instagram.com/reels/C0dE_1-x/?igsh=MTc4", null],
       ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
       ["https://www.instagram.com/reels/audio/", null],
       ["https://www.instagram.com/reels/audio/123/", null],
       ["https://www.instagram.com/someuser/reel/C0dE/", null],
       ["https://www.instagram.com/someuser/reels/", "https://www.instagram.com/someuser/"],
       ["https://www.instagram.com/some.user_9/reels?igsh=MTc4", "https://www.instagram.com/some.user_9/"],
-      ["https://www.instagram.com/reels/reels/", "https://www.instagram.com/reel/reels/"],
+      ["https://www.instagram.com/reels/reels/", null],
       ["https://www.instagram.com/someuser/reels/x/", null],
       ["https://about.instagram.com/features/reels/", null],
       ["https://www.instagram.com/reel/C0dE/", null],

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEnginePageSession, type EnginePageSession } from "../engine.js";
-import { INSTAGRAM_EXPLORE_MARKER, INSTAGRAM_PROFILE_MARKER, INSTAGRAM_REELS_LAYOUT, INSTAGRAM_REELS_RULES, isInstagramExploreHub, isInstagramProfilePage } from "../instagram.js";
+import { INSTAGRAM_PROFILE_MARKER, INSTAGRAM_REELS_LAYOUT, INSTAGRAM_REELS_RULES, isInstagramProfilePage } from "../instagram.js";
 import { ruleSet, DEFAULT_SETTINGS_V2, access } from "./format2-fixtures.js";
 const bundle = { ...ruleSet, services: { instagram: INSTAGRAM_REELS_RULES } };
 const sessions: EnginePageSession[] = [];
@@ -30,11 +30,11 @@ const layouts = [
     ["profile-grid"],
   ],
   [
-    // Explore's grid: every tile links to /p/<code>/; Reel tiles carry an SVG titled "Reel" (ISS-0038).
+    // Explore is a measured grid: keep discovery tiles; contain continuation in the viewer.
     "instagram-explore.html",
-    ["explore-reel-1", "explore-reel-2", "explore-reel-3", "explore-reel-4", "explore-reel-5",
-      "explore-reel-6", "explore-reel-7", "explore-reel-8", "explore-reel-9", "explore-reel-10"],
-    ["explore-grid"],
+    [],
+    ["explore-grid", "explore-reel-1", "explore-reel-2", "explore-reel-3", "explore-reel-4",
+      "explore-reel-5", "explore-reel-6", "explore-reel-7", "explore-reel-8", "explore-reel-9", "explore-reel-10"],
   ],
 ] as const;
 const visible = (node: Element) => {
@@ -46,7 +46,6 @@ function render(file: string) {
   // The content script's marker hook sets the profile mark from the address; the profile fixture
   // stands for a profile page.
   document.documentElement.toggleAttribute(INSTAGRAM_PROFILE_MARKER.attribute, file === "instagram-profile.html");
-  document.documentElement.toggleAttribute(INSTAGRAM_EXPLORE_MARKER.attribute, file === "instagram-explore.html");
   document.body.innerHTML = new DOMParser().parseFromString(
     readFileSync(resolve("../../tests/fixtures", file), "utf8"),
     "text/html",
@@ -62,7 +61,6 @@ beforeEach(() => {
   document.body.innerHTML = "";
   document.documentElement.className = "site-theme";
   document.documentElement.removeAttribute(INSTAGRAM_PROFILE_MARKER.attribute);
-  document.documentElement.removeAttribute(INSTAGRAM_EXPLORE_MARKER.attribute);
 });
 afterEach(() => {
   for (const s of sessions.splice(0)) s.stop?.();
@@ -267,78 +265,26 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       "https://www.instagram.com/someuser/reels/", "https://about.instagram.com/features/", "https://www.instagram.com/Explore/"])
       expect(at(href), href).toBe(false);
   });
-  it("Explore grid: Reel tiles go whole and the rows join one grid of the rows' own width, only with the mark", () => {
+  it("Explore keeps measured rows and mixed tiles under free blocking, including later batches and padding", () => {
     render("instagram-explore.html");
-    const s = session(),
-      url = new URL("https://www.instagram.com/explore/");
+    const s = session(), url = new URL("https://www.instagram.com/explore/");
     const grid = document.getElementById("explore-grid")!;
-    const rows = [...grid.children];
     s.applyDom(DEFAULT_SETTINGS_V2, url, document);
-    expect(getComputedStyle(grid).display).toBe("grid");
-    expect(getComputedStyle(grid).gridTemplateColumns).toBe("repeat(4,1fr)");
-    for (const row of rows) expect(getComputedStyle(row).display).toBe("contents");
-    // The mark is the only scope: without it Explore keeps Instagram's own rows and its Reels.
-    document.documentElement.removeAttribute(INSTAGRAM_EXPLORE_MARKER.attribute);
-    expect(getComputedStyle(grid).display).not.toBe("grid");
-    for (const row of rows) expect(getComputedStyle(row).display).not.toBe("contents");
-    expect(visible(document.getElementById("explore-reel-1")!)).toBe(true);
-    // A column count the layout does not list keeps Instagram's rows; the Reel tiles still go.
-    document.documentElement.setAttribute(INSTAGRAM_EXPLORE_MARKER.attribute, "");
-    // Rows that disagree about the count keep Instagram's rows.
-    rows[0]!.setAttribute("style", "--x-gridTemplateColumns: repeat(3, 1fr);");
-    expect(getComputedStyle(grid).display).not.toBe("grid");
-    for (const row of rows) row.setAttribute("style", "--x-gridTemplateColumns:repeat(4,1fr);");
-    expect(getComputedStyle(grid).display).toBe("grid"); // no space after the comma is the same count
-    for (const row of rows) row.setAttribute("style", "--x-gridTemplateColumns: repeat(4, 1fr);");
-    for (const row of rows) row.setAttribute("style", "--x-gridTemplateColumns: repeat(6, 1fr);");
-    expect(getComputedStyle(grid).display).not.toBe("grid");
-    for (const row of rows) expect(getComputedStyle(row).display).not.toBe("contents");
-    expect(visible(document.getElementById("explore-reel-1")!)).toBe(false);
-    // A grid Instagram is virtualizing keeps its own layout too.
-    for (const row of rows) row.setAttribute("style", "--x-gridTemplateColumns: repeat(4, 1fr);");
-    grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 4060px; position: relative;");
-    expect(getComputedStyle(grid).display).not.toBe("grid");
-    // ...but its Reel tiles stay hidden: fixed-track rows only leave room at the end of a row.
-    expect(visible(document.getElementById("explore-reel-1")!)).toBe(false);
-    expect(visible(document.getElementById("keep-explore-1")!)).toBe(true);
-    // Off: everything back.
-    grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;");
-    s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "instagram.reels": false } }, url, document);
-    expect(getComputedStyle(grid).display).not.toBe("grid");
-    expect(visible(document.getElementById("explore-reel-1")!)).toBe(true);
-  });
-  it("an Explore Reel tile is told by its video alone, whatever language its badge is in", () => {
-    render("instagram-explore.html");
-    for (const svg of document.querySelectorAll('#explore-grid svg[aria-label="Reel"]')) svg.setAttribute("aria-label", "Bobina");
-    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/explore/"), document);
-    expect(visible(document.getElementById("explore-reel-1")!)).toBe(false);
-    expect(visible(document.getElementById("keep-explore-1")!)).toBe(true);
-  });
-  it("the Explore mark stays while a tile is open over Explore, and goes on any other address", () => {
-    const owns = (href: string, marked: boolean) => INSTAGRAM_EXPLORE_MARKER.owns({
-      ownerDocument: { defaultView: { location: new URL(href) } },
-      hasAttribute: (name: string) => marked && name === INSTAGRAM_EXPLORE_MARKER.attribute,
-    } as unknown as Element);
-    expect(owns("https://www.instagram.com/explore/", false)).toBe(true);
-    // A tile opened over Explore keeps the mark, so the grid behind the dialog stays as it was.
-    expect(owns("https://www.instagram.com/p/C0de/", true)).toBe(true);
-    expect(owns("https://www.instagram.com/someuser/p/C0de/", true)).toBe(true);
-    // A post opened from anywhere else never gains it.
-    expect(owns("https://www.instagram.com/p/C0de/", false)).toBe(false);
-    // Any other address clears it.
-    for (const href of ["https://www.instagram.com/", "https://www.instagram.com/explore/search/", "https://www.instagram.com/someuser/",
-      "https://www.instagram.com/reel/C0de/", "https://about.instagram.com/p/C0de/"])
-      expect(owns(href, true), href).toBe(false);
-  });
-  it("the Explore mark follows the address: the Explore hub on the web app hosts only", () => {
-    for (const href of ["https://www.instagram.com/explore/", "https://instagram.com/explore", "https://m.instagram.com/explore/?hl=fr"])
-      expect(isInstagramExploreHub(new URL(href)), href).toBe(true);
-    for (const href of ["https://www.instagram.com/", "https://www.instagram.com/explore/search/", "https://www.instagram.com/explore/tags/x/",
-      "https://www.instagram.com/explore/people/", "https://www.instagram.com/p/C0de/", "https://about.instagram.com/explore/"])
-      expect(isInstagramExploreHub(new URL(href)), href).toBe(false);
-    const hides = INSTAGRAM_REELS_RULES.surfaces[0]!;
-    if (hides.action !== "hide") throw new Error("Reels data only hides");
-    expect(hides.selectors).toContain(INSTAGRAM_EXPLORE_MARKER.ruleSelector);
+    const assertUnchanged = () => {
+      expect(getComputedStyle(grid).display).not.toBe("grid");
+      for (const row of grid.children) {
+        expect(getComputedStyle(row).display).not.toBe("contents");
+        for (const tile of row.children) expect(visible(tile), tile.id).toBe(true);
+      }
+    };
+    assertUnchanged();
+    grid.append(grid.firstElementChild!.cloneNode(true));
+    grid.setAttribute("style", "display:flex;padding-top:4060px;padding-bottom:0px");
+    assertUnchanged();
+    s.applyDom({ ...DEFAULT_SETTINGS_V2, services: { ...DEFAULT_SETTINGS_V2.services, instagram: false } }, url, document);
+    assertUnchanged();
+    s.applyDom(DEFAULT_SETTINGS_V2, url, document);
+    assertUnchanged();
   });
   it("the packaged tile hide and the compiled layout select the same tile boxes", () => {
     // The layout ships in code and the hide in rule data: if either drifts, holes come back.
@@ -399,13 +345,8 @@ describe("captured Instagram through the maintained format2 compiler", () => {
         href,
       ).toBe("apply");
     }
-    // The plural /reels/<code>/ viewer opens the same Reel at its singular shared address
-    // ("shared" is a code by the viewer pattern), keeping the share query and fragment.
-    expect(
-      s.evaluate(
-        DEFAULT_SETTINGS_V2,
-        new URL("/reels/shared/?igsh=chosen#part", "https://www.instagram.com"),
-      ),
-    ).toEqual({ kind: "redirect", url: "https://www.instagram.com/reel/shared/?igsh=chosen#part" });
+    // Both aliases open the same shared item; the site chooses its canonical address.
+    expect(s.evaluate(DEFAULT_SETTINGS_V2,
+      new URL("/reels/shared/?igsh=chosen#part", "https://www.instagram.com")).kind).toBe("apply");
   });
 });

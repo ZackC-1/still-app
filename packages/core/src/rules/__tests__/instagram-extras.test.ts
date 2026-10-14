@@ -161,7 +161,7 @@ describe("Instagram extras routes (paid on through the real implementation table
 
   it("the free Reels routes and continuation run first and are never shadowed", () => {
     expect(route(`${IG}/reels/`)).toEqual(redirect("/"));
-    expect(route(`${IG}/reels/InvReel1/?igsh=x`)).toEqual(redirect("/reel/InvReel1/?igsh=x"));
+    expect(route(`${IG}/reels/InvReel1/?igsh=x`)).toEqual(APPLY);
     expect(route(`${IG}/reel/InvReel1/`)).toEqual(APPLY);
     // The Reels viewer advancing on its own is still stopped with every extra On.
     const engine = session();

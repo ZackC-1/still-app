@@ -143,7 +143,6 @@ const CORE: ReadonlyArray<readonly [string, string]> = [
   ["https://www.youtube.com/shorts/abc123", "https://www.youtube.com/watch?v=abc123"],
   ["https://m.youtube.com/shorts/xyz789?feature=share", "https://m.youtube.com/watch?feature=share&v=xyz789"],
   ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
-  ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
   // A profile's Reels tab opens that profile's posts (ISS-0034).
   ["https://www.instagram.com/someone/reels/", "https://www.instagram.com/someone/"],
   ["https://www.facebook.com/reels/", "https://www.facebook.com/"],
@@ -153,6 +152,7 @@ const CORE: ReadonlyArray<readonly [string, string]> = [
   ["https://www.facebook.com/reel/following/", "https://www.facebook.com/"],
 ];
 const NEVER: readonly string[] = [
+  "https://www.instagram.com/reels/C0de12/",
   "https://www.instagram.com/",
   "https://www.instagram.com/explore/",
   "https://www.instagram.com/stories/someone/123/",
