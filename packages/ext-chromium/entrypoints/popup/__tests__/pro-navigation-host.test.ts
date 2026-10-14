@@ -7,9 +7,10 @@ import { fixture as desktopFixture } from "../../../../core/src/ui/v3/DesktopPop
 import { fixture as settingsFixture } from "../../../../core/src/ui/v3/ExtensionSettings.test-fixtures.js";
 import { browser, capture, flush } from "../../../../core/src/ui/__tests__/committed-popup-host.fixtures.js";
 import { CHROMIUM_SURFACE_GUIDANCE } from "@still/core/ui";
-import { bindProOptionsNavigation, openBrowserPro, PRO_NAVIGATION_KEY, PRO_OPTIONS_HASH } from "../../../lib/pro-navigation.js";
+import { bindProOptionsNavigation, openBrowserPro, PRO_NAVIGATION_KEY, PRO_OPTIONS_HASH, PRO_OFFER_READY_KEY } from "../../../lib/pro-navigation.js";
 import PopupApp from "../PopupApp.svelte";
 import ExtensionSettings from "../../../../core/src/ui/v3/ExtensionSettings.svelte";
+import { watchAccountStatus } from "../../../../core/src/ui/account-status.js";
 
 vi.mock("@still/shared-types", async original => ({
   ...(await original<typeof import("@still/shared-types")>()),
@@ -67,7 +68,7 @@ async function options(target: HTMLElement) {
   return { view, buy, card: () => within(target).getByRole("region", { name: "Still Pro" }) };
 }
 
-async function popup(browserName: "Chrome" | "Firefox", android = false, state: "locked" | "unsupported" | "checking" = "locked", ready = true, offer = true) {
+async function popup(browserName: "Chrome" | "Firefox", android = false, state: "locked" | "unsupported" | "checking" = "locked", ready = true, offer: boolean | (() => Promise<boolean>) = true) {
   await browser();
   // The background's "would Settings offer Get Still Pro?" answer (lib/checkout-availability.ts).
   const send = chrome.runtime.sendMessage.bind(chrome.runtime) as (message: unknown) => Promise<unknown>;
@@ -77,7 +78,7 @@ async function popup(browserName: "Chrome" | "Firefox", android = false, state: 
       const m = message as { kind?: string; action?: string };
       if (m.kind === "still:session" && m.action === "checkoutAvailable") {
         asked();
-        return offer;
+        return typeof offer === "function" ? offer() : offer;
       }
       return send(message);
     }),
@@ -102,10 +103,42 @@ async function popup(browserName: "Chrome" | "Firefox", android = false, state: 
   const youtube = await screen.findByRole("button", { name: "YouTube Blocker" });
   if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
   await flush();
-  return { ...navigation, view, props, binding, f, asked };
+  return { ...navigation, view, props, binding, f, asked, access, controller };
 }
 
 describe("live popup/App/browser Pro navigation", () => {
+  it.each([
+    ["Chrome", false], ["Firefox", false], ["Firefox", true],
+  ] as const)("%s Android=%s retains the same offer through a signed-in sync refresh (ISS-0032)", async (name, android) => {
+    const f = await popup(name, android);
+    const account = {
+      accountId: "synthetic-account",
+      email: "reader@example.test",
+      lastSyncedAt: Date.now(),
+      pendingUpload: false,
+      cloudReachable: true,
+      updatedAt: Date.now(),
+    };
+    const read = vi.fn(async () => ({ ...account }));
+    stops.push(watchAccountStatus(f.controller, read));
+    await screen.findByText("Synced with your account.");
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    const before = await f.f.storage.get();
+
+    account.pendingUpload = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await screen.findByText("Syncing your settings.");
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(within(card).getByRole("button", { name: "Get Still Pro" }).hasAttribute("disabled")).toBe(false);
+
+    account.pendingUpload = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await screen.findByText("Synced with your account.");
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(f.openOptionsPage).not.toHaveBeenCalled();
+    expect(await f.f.storage.get()).toEqual(before);
+  });
+
   it.each([
     ["Chrome", false], ["Firefox", false], ["Firefox", true],
   ] as const)("%s Android=%s sends a fixed options request, focuses real Pro after lazy mount, and never buys", async (name, android) => {
@@ -152,6 +185,36 @@ describe("live popup/App/browser Pro navigation", () => {
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" }));
     await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());
+  });
+
+  it.each(["Chrome", "Firefox"] as const)("%s recovers an early unavailable offer answer without reopening", async name => {
+    const answer = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const f = await popup(name, false, "locked", true, answer);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy(), { timeout: 2000 });
+    expect(answer).toHaveBeenCalledTimes(2);
+    expect(f.openOptionsPage).not.toHaveBeenCalled();
+  });
+
+  it("keeps stale replies out of the reopen cache while accepting a current false reply", async () => {
+    let resolveOld!: (ready: boolean) => void;
+    let resolveReopen!: (ready: boolean) => void;
+    const old = new Promise<boolean>(resolve => { resolveOld = resolve; });
+    const reopen = new Promise<boolean>(resolve => { resolveReopen = resolve; });
+    const answer = vi.fn().mockReturnValueOnce(old).mockResolvedValueOnce(true).mockReturnValue(reopen);
+    const f = await popup("Chrome", false, "locked", true, answer);
+    await f.f.cache.setGlobalOn(false);
+    await waitFor(() => expect(f.records[PRO_OFFER_READY_KEY]).toBe(true));
+    resolveOld(false);
+    await flush();
+    expect(f.records[PRO_OFFER_READY_KEY]).toBe(true);
+    f.view.unmount();
+    const binding = createDesktopPopupBinding(f.f.cache, f.access);
+    stops.push(binding.stop);
+    render(PopupApp, { props: { ...f.props, committedPopupBinding: binding } });
+    await screen.findByRole("button", { name: "Get Still Pro" });
+    resolveReopen(false);
+    await waitFor(() => expect(f.records[PRO_OFFER_READY_KEY]).toBe(false));
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
   });
 
   it.each(["unsupported", "checking"] as const)("%s access shows no Still Pro card in the popup", async state => {
@@ -231,6 +294,25 @@ describe("options route lifecycle", () => {
     await flush();
     expect(document.activeElement).toBe(other);
     expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it("aligns the offer heading at the top and follows late content until the user interacts", async () => {
+    await browser(); session();
+    const target = root(); const destination = await options(target);
+    const card = destination.card();
+    const scroll = vi.fn();
+    Object.defineProperty(card, "scrollIntoView", { value: scroll, configurable: true });
+    stops.push(bindProOptionsNavigation(target));
+    await openBrowserPro();
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+    const focus = vi.spyOn(card, "focus");
+    card.append(document.createElement("p"));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
+    expect(focus).not.toHaveBeenCalled();
+    await fireEvent.wheel(target);
+    card.append(document.createElement("p"));
+    await flush();
+    expect(scroll).toHaveBeenCalledTimes(2);
   });
 
   it("a newer request fences an older initial read, and changing route cancels pending lazy focus", async () => {

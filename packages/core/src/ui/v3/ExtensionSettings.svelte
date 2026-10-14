@@ -26,6 +26,7 @@
     features,
     labels,
     phone = false,
+    proReturnGuidance,
     platformKnown = true,
     sync,
     pro,
@@ -104,7 +105,7 @@
     );
     if (!card) return;
     card.setAttribute("tabindex", "-1");
-    card.scrollIntoView?.({ block: "center" });
+    card.scrollIntoView?.({ block: "start" });
     card.focus({ preventScroll: true });
   }
   $effect(() => () => {
@@ -268,6 +269,9 @@
         {accessVerify}
         {restoreHeld}
       />
+      {#if proReturnGuidance}
+        <p class="caption muted">{proReturnGuidance}</p>
+      {/if}
     </div>
   {/if}
   {#if freeRestoreShown}

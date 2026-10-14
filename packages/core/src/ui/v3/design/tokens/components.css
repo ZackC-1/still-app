@@ -321,3 +321,12 @@
   .still-ui *, .still-ui *::before, .still-ui *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
   .status-line[data-tone="pending"] .glyph { animation: none; }
 }
+
+/* Safari actions keep their destination caption directly below their own button. */
+.sync-row:has(.popup-action) { flex-wrap: wrap; }
+.sync-row:has(.popup-action) .sync-row-text { flex-basis: 120px; }
+.popup-action { display: flex; align-items: center; flex-direction: column; gap: 4px; flex: none; inline-size: var(--popup-action-inline-size, auto); }
+.popup-action .handoff { justify-content: center; flex-wrap: wrap; text-align: center; }
+.app.app-handoff { --popup-action-inline-size: calc(142px * var(--text-scale, 1)); }
+
+.app.app-handoff .popup-action > button { inline-size: 100%; }

@@ -9,8 +9,10 @@
   } from "./invitation-presentation.js";
   import "./design/styles.css";
 
-  let { presentation }: { presentation?: PopupInvitationPresentation } =
-    $props();
+  let { presentation, canonicalSync = false }: {
+    presentation?: PopupInvitationPresentation;
+    canonicalSync?: boolean;
+  } = $props();
   // A local current-request fence; caller observations alone control visibility.
   let current = $derived(
     invitationVisible(presentation)
@@ -70,6 +72,11 @@
       "Link",
     ],
   } as const;
+  let title = $derived(presentation?.kind === "sync" && canonicalSync
+    ? "Settings sync" : presentation ? copy[presentation.kind][0] : "");
+  let detail = $derived(presentation?.kind === "sync" && canonicalSync
+    ? "Free. Keep your block settings consistent across every supported device and browser."
+    : presentation ? copy[presentation.kind][1] : "");
   function intent(
     observation: PopupInvitationPresentation,
     port: InvitationIntentPort | undefined,
@@ -114,10 +121,10 @@
 
 {#if invitationVisible(presentation)}
   {#key current}
-    <section class="card card-stack" aria-label={copy[presentation.kind][0]}>
+    <section class="card card-stack" aria-label={title}>
       <div class="sync-row-text">
-        <h2 class="sync-row-title">{copy[presentation.kind][0]}</h2>
-        <p class="muted sync-row-sub">{copy[presentation.kind][1]}</p>
+        <h2 class="sync-row-title">{title}</h2>
+        <p class="muted sync-row-sub">{detail}</p>
       </div>
       <div class="inline-actions">
         <button

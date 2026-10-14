@@ -45,6 +45,7 @@
     features,
     labels,
     phone,
+    proReturnGuidance,
     platformKnown,
     commandsDisabled,
     sync,
@@ -93,6 +94,7 @@
   {features}
   {labels}
   {phone}
+  {proReturnGuidance}
   {platformKnown}
   {commandsDisabled}
   {sync}

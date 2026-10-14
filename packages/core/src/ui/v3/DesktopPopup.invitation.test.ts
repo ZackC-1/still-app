@@ -78,9 +78,11 @@ describe("optional D28 desktop invitation", () => {
     expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
     expect(
       screen.getByRole("region", {
-        name: "Use the same settings in every browser",
+        name: "Settings sync",
       }),
     ).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Settings sync" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
@@ -265,7 +267,7 @@ describe("per-issued invitation claims through DesktopPopup", () => {
   const title = (kind: "rating" | "sync" | "link") =>
     ({
       rating: "Rate Still",
-      sync: "Use the same settings in every browser",
+      sync: "Settings sync",
       link: "Link Still Pro to an account",
     })[kind];
   const control = (

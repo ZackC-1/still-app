@@ -133,7 +133,7 @@
   {/if}
 {/snippet}
 
-<div class="popup" class:edge-to-edge={fillsSheet}>
+<div class="popup" class:desktop-popup={surface === "desktop"} class:edge-to-edge={fillsSheet}>
   {#if handoffFailed}
     <p class="handoff-failed" role="alert">Open the Still app to continue.</p>
   {/if}
@@ -190,6 +190,22 @@
     max-inline-size: 100%;
     margin-inline: auto;
     overflow: clip;
+  }
+  .popup.desktop-popup {
+    block-size: var(--popup-max-block-size, 600px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .desktop-popup :global(.app[data-density="compact"]) {
+    min-block-size: 100%;
+    max-block-size: none;
+    overflow: visible;
+  }
+  .desktop-popup :global(.app[data-density="compact"] .site-scroll) {
+    flex: none;
+    max-block-size: none;
+    overflow: visible;
   }
   .handoff-failed {
     margin: 0;

@@ -12,6 +12,30 @@ import DesktopPopup from "./DesktopPopup.svelte";
 import { fixture, bindWriter } from "./DesktopPopup.fixtures.js";
 
 describe("controlled D01 presentation", () => {
+  it("keeps the Safari Mac offer mounted through settings sync and honors current access and offer readiness", async () => {
+    const { props, storage } = await fixture("locked");
+    props.onSeePro = vi.fn();
+    props.appHandoff = true;
+    props.account = { status: { tone: "success", text: "Synced with your account." } };
+    const view = render(DesktopPopup, { props });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    const saved = await storage.get();
+    props.account = { status: { tone: "pending", text: "Syncing your settings." } };
+    await view.rerender(props);
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(within(card).getByRole("button", { name: "Get Still Pro" })).toHaveAccessibleDescription("Opens the Still app");
+
+    props.proOfferReady = false;
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    props.proOfferReady = true;
+    props.access = (await fixture("purchased")).props.access;
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(props.onSeePro).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(saved);
+  });
+
   it("mounts feature controls only in the one open section and preserves saved choices on close", async () => {
     const { props } = await fixture("purchased");
     const saved = structuredClone(props.settings);
