@@ -6,6 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: A failed upload stays local until restart or a newer edit disappears during recovery
 date: 2026-09-09
+last_updated: 2026-10-14
 status: active
 tags: [sync, retry, realtime, account-isolation]
 ---
@@ -41,3 +42,29 @@ regressions; removing own-echo preservation broke three while healthy controls r
 The full sync suite passed 265 tests after the correction. Apple and browser account-status tests
 also cover stale reads, sign-out, deletion and account switches. See the related
 [invalidation lesson](invalidate-sync-work-by-session-lifecycle.md) for the ownership rule.
+
+Healthy idle clients need an acquisition trigger too. The hosted QA route deliberately has no
+production `public.profiles` subscription, and production notifications can also be missed.
+Modern SyncService therefore schedules a canonical read every five seconds while healthy and
+active, sharing `retryNow()` with existing recovery. A failure cancels this healthy timer so the
+exponential backoff remains the only recovery scheduler. Success rearms it; teardown cancels it
+and lifecycle checks reject retired completions. The cadence does not promise delivery while an
+OS suspends the runtime. Keep the QA subscription guard: removing it reaches the wrong authority.
+
+Safari has a separate local receive boundary. Native App Group writes do not generate browser
+storage events. Open visible Safari caches reread the existing native authority periodically,
+without starting another cloud session or writing the browser projection back to native storage.
+Hidden pages skip periodic reads. A fresh storage signal supersedes an old read rather than
+waiting behind it: serializing those signals made a delayed old-account response hold up an
+already committed new account. Abort the old wait and fence its eventual completion. Unsubscribe
+cancels both the deadline and refresh timer.
+
+`live-sync.test.ts` composes real backend ports, services, atomic writers, caches and popup bindings
+with synthetic transport. It proves bidirectional and different-field convergence at a controlled
+five-second cadence, durable offline recovery, no overlapping cloud reads, session changes and
+worker recreation. `apple-signin-lifecycle.integration.test.ts` also exercises a mounted host
+through repeated sign-in and delayed native cleanup. Safari's `settings-storage.test.ts` proves
+app-originated changes arrive without projection events; the compiled native
+`atomic-settings.test.ts` preserves reverse-reply and account-generation correctness. These are
+controlled integration proofs; real network latency and physical OS lifecycle behavior still need
+device testing.

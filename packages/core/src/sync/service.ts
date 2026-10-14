@@ -94,6 +94,7 @@ export class SyncService {
   private pendingWrite: StillSettings | null = null;
   private retryLatestOnReconnect = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private retryDelay = 1_000;
   private recovering: Promise<void> | null = null;
   private writeCompletion: Promise<void> | null = null;
@@ -777,12 +778,33 @@ export class SyncService {
         }
       },
     );
+    this.scheduleRefresh(lifecycle);
   }
 
   private stopRealtime(): void {
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
     this.unsubRealtime?.();
     this.unsubRealtime = null;
     this.realtimeStale = false;
+  }
+
+  /** Notifications are hints, not a delivery guarantee. The QA route intentionally has no public
+   * profile subscription. While this runtime is active, authenticate a canonical read periodically;
+   * resume/foreground recovery still owns catching up after the OS suspends it. */
+  private scheduleRefresh(lifecycle: number): void {
+    if (!this.backend.modernSettingsEnabled || lifecycle !== this.lifecycle ||
+      this.unsubCache === null || this.refreshTimer !== null || !this.state.cloudReachable) return;
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      if (lifecycle !== this.lifecycle) return;
+      // An outage uses the existing exponential backoff, never a second five-second retry loop.
+      if (!this.state.cloudReachable) return;
+      void this.retryNow().then(
+        () => this.scheduleRefresh(lifecycle),
+        () => this.scheduleRefresh(lifecycle),
+      );
+    }, 5_000);
   }
 
   private async refreshAfterRealtimeReconnect(): Promise<void> {
@@ -948,6 +970,8 @@ export class SyncService {
   }
 
   private recordFailure(): void {
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
     this.retryLatestOnReconnect = true;
     this.setState({ ...this.state, cloudReachable: false });
     this.scheduleRetry();
@@ -959,6 +983,7 @@ export class SyncService {
       this.clearRetry();
     }
     this.setState({ ...this.state, cloudReachable: true, lastSyncedAt: this.now(), pendingUpload });
+    if (this.unsubRealtime !== null) this.scheduleRefresh(this.lifecycle);
   }
 
   private setState(next: SyncState): void {
