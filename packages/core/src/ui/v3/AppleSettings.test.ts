@@ -90,6 +90,17 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D04 Apple settings", () => {
+  it.each(["mac", "ios"] as const)("keeps canonical cards in the requested %s order", async (platform) => {
+    const { props } = await fixture("locked");
+    props.platform = platform;
+    props.pro = { ownership: "none", channel: "ready", offer: { price: "$9.99", priceNote: "One-time purchase. Lifetime access." }, onBuy: vi.fn() };
+    render(AppleSettings, { props });
+    const pro = screen.getByRole("region", { name: "Still Pro" });
+    const sync = screen.getByRole("heading", { name: "Settings sync" });
+    expect(Boolean(pro.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(platform === "mac");
+    expect(pro).toHaveTextContent("One-time purchase. Lifetime access.");
+  });
+
   it("commits free choices without an account and retains saved choices when site or global controls are Off", async () => {
     const { props, storage, cache, settled } = await fixture();
     const view = render(AppleSettings, { props });

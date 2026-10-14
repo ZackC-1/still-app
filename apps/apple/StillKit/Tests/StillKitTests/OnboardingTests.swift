@@ -1,10 +1,66 @@
 import XCTest
+import Combine
 @testable import StillKit
 
 /// The testable core of onboarding (U18): the screen-3 status copy and the first-launch gate. The
 /// SwiftUI screens and the SFSafariExtensionManager probe are validated on-device (human checkpoint);
 /// the pure logic the UI depends on is proven here.
 final class OnboardingTests: XCTestCase {
+  @MainActor private func expectStatus(
+    _ expected: SafariExtensionStatus, from observer: OnboardingStatusObserver,
+    after action: () -> Void
+  ) async {
+    let changed = expectation(description: "Badge becomes \(expected)")
+    let observation = observer.$status.first(where: { $0 == expected }).sink { _ in changed.fulfill() }
+    defer { observation.cancel() }
+    action()
+    await fulfillment(of: [changed], timeout: 1)
+    XCTAssertEqual(observer.status, expected)
+  }
+
+  @MainActor func testLiveStatusTracksBothDirectionsAndCoalescesChecks() async {
+    let observer = OnboardingStatusObserver()
+    var next = SafariExtensionStatus.enabled
+    var calls = 0
+    let check: () async -> SafariExtensionStatus = { calls += 1; return next }
+    await expectStatus(.enabled, from: observer) {
+      observer.setActive(true, check: check)
+      observer.refresh(check: check)
+    }
+    XCTAssertEqual(calls, 1)
+    next = .disabled
+    await expectStatus(.disabled, from: observer) { observer.refresh(check: check) }
+    next = .enabled
+    await expectStatus(.enabled, from: observer) { observer.refresh(check: check) }
+  }
+
+  @MainActor func testInactiveLateReplyCannotReplaceForegroundRead() async throws {
+    let observer = OnboardingStatusObserver()
+    let started = expectation(description: "Original read started")
+    let returned = expectation(description: "Original read returned late")
+    var oldReply: CheckedContinuation<SafariExtensionStatus, Never>?
+    observer.setActive(true, check: {
+      let result = await withCheckedContinuation { continuation in
+        oldReply = continuation
+        started.fulfill()
+      }
+      returned.fulfill()
+      return result
+    })
+    await fulfillment(of: [started], timeout: 1)
+    let reply = try XCTUnwrap(oldReply)
+    observer.refresh(check: { XCTFail("An in-flight read must be coalesced"); return .unknown })
+    observer.setActive(false, check: { .unknown })
+    observer.refresh(check: { XCTFail("Inactive screen must not poll"); return .enabled })
+    await expectStatus(.disabled, from: observer) {
+      observer.setActive(true, check: { .disabled })
+    }
+    reply.resume(returning: .enabled)
+    await fulfillment(of: [returned], timeout: 1)
+    XCTAssertEqual(observer.status, .disabled)
+    observer.setActive(false, check: { .unknown })
+  }
+
   func testStatusHeadlinesMatchBrainstormCopy() {
     XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You're all set")
     XCTAssertEqual(SafariExtensionStatus.disabled.headline, "Not on yet")
