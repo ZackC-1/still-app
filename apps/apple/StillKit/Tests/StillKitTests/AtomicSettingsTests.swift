@@ -133,9 +133,9 @@ final class AtomicSettingsTests: XCTestCase {
     let dir = try directory()
     let first = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
     let peer = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
-    // Queued allocation applies to a previous-account journal (as in TypeScript); unknown null-scope
-    // edits are local-only and their two-host allocation is pinned in AtomicSettingsLocalOnlyTests.
-    try seed(first, ownership: "previous-account")
+    // Never-linked choices queue for a possible first account. Local-only multi-host edits are
+    // covered in AtomicSettingsLocalOnlyTests.
+    try seed(first, ownership: "never-linked")
     _ = try first.commitIntent(path: "globalOn", value: false, updatedAt: 10)
     _ = try peer.commitIntent(path: "services.youtube", value: false, updatedAt: 10)
     _ = try peer.commitIntent(path: "globalOn", value: true, updatedAt: 10)

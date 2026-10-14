@@ -48,6 +48,7 @@ export interface AppleSettingsProps extends Pick<
   | "services"
   | "features"
   | "labels"
+  | "commandsDisabled"
 > {
   platform: "ios" | "mac";
   /**

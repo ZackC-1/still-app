@@ -409,6 +409,7 @@
     </div>{/if}
 {:else if view.settings && view.state && view.commands}
   <AppleSettings
+    commandsDisabled={view.held}
     settings={view.settings}
     access={view.state.access}
     {platform}

@@ -14,6 +14,7 @@
   import "./design/styles.css";
   let {
     settings,
+    commandsDisabled = false,
     access,
     platform,
     phone = false,
@@ -220,6 +221,7 @@
       <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
     </div>
     <Toggle
+      disabled={commandsDisabled}
       checked={settings.globalOn}
       onChange={onGlobalChange}
       label="Still"
@@ -246,6 +248,7 @@
     </section>
   {/if}
   <SettingsSiteList
+    {commandsDisabled}
     {settings}
     {access}
     {onServiceChange}

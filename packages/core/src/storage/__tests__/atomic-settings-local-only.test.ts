@@ -7,7 +7,7 @@ import { parseStoredSettingsRecord } from "../settings-validation.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
-import { A, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
+import { A, B, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
 
 // The 196-edit soak drives every edit through the real popup binding, cache and writer, each of which
 // revalidates the full atomic journal (up to 64 old requests). That is roughly 1-3s of pure CPU per case
@@ -15,6 +15,79 @@ import { A, SESSION, authority, canonical } from "./atomic-settings-test-fixture
 // deterministic (no timers, no polling), so the default 5s wall-clock budget only measured machine load;
 // this explicit budget remains a hang detector for that known workload.
 const SOAK_BUDGET_MS = 60_000;
+
+describe("signed-out settings after an account acknowledgement", () => {
+  async function signedOut() {
+    const h = authority();
+    const initial = await h.writer.initialize("never-linked");
+    const entered = await h.writer.enterScope(A, SESSION);
+    const modern = initial.settings as unknown as SettingsV2;
+    const account = { ...initial, settings: { ...modern, pauses: [], clocks: Object.fromEntries(
+      Object.entries(modern.clocks).map(([path, stamp]) => [path, { ...stamp, baseRevision: 7, localStep: 0 }]),
+    ) } as typeof initial.settings };
+    await h.writer.acknowledge(canonical(account, 7), entered.atomic!.scope);
+    await h.writer.enterScope(null);
+    return h;
+  }
+
+  it("keeps repeated signed-out edits local after retiring the account receipt", async () => {
+    const h = await signedOut();
+    for (let i = 0; i < 70; i++) {
+      const value = i % 2 !== 0;
+      const result = await h.writer.commit({ path: "globalOn", value, updatedAt: 200 + i });
+      expect(result.settings.globalOn).toBe(value);
+      expect(result.atomic).toMatchObject({ ownership: "previous-account", anchor: null, pending: [], held: {}, paused: null });
+    }
+    const reopened = new AtomicSettingsWriter(h.storage);
+    expect((await reopened.initialize("unknown")).settings.globalOn).toBe(true);
+    expect((await reopened.commit({ path: "services.youtube", value: false, updatedAt: 300 })).settings.services.youtube).toBe(false);
+  });
+
+  it("releases a saved signed-out ordering hold without losing the saved overlay or clocks", async () => {
+    const h = await signedOut();
+    const before = (await h.storage.get())!;
+    const held = { ...before, atomic: { ...before.atomic!, paused: "ordering-hold", held: { "services.youtube": false } } };
+    await h.storage.set(held);
+    const recovered = await h.writer.initialize("unknown");
+    expect(recovered.settings).toEqual(before.settings);
+    expect(recovered.syncMetadata).toEqual(before.syncMetadata);
+    expect(recovered.atomic).toEqual({ ...held.atomic, sequence: held.atomic.sequence + 1, paused: null });
+    expect(await h.writer.initialize("unknown")).toEqual(recovered);
+    const cache = new SettingsCache(h.port);
+    await cache.hydrate();
+    expect(cache.current().services.youtube).toBe(false);
+    expect(await cache.commitAtomicIntent("services.youtube", true)).toMatchObject({ intentCommitted: true });
+    expect(cache.current().services.youtube).toBe(true);
+    expect(cache.currentRecord().atomic).toMatchObject({ pending: [], held: {}, paused: null });
+  });
+
+  it.each([false, true])("never transfers signed-out changes into a later account (empty=%s)", async empty => {
+    const h = await signedOut();
+    await h.writer.commit({ path: "globalOn", value: false, updatedAt: 200 });
+    const entered = await h.writer.enterScope(B, SESSION);
+    const fresh = await authority().writer.initialize("unknown");
+    const result = await h.writer.acknowledge({ ...canonical(fresh, 1), empty }, entered.atomic!.scope);
+    expect(result.settings.globalOn).toBe(true);
+    expect(result.atomic).toMatchObject({ ownership: "previous-account", pending: [], held: {}, paused: null });
+  });
+
+  it.each(["anchor", "pending", "scope", "sequence", "schema"])("does not release an ordering hold with %s evidence", async kind => {
+    const h = await signedOut();
+    const before = (await h.storage.get())!;
+    const atomic = { ...before.atomic!, paused: "ordering-hold", held: { globalOn: false } };
+    if (kind === "anchor") atomic.anchor = canonical(before, 7).receipt;
+    if (kind === "scope") atomic.scope = { ...atomic.scope, accountId: A, sessionId: SESSION };
+    if (kind === "sequence") atomic.sequence = Number.MAX_SAFE_INTEGER;
+    if (kind === "pending") atomic.pending = [{ writeId: A, scope: atomic.scope, receipt: null,
+      operations: [{ path: "globalOn", value: false, baseRevision: 7, localStep: 1 }] }];
+    const record = { ...before, atomic, settings: kind === "schema"
+      ? { ...before.settings, schemaVersion: 3 } as typeof before.settings : before.settings };
+    await h.storage.set(record);
+    const write = vi.spyOn(h.storage, "set");
+    expect(await h.writer.initialize("unknown")).toEqual(record);
+    expect(write).not.toHaveBeenCalled();
+  });
+});
 
 describe("retained unknown local-only authority", () => {
   it("adopts a nonempty account without uploading or promoting unknown local choices", async () => {
