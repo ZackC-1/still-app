@@ -224,7 +224,10 @@ test.describe("Instagram extras, paid on", () => {
     await expect(page.locator("#reel-post")).toBeHidden();
     await expect(page.locator("#nav-reels")).toBeHidden();
     await page.goto("https://www.instagram.com/reels/InvReel1/");
-    await expect(page).toHaveURL("https://www.instagram.com/reel/InvReel1/");
+    await settled(page);
+    await expect(page).toHaveURL("https://www.instagram.com/reels/InvReel1/");
+    await page.evaluate(() => history.pushState(null, "", "/reels/InvReel2/"));
+    await expect(page).toHaveURL("https://www.instagram.com/");
   });
 });
 
