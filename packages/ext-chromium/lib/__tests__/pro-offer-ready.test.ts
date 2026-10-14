@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { askProOfferReady, lastProOfferReady, PRO_OFFER_READY_KEY } from "../pro-navigation.js";
+import { askProOfferReady, lastProOfferReady, rememberProOfferReady, PRO_OFFER_READY_KEY } from "../pro-navigation.js";
 import { CHECKOUT_AVAILABLE_ACTION } from "../checkout-availability.js";
 import { SESSION_MESSAGE_KIND } from "../session-messages.js";
 
@@ -34,12 +34,15 @@ describe("askProOfferReady", () => {
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => true) }, storage: { session } });
     expect(await lastProOfferReady()).toBe(false);
     expect(await askProOfferReady()).toBe(true);
+    expect(session.set).not.toHaveBeenCalled();
+    await rememberProOfferReady(true);
     expect(records[PRO_OFFER_READY_KEY]).toBe(true);
     expect(await lastProOfferReady()).toBe(true);
     records[PRO_OFFER_READY_KEY] = "true";
     expect(await lastProOfferReady()).toBe(false);
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => false) }, storage: { session } });
     expect(await askProOfferReady()).toBe(false);
+    await rememberProOfferReady(false);
     expect(records[PRO_OFFER_READY_KEY]).toBe(false);
   });
 });

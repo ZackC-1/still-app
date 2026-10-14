@@ -34,18 +34,20 @@ export const PRO_OFFER_READY_KEY = "still:pro-offer-ready";
  * own fresh check before anything opens.
  */
 export async function askProOfferReady(): Promise<boolean> {
-  let ready: boolean;
   try {
-    ready = (await chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" })) === true;
+    return (await chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" })) === true;
   } catch {
-    ready = false;
+    return false;
   }
+}
+
+/** Remember only an answer the live popup accepted after checking its request lifetime. */
+export async function rememberProOfferReady(ready: boolean): Promise<void> {
   try {
     await chrome.storage?.session?.set({ [PRO_OFFER_READY_KEY]: ready });
   } catch {
     // The remembered answer only avoids a late card on the next opening.
   }
-  return ready;
 }
 
 export async function lastProOfferReady(): Promise<boolean> {
@@ -84,10 +86,15 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
   let lastToken: string | null = null;
   let observer: MutationObserver | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let resize: ResizeObserver | null = null;
+  let focusedCard: HTMLElement | null = null;
   let focusDeadline = 0;
   function cancelFocus() {
+    focusDeadline = 0;
     observer?.disconnect();
     observer = null;
+    resize?.disconnect();
+    resize = null;
     if (timer !== null) clearTimeout(timer);
     timer = null;
   }
@@ -101,18 +108,25 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
     if (root.querySelector('[role="dialog"][aria-modal="true"]')) return false;
     const card = root.querySelector<HTMLElement>('section[aria-label="Still Pro"]');
     if (!card) return false;
-    cancelFocus();
     card.setAttribute("tabindex", "-1");
-    card.scrollIntoView?.({ block: "center" });
-    if (document.activeElement !== card) card.focus({ preventScroll: true });
+    card.scrollIntoView?.({ block: "start" });
+    if (focusedCard !== card) {
+      card.focus({ preventScroll: true });
+      focusedCard = card;
+    }
     return true;
   }
   function requestFocus(expiresAt = Date.now() + REQUEST_LIFETIME_MS) {
     cancelFocus();
     focusDeadline = expiresAt;
-    if (reveal()) return;
+    focusedCard = null;
+    reveal();
     observer = new MutationObserver(reveal);
     observer.observe(root, { childList: true, subtree: true });
+    if (typeof ResizeObserver !== "undefined") {
+      resize = new ResizeObserver(reveal);
+      resize.observe(root);
+    }
     timer = setTimeout(cancelFocus, Math.max(0, expiresAt - Date.now()));
   }
   function accept(value: unknown) {
@@ -135,6 +149,8 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
   window.addEventListener("hashchange", hashChanged);
   root.addEventListener("pointerdown", cancelFocus);
   root.addEventListener("keydown", cancelFocus);
+  window.addEventListener("wheel", cancelFocus, { passive: true });
+  window.addEventListener("touchstart", cancelFocus, { passive: true });
   chrome.storage.onChanged.addListener(changed);
   if (window.location.hash === PRO_OPTIONS_HASH) requestFocus();
   const revision = readRevision;
@@ -148,6 +164,8 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
     window.removeEventListener("hashchange", hashChanged);
     root.removeEventListener("pointerdown", cancelFocus);
     root.removeEventListener("keydown", cancelFocus);
+    window.removeEventListener("wheel", cancelFocus);
+    window.removeEventListener("touchstart", cancelFocus);
     chrome.storage.onChanged.removeListener(changed);
   };
 }

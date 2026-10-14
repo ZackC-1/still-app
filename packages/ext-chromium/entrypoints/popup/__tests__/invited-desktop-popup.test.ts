@@ -15,7 +15,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const CARD = "Use the same settings in every browser";
+const CARD = "Settings sync";
 const reserved: PopupInvitationReservation = {
   installation: "install-1",
   reservation: { kind: "sync", opening: "opening-1", generation: 2 },
@@ -48,7 +48,7 @@ describe("the invitation wrapper around the V3 popup", () => {
     expect(screen.queryByRole("region", { name: CARD })).toBeNull();
     commit.resolve(true);
     expect(await screen.findByRole("region", { name: CARD })).toBeTruthy();
-    expect(screen.getByText("Sign in for free settings sync. Optional.")).toBeTruthy();
+    expect(screen.getByText("Free. Keep your block settings consistent across every supported device and browser.")).toBeTruthy();
   });
 
   it("shows no card when the commit is rejected or nothing is reserved", async () => {
@@ -73,8 +73,12 @@ describe("the invitation wrapper around the V3 popup", () => {
     const h = host({ present: async () => reserved, commit: async () => true });
     render(InvitedDesktopPopup, { props });
     const card = await screen.findByRole("region", { name: CARD });
+    expect(screen.getAllByRole("heading", { name: "Settings sync" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
     await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: CARD })).toBeNull());
+    expect(screen.getAllByRole("heading", { name: "Settings sync" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
     expect(h.controller.openSignIn).not.toHaveBeenCalled();
   });
 

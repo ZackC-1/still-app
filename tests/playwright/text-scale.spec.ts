@@ -481,7 +481,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
 
 test.describe("the sync invitation card at large text (V3 build with sign-in)", () => {
   test.skip(!MODERN_SIGN_IN, "Needs the modern sign-in build (see header)");
-  const CARD = "Use the same settings in every browser";
+  const CARD = "Settings sync";
 
   test("at 2× the card and everything under it stay reachable, and nothing reaches sideways", async () => {
     const browser = await launchWithFontSize(32);

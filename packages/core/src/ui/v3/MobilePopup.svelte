@@ -113,6 +113,9 @@
   let proCheckingShown = $derived(
     Boolean(onSeePro) && proOfferReady && proAccessChecking(access) && popupClear,
   );
+  let syncInvitationShown = $derived(
+    !account && invitationReady && invitation?.kind === "sync" && invitationVisible(invitation),
+  );
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -262,7 +265,8 @@
       onOpen={openPro}
       appHandoff={handoff}
     />{:else if proCheckingShown}<PopupProCard checking />{/if}
-  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
+  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
+  {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
@@ -273,21 +277,19 @@
             : "Free. Keep your block settings consistent across every supported device and browser."}
         </p>
       </div>
-      {#if !account && onSignIn}<button
+      {#if !account && onSignIn}<div class:popup-action={handoff}><button
           type="button"
           class="primary inline"
           class:with-glyph={handoff}
           aria-describedby={handoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
           >Sign in{#if handoff}<Glyph name="external" size={13} />{/if}</button
-        >{/if}
+        >
+        {#if handoff}<p class="handoff" id="popup-signin-handoff">
+          <Glyph name="external" size={13} />Opens the Still app
+        </p>{/if}
+        </div>{/if}
     </div>
-    {#if !account && onSignIn && handoff}<p
-        class="handoff"
-        id="popup-signin-handoff"
-      >
-        <Glyph name="external" size={13} />Opens the Still app
-      </p>{/if}
     {#if account?.status}
       <div
         class="status-line"
@@ -308,6 +310,7 @@
     {/if}
     {#if accountActions}{@render accountActions()}{/if}
   </section>
+  {/if}
   <footer class="popup-footer">
     <button
       type="button"

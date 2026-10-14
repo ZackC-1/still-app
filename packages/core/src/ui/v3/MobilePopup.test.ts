@@ -583,7 +583,7 @@ describe("optional D28 mobile invitation", () => {
     props.invitation = invitationSpecimen("sync", "safari");
     await view.rerender(props);
     const card = screen.getByRole("region", {
-      name: "Use the same settings in every browser",
+      name: "Settings sync",
     });
     await fireEvent.click(
       within(card).getByRole("button", { name: "Sign in" }),
@@ -687,7 +687,7 @@ describe("per-issued invitation claims through MobilePopup", () => {
   const title = (kind: "rating" | "sync" | "link") =>
     ({
       rating: "Rate Still",
-      sync: "Use the same settings in every browser",
+      sync: "Settings sync",
       link: "Link Still Pro to an account",
     })[kind];
   const control = (

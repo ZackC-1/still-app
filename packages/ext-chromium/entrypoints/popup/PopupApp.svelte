@@ -18,6 +18,7 @@
     askProOfferReady,
     canNavigateToPro,
     lastProOfferReady,
+    rememberProOfferReady,
     openBrowserPro,
   } from "../../lib/pro-navigation.js";
 
@@ -77,8 +78,8 @@
   );
 
   // The popup's Still Pro card appears only when the Settings page would offer Get Still Pro
-  // (ISS-0032); the lock chips navigate either way. Asked once per opening; this browser
-  // session's last answer is used meanwhile, so the card does not arrive late on every opening.
+  // (ISS-0032); the lock chips navigate either way. A startup failure must not latch the card
+  // off for this opening. Recheck while the popup is alive; checkout still checks independently.
   let proOfferReady = $state(false);
   $effect(() => {
     if (!destinationReady) return;
@@ -87,12 +88,32 @@
     void lastProOfferReady().then((ready) => {
       if (live && !answered) proOfferReady = ready;
     });
-    void askProOfferReady().then((ready) => {
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let revision = 0;
+    let attempts = 0;
+    async function refresh() {
+      if (retry !== undefined) clearTimeout(retry);
+      const current = ++revision;
+      const ready = await askProOfferReady();
+      if (!live || current !== revision) return;
       answered = true;
-      if (live) proOfferReady = ready;
+      proOfferReady = ready;
+      void rememberProOfferReady(ready);
+      // Bounded startup recovery: no background poll survives this popup or a positive answer.
+      if (!ready && ++attempts < 3) retry = setTimeout(refresh, 500 * attempts);
+    }
+    // Account/access hydration can settle after the startup retries. A new authority observation
+    // invalidates the earlier display answer instead of requiring another popup opening.
+    const unsubscribe = committedPopupBinding?.subscribe(() => {
+      attempts = 0;
+      void refresh();
     });
+    if (!committedPopupBinding) void refresh();
     return () => {
       live = false;
+      revision += 1;
+      if (retry !== undefined) clearTimeout(retry);
+      unsubscribe?.();
     };
   });
 
