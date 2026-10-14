@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Async sync responses or cleanup can finish after sign-out or a later session entry
 date: 2026-09-08
-last_updated: 2026-10-08
+last_updated: 2026-10-14
 status: active
 tags: [sync, session, account-isolation, realtime, async]
 ---
@@ -130,3 +130,23 @@ account could previously open checkout while the old account's tab-close awaited
 operation to the old purge. The managed code-verification path holds checkout and recovery from
 entry through cleanup, releasing the hold in `finally`. The controlled cleanup regression failed
 before that repair; tests cover both the delayed purge and release after authentication failure.
+
+## Reactive ownership for rendered actions
+
+A revision fence can reject a stale action correctly while leaving that stale action visible.
+Apple sign-out clears the account fields before awaiting native and sync cleanup. The controller
+then advances the revision again when teardown finishes. When the revision was a plain field,
+this final change could leave the signed-out Sign in button bound to the earlier epoch: its tap
+was ignored until the host remounted or another observed value changed.
+
+`UiController.accountRevision` is reactive state, and `AppleSettingsHost` derives it directly.
+The host therefore replaces its fenced callbacks whenever ownership changes, even if the account
+id, address and sync status remain equal. Keep the use-time identity/revision checks: removing
+them would make obsolete actions work against a later session instead of repairing presentation.
+
+`apple-signin-lifecycle.integration.test.ts` mounts the actual host, controller and Apple session
+with synthetic external boundaries. Initial code sign-in, sign-out and a second Sign in reproduced
+the missing email sheet before the change; repeated cycles and wrong-code retries pass afterward.
+The existing mounted delete-confirmation test now invalidates its old action on a revision change
+alone, without a fabricated sync-status update. Browser checks cover the same host at phone and
+desktop widths; physical-device lifecycle verification remains separate.

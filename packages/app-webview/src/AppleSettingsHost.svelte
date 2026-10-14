@@ -231,18 +231,7 @@
     return () => current.stop();
   });
   const syncFor = createAppleSettingsSync();
-  // The controller's revision is plain; its session/sync signals expose the current epoch.
-  // Derived equality prevents routine sync polling from issuing another account verification.
-  let accountRevision = $derived.by(() => {
-    void c.userId;
-    void c.accountEmail;
-    void c.authFlow;
-    void c.reconciling;
-    void c.cloudReachable;
-    void c.pendingUpload;
-    void c.lastSyncedAt;
-    return c.accountRevision;
-  });
+  let accountRevision = $derived(c.accountRevision);
   let sync = $derived.by(() => {
     void accountRevision;
     return syncFor(c);
