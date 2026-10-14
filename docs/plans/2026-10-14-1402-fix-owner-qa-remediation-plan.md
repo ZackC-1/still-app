@@ -283,3 +283,21 @@ Fixed issue rows carry the merged fix reference and required retest cases under 
 Successor sandbox artifacts and package cards identify what was built and what was actually delivered.
 Owner-dependent gates remain explicit under R15, especially Apple control recovery on Mac and physical iPhone.
 Reusable findings are captured without private evidence, accounts or operational paths; abandoned diagnostic code and unrelated changes are absent from each PR.
+
+## Consolidated candidate checkpoint
+
+The five original source packets passed combined lint, typecheck, build, 6,541 automated tests
+(40 skipped), 489 StillKit tests, and 350 browser fixtures (25 skipped). Packet reviews and a
+separate-context integration review found no retained actionable findings. The current reference
+capture covers 144 primary frames and one icon supplement; owner visual acceptance remains open.
+
+Two findings reported during execution are included in the bounded candidate:
+
+- [Compact cloud status and dynamic time](2026-10-14-fix-compact-cloud-sync-status.md).
+- [Apple sign-in after sign-out](2026-10-14-1453-fix-apple-resignin-lifecycle.md).
+
+The candidate consolidates the reviewed source from PRs 430–434 and these additions. Strict
+up-to-date branch protection requires one final combined CI run against current main before a
+single merge; no administrative bypass is used. The two additions receive focused regressions,
+independent source review and final combined verification. Packaging must use the clean merged
+revision. Compilation does not establish installation, provider approval or physical-device passes.
