@@ -362,11 +362,14 @@ describe("maintained background settings bootstrap", () => {
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", "public-test-key");
     for (const reason of ["update", "install"] as const) {
       const h = await start({}, undefined, "false");
-      h.installed[0]!({ reason, previousVersion: "2.1.1" });
+      const details: chrome.runtime.InstalledDetails = reason === "update"
+        ? { reason, previousVersion: "2.1.1" }
+        : { reason };
+      h.installed[0]!(details);
       await h.settle();
       expect(Object.hasOwn(h.store, KEY)).toBe(false);
       expect(settingsWrites(h)).toEqual([]);
-      expect(boundary.installed).toHaveBeenCalledWith({ reason, previousVersion: "2.1.1" });
+      expect(boundary.installed).toHaveBeenCalledWith(details);
     }
   });
 
@@ -375,11 +378,16 @@ describe("maintained background settings bootstrap", () => {
     async (reason) => {
       const h = await start();
       // Firefox's own "browser_update" is not in Chrome's typed union; the runtime passes it through.
-      h.installed[0]!({ reason: reason as chrome.runtime.InstalledDetails["reason"] });
+      const details: chrome.runtime.InstalledDetails = reason === "shared_module_update"
+        ? { reason, id: "shared-module-id" }
+        : reason === "browser_update"
+          ? { reason } as unknown as chrome.runtime.InstalledDetails
+          : { reason };
+      h.installed[0]!(details);
       await h.settle();
       expect(Object.hasOwn(h.store, KEY)).toBe(false);
       expect(settingsWrites(h)).toEqual([]);
-      expect(boundary.installed).toHaveBeenCalledWith({ reason });
+      expect(boundary.installed).toHaveBeenCalledWith(details);
     },
   );
   it.each([
