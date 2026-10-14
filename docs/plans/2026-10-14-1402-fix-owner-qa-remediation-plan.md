@@ -11,14 +11,38 @@ execution: code
 
 ## Execution evidence
 
-- U1: implemented signed-out local editing and narrow persisted-hold recovery in both writers;
-  unavailable Apple switches now use the existing disabled state. The original regressions failed
-  before the change. Focused checks passed 131 tests; full StillKit passed 487 tests; repository
-  tests, lint, typecheck and builds passed. Browser fixtures and PR CI are the remaining merge gates.
-  Completed code review found no actionable defects. Physical Mac/iPhone successor retests remain pending.
-- U2–U5: implementation proceeds in isolated worktrees with exclusive file ownership.
-- U6: package generation follows reviewed merges. Facebook live DOM and current visual references
-  remain evidence requirements; no synthetic fixture establishes a live-site or owner pass.
+Source implementation is complete for the eligible repairs; serial CI-green merges, the combined
+sandbox package and owner retests remain separate gates.
+
+- U1 / PR430: matching native and TypeScript signed-out local editing and narrow persisted-hold
+  recovery; held Apple controls use the existing disabled state. Regressions failed before repair.
+  Repository gates passed, including 347 browser fixtures and 487 StillKit tests.
+- U2 / PR432: same-ID Instagram aliases remain usable, different-ID continuation stays contained,
+  and Explore retains site-owned geometry. Focused checks passed 1,169 unit and 118 browser tests;
+  all 32 real Firefox scenarios passed. Facebook still needs current bounded offending DOM.
+- U3 / PR431: explicit committed Off recovers a reloaded TikTok blocked document without granting
+  an allowance. Current-document and stale-reply guards remain. Full repository gates and five
+  compiled Safari-resource browser cases passed; physical iPhone retest is outstanding.
+- U4 / PR433: bounded readiness recovery with accepted cache publication, a stable Pro card during
+  ordinary sync, one optional sync card, heading-aligned offer arrival and Safari layout corrections.
+  Focused and independent reviews passed. A forwarding omission and stale visual-harness selector
+  were corrected during verification. Actual Firefox toolbar motion remains evidence-blocked;
+  Android return guidance and Safari frames still require owner/device checks.
+- U5 / PR434: active-screen onboarding status refresh, requested Mac subtitle, 12.5% tighter Mac
+  spacing, Pro above sync, and all twelve locks opening the full offer with focus/scroll restoration.
+  Full repository tests/build, 486 standalone StillKit tests and unsigned Mac compilation passed.
+  Combined U1/U5 settings tests passed 154 cases; both regressions were retained during integration.
+- U6: regenerated 144 exact reference frames and one icon supplement, then reconstructed the four
+  historical exceptions. Differences are attributable to documented behavior and later approved
+  copy/layout, but raw comparisons remain failed and unwaived. No new product repair is justified
+  by those differences alone. Installed-surface visual acceptance remains outstanding.
+- CI prerequisite PR427: the existing install-analytics test repair was independently reviewed and
+  merged after the same timing failure blocked the repair PRs. It changes test synchronization and
+  fixture types, not production analytics. A fresh 75-test check and required CI passed.
+
+Reviews found no unresolved actionable source defects. Combined verification and clean-main
+sandbox receipts establish build readiness only; they do not certify delivery, signing, purchase
+activation or physical-device behavior. No synthetic fixture establishes a live-site or owner pass.
 
 ## Goal Capsule
 
