@@ -120,8 +120,8 @@ final class SettingsExecutorTests: XCTestCase {
 
   @MainActor
   func testQueuedIntentsAndInterleavedReadPreserveArrivalAndCommittedMetadata() async throws {
-    // A previous-account journal queues each committed request; unknown null-scope edits are local-only.
-    let dir = try directory(); _ = try seed(dir, ownership: "previous-account")
+    // Never-linked choices queue for a possible first account; former-account edits stay local.
+    let dir = try directory(); _ = try seed(dir, ownership: "never-linked")
     let executor = SettingsExecutor {
       SettingsBridge(store: SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)), notifyChanged: {})
     }

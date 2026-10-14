@@ -101,6 +101,21 @@ describe("controlled D04 Apple settings", () => {
     expect(pro).toHaveTextContent("One-time purchase. Lifetime access.");
   });
 
+  it("disables saved-setting switches while authority is unavailable", async () => {
+    const { props } = await fixture();
+    const view = render(AppleSettings, { props: { ...props, commandsDisabled: true } });
+    await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    for (const name of ["Still", "Still on YouTube", "Shorts", "Comments"]) {
+      const control = screen.getByRole("switch", { name });
+      expect(control).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(control);
+    }
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    await view.rerender({ ...props, commandsDisabled: false });
+    expect(screen.getByRole("switch", { name: "Still" })).not.toHaveAttribute("aria-disabled", "true");
+  });
   it("commits free choices without an account and retains saved choices when site or global controls are Off", async () => {
     const { props, storage, cache, settled } = await fixture();
     const view = render(AppleSettings, { props });

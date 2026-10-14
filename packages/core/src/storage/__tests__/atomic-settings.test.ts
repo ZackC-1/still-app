@@ -539,8 +539,8 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
   it("two independent native hosts allocate distinct steps and preserve peer fields immediately", async () => {
     const directory = join(temporary, "parallel"); const first = host(directory), peer = host(directory);
     try {
-      // Queued requests belong to account-capable journals; unknown account-free edits are local-only.
-      await first.post("seed:previous-account");
+      // Never-linked choices queue for a possible first account; former-account edits stay local.
+      await first.post("seed:never-linked");
       const left = new SettingsCache(first.adapter, { now: () => 10 });
       const right = new SettingsCache(peer.adapter, { now: () => 10 });
       await left.hydrate(); await right.hydrate();
@@ -558,7 +558,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     let holder: ReturnType<typeof spawn> | undefined;
     try {
       // A queueing journal keeps every commit a growing complete-record replacement.
-      await native.post("seed:previous-account"); const record = (await native.adapter.get())!;
+      await native.post("seed:never-linked"); const record = (await native.adapter.get())!;
       const padded = { ...record, padding: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`p${i}`, "x".repeat(8_192)])) };
       const bytes = JSON.stringify(padded); expect(Buffer.byteLength(bytes)).toBeGreaterThan(120_000);
       expect(Buffer.byteLength(bytes)).toBeLessThan(131_072); await native.post("replace:" + bytes);

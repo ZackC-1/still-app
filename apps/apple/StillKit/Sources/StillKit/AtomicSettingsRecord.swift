@@ -69,6 +69,7 @@ public enum AtomicSettingsRecord {
       // (clearing it keeps every saved value and held choice exactly and only re-admits edits), and,
       // as in AtomicSettingsWriter.initialize, an ownership pause left on a signed-out record.
       guard var state = recoveredLegacyPendingLimit(state, settings: root["settings"]?.object)
+        ?? recoveredSignedOutOrderingHold(state, settings: root["settings"]?.object)
         ?? releasedSignedOutOwnershipPause(state) else { return raw }
       guard case .number(let sequence) = state["sequence"] else { return raw }
       state["sequence"] = .number(sequence + 1)
@@ -186,6 +187,22 @@ public enum AtomicSettingsRecord {
     var state = state
     state["paused"] = .null
     return state
+  }
+
+  private static func permitsPreviousAccountLocalEdit(_ state: [String: SettingsJSONValue], settings: [String: SettingsJSONValue]?) -> Bool {
+    guard state["ownership"] == .string("previous-account"), state["pending"] == .array([]) else { return false }
+    var local = state
+    local["ownership"] = .string("unknown")
+    return permitsUnknownLocalEdit(local, settings: settings)
+  }
+
+  /// A former account's clock is retained locally, without an anchor or transferable journal.
+  /// Earlier builds compared it with revision zero and held every edit after sign-out.
+  private static func recoveredSignedOutOrderingHold(_ state: [String: SettingsJSONValue], settings: [String: SettingsJSONValue]?) -> [String: SettingsJSONValue]? {
+    guard state["paused"] == .string("ordering-hold") else { return nil }
+    var local = state
+    local["paused"] = .null
+    return permitsPreviousAccountLocalEdit(local, settings: settings) ? local : nil
   }
 
   /// Mirrors AtomicSettingsWriter.releaseSignedOutOwnershipPause: an ownership pause outside any
@@ -449,15 +466,16 @@ public enum AtomicSettingsRecord {
         let prior = SettingsOrderedField(value: priorValue, stamp: stamp),
         case .ready = SettingsV2Migration.read(try encoder.encode(settings), provenance: .init(kind: "readable-local", provenInitialization: settings["updatedAt"] == .number(0)))
       else { throw Failure.unreadable }
-      if atomic["ownership"] == .string("unknown"), scope["accountId"] == .null {
-        // Retained unknown local-only authority, exactly as AtomicSettingsWriter.commit: the choice
-        // is saved in place with a local stamp, the existing requests stay untouched and nothing new
-        // is queued, so there is no pending limit. Any other unknown null-scope shape is refused.
-        guard permitsUnknownLocalEdit(atomic, settings: root["settings"]?.object, legacyPause: true) else { throw Failure.unavailable }
+      if atomic["ownership"] == .string("unknown") || atomic["ownership"] == .string("previous-account") && pending.isEmpty, scope["accountId"] == .null {
+        // Save account-free choices in place, without queuing new requests. Unknown provenance
+        // may retain an old unsubmitted journal; previous-account provenance requires no journal.
+        guard permitsUnknownLocalEdit(atomic, settings: root["settings"]?.object, legacyPause: true) ||
+          permitsPreviousAccountLocalEdit(atomic, settings: root["settings"]?.object) else { throw Failure.unavailable }
         // A matching overlay alone is not a saved field; persist the person's deliberate choice.
         if priorValue == value && held[path] == nil { return (raw, false) }
         held.removeValue(forKey: path)
-        switch SettingsFieldOrder.edit(prior, acknowledgedRevision: 0, requestedValue: value) {
+        let localRevision = atomic["ownership"] == .string("previous-account") ? prior.baseRevision : 0
+        switch SettingsFieldOrder.edit(prior, acknowledgedRevision: localRevision, requestedValue: value) {
         case .edited(let next):
           setField(&settings, path, value)
           var nextClocks = clocks
