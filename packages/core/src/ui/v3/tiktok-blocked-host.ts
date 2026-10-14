@@ -248,6 +248,11 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
       const reply = await ask(TIKTOK_ROUTE.screen);
       if (!current(token)) return;
       const status = statusOf(reply);
+      const url = reply && typeof reply === "object" ? (reply as { url?: unknown }).url : undefined;
+      if (status === "open" && typeof url === "string") {
+        deps.navigate(url);
+        return;
+      }
       const tab = reply && typeof reply === "object" ? (reply as { tab?: unknown }).tab : undefined;
       publish(
         status === "granted" ? "granted" : status === "blocked" ? "blocked" : "unavailable",

@@ -11,13 +11,13 @@ async function prepare(context: BrowserContext): Promise<Worker> {
   const sw = await worker(context);
   await sw.evaluate(async () => {
     const record = { settings: { globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true }, pauses: [], updatedAt: 1 }, syncMetadata: null };
-    const state = globalThis as unknown as { __nativeReads: number; __nativeUnavailable: boolean };
-    state.__nativeReads = 0; state.__nativeUnavailable = false;
+    const state = globalThis as unknown as { __nativeReads: number; __nativeUnavailable: boolean; __nativeRecord: typeof record };
+    state.__nativeReads = 0; state.__nativeUnavailable = false; state.__nativeRecord = record;
     chrome.runtime.sendNativeMessage = (async (_app: string, message: { kind?: string }) => {
       if (message.kind === "get") {
         state.__nativeReads++;
         if (state.__nativeUnavailable) throw new Error("Controlled native authority unavailable");
-        return { settings: JSON.stringify(record) };
+        return { settings: JSON.stringify(state.__nativeRecord) };
       }
       return { settings: "" };
     }) as typeof chrome.runtime.sendNativeMessage;
@@ -74,3 +74,39 @@ test("Safari V3 bundle refuses a stale projection when the native confirmation r
   await expect(page.getByRole("alert")).toContainText("Couldn't open TikTok.");
   expect(await sw.evaluate(async () => Object.keys(await chrome.storage.session.get(null)).filter(k => k.startsWith("still:tiktok-tab:")))).toEqual([]);
 });
+
+
+for (const control of ["tiktok", "main"] as const) {
+  test(`Safari V3 bundle resumes the original TikTok URL after saved ${control} Off and same-tab reload`, async ({ safariContext }) => {
+    const sw = await prepare(safariContext);
+    const page = await safariContext.newPage();
+    const original = "https://www.tiktok.com/@fixture/video/1?source=reload";
+    await page.goto(original, { waitUntil: "commit" });
+    await page.waitForURL(blocked);
+    await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+    await sw.evaluate(async (control) => {
+      const { __nativeRecord: record } = globalThis as unknown as { __nativeRecord: {
+        settings: { globalOn: boolean; services: { tiktok: boolean }; updatedAt: number };
+      } };
+      if (control === "main") record.settings.globalOn = false;
+      else record.settings.services.tiktok = false;
+      record.settings.updatedAt++;
+      await chrome.storage.local.set({ "still:settings": record });
+    }, control);
+    await page.reload({ waitUntil: "commit" });
+    await page.waitForURL(original);
+    await expect(page.locator("#tiktok-feed")).toBeVisible();
+    expect(await sw.evaluate(async () => Object.keys(await chrome.storage.session.get(null)).filter(k => k.startsWith("still:tiktok-tab:")))).toEqual([]);
+    await sw.evaluate(async () => {
+      const { __nativeRecord: record } = globalThis as unknown as { __nativeRecord: {
+        settings: { globalOn: boolean; services: { tiktok: boolean }; updatedAt: number };
+      } };
+      record.settings.globalOn = true; record.settings.services.tiktok = true;
+      record.settings.updatedAt++;
+      await chrome.storage.local.set({ "still:settings": record });
+    });
+    // Existing live settings propagation blocks again without a second manual navigation.
+    await page.waitForURL(blocked);
+    await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+  });
+}
