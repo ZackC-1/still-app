@@ -100,11 +100,11 @@
   }
   // Safari actions hand off to the Still app unless the host says otherwise.
   let handoff = $derived(appHandoff ?? host === "safari");
-  // The card waits for the destination to be able to sell and for a clear setup and account
-  // state, as the sync invitation does.
+  // A normal settings refresh does not change Pro access. Keep its offer mounted while syncing;
+  // setup and sync failures still take priority, and the destination checks sales readiness.
   let popupClear = $derived(
     !setup &&
-      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+      !["failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   let proCardShown = $derived(
     (appActionReady || browserActionReady) && proOfferReady && popupClear,

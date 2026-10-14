@@ -10,6 +10,7 @@ import { CHROMIUM_SURFACE_GUIDANCE } from "@still/core/ui";
 import { bindProOptionsNavigation, openBrowserPro, PRO_NAVIGATION_KEY, PRO_OPTIONS_HASH, PRO_OFFER_READY_KEY } from "../../../lib/pro-navigation.js";
 import PopupApp from "../PopupApp.svelte";
 import ExtensionSettings from "../../../../core/src/ui/v3/ExtensionSettings.svelte";
+import { watchAccountStatus } from "../../../../core/src/ui/account-status.js";
 
 vi.mock("@still/shared-types", async original => ({
   ...(await original<typeof import("@still/shared-types")>()),
@@ -102,10 +103,42 @@ async function popup(browserName: "Chrome" | "Firefox", android = false, state: 
   const youtube = await screen.findByRole("button", { name: "YouTube Blocker" });
   if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
   await flush();
-  return { ...navigation, view, props, binding, f, asked, access };
+  return { ...navigation, view, props, binding, f, asked, access, controller };
 }
 
 describe("live popup/App/browser Pro navigation", () => {
+  it.each([
+    ["Chrome", false], ["Firefox", false], ["Firefox", true],
+  ] as const)("%s Android=%s retains the same offer through a signed-in sync refresh (ISS-0032)", async (name, android) => {
+    const f = await popup(name, android);
+    const account = {
+      accountId: "synthetic-account",
+      email: "reader@example.test",
+      lastSyncedAt: Date.now(),
+      pendingUpload: false,
+      cloudReachable: true,
+      updatedAt: Date.now(),
+    };
+    const read = vi.fn(async () => ({ ...account }));
+    stops.push(watchAccountStatus(f.controller, read));
+    await screen.findByText("Synced with your account.");
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    const before = await f.f.storage.get();
+
+    account.pendingUpload = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await screen.findByText("Syncing your settings.");
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(within(card).getByRole("button", { name: "Get Still Pro" }).hasAttribute("disabled")).toBe(false);
+
+    account.pendingUpload = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await screen.findByText("Synced with your account.");
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(f.openOptionsPage).not.toHaveBeenCalled();
+    expect(await f.f.storage.get()).toEqual(before);
+  });
+
   it.each([
     ["Chrome", false], ["Firefox", false], ["Firefox", true],
   ] as const)("%s Android=%s sends a fixed options request, focuses real Pro after lazy mount, and never buys", async (name, android) => {

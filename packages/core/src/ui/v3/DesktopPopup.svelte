@@ -76,11 +76,11 @@
   function openPro() {
     if (proDestinationReady) onSeePro?.();
   }
-  // The card itself waits for the destination to be able to sell and, like the sync invitation,
-  // for a clear setup and account state: it never competes with fixing the free outcome.
+  // A normal settings refresh does not change Pro access. Keep its offer mounted while syncing;
+  // setup and sync failures still take priority, and the destination checks sales readiness.
   let popupClear = $derived(
     !desktopSetup &&
-      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+      !["failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   let proCardShown = $derived(proDestinationReady && proOfferReady && popupClear);
   // While Still is still finding out, the card's place says so (no button), where a card may follow.
