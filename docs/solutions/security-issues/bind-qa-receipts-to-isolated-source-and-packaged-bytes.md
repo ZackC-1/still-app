@@ -6,7 +6,7 @@ problem_type: security_issue
 module: scripts/qa
 applies_when: Building a paid sandbox candidate from a dirty checkout without changing shipped flags
 date: 2026-10-07
-last_updated: 2026-10-08
+last_updated: 2026-10-14
 status: active
 tags:
   - qa
@@ -97,3 +97,13 @@ actual frozen offline development install accepts the previously built webview i
 no compiler or provider operation ran during that check. Preliminary six-target packages remain
 bound to their original clean 3c4a08aa source receipt and must not be relabelled as a later helper
 commit or as signed, installed or payment-ready artifacts.
+
+Sandbox sales admission is also separate from package verification. An authenticated extension
+checks the public sandbox sales policy against its exact manifest version before offering checkout.
+A signed-out offer can therefore disappear after sign-in when a newly built candidate is absent
+from that policy. Diagnose this with the existing `checkoutAvailable` display query and a public
+policy read before changing UI or entitlement logic. Free sync remains independent of this gate.
+The pinned build list in `scripts/backend/deploy/operations.mjs`, both sales-policy SQL templates,
+their SHA-256 pins and the operation contract test must change together. Preserve older entries
+when their manual QA is still active. The 48 operation tests validate matching templates, hashes
+and refusal paths; hosted admission still requires the protected operation and live readback.
