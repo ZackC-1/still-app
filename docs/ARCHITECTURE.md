@@ -57,7 +57,7 @@ address-based marks live in packaged code, never rule data: Instagram's profile 
 (`INSTAGRAM_REELS_LAYOUT`) and its profile and Explore marks (`INSTAGRAM_PROFILE_MARKER`,
 `INSTAGRAM_EXPLORE_MARKER`), all in
 `packages/core/src/rules/instagram.ts`. A format-2 set from 3.0.8 on hides a profile's Reel tiles
-(from 3.0.11 on, Explore's too) as whole boxes and relies on that code. Before publishing any
+(3.0.11, and again from 3.0.13 on, Explore's too) as whole boxes and relies on that code. Before publishing any
 format-2 set remotely, make sure every client that can receive it ships the layout and marks (the
 build containing the same format-2 version), or older clients will show stretched tiles on
 profiles.

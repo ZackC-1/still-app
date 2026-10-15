@@ -1,13 +1,14 @@
 ---
-title: Preserve site-owned Reel aliases and measured Explore rows
+title: Preserve site-owned Reel aliases and keep Explore rows measurable
 category: ui-bugs
 track: bug
 problem_type: integration_error
 module: packages/core
 applies_when: Blocking rewrites a single-item viewer address or changes the geometry of a measured discovery grid
 date: 2026-10-14
+updated: 2026-10-15
 status: active
-tags: [instagram, navigation, aliases, virtualization, explore]
+tags: [instagram, navigation, aliases, virtualization, explore, resizeobserver]
 ---
 
 ## Recognize the boundary
@@ -16,10 +17,13 @@ An extension can create a redirect loop by rewriting `/reels/<id>/` to `/reel/<i
 while the site chooses the plural spelling. Both URLs identify one deliberately opened clip.
 Forcing one spelling is unnecessary for stopping continuation to a different clip.
 
-Explore has a separate ownership boundary: its rows and tile boxes supply geometry to the site.
-Hiding individual cells and flattening rows with `display:contents` changes that geometry.
-A fixed-track row can retain holes, while flattening removes the row box that a virtualizer measures.
-The local regression proves these layout changes; it does not establish the cause of every live loader failure.
+Explore has a separate ownership boundary: Instagram virtualizes its column. It draws only the
+rows near the viewport, measures them, and stands in for the rest with the column's inline padding.
+Layout changes inside that column must keep every row a box the list can measure.
+`display:contents` removes the row's box, so the list keeps an estimate that no longer matches
+what is drawn. A row that has always been 0x0 is never reported by a ResizeObserver, so it fails
+the same way. Switching a layout off when the padding turns non-zero brings holes back mid-scroll.
+Those were the two halves of ISS-0053 (a stalled loader on Firefox; holes and slow loading on iPhone).
 
 ## Repair
 
@@ -33,10 +37,15 @@ Removing a redirect changes startup classification. `modern-shipping-entry.ts` m
 a plural viewer that advances during settings hydration. Reuse the existing route candidate filter
 and page-session continuation logic; the first clip needs no pending redirect cover.
 
-For Explore, the accepted behavior keeps discovery thumbnails and contains different-ID continuation
-in the viewer. Remove the Explore-only tile hide, layout rules and marker together, then regenerate
-the packaged signed rules and free-surface pin. Profile and Home rules remain separate.
-Do not invent replacement wrappers or hide every video to recover the old appearance.
+For Explore (ISS-0064, owner decision 15 Oct: hide the Reel tiles without stalls or holes),
+`packages/core/src/rules/instagram.ts` restores the address-scoped Explore mark and the Reel tile
+hide (rule data, `display:none`). It adds a packaged layout that changes only a row holding a Reel.
+That row becomes one flex line, and the remaining posts share its width, so the row has no end
+hole. A row of only Reels keeps a 1px box. A widened post is capped at 75vh. There is no
+`display:contents`, no column rewrite, and no padding-dependent switch. Rows without a Reel keep
+Instagram's grid. Rows stay about as tall as Instagram's, so the loader keeps arriving. Do not
+reintroduce a row-flattening or cross-row reflow: it makes rows unmeasurable. Re-sign the
+packaged rules and update the free-surface pin with any selector change.
 
 ## Verification and limits
 
@@ -46,21 +55,31 @@ Do not invent replacement wrappers or hide every video to recover the old appear
   The baseline repeats the singular request; the repair reaches the plural player and still
   sends a subsequent different-ID navigation Home. This is a synthetic route transition,
   not a recorded Instagram server or login redirect chain.
-- `instagram-format2.test.ts` and `fixtures-format2.spec.ts` use the captured Explore structure.
-  Browser checks compare On/Off boxes, insert later mixed rows, scroll to a sentinel and add
-  nonzero virtualized padding. The baseline changes the boxes; the repair preserves them.
-  The 390px case adds explicit responsive test CSS to the desktop capture and is not mobile DOM evidence.
-- The focused rules/content suite passed 1,169 tests; the affected Chromium browser specs passed
-  118 tests with one configured-lane skip. Isolated Firefox and WebKit rendering also preserved
-  geometry at desktop and phone widths. These checks do not establish authenticated live pagination
-  or installed iPhone Safari behavior; those need successor-package retests.
+- `tests/fixtures/instagram-explore-feed.html` drives the captured Explore structure with a
+  synthetic measured virtual list: ResizeObserver heights, estimates for unmeasured rows, and
+  padding for unmounted rows. Its loader is an IntersectionObserver that reports only changes, or
+  a scroll listener. Pages mix photos, carousels and Reels, including rows of only Reels.
+  Neither the list nor the loader is Instagram's code.
+- `fixtures-format2.spec.ts` (Chromium, 1280px and 390px, both loaders) and `tests/firefox`
+  (real Firefox, both loaders, plus a 390px viewport) scroll to the last page. Every step requires
+  no Reel shown, no 0x0 or unmeasured row, and no blank band over 8px. Live Off restores
+  Instagram's grid, and On hides it again. The captured static fixture checks edge-to-edge rows,
+  including under non-zero virtualized padding. The viewer cases still send a Reel's Next Home.
+- These tests failed before the repair: Reel tiles were drawn. In an isolated run of the model, the
+  old flattening layout stalled the scroll loader on page 1 at 390px and left rows unmeasured.
+  The repaired layout's CSS also passed the model in an isolated WebKit run.
+- Not established: Instagram's iPhone DOM (only the desktop structure was captured; the iPhone
+  grid shows tall tiles), its real loader, and installed-package behavior. Physical iPhone Safari
+  and Firefox desktop retests with live pagination remain required (IOS-16, FX-17, CH-17, MAC-17).
+  If the iPhone grid's nesting differs, the hide does not match and Reels stay (no holes).
 
 ## Prevention
 
 Treat URL spelling, item identity and feed continuation as separate decisions. Check both network
 and content routing whenever a redirect changes. Test startup handover as well as navigation
-after hydration. Before changing a measured grid, compare boxes with blocking Off and On, including
-later batches and virtualized padding; visibility alone cannot prove layout preservation.
+after hydration. Before changing a virtualized grid, keep every row a measurable, non-zero box,
+and test later pages through a measured list with both loader shapes: visibility alone proves
+nothing about loading.
 
 Related: [preserve page state during navigation classification](../logic-errors/preserve-page-state-when-classifying-navigation.md),
 [identify a feed card by its item wrapper](identify-a-feed-card-by-the-sites-item-wrapper.md),
