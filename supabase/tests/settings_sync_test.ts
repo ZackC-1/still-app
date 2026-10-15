@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { PgSettingsStore } from "../functions/_shared/pg-settings-store.ts";
-import { PgRateLimiter } from "../functions/_shared/pg-store.ts";
+import { createWriterSql, PgRateLimiter } from "../functions/_shared/pg-store.ts";
 import { handleSyncSettings } from "../functions/sync-settings/handler.ts";
 import { syncSettings } from "../functions/_shared/settings-store.ts";
 import {
@@ -76,6 +76,26 @@ Deno.test({
           await fixture`select public.set_entitlement(${B}::uuid,true,'webhook',null)`;
         },
       );
+      await t.step("production writer pool completes concurrent settings transactions and rollback", async () => {
+        // connection(url) above already restricts this fixture to the disposable runner.
+        const target = new URL(url!);
+        target.username = "still_settings_writer";
+        target.password = SYNTHETIC_PASSWORD;
+        const bounded = createWriterSql(target.href);
+        try {
+          const store = new PgSettingsStore(bounded);
+          const results = await Promise.all(Array.from({ length: 6 }, () => syncSettings(store, B, null)));
+          for (const result of results) assertEquals(result, results[0]);
+          assertEquals(results[0].status, "ready");
+          await assertRejects(() => bounded.begin(async (tx) => {
+            await tx`select 1`;
+            throw new Error("synthetic rollback");
+          }), Error, "synthetic rollback");
+          assertEquals(await syncSettings(store, B, null), results[0]);
+        } finally {
+          await bounded.end();
+        }
+      });
       historicalRights = [
         ...await fixture`select pg_catalog.row_to_json(e)::text as raw from public.entitlements e where user_id=${B}`,
       ];

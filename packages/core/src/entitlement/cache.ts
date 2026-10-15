@@ -86,7 +86,7 @@ export class EntitlementCache {
     return this.snapshot;
   }
 
-  watch(): () => void {
+  watch(options: { readonly holdAccessOnStop?: boolean } = {}): () => void {
     this.accessWatching = true;
     this.accessUnwatch ??= this.adapter.subscribeAccess?.(() => this.invalidateAccess()) ?? null;
     this.unwatch ??= this.adapter.subscribe((entitled) => this.apply(entitled));
@@ -94,12 +94,15 @@ export class EntitlementCache {
       this.accessWatching = false;
       this.accessEpoch++;
       this.accessAbort?.abort(); this.accessAbort = null;
+      this.accessFlight = null;
       this.accessUnwatch?.(); this.accessUnwatch = null;
       if (this.accessTimer !== null) clearTimeout(this.accessTimer);
       this.accessTimer = null;
       this.accessRetryDelay = null;
       this.unwatch?.();
       this.unwatch = null;
+      // Account/access changes may be missed while detached. Resume from held paid access.
+      if (options.holdAccessOnStop && this.modernPaidMode && this.accessObserved) this.holdAccess(false);
     };
   }
 
@@ -170,7 +173,8 @@ export class EntitlementCache {
       return this.accessSnapshot;
     });
     const flight = operation.finally(() => {
-      if (this.accessFlight === flight) this.accessFlight = null;
+      if (this.accessFlight !== flight) return;
+      this.accessFlight = null;
       if (this.accessAbort === controller) this.accessAbort = null;
       if (!this.accessWatching) return;
       if (epoch !== this.accessEpoch) this.scheduleAccess();

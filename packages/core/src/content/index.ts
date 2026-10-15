@@ -370,6 +370,24 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // microtask runs after DOM and marker reconciliation. Stopping the script before it runs
   // cancels the notification.
   let previousEffective: readonly BenefitId[] = [];
+  let unwatchEntitlement: (() => void) | null = null;
+  const stopEntitlementWatch = (): void => {
+    const stop = unwatchEntitlement;
+    unwatchEntitlement = null;
+    stop?.();
+  };
+  teardowns.push(stopEntitlementWatch);
+  const syncEntitlementWatch = (): void => {
+    const service = pageSession.activeServiceId();
+    const settings = cache.current();
+    // A core feature may be Off while a Pro extra is On; only the service/master gates suspend access.
+    const wanted = service !== null && settings.globalOn && settings.services[service] === true;
+    if (!wanted) stopEntitlementWatch();
+    else if (!unwatchEntitlement && deps.entitlement) {
+      unwatchEntitlement = deps.entitlement.watch({ holdAccessOnStop: true });
+      void deps.entitlement.refreshAccess();
+    }
+  };
   const remeasureAfterReveal = (): void => {
     const view = doc.defaultView;
     if (!view) return;
@@ -385,6 +403,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      syncEntitlementWatch();
       const effectiveNow = pageSession.effectiveFeatures?.() ?? [];
       // A page Still is about to send elsewhere needs no measurement.
       if (previousEffective.some((feature) => !effectiveNow.includes(feature))
@@ -505,12 +524,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       await Promise.all([cache.hydrate(), modern ? undefined : deps.entitlement?.hydrate()]);
       if (stopped) return;
       if (!modern) teardowns.push(cache.watch());
-      if (deps.entitlement) teardowns.push(deps.entitlement.watch());
+      if (!modern && deps.entitlement) teardowns.push(deps.entitlement.watch());
       hydrated = true;
       // Hydration is itself a chip trigger: DOMContentLoaded may have fired before it.
       if (modern && modernShortsChips) chipTrigger();
       else reapply();
-      if (modern && deps.entitlement) void deps.entitlement.refreshAccess();
     },
     stop(): void {
       stopped = true;
