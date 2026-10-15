@@ -1957,7 +1957,7 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
     assert.equal(template.environment, "sandbox");
     assert.equal(template.salesEnabled, mode === "on");
     assert.deepEqual(template.builds, [...QA_SANDBOX_SALES_BUILDS]);
-    // Retain manual test set 7 alongside the exact .357 automation candidate.
+    // Retain .351 and .357 alongside the exact .359 runtime-fix candidate.
     assert.deepEqual(
       QA_SANDBOX_SALES_BUILDS.map((b) => [b.surface, b.build]),
       [
@@ -1967,6 +1967,9 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
         ["chrome_desktop", "2.1.1.357"],
         ["firefox_desktop", "2.1.1.357"],
         ["firefox_android", "2.1.1.357"],
+        ["chrome_desktop", "2.1.1.359"],
+        ["firefox_desktop", "2.1.1.359"],
+        ["firefox_android", "2.1.1.359"],
         ["apple_mobile_host", "2.1.0"],
         ["apple_macos_host", "2.1.0"],
       ],
