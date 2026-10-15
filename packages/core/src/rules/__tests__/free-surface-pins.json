@@ -62,6 +62,7 @@
         "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
         "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
         "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
+        "[role=\"tablist\"] > [role=\"tab\"]:has(> * > [role=\"tab\"][aria-label=\"Reels\"])",
         "[role=\"banner\"] [role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
         "a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])",
         ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"])):not(:has(li))",
