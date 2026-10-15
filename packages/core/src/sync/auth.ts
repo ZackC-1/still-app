@@ -33,6 +33,28 @@ function retryAfter(body: Record<string, unknown>): number | undefined {
   return Math.min(v, MAX_RETRY_AFTER_SECONDS);
 }
 
+/** Every HTTP 429 from Auth is a provider limit (per-email interval, hourly email cap, per-IP
+ * sign-in or verify throttle). Classified by STATUS as well as code (ISS-0060): the Apple app's
+ * WKWebView reads Auth cross-origin, and supabase-js only reads the structured `code` of the
+ * 2024-01-01 body when it can read the API-version response header — without it a limit arrives
+ * as a code-absent 429 and used to fall through to the generic "couldn't send" line. */
+function isProviderLimit(error: { code?: string; status?: number }, code: string): boolean {
+  return error.code === code || error.status === 429;
+}
+
+/** GoTrue states the per-email wait only in its message ("For security purposes, you can only
+ * request this after 23 seconds."). The NUMBER is read from a 429 alone — classification never
+ * depends on message text — so the countdown matches the server instead of a fixed guess. GoTrue
+ * truncates the remaining time, hence +1; the same 10-minute ceiling as the review path applies.
+ * No match (hourly cap, per-IP throttle, reworded upstream) → undefined → the controller's lock. */
+const STATED_WAIT = /\bafter (\d{1,7}) seconds?\b/i;
+function statedWaitSeconds(error: { status?: number; message?: unknown }): number | undefined {
+  if (error.status !== 429 || typeof error.message !== "string") return undefined;
+  const match = STATED_WAIT.exec(error.message);
+  if (!match) return undefined;
+  return Math.min(Number(match[1]) + 1, MAX_RETRY_AFTER_SECONDS);
+}
+
 export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   constructor(
     private readonly client: SupabaseClient,
@@ -81,9 +103,10 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
 
   /** Code flow: same OTP email, but no redirect option — the user types the code instead of
    * tapping a link. Structured outcome only; the raw error text never reaches the UI.
-   * Classification is by GoTrue's structured `error.code` exclusively (R1): a 429
-   * `over_email_send_rate_limit` becomes its own wait-state kind instead of the generic
-   * "try again" that invites hammering the very limit that fired. */
+   * Classification is by GoTrue's structured `error.code` or a 429 status (R1, ISS-0060): any
+   * provider limit becomes its own wait-state kind instead of the generic "try again" that
+   * invites hammering the very limit that fired. Only the stated wait's number is read from a
+   * 429 message (statedWaitSeconds). */
   async requestCode(email: string): Promise<RequestCodeOutcome> {
     // Review branch (R8/R9): a server PREFLIGHT, not a client-side silent no-op — it proves the
     // server half of the config exists before rendering "code sent". 429 renders the wait state
@@ -107,7 +130,12 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     try {
       const { error } = await this.client.auth.signInWithOtp({ email });
       if (!error) return { kind: "sent" };
-      if (error.code === "over_email_send_rate_limit") return { kind: "send-rate-limited" };
+      if (isProviderLimit(error, "over_email_send_rate_limit")) {
+        const retryAfterSeconds = statedWaitSeconds(error);
+        return retryAfterSeconds === undefined
+          ? { kind: "send-rate-limited" }
+          : { kind: "send-rate-limited", retryAfterSeconds };
+      }
       return { kind: "send-failed" };
     } catch {
       return { kind: "send-failed" };
@@ -171,7 +199,7 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
       const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
       if (error) {
         if (error.code === "otp_expired") return { kind: "invalid-code" };
-        if (error.code === "over_request_rate_limit") return { kind: "verify-rate-limited" };
+        if (isProviderLimit(error, "over_request_rate_limit")) return { kind: "verify-rate-limited" };
         return { kind: "verify-failed" };
       }
       const userId = data.user?.id ?? data.session?.user.id;

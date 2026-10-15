@@ -46,11 +46,12 @@ export interface AccountConfirmationPort {
 /** Outcome of asking the backend to email a 6-digit sign-in code. */
 export type RequestCodeOutcome =
   | { readonly kind: "sent" }
-  /** GoTrue `over_email_send_rate_limit` (both the 60s per-user cooldown AND the hourly SMTP cap
-   * share this one code) — the UI renders a wait state and locks the send affordance instead of
-   * inviting retries. `retryAfterSeconds` is only present when the transport genuinely knows it
-   * (the review-signin function returns one; GoTrue puts it in message TEXT, which is never
-   * parsed — structured-outcome doctrine). */
+  /** Any Auth 429 on a send: GoTrue `over_email_send_rate_limit` (the per-email interval AND the
+   * hourly email cap share this code), the per-IP sign-in limit, or a code-absent 429 (ISS-0060)
+   * — the UI renders a wait state and locks the send affordance instead of inviting retries.
+   * `retryAfterSeconds` is only present when the transport genuinely knows it: the review-signin
+   * function returns one, and GoTrue's per-email interval states it in its 429 message (the one
+   * number parsed from message text; classification never reads text). */
   | { readonly kind: "send-rate-limited"; readonly retryAfterSeconds?: number }
   /** Offline or any other backend failure — the UI shows one calm retry line. */
   | { readonly kind: "send-failed" };
