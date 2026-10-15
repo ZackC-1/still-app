@@ -139,7 +139,7 @@ export const PROTECTED_OPERATOR_SUBJECT =
 
 /**
  * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the successor
- * candidates (sequences 357, 359 and notification candidate 360) during QA.
+ * candidates (sequences 357, 359 and notification candidate 361) during QA.
  * Extensions present their manifest version
  * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
  * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
@@ -157,9 +157,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.359"],
     ["firefox_desktop", "2.1.1.359"],
     ["firefox_android", "2.1.1.359"],
-    ["chrome_desktop", "2.1.1.360"],
-    ["firefox_desktop", "2.1.1.360"],
-    ["firefox_android", "2.1.1.360"],
+    ["chrome_desktop", "2.1.1.361"],
+    ["firefox_desktop", "2.1.1.361"],
+    ["firefox_android", "2.1.1.361"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -348,7 +348,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "0e1ca9b10514047e014f9ad5a8959c8fc0db0f7ccfa5c6e84bd1c808a8b6c30d",
+        "57b604d3d4b584a9c97078fdbc383e599ea06fd7f72457b2baa246047a5b26a2",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -360,7 +360,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "76eaa1b914e8eb60510dc4eeb88ca617b59b8cb0f60a78b6ebe690c14b97457a",
+        "c8c1da283f170879f51a3ff2f5005cc0e5d5807bc365933f6de135ebadeb2d0f",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
