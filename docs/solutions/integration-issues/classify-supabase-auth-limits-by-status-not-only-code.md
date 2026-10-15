@@ -49,6 +49,12 @@ per-email interval.
   (GoTrue truncates), and clamp to the 600 s ceiling. Classification never reads message text. With no
   match (hourly cap, per-IP throttles), the controller keeps its fixed lock.
 
+- Keep the code readable at the source: the Apple WebView's Supabase client uses
+  `preserveAuthErrorCodes` as its `fetch`. It copies `code` into `error_code` on non-2xx `/auth/v1/`
+  JSON bodies, so supabase-js's legacy fallback finds it. That keeps every Auth code (a wrong code's
+  `otp_expired` included) working even when the version header is hidden. A test with the real
+  supabase-js client reproduces the lost code and proves the wrapper restores it.
+
 ## Keep the client interval equal to the server's
 
 The visible "Send a new code in Ns" countdown (`RESEND_COOLDOWN_MS`) must equal the hosted per-email

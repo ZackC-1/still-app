@@ -61,7 +61,8 @@ export type VerifyCodeOutcome =
   | { readonly kind: "verified"; readonly userId: string; readonly email?: string | null }
   /** Wrong or expired token — the server reports both as one error, so they share a kind. */
   | { readonly kind: "invalid-code" }
-  /** GoTrue `over_request_rate_limit` (per-IP verify throttle): NOT a code attempt, and the UI
+  /** Any Auth 429 on a verify — GoTrue `over_request_rate_limit` (per-IP verify throttle), also
+   * when it arrives code-absent (ISS-0060): NOT a code attempt, and the UI
    * must not suggest "send a new code" during the lockout. Same `retryAfterSeconds` semantics as
    * send-rate-limited above. */
   | { readonly kind: "verify-rate-limited"; readonly retryAfterSeconds?: number }

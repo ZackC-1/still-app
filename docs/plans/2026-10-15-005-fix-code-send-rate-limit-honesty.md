@@ -37,7 +37,10 @@ Every surface uses one shared client: `SupabaseAuthPort.requestCode` / `verifyCo
    header; otherwise it looks for the legacy `error_code` field, which that body shape does not carry
    (GoTrue `HTTPErrorResponse20240101` is `{code, message}`). Any cross-origin response whose version
    header is not exposed through the hosted gateway therefore arrives as a 429 with `code` undefined and
-   falls to `send-failed`, the generic line. The HTTP status (429) is always readable.
+   falls to `send-failed`, the generic line. The HTTP status (429) is always readable. GoTrue itself lists
+   the header as CORS-exposed; whether the hosted gateway passes that through to a `null` origin is not
+   verified (probing the hosted project was out of bounds), so this is a confirmed mechanism and a likely,
+   not proven, contributor.
 2. **Other provider limits on the same endpoint were never mapped.** The per-IP sign-in limit on the
    code endpoint answers 429 `over_request_rate_limit`; the send path mapped only the email-send code, so
    that limit also rendered the generic line. Chrome and the iPhone on one home network share a
@@ -82,18 +85,34 @@ is one Auth configuration shared with production users. A QA-only interval is no
 
 ## Approach
 
-1. `auth.ts` `requestCode`: classify **any** HTTP 429 (or the `over_email_send_rate_limit` code) as
-   `send-rate-limited`. Everything else stays `send-failed`.
-2. `auth.ts` `verifyCode`: same status rule for the verify throttle (`verify-rate-limited`), so a
-   code-absent 429 never reads as a calm "try again" that invites hammering.
+1. `auth.ts` `requestCode`: classify **any** HTTP 429, or either limit code
+   (`over_email_send_rate_limit`, `over_request_rate_limit`), as `send-rate-limited`. Everything else
+   stays `send-failed`.
+2. `auth.ts` `verifyCode`: same rule for the verify throttle (`verify-rate-limited`), so a code-absent
+   429 never reads as a calm "try again" that invites hammering.
 3. Parse the provider's stated wait from the message, only for a 429, with one strict pattern
    (`after N second(s)`), add one second (GoTrue truncates the remaining time), and clamp to the existing
-   600 s ceiling. No match leaves `retryAfterSeconds` absent, so the controller keeps its 60 s lock.
-   Classification never depends on message text; only the number does.
-4. No copy change. The existing lines already read the same on every surface (one shared sheet):
+   600 s ceiling through one shared clamp. No match leaves `retryAfterSeconds` absent, so the controller
+   keeps its 60 s lock. Classification never depends on message text; only the number does.
+4. Root fix for the lost code (review finding): `preserveAuthErrorCodes`, a `fetch` wrapper the Apple
+   WebView's Supabase client uses. On a non-2xx `/auth/v1/` JSON body with a string `code` and no
+   `error_code`, it mirrors `code` into `error_code`, which supabase-js reads when the version header is
+   not visible. This also keeps a wrong code reading as "That code didn't work" instead of "We couldn't
+   sign you in" if the header is hidden. Inert when the header is readable; every other response passes
+   through untouched.
+5. No copy change. The existing lines already read the same on every surface (one shared sheet):
    email view "We can't send a code right now. Try again in 29s"; code view "Too many codes requested.
    The code already in your email still works." with "Send a new code in 29s" on the button.
-5. Update the doc comments that said message text is never parsed.
+6. Update the doc comments that said message text is never parsed.
+
+### Review decisions
+
+- Not done: moving a first send refused by the per-email interval straight to code entry. In the
+  cross-device case the earlier code may already have been used by the other device, so offering it
+  could be false. The email view keeps the honest "can't send right now, try again in Ns" line. This is
+  a possible owner design follow-up, not a defect fix.
+- Not done: the owner-admin page's own sign-in (an owner-only tool, not a product surface) still
+  reports any send failure generically.
 
 ## Tests (written first, must fail on current code)
 
@@ -101,8 +120,17 @@ is one Auth configuration shared with production users. A QA-only interval is no
   = N + 1; code-absent 429 (WebView shape) -> `send-rate-limited`; `over_request_rate_limit` 429 ->
   `send-rate-limited`; hourly-cap message -> `send-rate-limited` with no seconds; absurd seconds clamped;
   500, 400 and thrown errors stay `send-failed`; code-absent 429 on verify -> `verify-rate-limited`.
+- `auth-error-codes.test.ts`: with the real supabase-js client and a response with no readable version
+  header, the code is lost (mechanism); through `preserveAuthErrorCodes` the send maps to the wait with
+  seconds and a wrong code maps to `invalid-code`; genuine failures stay generic; other routes,
+  successes, non-JSON and legacy bodies pass through untouched.
 - `controller.test.ts`: a send refused with `retryAfterSeconds` shows that countdown and re-enables at
-  exactly that time (countdown matches the server), for both first send and resend.
+  exactly that time (countdown matches the server), for both first send and resend. This one guards
+  existing controller behavior and passed before the change.
+
+Failing first: 5 `auth.test.ts` cases failed on `origin/main` (`send-failed`/missing seconds instead of
+the wait); the `preserveAuthErrorCodes` cases failed with the helper absent; the mechanism case passed,
+reproducing the lost code.
 
 ## Retest (owner)
 

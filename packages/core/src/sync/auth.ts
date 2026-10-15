@@ -23,36 +23,78 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** The review-signin 429 body carries the rate-limit RPC's genuine wait seconds. Clamped to the
- * server's own window ceiling so a buggy/proxied `retry_after` (e.g. 999999) can't wedge the UI
- * lock for days — legitimate values never exceed the 10-minute rate-limit window. */
+/** Every provider-stated wait is clamped to the server's own window ceiling so a buggy/proxied
+ * value (e.g. 999999) can't wedge the UI lock for days — legitimate values never exceed the
+ * 10-minute rate-limit window. One clamp for both sources below. */
 const MAX_RETRY_AFTER_SECONDS = 600;
+function clampWait(seconds: number): number | undefined {
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
+}
+
+/** The review-signin 429 body carries the rate-limit RPC's genuine wait seconds. */
 function retryAfter(body: Record<string, unknown>): number | undefined {
   const v = body["retry_after"];
-  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
-  return Math.min(v, MAX_RETRY_AFTER_SECONDS);
+  return typeof v === "number" ? clampWait(v) : undefined;
 }
 
 /** Every HTTP 429 from Auth is a provider limit (per-email interval, hourly email cap, per-IP
- * sign-in or verify throttle). Classified by STATUS as well as code (ISS-0060): the Apple app's
- * WKWebView reads Auth cross-origin, and supabase-js only reads the structured `code` of the
- * 2024-01-01 body when it can read the API-version response header — without it a limit arrives
- * as a code-absent 429 and used to fall through to the generic "couldn't send" line. */
-function isProviderLimit(error: { code?: string; status?: number }, code: string): boolean {
-  return error.code === code || error.status === 429;
+ * sign-in or verify throttle). Classified by STATUS as well as by any of the limit codes
+ * (ISS-0060): the Apple app's WKWebView reads Auth cross-origin, where supabase-js can lose the
+ * structured `code` (see preserveAuthErrorCodes) — a code-absent 429 used to fall through to the
+ * generic "couldn't send" line. */
+const LIMIT_CODES: ReadonlySet<string> = new Set(["over_email_send_rate_limit", "over_request_rate_limit"]);
+function isProviderLimit(error: { code?: string; status?: number }): boolean {
+  return error.status === 429 || (error.code !== undefined && LIMIT_CODES.has(error.code));
 }
 
 /** GoTrue states the per-email wait only in its message ("For security purposes, you can only
  * request this after 23 seconds."). The NUMBER is read from a 429 alone — classification never
  * depends on message text — so the countdown matches the server instead of a fixed guess. GoTrue
- * truncates the remaining time, hence +1; the same 10-minute ceiling as the review path applies.
- * No match (hourly cap, per-IP throttle, reworded upstream) → undefined → the controller's lock. */
-const STATED_WAIT = /\bafter (\d{1,7}) seconds?\b/i;
+ * truncates the remaining time, hence +1. No match (hourly cap, per-IP throttle, reworded
+ * upstream) → undefined → the controller's fixed lock. */
+const STATED_WAIT = /\bafter (\d+) seconds?\b/i;
 function statedWaitSeconds(error: { status?: number; message?: unknown }): number | undefined {
   if (error.status !== 429 || typeof error.message !== "string") return undefined;
   const match = STATED_WAIT.exec(error.message);
-  if (!match) return undefined;
-  return Math.min(Number(match[1]) + 1, MAX_RETRY_AFTER_SECONDS);
+  return match ? clampWait(Number(match[1]) + 1) : undefined;
+}
+
+/** A `fetch` for the Supabase client that keeps Auth error codes readable cross-origin (ISS-0060).
+ * supabase-js reads the 2024-01-01 body's `code` only when it can read the `X-Supabase-Api-Version`
+ * RESPONSE header, else it falls back to the legacy `error_code` field, which that body shape does
+ * not carry. A cross-origin reader (the Apple app's file:// WKWebView) only sees CORS-exposed
+ * headers, so a refused request can arrive with no code at all — wrong codes read as "couldn't
+ * sign you in", limits as a generic failure. This mirrors `code` into `error_code` on non-2xx
+ * Auth JSON bodies so the fallback finds the same value. Everything else passes through
+ * untouched; when the header IS readable supabase-js prefers `code`, so the copy is inert. */
+export function preserveAuthErrorCodes(baseFetch: typeof fetch = (...args) => fetch(...args)): typeof fetch {
+  return async (input, init) => {
+    const res = await baseFetch(input, init);
+    if (res.ok || !requestUrl(input).includes("/auth/v1/")) return res;
+    let body: unknown;
+    try {
+      body = await res.clone().json();
+    } catch {
+      return res;
+    }
+    if (body === null || typeof body !== "object" || Array.isArray(body)) return res;
+    const fields = body as Record<string, unknown>;
+    if (typeof fields["code"] !== "string" || fields["error_code"] !== undefined) return res;
+    const headers = new Headers(res.headers);
+    headers.delete("content-length");
+    return new Response(JSON.stringify({ ...fields, error_code: fields["code"] }), {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  };
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
 }
 
 export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
@@ -130,12 +172,8 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     try {
       const { error } = await this.client.auth.signInWithOtp({ email });
       if (!error) return { kind: "sent" };
-      if (isProviderLimit(error, "over_email_send_rate_limit")) {
-        const retryAfterSeconds = statedWaitSeconds(error);
-        return retryAfterSeconds === undefined
-          ? { kind: "send-rate-limited" }
-          : { kind: "send-rate-limited", retryAfterSeconds };
-      }
+      if (isProviderLimit(error))
+        return { kind: "send-rate-limited", retryAfterSeconds: statedWaitSeconds(error) };
       return { kind: "send-failed" };
     } catch {
       return { kind: "send-failed" };
@@ -145,10 +183,11 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   /** Exchange the emailed 6-digit code for a session. GoTrue deliberately reports a wrong token
    * and an expired token as ONE error (`otp_expired`, anti-enumeration), so both map to
    * `invalid-code` — expired-vs-wrong presentation is the controller's clock-based call. Every
-   * other error routes by `error.code` alone (R1/R5): the per-IP verify throttle gets its own
-   * non-attempt kind, and anything unrecognized — including non-OTP 403s like `otp_disabled` and
-   * code-absent responses — is `verify-failed` (calm retry, not an attempt), NEVER "wrong code";
-   * the old `status === 403` catch-all dead-ended those as forever-wrong. */
+   * other error routes by `error.code` (R1/R5), plus a 429 status (ISS-0060): the per-IP verify
+   * throttle — including a code-absent 429 — gets its own non-attempt kind, and anything else
+   * unrecognized — non-OTP 403s like `otp_disabled` and other code-absent responses — is
+   * `verify-failed` (calm retry, not an attempt), NEVER "wrong code"; the old `status === 403`
+   * catch-all dead-ended those as forever-wrong. */
   async verifyCode(email: string, token: string): Promise<VerifyCodeOutcome> {
     // Review branch (R8/R9): the function mints a real session (admin generateLink + verifyOtp
     // server-side) and returns its tokens; setSession makes it indistinguishable from an
@@ -199,7 +238,7 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
       const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
       if (error) {
         if (error.code === "otp_expired") return { kind: "invalid-code" };
-        if (isProviderLimit(error, "over_request_rate_limit")) return { kind: "verify-rate-limited" };
+        if (isProviderLimit(error)) return { kind: "verify-rate-limited" };
         return { kind: "verify-failed" };
       }
       const userId = data.user?.id ?? data.session?.user.id;

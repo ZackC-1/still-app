@@ -27,6 +27,7 @@ import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, 
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
+  preserveAuthErrorCodes,
   SyncService,
   createAppleSession,
   type AppleSession,
@@ -138,6 +139,8 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, storage: sessionStorage },
+    // file:// WKWebView: Auth is read cross-origin, so keep its error codes readable (ISS-0060).
+    global: { fetch: preserveAuthErrorCodes() },
   });
   identifyOnServer = async () => {
     const { error } = await supabase.functions.invoke("analytics-identify", { body: {} });
