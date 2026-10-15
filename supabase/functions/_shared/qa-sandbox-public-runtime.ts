@@ -62,8 +62,11 @@ export function createQaSandboxPolicyHandler(
 /** Free sync keeps its existing settings writer, JWT subject, limiter and revision semantics. */
 export function createQaSandboxSyncHandler(
   read: ReadEnvironment,
-  createPorts: (url: string) => SyncPorts = (url) => {
-    const sql = createWriterSql(url);
+  createPorts: (url: string, idleTimeoutSeconds: number) => SyncPorts = (
+    url,
+    idleTimeoutSeconds,
+  ) => {
+    const sql = createWriterSql(url, idleTimeoutSeconds);
     return { store: new PgSettingsStore(sql), limiter: new PgRateLimiter(sql) };
   },
 ): Handler {
@@ -83,7 +86,9 @@ export function createQaSandboxSyncHandler(
         expected: authenticatedClaims(url.origin),
       };
       if (roleUrl(database, "still_settings_writer")) {
-        deps = { ...auth, ...createPorts(database) };
+        // Notification fan-out creates short bursts across independent Edge instances.
+        // Release idle QA settings connections before the next five-second fallback poll.
+        deps = { ...auth, ...createPorts(database, 1) };
       }
     }
   } catch {

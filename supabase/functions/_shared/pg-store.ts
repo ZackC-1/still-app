@@ -18,9 +18,9 @@ import {
 type Sql = ReturnType<typeof postgres>;
 
 /** Build the shared narrow-writer-role client. `prepare: false` for the Supabase transaction pooler. */
-export function createWriterSql(connectionString: string): Sql {
+export function createWriterSql(connectionString: string, idleTimeoutSeconds = 20): Sql {
   // Edge instances multiply pools; retain at most one connection and release it between bursts.
-  return postgres(connectionString, { prepare: false, max: 1, idle_timeout: 20 });
+  return postgres(connectionString, { prepare: false, max: 1, idle_timeout: idleTimeoutSeconds });
 }
 
 export class PgEntitlementStore implements EntitlementStore {
