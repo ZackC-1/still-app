@@ -63,12 +63,13 @@ Deno.test({ name: "QA notifications: actual private policy, trigger, rollback an
         await sp`set local role authenticated`;
         await sp`insert into realtime.messages(topic,event,extension,payload,private) values(${'qa-settings-v1:' + a},'settings-changed','broadcast','{"schema":1}',true)`;
       }));
-      // Force the notifier's membership read to fail, while the ordinary profile save succeeds.
-      await tx`revoke select on private.qa_sandbox_subjects from postgres`;
+      // Break only the notifier's membership query inside this rolled-back synthetic transaction.
+      // Revoking postgres SELECT is insufficient: its inherited owner role can still read.
+      await tx`alter table private.qa_sandbox_subjects rename column enabled to notification_test_disabled`;
       await tx`update public.profiles set settings_version=4 where id=${a}`;
       assertEquals(Number((await tx`select settings_version from public.profiles where id=${a}`)[0].settings_version), 4);
-      assertEquals(await count(a), 2);
-      await tx`grant select on private.qa_sandbox_subjects to postgres`;
+      assertEquals(await count(a), 2, "Failed notifier must not emit another hint");
+      await tx`alter table private.qa_sandbox_subjects rename column notification_test_disabled to enabled`;
       assert((await tx`select has_function_privilege('authenticated','public.qa_settings_notifications_enabled()','execute') as ok`)[0].ok);
       throw rollback;
     }), Error, "synthetic rollback");

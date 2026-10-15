@@ -76,6 +76,9 @@ jobs:
           '00000000-0000-4000-8000-000000000001',clock_timestamp());
           SQL
           node --test scripts/backend/deploy/qa-functions.test.mjs
+          # The read-only gate must also work before its routines/trigger exist.
+          baseline="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql)"
+          test "$(printf '%s' "$baseline" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
           # Real managed Realtime table, policy and transactional notification delivery.
           supabase db reset --local --no-seed --version 0023 >/dev/null
           export STILL_NOTIFICATION_TEST_ANON_KEY="$(supabase status -o json | jq -r .ANON_KEY)"
