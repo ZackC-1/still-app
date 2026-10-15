@@ -41,7 +41,9 @@ The capture kept only tags, roles, aria-labels on interface controls, inline siz
   Hiding the outer Reels tab leaves the other three in place, with a blank 93 px slot between
   Photos and Mentions. CSS cannot close the gap because the offsets are inline styles. A live test
   (`display:none` on the outer tab on `/nike/`, `/nike/reels/` and `/natgeo/`) showed no attribute
-  or child mutation in the row over 3 seconds and no change in the other tabs' positions.
+  or child mutation in the row over 3 seconds and no change in the other tabs' positions. Only a tab
+  after the first can go: every later tab is pulled up against the one before it, so hiding the first
+  tab would slide the rest out of the clipped row. A row that starts with Reels is left alone.
 - Hiding only the label (the old `> *` approach) would leave an invisible 93 px area that still
   opens the Reel grid when tapped. The outer tab has to go.
 
@@ -69,7 +71,7 @@ label. Until a capture shows what marks the Home section, a selector would be a 
      Off/On restores and then re-hides it;
    - the mobile Home feed Reels cases are recorded as `todo` until the capture arrives.
 3. Fix: one format-2 selector,
-   `[role="tablist"] > [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])`. It is bounded by
+   `[role="tablist"] > [role="tab"] ~ [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])`. It is bounded by
    the site's own tab structure, fails open if the nesting changes, and leaves the older mobile
    rule in place. Regenerate `format2.json` (rule set 3.0.13).
 4. Keep the desktop rules unchanged: MAC-18..21, CH-18..21 and FX-18..21 must keep passing.
@@ -80,8 +82,9 @@ On the Mac, with the iPhone connected and Safari Web Inspector enabled (iPhone S
 Safari > Advanced > Web Inspector; Mac Safari > Develop > [iPhone] > facebook.com): open the
 facebook.com Home feed, scroll until the "Reels" section is on screen, then paste the snippet below
 into the Console and send back the printed text. It prints only tag names, roles, interface labels
-reduced to a word template, `data-*` attribute names and sizes. It prints no names, post text,
-images or addresses beyond their shape.
+reduced to a word template, `data-*` attribute names and sizes. Facebook addresses keep only
+their route words (such as `reel`, `groups`, `posts`), with every other part printed as `w` or `N`;
+other sites print as `external`. It prints no names, post text, images or addresses.
 
 ```js
 (() => {
@@ -95,7 +98,14 @@ images or addresses beyond their shape.
       if (at.name.startsWith("data-")) a.push(["data-mcomponent", "data-type", "data-is-reels"].includes(at.name) ? `${at.name}="${at.value}"` : at.name);
       else if (["role", "aria-hidden", "tabindex"].includes(at.name)) a.push(`${at.name}="${at.value}"`);
       else if (at.name === "aria-label") a.push(`aria-label="${tmpl(at.value)}"`);
-      else if (at.name === "href") a.push(`href="${at.value.replace(/[?#].*/, "").replace(/\d{3,}/g, "N").replace(/^(https?:\/\/[^/]+)?\/[^/]+\/(posts|videos)\b/, "$1/w/$2")}"`);
+      else if (at.name === "href") {
+        let u;
+        try { u = new URL(at.value, location.href); } catch { a.push('href="?"'); continue; }
+        if (!/(^|\.)facebook\.com$/.test(u.hostname)) { a.push('href="external"'); continue; }
+        const route = /^(reel|reels|reels_tab|watch|groups|posts|videos|photos|stories|hashtag|story\.php|profile\.php|permalink\.php|l\.php)$/;
+        const segs = u.pathname.split("/").filter(Boolean).map((p) => (route.test(p) ? p : /^\d+$/.test(p) ? "N" : "w"));
+        a.push(`href="/${segs.join("/")}${u.pathname.endsWith("/") && segs.length ? "/" : ""}"`);
+      }
       else a.push(at.name);
     }
     const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join("");

@@ -400,7 +400,7 @@ describe("captured Facebook through the maintained format2 compiler", () => {
         // that still opens the Page's Reel grid.
         expect(visible(tab)).toBe(false);
         for (const node of keep) expect(visible(node), node.id).toBe(true);
-        // Nothing of Facebook's is rewritten, so the other tabs keep their inline positions.
+        // Still rewrites none of Facebook's nodes (geometry is checked in the browser test).
         for (const [node, html] of before) expect(node.outerHTML, node.id).toBe(html);
         s.applyDom(off, new URL(href), document);
         expect(visible(tab)).toBe(true);
@@ -428,6 +428,32 @@ describe("captured Facebook through the maintained format2 compiler", () => {
       session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/stillpage/"), document);
       expect(visible(document.getElementById("fb-mobile-page-tab-reels")!)).toBe(false);
       for (const id of ["keep-lookalike", "keep-prefix", "keep-loose"]) expect(visible(document.getElementById(id)!), id).toBe(true);
+    });
+
+    it("the Reels tab as captured on /<page>/reels/ (selected, no action id, holding the underline) hides too", () => {
+      render("facebook-mobile-page.html");
+      const all = document.getElementById("keep-fb-mobile-page-tab-all")!;
+      const tab = document.getElementById("fb-mobile-page-tab-reels")!;
+      const underline = all.lastElementChild!;
+      all.setAttribute("aria-selected", "false");
+      all.setAttribute("data-action-id", "0");
+      tab.setAttribute("aria-selected", "true");
+      tab.removeAttribute("data-action-id");
+      tab.append(underline);
+      session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/stillpage/reels/"), document);
+      expect(visible(tab)).toBe(false);
+      for (const id of ["keep-fb-mobile-page-tab-all", "keep-fb-mobile-page-tab-photos", "keep-fb-mobile-page-tab-mentions"])
+        expect(visible(document.getElementById(id)!), id).toBe(true);
+    });
+
+    it("a row whose first tab is Reels is left alone: hiding it would pull every later tab out of the row", () => {
+      render("facebook-mobile-page.html");
+      const row = document.querySelector("#fb-mobile-page-tabs > [role=tablist]")!;
+      const tab = document.getElementById("fb-mobile-page-tab-reels")!;
+      row.prepend(tab);
+      session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/stillpage/"), document);
+      expect(visible(tab)).toBe(true);
+      for (const node of row.querySelectorAll('[id^="keep-"]')) expect(visible(node), node.id).toBe(true);
     });
 
     // The mobile Home feed's "Reels" section needs a signed-in structural capture (see

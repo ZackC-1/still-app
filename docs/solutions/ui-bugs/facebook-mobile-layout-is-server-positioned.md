@@ -37,16 +37,21 @@ Home feed needs a signed-in account, so it cannot be captured this way.
 
 ## Fix
 
-Hide the outer tab: `[role="tablist"] > [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])`.
+Hide the outer tab, unless it is the first in its row:
+`[role="tablist"] > [role="tab"] ~ [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])`.
 
 - **Not just the label.** Hiding the inner tab or the outer tab's children leaves the outer tab's
   box in place, invisible but still tappable, and the tap still opens the Reel grid.
 - **`display:none` is safe here, unlike desktop.** The mobile layout is computed by the server: each
   tab has a fixed inline width and `margin-left`, and each tab after the first is pulled back up with
-  `margin-top:-46px`. Facebook does not measure the row in the browser, so hiding a tab causes no
-  loop (0 attribute or child mutations over 3 s live; 0 over 30 frames in the fixture), and the
-  remaining tabs stay where they were. The cost is a blank slot where Reels was. CSS cannot close
-  it because the offsets are inline. Compare the desktop row, which measures its tabs and must have
+  `margin-top:-46px`. Hiding a tab on the live signed-out pages caused no attribute or child
+  mutation in the row over 3 seconds, so Facebook does not appear to re-measure it, and the
+  remaining tabs stayed where they were. (The fixture's zero-mutation check has no Facebook script;
+  it only proves Still writes nothing into the row.) The cost is a blank slot where Reels was. CSS
+  cannot close it because the offsets are inline.
+- **Never the first tab.** Every later tab is pulled up against the one before it, so hiding the
+  first tab would slide the whole row out of its clipped box. `~` limits the rule to tabs after
+  the first; a row that starts with Reels fails open. Compare the desktop row, which measures its tabs and must have
   only their contents hidden ([hiding-a-measured-tab-with-display-none-flickers](hiding-a-measured-tab-with-display-none-flickers.md)).
 - Unknown nesting fails open: if the wrapper depth changes, nothing matches.
 
@@ -63,13 +68,15 @@ Web Inspector.
 ## Verification
 
 - `tests/fixtures/facebook-mobile-page.html` models the captured row with its inline geometry.
-- `facebook-format2.test.ts`: the outer tab hides on the Page and its `/reels/` address; the other
-  tabs and an ordinary video post stay, keep their HTML, and Off restores the tab; lookalike labels
-  and a loose Reels label outside a tab row stay. Four cases failed before the rule.
-- `fixtures-format2.spec.ts` (Chromium extension): the tab hides, the other tabs stay at x = 0, 73
-  and 271 with zero mutations, and live Off/On restores then hides it. It failed before the rule.
-- The full packaged Facebook selector list matched exactly one element (the tab) on four captured
-  signed-out mobile Pages and profiles.
+- `facebook-format2.test.ts`: the outer tab hides on the Page, on its `/reels/` address and in the
+  selected state captured there; the other tabs and an ordinary video post stay, keep their HTML,
+  and Off restores the tab; lookalike labels, a loose Reels label outside a tab row and a
+  Reels-first row stay. Four cases failed before the rule; the Reels-first case fails without `~`.
+- `fixtures-format2.spec.ts` (Chromium extension): the tab hides, the other tabs keep their left
+  edges (0, 73, 271), their top and height inside the row, Still writes nothing into the row, and
+  live Off/On restores then hides it. It failed before the rule.
+- The full packaged Facebook selector list matched exactly one element (the tab) on five captured
+  signed-out mobile Pages and profiles (one in its `/reels/` state), and nothing on the signed-out mobile Watch page.
 
 ## Prevention
 

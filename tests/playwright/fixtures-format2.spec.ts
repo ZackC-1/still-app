@@ -516,10 +516,18 @@ test("format-2 facebook mobile Page (ISS-0035): the whole Reels tab hides, the o
       observer.observe(row, { subtree: true, attributes: true, childList: true });
       for (let frame = 0; frame < 30; frame++) await new Promise(requestAnimationFrame);
       observer.disconnect();
-      const x = (id: string) => Math.round(document.getElementById(id)!.getBoundingClientRect().x);
-      return { mutations, all: x("keep-fb-mobile-page-tab-all"), photos: x("keep-fb-mobile-page-tab-photos"), mentions: x("keep-fb-mobile-page-tab-mentions") };
+      // Each tab's left edge and its top relative to the row: the captured inner row sits 1 px up,
+      // and the outer row clips anything pulled further up.
+      const top = Math.round(row.getBoundingClientRect().top);
+      const at = (id: string) => {
+        const box = document.getElementById(id)!.getBoundingClientRect();
+        return [Math.round(box.x), Math.round(box.top) - top, Math.round(box.height)];
+      };
+      return { mutations, all: at("keep-fb-mobile-page-tab-all"), photos: at("keep-fb-mobile-page-tab-photos"), mentions: at("keep-fb-mobile-page-tab-mentions") };
     });
-    expect(sample).toEqual({ mutations: 0, all: 0, photos: 73, mentions: 271 });
+    // Still writes nothing into Facebook's row; the fixture has no Facebook script, so this proves
+    // only Still's side. The live check of Facebook's own row is recorded in the plan.
+    expect(sample).toEqual({ mutations: 0, all: [0, -1, 46], photos: [73, -1, 46], mentions: [271, -1, 46] });
   }
   await expectHiddenRetainedReversible(
     page, context, extensionId,
