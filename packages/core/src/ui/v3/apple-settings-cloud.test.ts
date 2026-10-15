@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { resolve } from "node:path";
 import type { Component } from "svelte";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -104,11 +104,13 @@ function syncSettingsServer(account: "saved" | "empty") {
   let revision = account === "saved" ? 1 : 0;
   let lastWriteId: string | null = null;
   const operations: UntrustedSettingsOperationRequest[] = [];
+  let failing = false;
   const response = () => ({ status: "ready", protocol: 2, empty: revision === 0, settings: structuredClone(settings), settingsVersion: revision,
     settingsServerUpdatedAt: "2026-10-05T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
   const invoke = vi.fn(async (name: string, options: { body: unknown }) => {
     if (name !== "sync-settings") return { data: {}, error: null };
+    if (failing) return { data: null, error: new Error("offline") };
     if ((options.body as { action?: string }).action === "read") return { data: response(), error: null };
     const parsed = readSettingsOperationRequest(options.body);
     if (parsed.status !== "parsed") return { data: null, error: new Error("request-shape") };
@@ -127,11 +129,25 @@ function syncSettingsServer(account: "saved" | "empty") {
   const channel = { on: () => channel, subscribe: () => channel, unsubscribe: async () => "ok" };
   const builder = { select: () => builder, maybeSingle: async () => ({ data: null, error: null }) };
   const client = { functions: { invoke }, channel: () => channel, from: () => builder } as unknown as SupabaseClient;
-  return { client, invoke, operations, settings: () => settings };
+  return {
+    client, invoke, operations, settings: () => settings,
+    /** Another signed-in device's saved change, as the function would record it. */
+    remoteEdit(path: SettingsField, on: boolean) {
+      const stamp = { ...settings.clocks[path], baseRevision: revision, localStep: 1 };
+      settings = withField(settings, path, on);
+      settings = { ...settings, clocks: { ...settings.clocks, [path]: stamp } };
+      revision += 1;
+      lastWriteId = null;
+      settings = { ...settings, updatedAt: 100 + revision };
+    },
+    fail(next: boolean) {
+      failing = next;
+    },
+  };
 }
 
 /** main.ts's atomic-cloud composition, with only the network and native ends faked. */
-async function composeCloud(options: { modernSettings: boolean; start?: "upgrade" | "first-record"; account?: "saved" | "empty" }) {
+async function composeCloud(options: { modernSettings: boolean; start?: "upgrade" | "first-record"; account?: "saved" | "empty"; now?: () => number }) {
   const native = nativeAppGroup(options.start ?? "upgrade");
   const server = syncSettingsServer(options.account ?? "saved");
   const adapter = new WKWebViewStorageAdapter(native.win);
@@ -153,7 +169,7 @@ async function composeCloud(options: { modernSettings: boolean; start?: "upgrade
     : new SupabaseBackendPort(server.client);
   // eslint-disable-next-line prefer-const -- assigned before any callback can fire, as in main.ts
   let session: ReturnType<typeof createAppleSession>;
-  const sync = new SyncService(cache, authPort, backend, (state) => session.onSyncState(state));
+  const sync = new SyncService(cache, authPort, backend, (state) => session.onSyncState(state), undefined, options.now ?? Date.now);
   const controller = new UiController({
     cache,
     host: { canPurchase: true },
@@ -179,10 +195,15 @@ async function composeCloud(options: { modernSettings: boolean; start?: "upgrade
 
 const SYNC_LINE = "Free. Keep your block settings consistent across every supported device and browser.";
 
-async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>) {
+async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>, platform?: "ios" | "mac") {
   const Host = await loadHost();
+  const observeSetup = platform === "mac"
+    ? async () => ({ ok: true, platform: "macos", extensionStatus: "enabled", enableLocation: "safariExtensionSettings" } as const)
+    : platform === "ios"
+      ? async () => ({ ok: true, platform: "ios", extensionStatus: "unknown", enableLocation: "settingsAppStillPage" } as const)
+      : async () => null;
   return render(Host, {
-    props: { controller: f.controller, authority: f.authority, observeSetup: async () => null, help: appleSettingsHelp(vi.fn()) },
+    props: { controller: f.controller, authority: f.authority, observeSetup, help: appleSettingsHelp(vi.fn()) },
   });
 }
 
@@ -275,6 +296,90 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
     expect(await screen.findByText(STRINGS.sync.failed)).toBeInTheDocument();
     expect(f.server.invoke.mock.calls.some(([name]) => name === "sync-settings")).toBe(false);
     expect(f.server.operations).toEqual([]);
+    f.authority.stop();
+  });
+});
+
+// ISS-0061: the app's sync card shows when it last synced, as the Chrome popup does (ISS-0056):
+// "Synced with your account. · Oct 15, 2:24 PM", the time of the last successful cloud exchange.
+describe("Apple sync card: last successful sync time (ISS-0061)", () => {
+  // The Chrome popup's exact format (DesktopPopup.svelte), so both read the same.
+  const chromeTime = (ms: number) => new Date(ms).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const card = () => document.querySelector<HTMLElement>('[data-still-card="sync"]')!;
+  const clock = () => {
+    const c = { t: Date.UTC(2026, 9, 15, 21, 24), now: () => c.t };
+    return c;
+  };
+
+  for (const platform of ["ios", "mac"] as const) {
+    it(`${platform}: after a sync the card shows that sync's time beside the success line, and it advances when another device's edit converges`, async () => {
+      const time = clock();
+      const f = await composeCloud({ modernSettings: true, now: time.now });
+      await renderHost(f, platform);
+      await screen.findByText(SYNC_LINE);
+      // Signed out: no time anywhere on the card.
+      expect(card().querySelector("time")).toBeNull();
+      await f.signIn();
+      await waitFor(() => expect(f.controller.lastSyncedAt).not.toBeNull());
+      const first = f.controller.lastSyncedAt!;
+      const status = (await screen.findByText(STRINGS.sync.synced)).closest<HTMLElement>('[role="status"]')!;
+      await waitFor(() => expect(status.querySelector("time")).not.toBeNull());
+      expect(card().querySelectorAll("time")).toHaveLength(1);
+      expect(status.querySelector("time")!.dateTime).toBe(new Date(first).toISOString());
+      expect(status.querySelector("time")!.textContent).toBe(chromeTime(first));
+      expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(`${STRINGS.sync.synced} · ${STRINGS.sync.lastSynced} ${chromeTime(first)}`);
+      // On success the label is for screen readers only, as on Chrome.
+      expect(within(status).getByText(STRINGS.sync.lastSynced, { exact: false }).classList.contains("sr-only")).toBe(true);
+
+      // Another device turns Instagram Off; the nudge's refresh converges it and records the exchange.
+      time.t += 7 * 60_000;
+      f.server.remoteEdit("services.instagram", false);
+      await f.sync.retryNow();
+      await waitFor(async () => expect(requireModernSettings((await f.native.storage.get())!).services.instagram).toBe(false));
+      await waitFor(() => expect(f.controller.lastSyncedAt).toBe(time.t));
+      await waitFor(() => expect(card().querySelector("time")!.dateTime).toBe(new Date(time.t).toISOString()));
+      expect(card().querySelector("time")!.textContent).toBe(chromeTime(time.t));
+      f.authority.stop();
+    });
+  }
+
+  it("a failed sync keeps the earlier good time with a visible label; signing out removes it", async () => {
+    const time = clock();
+    const f = await composeCloud({ modernSettings: true, now: time.now });
+    await renderHost(f);
+    await f.signIn();
+    await waitFor(() => expect(f.controller.lastSyncedAt).not.toBeNull());
+    const good = f.controller.lastSyncedAt!;
+    await waitFor(() => expect(card().querySelector("time")).not.toBeNull());
+    time.t += 60_000;
+    f.server.fail(true);
+    await f.sync.retryNow();
+    await waitFor(() => expect(f.controller.cloudReachable).toBe(false));
+    const alert = (await screen.findByText(STRINGS.sync.failed)).closest<HTMLElement>('[role="alert"]')!;
+    await waitFor(() => expect(alert.querySelector("time")?.dateTime).toBe(new Date(good).toISOString()));
+    // Never the failed attempt's time, and the label is visible so the time is not read as success.
+    const label = within(alert).getByText(STRINGS.sync.lastSynced, { exact: false });
+    expect(label.classList.contains("sr-only")).toBe(false);
+    expect(alert.textContent!.replace(/\s+/g, " ")).toContain(`${STRINGS.sync.lastSynced} ${chromeTime(good)}`);
+    expect(within(alert).getByRole("button", { name: STRINGS.sync.tryAgain })).toBeEnabled();
+    f.server.fail(false);
+    await f.session.signOutEverywhere();
+    await screen.findByText(SYNC_LINE);
+    expect(card().querySelector("time")).toBeNull();
+    f.authority.stop();
+  });
+
+  it("no time before any successful sync: the held rollout shows the failure copy alone", async () => {
+    const f = await composeCloud({ modernSettings: false });
+    await renderHost(f);
+    await f.signIn();
+    await waitFor(() => expect(f.controller.cloudReachable).toBe(false));
+    expect(await screen.findByText(STRINGS.sync.failed)).toBeInTheDocument();
+    expect(f.controller.lastSyncedAt).toBeNull();
+    expect(card().querySelector("time")).toBeNull();
+    expect(card().textContent).not.toContain(STRINGS.sync.lastSynced);
     f.authority.stop();
   });
 });

@@ -1636,6 +1636,20 @@ describe("account, restore, help and telemetry mapping", () => {
     ).toBe("a@b.c");
   });
 
+  it("passes the last successful sync time only for a signed-in account outside a deletion (ISS-0061)", () => {
+    const sync = createAppleSettingsSync();
+    expect(sync(source({ lastSyncedAt: 5 })).account).toBeUndefined();
+    expect(sync(source({ userId: "u" })).account!.lastSyncedAt).toBeNull();
+    expect(sync(source({ userId: "u", lastSyncedAt: 5 })).account!.lastSyncedAt).toBe(5);
+    // A failure keeps the earlier good time; the card labels it so it is not read as success.
+    expect(sync(source({ userId: "u", lastSyncedAt: 5, cloudReachable: false })).account).toMatchObject({
+      lastSyncedAt: 5, status: { tone: "failed", text: STRINGS.sync.failed },
+    });
+    expect(sync(source({ userId: "u", lastSyncedAt: 5, pendingUpload: true })).account!.lastSyncedAt).toBe(5);
+    for (const deleteFlow of ["deleting", "error"] as const)
+      expect(sync(source({ userId: "u", lastSyncedAt: 5, canDeleteAccount: true, deleteFlow })).account!.lastSyncedAt).toBeNull();
+  });
+
   it("keeps the same operations across routine status changes and replaces them on a new revision", () => {
     const sync = createAppleSettingsSync();
     const s = source({ userId: "user-1", canDeleteAccount: true });

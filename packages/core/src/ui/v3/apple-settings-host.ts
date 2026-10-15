@@ -312,6 +312,9 @@ export function createAppleSettingsSync() {
       address: source.accountEmail ?? "",
       confirmed: source.accountConfirmed === true,
       status: accountStatus(source, ops.retry),
+      // The controller's last successful cloud exchange (never an attempt or a local edit). A
+      // deletion's status is about the account, so it shows no sync time (ISS-0061).
+      lastSyncedAt: source.deleteFlow === "deleting" || source.deleteFlow === "error" ? null : source.lastSyncedAt,
       onSignOut: ops.onSignOut,
     };
     if (!source.canDeleteAccount || source.deleteFlow === "deleting") return { account: base };

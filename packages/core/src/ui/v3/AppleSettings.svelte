@@ -291,6 +291,7 @@
           address: sync.account.address,
           confirmed: sync.account.confirmed,
           status: sync.account.status,
+          lastSyncedAt: sync.account.lastSyncedAt,
           onSignOut: sync.account.onSignOut,
           onDeleteAccount: validDeleteAccount(sync.account)
             ? openDelete

@@ -19,6 +19,9 @@ export interface SyncCardProps {
     /** Actual caller-confirmed session; an address alone is not checkout authority. */
     confirmed: boolean;
     status?: OperationStatus;
+    /** Last successful cloud exchange, shown beside the status as on the Chrome popup. Only the
+     * Apple app supplies it; absent, the status line is unchanged. */
+    lastSyncedAt?: number | null;
     onSignOut?: () => void;
     onDeleteAccount?: () => void;
     /** Account-wide "Delete shared data on all devices" (owner decisions 60, 61, 74). Supplied only

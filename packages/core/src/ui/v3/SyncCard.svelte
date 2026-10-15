@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { SyncCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import { STRINGS } from "../strings.js";
+  import { formatLastSynced } from "./sync-time.js";
   import {
     SHARED_DATA_COPY,
     WITHDRAWAL_OUTCOMES,
@@ -46,7 +48,20 @@
             ><Glyph name={icons[account.status.tone]} size={16} /></span
           >{/if}
         <div class="status-body">
-          <span>{account.status.text}</span>
+          {#if account.lastSyncedAt != null}
+            <!-- The Chrome popup's compact line (ISS-0056): the label is visible unless the
+                 status already says the sync succeeded, so an earlier time never reads as now. -->
+            <span class="sync-summary">
+              <span>{account.status.text}</span>
+              <span aria-hidden="true"> · </span>
+              <span class="muted"><span class:sr-only={account.status.tone === "success"}>{`${STRINGS.sync.lastSynced} `}</span><time
+                  datetime={new Date(account.lastSyncedAt).toISOString()}
+                  >{formatLastSynced(account.lastSyncedAt)}</time
+                ></span>
+            </span>
+          {:else}
+            <span>{account.status.text}</span>
+          {/if}
           {#if account.status.detail}<span
               class="muted"
               style="font-size:calc(12.5px * var(--text-scale, 1));"
@@ -141,3 +156,9 @@
   {/if}
   {#if accountActions}{@render accountActions()}{/if}
 </section>
+
+<style>
+  .sync-summary {
+    overflow-wrap: anywhere;
+  }
+</style>
