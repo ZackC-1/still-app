@@ -75,6 +75,41 @@ export function proAccessChecking(
 }
 
 /**
+ * The access a Still Pro offer surface draws from (ISS-0032, reopened 15 Oct 2026). Once this view
+ * has seen Still Pro conclusively missing (proKnownMissing), a later hold is Still re-confirming the
+ * same answer, not a new one: the access cache holds Pro rows as `checking` or
+ * `verification_required` whenever the account's access record changes, a freshness deadline passes
+ * or one read fails, which happens during an ordinary sync or setting change. Shown raw, that hold
+ * made the Still Pro card and every lock chip vanish until the popup was reopened.
+ *
+ * While latched, held Pro rows are drawn `locked`, so the card and the chips stay; other states
+ * (free, unsupported) are drawn as they are. Any Pro row purchased or protected (verified
+ * ownership) ends the latch at once and the real snapshot is drawn again. Display only: a locked row has no switch, so a hold can never make
+ * a Pro row usable, and commands keep validating against the binding's own snapshot. One latch per
+ * mounted view; it never outlives the view.
+ */
+export function createProOfferLatch(): (
+  access: BenefitAccessSnapshot,
+) => BenefitAccessSnapshot {
+  let latched = false;
+  return (access) => {
+    const pro = FEATURE_REGISTRY.filter((row) => row.tier === "pro");
+    const ended = pro.some((row) =>
+      ["purchased", "protected"].includes(access.states[row.id]),
+    );
+    if (ended) latched = false;
+    else if (proKnownMissing(access)) latched = true;
+    if (!latched) return access;
+    const held = (state: string) =>
+      state === "checking" || state === "verification_required";
+    if (!pro.some((row) => held(access.states[row.id]))) return access;
+    const states = { ...access.states };
+    for (const row of pro) if (held(states[row.id])) states[row.id] = "locked";
+    return { ...access, states };
+  };
+}
+
+/**
  * The popup's Still Pro card line (ISS-0032, owner-approved design, 12 Oct 2026). The same words on
  * every popup. Owner rules: no number of extras and no price in the popup.
  */

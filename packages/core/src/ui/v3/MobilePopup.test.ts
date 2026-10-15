@@ -479,22 +479,33 @@ describe("controlled D02 mobile presentation", () => {
     expect(screen.queryByText("Opens the Still app")).toBeNull();
     await fireEvent.click(get);
     expect(props.onSeePro).toHaveBeenCalledTimes(2);
+    const related = () =>
+      screen.getByRole("button", {
+        name: /^.+\. Included in Still Pro\./,
+        description: "Related videos",
+      });
+    // A re-check after a conclusive "locked" keeps the offer (ISS-0032): still navigation only.
+    let opened = 2;
     for (const state of ["checking", "verification_required"] as const) {
       props.access = {
         ...props.access,
         states: { ...props.access.states, "youtube.comments": state },
       };
       await view.rerender(props);
-      expect(screen.queryByText("Get Still Pro")).toBeNull();
-      await fireEvent.click(
-        screen.getByRole("button", {
-          name: /^.+\. Included in Still Pro\./,
-          description: "Related videos",
-        }),
-      );
+      expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
+      await fireEvent.click(related());
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(props.onSeePro).toHaveBeenCalledTimes(2);
+      expect(props.onSeePro).toHaveBeenCalledTimes(++opened);
     }
+    // Verified ownership withdraws it.
+    props.access = {
+      ...props.access,
+      states: { ...props.access.states, "youtube.comments": "purchased" },
+    };
+    await view.rerender(props);
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
+    await fireEvent.click(related());
+    expect(props.onSeePro).toHaveBeenCalledTimes(opened);
     view.unmount();
   });
 
@@ -833,7 +844,7 @@ describe("informational Firefox destination without a payment channel", () => {
     delivered();
   });
 
-  it.each(["unsupported", "purchased", "protected", "checking", "verification_required"] as const)(
+  it.each(["unsupported", "purchased", "protected"] as const)(
     "holds an old lock action when current Firefox access becomes %s",
     async state => {
       const { props, storage } = await fixture("locked");
@@ -852,11 +863,31 @@ describe("informational Firefox destination without a payment channel", () => {
       expect(await storage.get()).toEqual(saved);
     },
   );
+
+  it.each(["checking", "verification_required"] as const)(
+    "a re-check to %s after a conclusive lock keeps the lock and the card; navigation only (ISS-0032)",
+    async state => {
+      const { props, storage } = await fixture("locked");
+      props.host = "firefox";
+      props.onSeePro = vi.fn();
+      const saved = await storage.get();
+      const view = render(MobilePopup, { props });
+      await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+      props.access = { ...props.access, states: Object.fromEntries(Object.entries(props.access.states).map(([id, prior]) => [id, FEATURE_REGISTRY.some(row => row.id === id && row.tier === "pro") ? state : prior])) as MobilePopupProps["access"]["states"] };
+      await view.rerender(props);
+      expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
+      await fireEvent.click(screen.getByRole("button", { name: /^.+\. Included in Still Pro\. See Still Pro$/, description: "Comments" }));
+      expect(props.onSeePro).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(await storage.get()).toEqual(saved);
+    },
+  );
 });
 
 
 describe("current mixed Firefox access blocks informational acquisition", () => {
-  it.each(["checking", "verification_required", "purchased", "protected"] as const)(
+  it.each(["purchased", "protected"] as const)(
     "keeps the current Comments lock inert when another benefit becomes %s",
     async state => {
       const { props, storage } = await fixture("locked");

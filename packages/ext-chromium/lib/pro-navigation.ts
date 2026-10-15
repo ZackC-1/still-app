@@ -33,13 +33,27 @@ export const PRO_OFFER_READY_KEY = "still:pro-offer-ready";
  * the Settings card's module. Any failure, or no answer, is "no". Display only: checkout runs its
  * own fresh check before anything opens.
  */
-export async function askProOfferReady(): Promise<boolean> {
+export async function askProOfferReady(timeoutMs = PRO_OFFER_ASK_TIMEOUT_MS): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return (await chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" })) === true;
+    const reply: unknown = await Promise.race([
+      chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" }),
+      // A background that never replies (still waking, or a sales check that hangs) is "no answer
+      // yet", so the popup can ask again instead of waiting for this opening to end.
+      new Promise((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+    return reply === true;
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
+
+/** How long one "would Settings offer Get Still Pro?" question may wait for the background. */
+export const PRO_OFFER_ASK_TIMEOUT_MS = 3_000;
+/** The popup's bounded re-asks after a "no" before its first "yes" (ISS-0032): about 7.5 s. */
+export const PRO_OFFER_RETRY_MS: readonly number[] = [500, 1_000, 2_000, 4_000];
 
 /** Remember only an answer the live popup accepted after checking its request lifetime. */
 export async function rememberProOfferReady(ready: boolean): Promise<void> {

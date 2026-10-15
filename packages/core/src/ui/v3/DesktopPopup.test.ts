@@ -631,30 +631,41 @@ describe("controlled D01 presentation", () => {
     expect(props.onFeatureChange).not.toHaveBeenCalled();
   });
 
-  it("Get Still Pro opens the Pro destination and goes away when current access becomes uncertain", async () => {
+  it("Get Still Pro opens the Pro destination, stays through a re-check, and goes on verified ownership (ISS-0032)", async () => {
     const { props } = await fixture("locked");
     const seePro = vi.fn();
     props.onSeePro = seePro;
     const view = render(DesktopPopup, { props });
     await fireEvent.click(screen.getByRole("button", { name: "Get Still Pro" }));
     expect(seePro).toHaveBeenCalledOnce();
+    // A hold after a conclusive "locked" is Still re-confirming the same answer (a sync or a
+    // setting change): the offer and the lock chips stay, and still only navigate.
     props.access = {
       ...props.access,
       states: { ...props.access.states, "youtube.comments": "checking" },
     };
     await view.rerender(props);
-    expect(screen.queryByText("Get Still Pro")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Still Pro" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
-    await fireEvent.click(
+    const related = () =>
       screen.getByRole("button", {
         name: /^.+\. Included in Still Pro\./,
         description: "Related videos",
-      }),
-    );
+      });
+    await fireEvent.click(related());
+    expect(seePro).toHaveBeenCalledTimes(2);
+    // Verified ownership ends the offer at once.
+    props.access = {
+      ...props.access,
+      states: { ...props.access.states, "youtube.comments": "purchased" },
+    };
+    await view.rerender(props);
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Still Pro" })).toBeNull();
+    await fireEvent.click(related());
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(seePro).toHaveBeenCalledOnce();
+    expect(seePro).toHaveBeenCalledTimes(2);
   });
 });
