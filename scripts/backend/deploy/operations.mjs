@@ -139,7 +139,7 @@ export const PROTECTED_OPERATOR_SUBJECT =
 
 /**
  * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the successor
- * candidate (main 7e1e83b2, sequence 357) while manual and automated QA overlap.
+ * candidates (main 7e1e83b2, sequence 357; main f7ada787, sequence 359) during QA.
  * Extensions present their manifest version
  * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
  * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
@@ -154,6 +154,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.357"],
     ["firefox_desktop", "2.1.1.357"],
     ["firefox_android", "2.1.1.357"],
+    ["chrome_desktop", "2.1.1.359"],
+    ["firefox_desktop", "2.1.1.359"],
+    ["firefox_android", "2.1.1.359"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -342,7 +345,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "ee19a04076c9a93fd7705dfae734cb59489a4301b51776a073b795365b285505",
+        "efade0ef4501196c265470dd49de392ecc5223e10d77688f7216b978d91c142f",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -354,7 +357,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "5b4fa8b379b08505bd16f6439a8aafcb6a6de2bea23944da6e577e2530a6c4e1",
+        "1d03fd34cb224a319c410f0bd9701132f3f45bed056082259284b47cf20af52c",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
