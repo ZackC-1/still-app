@@ -187,11 +187,13 @@ export const MIGRATION_GATE = `${VERIFY_DIR}/0018_analytics_account_erasure.sql`
 /**
  * Codes 0018's check reports only because a LATER reviewed migration changed that object on
  * purpose: 0020 replaced the shared rate limiter's body (new buckets; 0020's own check pins the new
- * body). The limiter is not part of the deletion safety net. Any other code stops the run, so a
+ * body). 0023 adds an authenticated-only QA membership predicate, pinned by its own gate.
+ * Neither the limiter nor that predicate is part of the deletion safety net. Any other code stops the run, so a
  * future change to an analytics object needs a reviewed update here first.
  */
 export const LATER_MIGRATION_CODES = Object.freeze([
   "erasure_function_body_changed:public.consume_rate_limit(text,integer,integer)",
+  "client_execute:authenticated:qa_settings_notifications_enabled()",
 ]);
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
 const ROLE_FACTS = "scripts/backend/deploy/sql/role-facts.sql";

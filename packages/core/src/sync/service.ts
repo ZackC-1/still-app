@@ -760,24 +760,25 @@ export class SyncService {
     if (this.unsubRealtime !== null) return;
     const lifecycle = this.lifecycle;
     this.realtimeStale = false;
-    this.unsubRealtime = this.backend.subscribeToProfile(
-      userId,
-      (envelope) => {
-        if (lifecycle !== this.lifecycle) return;
-        this.applyRemoteEnvelope(envelope);
-      },
-      (status) => {
-        if (lifecycle !== this.lifecycle) return;
-        if (status === "disconnected" || status === "error") {
-          this.realtimeStale = true;
-          return;
-        }
-        if (status === "subscribed" && this.realtimeStale) {
-          this.realtimeStale = false;
-          void this.retryNow();
-        }
-      },
-    );
+    const onStatus = (status: "subscribed" | "disconnected" | "error") => {
+      if (lifecycle !== this.lifecycle) return;
+      if (status === "disconnected" || status === "error") {
+        this.realtimeStale = true;
+        return;
+      }
+      if (status === "subscribed" && this.cache.currentRecord().atomic) {
+        // Close the read-before-subscribe gap, including the first successful join.
+        this.refreshFromNotification(lifecycle);
+      } else if (status === "subscribed" && this.realtimeStale) {
+        this.realtimeStale = false;
+        void this.retryNow();
+      }
+    };
+    this.unsubRealtime = this.backend.modernSettingsEnabled && this.backend.subscribeToSettingsChanges
+      ? this.backend.subscribeToSettingsChanges(userId, () => this.refreshFromNotification(lifecycle), onStatus)
+      : this.backend.subscribeToProfile(userId, (envelope) => {
+        if (lifecycle === this.lifecycle) this.applyRemoteEnvelope(envelope);
+      }, onStatus);
     this.scheduleRefresh(lifecycle);
   }
 
@@ -789,7 +790,7 @@ export class SyncService {
     this.realtimeStale = false;
   }
 
-  /** Notifications are hints, not a delivery guarantee. The QA route intentionally has no public
+  /** Notifications are hints, not a delivery guarantee. The QA route uses private invalidation hints, never a public
    * profile subscription. While this runtime is active, authenticate a canonical read periodically;
    * resume/foreground recovery still owns catching up after the OS suspends it. */
   private scheduleRefresh(lifecycle: number): void {
@@ -841,16 +842,22 @@ export class SyncService {
     this.retryDelay = 1_000;
   }
 
+  private refreshFromNotification(lifecycle: number): void {
+    if (lifecycle !== this.lifecycle || this.atomicScope === null) return;
+    this.realtimeStale = true;
+    void this.retryNow().then(() => {
+      // A notification during an exchange needs one trailing read, never work for a new account.
+      if (lifecycle === this.lifecycle && this.realtimeStale && this.atomicScope !== null) {
+        this.realtimeStale = false;
+        void this.retryNow();
+      }
+    });
+  }
+
   private applyRemoteEnvelope(envelope: SyncedSettingsEnvelope): void {
     if (this.cache.currentRecord().atomic) {
       // A realtime public row is a nudge, never receipt authority. Authenticate an own-row read.
-      this.realtimeStale = true;
-      void this.retryNow().then(() => {
-        if (this.realtimeStale && this.atomicScope !== null) {
-          this.realtimeStale = false;
-          void this.retryNow();
-        }
-      });
+      this.refreshFromNotification(this.lifecycle);
       return;
     }
     // Realtime may acknowledge our write before its RPC response. Anchor the newest local edit

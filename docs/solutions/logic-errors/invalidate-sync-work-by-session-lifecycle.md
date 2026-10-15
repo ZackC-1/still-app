@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: Async sync responses or cleanup can finish after sign-out or a later session entry
 date: 2026-09-08
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 status: active
 tags: [sync, session, account-isolation, realtime, async]
 ---
@@ -150,3 +150,16 @@ the missing email sheet before the change; repeated cycles and wrong-code retrie
 The existing mounted delete-confirmation test now invalidates its old action on a revision change
 alone, without a fabricated sync-status update. Browser checks cover the same host at phone and
 desktop widths; physical-device lifecycle verification remains separate.
+
+## Notification-triggered canonical refresh
+
+Modern sync treats an advisory notification as a reason to read authenticated canonical state.
+The callback and the continuation after an in-flight read/write both capture the session lifecycle.
+Checking only the callback is insufficient: its promise can settle after A → B → A and start a read
+for the later session. Coalescing retains a trailing refresh when another hint arrives during an
+exchange; initial subscription success also reads, closing the initial-read/subscription gap.
+
+`atomic-sync.test.ts` verifies initial joins, a 50-hint burst during a held read, hints during a held
+local upload, and retired callbacks across A → B → A. The existing five-second fallback remains
+responsible for recovery when notifications are absent. A notification never supplies a receipt,
+settings patch or account authority.

@@ -123,7 +123,7 @@ describe("Apple settings host sign-in lifetime", () => {
         expect(phone.cache.current().services.youtube).toBe(wanted);
         expect(screen.getByRole("switch", { name: /YouTube/ })).toHaveAttribute("aria-checked", String(wanted));
         expect(controller.userId).toBe(ACCOUNT);
-        expect(phone.channel).not.toHaveBeenCalled();
+        expect(phone.channel).toHaveBeenCalledWith(`qa-settings-v1:${ACCOUNT}`, { config: { private: true } });
       }
     } finally {
       cleanup(); authority.stop(); controller.dispose();

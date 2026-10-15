@@ -84,7 +84,7 @@ export async function client(server: ReturnType<typeof canonicalServer>, routePr
     return { data, error: null };
   });
   const channel = vi.fn(() => ({ on() { return this; }, subscribe() { return this; }, unsubscribe() {} }));
-  const backend = new SupabaseBackendPort({ functions: { invoke }, channel,
+  const backend = new SupabaseBackendPort({ functions: { invoke }, channel, removeChannel: async () => "ok",
     from: () => ({ select: () => ({ maybeSingle: async () => ({ data: { still_sync: false }, error: null }) }) }),
   } as unknown as SupabaseClient, { modernSettings: true, routeProfile });
   const auth = { currentUserId: async () => account,

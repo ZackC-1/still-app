@@ -199,3 +199,22 @@ as an incidental rollback.
 Keep outcomes in the release record and owner QA programme as PASS, FAIL or UNVERIFIED. Every
 receipt identifies actual source/configuration/package provenance and whether its evidence came
 from synthetic tests, disposable SQL, the hosted target or an installed device.
+
+## Notification-driven sync candidate
+
+Migration `0023_qa_settings_notifications.sql` adds private delivery hints for enabled QA accounts.
+Apply it alone after history ends at0022, using the protected migration workflow and its exact
+verification/invariant files. The new own-account receive policy does not grant client publishing;
+ordinary production subscriptions keep their existing route. No QA function redeploy is needed.
+
+Build the next candidate from a clean main commit using `paid-sandbox apple-all`. Verify its derived
+manifest version against the reviewed sales-policy admission before applying that separate protected
+operation. A policy-only merge also increments the QA sequence; never infer the next version from
+the last packaged candidate. The notification candidate admission is2.1.1.361, preserving earlier
+entries. Source merge, migration application, admission and installed acceptance are separate gates.
+
+Active clients refresh canonical settings after a private hint or channel join; the existing
+five-second fallback remains. Validate both authenticated peers, notification transport failure with
+HTTP still available, offline recovery, concurrent edits and account isolation. Record measured
+latencies from the exact package; local WebSocket tests cannot establish hosted latency. Apple
+foreground/background and physical-device acceptance remain explicit owner QA tasks.

@@ -130,6 +130,12 @@ export interface BackendPort {
   readonly modernSettingsEnabled?: boolean;
   readCanonicalSettings?(): Promise<CanonicalSettingsEnvelope>;
   writeSettingsOperation?(request: UntrustedSettingsOperationRequest): Promise<CanonicalSettingsEnvelope>;
+  /** Advisory invalidation only; canonical settings still require an authenticated read. */
+  subscribeToSettingsChanges?(
+    userId: string,
+    onChange: () => void,
+    onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
+  ): () => void;
   /** Invoke the reconcile-entitlement Edge Function for the signed-in user (self-heals webhooks). */
   reconcileEntitlement(): Promise<void>;
   /** Read the signed-in user's Still Pro entitlement (DB column `still_sync`). Offline/error
