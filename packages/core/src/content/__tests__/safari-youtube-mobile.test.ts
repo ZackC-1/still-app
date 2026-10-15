@@ -123,6 +123,9 @@ describe("Safari modern content entry with observed mobile YouTube structures", 
       for (const id of [...targets, "free-shorts"]) expect(shown(id), `${id} ${path} Off`).toBe(true);
       expect(document.querySelector("[data-still-youtube-comments-panel]")).toBeNull();
       await h.authority.commitIntent({ path, value: true, updatedAt: Date.now() });
+      // Free blocking resumes immediately; paid effects require a fresh broker observation.
+      expect(shown("free-shorts")).toBe(false);
+      await tick(); await tick();
       for (const id of [...targets, "free-shorts"]) expect(shown(id), `${id} ${path} On`).toBe(false);
     }
 

@@ -118,7 +118,7 @@ jobs:
           deno test --config supabase/functions/deno.json scripts/backend/audit.test.ts
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/backend -p 'test_*.py'
       - name: Verify audit certificate and hostname checks with disposable TLS endpoints
-        run: deno test --config supabase/functions/deno.json --allow-env=PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-run=openssl --allow-read=/tmp --allow-write=/tmp '--allow-net=localhost,127.0.0.1,[::1]' scripts/backend/audit-connection.test.ts
+        run: deno test --config supabase/functions/deno.json --allow-env=PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-run=openssl --allow-read=/tmp --allow-write=/tmp '--allow-net=localhost,127.0.0.1,[::1]' scripts/backend/audit-connection.test.ts scripts/backend/writer-connection.test.ts
       - name: Verify pinned CLI and runtime
         run: |
           test "$(supabase --version)" = '2.119.0'
