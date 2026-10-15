@@ -252,18 +252,22 @@ function syncFixture(values: Record<string, string> = {
       return work(row);
     },
   };
-  const handler = createQaSandboxSyncHandler(environment.get, (url) => {
-    connections.push(url);
-    return {
-      store,
-      limiter: {
-        consume: (key) => {
-          buckets.push(key);
-          return Promise.resolve(0);
+  const handler = createQaSandboxSyncHandler(
+    environment.get,
+    (url, idleTimeoutSeconds) => {
+      assertEquals(idleTimeoutSeconds, 1);
+      connections.push(url);
+      return {
+        store,
+        limiter: {
+          consume: (key) => {
+            buckets.push(key);
+            return Promise.resolve(0);
+          },
         },
-      },
-    };
-  });
+      };
+    },
+  );
   return { handler, environment, row, subjects, connections, buckets };
 }
 async function token(override: Record<string, unknown> = {}) {

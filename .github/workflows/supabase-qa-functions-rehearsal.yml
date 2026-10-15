@@ -85,4 +85,5 @@ jobs:
           export STILL_NOTIFICATION_TEST_JWT_SECRET="$(supabase status -o json | jq -r .JWT_SECRET)"
           STILL_NOTIFICATION_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
             deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322,127.0.0.1:54321 \
-            --allow-read=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql supabase/tests/qa_settings_notifications_test.ts
+            --allow-read=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql \
+            supabase/tests/qa_settings_notifications_test.ts supabase/tests/qa_sync_connection_lifetime_test.ts
