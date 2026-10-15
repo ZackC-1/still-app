@@ -46,7 +46,10 @@ role, checked-state attribute, absolute Facebook origin and exact `/reels_tab` e
 vanity Pages, group routes and query/fragment values. A generic menu substring selector hides
 ordinary Pages such as `/reels_tab_productions`. Unknown shapes should remain visible. This is the same shape as the
 mobile rule from issue #58 (`[role="tab"][aria-label*="reels" i] > *`). The label must be wrapped
-in an element; a bare text node child would stay visible.
+in an element; a bare text node child would stay visible. The current mobile Page tab row is
+different again: it is laid out by the server, not measured, and its tap target is an outer tab, so
+that whole tab is hidden (see
+[facebook-mobile-layout-is-server-positioned](facebook-mobile-layout-is-server-positioned.md)).
 
 ## Verification that catches it
 
@@ -99,4 +102,5 @@ box. Prefer hiding its contents or a wrapper the site does not measure, and pref
 attributes that do not change with visibility state.
 
 Related: `docs/plans/2026-09-24-001-fix-facebook-page-reels-tab-flicker.md`,
-`docs/solutions/ui-bugs/mobile-youtube-renderer-owned-nodes.md`.
+`docs/solutions/ui-bugs/mobile-youtube-renderer-owned-nodes.md`,
+`docs/solutions/ui-bugs/facebook-mobile-layout-is-server-positioned.md`.
