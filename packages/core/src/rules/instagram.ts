@@ -92,9 +92,67 @@ export function instagramViewerShowsReel(doc: Document, code: string): boolean {
   return doc.querySelector(`[role="dialog"] a[href$="/reel/${code}/"]`) !== null;
 }
 
-// Explore keeps Instagram's measured rows and discovery thumbnails intact. Flattening those
-// rows or removing cells changes the virtualizer's geometry and can strand loading/scrolling
-// (ISS-0053). The viewer continuation guard still contains a Reel after its deliberately opened clip.
+/** The Explore hub: /explore/ on a web app host (its search, tags and people pages are not). */
+export function isInstagramExploreHub(location: Pick<URL, "hostname" | "pathname">): boolean {
+  return INSTAGRAM_APP_HOST.test(location.hostname) && /^\/explore\/?$/.test(location.pathname);
+}
+
+/**
+ * The Explore mark: set on the document root while the Reels core is effective and the address is
+ * the Explore hub (INSTAGRAM_EXPLORE_MARKER), for the same reasons as the profile mark. Explore
+ * itself stays for everyone (hiding it is a Still Pro extra); only its Reel tiles go (ISS-0064).
+ */
+const EXPLORE_MARKER_ATTRIBUTE = "data-still-instagram-explore" as const;
+const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
+/**
+ * The Explore grid (captured 12 Oct 2026): the same virtualized column as the profile grid, whose
+ * rows are CSS grids (their inline style sets `--x-gridTemplateColumns: repeat(N, 1fr)`) of tile
+ * boxes; each tile box holds a wrapper holding the tile's /p/<code>/ link. A Reel tile's link
+ * carries a looping video (the signal that does not depend on the page's language) and an SVG
+ * titled "Reel"; photos and carousels carry neither. Nothing inside a dialog is ever the grid.
+ */
+const EXPLORE_COLUMN = 'div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"])';
+const EXPLORE_REEL_LINK = 'a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"])';
+/** An Explore row holding at least one Reel tile: the only rows the Explore layout touches. */
+const EXPLORE_REEL_ROW = `${EXPLORE} ${EXPLORE_COLUMN} > div:has(> div > div > ${EXPLORE_REEL_LINK})`;
+/** An Explore Reel tile box; the Explore mark's consuming selector. */
+const EXPLORE_REEL_TILE = `${EXPLORE_REEL_ROW} > div:has(> div > ${EXPLORE_REEL_LINK})`;
+
+/**
+ * Sets the Explore mark on the document root while the address is the Explore hub, and keeps it
+ * while a tile is open in the post viewer over Explore (/p/<code>/), so the grid behind the dialog
+ * keeps its layout and its Reels stay hidden. Any other address clears it.
+ */
+export const INSTAGRAM_EXPLORE_MARKER: MarkerAdapter = Object.freeze({
+  feature: "instagram.reels",
+  attribute: EXPLORE_MARKER_ATTRIBUTE,
+  candidates: "html",
+  ruleSelector: EXPLORE_REEL_TILE,
+  owns: (root: Element) => {
+    const location = root.ownerDocument.defaultView?.location;
+    if (!location) return false;
+    if (isInstagramExploreHub(location)) return true;
+    return root.hasAttribute(EXPLORE_MARKER_ATTRIBUTE) && INSTAGRAM_APP_HOST.test(location.hostname)
+      && instagramPostViewerCode(location.pathname) !== null;
+  },
+});
+
+/**
+ * The layout Explore needs once its Reel tiles are hidden (ISS-0064), shaped by what broke
+ * loading before (ISS-0053). Instagram virtualizes the column: it measures each row it draws and
+ * stands in for the rows it has unmounted with the column's inline padding. So every row stays a
+ * real box at all times. Never display:contents (a row with no box cannot be measured, and a
+ * ResizeObserver never reports one), never a 0x0 row, never a rewritten column, and no switching
+ * back when the padding becomes non-zero. Only a row that holds a Reel changes: it becomes one flex
+ * line whose remaining posts share the row's width (no hole at the row's end), and a row of only
+ * Reels keeps a 1px box. A widened post is capped at 75% of the viewport height so one post cannot
+ * fill a desktop screen. Rows keep roughly Instagram's own height, so its loader keeps arriving.
+ * Bound to the tile hide: the hide selects exactly some of the tile boxes laid out here.
+ */
+export const INSTAGRAM_EXPLORE_LAYOUT: readonly LayoutRule[] = Object.freeze([
+  Object.freeze({ selector: EXPLORE_REEL_ROW, declarations: "display:flex!important;flex-wrap:nowrap!important;min-height:1px!important" }),
+  Object.freeze({ selector: `${EXPLORE_REEL_ROW} > div`, declarations: "flex:1 1 0!important;min-width:0!important;max-height:75vh!important;overflow:hidden!important" }),
+]);
 
 /** Captured core Reels discovery targets for explicit internal format2 opt-in.
  * Media belongs to its own article; caption links and song credits are not Reel ownership.
@@ -114,6 +172,8 @@ const selectors = Object.freeze([
   // A profile grid's Reel tiles: the whole tile box, which INSTAGRAM_REELS_LAYOUT lets the
   // remaining tiles fill without holes (ISS-0034).
   PROFILE_REEL_TILE,
+  // Explore's Reel tiles: the whole tile box. Explore stays; its Reels do not (ISS-0064).
+  EXPLORE_REEL_TILE,
 ]);
 
 export const INSTAGRAM_REELS_RULES: ServiceRulesV2 = Object.freeze({
@@ -135,10 +195,11 @@ export const INSTAGRAM_REELS_RULES: ServiceRulesV2 = Object.freeze({
  * the column wraps the remaining tiles three to a line at the grid's own size, so the posts close
  * up in order. Applied only while the Reels core hides, under the same owned feature class.
  * It is bound to the tile hide above: both use PROFILE and ROW, and a unit test fails if the
- * packaged hide stops selecting exactly the tile boxes this layout lays out.
+ * packaged hide stops selecting exactly the tile boxes this layout lays out. Explore's layout follows.
  */
 export const INSTAGRAM_REELS_LAYOUT: readonly LayoutRule[] = Object.freeze([
   Object.freeze({ selector: `${PROFILE} ${GRID}`, declarations: "flex-direction:row!important;flex-wrap:wrap!important;gap:1px!important" }),
   Object.freeze({ selector: `${PROFILE} ${ROW}`, declarations: "display:contents!important" }),
   Object.freeze({ selector: `${PROFILE} ${ROW} > div`, declarations: "flex:0 0 calc((100% - 2px) / 3)!important;margin:0!important" }),
+  ...INSTAGRAM_EXPLORE_LAYOUT,
 ]);
