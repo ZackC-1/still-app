@@ -434,9 +434,18 @@ describe("controlled D04 Apple settings", () => {
     const status = screen.getByText(STRINGS.sync.synced).closest<HTMLElement>('[role="status"]')!;
     expect(status.querySelector("time")!.dateTime).toBe(new Date(time).toISOString());
     expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(`${STRINGS.sync.synced} · ${STRINGS.sync.lastSynced} ${chrome}`);
+    // The advancing time is not re-announced on its own inside the status region.
+    expect(status.querySelector("time")!.closest("[aria-live]")!.getAttribute("aria-live")).toBe("off");
     props.sync.account = { ...props.sync.account, lastSyncedAt: null };
     await view.rerender(props);
     expect(document.querySelector("time")).toBeNull();
+    // An unrepresentable value shows the status alone instead of breaking the page.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 1e20]) {
+      props.sync.account = { ...props.sync.account, lastSyncedAt: bad };
+      await view.rerender(props);
+      expect(document.querySelector("time")).toBeNull();
+      expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+    }
     view.unmount();
   });
 

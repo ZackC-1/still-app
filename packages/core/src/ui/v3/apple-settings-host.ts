@@ -311,10 +311,7 @@ export function createAppleSettingsSync() {
     const base = {
       address: source.accountEmail ?? "",
       confirmed: source.accountConfirmed === true,
-      status: accountStatus(source, ops.retry),
-      // The controller's last successful cloud exchange (never an attempt or a local edit). A
-      // deletion's status is about the account, so it shows no sync time (ISS-0061).
-      lastSyncedAt: source.deleteFlow === "deleting" || source.deleteFlow === "error" ? null : source.lastSyncedAt,
+      ...accountStatus(source, ops.retry),
       onSignOut: ops.onSignOut,
     };
     if (!source.canDeleteAccount || source.deleteFlow === "deleting") return { account: base };
@@ -322,9 +319,23 @@ export function createAppleSettingsSync() {
   };
 }
 
-function accountStatus(source: AppleSettingsAccountSource, retry: (() => void) | undefined): OperationStatus {
-  if (source.deleteFlow === "deleting") return { tone: "pending", text: STRINGS.account.deleting };
-  if (source.deleteFlow === "error") return { tone: "failed", text: STRINGS.account.deleteError };
+/**
+ * The card's status line and the time beside it. The time is the controller's last successful
+ * cloud exchange (never an attempt or a local edit), shown as on the Chrome popup (ISS-0061); a
+ * deletion's status is about the account, so it carries no sync time.
+ */
+function accountStatus(
+  source: AppleSettingsAccountSource,
+  retry: (() => void) | undefined,
+): { status: OperationStatus; lastSyncedAt: number | null } {
+  if (source.deleteFlow === "deleting")
+    return { status: { tone: "pending", text: STRINGS.account.deleting }, lastSyncedAt: null };
+  if (source.deleteFlow === "error")
+    return { status: { tone: "failed", text: STRINGS.account.deleteError }, lastSyncedAt: null };
+  return { status: syncStatus(source, retry), lastSyncedAt: source.lastSyncedAt };
+}
+
+function syncStatus(source: AppleSettingsAccountSource, retry: (() => void) | undefined): OperationStatus {
   if (!source.cloudReachable)
     return {
       tone: "failed",

@@ -22,11 +22,17 @@ field for a time. The Mac app uses the same host, so it had the same gap.
   a separator, and the time in a `<time>` element. On success the "Last synced" label is for
   screen readers only; while syncing or after a failure it stays visible so an earlier time is
   never read as the current upload succeeding.
-- Format with the exact options the Chrome popup uses, from one small shared helper.
+- Move the popup's compact summary into one shared `SyncSummary` component used by both the
+  popup and the sync card, so the markup, label rule and date format cannot drift. The time sits
+  in an `aria-live="off"` span so its advancing minute is not re-announced; an unrepresentable
+  value shows the status alone.
+- Fix a popup defect found on the way: Svelte drops whitespace at the end of an element, so the
+  visible label read "Last syncedOct 15" while syncing or after a failure.
 - `createAppleSettingsSync` passes the controller's `lastSyncedAt`, except while an account
   deletion is running or has failed (those statuses are about the account, not sync).
 - `AppleSettings` forwards it to `SyncCard`.
-- Chrome's popup and Chrome's settings page do not pass the new field, so they are unchanged.
+- Chrome's settings page does not pass the new field, so it is unchanged; Chrome's popup renders
+  the same DOM through the shared component, plus the restored space.
   ISS-0056's layout question is still open with the owner; this follows what Chrome does today.
 - No Swift change, no new data source, no analytics, no Safari popup change (other lanes own the
   Safari popup and its bridge).
@@ -50,5 +56,6 @@ time>"; edit on another device and watch the time advance; sign out and the time
 
 ## Risks
 
-- Layout may change again when the owner answers ISS-0056; the summary lives in one place.
+- Layout may change again when the owner answers ISS-0056; the summary now lives in one place.
+- The legacy 2.x `App.svelte` screens keep their own inline format (their bundles stay as shipped).
 - The Safari popups still show no time (their host passes none); noted for a later lane.

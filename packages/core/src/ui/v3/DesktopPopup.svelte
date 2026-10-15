@@ -1,6 +1,5 @@
 <script lang="ts">
   import SiteAccessCard from "./SiteAccessCard.svelte";
-  import { STRINGS } from "../strings.js";
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
   import {
@@ -21,6 +20,7 @@
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
+  import SyncSummary from "./SyncSummary.svelte";
   import "./design/styles.css";
 
   let {
@@ -332,21 +332,11 @@
             ><Glyph name={statusGlyph[account.status.tone]} /></span
           >{/if}
         <div class="status-body">
-          <span class="sync-summary">
-            <span>{account.status.text}</span>
-            {#if account.lastSyncedAt != null}
-              <span aria-hidden="true"> · </span>
-              <span class="muted"><span class:sr-only={account.status.tone === "success"}>{`${STRINGS.sync.lastSynced} `}</span><time
-                  datetime={new Date(account.lastSyncedAt).toISOString()}
-                  >{new Date(account.lastSyncedAt).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}</time
-                ></span>
-            {/if}
-          </span>{#if account.status.retry}<button
+          <SyncSummary
+            text={account.status.text}
+            tone={account.status.tone}
+            lastSyncedAt={account.lastSyncedAt}
+          />{#if account.status.retry}<button
               type="button"
               class="link status-action"
               onclick={account.status.retry}>Try again</button
@@ -368,9 +358,6 @@
 </div>
 
 <style>
-  .sync-summary {
-    overflow-wrap: anywhere;
-  }
   .app.invitation-scroll {
     overflow-y: auto;
     overscroll-behavior-y: contain;
