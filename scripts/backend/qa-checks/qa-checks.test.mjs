@@ -296,7 +296,7 @@ test("the workflow is manual, main-only, serialized, pinned and offers exactly t
 test("the workflow sees only its two secrets, only in the check step, and never interpolates inputs into a shell", async () => {
   const { text, workflow } = await loadWorkflow(WORKFLOW);
   assert.deepEqual([...text.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]), ["STILL_QA_READONLY_DB_URL", "STILL_QA_READONLY_REF_KEY"]);
-  assert.deepEqual([...text.matchAll(/vars\.(\w+)/g)].map((m) => m[1]), ["STILL_QA_READONLY_REPORT_PUBKEY", "STILL_QA_READONLY_CA_PEM"]);
+  assert.deepEqual([...text.matchAll(/vars\.(\w+)/g)].map((m) => m[1]), ["STILL_QA_READONLY_AUTHORIZATION", "STILL_QA_READONLY_REPORT_PUBKEY", "STILL_QA_READONLY_CA_PEM"]);
   for (const step of workflow.jobs.check.steps) {
     assert.doesNotMatch(step.run ?? "", /\$\{\{/, "expressions belong in env, not run");
     if (!/qa-checks\/run\.ts/.test(step.run ?? "")) assert.doesNotMatch(JSON.stringify(step), /secrets\./);
@@ -323,34 +323,68 @@ test("no other workflow can reach the read-only environment or its secret", asyn
   }
 });
 
-test("the protection step refuses unless the environment is owner-only and the owner approved this run", async () => {
+function protectionFixture() {
   const environment = {
-    name: READONLY_ENVIRONMENT,
-    id: 7,
-    can_admins_bypass: false,
-    protection_rules: [{ type: "required_reviewers", reviewers: [{ type: "User", reviewer: { id: 257643931 } }] }],
+    name: READONLY_ENVIRONMENT, id: 7, can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", reviewers: [{ type: "User", reviewer: { id: 257643931 } }] }, { type: "branch_policy" }],
     deployment_branch_policy: { custom_branch_policies: true, protected_branches: false },
   };
   const branches = { total_count: 1, branch_policies: [{ name: "main", type: "branch" }] };
   const approvals = [{ state: "approved", user: { id: 257643931 }, environments: [{ id: 7 }] }];
-  const fake = (overrides = {}) => async (url) => {
-    const body = { environment, branches, approvals, ...overrides };
-    const pick = url.includes("/approvals") ? body.approvals : url.includes("deployment-branch-policies") ? body.branches : body.environment;
-    if (!url.includes(`/environments/${READONLY_ENVIRONMENT}`) && !url.includes("/approvals")) return { ok: false, status: 404 };
+  const repository = "ZackC-1/still-app", sha = "a".repeat(40);
+  const run = { head_branch: "main", head_sha: sha, event: "workflow_dispatch", run_attempt: 1,
+    path: ".github/workflows/supabase-readonly-checks.yml", repository: { full_name: repository }, head_repository: { full_name: repository } };
+  const env = { GITHUB_REPOSITORY: repository, GH_TOKEN: "synthetic", GITHUB_RUN_ID: "1", GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_REF: "refs/heads/main", GITHUB_SHA: sha, GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_WORKFLOW_REF: `${repository}/${run.path}@refs/heads/main` };
+  const fake = (overrides = {}) => async (url, options) => {
+    assert.equal(options.method, "GET");
+    const body = { environment, branches, approvals, run, ...overrides };
+    const pick = url.endsWith("/approvals") ? body.approvals : url.includes("deployment-branch-policies") ? body.branches
+      : url.endsWith("/actions/runs/1") ? body.run : url.endsWith(`/environments/${READONLY_ENVIRONMENT}`) ? body.environment : null;
     return pick === null ? { ok: false, status: 404 } : { ok: true, status: 200, json: async () => pick };
   };
-  const env = { GITHUB_REPOSITORY: "ZackC-1/still-app", GH_TOKEN: "synthetic", GITHUB_RUN_ID: "1" };
-  const quiet = console.log;
-  console.log = () => {};
-  try {
-    assert.equal(await protectionMain(env, fake()), 0);
-    assert.equal(await protectionMain(env, fake({ approvals: [] })), 1);
-    assert.equal(await protectionMain(env, fake({ environment: { ...environment, can_admins_bypass: true } })), 1);
-    assert.equal(await protectionMain(env, fake({ environment: null })), 1);
-    assert.equal(await protectionMain(env, fake({ branches: { total_count: 0, branch_policies: [] } })), 1);
-  } finally {
-    console.log = quiet;
+  return { environment, branches, approvals, env, fake, run };
+}
+async function quietProtection(env, fake) {
+  const quiet = console.log; console.log = () => {};
+  try { return await protectionMain(env, fake); } finally { console.log = quiet; }
+}
+test("default protection still requires exactly the owner and observed run approval", async () => {
+  const f = protectionFixture();
+  assert.equal(await quietProtection(f.env, f.fake()), 0);
+  for (const override of [{ approvals: [] }, { environment: { ...f.environment, can_admins_bypass: true } },
+    { environment: null }, { branches: { total_count: 0, branch_policies: [] } }]) {
+    assert.equal(await quietProtection(f.env, f.fake(override)), 1);
   }
+});
+test("standing authorization permits only the dedicated main workflow without a reviewer gate", async () => {
+  const f = protectionFixture();
+  const env = { ...f.env, STILL_QA_READONLY_AUTHORIZATION: "standing-v1" };
+  const environment = { ...f.environment, protection_rules: [{ type: "branch_policy" }] };
+  assert.equal(await quietProtection(env, f.fake({ environment, approvals: [] })), 0);
+  assert.equal(await quietProtection(f.env, f.fake({ environment, approvals: [] })), 1);
+  assert.equal(await quietProtection(env, f.fake()), 1, "standing must not silently accept a still-gated environment");
+  for (const override of [
+    { environment: { ...environment, name: "supabase-production" } },
+    { environment: { ...environment, can_admins_bypass: true } },
+    { environment: { ...environment, protection_rules: [{ type: "wait_timer" }] } },
+    { environment: { ...environment, protection_rules: [{ type: "custom_protection_rule" }] } },
+    { branches: { total_count: 1, branch_policies: [{ name: "main", type: "tag" }] } },
+    { branches: { total_count: 2, branch_policies: [{ name: "main" }, { name: "*" }] } },
+    { run: { ...f.run, path: ".github/workflows/supabase-deploy.yml" } },
+    { run: { ...f.run, head_branch: "feature" } },
+    { run: { ...f.run, head_sha: "b".repeat(40) } },
+    { run: { ...f.run, event: "push" } },
+    { run: { ...f.run, run_attempt: 2 } },
+    { run: { ...f.run, head_repository: { full_name: "other/repo" } } },
+    { run: null },
+  ]) assert.equal(await quietProtection(env, f.fake({ environment, approvals: [], ...override })), 1);
+  for (const override of [
+    { STILL_QA_READONLY_AUTHORIZATION: "yes" }, { GITHUB_REF: "refs/tags/main" },
+    { GITHUB_WORKFLOW_REF: "ZackC-1/still-app/.github/workflows/other.yml@refs/heads/main" },
+    { GITHUB_EVENT_NAME: "push" }, { GITHUB_RUN_ID: "1/approvals" },
+  ]) assert.equal(await quietProtection({ ...env, ...override }, f.fake({ environment, approvals: [] })), 1);
 });
 
 test("owner setup helpers emit only a verifier, an expiry, a key and digests", async () => {

@@ -353,7 +353,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
       expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
       expect(h.cache.current().globalOn).toBe(false);
       expect(h.service.getState()).toMatchObject({ pendingUpload: false, cloudReachable: true });
-      expect(vi.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(1); // healthy acquisition
       await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
     }
   });
@@ -377,7 +377,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
     reject(new Error("old getUser failed late")); await original; await settle();
     expect(JSON.stringify(await h.storage.get())).toBe(before);
     expect(h.service.getState()).toEqual(state); expect(h.requests).toEqual(requests);
-    expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(1);
+    expect(vi.getTimerCount()).toBe(1); expect(h.subscriptions()).toBe(1); // only healthy acquisition remains
     await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
   });
   it.each([false, true])("failed explicit retirement never revives an old write after same-account authentication (restart=%s)", async restart => {
@@ -435,7 +435,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(h.requests).toEqual(requests);
     expect(h.cache.currentRecord().atomic!.scope.generation).toBeGreaterThan(before.atomic!.scope.generation);
     expect(h.cache.currentRecord().atomic!.scope.sessionId).toBe(SESSION);
-    expect(h.service.getState().cloudReachable).toBe(true); expect(vi.getTimerCount()).toBe(0);
+    expect(h.service.getState().cloudReachable).toBe(true); expect(vi.getTimerCount()).toBe(1); // healthy acquisition
     await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
   });
   it.each(["missing-session", "unverified-auth", "missing-capability", "ended-auth-subject"])("a restarted host holds upload with %s while retaining useful choices and complete provenance", async reason => {
@@ -561,7 +561,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
       expect(h.requests[2]).toMatchObject({ receipt: { revision: 1 }, operations: [{ path: "globalOn", value: true, baseRevision: 1, localStep: 2 }] });
       expect(h.cache.current()).toMatchObject({ globalOn: true, services: { youtube: false } });
       expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
-      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(0);
+      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(1); // healthy acquisition
     } finally { await h.service.signOut(); h.cache.watch()(); }
     expect(h.subscriptions()).toBe(0); expect(vi.getTimerCount()).toBe(0);
   });
@@ -574,7 +574,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
       await vi.advanceTimersByTimeAsync(1_000); await settle();
       expect(h.requests).toEqual([original]); expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
       expect(h.cache.currentRecord().atomic!.anchor!.revision).toBe(2);
-      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(0);
+      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(1); // healthy acquisition
     } finally { await h.service.signOut(); h.cache.watch()(); }
   });
   it("sign-out cancels a scheduled modern retry and realtime subscription", async () => {

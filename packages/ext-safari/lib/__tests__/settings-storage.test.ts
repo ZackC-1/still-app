@@ -29,6 +29,84 @@ async function fixture(modern = true, ownership: "unknown" | "never-linked" = "u
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("Safari authoritative native settings failure boundaries", () => {
+  it("an open Safari cache receives app-originated changes without browser-storage events", async () => {
+    const h = await fixture(); vi.useFakeTimers();
+    const cache = new SettingsCache(new ChromeStorageAdapter()); await cache.hydrate();
+    const stop = cache.watch();
+    try {
+      await h.writer.commit({ path: "services.youtube", value: false, updatedAt: 10 });
+      expect(h.projection().settings.services.youtube).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(cache.current().services.youtube).toBe(false);
+      expect(cache.currentRecord().atomic!.sequence).toBe((await h.storage.get())!.atomic!.sequence);
+      expect(h.set).not.toHaveBeenCalled(); // the native store remains authority, never a projected write
+    } finally { stop(); }
+    expect(vi.getTimerCount()).toBe(0); expect(h.listeners.size).toBe(0);
+  });
+
+  it("pauses native reads in hidden pages and recovers after a failed visible read", async () => {
+    const h = await fixture(); vi.useFakeTimers();
+    const page = { visibilityState: "hidden" }; vi.stubGlobal("document", page);
+    const cache = new SettingsCache(new ChromeStorageAdapter()); await cache.hydrate();
+    const stop = cache.watch(); h.sendNativeMessage.mockClear();
+    try {
+      await h.writer.commit({ path: "services.youtube", value: false, updatedAt: 10 });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(h.sendNativeMessage).not.toHaveBeenCalled();
+      page.visibilityState = "visible";
+      h.sendNativeMessage.mockRejectedValueOnce(new Error("native unavailable"));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(cache.current().services.youtube).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(cache.current().services.youtube).toBe(false);
+      expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
+    } finally { stop(); }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not overlap periodic reads and cancels an unresolved read on teardown", async () => {
+    const h = await fixture(); vi.useFakeTimers();
+    const adapter = new ChromeStorageAdapter();
+    let release!: (value: { settings: string }) => void;
+    h.sendNativeMessage.mockImplementation(() => new Promise(r => { release = r; }));
+    const deliver = vi.fn(), stop = adapter.subscribe(deliver);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(h.sendNativeMessage).toHaveBeenCalledTimes(1);
+    stop(); await vi.advanceTimersByTimeAsync(0);
+    release({ settings: JSON.stringify(await h.storage.get()) });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(deliver).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a new native signal supersedes a slow poll without applying its obsolete reply", async () => {
+    const h = await fixture(); vi.useFakeTimers();
+    const old = JSON.stringify(await h.storage.get());
+    let release!: (value: { settings: string }) => void;
+    h.sendNativeMessage.mockImplementationOnce(() => new Promise(r => { release = r; }));
+    const cache = new SettingsCache(new ChromeStorageAdapter()); const stop = cache.watch();
+    try {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await h.writer.commit({ path: "services.youtube", value: false, updatedAt: 10 });
+      h.signal(); await vi.advanceTimersByTimeAsync(0);
+      expect(cache.current().services.youtube).toBe(false);
+      expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
+      release({ settings: old }); await vi.advanceTimersByTimeAsync(0);
+      expect(cache.current().services.youtube).toBe(false);
+      expect(vi.getTimerCount()).toBe(1);
+    } finally { stop(); }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["chromium", "nativeMirror"])("does not poll the %s storage owner", async owner => {
+    const h = await fixture(); vi.useFakeTimers();
+    if (owner === "chromium") chrome.runtime.getURL = () => "chrome-extension://still/";
+    const stop = new ChromeStorageAdapter({ nativeMirror: owner === "nativeMirror" }).subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.sendNativeMessage).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    stop();
+  });
+
   it("a delayed legacy native retry cannot replace newer Off projection or unavailable-authority fallback", async () => {
     const h = await fixture(false); vi.useFakeTimers();
     let release!: () => void; let began!: () => void;

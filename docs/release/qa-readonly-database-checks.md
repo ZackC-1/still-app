@@ -1,11 +1,10 @@
 # Read-only QA database checks
 
-During the owner QA programme, Claude needs to confirm that the hosted backend recorded each test
-action correctly ("Claude, run DB-07"). The owner chose a **protected read-only check** (decision,
-10 October 2026): a GitHub Actions workflow that can only read, where every run waits for the
-owner's one-click approval in GitHub, like the production deploy. Claude never uses the Supabase
-command-line tool, never holds a write credential and **never approves a run**: the owner clicks
-"Approve" in GitHub, the same model as `supabase-production-deploy`.
+The dedicated GitHub Actions workflow confirms backend results using only approved QA views.
+It defaults to **per-run owner approval**. The owner may instead activate **standing authorization**
+for this route using the procedure below (owner decision, 14 October 2026).
+Agents never approve runs or change environment protection. This exception does not apply to
+production deployments, payment operations, deletion, or arbitrary SQL.
 
 | Piece | Where |
 | --- | --- |
@@ -19,14 +18,17 @@ command-line tool, never holds a write credential and **never approves a run**: 
 ## How one check runs
 
 1. Claude starts the workflow from `main`, for example
-   `gh workflow run supabase-readonly-checks.yml -f check=DB-07 -f account=web-chrome`.
+   `gh workflow run supabase-readonly-checks.yml --ref main -f check=DB-07 -f account=web-chrome -f account_b=none`.
    Inputs are fixed choice lists: a programme id (or `setup`) and the labels below. No SQL,
    email or id can be typed in.
-2. GitHub holds the run until **the owner** approves it in the `supabase-readonly-checks`
-   environment. Only then are the environment's secrets released to the job.
-3. The job re-checks through GitHub's API that the environment is owner-only (exactly the owner as
-   required reviewer, administrators cannot bypass, `main` only) and that the owner approved this
-   run; otherwise it stops before touching the database.
+2. In default mode, GitHub holds the run until **the owner** approves it in the
+   `supabase-readonly-checks` environment. In activated standing mode, that dedicated environment
+   releases only its QA read-only credentials without a per-run approval.
+3. The job verifies the dedicated workflow, manual dispatch, main branch, repository, commit and
+   attempt against GitHub's run record. Default mode also verifies the exact owner reviewer and
+   observed approval; standing mode requires explicit `standing-v1`, no reviewer gates, disabled
+   admin bypass and exactly the main branch policy. Unreadable or mismatched protection stops the
+   job before database access.
 4. The runner signs in as `still_qa_readonly_checker`, opens a read-only transaction, proves the
    session is the narrow role, runs the reviewed queries and rolls back.
 5. **The repository is public**, so Actions logs, summaries and artifacts are world-readable. The
@@ -37,7 +39,9 @@ command-line tool, never holds a write credential and **never approves a run**: 
 6. Claude downloads and decrypts it locally, compares it with the programme's "Should be recorded"
    text and tells the owner in one sentence:
    `gh run download <run id> -n qa-report-<run id> -D <private dir>` then
-   `age --decrypt --identity <private key file> <private dir>/report.age`.
+   `age --decrypt --identity <private key file> --output <private dir>/report.json <private dir>/report.age`.
+   Create the directory with mode 700 and use `umask 077` before download/decryption. Never print
+   plaintext reports in a public log, commit them, or paste private identity fields into chat.
 
 `unavailable` means the named account is the optional, unregistered Preserved account; nothing was
 read. `pass` and `fail` are decided only where the expectation is exact (route readiness, DB-02, DB-15,
@@ -125,6 +129,59 @@ Owner steps (five):
 5. **Approve the first run.** Claude starts `setup`; approve it in GitHub. It passes when the eight
    alias labels are registered, live QA aliases and (for the paid lane) sandbox members. Then run DB-01
    before any testing so the production baseline exists.
+
+## Activate or revoke standing authorization
+
+Code compatibility does not mean standing authorization is active. Keep per-run approval until
+this merged workflow and guard have passed tests, and a current-mode approved `setup` run succeeds.
+The agent must not approve that run, download reports from a pending run, or remove the reviewer.
+
+The owner then makes this one-time change:
+
+1. Confirm the environment is exactly `supabase-readonly-checks`, holds only the two QA read-only
+   secrets above, has administrator bypass disabled, and permits the `main` **branch** only.
+2. Set the repository Actions variable `STILL_QA_READONLY_AUTHORIZATION` to `standing-v1`.
+   This is a fixed configuration value, never a workflow input. Other nonempty values fail closed.
+3. Remove the required-reviewer rule from this environment only. Keep main-only deployment
+   branches and disabled administrator bypass. No other environment or production rule changes.
+4. Dispatch a harmless `setup` check from main. Confirm the protection summary says
+   `Authorization: standing-v1`, the role/scope checks pass, and the report is encrypted. Record
+   the run URL and configuration verification in the private QA operational record.
+
+Only after step 4 succeeds is standing authorization verified. The transition deliberately fails
+closed if the variable and environment disagree. Existing per-run runs remain owner-gated.
+For later checks, use the same dispatch/download/private-decrypt procedure above. GitHub records
+the initiating actor, triggering actor, attempt, source SHA and closed check/account inputs; the
+protection summary records the selected authorization mode. No arbitrary customer identifiers are
+accepted. A failed protection or role check must be fixed through reviewed configuration, never
+bypassed with a broader credential.
+
+To revoke: restore the owner's required-reviewer rule first, then remove the variable or set it
+to `per-run`. Verify a new run waits for owner approval. Do not approve an outstanding run on the
+owner's behalf. If credentials are suspect, use the role-disable procedure below as well.
+Changing this variable or reviewer rule never changes database grants or deployment permissions.
+
+### Exact approved data scope
+
+Account inputs are the existing labels `web-chrome`, `web-firefox`, `web-android`, `fresh`,
+`refund-web`, `qa-a`, `qa-b`, and `delete`. `none` is used for account-free checks; `preserved`
+remains unavailable because it is not a registered owner QA alias. The catalogue validates each
+check's required account count. It accepts no email, UUID or free-form query.
+
+The role has SELECT on precisely these 25 `still_qa_checks` views, as enforced by
+[`CHECK_VIEWS`](../../scripts/backend/qa-checks/sql-guard.mjs):
+
+`account_status`, `qa_subjects`, `profiles`, `settings_writes_summary`, `settings_anchors`,
+`entitlements_summary`, `access_rights`, `apple_observations`, `access_observations`,
+`access_revocations`, `apple_link_operations`, `purchase_operations`, `negative_rights`,
+`sessions_summary`, `rate_limit_summary`, `analytics_subjects_summary`, `migration_history`,
+`policy_heads`, `paid_cutoff_environments`, `production_rights_fingerprint`, `rights_summary`,
+`isolation_summary`, `retention_summary`, `privacy_summary`, `erasure_jobs_last_hour`.
+
+Existing approved catalog metadata reads establish role/schema safety. Production baseline checks
+emit only the existing keyed digest. Standing authorization adds no base-table access, membership,
+DDL, SECURITY DEFINER execution or writable transaction. The runner rejects missing encryption
+configuration and every privilege expansion before executing a check.
 
 ## If the credential may have leaked, and routine hygiene
 

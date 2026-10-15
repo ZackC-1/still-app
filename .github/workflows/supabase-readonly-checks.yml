@@ -5,11 +5,11 @@ name: Supabase read-only QA check
 # reviewed catalogue in scripts/backend/qa-checks/catalogue.mjs; there is no free-form SQL input.
 # Inputs are a check id and QA account LABELS only; never an email or id. Labels resolve inside the
 # database through the owner-filled QA registry.
-# The job waits for the owner's approval in the `supabase-readonly-checks` environment, which holds
+# The dedicated `supabase-readonly-checks` environment defaults to per-run owner approval and holds
 # ONLY the read-only connection secret STILL_QA_READONLY_DB_URL (role still_qa_readonly_checker)
-# and the reference key STILL_QA_READONLY_REF_KEY. Claude never approves a run; the owner does.
-# It then re-checks that the environment is owner-only and that the owner approved this run, and
-# runs the check in a read-only transaction that is always rolled back.
+# and the reference key STILL_QA_READONLY_REF_KEY. An owner can explicitly activate standing-v1
+# through the runbook. Agents never change the environment or approve runs. Protection is verified
+# in either mode before running the check in a read-only transaction that is always rolled back.
 # This repository is PUBLIC: logs, summaries and artifacts are world-readable. The log and summary
 # get one line (check id and pass / fail / needs-review). The full report is encrypted with age to
 # the repository variable STILL_QA_READONLY_REPORT_PUBKEY and uploaded as an artifact only Claude's
@@ -109,7 +109,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # The read-only secret is released only after the owner approves this run.
+    # Owner-configured authorization; this environment contains only QA read-only credentials.
     environment: supabase-readonly-checks
     permissions:
       contents: read
@@ -125,9 +125,10 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: "2.8.3"
-      - name: Confirm owner approval and environment protection (read-only)
+      - name: Confirm QA authorization and environment protection (read-only)
         env:
           GH_TOKEN: ${{ github.token }}
+          STILL_QA_READONLY_AUTHORIZATION: ${{ vars.STILL_QA_READONLY_AUTHORIZATION }}
         run: node scripts/backend/qa-checks/protection.mjs
       - name: Install pinned age (checksum verified)
         run: |

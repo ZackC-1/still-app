@@ -227,19 +227,48 @@ export class ChromeStorageAdapter implements StorageAdapter {
   }
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     let active = true;
-    const reads = new AbortController();
+    const native = this.isSafari() && !this.options.nativeMirror;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reading: AbortController | null = null;
+    const schedule = () => {
+      if (!active || !native) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (globalThis.document?.visibilityState === "hidden") schedule();
+        else refresh();
+      }, 5_000);
+    };
+    const refresh = () => {
+      if (!active) return;
+      clearTimeout(timer);
+      timer = undefined;
+      // A new native change must not wait behind an obsolete account's delayed reply.
+      reading?.abort();
+      const request = new AbortController();
+      reading = request;
+      void this.getAuthoritative(request.signal).then(current => {
+        if (active && reading === request && current) listener(current);
+      }).catch(() => undefined).then(() => {
+        if (reading !== request) return;
+        reading = null;
+        schedule();
+      });
+    };
     const handler = (changes: Record<string, chrome.storage.StorageChange>, areaName: string): void => {
       if (areaName !== "local") return;
       const change = changes[STORAGE_KEY];
       const record = change ? parseStoredSettingsRecord(change.newValue) : null;
       if (!record) return;
-      if (this.isSafari() && !this.options.nativeMirror) {
+      if (native) {
         // Projection writes are change signals. Reread the actual native authority, including
         // after an obsolete direct reply; no background wake is needed for an extension page.
-        void this.getAuthoritative(reads.signal).then(current => { if (active && current) listener(current); }, () => undefined);
+        refresh();
       } else listener(record);
     };
     chrome.storage.onChanged.addListener(handler);
-    return () => { active = false; reads.abort(); chrome.storage.onChanged.removeListener(handler); };
+    // Native app writes do not themselves change browser.storage. An open Safari page must also
+    // read the App Group without waiting for a background projection event or another opening.
+    schedule();
+    return () => { active = false; clearTimeout(timer); reading?.abort(); chrome.storage.onChanged.removeListener(handler); };
   }
 }

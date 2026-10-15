@@ -13,6 +13,7 @@ import { STRINGS } from "../strings.js";
 import { createAppleSession } from "../../sync/apple-session.js";
 import { makeBridge } from "../../sync/__tests__/support/apple-session-harness.js";
 import { createAppleSettingsAuthority } from "./apple-settings-host.js";
+import { ACCOUNT, canonicalServer, client, settle } from "../../sync/__tests__/support/live-sync-harness.js";
 
 vi.mock("@still/shared-types", async original => ({
   ...(await original<typeof import("@still/shared-types")>()),
@@ -83,6 +84,53 @@ async function enterCode(wrongFirst = false) {
 }
 
 describe("Apple settings host sign-in lifetime", () => {
+  it("keeps actual cloud acquisition alive after delayed native cleanup fails across repeated mounted sign-ins", async () => {
+    vi.useFakeTimers();
+    const server = canonicalServer();
+    const phone = await client(server), peer = await client(server);
+    const native = new NativeBridge({ webkit: { messageHandlers: { still: { postMessage: async () => null } } } });
+    const authority = createAppleSettingsAuthority(phone.cache, {
+      native, initializer: { initializeAtomic: () => phone.writer.initialize("unknown") }, hydration: phone.cache.whenHydrated(),
+    });
+    const bridge = makeBridge();
+    const controller = new UiController({ cache: phone.cache, host: { canPurchase: true }, auth: {
+      requestCode: async () => ({ kind: "sent" }),
+      verifyCode: async (email, code) => {
+        if (code === "000000") return { kind: "invalid-code" };
+        await session.onCodeVerified(ACCOUNT, email);
+        return { kind: "verified", userId: ACCOUNT, email };
+      },
+      signOut: () => session.signOutEverywhere(),
+    } });
+    const session = createAppleSession({ controller, sync: phone.service, bridge,
+      exchangeAppleCredential: async () => ({ error: "Unused" }) });
+    phone.observeState(state => session.onSyncState(state));
+    const { default: Host } = (await import(/* @vite-ignore */ HOST_PATH)) as { default: Component<Record<string, unknown>> };
+    render(Host, { props: { controller, authority, observeSetup: async () => null, help: {} } });
+    try {
+      await session.onCodeVerified(ACCOUNT, "reader@example.test"); await tick();
+      for (let cycle = 0; cycle < 2; cycle++) {
+        let fail!: (error: Error) => void;
+        const cleanupHeld = new Promise<void>((_resolve, reject) => { fail = reject; });
+        vi.mocked(bridge.signOut).mockReturnValueOnce(cleanupHeld);
+        const signingOut = controller.signOut(); await settle(); await tick();
+        await enterCode(true);
+        fail(new Error("native cleanup failed late")); await signingOut; await tick();
+        expect(controller.userId).toBe(ACCOUNT);
+        const wanted = cycle === 1;
+        await peer.cache.setService("youtube", wanted); await settle();
+        await vi.advanceTimersByTimeAsync(5_000); await settle(); await tick();
+        expect(phone.cache.current().services.youtube).toBe(wanted);
+        expect(screen.getByRole("switch", { name: /YouTube/ })).toHaveAttribute("aria-checked", String(wanted));
+        expect(controller.userId).toBe(ACCOUNT);
+        expect(phone.channel).not.toHaveBeenCalled();
+      }
+    } finally {
+      cleanup(); authority.stop(); controller.dispose();
+      await phone.close(); await peer.close(); vi.useRealTimers();
+    }
+  });
+
   it("supports repeated code sign-in after sign-out without remounting, including wrong-code retry", async () => {
     const f = await compose();
     const saved = await f.storage.get();
