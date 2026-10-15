@@ -556,6 +556,9 @@ test("secrets apply refuses a mixed state and names rotate; rotate replaces the 
   h.db.state.vault = null;
   h.db.state.vaultCount = 0;
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "verified");
+  h.db.state.gate = ["client_execute:anon:qa_settings_notifications_enabled()"];
+  assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "stopped-before-write");
+  h.db.state.gate = [...LATER_MIGRATION_CODES];
   const before = new Map(h.api.secrets);
   const rotated = await h.run(h.planFor(SECRETS_OP, "rotate"));
   assert.equal(rotated.status, "verified", rotated.issues.join(" "));
@@ -578,7 +581,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
     "migration_gate:subject_snapshot_trigger:disabled",
   ]);
   assert.equal(h.api.calls.secretPosts, 0);
-  // The one code a later reviewed migration explains is accepted; everything else still stops.
+  // Exact codes explained by later reviewed migrations are accepted; other grants still stop.
   h.api.setRehearsalGreen(true);
   h.db.state.history = ["0017", "0018"];
   h.db.state.gate = [...LATER_MIGRATION_CODES];

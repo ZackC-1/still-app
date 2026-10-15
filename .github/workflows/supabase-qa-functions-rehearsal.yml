@@ -78,7 +78,8 @@ jobs:
           node --test scripts/backend/deploy/qa-functions.test.mjs
           # Real managed Realtime table, policy and transactional notification delivery.
           supabase db reset --local --no-seed --version 0023 >/dev/null
-          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -c "select qual from pg_policies where policyname='qa_settings_notifications_receive'"
+          export STILL_NOTIFICATION_TEST_ANON_KEY="$(supabase status -o json | jq -r .ANON_KEY)"
+          export STILL_NOTIFICATION_TEST_JWT_SECRET="$(supabase status -o json | jq -r .JWT_SECRET)"
           STILL_NOTIFICATION_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
-            deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322 \
+            deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322,127.0.0.1:54321 \
             --allow-read=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql supabase/tests/qa_settings_notifications_test.ts
