@@ -127,3 +127,39 @@ describe("SupabaseBackendPort.deleteAccount", () => {
       .rejects.toThrow("offline");
   });
 });
+
+describe("modern settings invalidation", () => {
+  it("receives only private QA hints, removes its channel and fences delayed callbacks", () => {
+    let receive!: (message: unknown) => void;
+    let status!: (value: string) => void;
+    const channel = { on: vi.fn((_type, _filter, listener) => { receive = listener; return channel; }),
+      subscribe: vi.fn(listener => { status = listener; return channel; }) };
+    const client = { channel: vi.fn(() => channel), removeChannel: vi.fn(async () => "ok") };
+    const port = new SupabaseBackendPort(client as unknown as SupabaseClient,
+      { modernSettings: true, routeProfile: "shared-hosted-sandbox" });
+    const changed = vi.fn(), state = vi.fn();
+    const stop = port.subscribeToSettingsChanges("11111111-1111-1111-1111-111111111111", changed, state);
+    expect(client.channel).toHaveBeenCalledWith("qa-settings-v1:11111111-1111-1111-1111-111111111111", { config: { private: true } });
+    expect(channel.on).toHaveBeenCalledWith("broadcast", { event: "settings-changed" }, expect.any(Function));
+    receive({ payload: { schema: 1 } });
+    expect(changed).toHaveBeenCalledExactlyOnceWith();
+    receive({ payload: { schema: 2 } }); receive({ payload: null });
+    expect(changed).toHaveBeenCalledTimes(1);
+    status("SUBSCRIBED"); expect(state).toHaveBeenLastCalledWith("subscribed");
+    status("CHANNEL_ERROR"); expect(state).toHaveBeenLastCalledWith("error");
+    stop(); stop();
+    receive({ payload: { schema: 1 } }); status("SUBSCRIBED");
+    expect(changed).toHaveBeenCalledTimes(1); expect(state).toHaveBeenCalledTimes(2);
+    expect(client.removeChannel).toHaveBeenCalledExactlyOnceWith(channel);
+  });
+
+  it("keeps production on its existing profile notification with no settings passed to the hint", () => {
+    const { client, bindings } = fakeRealtimeClient();
+    const port = new SupabaseBackendPort(client, { modernSettings: true });
+    const changed = vi.fn();
+    port.subscribeToSettingsChanges("user-1", changed);
+    expect(bindings[0]!.filter).toMatchObject({ table: "profiles", filter: "id=eq.user-1" });
+    bindings[0]!.handler({ new: envelopeRow });
+    expect(changed).toHaveBeenCalledExactlyOnceWith();
+  });
+});

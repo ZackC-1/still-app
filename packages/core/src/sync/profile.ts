@@ -174,6 +174,30 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     return envelope;
   }
 
+  subscribeToSettingsChanges(
+    userId: string,
+    onChange: () => void,
+    onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
+  ): () => void {
+    if (!this.managedCheckout) return this.subscribeToProfile(userId, () => onChange(), onStatus);
+    let active = true;
+    const channel = this.client.channel(`qa-settings-v1:${userId}`, { config: { private: true } })
+      .on("broadcast", { event: "settings-changed" }, (message) => {
+        if (active && message.payload?.schema === 1) onChange();
+      })
+      .subscribe((status) => {
+        if (!active) return;
+        if (status === "SUBSCRIBED") onStatus?.("subscribed");
+        else if (status === "CHANNEL_ERROR") onStatus?.("error");
+        else if (status === "CLOSED" || status === "TIMED_OUT") onStatus?.("disconnected");
+      });
+    return () => {
+      if (!active) return;
+      active = false;
+      void this.client.removeChannel(channel).catch(() => {});
+    };
+  }
+
   subscribeToProfile(
     userId: string,
     onEnvelope: (envelope: SyncedSettingsEnvelope) => void,

@@ -26,7 +26,7 @@ describe("active canonical settings acquisition", () => {
       for (const peer of [a, b]) {
         expect(peer.cache.current().services).toMatchObject({ youtube: true, instagram: false, facebook: false, tiktok: true });
         expect(peer.service.getState()).toMatchObject({ cloudReachable: true, pendingUpload: false });
-        if (profile === "shared-hosted-sandbox") expect(peer.channel).not.toHaveBeenCalled();
+        if (profile === "shared-hosted-sandbox") expect(peer.channel).toHaveBeenCalledWith(`qa-settings-v1:${ACCOUNT}`, { config: { private: true } });
       }
     } finally { await a.close(); await b.close(); }
     expect(vi.getTimerCount()).toBe(0);
@@ -95,7 +95,7 @@ describe("active canonical settings acquisition", () => {
       await a.cache.setService("facebook", false); await settle();
       await vi.advanceTimersByTimeAsync(5_000);
       expect(resumed.cache.current().services.facebook).toBe(false);
-      expect(resumed.channel).not.toHaveBeenCalled();
+      expect(resumed.channel).toHaveBeenCalledWith(`qa-settings-v1:${ACCOUNT}`, { config: { private: true } });
     } finally { await a.close(); await resumed.close(); }
     expect(vi.getTimerCount()).toBe(0);
   });

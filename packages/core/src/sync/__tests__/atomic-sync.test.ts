@@ -105,6 +105,14 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
     signOut: async () => {}, signInWithMagicLink: async () => ({}) };
   const service = new SyncService(cache, auth, backend);
   return { cache, writer, storage, service, requests, invoke, port, auth, backend,
+    enableNotifications() {
+      const listeners: { change: () => void; status: (s: "subscribed" | "disconnected" | "error") => void; stopped: boolean }[] = [];
+      backend.subscribeToSettingsChanges = (_subject, change, status) => {
+        const entry = { change, status: status!, stopped: false }; listeners.push(entry);
+        return () => { entry.stopped = true; };
+      };
+      return listeners;
+    },
     newLifetime() { const nextCache = makeCache(); nextCache.watch(); return { cache: nextCache, service: new SyncService(nextCache, auth, backend) }; },
     canonicalResponse: response,
     useUntouchedCanonicalGlobal() { settings = { ...settings, clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: 0 } } }; },
@@ -602,6 +610,48 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
     expect(h.service.getState().pendingUpload).toBe(false); expect(h.requests).toHaveLength(64);
     await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
+  it("private hints and first join acquire canonical settings without waiting for polling", async () => {
+    const h = harness(), listeners = h.enableNotifications();
+    await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const reads = h.reads();
+    h.peer("services.youtube", false); listeners[0]!.status("subscribed"); await drain();
+    expect(h.cache.current().services.youtube).toBe(false);
+    h.peer("services.instagram", false); listeners[0]!.change(); await drain();
+    expect(h.cache.current().services.instagram).toBe(false);
+    expect(h.reads() - reads).toBe(2); expect(h.requests).toEqual([]);
+    await h.service.signOut(); expect(listeners[0]!.stopped).toBe(true); h.cache.watch()();
+  });
+  it("private hint bursts during a delayed read retain one trailing canonical acquisition", async () => {
+    const h = harness(), listeners = h.enableNotifications();
+    await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const reads = h.reads(), held = h.holdRead();
+    listeners[0]!.change(); await held.started;
+    h.peer("services.youtube", false);
+    for (let i = 0; i < 50; i++) listeners[0]!.change();
+    held.release(); await drain();
+    expect(h.cache.current().services.youtube).toBe(false); expect(h.reads() - reads).toBe(2);
+    expect(h.requests).toEqual([]); await h.service.signOut(); h.cache.watch()();
+  });
+  it("a private hint during a local upload fetches the later peer change after acknowledgement", async () => {
+    const h = harness(), listeners = h.enableNotifications();
+    await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const held = h.hold(); await h.cache.setGlobalOn(false); await held.started;
+    h.peer("services.youtube", false); listeners[0]!.change();
+    held.release(); await drain();
+    expect(h.cache.current()).toMatchObject({ globalOn: false, services: { youtube: false } });
+    expect(h.service.getState().pendingUpload).toBe(false); expect(h.requests).toHaveLength(1);
+    await h.service.signOut(); h.cache.watch()();
+  });
+  it("old private callbacks cannot refresh a new A to B to A lifetime", async () => {
+    const h = harness(), listeners = h.enableNotifications();
+    await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const old = listeners[0]!;
+    await h.service.signOut(); h.switchAccount(B); await h.service.onSignedIn(B);
+    await h.service.signOut(); h.switchAccount(A); await h.service.onSignedIn(A);
+    const reads = h.reads(); old.change(); old.status("subscribed"); await drain();
+    expect(h.reads()).toBe(reads); expect(old.stopped).toBe(true);
+    await h.service.signOut(); h.cache.watch()();
   });
   it("one idle realtime nudge performs one authenticated read and one durable acknowledgement", async () => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
