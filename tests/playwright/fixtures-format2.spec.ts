@@ -706,56 +706,124 @@ test("format-2 instagram: one Reel opened from a profile plays, but its modal mo
   await expect(page).toHaveURL("https://www.instagram.com/some.user/");
 });
 
-// ── Instagram Explore (ISS-0038) ────────────────────────────────────────────────────────────────
+// ── Instagram Explore (ISS-0038, ISS-0053, ISS-0064) ────────────────────────────────────────────
+
+/** Every Explore row's and tile's box, in document order. */
+const exploreBoxes = (page: Page) =>
+  page.locator("#explore-grid > div").evaluateAll((rows) => rows.map((row) => {
+    const box = row.getBoundingClientRect();
+    return {
+      display: getComputedStyle(row).display,
+      x: box.x, width: box.width, height: box.height,
+      tiles: [...row.children].map((tile) => {
+        const t = tile.getBoundingClientRect();
+        return { id: tile.id, x: t.x, y: t.y, width: t.width, height: t.height };
+      }).filter((tile) => tile.width > 0),
+    };
+  }));
+
+/**
+ * No Reel tile drawn, no row flattened, and every row that still shows posts is filled edge to
+ * edge by them, at one height: no hole at a row's end and no ragged tile.
+ */
+async function expectExploreWithoutReelsOrHoles(page: Page) {
+  for (const id of ["#explore-reel-1", "#explore-reel-4", "#explore-reel-7", "#explore-reel-10"]) {
+    await expect(page.locator(id), id).toHaveCount(1);
+    await expect(page.locator(id), id).toBeHidden();
+  }
+  const rows = await exploreBoxes(page);
+  for (const [index, row] of rows.entries()) {
+    expect(row.display, `row ${index}`).not.toBe("contents");
+    expect(row.height, `row ${index} keeps a box`).toBeGreaterThan(0);
+    if (row.tiles.length === 0) {
+      expect(row.height, `row ${index} of only Reels`).toBeLessThanOrEqual(1);
+      continue;
+    }
+    const covered = row.tiles.reduce((sum, tile) => sum + tile.width, 0) + (row.tiles.length - 1);
+    expect(Math.abs(covered - row.width), `row ${index} filled edge to edge`).toBeLessThanOrEqual(1);
+    expect(Math.abs(row.tiles[0]!.x - row.x), `row ${index} starts at its edge`).toBeLessThanOrEqual(1);
+    for (const tile of row.tiles) expect(Math.abs(tile.height - row.height), `${tile.id} fills its row`).toBeLessThanOrEqual(1);
+  }
+  expect(rows.flatMap((row) => row.tiles.map((tile) => tile.id)))
+    .toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
+}
 
 for (const width of [1280, 390])
-  test(`format-2 instagram explore: measured rows, mixed tiles and later batches keep geometry at ${width}px`, async ({ context, extensionId }) => {
-    const toggle = await stillSwitch(context, extensionId);
-    await toggle(); // Compare with Instagram's own layout, before any free blocking effects.
+  test(`format-2 instagram explore: Reel tiles leave the captured grid without holes, rows stay measurable, Off restores, at ${width}px`, async ({ context, extensionId }) => {
     const page = await context.newPage();
     await page.setViewportSize({ width, height: 844 });
     // The captured desktop structure at two widths; the width override is test scaffolding,
-    // not a claimed capture of the iPhone site's DOM or loading implementation.
+    // not a claimed capture of the iPhone site's DOM.
     await serve(page, "**://*.instagram.com/**", fixture("instagram-explore.html")
       .replace("</head>", "<style>main {width:100%;max-width:880px}.row > div{min-width:0}.tile video{width:100%;height:100%}</style></head>"));
     await page.goto("https://www.instagram.com/explore/");
-    const geometry = () => page.locator("#explore-grid, #explore-grid > div, #explore-grid > div > div").evaluateAll((nodes) =>
-      nodes.map((node) => {
-        const { x, y, width, height } = node.getBoundingClientRect();
-        return { x, y, width, height, display: getComputedStyle(node).display };
-      }));
-    const original = await geometry();
-    await toggle();
     await expectFormat2Lane(page);
-    expect(await geometry()).toEqual(original);
-    await expect(page.locator("#explore-reel-1")).toBeVisible();
-    await expect(page.locator("#keep-explore-1")).toBeVisible();
-    // A later batch retains its measured row and all cells. Nonzero virtualized padding must
-    // not switch layout strategy or introduce holes when the user scrolls back to the top.
-    await page.evaluate(() => {
-      const grid = document.getElementById("explore-grid")!;
-      for (let index = 0; index < 8; index++) {
-        const row = grid.firstElementChild!.cloneNode(true) as HTMLElement;
-        for (const node of row.querySelectorAll("[id]")) node.removeAttribute("id");
-        grid.append(row);
-      }
-      grid.insertAdjacentHTML("afterend", '<div id="loader-sentinel">Next batch</div>');
-    });
-    const populated = await geometry();
-    expect(populated.filter((box) => box.display === "contents")).toHaveLength(0);
-    expect(populated.every((box) => box.height > 0 && box.width > 0)).toBe(true);
-    await page.locator("#loader-sentinel").scrollIntoViewIfNeeded();
-    await expect(page.locator("#loader-sentinel")).toBeInViewport();
-    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
-    await page.evaluate(() => scrollTo(0, 0));
-    await toggle();
-    expect(await geometry()).toEqual(populated);
-    await toggle();
-    expect(await geometry()).toEqual(populated);
+    await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
+    await expectExploreWithoutReelsOrHoles(page);
+    // A column Instagram is virtualizing keeps the same layout (no switch back to holes).
     await page.locator("#explore-grid").evaluate((grid) => { (grid as HTMLElement).style.paddingTop = "4060px"; });
-    const padded = await geometry();
+    await expectExploreWithoutReelsOrHoles(page);
+    const toggle = await stillSwitch(context, extensionId);
     await toggle();
-    expect(await geometry()).toEqual(padded);
+    // Off: Instagram's own rows, every tile back in its cell.
+    await expect(page.locator("#explore-reel-1")).toBeVisible();
+    await expect.poll(async () => (await exploreBoxes(page)).map((row) => [row.display, row.tiles.length]))
+      .toEqual([["grid", 4], ["grid", 4], ["grid", 4], ["grid", 4]]);
+    await toggle();
+    await expectExploreWithoutReelsOrHoles(page);
+  });
+
+/**
+ * Scroll the paginating Explore model to its last page and check every step: no Reel shown, no
+ * blank band, every mounted row measured and non-zero. Returns the steps it took.
+ */
+async function scrollExploreToEnd(page: Page, label: string): Promise<number> {
+  type Probe = { pages: number; unmeasuredMounted: number; zeroHeightRows: number; reelsShown: number; postsShown: number; blank: number; atEnd: boolean; done: boolean };
+  const probe = () => page.evaluate(() => (window as unknown as { __explore(): Probe }).__explore());
+  let stalled = 0;
+  for (let step = 0; step < 120; step++) {
+    await page.evaluate(() => scrollBy(0, innerHeight * 0.8));
+    await page.waitForTimeout(150);
+    const state = await probe();
+    expect(state.reelsShown, `${label} step ${step}: no Reel tile shown`).toBe(0);
+    expect(state.zeroHeightRows, `${label} step ${step}: no 0x0 row`).toBe(0);
+    expect(state.unmeasuredMounted, `${label} step ${step}: every drawn row measured`).toBe(0);
+    expect(state.blank, `${label} step ${step}: no hole or blank band`).toBeLessThanOrEqual(8);
+    if (state.done && state.atEnd) return step;
+    stalled = state.atEnd ? stalled + 1 : 0;
+    expect(stalled, `${label}: loading stalled at page ${state.pages}`).toBeLessThan(15);
+  }
+  throw new Error(`${label}: never reached the last page`);
+}
+
+for (const [width, loader] of [[1280, "io"], [390, "io"], [1280, "scroll"], [390, "scroll"]] as const)
+  test(`format-2 instagram explore: mixed pages keep loading without Reels or holes (${loader} loader, ${width}px)`, async ({ context, extensionId }) => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 844 });
+    // Captured structure, synthetic virtual list and loader (see the fixture's header).
+    await serve(page, "**://*.instagram.com/**", fixture("instagram-explore-feed.html"));
+    await page.goto(`https://www.instagram.com/explore/?loader=${loader}&pages=8`);
+    await expectFormat2Lane(page);
+    await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
+    await scrollExploreToEnd(page, `${loader} ${width}px`);
+    await expect(page.locator("#explore-loader")).toHaveText("End");
+    // Back to the top through the unmounted rows: still no holes, the top row drawn again.
+    await page.evaluate(() => scrollTo(0, 0));
+    await expect(async () => {
+      const state = await page.evaluate(() => (window as unknown as { __explore(): { blank: number; postsShown: number; unmeasuredMounted: number; reelsShown: number } }).__explore());
+      expect(state.postsShown).toBeGreaterThan(0);
+      expect(state.reelsShown).toBe(0);
+      expect(state.unmeasuredMounted).toBe(0);
+      expect(state.blank).toBeLessThanOrEqual(8);
+    }).toPass();
+    // Live Off shows Instagram's own grid with its Reels; On hides them again.
+    const toggle = await stillSwitch(context, extensionId);
+    await toggle();
+    await expect.poll(() => page.locator('#explore-grid [data-kind="R"]').evaluateAll((tiles) => tiles.filter((t) => t.getBoundingClientRect().width > 0).length))
+      .toBeGreaterThan(0);
+    await toggle();
+    await expect.poll(() => page.locator('#explore-grid [data-kind="R"]').evaluateAll((tiles) => tiles.filter((t) => t.getBoundingClientRect().width > 0).length))
+      .toBe(0);
   });
 
 /**

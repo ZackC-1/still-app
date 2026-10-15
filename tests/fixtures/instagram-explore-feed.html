@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Instagram Explore, paginating — fixture</title>
+    <!--
+      The captured Explore STRUCTURE (instagram-explore.html, recorded 12 Oct 2026) driven by a
+      SYNTHETIC loader. Nothing below is Instagram's code: the virtual list and the loader are
+      models written for ISS-0053/ISS-0064, so that a layout change can be checked against the
+      invariants any measured virtual list relies on. Post codes and colours are invented.
+
+      Structure (as captured): a flex column whose inline padding stands in for unmounted rows;
+      each row is a CSS grid whose column count comes from its own inline --x-gridTemplateColumns;
+      each tile box holds a wrapper holding the tile's /p/<code>/ link. A Reel tile's link carries a
+      looping <video> and an SVG titled "Reel"; a carousel's an SVG titled "Carousel"; a photo neither.
+
+      The model virtual list:
+        * measures every mounted row with a ResizeObserver; a row it has never measured counts at
+          an estimated height. A ResizeObserver never reports a box that has always been 0x0 (and
+          a display:contents row has no box), so such a row keeps its estimate for good.
+        * mounts only the rows near the viewport and stands in for the rest with the column's
+          inline padding (the sum of their measured or estimated heights), as the capture shows.
+        * loads the next page when the loader below the column comes into view: an
+          IntersectionObserver, which reports only CHANGES of visibility (?loader=io, default), or a
+          scroll listener near the end of the document (?loader=scroll).
+
+      Query: ?columns=N (default 3), ?loader=io|scroll, ?pages=N (default 10).
+      window.__explore reports pages loaded, rows, mounted rows and which rows were ever measured.
+    -->
+    <style>
+      body { margin: 0; font: 14px sans-serif; background: #fff; }
+      header { height: 60px; }
+      main { width: 100%; max-width: 880px; margin: 0 auto; }
+      .row { display: grid; grid-template-columns: var(--x-gridTemplateColumns); column-gap: 1px; margin-bottom: 1px; }
+      .row > div { min-width: 0; }
+      .grid a { display: block; position: relative; }
+      .tile { aspect-ratio: 3 / 4; }
+      .tile video { width: 100%; height: 100%; display: block; }
+      .badge { position: absolute; top: 4px; right: 4px; }
+      #explore-loader { height: 48px; text-align: center; line-height: 48px; }
+    </style>
+  </head>
+  <body>
+    <header><input id="keep-search" placeholder="Search" /></header>
+    <main>
+      <div><div><div class="grid" id="explore-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;"></div></div></div>
+      <div id="explore-loader" role="progressbar" aria-label="Loading">Loading…</div>
+    </main>
+    <script>
+      (() => {
+        const params = new URLSearchParams(location.search);
+        const columns = Number(params.get("columns") || 3);
+        const loaderKind = params.get("loader") === "scroll" ? "scroll" : "io";
+        const maxPages = Number(params.get("pages") || 10);
+        const grid = document.getElementById("explore-grid");
+        const loader = document.getElementById("explore-loader");
+        // A Reel-heavy mix, as owners see Explore: every page has rows of only Reels, rows of one
+        // ordinary post among Reels, and an occasional row with no Reel at all.
+        const PATTERNS = ["RRRR", "PRCR", "RRRR", "RRPR", "CRRR", "RRRR", "PPRR", "RRCR", "PCPP", "RRRR"];
+        const rows = []; // { key, tiles: [{ code, kind }] }
+        const heights = new Map(); // row key -> measured border-box height
+        const measured = new Set(); // row keys a ResizeObserver has ever reported
+        const mounted = new Map(); // row key -> element
+        let pages = 0;
+        let loading = false;
+        let tileSeq = 0;
+
+        const colour = (n) => `hsl(${(n * 47) % 360} 55% 60%)`;
+        function tileHtml(tile) {
+          const media = tile.kind === "R" ? '<video loop playsinline muted></video>' : "";
+          const badge = tile.kind === "R"
+            ? '<div class="badge"><svg aria-label="Reel" role="img" width="24" height="24"><title>Reel</title></svg></div>'
+            : tile.kind === "C"
+              ? '<div class="badge"><svg aria-label="Carousel" role="img" width="24" height="24"><title>Carousel</title></svg></div>'
+              : "";
+          return `<div data-kind="${tile.kind}"><div style="--x-width: 100%;"><a role="link" href="/p/${tile.code}/"><div class="tile" style="background:${colour(tile.n)}">${media}</div>${badge}</a></div></div>`;
+        }
+        function rowElement(row) {
+          const el = document.createElement("div");
+          el.className = "row";
+          el.dataset.rowKey = String(row.key);
+          el.setAttribute("style", `--x-gridTemplateColumns: repeat(${columns}, 1fr);`);
+          el.innerHTML = row.tiles.map(tileHtml).join("");
+          return el;
+        }
+        function addPage() {
+          for (let r = 0; r < 8; r++) {
+            const pattern = PATTERNS[(pages * 8 + r) % PATTERNS.length];
+            const tiles = [];
+            for (let c = 0; c < columns; c++) {
+              const kind = pattern[c % pattern.length];
+              const n = ++tileSeq;
+              tiles.push({ n, kind, code: `${kind === "R" ? "Rl" : "Ps"}${String(n).padStart(5, "0")}` });
+            }
+            rows.push({ key: rows.length, tiles });
+          }
+          pages++;
+        }
+        const estimate = () => (grid.clientWidth - (columns - 1)) / columns * 4 / 3 + 1;
+        const heightOf = (row) => heights.has(row.key) ? heights.get(row.key) : estimate();
+
+        const observer = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const key = Number(entry.target.dataset.rowKey);
+            const style = getComputedStyle(entry.target);
+            heights.set(key, entry.borderBoxSize[0].blockSize + parseFloat(style.marginTop) + parseFloat(style.marginBottom));
+            measured.add(key);
+          }
+          schedule();
+        });
+
+        let queued = false;
+        function schedule() {
+          if (queued) return;
+          queued = true;
+          // Not requestAnimationFrame alone: a background tab gets no frames, and the tests switch tabs.
+          setTimeout(() => { queued = false; render(); }, 16);
+        }
+        function render() {
+          const top = grid.getBoundingClientRect().top + scrollY - parseFloat(grid.style.paddingTop || "0");
+          const overscan = innerHeight;
+          const start = scrollY - top - overscan;
+          const end = scrollY - top + innerHeight + overscan;
+          let offset = 0;
+          let first = -1;
+          let last = -1;
+          const offsets = [];
+          for (const row of rows) {
+            offsets.push(offset);
+            const h = heightOf(row);
+            if (offset + h >= start && offset <= end) {
+              if (first < 0) first = row.key;
+              last = row.key;
+            }
+            offset += h;
+          }
+          const total = offset;
+          if (first < 0) { first = 0; last = -1; }
+          for (const [key, el] of mounted)
+            if (key < first || key > last) { observer.unobserve(el); el.remove(); mounted.delete(key); }
+          let before = null;
+          for (let key = last; key >= first; key--) {
+            let el = mounted.get(key);
+            if (!el) {
+              el = rowElement(rows[key]);
+              mounted.set(key, el);
+              grid.insertBefore(el, before);
+              observer.observe(el);
+            }
+            before = el;
+          }
+          const padTop = last >= first ? offsets[first] : 0;
+          const padBottom = last >= first ? total - (offsets[last] + heightOf(rows[last])) : total;
+          grid.style.paddingTop = `${padTop}px`;
+          grid.style.paddingBottom = `${padBottom}px`;
+        }
+        function loadMore() {
+          if (loading || pages >= maxPages) return;
+          loading = true;
+          setTimeout(() => {
+            addPage();
+            loading = false;
+            render();
+            if (pages >= maxPages) loader.textContent = "End";
+          }, 60);
+        }
+        if (loaderKind === "io") {
+          new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) loadMore();
+          }).observe(loader);
+        } else {
+          addEventListener("scroll", () => {
+            if (scrollY + innerHeight >= document.documentElement.scrollHeight - 200) loadMore();
+          }, { passive: true });
+        }
+        addEventListener("scroll", schedule, { passive: true });
+        addEventListener("resize", schedule);
+        addPage();
+        render();
+
+        // What the tests read: loading progress, measurement, and what the viewport shows.
+        window.__explore = () => {
+          const box = grid.getBoundingClientRect();
+          const contentTop = Math.max(0, box.top + parseFloat(grid.style.paddingTop));
+          const contentBottom = Math.min(innerHeight, box.bottom - parseFloat(grid.style.paddingBottom));
+          // The longest vertical run, on four lines that never fall on a tile edge for 1-4 tiles a
+          // row, where the drawn rows show no post: a hole, or a gap between rows.
+          let blank = 0;
+          for (const fraction of [0.1, 0.42, 0.58, 0.9]) {
+            let run = 0;
+            for (let y = contentTop; y < contentBottom; y += 2) {
+              const hit = document.elementFromPoint(box.left + box.width * fraction, y)?.closest('a[href^="/p/"]');
+              run = hit ? 0 : run + 2;
+              blank = Math.max(blank, run);
+            }
+          }
+          const shown = (node) => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight;
+          };
+          return {
+            pages,
+            rows: rows.length,
+            mounted: mounted.size,
+            unmeasuredMounted: [...mounted.keys()].filter((key) => !measured.has(key)).length,
+            zeroHeightRows: [...mounted.values()].filter((row) => row.getBoundingClientRect().height === 0).length,
+            reelsShown: [...grid.querySelectorAll('[data-kind="R"]')].filter(shown).length,
+            postsShown: [...grid.querySelectorAll('[data-kind="P"], [data-kind="C"]')].filter(shown).length,
+            blank,
+            paddingTop: parseFloat(grid.style.paddingTop),
+            atEnd: scrollY + innerHeight >= document.documentElement.scrollHeight - 2,
+            done: pages >= maxPages,
+          };
+        };
+      })();
+    </script>
+  </body>
+</html>
