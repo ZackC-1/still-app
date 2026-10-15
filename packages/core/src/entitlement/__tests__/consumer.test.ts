@@ -401,8 +401,11 @@ describe("committed per-benefit consumer", () => {
     expect(cache.currentAccess("youtube.comments")).toBe("protected");
     expect(cache.currentAccess("youtube.related")).toBe("verification_required");
     reads.mockResolvedValueOnce({ malformed: true } as never);
-    await vi.advanceTimersByTimeAsync(59_990); expect(reads).toHaveBeenCalledTimes(2);
+    // Four quick retries (1, 2, 4 and 8 s; ISS-0032), then the bounded one-minute cadence: a 1 ms
+    // TTL never turns into a hot loop.
+    await vi.advanceTimersByTimeAsync(15_000); expect(reads).toHaveBeenCalledTimes(5);
     expect(cache.currentAccess("youtube.related")).toBe("verification_required");
+    await vi.advanceTimersByTimeAsync(59_000); expect(reads).toHaveBeenCalledTimes(5);
     // Install a real fresh signed proof; its material change triggers recovery immediately.
     const fresh = await proof("paid-new-validation"); h.setWall(Date.now());
     reads.mockImplementationOnce(observe);
@@ -410,11 +413,11 @@ describe("committed per-benefit consumer", () => {
       issuerNow: fresh.claims.expires_at! - 1, wall: Date.now(), localRights: new Set() });
     await vi.advanceTimersByTimeAsync(0); await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("purchased");
     expect(cache.currentAccessSnapshot().refreshAfterMs).toBe(1);
-    await vi.advanceTimersByTimeAsync(1); expect(reads).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(1); expect(reads).toHaveBeenCalledTimes(7);
     // A real material revocation bypasses the failure recovery interval and fences protection now.
     await h.authority.mutateAccess({ kind: "revoke", right: (await proof("protected-local")).claims.right, revision: 1, generation: scope.generation });
     expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
-    await vi.advanceTimersByTimeAsync(0); expect(reads).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(0); expect(reads).toHaveBeenCalledTimes(8);
     stop(); const count = reads.mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000); expect(reads).toHaveBeenCalledTimes(count);
     expect(h.changed.size).toBe(0); expect(vi.getTimerCount()).toBe(0); reads.mockRestore();

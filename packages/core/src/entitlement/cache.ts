@@ -48,6 +48,9 @@ export interface EntitlementCacheOptions {
   readonly access?: Pick<TrustedAccessContext, "paidMode" | "supported">;
 }
 
+/** Retry delays after consecutive failed access observations, before the 60 s recovery cadence. */
+const ACCESS_QUICK_RETRY_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000];
+
 export class EntitlementCache {
   private snapshot: boolean;
   private readonly listeners = new Set<(entitled: boolean) => void>();
@@ -64,6 +67,7 @@ export class EntitlementCache {
   private accessWatching = false;
   private accessScheduled = false;
   private accessRetryDelay: number | null = null;
+  private accessFailures = 0;
   private accessObserved = false;
   private unwatch: (() => void) | null = null;
 
@@ -99,6 +103,7 @@ export class EntitlementCache {
       if (this.accessTimer !== null) clearTimeout(this.accessTimer);
       this.accessTimer = null;
       this.accessRetryDelay = null;
+      this.accessFailures = 0;
       this.unwatch?.();
       this.unwatch = null;
       // Account/access changes may be missed while detached. Resume from held paid access.
@@ -159,14 +164,18 @@ export class EntitlementCache {
         this.accessObservedWall = startedWall;
         this.accessRefreshDeadline = deadline;
         this.accessRetryDelay = null;
+        this.accessFailures = 0;
         this.accessObserved = true;
         this.applyAccess(value);
       }
       return this.accessSnapshot;
     }).catch(() => {
       if (epoch === this.accessEpoch) {
-        // Recovery cadence is independent of a successful near-expiry snapshot's 1 ms TTL.
-        this.accessRetryDelay = 60_000;
+        // Recovery cadence is independent of a successful near-expiry snapshot's 1 ms TTL. A first
+        // few failures (a background still waking, a read made stale by an auth event) retry
+        // within seconds so a page is not left unanswered for a minute (ISS-0032); a lasting
+        // outage settles on the minute.
+        this.accessRetryDelay = ACCESS_QUICK_RETRY_MS[this.accessFailures++] ?? 60_000;
         this.accessRefreshDeadline = Infinity;
         this.holdAccess();
       }
