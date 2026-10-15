@@ -336,7 +336,7 @@
             <span>{account.status.text}</span>
             {#if account.lastSyncedAt != null}
               <span aria-hidden="true"> · </span>
-              <span class="muted"><span class:sr-only={account.status.tone === "success"}>{STRINGS.sync.lastSynced} </span><time
+              <span class="muted"><span class:sr-only={account.status.tone === "success"}>{`${STRINGS.sync.lastSynced} `}</span><time
                   datetime={new Date(account.lastSyncedAt).toISOString()}
                   >{new Date(account.lastSyncedAt).toLocaleString(undefined, {
                     month: "short",
