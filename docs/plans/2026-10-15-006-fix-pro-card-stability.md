@@ -52,16 +52,18 @@ Two display inputs each treat "not sure right now" as "take the offer away":
   Once a view has seen Pro access conclusively locked, a later hold (`checking` or
   `verification_required` on Pro rows, with no Pro row purchased or protected) is shown as
   `locked`. Any purchased or protected Pro row (verified ownership), or a Pro row turning
-  `unsupported`, ends the latch at once. DesktopPopup, MobilePopup and ExtensionSettings render from
-  the latched snapshot. Commands still use the binding's real snapshot, and a locked row has no
+  `unsupported`, ends the latch at once. A change of shown account resets it. DesktopPopup and
+  MobilePopup render from the latched snapshot. ExtensionSettings uses it for the rows and the
+  Safari hand-off only, and Buy keeps reading the real snapshot (no money while unsure). Commands still use the binding's real snapshot, and a locked row has no
   switch, so a hold can never make a Pro row usable.
 - **Offer readiness (Chrome/Firefox popup).** A live "yes" in this popup stays for the popup's life;
-  later publications do not re-ask (checkout still runs its own fresh check). Before the first yes,
+  later publications do not re-ask (checkout still runs its own fresh check). "No answer" (no
+  receiver, failure, 3 s deadline) is not "no": it changes nothing shown or remembered. Before the first yes,
   retries back off over about 7.5 s (0.5, 1, 2, 4 s) and every publication restarts that
   schedule. A first live "no" still overrides a remembered "yes" (unchanged).
 - **Faster access recovery after a failed observation (core cache).** After a failed observation
-  the cache retries after 1, 2, 4 and 8 s before falling back to the 60 s cadence; any success
-  resets it. This bounds how long a first opening can stay without an answer. Nothing else in the
+  the cache retries after 1, 2, 4 and 8 s before falling back to the 60 s cadence; a success or an
+  access change resets it. This bounds how long a first opening can stay without an answer. Nothing else in the
   hold logic changes.
 - **Safari settings page.** `ExtensionSettings` gains an optional `proHandoff` (used only when no
   `pro` producer is given). With conclusively locked access it shows the same compact Still Pro card
@@ -85,6 +87,13 @@ the paid-tier flags.
 - Settings (core): the latch keeps the Still Pro card through a hold; `proHandoff` shows the compact
   card and live lock chips; none for purchased or unsupported access.
 - Safari settings page: the host passes `proHandoff`; on Mac it opens `still://pro` through the app.
+
+## Verification
+
+- Failing-first: 10 popup host tests, 2 cache tests, 4 settings tests and 2 Safari settings tests
+  failed on the original code at the expected assertions, and pass after the fix.
+- Review (correctness persona) findings fixed: no-answer kept apart from "no", latch reset on
+  account change, quick-retry reset on access change, Safari negative test tightened.
 
 ## Retest (owner)
 

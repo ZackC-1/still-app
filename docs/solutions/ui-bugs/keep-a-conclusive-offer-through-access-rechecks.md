@@ -46,10 +46,13 @@ doubt removed the offer, and nothing brought it back until the popup was reopene
   so the latch can never make a Pro row usable. Popups (navigation only) and the Safari hand-off
   card use it. On the Chrome/Firefox settings page only the rows use it, and Buy still reads the
   real snapshot, so nothing asks for money while Still is unsure.
-- Popup readiness: a live "yes" holds for the popup's life (checkout re-checks on its own). Each
-  ask times out after 3 s, and retries back off over about 7.5 s.
-- Cache recovery: a failed read retries after 1, 2, 4 and 8 s before the minute cadence. Any success
-  resets it.
+- The latch resets when the shown account changes (sign-in, sign-out, switch), because another
+  account is a new answer, not a re-check.
+- Popup readiness: a live "yes" holds for the popup's life (checkout re-checks on its own). "No
+  answer" (no receiver yet, a failure, the 3 s deadline) is kept apart from "no". It changes nothing
+  shown or remembered and only schedules another ask. Retries back off over about 7.5 s.
+- Cache recovery: a failed read retries after 1, 2, 4 and 8 s before the minute cadence. A success
+  or an access change resets that schedule.
 
 ## Prevention
 
