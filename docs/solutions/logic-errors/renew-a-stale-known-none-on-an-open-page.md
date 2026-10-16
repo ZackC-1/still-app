@@ -45,8 +45,9 @@ the evidence was replaced*, whether by the deadline or by a background event.
 - The host remembers that this account was last seen conclusively without Still Pro. When that
   answer turns into "verify" on a visible page, it runs the same scoped re-check once. The card
   shows its existing "Checking your Still Pro access…" state meanwhile (`renewing`). "Verify
-  again" shows only when that re-check does not confirm "none". A failed renewal clears the memory,
-  so it cannot loop.
+  again" shows only when that re-check does not confirm "none". Re-checks share one flight, so a
+  renewal can join a check that started before the answer went stale; one fresh check then decides.
+  A failed renewal clears the memory, so it cannot loop.
 - The renewal allowance (`KEEP_ALIVE_LIMIT`, now about an hour) restarts whenever the page is shown
   or its window is focused. Window focus re-checks like showing the page. A stale known none is
   renewed on show or focus regardless of the 30 s spacing.

@@ -294,7 +294,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     set({ channel: allowed ? "ready" : "unavailable" });
   }
 
-  /** Renew a known none that went stale, quietly, once per stale answer. Not while hidden or past
+  /** Renew a known none that went stale, quietly, once per stale answer (at most two checks). Not
+   * while hidden or past
    * the renewal allowance: the next time the page is shown or focused does it then. */
   function renew(): void {
     if (stopped || renewFlight || !knownNone || seen?.userId == null || seen.ownership !== "verify" || !visible()) return;
@@ -303,13 +304,18 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     renewFlight = true;
     const ticket = generation;
     set({ renewing: true });
-    void recheck(true).then((result) => {
+    const confirmed = (result: AccessRecheck | null) => result !== null && proOwnership(result.access) === "none";
+    void (async () => {
+      let result = await recheck(true);
+      // The first answer may come from a check already under way when the answer went stale (the
+      // page shares one flight), so one fresh check decides before "verify again" is shown.
+      if (!stopped && ticket === generation && !confirmed(result)) result = await recheck(true);
       if (ticket !== generation) return;
       renewFlight = false;
       // Not confirmed none: the stale answer is not renewed and the card says "verify again".
-      if (!result || proOwnership(result.access) !== "none") knownNone = false;
+      if (!confirmed(result)) knownNone = false;
       set({ renewing: false });
-    });
+    })();
   }
 
   /** The person showed or focused the page: the renewal allowance starts again. */

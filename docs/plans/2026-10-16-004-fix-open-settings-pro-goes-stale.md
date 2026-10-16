@@ -50,8 +50,11 @@ policy or the shared Still Pro card.
    last seen conclusively without Still Pro. When that answer turns into "verify again" on a visible
    page, it runs the same scoped re-check once (counted against the allowance). While it runs, the
    card shows its existing "Checking your Still Pro access…" state. "Still Pro needs to be verified
-   again." shows only if that re-check does not confirm "none" (or fails). There is no loop: a
-   failed renewal clears the memory until a fresh "none" is seen.
+   again." shows only if that re-check does not confirm "none" (or fails). Because the page shares
+   one re-check flight, the first answer may come from a check already under way when the answer
+   went stale (for example a token refresh during it), so one fresh check decides before "verify
+   again" (at most two checks per stale answer; found in review). There is no loop: a failed
+   renewal clears the memory until a fresh "none" is seen.
 3. **Focus and return.** Window focus re-checks like showing the page again (same 30 s spacing). A
    stale known none is renewed on show or focus regardless of the spacing. Return from the checkout
    tab keeps its immediate re-check.
@@ -60,14 +63,15 @@ policy or the shared Still Pro card.
 
 - Unit (`lib/__tests__/browser-pro.test.ts`, fake timers): a page visible for 20 minutes keeps
   renewing (27 renewals, past the old cap of 10); "none" turning into "verify" re-checks at once
-  with `renewing` shown; a failed renewal leaves "verify" and does not loop; past the allowance
+  with `renewing` shown; a renewal that joined a stale check gets one fresh check; a failed
+  renewal leaves "verify" and does not loop; past the allowance
   focus re-checks and restarts it; gone stale while hidden, showing the page re-checks inside the
   spacing; focus inside the spacing does nothing; another account is not treated as stale; `stop`
   removes the focus listener. The existing bounded-renewal test now expects the allowance to
   restart when the page is shown.
 - Options page (`entrypoints/options/__tests__/browser-pro-host.test.ts`, the real options page,
-  controller and card over a synthetic background): a stale access record re-checks and keeps Get
-  Still Pro without "verify again", also when it went stale while hidden; a re-check that does not
+  controller and card over a synthetic background): a stale access record shows "Checking your
+  Still Pro access…" while it re-checks, then keeps Get Still Pro without "verify again", also when it went stale while hidden; a re-check that does not
   confirm none shows "verify again".
 - Red first: run against the previous `browser-pro.ts` and `InformationalProSettings.svelte`, 9 of
   the new or changed tests failed; all pass with the fix.

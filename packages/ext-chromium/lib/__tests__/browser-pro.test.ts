@@ -348,15 +348,33 @@ describe("the browser Still Pro flow", () => {
       h.answer("verification_required", "unknown");
       h.observe("verify"); await settle();
       h.observe("verify"); await settle();
-      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2); // the renewal and its one fresh retry
       expect(h.state.renewing).toBe(false);
       const failed = harness();
       failed.observe("none"); await settle();
       failed.controller.recheckAccess.mockRejectedValueOnce(new Error("worker gone"));
+      failed.answer("verification_required", "unknown"); // the fresh retry does not confirm none either
       failed.observe("verify"); await settle();
       expect(failed.state.renewing).toBe(false);
       failed.observe("verify"); await settle();
-      expect(failed.controller.recheckAccess).toHaveBeenCalledOnce(); // the one renewal
+      expect(failed.controller.recheckAccess).toHaveBeenCalledTimes(2); // the renewal and its one retry
+    });
+
+    it("a renewal that joined a check already under way gets one fresh check before verify again", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      // The joined check was stale (a token refresh landed during it); the fresh one confirms none.
+      h.controller.recheckAccess.mockResolvedValueOnce({ access: access("verification_required"), outcome: "unknown" });
+      h.observe("verify");
+      expect(h.state.renewing).toBe(true);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+      expect(h.state.renewing).toBe(false);
+      h.observe("none"); await settle();
+      // Still remembered as a known none: a later stale answer is renewed again.
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(3);
     });
 
     it("past the allowance it waits, then focusing the window re-checks it and restarts the allowance", async () => {

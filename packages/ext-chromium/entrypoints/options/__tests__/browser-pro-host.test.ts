@@ -295,7 +295,20 @@ describe("paid-tier browser Still Pro card", () => {
     const card = await region();
     await within(card).findByRole("button", { name: "Get Still Pro" });
     const before = f.actions().filter(action => action === "reconcile").length;
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const send = chrome.runtime.sendMessage as unknown as { getMockImplementation(): (m: Record<string, unknown>) => Promise<unknown>; mockImplementation(fn: (m: Record<string, unknown>) => Promise<unknown>): void };
+    const answer = send.getMockImplementation();
+    send.mockImplementation(async message => {
+      if (message.action === "reconcile") await held;
+      return answer(message);
+    });
     await f.lapse();
+    // While the renewal runs the card says it is checking, never "verify again".
+    await within(card).findByText("Checking your Still Pro access…");
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+    release();
+    send.mockImplementation(answer);
     await within(card).findByRole("button", { name: "Get Still Pro" });
     expect(f.actions().filter(action => action === "reconcile")).toHaveLength(before + 1);
     expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
