@@ -1,6 +1,8 @@
 import type { TiktokBrowserSender, TiktokTabBrowser } from "./browser-tiktok-tab-authority.js";
 
 export const TIKTOK_DOCUMENT_PORT = "still:tiktok-document-v1";
+/** Sent once by the background after it accepts a document's connection. Carries nothing. */
+export const TIKTOK_DOCUMENT_READY = "still:tiktok-document-ready";
 const CHALLENGE = "still:tiktok-document-challenge";
 const ANSWER = "still:tiktok-document-answer";
 const TOKEN = /^[A-Za-z0-9-]{16,128}$/;
@@ -82,6 +84,8 @@ export function createTiktokDocumentRegistry(deps: {
     connections.set(tabId, connection);
     port.onMessage.addListener(onMessage);
     port.onDisconnect.addListener(onDisconnect);
+    // The page waits for this before asking anything, so its first answer can rely on this link.
+    try { port.postMessage({ kind: TIKTOK_DOCUMENT_READY }); } catch { connection.retire(); }
   }
   const live = (c: Connection) => !stopped && c.live && connections.get(c.sender.tab!.id!) === c;
   async function currentTab(c: Connection): Promise<boolean> {

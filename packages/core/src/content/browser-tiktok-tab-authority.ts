@@ -201,8 +201,10 @@ export function createBrowserTiktokTabAuthority(
   const onRemoved = (id: number) => {
     void authority.closeTab(id);
   };
-  const onReplaced = (_addedId: number, removedId: number) => {
-    void authority.closeTab(removedId);
+  // The browser's replacement id is the same visible tab (Safari for Mac swaps web views between
+  // TikTok and the blocked page), so a completed allowance follows it; see replaceTab.
+  const onReplaced = (addedId: number, removedId: number) => {
+    void authority.replaceTab(removedId, addedId);
   };
   if (supported) {
     tabs!.onRemoved.addListener(onRemoved);
