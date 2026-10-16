@@ -435,3 +435,26 @@ describe("D18 screen layout", () => {
     expect(rules("@import url(x.css);\n" + base).size).toBe(3);
   });
 });
+describe("Apple Buy the App Store never started (ISS-0070)", () => {
+  it("says nothing was charged instead of suggesting a charge", () => {
+    render(PurchaseView, {
+      props: apple({ purchase: { state: "failed", notCharged: true } }),
+    });
+    expect(screen.getByText("Still Pro couldn't be bought right now.")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Nothing was charged. Make sure you're signed in to the App Store, then try again.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("The purchase wasn't confirmed.")).toBeNull();
+    expect(screen.queryByText(/If you were charged/)).toBeNull();
+  });
+  it("keeps the may-have-been-charged copy for an ambiguous failure", () => {
+    render(PurchaseView, { props: apple({ purchase: { state: "failed" } }) });
+    expect(screen.getByText("The purchase wasn't confirmed.")).toBeVisible();
+    expect(
+      screen.getByText("If you were charged, Restore purchase will find it."),
+    ).toBeVisible();
+    expect(screen.queryByText("Still Pro couldn't be bought right now.")).toBeNull();
+  });
+});

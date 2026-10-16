@@ -239,4 +239,28 @@ describe("native Still Pro card checking condition", () => {
       view.unmount();
     },
   );
+
+  it("a Buy the App Store never started says nothing was charged and keeps Try again (ISS-0070)", async () => {
+    const props = native({ state: "failed", notCharged: true });
+    const view = render(NativeProOfferCard, { props });
+    expect(screen.getByText("Still Pro couldn't be bought right now.")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Nothing was charged. Make sure you're signed in to the App Store, then try again.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveAttribute("data-tone", "failed");
+    expect(screen.queryByText("The purchase wasn't confirmed.")).toBeNull();
+    expect(screen.queryByText(/If you were charged/)).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(props.onRetry).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+  it("an ambiguous failure without the flag keeps the may-have-been-charged copy", () => {
+    const view = render(NativeProOfferCard, { props: native({ state: "failed" }) });
+    expect(screen.getByText("The purchase wasn't confirmed.")).toBeVisible();
+    expect(screen.getByText("If you were charged, Restore purchase will find it.")).toBeVisible();
+    expect(screen.queryByText("Still Pro couldn't be bought right now.")).toBeNull();
+    view.unmount();
+  });
 });

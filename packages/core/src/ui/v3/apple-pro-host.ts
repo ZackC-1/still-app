@@ -222,7 +222,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         (!fresh || !offer || JSON.stringify(fresh) !== JSON.stringify(offer))
       ) {
         offer = fresh;
-        purchase = { state: "failed" };
+        // Nothing was dispatched: this Buy never reached the App Store.
+        purchase = { state: "failed", notCharged: true };
         return;
       }
       preflightGeneration = undefined;
@@ -243,7 +244,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         } else if (result.outcome === "unavailable" && pendingKind === undefined) {
           // The native port refused dispatch; unlike failed/noSignal this is not a
           // lost or malformed reply from an acquisition that may have completed.
-          purchase = { state: "failed" };
+          purchase = kind === "buy" ? { state: "failed", notCharged: true } : { state: "failed" };
           restore = kind === "restore"
             ? { state: "failed", onAction: () => void transact("restore") } : undefined;
         } else if (result.outcome === "nothing" &&
@@ -262,6 +263,13 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (result.outcome === "cancelled") {
         purchase = { state: "idle" };
         restore = undefined;
+        return;
+      }
+      if (result.outcome === "unavailable" && kind === "buy" && pendingKind === undefined) {
+        // Native "unavailable" is refused before any charge (paid tier off, changed offer, sales
+        // policy or the unverified sandbox installation check, e.g. no App Store account), so
+        // the copy must not suggest a purchase happened (ISS-0070).
+        purchase = { state: "failed", notCharged: true };
         return;
       }
       if (
@@ -531,6 +539,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
             : {}),
           state: purchase.state,
           ...(pendingKind !== undefined ? { verificationRequired: true } : {}),
+          ...(purchase.notCharged ? { notCharged: true } : {}),
           onBuy: () => {
             opening = true;
             changed();
