@@ -512,3 +512,75 @@ describe("decision 34: the TikTok open failure line", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });
+
+describe("Safari blocked page: document link and start retries", () => {
+  function linked(screenReplies: unknown[], linkUp: () => boolean = () => true) {
+    const sent: string[] = [];
+    const replies = [...screenReplies];
+    const send = vi.fn(async ({ kind }: { kind: string }) => {
+      sent.push(kind);
+      if (kind === TIKTOK_ROUTE.screen) return replies.length > 1 ? replies.shift() : replies[0];
+      if (kind === TIKTOK_ROUTE.request) return { status: "confirming" };
+      return undefined;
+    });
+    const prepare = vi.fn(async () => linkUp());
+    const navigate = vi.fn();
+    const host = createTikTokBlockedHost({
+      send, openSettings: vi.fn(), navigate, request: "request-1-fixture", document: "document-1",
+      prepare, startRetryDelaysMs: [1, 1, 1],
+    });
+    return { host, send, sent, prepare, navigate };
+  }
+
+  it("retries an unavailable start answer (a replacement still settling) and then shows the blocked page", async () => {
+    const h = linked([{ status: "unavailable", tab: 7 }, undefined, { status: "blocked", tab: 8 }]);
+    await h.host.start();
+    expect(h.host.state().phase).toBe("blocked");
+    expect(h.host.state().identity.tab).toBe("8");
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen, TIKTOK_ROUTE.screen, TIKTOK_ROUTE.screen]);
+    expect(h.prepare).toHaveBeenCalledTimes(3);
+  });
+
+  it("an Off answer on a retry still resumes the original address", async () => {
+    const h = linked([{ status: "unavailable", tab: 7 }, { status: "open", url: "https://www.tiktok.com/@fixture" }]);
+    await h.host.start();
+    expect(h.navigate).toHaveBeenCalledExactlyOnceWith("https://www.tiktok.com/@fixture");
+  });
+
+  it("gives up after its bounded retries and shows unavailable", async () => {
+    const h = linked([{ status: "unavailable", tab: 7 }]);
+    await h.host.start();
+    expect(h.host.state().phase).toBe("unavailable");
+    expect(h.sent).toEqual(Array(4).fill(TIKTOK_ROUTE.screen));
+  });
+
+  it("a stop during the retry wait sends nothing more", async () => {
+    const h = linked([{ status: "unavailable", tab: 7 }]);
+    const started = h.host.start(); await settle(); h.host.stop(); await started;
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
+  });
+
+  it("re-establishes the document link before a later request instead of going dead", async () => {
+    let up = true;
+    const h = linked([{ status: "blocked", tab: 7 }], () => up);
+    await h.host.start();
+    up = false; // The background unloaded and dropped the page's port.
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    h.host.actions.requestConfirmation(); await flush();
+    expect(h.host.state().phase).toBe("blocked");
+    expect(h.host.state().failed).toBe(true);
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
+    up = true;
+    h.host.actions.requestConfirmation(); await flush();
+    expect(h.host.state().phase).toBe("confirmation");
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen, TIKTOK_ROUTE.request]);
+    h.host.stop();
+  });
+
+  it("without the Safari options the start answer is taken once (Chrome and Firefox)", async () => {
+    const h = harness({ [TIKTOK_ROUTE.screen]: { status: "unavailable", tab: 7 } });
+    await h.host.start();
+    expect(h.sent).toEqual([TIKTOK_ROUTE.screen]);
+    expect(h.host.state().phase).toBe("unavailable");
+  });
+});
