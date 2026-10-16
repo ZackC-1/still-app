@@ -128,7 +128,7 @@ function startComposition(where: "popup" | "options", platform: AccessPlatform, 
   // Ask the access authority once, as every other host page does, so a paid seed (`checking`)
   // always resolves or fails over to verification_required. Paid off, this answers at once.
   void entitlement.refreshAccess();
-  const stopAccount = watchAccountStatus(controller, () => readAccountStatus(cache.currentRecord()));
+  const stopAccount = watchAccountStatus(controller, () => readAccountStatus(() => cache.currentRecord()));
   started.push(stopAccount);
   const binding = createDesktopPopupBinding(cache, entitlement);
   started.push(() => binding.stop());

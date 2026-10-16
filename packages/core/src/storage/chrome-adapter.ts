@@ -2,6 +2,7 @@ import type { StorageAdapter, StoredSettingsRecord } from "./adapter.js";
 import { parseSettingsIntentReply, parseStoredSettingsRecord } from "./settings-validation.js";
 import { AtomicSettingsWriter, SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsIntent, type SettingsScope } from "./atomic-settings.js";
 import { settingsIntentMessage } from "./settings-messages.js";
+import { SAFARI_NATIVE_APP, SAFARI_NATIVE_REPLY_BOUND_MS, sendSafariNativeMessage } from "./safari-native-channel.js";
 
 const STORAGE_KEY = "still:settings";
 // Raw key presence, including null/corruption, rules out pristine history. The startup cohort
@@ -38,7 +39,7 @@ export class ChromeStorageAdapter implements StorageAdapter {
     try {
       return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
         cancel = () => reject(new SettingsStorageRecovery("native-authority-unavailable"));
-        timer = setTimeout(cancel, 8_000);
+        timer = setTimeout(cancel, SAFARI_NATIVE_REPLY_BOUND_MS);
         signal?.addEventListener("abort", cancel, { once: true });
         if (signal?.aborted) cancel();
       })]);
@@ -52,16 +53,15 @@ export class ChromeStorageAdapter implements StorageAdapter {
   private async getAuthoritative(signal?: AbortSignal): Promise<StoredSettingsRecord | null> {
     if (!this.isSafari() || this.options.nativeMirror) return this.getProjection();
     try {
-      const operation = globalThis.location?.protocol === "safari-web-extension:"
-        ? this.readNativeAuthority()
-        : chrome.runtime.sendMessage({ kind: "still:settings-read" }).then((reply: unknown) => {
-          if (!reply || typeof reply !== "object" || (reply as { status?: unknown }).status !== "ready")
-            throw new SettingsStorageRecovery("native-authority-unavailable");
-          if ((reply as { record?: unknown }).record === null) return null;
-          const record = parseStoredSettingsRecord((reply as { record?: unknown }).record);
-          if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
-          return record;
-        });
+      if (globalThis.location?.protocol === "safari-web-extension:") return await this.readNativeAuthority(signal);
+      const operation = chrome.runtime.sendMessage({ kind: "still:settings-read" }).then((reply: unknown) => {
+        if (!reply || typeof reply !== "object" || (reply as { status?: unknown }).status !== "ready")
+          throw new SettingsStorageRecovery("native-authority-unavailable");
+        if ((reply as { record?: unknown }).record === null) return null;
+        const record = parseStoredSettingsRecord((reply as { record?: unknown }).record);
+        if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
+        return record;
+      });
       return await this.bounded(operation, signal);
     } catch {
       if (signal?.aborted) throw new SettingsStorageRecovery("native-authority-unavailable");
@@ -70,8 +70,16 @@ export class ChromeStorageAdapter implements StorageAdapter {
       throw new SettingsStorageRecovery("native-authority-unavailable", await this.getProjection());
     }
   }
-  async readNativeAuthority(): Promise<StoredSettingsRecord | null> {
-    const reply: unknown = await chrome.runtime.sendNativeMessage("com.chartash.still", { kind: "get" });
+  /**
+   * A Safari extension page takes its turn on the page's native channel (safari-native-channel);
+   * the background's projection owner keeps its own independent, bounded messages.
+   */
+  private sendNative(message: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    if (!this.options.nativeMirror) return sendSafariNativeMessage(message, signal);
+    return chrome.runtime.sendNativeMessage(SAFARI_NATIVE_APP, message);
+  }
+  async readNativeAuthority(signal?: AbortSignal): Promise<StoredSettingsRecord | null> {
+    const reply: unknown = await this.sendNative({ kind: "get" }, signal);
     if (!reply || typeof reply !== "object" || !("settings" in reply)) throw new SettingsStorageRecovery("native-authority-unavailable");
     const value = (reply as { settings: unknown }).settings;
     if (value === "") return null; // actual native absence, distinct from an unavailable reply
@@ -110,7 +118,11 @@ export class ChromeStorageAdapter implements StorageAdapter {
       return record;
     }
     if (chrome.runtime.getURL("").startsWith("safari-web-extension:")) {
-      const reply: unknown = await this.bounded(chrome.runtime.sendNativeMessage("com.chartash.still", { kind: "settingsIntent", ...intent }));
+      // Sent once. A refused or unanswered intent has an unknown outcome: the caller holds and
+      // re-reads (treat-a-lost-settings-reply-as-unknown-and-reread); nothing here resends it.
+      const reply: unknown = this.options.nativeMirror
+        ? await this.bounded(this.sendNative({ kind: "settingsIntent", ...intent }))
+        : await this.sendNative({ kind: "settingsIntent", ...intent });
       const record = reply && typeof reply === "object" ? parseSettingsIntentReply((reply as { settings?: unknown }).settings) : null;
       if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
       await this.publishNative(record);
