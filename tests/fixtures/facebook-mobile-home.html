@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Facebook mobile Home feed fixture</title>
+    <style>
+      /* Facebook's mobile feed stacks its rows in normal flow with server-computed inline sizes. */
+      body { margin: 0; font: 16px -apple-system, system-ui, sans-serif; }
+      .m { position: relative; overflow: hidden; }
+      .m > .m { display: block; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Captured 16 Oct 2026 (ISS-0035) from the signed-in Home feed in iPhone Safari through Safari
+      Web Inspector, with the Facebook Blocker off. Structure only: tags, roles, interface labels
+      reduced to their interface words, inline sizes and the names of data-* attributes. Names, post
+      text, images, addresses and attribute values are placeholders.
+
+      The feed is one div[data-type="vscroller"]. Each feed unit is one direct child row, with a
+      1px divider row between units. The Reels section is a single row: a header (an icon, an h2
+      "Reels" and a "See more" button) above a carousel of reel cards, each a role="button"
+      labelled "View reel video ...". Signed-out mobile Pages and Watch (16 Oct) stack these rows
+      with position static or relative and margin-top, so a hidden row closes up.
+    -->
+    <div data-mcomponent="MScreen" data-type="container" data-focusable="true">
+      <div id="fb-mobile-home-scroller" data-mcomponent="MContainer" data-type="vscroller" data-focusable="true" data-scrollable="1">
+        <div id="keep-fb-mobile-home-divider-1" class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="1" style="height:1px; width:402px;">
+          <div data-tti-phase="1" data-fd-action="1" data-type="text" data-mcomponent="TextArea" style="height:1px; width:402px;"></div>
+        </div>
+
+        <div id="fb-mobile-home-reels-section" class="m" data-dcm-id="1" data-tracking-duration-id="1" data-tti-phase="1" data-actual-height="488" data-mcomponent="MContainer" data-type="container" style="height:488px; width:402px;">
+          <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="488" style="height:488px; width:402px;">
+            <div class="m" tabindex="0" data-focusable="true" data-action-id="1" data-actual-height="488" data-tti-phase="1" data-on-invisible-action-id="2" data-type="container" data-mcomponent="MContainer" data-on-visible-action-id="3" style="height:488px; width:402px;">
+              <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="48" style="height:48px; width:402px;">
+                <div aria-hidden="true" data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:21px; width:24px;">
+                  <div><div dir="auto" style="width:24px;"><span data-nosnippet="">&#xf000;</span></div></div>
+                </div>
+                <h2 data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:21px; width:46px;" tabindex="0">
+                  <div dir="auto"><span>Reels</span></div>
+                </h2>
+                <div role="button" tabindex="0" aria-label="See more options" data-focusable="true" data-tti-phase="1" data-action-id="4" data-actual-height="32" data-mcomponent="MContainer" data-type="container" style="height:32px; width:32px;">
+                  <div data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:32px; width:32px;">
+                    <div><div dir="auto" style="width:32px;"><span data-nosnippet="">&#xf001;</span></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="m" data-tti-phase="1" data-tracking-duration-id="2" data-actual-height="428" data-mcomponent="MContainer" data-type="container" style="height:428px; width:378px;">
+                <div data-tti-phase="1" data-fd-action="1" data-type="text" data-mcomponent="ImageArea" style="height:1px; width:1px;"></div>
+                <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="428" style="height:428px; width:378px;">
+                  <div data-tti-phase="1" data-fd-action="1" data-type="text" data-mcomponent="ImageArea" style="height:1px; width:1px;"></div>
+                  <div id="fb-mobile-home-reel-card" role="button" tabindex="0" aria-label="View reel video by Still Test Page 1.2K views." data-focusable="true" data-tti-phase="1" data-action-id="5" data-actual-height="428" data-mcomponent="MContainer" data-type="container" style="height:428px; width:378px;">
+                    <div data-tti-phase="1" data-type="text" data-mcomponent="ImageArea" data-srat="1" style="height:428px; width:378px; background:#222;">
+                      <img src="data:," data-type="image" alt="" data-image-id="1" elementtiming="1" />
+                    </div>
+                    <div data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:72px; width:378px;"></div>
+                    <div data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:21px; width:46px;">
+                      <div dir="auto"><span>1.2K</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="keep-fb-mobile-home-divider-2" class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="1" style="height:1px; width:402px;">
+          <div data-tti-phase="1" data-fd-action="1" data-type="text" data-mcomponent="TextArea" style="height:1px; width:402px;"></div>
+        </div>
+
+        <!-- An ordinary video post: one row holding the header, text, an MVideo player
+             (data-is-reels="false"), the reaction summary and the action buttons. -->
+        <div id="keep-fb-mobile-home-video-post" class="m" data-dcm-id="2" data-tracking-duration-id="3" data-tti-phase="1" data-actual-height="682" data-mcomponent="MContainer" data-type="container" style="height:682px; width:402px;">
+          <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="63" style="height:63px; width:402px;">
+            <div class="m" tabindex="0" data-focusable="true" data-action-id="6" data-actual-height="62" data-tti-phase="1" data-comp-id="1" data-type="container" data-mcomponent="MContainer" data-on-visible-action-id="7" style="height:62px; width:402px;">
+              <div role="button" tabindex="0" aria-label="Still Test Friend" data-focusable="true" data-action-id="8" data-mcomponent="MContainer" data-type="container" style="height:48px; width:48px;"></div>
+              <div data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:21px; width:61px;">
+                <div dir="auto"><span role="link" tabindex="0" data-focusable="true" data-action-id="9">Still Test Friend</span></div>
+              </div>
+              <div tabindex="0" aria-label="3 hours ago, Public" data-focusable="true" data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:16px; width:47px;"></div>
+              <div role="button" tabindex="0" aria-label="More options for this post" data-focusable="true" data-action-id="10" data-mcomponent="MContainer" data-type="container" style="height:33px; width:28px;"></div>
+            </div>
+          </div>
+          <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="48" style="height:48px; width:402px;">
+            <div data-tti-phase="1" data-mcomponent="TextArea" data-type="text" style="height:42px; width:388px;"><div dir="auto"><span>A long-form video post.</span></div></div>
+          </div>
+          <div class="m" tabindex="0" data-focusable="true" data-tti-phase="1" data-action-id="11" data-actual-height="503" data-mcomponent="MContainer" data-type="container" style="height:503px; width:402px;">
+            <div id="keep-fb-mobile-home-video" role="button" tabindex="0" aria-label="Video player" data-focusable="true" data-action-id="12" data-video-id="1" data-type="video" data-is-reels="false" data-mcomponent="MVideo" style="height:503px; width:402px; background:#222;">
+              <button aria-label="Play video" aria-pressed="false"></button>
+            </div>
+          </div>
+          <div class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="68" style="height:68px; width:402px;">
+            <div role="button" tabindex="0" aria-label="Like" data-focusable="true" data-action-id="13" style="height:40px; width:134px;"><span>Like</span></div>
+          </div>
+        </div>
+
+        <div id="keep-fb-mobile-home-divider-3" class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="1" style="height:1px; width:402px;">
+          <div data-tti-phase="1" data-fd-action="1" data-type="text" data-mcomponent="TextArea" style="height:1px; width:402px;"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

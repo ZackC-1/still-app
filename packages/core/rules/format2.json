@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.14",
+  "version": "3.0.15",
   "services": {
     "youtube": {
       "matches": [
@@ -184,6 +184,7 @@
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
             "[role=\"tablist\"] > [role=\"tab\"] ~ [role=\"tab\"]:has(> * > [role=\"tab\"][aria-label=\"Reels\"])",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > h2):has([role=\"button\"][aria-label^=\"View reel\"])",
             "[role=\"banner\"] [role=\"navigation\"] li:has(a[aria-label=\"Reels\"]):not(:has(li))",
             "a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[href=\"/reels/\"],[href^=\"/reels/?\"],[href=\"/watch/reels/\"],[href^=\"/watch/reels/?\"])",
             ":is(nav, [role=\"navigation\"]) li:has(a:is([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"])):not(:has(li))",
@@ -269,6 +270,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "394cf8f4dfa22071cb4af2c0dba36d7213172a2cc47c461b404a0c0c52d8f7ad6860a9735a302d8e6f4508066e52e3ad8dd92be2cd2ef35cd5656821c661b20e"
+    "value": "455a2947ed8d17e285c12d5387ce5a16b28e106c02a5ff1fe222950f3ee5db275f15d1beb4729d34765b9aa5db29d6c673a47294d630fa8fdabedaa62b167e0e"
   }
 }

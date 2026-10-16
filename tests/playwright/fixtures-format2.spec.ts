@@ -536,6 +536,28 @@ test("format-2 facebook mobile Page (ISS-0035): the whole Reels tab hides, the o
   );
 });
 
+test("format-2 facebook mobile Home feed (ISS-0035): the Reels section row hides and the feed closes up, Off restores", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 402, height: 874 });
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile-home.html"));
+  await page.goto("https://m.facebook.com/");
+  await expectFormat2Lane(page);
+  await expect(page).toHaveURL("https://m.facebook.com/");
+  await expect(page.locator("#fb-mobile-home-reels-section")).toHaveCount(1);
+  await expect(page.locator("#fb-mobile-home-reels-section")).toBeHidden();
+  // The rows stack in normal flow, so the next post moves up to sit under the two 1px dividers.
+  const top = () => page.evaluate(() => {
+    const feed = document.getElementById("fb-mobile-home-scroller")!.getBoundingClientRect().top;
+    return Math.round(document.getElementById("keep-fb-mobile-home-video-post")!.getBoundingClientRect().top - feed);
+  });
+  expect(await top()).toBe(2);
+  await expectHiddenRetainedReversible(
+    page, context, extensionId,
+    ["#fb-mobile-home-reels-section"],
+    await keepAll(page),
+  );
+});
+
 test("format-2 lane never adds a legacy placeholder or root marker without an account or purchase", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
