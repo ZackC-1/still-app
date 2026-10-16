@@ -278,6 +278,151 @@ describe("live popup/App/browser Pro navigation", () => {
   });
 });
 
+// ISS-0032 / ISS-0062 (reopened on .361): for an account without Still Pro the card and the lock
+// chips stay on the first opening and through setting changes and sync, signed in or out. They go
+// only on verified ownership, and a lock tap only ever navigates (no purchase, no free row).
+describe("a steady Still Pro offer (ISS-0032)", () => {
+  const LOCK = "Comments. Included in Still Pro. See Still Pro";
+  function snapshot(base: typeof initialAccessSnapshot extends (...a: never[]) => infer R ? R : never, state: "locked" | "purchased") {
+    const states = { ...base.states };
+    for (const [id, value] of Object.entries(base.states)) if (value === "locked" || value === "checking") states[id as keyof typeof states] = state;
+    return { ...base, states };
+  }
+
+  /** A popup over a watched access cache whose record can change and whose reads can fail. */
+  async function heldPopup(browserName: "Chrome" | "Firefox", offer: () => Promise<boolean>) {
+    await browser();
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime) as (message: unknown) => Promise<unknown>;
+    Object.assign(chrome.runtime, {
+      sendMessage: vi.fn(async (message: unknown) => {
+        const m = message as { kind?: string; action?: string };
+        return m.kind === "still:session" && m.action === "checkoutAvailable" ? offer() : send(message);
+      }),
+    });
+    const navigation = session();
+    const { controller } = capture();
+    const f = await desktopFixture("locked");
+    let changed: (() => void) | undefined;
+    const observe = vi.fn(async () => f.props.access);
+    const access = new EntitlementCache({
+      get: async () => false,
+      set: async () => {},
+      subscribe: () => () => {},
+      subscribeAccess: (listener: () => void) => { changed = listener; return () => { changed = undefined; }; },
+      observeBenefits: () => observe(),
+    }, { access: { paidMode: true, supported: new Set(ACCESS_BENEFITS) } });
+    stops.push(access.watch());
+    await access.refreshAccess();
+    const binding = createDesktopPopupBinding(f.cache, access);
+    stops.push(binding.stop);
+    vi.stubEnv("FIREFOX", browserName === "Firefox" ? "true" : "");
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    const view = render(PopupApp, { props: { controller, committedPopupBinding: binding, browser: browserName, platform: Promise.resolve("desktop" as const), surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE, proDestinationReady: true } });
+    const youtube = await screen.findByRole("button", { name: "YouTube Blocker" });
+    if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
+    await flush();
+    /** The background's access record changed (a sync or auth cycle) and the next read fails. */
+    async function syncCycle() {
+      observe.mockRejectedValueOnce(new Error("Stale access context"));
+      changed?.();
+      await flush();
+      await flush();
+    }
+    return { ...navigation, view, f, access, observe, controller, syncCycle };
+  }
+
+  it.each(["Chrome", "Firefox"] as const)("%s first opening: readiness replies that fail at first still bring the card without reopening", async name => {
+    const answer = vi.fn<() => Promise<boolean>>()
+      .mockRejectedValueOnce(new Error("Could not establish connection. Receiving end does not exist."))
+      .mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
+    const f = await popup(name, false, "locked", true, answer);
+    expect(f.records[PRO_OFFER_READY_KEY]).not.toBe(true);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Still Pro" })).toBeTruthy(), { timeout: 6_000 });
+    expect(answer.mock.calls.length).toBeGreaterThanOrEqual(4);
+  }, 10_000);
+
+  it.each(["Chrome", "Firefox"] as const)("%s first opening: a readiness reply that never arrives does not hold the card back", async name => {
+    const answer = vi.fn<() => Promise<boolean>>()
+      .mockReturnValueOnce(new Promise<boolean>(() => {}))
+      .mockResolvedValue(true);
+    await popup(name, false, "locked", true, answer);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Still Pro" })).toBeTruthy(), { timeout: 8_000 });
+  }, 12_000);
+
+  it.each(["Chrome", "Firefox"] as const)("%s reopening: no answer yet keeps the remembered card and the memory", async name => {
+    const answer = vi.fn<() => Promise<boolean>>().mockResolvedValueOnce(true)
+      .mockRejectedValue(new Error("Could not establish connection. Receiving end does not exist."));
+    const f = await popup(name, false, "locked", true, answer);
+    await waitFor(() => expect(f.records[PRO_OFFER_READY_KEY]).toBe(true));
+    f.view.unmount();
+    const binding = createDesktopPopupBinding(f.f.cache, f.access);
+    stops.push(binding.stop);
+    render(PopupApp, { props: { ...f.props, committedPopupBinding: binding } });
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await new Promise(resolve => setTimeout(resolve, 1_700));
+    expect(answer.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(f.records[PRO_OFFER_READY_KEY]).toBe(true);
+  }, 8_000);
+
+  it.each(["Chrome", "Firefox"] as const)("%s: a setting change while open keeps the card even when a re-ask would say no", async name => {
+    const answer = vi.fn<() => Promise<boolean>>().mockResolvedValueOnce(true).mockResolvedValue(false);
+    const f = await popup(name, false, "locked", true, answer);
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await f.f.cache.setService("tiktok", false);
+    for (let i = 0; i < 5; i++) await flush();
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(screen.getByRole("button", { name: LOCK })).toBeTruthy();
+  });
+
+  it.each([
+    ["Chrome", false], ["Chrome", true], ["Firefox", false], ["Firefox", true],
+  ] as const)("%s signed in=%s: a sync cycle and a setting change keep the card and the lock chips", async (name, signedIn) => {
+    const f = await heldPopup(name, async () => true);
+    if (signedIn) {
+      const account = { accountId: "synthetic-account", email: "reader@example.test", lastSyncedAt: Date.now(), pendingUpload: false, cloudReachable: true, updatedAt: Date.now() };
+      stops.push(watchAccountStatus(f.controller, vi.fn(async () => ({ ...account }))));
+      await screen.findByText("Synced with your account.");
+    }
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    expect(screen.getByRole("button", { name: LOCK })).toBeTruthy();
+    const before = await f.f.storage.get();
+
+    await f.syncCycle();
+    // The cache really is holding access (re-confirming), not answering "locked".
+    expect(f.access.currentAccess("youtube.comments")).toBe("verification_required");
+    await f.f.cache.setService("tiktok", false);
+    for (let i = 0; i < 5; i++) await flush();
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    const lock = screen.getByRole("button", { name: LOCK });
+    // Held access never draws a Pro switch, so nothing can turn a Pro row on.
+    expect(document.querySelector('[data-access="verify"]')).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+    await fireEvent.click(lock);
+    await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: "Purchase Still Pro" })).toBeNull();
+    // Only the deliberate TikTok change was saved; no Pro row's choice moved.
+    const saved = (record: unknown) => (record as { settings: { sites: object; services: { tiktok: boolean } } }).settings;
+    const after = saved(await f.f.storage.get());
+    expect(after.sites).toEqual(saved(before).sites);
+    expect(after.services.tiktok).toBe(false);
+  });
+
+  it.each(["Chrome", "Firefox"] as const)("%s: verified ownership removes the card and the lock chips", async name => {
+    const f = await heldPopup(name, async () => true);
+    await screen.findByRole("region", { name: "Still Pro" });
+    await f.syncCycle();
+    f.observe.mockResolvedValue(snapshot(f.f.props.access, "purchased"));
+    await f.access.refreshAccess();
+    await flush();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull());
+    expect(screen.queryByRole("button", { name: LOCK })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Comments" })).toBeTruthy();
+  });
+});
+
 describe("options route lifecycle", () => {
   it("reuses an already-mounted options destination and does not refocus on normal render changes or duplicate delivery", async () => {
     await browser(); const f = session();
