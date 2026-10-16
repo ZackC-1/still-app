@@ -144,3 +144,16 @@ button shows the remaining seconds; only after the owner gate both read 30 s.
 - A 429 from something other than a send limit would now show a wait instead of "try again". On this
   endpoint every 429 is a limit, and the wait self-clears.
 - Message wording could change upstream; then no seconds are parsed and the fixed 60 s lock applies.
+
+## Verification (15 Oct, branch fix/iss0060-code-send-honesty-20261015)
+
+- `pnpm lint`, `pnpm typecheck`, `pnpm test:release`, `pnpm build`: pass.
+- `pnpm test`: core 5,318 passed (39 skipped); app-webview 18 passed. One unrelated analytics timing
+  test (`apple-app.test.ts`, two back-to-back sign-ins) failed once under parallel load and passed on
+  rerun; it does not import the auth code.
+- Playwright fixtures, unconfigured lane: 350 passed, 25 skipped. Configured lane: 197 passed,
+  176 skipped, 2 Instagram fixture cases failed under parallel load; both spec files then passed on
+  rerun (32 passed).
+- Not verified: the hosted gateway's CORS headers, the hosted Auth limits and the 12:45 Auth log
+  (owner check above), and on-device behavior (owner retest below). Status stays in progress until
+  the owner retest.
