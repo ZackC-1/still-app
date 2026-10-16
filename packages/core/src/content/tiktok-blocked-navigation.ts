@@ -22,6 +22,13 @@ export interface TikTokBlockedNavigationDeps {
   readonly timeoutMs?: number;
   /** How long a redirected page may stay before falling back to the in-page block. */
   readonly redirectGraceMs?: number;
+  /**
+   * Safari: waits after "redirected" before asking again while this document is still here.
+   * Safari for Mac swaps the tab into a new web view for Still's page, and TikTok changing its own
+   * address during the swap can make Safari keep TikTok, which otherwise would end in the bare
+   * in-page block. Omitted: one ask (Chrome and Firefox). Back/Forward entries never re-ask.
+   */
+  readonly redirectRetryDelaysMs?: readonly number[];
   readonly blockedLine?: string;
 }
 
@@ -83,9 +90,15 @@ export function createTikTokBlockedNavigation(deps: TikTokBlockedNavigationDeps)
 
   function start(): void {
     if (state !== "idle" || stopped) return;
-    state = "pending";
     hold();
     const traversal = deps.traversal?.() === true;
+    const retries = traversal ? [] : [...(deps.redirectRetryDelaysMs ?? [])];
+    view?.addEventListener("pageshow", onPageShow);
+    ask(traversal, retries);
+  }
+
+  function ask(traversal: boolean, retries: number[]): void {
+    state = "pending";
     let settled = false;
     const finish = (reply: unknown) => {
       if (settled || stopped) return;
@@ -97,8 +110,13 @@ export function createTikTokBlockedNavigation(deps: TikTokBlockedNavigationDeps)
         release();
       } else if (status === "redirected") {
         state = "redirected";
-        view?.addEventListener("pageshow", onPageShow);
-        timer = setTimeout(fallback, deps.redirectGraceMs ?? TIKTOK_REDIRECT_GRACE_MS);
+        const retry = retries.shift();
+        timer = retry === undefined
+          ? setTimeout(fallback, deps.redirectGraceMs ?? TIKTOK_REDIRECT_GRACE_MS)
+          : setTimeout(() => {
+              // Still here after the redirect: the browser dropped it, so ask once more.
+              if (!stopped && state === "redirected") ask(false, retries);
+            }, retry);
       } else fallback();
     };
     timer = setTimeout(() => finish(null), deps.timeoutMs ?? TIKTOK_REPLY_TIMEOUT_MS);

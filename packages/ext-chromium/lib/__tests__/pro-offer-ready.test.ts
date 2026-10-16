@@ -8,7 +8,7 @@ import { SESSION_MESSAGE_KIND } from "../session-messages.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("askProOfferReady", () => {
-  it.each([[true, true], [false, false], [undefined, false], ["true", false], [{ allowed: true }, false]] as const)(
+  it.each([[true, true], [false, false], [undefined, undefined], ["true", false], [{ allowed: true }, false]] as const)(
     "reply %j → %s",
     async (reply, expected) => {
       const sendMessage = vi.fn(async () => reply);
@@ -18,11 +18,13 @@ describe("askProOfferReady", () => {
     },
   );
 
-  it("a failed or missing answer is no", async () => {
+  it("a failed, missing or late answer is no answer (ask again), never a no (ISS-0032)", async () => {
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => { throw new Error("no receiver"); }) } });
-    expect(await askProOfferReady()).toBe(false);
+    expect(await askProOfferReady()).toBeUndefined();
     vi.stubGlobal("chrome", { runtime: {} });
-    expect(await askProOfferReady()).toBe(false);
+    expect(await askProOfferReady()).toBeUndefined();
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(() => new Promise(() => {})) } });
+    expect(await askProOfferReady(10)).toBeUndefined();
   });
 
   it("remembers the last answer for this browser session, and reads anything else as no", async () => {

@@ -50,6 +50,7 @@
     commandsDisabled,
     sync,
     pro,
+    proHandoff,
     restore,
     link,
     sharing,
@@ -99,6 +100,7 @@
   {commandsDisabled}
   {sync}
   {pro}
+  {proHandoff}
   restore={card ?? restore}
   {onRestore}
   {link}

@@ -53,11 +53,11 @@ export type CodeErrorKind =
   | "verify-rate-limited"
   | "resend-rate-limited";
 
-/** Resend is blocked for 60s after each send, with a visible countdown. This MUST equal the hosted
- * Auth per-email minimum interval (`smtp_max_frequency`, expected 60s): a shorter client wait only
- * turns resends into provider refusals. Change both together (ISS-0059 owner gate, plan
- * 2026-10-15-005); local supabase/config.toml's 1s is the development stack only. */
-export const RESEND_COOLDOWN_MS = 60_000;
+/** Resend is blocked for 30s after each send, with a visible countdown. This MUST equal the hosted
+ * Auth per-email minimum interval (`smtp_max_frequency`, 30s since the owner-approved ISS-0059
+ * change on 15 Oct 2026): a shorter client wait only turns resends into provider refusals. Change
+ * both together; local supabase/config.toml's 1s is the development stack only. */
+export const RESEND_COOLDOWN_MS = 30_000;
 /** UI lock after a rate-limited send or verify (R2/R3) when the transport does not know the real
  * wait (hourly email cap, per-IP throttles). Transports that DO know it override it via
  * `retryAfterSeconds`: review-signin's rate-limit RPC, and GoTrue's per-email interval, whose 429
@@ -1217,7 +1217,7 @@ export class UiController {
     }
   }
 
-  /** Resend a code to the same email. Gated on the 60s cooldown (clock-checked, not just the
+  /** Resend a code to the same email. Gated on the resend cooldown (clock-checked, not just the
    * displayed countdown); success restarts the countdown and resets the attempt count. */
   async resendCode(): Promise<void> {
     if (!this.auth?.requestCode || this.codeEmail === null) return;

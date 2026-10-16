@@ -44,6 +44,9 @@ export function wireSafariTiktokHost(deps: {
     // Safari tabs.update has no Firefox loadReplace option. The existing traversal hold prevents
     // Back trapping without inventing a history permission or a second navigation policy.
     replaceHistory: false,
+    // Safari for Mac reopens TikTok in a new view, and so a new tab id, after the blocked page;
+    // give the replacement report a moment so the carried allowance is found (tabs.onReplaced).
+    replacementGraceMs: 300,
     randomId: deps.randomId,
     createAuthority: (hooks) => createBrowserTiktokTabAuthority({
       browser: { runtime: browser.runtime, storage: { session: hooks.session }, tabs },
