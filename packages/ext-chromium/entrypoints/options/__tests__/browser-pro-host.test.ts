@@ -69,6 +69,7 @@ async function host(options: Fixture = {}) {
   let checkout = options.checkout ?? { kind: "checkout-url", url: CHECKOUT_URL };
   const accountId: string | null = options.signedIn === false ? null : ACCOUNT;
   let pending: Record<string, unknown> | null = null;
+  let lapses = 0;
   const messages: Record<string, unknown>[] = [];
   const original = chrome.runtime.sendMessage.bind(chrome.runtime);
   const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
@@ -117,6 +118,15 @@ async function host(options: Fixture = {}) {
   return {
     ...f, messages, tabsCreate, tabsUpdate, openTabs,
     get pending() { return pending; },
+    /** The background's "known none" went stale: a sync, a sign-in refresh or its minute passing. */
+    async lapse() {
+      snapshot = access("verification_required");
+      // A material change to the stored access record is what makes the page observe access again.
+      lapses += 1;
+      await chrome.storage.local.set({ "still:entitlement": { entitled: false, updatedAt: Date.now(),
+        access: lapses % 2 === 1 ? { generation: lapses } : undefined } });
+      await flush();
+    },
     actions: () => messages.map(message => String(message.action ?? message.kind)),
     set(next: { after?: AccessState; outcome?: Fixture["outcome"]; available?: boolean; checkout?: Record<string, unknown> }) {
       after = next.after ?? after; outcome = next.outcome ?? outcome;
@@ -277,6 +287,36 @@ describe("paid-tier browser Still Pro card", () => {
     await flush();
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(f.actions()).not.toContain("checkoutAvailable");
+  });
+
+  it("an open page whose known none goes stale re-checks it quietly instead of asking to verify (ISS-0072)", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    const before = f.actions().filter(action => action === "reconcile").length;
+    await f.lapse();
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(before + 1);
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+    // Gone stale again while hidden (the checkout tab in front), then shown: re-checked at once.
+    visibility("hidden");
+    await f.lapse();
+    visibility("visible");
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    await waitFor(() => expect(f.actions().filter(action => action === "reconcile")).toHaveLength(before + 2));
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+  });
+
+  it("says verify again when the re-check of a stale known none does not confirm it", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    f.set({ after: "verification_required", outcome: "unknown" });
+    await f.lapse();
+    await within(card).findByText("Still Pro needs to be verified again.");
+    expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
   });
 
   it("Restore runs the scoped re-check and reports from the access it reads", async () => {

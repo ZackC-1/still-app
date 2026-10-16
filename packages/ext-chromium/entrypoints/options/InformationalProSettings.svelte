@@ -56,6 +56,9 @@
     if (ownership === "hidden") return undefined;
     // Purchased: the settings page shows its Still Pro card as "Purchased", beside the sync card.
     if (ownership === "owned") return { ownership: "owned", channel: "unverified" };
+    // A known none going stale is renewed quietly (ISS-0072): "verify again" only if that fails.
+    if (ownership === "verify" && flowState.renewing)
+      return { ownership: "checking", channel: "unverified", onRestore };
     if (ownership === "verify") return { ownership: "verify", channel: "unverified", onRestore };
     if (ownership === "checking" || flowState.channel === "checking")
       return { ownership: "checking", channel: "unverified", onRestore };
