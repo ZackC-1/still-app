@@ -3,7 +3,7 @@ import type { MarkerAdapter } from "../rules/extras.js";
 import { YOUTUBE_EXTRAS } from "../rules/youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "../rules/instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "../rules/facebook-extras.js";
-import { INSTAGRAM_PROFILE_MARKER } from "../rules/instagram.js";
+import { INSTAGRAM_EXPLORE_MARKER, INSTAGRAM_PROFILE_MARKER } from "../rules/instagram.js";
 
 // The marker hook: JavaScript sets a `data-still-*` attribute where the browser's CSS cannot express a
 // structural boundary, and only while that attribute's feature is effective. The rule set hides
@@ -21,11 +21,12 @@ export const SHORTS_CHIP_MARKER: MarkerAdapter = Object.freeze({
   owns: (chip: Element) => chip.querySelector<HTMLElement>('[role="tab"]')?.textContent?.trim() === "Shorts",
 });
 
-/** Every packaged marker adapter: the free cores' (Shorts chip and Instagram profile),
+/** Every packaged marker adapter: the free cores' (Shorts chip, Instagram profile and Explore),
  * then each service's Still Pro markers. */
 export const PACKAGED_MARKERS: readonly MarkerAdapter[] = Object.freeze([
   SHORTS_CHIP_MARKER,
   INSTAGRAM_PROFILE_MARKER,
+  INSTAGRAM_EXPLORE_MARKER,
   ...YOUTUBE_EXTRAS.markers,
   ...INSTAGRAM_EXTRAS.markers,
   ...FACEBOOK_EXTRAS.markers,
