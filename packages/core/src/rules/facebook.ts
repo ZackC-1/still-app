@@ -39,6 +39,13 @@ const selectors = Object.freeze([
   'a[role="tab"][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"]) > *',
   '[role="menu"] a[role="menuitemradio"][aria-checked][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"])',
   '[role="tab"][aria-label^="Reels," i] > *',
+  // ISS-0035: a Page's tab row in Facebook's mobile layout (iPhone Safari, captured 15 Oct 2026).
+  // Each outer tab is the tap target and holds an inner tab labelled exactly "Reels"; the whole
+  // outer tab goes, or an invisible area would still open the Reel grid. Facebook places the tabs
+  // at fixed offsets, so the others stay where they are and nothing is measured again. Only a tab
+  // after the first: each later tab is pulled up against the one before it, so hiding the first
+  // would slide the rest out of the row. A Reels-first row stays as it is.
+  '[role="tablist"] > [role="tab"] ~ [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])',
   // ISS-0035: the top-menu Reels tab by its label, a fallback should its address change. Only the
   // banner's menu: the sidebar's own shortcuts (a group or Page someone named "Reels") never match.
   '[role="banner"] [role="navigation"] li:has(a[aria-label="Reels"]):not(:has(li))',
