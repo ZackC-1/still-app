@@ -49,15 +49,20 @@ reply). The fix removes the overlap for all three.
 
 1. `packages/core/src/storage/safari-native-channel.ts`: one native channel per Safari extension
    page (per runtime object). A message is sent at once when nothing is outstanding; otherwise it
-   waits until the outstanding message is answered, or for at most a two-second busy bound when a
-   reply is lost. A caller that aborts while queued is dropped unsent; one that aborts after
-   sending keeps the channel busy, because its message is still outstanding at the host. The
-   caller's own reply bound stays eight seconds.
+   waits until the outstanding message is answered, or until that message counts as lost at its
+   eight-second reply bound, so a slow reply is never overlapped. A caller that aborts while queued
+   is dropped unsent; one that aborts after sending keeps the channel busy, because its message is
+   still outstanding at the host. A message that cannot be sent within the reply bound of being
+   queued is dropped unsent, so a hung host cannot make taps wait indefinitely.
 2. `ChromeStorageAdapter` (Safari page only, not the background's projection owner): native `get`
    and `settingsIntent` go through the channel. Intents are still sent once and never replayed;
-   an unknown outcome still holds and re-reads.
+   an unknown outcome still holds and re-reads. Because replies now settle in order, a later tap's
+   reply (committed or no-op) clears an earlier tap's hold, and a lost newest reply is followed by
+   that tap's read as soon as the channel frees.
 3. `ext-safari/lib/account-status.ts`: the popup's account poll uses the same channel, one message
-   after the other.
+   after the other, and compares the app with the page's settings when the replies arrive (saves
+   queued ahead of the poll are not a pending upload). The Mac hand-off (`openAppRoute`) uses the
+   channel too.
 
 No change to the cache, the popup binding, the Svelte screens, the Swift handler or the store.
 The background (projection owner) keeps its independent, bounded messages: a hung background read
@@ -76,10 +81,13 @@ must still not delay a later intent there (existing tests).
     Passes on current code too; kept as a regression guard.
   - Try again after an unreachable tap clears the hold within one second by reading only.
 - `packages/core/src/storage/__tests__/safari-native-channel.test.ts`: idle send is synchronous,
-  order, no overlap, refusal, lost reply (busy bound and reply bound), abort before and after
-  sending, independent pages, no leftover timers.
+  order, no overlap (including a slow reply), refusal, lost reply, a hung host with ten queued
+  messages (every caller settles within one turn plus one reply), abort before and after sending,
+  independent pages, no leftover timers.
+- `packages/ext-safari/lib/__tests__/account-status.test.ts`: the poll's two reads never overlap,
+  and a save queued ahead of the poll is not reported as pending.
 - `packages/ext-safari/lib/__tests__/settings-storage.test.ts`: the slow-poll supersede test now
-  allows the new read to wait for the busy bound behind the unanswered poll; the obsolete reply is
+  lets the new read wait behind the unanswered poll until it counts as lost; the obsolete reply is
   still never applied.
 
 Swift tests: none added, because the bridge and store are not part of the cause (stress evidence
@@ -97,8 +105,10 @@ above).
 
 ## Risks
 
-- A lost reply delays the page's next message by up to two seconds (was: messages overlapped).
+- A lost reply delays the page's next message by up to eight seconds (was: messages overlapped).
+  The popup then shows its existing held state and recovers with one read.
 - Two Safari pages open at once (popup and settings page) still have separate channels.
-- If Safari also refuses overlap with the background's own messages, a residual hold remains
-  possible; the background sends settings messages only at start, on a page-load nudge and after
-  a failed projection write.
+- If Safari also refuses overlap with other contexts' messages, a residual hold remains possible:
+  the background reads once when the popup opens (its reconcile nudge) and otherwise only on a
+  page-load nudge or after a failed projection write; the legacy popup's `set` push is outside
+  the V3 path.

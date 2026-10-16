@@ -76,7 +76,7 @@ export class ChromeStorageAdapter implements StorageAdapter {
    */
   private sendNative(message: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     if (!this.options.nativeMirror) return sendSafariNativeMessage(message, signal);
-    return this.bounded(chrome.runtime.sendNativeMessage(SAFARI_NATIVE_APP, message), signal);
+    return chrome.runtime.sendNativeMessage(SAFARI_NATIVE_APP, message);
   }
   async readNativeAuthority(signal?: AbortSignal): Promise<StoredSettingsRecord | null> {
     const reply: unknown = await this.sendNative({ kind: "get" }, signal);
@@ -120,7 +120,9 @@ export class ChromeStorageAdapter implements StorageAdapter {
     if (chrome.runtime.getURL("").startsWith("safari-web-extension:")) {
       // Sent once. A refused or unanswered intent has an unknown outcome: the caller holds and
       // re-reads (treat-a-lost-settings-reply-as-unknown-and-reread); nothing here resends it.
-      const reply: unknown = await this.sendNative({ kind: "settingsIntent", ...intent });
+      const reply: unknown = this.options.nativeMirror
+        ? await this.bounded(this.sendNative({ kind: "settingsIntent", ...intent }))
+        : await this.sendNative({ kind: "settingsIntent", ...intent });
       const record = reply && typeof reply === "object" ? parseSettingsIntentReply((reply as { settings?: unknown }).settings) : null;
       if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
       await this.publishNative(record);
@@ -190,7 +192,7 @@ export class ChromeStorageAdapter implements StorageAdapter {
       try { this.options.onProjectionFailure?.(); } catch { /* diagnostics cannot hide a native commit */ }
       if (!this.isSafari()) return;
       // One bounded authority reread/retry, never replay the already accepted intent.
-      this.projectionRetry ??= this.readNativeAuthority().then(async latest => { if (latest) await this.mirrorNative(latest); })
+      this.projectionRetry ??= this.bounded(this.readNativeAuthority()).then(async latest => { if (latest) await this.mirrorNative(latest); })
         .catch(() => undefined).finally(() => { this.projectionRetry = null; });
     }
   }

@@ -49,14 +49,17 @@ delayed and reordered but delivered replies: no hold. Which refusal Safari appli
 object) one channel:
 
 - sent at once when nothing is outstanding, so a single message gets no added delay;
-- otherwise queued until the outstanding message is answered, or for at most a two-second busy
-  bound when its reply is lost (the caller's own reply bound stays eight seconds);
+- otherwise queued until the outstanding message is answered or counts as lost at its eight-second
+  reply bound, so a slow reply is never overlapped;
+- a message that cannot be sent within the reply bound of being queued is dropped unsent, so a
+  hung host never makes taps wait indefinitely;
 - a caller that aborts before its turn is dropped unsent; one that aborts after sending keeps the
   channel busy, because the host still has its message;
 - no timers when nothing is waiting.
 
 `ChromeStorageAdapter` sends a page's `get` and `settingsIntent` through it, and the Safari
-account-status poll does too. The background's projection owner (`nativeMirror`) keeps its own
+account-status poll and the Mac hand-off do too. The poll compares the app with the page's settings
+when its replies arrive; a save queued ahead of it is not a pending upload. The background's projection owner (`nativeMirror`) keeps its own
 independent, bounded messages: there a hung read must not delay a later intent.
 
 Intents are still sent once. A refused or unanswered intent still holds the page and re-reads;

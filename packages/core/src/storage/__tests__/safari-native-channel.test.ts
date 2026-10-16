@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  SAFARI_NATIVE_BUSY_BOUND_MS,
-  SAFARI_NATIVE_REPLY_BOUND_MS,
-  sendSafariNativeMessage,
-} from "../safari-native-channel.js";
+import { SAFARI_NATIVE_REPLY_BOUND_MS, sendSafariNativeMessage } from "../safari-native-channel.js";
 import { SettingsStorageRecovery } from "../atomic-settings.js";
 
 // ISS-0050: one Safari extension page never overlaps its own native messages. Each test stubs a
@@ -77,23 +73,54 @@ describe("Safari page native channel (ISS-0050)", () => {
     expect(h.pending.filter((p) => p.message.kind === "settingsIntent")).toHaveLength(1);
   });
 
-  it("a lost reply holds the next message only until the busy bound, and its caller only until the reply bound", async () => {
+  it("a slow reply is never overlapped; the next message goes as soon as it is answered", async () => {
+    vi.useFakeTimers();
+    const h = host();
+    const slow = sendSafariNativeMessage({ kind: "get", n: 1 });
+    const next = sendSafariNativeMessage({ kind: "settingsIntent", n: 2 });
+    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_REPLY_BOUND_MS - 1_000);
+    expect(h.sendNativeMessage).toHaveBeenCalledTimes(1);
+    h.pending[0]!.answer("late but in time");
+    await expect(slow).resolves.toBe("late but in time");
+    expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
+    h.pending[1]!.answer("saved");
+    await expect(next).resolves.toBe("saved");
+    expect(h.peak()).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a lost reply frees the channel at the reply bound; the message behind it is then sent once", async () => {
     vi.useFakeTimers();
     const h = host();
     const lost = sendSafariNativeMessage({ kind: "settingsIntent" });
     const lostOutcome = lost.catch((error: unknown) => error);
     const next = sendSafariNativeMessage({ kind: "get" });
-    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_BUSY_BOUND_MS - 1);
+    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_REPLY_BOUND_MS - 1);
     expect(h.sendNativeMessage).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
+    expect(await lostOutcome).toMatchObject({ reason: "native-authority-unavailable" });
     expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
     h.pending[1]!.answer("fresh");
     await expect(next).resolves.toBe("fresh");
-    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_REPLY_BOUND_MS);
-    expect(await lostOutcome).toMatchObject({ reason: "native-authority-unavailable" });
     // A reply that finally arrives late changes nothing and is not resent.
     h.pending[0]!.answer("late");
     await vi.advanceTimersByTimeAsync(0);
+    expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a hung host never makes a caller wait longer than one turn plus one reply, however many are queued", async () => {
+    vi.useFakeTimers();
+    const h = host();
+    const outcomes = Array.from({ length: 10 }, (_, n) =>
+      sendSafariNativeMessage({ kind: "settingsIntent", n }).catch((error: unknown) => error));
+    // The host never answers anything. Most callers give up unsent once their turn is overdue.
+    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_REPLY_BOUND_MS + 250);
+    expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_REPLY_BOUND_MS);
+    const settled = await Promise.all(outcomes);
+    expect(settled.every((error) => (error as SettingsStorageRecovery).reason === "native-authority-unavailable")).toBe(true);
+    // The first was sent and lost; the second was sent when it counted as lost; the rest were dropped unsent.
     expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
