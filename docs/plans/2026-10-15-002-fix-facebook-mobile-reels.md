@@ -1,6 +1,6 @@
 ---
 title: Hide the mobile Facebook Page Reels tab; capture the mobile Home feed Reels section first
-status: in_progress
+status: completed
 date: 2026-10-15
 ---
 
@@ -127,10 +127,36 @@ other sites print as `external`. It prints no names, post text, images or addres
 With that output the Home feed fixture (initial load and a section appended after scrolling) and
 its tests can be written from real structure, then the selector.
 
+## Home feed capture and fix (16 Oct)
+
+The owner ran the snippet on the signed-in Home feed in iPhone Safari with the Facebook Blocker
+off. It showed:
+
+- Each feed unit is **one** direct child row of `div[data-type="vscroller"]`, with a 1 px divider
+  row between units. (Page timelines split a post into several rows; the Home feed does not.)
+- The Reels section is one 488 px row: a header container three wrappers down holding an icon, an
+  `h2` "Reels" and a `role="button"` "See more …", above a carousel of reel cards, each a
+  `role="button"` whose label starts `View reel video …`.
+- The next row, an ordinary video post, holds its header, text, an `MVideo` with
+  `data-is-reels="false"`, reactions and actions in that single row.
+
+Signed out, WebKit with the iPhone 15 Pro profile, the vscroller rows on `m.facebook.com/watch/`,
+`/nike/` and `/natgeo/` compute to `position: static` or `relative` and stack with `margin-top`,
+so hiding a row closes up. The new selector matched nothing on those three pages (their `h2`
+sections hold no reel cards, and the Watch Reels shelf's `h2` sits at a different depth).
+
+Fix: `[data-type="vscroller"] > :has(> * > * > * > h2):has([role="button"][aria-label^="View reel"])`,
+rule set 3.0.15. It needs both the section header at the captured depth and a reel card, so a
+single shared reel (no header), a headed section without reel cards and the same markup nested
+inside a post all stay. New fixture `tests/fixtures/facebook-mobile-home.html`; the core tests
+replaced the two `todo` cases and failed before the rule (4 of 4); the Chromium extension test
+checks the row hides, the post below moves up to sit under the dividers, and live Off/On.
+
 ## Retest
 
 IOS-19 (Page Reels tab absent with Facebook Blocker On; All, Photos and Mentions work; live Off/On
-restores it), IOS-17 and IOS-33 (feed half still open until the capture), and the desktop
+restores it), IOS-17 and IOS-33 (the Home feed Reels section is gone, the feed has no blank gap,
+ordinary video posts and Stories stay, live Off/On restores it), and the desktop
 regression set CH-18..21, MAC-18..20, FX-18..20.
 
 ## Risks
@@ -143,3 +169,7 @@ regression set CH-18..21, MAC-18..20, FX-18..20.
 - The legacy seed lane (devices whose saved settings are still schema 1) is unchanged.
 - Rule set version: a parallel Instagram change may also bump `format2.json`; whichever merges
   second regenerates it with the next version.
+- The Home feed rule depends on the header's depth and the English `View reel` label. If Facebook
+  changes either, the section shows again (fails open) rather than hiding anything else.
+- Facebook loads more feed when a row becomes visible; a hidden row never does, which costs nothing
+  but means the section's own impression is not reported.

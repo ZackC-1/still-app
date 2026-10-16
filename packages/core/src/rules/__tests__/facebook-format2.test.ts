@@ -456,9 +456,64 @@ describe("captured Facebook through the maintained format2 compiler", () => {
       for (const node of row.querySelectorAll('[id^="keep-"]')) expect(visible(node), node.id).toBe(true);
     });
 
-    // The mobile Home feed's "Reels" section needs a signed-in structural capture (see
-    // docs/plans/2026-10-15-002-fix-facebook-mobile-reels.md). It is not modelled until then.
-    it.todo("mobile Home feed: a Reels section hides as a whole unit on first load and after infinite scroll");
-    it.todo("mobile Home feed: ordinary video posts, Sponsored posts and Stories stay");
+  });
+  describe("the mobile Home feed Reels section (ISS-0035, iPhone Safari)", () => {
+    const off = { ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } };
+    const row = (id: string, html: string) => {
+      const node = document.createElement("div");
+      node.id = id;
+      node.innerHTML = html;
+      return node;
+    };
+
+    for (const href of ["https://m.facebook.com/", "https://www.facebook.com/"])
+      it(`${href}: the whole section row hides; dividers and ordinary posts stay unchanged; Off restores`, () => {
+        render("facebook-mobile-home.html");
+        const section = document.getElementById("fb-mobile-home-reels-section")!;
+        const keep = [...document.querySelectorAll('[id^="keep-"]')];
+        expect(keep.length).toBeGreaterThanOrEqual(5);
+        const before = new Map([section, ...keep].map((node) => [node, node.outerHTML]));
+        const s = session();
+        s.applyDom(DEFAULT_SETTINGS_V2, new URL(href), document);
+        // The row goes as one unit: header, "See more" button and every reel card.
+        expect(visible(section)).toBe(false);
+        for (const node of keep) expect(visible(node), node.id).toBe(true);
+        for (const [node, html] of before) expect(node.outerHTML, node.id).toBe(html);
+        s.applyDom(off, new URL(href), document);
+        expect(visible(section)).toBe(true);
+        s.applyDom(DEFAULT_SETTINGS_V2, new URL(href), document);
+        expect(visible(section)).toBe(false);
+      });
+
+    it("a Reels section added by infinite scroll hides too", () => {
+      render("facebook-mobile-home.html");
+      session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+      const later = document.getElementById("fb-mobile-home-reels-section")!.cloneNode(true) as HTMLElement;
+      later.id = "fb-mobile-home-reels-section-later";
+      document.getElementById("fb-mobile-home-scroller")!.append(later);
+      expect(visible(later)).toBe(false);
+    });
+
+    it("a headed section without reel cards, a single reel post and a section outside the feed stay", () => {
+      render("facebook-mobile-home.html");
+      const scroller = document.getElementById("fb-mobile-home-scroller")!;
+      const section = document.getElementById("fb-mobile-home-reels-section")!;
+      // Another headed carousel (for example suggested people) has an h2 but no reel cards.
+      const people = section.cloneNode(true) as HTMLElement;
+      people.id = "keep-headed-section";
+      people.querySelector("h2 span")!.textContent = "People you may know";
+      for (const card of people.querySelectorAll('[aria-label^="View reel"]')) card.setAttribute("aria-label", "View profile");
+      // One reel someone shared is ordinary playback, not the Reels section: no section header.
+      const shared = row("keep-single-reel-post", '<div><div><div role="button" aria-label="View reel video by a friend"></div></div></div>');
+      scroller.append(people, shared);
+      // The same section nested anywhere but directly in the feed list is not a feed row.
+      const nested = section.cloneNode(true) as HTMLElement;
+      nested.id = "keep-nested-section";
+      document.getElementById("keep-fb-mobile-home-video-post")!.append(nested);
+      session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+      expect(visible(section)).toBe(false);
+      for (const id of ["keep-headed-section", "keep-single-reel-post", "keep-nested-section", "keep-fb-mobile-home-video-post"])
+        expect(visible(document.getElementById(id)!), id).toBe(true);
+    });
   });
 });

@@ -46,6 +46,11 @@ const selectors = Object.freeze([
   // after the first: each later tab is pulled up against the one before it, so hiding the first
   // would slide the rest out of the row. A Reels-first row stays as it is.
   '[role="tablist"] > [role="tab"] ~ [role="tab"]:has(> * > [role="tab"][aria-label="Reels"])',
+  // ISS-0035: the Home feed's Reels section in Facebook's mobile layout (iPhone Safari, captured
+  // 16 Oct 2026). Each feed unit is one direct row of the vscroller; this one has a section header
+  // (an h2) three wrappers down and reel cards labelled "View reel ...". The whole row goes and the
+  // rows below close up. A single shared reel has no section header, so it stays.
+  '[data-type="vscroller"] > :has(> * > * > * > h2):has([role="button"][aria-label^="View reel"])',
   // ISS-0035: the top-menu Reels tab by its label, a fallback should its address change. Only the
   // banner's menu: the sidebar's own shortcuts (a group or Page someone named "Reels") never match.
   '[role="banner"] [role="navigation"] li:has(a[aria-label="Reels"]):not(:has(li))',

@@ -180,19 +180,24 @@ describe("actual paid-V3 informational options destination", () => {
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
     if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
     const lock = screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" });
+    // Each invalidation must start a fresh observation. Count relative to the moment before it: on a
+    // slow runner a quick access retry (1 s, ISS-0032) can add one more observation of its own.
+    const observed = () => f.messages.filter(message => message.kind === "observeBenefits").length;
     let finish!: (value: BenefitAccessSnapshot) => void;
     f.snapshot(new Promise(resolve => { finish = resolve; }));
+    const beforeFirst = observed();
     await chrome.storage.local.set({ "still:entitlement": { entitled: true, updatedAt: Date.now(), access: { generation: 1 } } });
-    await waitFor(() => expect(f.messages.filter(message => message.kind === "observeBenefits")).toHaveLength(2));
+    await waitFor(() => expect(observed()).toBeGreaterThan(beforeFirst));
     expect(screen.queryByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" })).toBeNull();
     expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     lock.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(document.activeElement).not.toBe(region);
     // A second invalidation fences the old locked answer. Only the fresh held observation wins.
     f.snapshot(access("verification_required"));
+    const beforeSecond = observed();
     await chrome.storage.local.set({ "still:entitlement": { entitled: true, updatedAt: Date.now(), access: undefined } });
     finish(access("locked"));
-    await waitFor(() => expect(f.messages.filter(message => message.kind === "observeBenefits")).toHaveLength(3));
+    await waitFor(() => expect(observed()).toBeGreaterThan(beforeSecond));
     await flush();
     expect(within(region).getByText("Still Pro needs to be verified again.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" })).toBeNull();
