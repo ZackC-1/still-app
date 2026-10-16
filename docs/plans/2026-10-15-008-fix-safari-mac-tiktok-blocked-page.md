@@ -93,7 +93,11 @@ Also leave a Safari Mac blocked page open for 3+ minutes, then use "Open TikTok 
 - Failing first (before the fix): Safari composition replacement tests returned `unavailable`
   for screen and Off + reload (5 failing); host link/retry tests (4 failing); content-script
   re-ask tests (2 failing); the document-link module did not exist.
-- After: `pnpm lint`, `pnpm typecheck`, `pnpm test` (core 5315, ext-chromium 769, ext-safari 371,
-  owner-admin 58 passing), `pnpm build`, and both Playwright fixture lanes (see the PR).
+- Review (correctness persona) found five race cases around replacement; each is fixed with a
+  Safari composition test (replaced mid-redirect, re-ask reuses the request, TikTok's message before
+  the replacement report, a newer redirect wins, chained replacements).
+- After, on the rebased branch: `pnpm lint`, `pnpm typecheck`, `pnpm test` (core 5328, ext-chromium
+  769, ext-safari 376, owner-admin 58 passing), `pnpm build`, Playwright fixtures unconfigured
+  (350 passed, 25 skipped) and configured (199 passed, 176 skipped).
 - Not verified here: installed Safari for Mac behaviour. The QA Mac's TikTok blocker was Off, and
   its settings were not changed, so no live replacement event was captured.
