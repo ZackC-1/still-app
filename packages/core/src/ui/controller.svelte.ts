@@ -53,13 +53,15 @@ export type CodeErrorKind =
   | "verify-rate-limited"
   | "resend-rate-limited";
 
-/** Resend is blocked for 60s after each send, with a visible countdown (Supabase's own resend
- * window — resending earlier would fail server-side anyway). */
+/** Resend is blocked for 60s after each send, with a visible countdown. This MUST equal the hosted
+ * Auth per-email minimum interval (`smtp_max_frequency`, expected 60s): a shorter client wait only
+ * turns resends into provider refusals. Change both together (ISS-0059 owner gate, plan
+ * 2026-10-15-005); local supabase/config.toml's 1s is the development stack only. */
 export const RESEND_COOLDOWN_MS = 60_000;
-/** UI lock after a rate-limited send or verify (R2/R3): GoTrue's per-user cooldown is 60s, and
- * its 429 carries no structured retry-after (the seconds live in message TEXT, never parsed), so
- * a fixed lock is the honest default. Transports that DO know the real wait (review-signin's
- * rate-limit RPC) override it via `retryAfterSeconds`. Deliberately not persisted across popup
+/** UI lock after a rate-limited send or verify (R2/R3) when the transport does not know the real
+ * wait (hourly email cap, per-IP throttles). Transports that DO know it override it via
+ * `retryAfterSeconds`: review-signin's rate-limit RPC, and GoTrue's per-email interval, whose 429
+ * message states the remaining seconds (ISS-0060). Deliberately not persisted across popup
  * death — the server still enforces; the calm copy simply reappears on a too-early retry. */
 export const RATE_LIMIT_LOCK_MS = 60_000;
 /** Supabase OTP lifetime (project default 1h): past this, a failed verify reads as expired. */
@@ -1366,8 +1368,8 @@ export class UiController {
   }
 
   // ── Rate-limit locks (R2/R3/R4) ─────────────────────────────────────────────────────────────────
-  // Fixed 60s unless the transport supplied a genuine retry-after (review-signin does; GoTrue
-  // never does — its seconds live in message text, which is never parsed). On elapse each lock
+  // Fixed 60s unless the transport supplied a genuine retry-after (review-signin does, and so does
+  // GoTrue's per-email interval via its stated wait; its other limits do not). On elapse each lock
   // clears its own presentation so the sheet returns to a clean, retryable state without a stale
   // error line.
 
