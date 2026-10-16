@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SyncCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import SyncSummary from "./SyncSummary.svelte";
   import {
     SHARED_DATA_COPY,
     WITHDRAWAL_OUTCOMES,
@@ -46,7 +47,15 @@
             ><Glyph name={icons[account.status.tone]} size={16} /></span
           >{/if}
         <div class="status-body">
-          <span>{account.status.text}</span>
+          {#if account.lastSyncedAt != null}
+            <SyncSummary
+              text={account.status.text}
+              tone={account.status.tone}
+              lastSyncedAt={account.lastSyncedAt}
+            />
+          {:else}
+            <span>{account.status.text}</span>
+          {/if}
           {#if account.status.detail}<span
               class="muted"
               style="font-size:calc(12.5px * var(--text-scale, 1));"

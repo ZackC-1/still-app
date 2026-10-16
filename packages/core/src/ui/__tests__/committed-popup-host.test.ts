@@ -394,7 +394,10 @@ describe("actual desktop presentation on the maintained authority", () => {
     state.controller.pendingUpload = true;
     await tick();
     expect(status.textContent).toContain(STRINGS.sync.syncing);
-    expect(status.textContent).toContain(STRINGS.sync.lastSynced);
+    // A space separates the visible label from the time ("Last synced Dec 31", not "Last syncedDec 31").
+    expect(status.textContent!.replace(/\s+/g, " ")).toContain(`${STRINGS.sync.lastSynced} ${new Date(61000).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    })}`);
     expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
     expect(screen.queryByText(STRINGS.sync.synced)).toBeNull();
     state.controller.cloudReachable = false;

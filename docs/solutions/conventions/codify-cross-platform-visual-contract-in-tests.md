@@ -1,7 +1,7 @@
 ---
 title: Codify cross-platform visual parity as file-content assertion tests
 date: 2026-07-10
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 category: conventions
 track: knowledge
 module: packages/core/src/ui
@@ -87,6 +87,15 @@ Five companion practices reinforce the contract:
    text size it wraps instead of clipping. Do not use `white-space: nowrap`, shrink text, or
    remove recovery actions to force every state onto one line. This is browser-document geometry,
    not an installed toolbar or physical-device receipt.
+
+   The iPhone and Mac apps have no native sync card: they render the shared `SyncCard` in their
+   web view, so a status the Chrome popup gains must be passed through the Apple presentation
+   (`createAppleSettingsSync` → `AppleSettings` → `SyncCard`) or the apps silently lack it
+   (ISS-0061). Prove it in the real Apple host over the real sync service
+   (`apple-settings-cloud.test.ts`), not only in the leaf, and compare the rendered text with the
+   Chrome format. Assert normalized `textContent`, not just `toContain(label)`: Svelte 5 removes
+   whitespace at the end of an element, so `{label} </span><time>` rendered "Last syncedOct 15";
+   write the space as an expression (`` {`${label} `} ``) so it survives.
 
 ## Why This Matters
 

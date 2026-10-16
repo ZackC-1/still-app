@@ -20,6 +20,7 @@ import {
 } from "../../entitlement/access-policy.js";
 import AppleSettings from "./AppleSettings.svelte";
 import SyncCard from "./SyncCard.svelte";
+import { STRINGS } from "../strings.js";
 import ProOfferCard from "./ProOfferCard.svelte";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
@@ -407,6 +408,44 @@ describe("controlled D04 Apple settings", () => {
     expect(document.body.textContent).not.toMatch(
       /sam@example.com|Demonstration only/,
     );
+    view.unmount();
+  });
+
+  it("the sync card shows a supplied last successful sync time in Chrome's compact form, and nothing without one (ISS-0061)", async () => {
+    const time = Date.UTC(2026, 9, 15, 21, 24);
+    const chrome = new Date(time).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+    // Without the field (Chrome's settings page), the status line is unchanged.
+    const plain = render(SyncCard, {
+      props: { account: { confirmed: true, status: { tone: "success", text: STRINGS.sync.synced } } },
+    });
+    expect(document.querySelector("time")).toBeNull();
+    expect(document.querySelector(".sync-summary")).toBeNull();
+    plain.unmount();
+    const { props } = await fixture();
+    props.sync.account = {
+      address: "actual-supplied@still.test",
+      confirmed: true,
+      lastSyncedAt: time,
+      status: { tone: "success", text: STRINGS.sync.synced },
+    };
+    const view = render(AppleSettings, { props });
+    const status = screen.getByText(STRINGS.sync.synced).closest<HTMLElement>('[role="status"]')!;
+    expect(status.querySelector("time")!.dateTime).toBe(new Date(time).toISOString());
+    expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(`${STRINGS.sync.synced} · ${STRINGS.sync.lastSynced} ${chrome}`);
+    // The advancing time is not re-announced on its own inside the status region.
+    expect(status.querySelector("time")!.closest("[aria-live]")!.getAttribute("aria-live")).toBe("off");
+    props.sync.account = { ...props.sync.account, lastSyncedAt: null };
+    await view.rerender(props);
+    expect(document.querySelector("time")).toBeNull();
+    // An unrepresentable value shows the status alone instead of breaking the page.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 1e20]) {
+      props.sync.account = { ...props.sync.account, lastSyncedAt: bad };
+      await view.rerender(props);
+      expect(document.querySelector("time")).toBeNull();
+      expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+    }
     view.unmount();
   });
 
