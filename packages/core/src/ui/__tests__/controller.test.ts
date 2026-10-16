@@ -554,27 +554,27 @@ describe("UiController", () => {
     c.dismissSignIn();
   });
 
-  it("resend is blocked during the 60s cooldown with a visible countdown, then unblocks", async () => {
+  it("resend is blocked during the 30s cooldown (ISS-0059) with a visible countdown, then unblocks", async () => {
     vi.useFakeTimers();
     try {
       let t = 1_000_000;
       const auth = codeAuth();
       const { c } = makeController({ auth, clock: () => t });
       await c.signIn("a@b.com");
-      expect(c.resendCooldown).toBe(60);
+      expect(c.resendCooldown).toBe(30);
       await c.resendCode(); // blocked mid-cooldown → no network call
       expect(auth.requestCode).toHaveBeenCalledTimes(1);
 
       t += 15_000;
       vi.advanceTimersByTime(15_000);
-      expect(c.resendCooldown).toBe(45); // countdown is visible and live
+      expect(c.resendCooldown).toBe(15); // countdown is visible and live
 
-      t += 45_000;
-      vi.advanceTimersByTime(45_000);
+      t += 15_000;
+      vi.advanceTimersByTime(15_000);
       expect(c.resendCooldown).toBe(0);
       await c.resendCode(); // cooldown over → resend goes through
       expect(auth.requestCode).toHaveBeenCalledTimes(2);
-      expect(c.resendCooldown).toBe(60); // a fresh send restarts the countdown
+      expect(c.resendCooldown).toBe(30); // a fresh send restarts the countdown
       c.dismissSignIn();
     } finally {
       vi.useRealTimers();
@@ -666,7 +666,7 @@ describe("UiController", () => {
     expect(c.authFlow).toBe("code-entry");
     expect(c.signInOpen).toBe(true);
     expect(c.codeEmail).toBe("saved@b.com");
-    expect(c.resendCooldown).toBe(50); // countdown restored from the original request time
+    expect(c.resendCooldown).toBe(20); // countdown restored from the original request time
     expect(c.purchaseIntent).toBe(true);
     c.dismissSignIn();
   });

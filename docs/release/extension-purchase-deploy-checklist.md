@@ -9,8 +9,9 @@ preserves the July deployment, template-regression and purchase-test history.
 
 The shared cross-platform flow uses an emailed six-digit code. Both new-account “Confirm signup”
 and existing-account “Magic Link” templates must support code entry; do not reintroduce verification
-links that mail scanners can consume. Current expected OTP lifetime is one hour with a 60-second
-resend cooldown. Configured production settings, not local defaults alone, determine actual delivery.
+links that mail scanners can consume. Current expected OTP lifetime is one hour with a 30-second
+resend cooldown (hosted Auth `smtp_max_frequency` = 30, changed from 60 with owner approval on
+15 October 2026; the client `RESEND_COOLDOWN_MS` must match it). Configured production settings, not local defaults alone, determine actual delivery.
 
 The [September 14 record](history/2026-09-14-release-status.md#backend-email-and-operational-decisions)
 credits custom SMTP, the verified `stillapp.fit` sender, receipt tests and disabled Resend click/open
