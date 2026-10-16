@@ -2,12 +2,41 @@ import { Environment, SignedDataVerifier } from "@apple/app-store-server-library
 import * as asn1 from "asn1js";
 import * as pki from "pkijs";
 import { compactVerify, importPKCS8, importSPKI, SignJWT } from "jose";
+import { p256, p384, p521 } from "@noble/curves/nist.js";
 import { Buffer } from "node:buffer";
 
 // Supabase's Node X509Certificate has unimplemented verify/raw/infoAccess/toString.
 // Only the official protected crypto seam is replaced. Its public transaction
 // schema validator and bundle/environment checks remain in the Apple library.
-const engine = new pki.CryptoEngine({ name: "still-native-webcrypto", crypto });
+
+const EC_PUBLIC_KEY = "1.2.840.10045.2.1";
+const EC_CURVES: Readonly<Record<string, typeof p256>> = { "1.2.840.10045.3.1.7": p256, "1.3.132.0.34": p384, "1.3.132.0.35": p521 };
+const ECDSA_HASHES: Readonly<Record<string, string>> = { "1.2.840.10045.4.3.2": "SHA-256", "1.2.840.10045.4.3.3": "SHA-384", "1.2.840.10045.4.3.4": "SHA-512" };
+
+/** ISS-0070: Supabase Edge Runtime 1.77 (Deno 2.1) WebCrypto throws "Not implemented" for ECDSA
+ * whose hash does not match the curve, such as P-384 with SHA-256. Apple Root CA - G3 (P-384)
+ * signs its current OCSP responder certificate with ecdsa-with-SHA256, so every hosted Apple
+ * verification failed the intermediate's revocation check. Certificate and OCSP ECDSA signatures
+ * are therefore hashed with WebCrypto and checked with the audited @noble/curves, whatever pairs the
+ * runtime implements. Other key types keep PKI.js's WebCrypto path. */
+class AppleCertificateEngine extends pki.CryptoEngine {
+  override async verifyWithPublicKey(data: BufferSource, signature: asn1.BitString | asn1.OctetString,
+    publicKeyInfo: pki.PublicKeyInfo, signatureAlgorithm: pki.AlgorithmIdentifier, shaAlgorithm?: string): Promise<boolean> {
+    if (publicKeyInfo.algorithm.algorithmId !== EC_PUBLIC_KEY) {
+      return await super.verifyWithPublicKey(data, signature, publicKeyInfo, signatureAlgorithm, shaAlgorithm);
+    }
+    const params = publicKeyInfo.algorithm.algorithmParams;
+    const curve = params instanceof asn1.ObjectIdentifier ? EC_CURVES[params.valueBlock.toString()] : undefined;
+    const hash = shaAlgorithm ?? ECDSA_HASHES[signatureAlgorithm.algorithmId];
+    if (!curve || !hash) return false;
+    const digest = new Uint8Array(await crypto.subtle.digest(hash, data));
+    try {
+      return curve.verify(new Uint8Array(signature.valueBlock.valueHexView), digest,
+        new Uint8Array(publicKeyInfo.subjectPublicKey.valueBlock.valueHexView), { prehash: false, format: "der", lowS: false });
+    } catch { return false; }
+  }
+}
+const engine = new AppleCertificateEngine({ name: "still-native-webcrypto", crypto });
 const SKEW = 60_000;
 const LIMIT = 65_536;
 const modernSignatures = new Set(["1.2.840.10045.4.3.2", "1.2.840.10045.4.3.3", "1.2.840.10045.4.3.4",
