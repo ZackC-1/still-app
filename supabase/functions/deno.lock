@@ -4,6 +4,7 @@
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@apple/app-store-server-library@3.1.0": "3.1.0",
+    "npm:@noble/curves@2.4.0": "2.4.0",
     "npm:@noble/hashes@2.4.0": "2.4.0",
     "npm:@supabase/supabase-js@2": "2.108.2",
     "npm:asn1js@3.0.10": "3.0.10",
@@ -35,6 +36,12 @@
         "jsonwebtoken",
         "jsrsasign",
         "node-fetch"
+      ]
+    },
+    "@noble/curves@2.4.0": {
+      "integrity": "sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==",
+      "dependencies": [
+        "@noble/hashes@2.4.0"
       ]
     },
     "@noble/hashes@1.8.0": {
@@ -455,6 +462,7 @@
     "dependencies": [
       "jsr:@std/assert@1",
       "npm:@apple/app-store-server-library@3.1.0",
+      "npm:@noble/curves@2.4.0",
       "npm:@noble/hashes@2.4.0",
       "npm:@supabase/supabase-js@2",
       "npm:asn1js@3.0.10",
