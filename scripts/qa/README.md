@@ -101,3 +101,22 @@ the QA build is never uploaded through the public listing. Store packaging never
 
 These packages establish signing and identity only. Hosted sandbox configuration, provider
 readback and installed-device journeys remain separate gates.
+
+### Before delivering a paid-sandbox package: the sandbox sales allowlist
+
+A browser QA build can offer a sandbox purchase only if its exact manifest version is listed for its
+surface in the published sandbox sales policy. Otherwise it shows "Still Pro can't be bought here
+yet." Apple hosts are listed by marketing version (2.1.0), so a new Apple build number needs no change.
+Every QA package card states the allowlist revision it was checked against:
+
+1. Read the published policy: `POST {"namespace":"sales","environment":"sandbox"}` to
+   `/functions/v1/qa-sandbox-product-policy` on the sandbox project. Note its `revision`.
+2. Check that the package's web version (for example `2.1.1.371`) is listed for `chrome_desktop`,
+   `firefox_desktop` and `firefox_android`.
+3. If it is not, add the three entries to `QA_SANDBOX_SALES_BUILDS` in
+   `scripts/backend/deploy/operations.mjs` and to both `qa-sandbox-sales-policy-{on,off}.sql`
+   templates (re-pin their hashes), merge, and publish the next revision with the protected
+   `qa-sandbox-sales-policy` operation (mode `on`, the current revision as expected revision).
+   Merging that change advances the QA sequence, so list the version of the package already built.
+4. Write `Sandbox sales allowlist revision: <n> (lists <version> for the three web surfaces)` on
+   the package card. A card without that line is not ready to deliver.
