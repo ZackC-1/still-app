@@ -124,6 +124,8 @@ export type SettingsSiteListProps = Pick<
 > & {
   /** A locked row's action while Still Pro is offered; the opener is that row's lock button. */
   onProAction?: (opener: HTMLElement) => void;
+  /** "safari": a lock chip names the Still app as its destination (see proHandoff). */
+  host?: "browser" | "safari";
 };
 
 export interface ConfirmationDialogProps {
@@ -176,6 +178,13 @@ export interface ExtensionSettingsProps extends Pick<
     | "accessVerify"
     | "restoreHeld"
   >;
+  /**
+   * Safari only, where the Still app owns Still Pro (App Store Review Guidelines 3.1.1 and 3.1.3)
+   * and no `pro` producer exists: opens the app's Still Pro screen. With access conclusively
+   * locked the page shows the Safari popup's compact Still Pro card ("Opens the Still app"; no
+   * price, no purchase) and the lock chips open the app too (ISS-0032). Ignored when `pro` is set.
+   */
+  proHandoff?: () => void;
   restore?: RestoreStatusCardProps;
   /**
    * Free-period Restore (owner decisions 62 and 73): a plain "Restore purchase" link, shown only

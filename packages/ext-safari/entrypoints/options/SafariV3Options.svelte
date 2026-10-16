@@ -5,8 +5,10 @@
   //
   // The Apple app owns the account on Safari, so the sync card gets a read-only account
   // (appManagedSettingsSync): no sign-in, sign-out, delete-account or retry callback exists here,
-  // and the card hides every action whose callback is absent. No Still Pro, Restore, account-link
-  // or sharing card is supplied: no price, purchase or paywall on this surface.
+  // and the card hides every action whose callback is absent. No Restore, account-link or sharing
+  // card is supplied, and no price, purchase or paywall appears on this surface. Like the Safari
+  // popup, where access is conclusively locked the page shows the compact Still Pro card and its
+  // Get Still Pro and lock chips open the Still app (proHandoff, ISS-0032).
   import ExtensionSettings from "@still/core/ui/v3/ExtensionSettings.svelte";
   import {
     PRIVACY_POLICY_URL,
@@ -20,6 +22,7 @@
   import { SERVICE_IDS, type FeatureId, type ServiceId } from "@still/shared-types";
   import { appManagedSettingsSync } from "../../lib/safari-v3.js";
   import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
+  import type { SafariAppHandoffResult, SafariAppRoute } from "../../lib/app-handoff.js";
 
   interface Props {
     /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
@@ -28,8 +31,23 @@
     features?: readonly FeatureId[];
     /** Safari confirmed iPhone/iPad: the Still Pro offer speaks about this device. */
     phone?: boolean;
+    /** Opens the Still app at a fixed destination (createSafariAppHandoff for this page). */
+    openApp?: (route: SafariAppRoute) => Promise<SafariAppHandoffResult>;
   }
-  let { composition, features, phone = false }: Props = $props();
+  let { composition, features, phone = false, openApp }: Props = $props();
+  // When Safari refuses the hand-off, say so plainly (as the popup does). Cleared by the next try.
+  let handoffFailed = $state(false);
+  async function openPro(): Promise<void> {
+    if (!openApp) return;
+    handoffFailed = false;
+    let result: SafariAppHandoffResult;
+    try {
+      result = await openApp("pro");
+    } catch {
+      result = "failed";
+    }
+    handoffFailed = result === "failed";
+  }
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -115,6 +133,9 @@
 {/snippet}
 
 <main class="options">
+  {#if handoffFailed}
+    <p class="muted" role="alert">Open the Still app to continue.</p>
+  {/if}
   {#if ready}
     <ExtensionSettings
       settings={ready.settings}
@@ -131,6 +152,7 @@
         accountActions: unavailable ? recovery : undefined,
       }}
       {help}
+      proHandoff={openApp ? () => void openPro() : undefined}
     />
   {:else if unavailable}
     {@render recovery()}
