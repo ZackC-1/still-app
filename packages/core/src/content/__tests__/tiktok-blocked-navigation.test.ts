@@ -149,6 +149,68 @@ describe("TikTok blocked navigation (content script half)", () => {
     expect(placeholder()).not.toBeNull();
   });
 
+  it("Safari: a redirect that the browser dropped is asked for again while TikTok stays hidden", async () => {
+    // Safari for Mac swaps the tab into a new web view for Still's page; TikTok changing its own
+    // address during that swap can make Safari keep TikTok instead. This document is then still here.
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div id="tiktok-feed"></div>';
+    const replies = [{ status: "redirected" }, { status: "redirected" }, { status: "redirected" }];
+    const send = vi.fn(async (_message: { kind: string; traversal?: true }) => replies.shift());
+    const navigation = createTikTokBlockedNavigation({ doc: document, send, redirectRetryDelaysMs: [1_500, 1_500], redirectGraceMs: 2_000 });
+    navigation.current();
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(send).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]![0]).toStrictEqual({ kind: TIKTOK_ROUTE.blocked });
+    expect(hidden()).toBe(true);
+    expect(placeholder()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(send).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(placeholder()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(hidden()).toBe(false);
+    expect(placeholder()).not.toBeNull();
+  });
+
+  it("Safari: a re-ask that is answered allowed leaves TikTok untouched", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div id="tiktok-feed"></div>';
+    const replies = [{ status: "redirected" }, { status: "allowed" }];
+    const send = vi.fn(async () => replies.shift());
+    const navigation = createTikTokBlockedNavigation({ doc: document, send, redirectRetryDelaysMs: [1_000] });
+    navigation.current();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(navigation.current()).toBe("allowed");
+    expect(hidden()).toBe(false);
+    expect(placeholder()).toBeNull();
+  });
+
+  it("Safari: Back/Forward entries are never re-sent forward", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn(async () => ({ status: "redirected" }));
+    const navigation = createTikTokBlockedNavigation({ doc: document, send, traversal: () => true, redirectRetryDelaysMs: [1_000], redirectGraceMs: 2_000 });
+    navigation.current();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("Safari: stop during the re-ask wait sends nothing more and never leaves the page hidden", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div id="tiktok-feed"></div>';
+    const send = vi.fn(async () => ({ status: "redirected" }));
+    const navigation = createTikTokBlockedNavigation({ doc: document, send, redirectRetryDelaysMs: [1_000] });
+    navigation.current();
+    await vi.advanceTimersByTimeAsync(500);
+    navigation.stop();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(hidden()).toBe(false);
+    expect(placeholder()).not.toBeNull();
+  });
+
   it("Back/Forward entries tell the background so it never re-sends the person forward", async () => {
     const a = adapter({ traversal: () => true });
     a.navigation.current();
