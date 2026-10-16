@@ -186,6 +186,8 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
   const engine = createEnginePageSession(deps.ruleSet);
   const page = new URL(deps.pageUrl);
   const pending = new Map<number, PendingConfirmation>();
+  /** Replacement records still being moved, keyed by the new tab id. Each step is bounded. */
+  const moves = new Map<number, Promise<void>>();
   let stopped = false;
 
   const tabOf = (sender: TiktokRouteSender): number | null => {
@@ -243,6 +245,8 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
     const tabId = tabOf(sender)!;
     const id = requestIdOf(sender);
     try {
+      // A replacement into this tab may still be moving its record (see moveTab).
+      await moves.get(tabId);
       const stored = (await session.get(originKey(tabId)))[originKey(tabId)];
       if (!stored || typeof stored !== "object") return null;
       const { request, target } = stored as { request?: unknown; target?: unknown };
@@ -449,10 +453,34 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
 
   const forgetTab = (tabId: number) => {
     settlePending(tabId);
-    if (session) void session.remove(originKey(tabId)).catch(() => {});
+    // Wait for a replacement still moving a record into this tab, so the record cannot survive it.
+    if (session) void Promise.resolve(moves.get(tabId)).then(() => session.remove(originKey(tabId))).catch(() => {});
+  };
+  // A replaced tab is the same tab the person sees under a new id. Safari for Mac reports one each
+  // time it swaps the tab between TikTok's web view and this extension's page, so the blocked
+  // page's original address follows the tab instead of being forgotten. Any confirmation still
+  // belongs to the replaced document and ends. A newer redirect saved for the new id always wins.
+  const moveTab = async (removed: number, added: number) => {
+    settlePending(removed);
+    await moves.get(removed);
+    if (!session || stopped) return;
+    try {
+      const record = (await session.get(originKey(removed)))[originKey(removed)];
+      if (record !== undefined && !stopped && (await session.get(originKey(added)))[originKey(added)] === undefined)
+        await session.set({ [originKey(added)]: record });
+    } catch {
+      // Unavailable session storage: the address is forgotten below, like a closed tab.
+    }
+    await session.remove(originKey(removed)).catch(() => {});
   };
   const onRemoved = (tabId: number) => forgetTab(tabId);
-  const onReplaced = (_added: number, removed: number) => forgetTab(removed);
+  const onReplaced = (added: number, removed: number) => {
+    if (!Number.isSafeInteger(added) || added < 0 || added === removed) return forgetTab(removed);
+    const move = moveTab(removed, added).finally(() => {
+      if (moves.get(added) === move) moves.delete(added);
+    });
+    moves.set(added, move);
+  };
   if (wired) {
     tabs!.onRemoved.addListener(onRemoved);
     tabs!.onReplaced.addListener(onReplaced);

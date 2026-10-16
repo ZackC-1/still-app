@@ -43,7 +43,13 @@ function harness(withSession = true) {
     const page: TiktokDocumentPort = { name: TIKTOK_DOCUMENT_PORT, onMessage: pageMessage, onDisconnect: pageDisconnect, postMessage: (m) => bgMessage.emit(m), disconnect };
     const retire = answerTiktokDocumentChallenges(page); connect.emit(bg); return { retire, disconnect };
   };
-  return { create, session, tabs, native, navigate, send, bind, removed, readCommitted, enable: () => { settings = structuredClone(DEFAULT_SETTINGS); }, disableMain: () => { settings = { ...settings, globalOn: false }; }, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
+  // Safari for Mac shows Still's page and TikTok in different web views and reports the swap as a
+  // tab replacement: the same visible tab continues under a new id (tabs.onReplaced(added, removed)).
+  const replace = (from: number, to: number) => {
+    const tab = tabs.get(from)!; tabs.delete(from); tabs.set(to, { ...tab, id: to });
+    for (const fn of [...replaced]) fn(to, from);
+  };
+  return { create, session, tabs, native, navigate, send, bind, removed, replace, readCommitted, enable: () => { settings = structuredClone(DEFAULT_SETTINGS); }, disableMain: () => { settings = { ...settings, globalOn: false }; }, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
 }
 async function block(h: ReturnType<typeof harness>) {
   h.navigate(7,TIKTOK);
@@ -185,5 +191,77 @@ describe("saved Off on a freshly reloaded Safari blocked page", () => {
     expect(p.navigate).not.toHaveBeenCalled();
     expect(grants(h)).toEqual([]);
     p.host.stop(); await owner.stop();
+  });
+});
+
+
+describe("Safari for Mac replaces the tab when it swaps between TikTok and Still's page", () => {
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  async function blockAndSwap(h: ReturnType<typeof harness>) {
+    await block(h);
+    h.replace(7, 8); await settle();
+  }
+
+  it("the replaced blocked page opens the confirmation, confirm grants this tab only, and TikTok opens after the next swap", async () => {
+    const h = harness(); const owner = h.create(); const before = structuredClone(h.settings());
+    await blockAndSwap(h); h.bind(h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.screen, h.native(8))).toEqual({ status: "blocked", tab: 8 });
+    expect(await h.send(TIKTOK_ROUTE.request, h.native(8))).toEqual({ status: "confirming" });
+    expect(await h.send(TIKTOK_ROUTE.confirm, h.native(8))).toEqual({ status: "granted" });
+    expect(await h.send(TIKTOK_ROUTE.open, h.native(8))).toEqual({ status: "open", url: TIKTOK });
+    h.navigate(8, TIKTOK); h.replace(8, 9); await settle();
+    expect(await h.send(TIKTOK_ROUTE.blocked, h.native(9))).toEqual({ status: "allowed" });
+    h.navigate(10, TIKTOK); expect(await h.send(TIKTOK_ROUTE.blocked, h.native(10))).toEqual({ status: "redirected" });
+    expect(grants(h)).toEqual(["still:tiktok-tab:9"]);
+    expect(h.settings()).toEqual(before); await owner.stop();
+  });
+
+  it.each(["tiktok", "main"] as const)("%s Off + reload of the replaced blocked page returns to the original TikTok URL", async (control) => {
+    const h = harness(); const owner = h.create(); await blockAndSwap(h);
+    const first = h.bind(h.native(8));
+    if (control === "tiktok") h.disable(); else h.disableMain();
+    const saved = structuredClone(h.settings());
+    first.disconnect(); h.navigate(8, h.tabs.get(8)!.url); h.bind(h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.screen, h.native(8))).toEqual({ status: "open", url: TIKTOK });
+    expect(grants(h)).toEqual([]); expect(h.settings()).toEqual(saved); await owner.stop();
+  });
+
+  it("closing the replaced tab still ends a carried allowance", async () => {
+    const h = harness(); const owner = h.create(); await blockAndSwap(h); h.bind(h.native(8));
+    await h.send(TIKTOK_ROUTE.request, h.native(8)); await h.send(TIKTOK_ROUTE.confirm, h.native(8));
+    h.navigate(8, TIKTOK); h.replace(8, 9); await settle();
+    h.tabs.delete(9); h.removed.emit(9); await settle();
+    expect(grants(h)).toEqual([]); await owner.stop();
+  });
+
+  it("a replacement never overwrites a newer redirect already saved for the new tab", async () => {
+    const h = harness(); const owner = h.create(); await block(h);
+    h.navigate(8, TIKTOK); expect(await h.send(TIKTOK_ROUTE.blocked, h.native(8))).toEqual({ status: "redirected" });
+    const newer = h.session.get("still:tiktok-origin:8");
+    h.replace(7, 8); await settle();
+    expect(h.session.get("still:tiktok-origin:8")).toEqual(newer);
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false); await owner.stop();
+  });
+
+  it("answers arriving straight after the replacement wait for the moved address and the carried allowance", async () => {
+    const h = harness(); const owner = h.create(); await block(h);
+    h.replace(7, 8); h.bind(h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.screen, h.native(8))).toEqual({ status: "blocked", tab: 8 });
+    expect(await h.send(TIKTOK_ROUTE.request, h.native(8))).toEqual({ status: "confirming" });
+    expect(await h.send(TIKTOK_ROUTE.confirm, h.native(8))).toEqual({ status: "granted" });
+    expect(await h.send(TIKTOK_ROUTE.open, h.native(8))).toEqual({ status: "open", url: TIKTOK });
+    h.navigate(8, TIKTOK); h.replace(8, 9);
+    expect(await h.send(TIKTOK_ROUTE.blocked, h.native(9))).toEqual({ status: "allowed" });
+    await owner.stop();
+  });
+
+  it("an unfinished confirmation is never carried to the replacement", async () => {
+    const h = harness(); const owner = h.create(); await blockAndSwap(h); h.bind(h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.request, h.native(8))).toEqual({ status: "confirming" });
+    h.replace(8, 9); await settle(); h.bind(h.native(9));
+    expect(await h.send(TIKTOK_ROUTE.confirm, h.native(9))).toEqual({ status: "failed" });
+    expect(grants(h)).toEqual([]);
+    h.navigate(9, TIKTOK); expect(await h.send(TIKTOK_ROUTE.blocked, h.native(9))).toEqual({ status: "redirected" });
+    await owner.stop();
   });
 });
