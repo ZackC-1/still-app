@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
-import { AtomicSettingsWriter, ChromeStorageAdapter, InMemoryStorageAdapter, SettingsCache,
+import { AtomicSettingsWriter, ChromeStorageAdapter, InMemoryStorageAdapter, SAFARI_NATIVE_BUSY_BOUND_MS, SettingsCache,
   type SettingsIntent, type StoredSettingsRecord, SettingsStorageRecovery } from "@still/core/storage";
 
 async function fixture(modern = true, ownership: "unknown" | "never-linked" = "unknown") {
@@ -88,7 +88,11 @@ describe("Safari authoritative native settings failure boundaries", () => {
     try {
       await vi.advanceTimersByTimeAsync(5_000);
       await h.writer.commit({ path: "services.youtube", value: false, updatedAt: 10 });
+      // ISS-0050: the page never overlaps its own native messages, so the new read waits behind the
+      // unanswered poll, but only until the channel's busy bound, never the whole reply bound.
       h.signal(); await vi.advanceTimersByTimeAsync(0);
+      expect(h.sendNativeMessage).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(SAFARI_NATIVE_BUSY_BOUND_MS);
       expect(cache.current().services.youtube).toBe(false);
       expect(h.sendNativeMessage).toHaveBeenCalledTimes(2);
       release({ settings: old }); await vi.advanceTimersByTimeAsync(0);

@@ -1,14 +1,14 @@
 import { parseAccountSyncStatus } from "@still/core/sync";
-import { parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
+import { parseStoredSettingsRecord, sendSafariNativeMessage, type StoredSettingsRecord } from "@still/core/storage";
 import type { AccountStatusSnapshot } from "@still/core/ui";
-import { NATIVE_APP } from "./native-settings.js";
 
-/** Only popup/options call this. Account metadata never enters content-script storage. */
+/**
+ * Only popup/options call this. Account metadata never enters content-script storage. Both reads
+ * take their turn on the page's one native channel, never overlapping a settings save (ISS-0050).
+ */
 export async function readAccountStatus(local: StoredSettingsRecord): Promise<AccountStatusSnapshot | null> {
-  const [accountReply, settingsReply] = await Promise.all([
-    browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getAccountSyncStatus" }),
-    browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "get" }),
-  ]);
+  const accountReply = (await sendSafariNativeMessage({ kind: "getAccountSyncStatus" })) as { accountSyncStatus?: unknown } | undefined;
+  const settingsReply = (await sendSafariNativeMessage({ kind: "get" })) as { settings?: unknown } | undefined;
   if (!accountReply || !("accountSyncStatus" in accountReply)) throw new Error("Still app unavailable");
   if (accountReply.accountSyncStatus === null) return null;
   const status = parseAccountSyncStatus(accountReply.accountSyncStatus);
