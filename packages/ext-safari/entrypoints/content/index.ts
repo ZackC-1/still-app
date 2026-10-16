@@ -46,6 +46,9 @@ export default defineContentScript({
             doc: document,
             send: (message) => browser.runtime.sendMessage(message),
             traversal: backForwardNavigation,
+            // Safari for Mac can drop the swap to Still's page when TikTok changes its own address
+            // mid-swap; this document then asks again instead of showing the bare in-page block.
+            redirectRetryDelaysMs: [1_500, 1_500],
           }),
         } : {}),
         storage: browser.storage.local,

@@ -20,6 +20,7 @@
     lastProOfferReady,
     rememberProOfferReady,
     openBrowserPro,
+    PRO_OFFER_RETRY_MS,
   } from "../../lib/pro-navigation.js";
 
   interface Props {
@@ -79,12 +80,17 @@
 
   // The popup's Still Pro card appears only when the Settings page would offer Get Still Pro
   // (ISS-0032); the lock chips navigate either way. A startup failure must not latch the card
-  // off for this opening. Recheck while the popup is alive; checkout still checks independently.
+  // off for this opening, and a later "no" must not take it away (ISS-0032, reopened 15 Oct):
+  // signed in, each answer is a fresh network sales check, so re-asking on every setting change or
+  // sync write turned any momentary failure into a vanished card. A live "yes" therefore holds for
+  // this popup's life (checkout still runs its own fresh check before anything opens). Until then
+  // the popup keeps asking on a short bounded schedule, and again whenever the binding publishes.
   let proOfferReady = $state(false);
   $effect(() => {
     if (!destinationReady) return;
     let live = true;
     let answered = false;
+    let confirmed = false;
     void lastProOfferReady().then((ready) => {
       if (live && !answered) proOfferReady = ready;
     });
@@ -92,19 +98,27 @@
     let revision = 0;
     let attempts = 0;
     async function refresh() {
+      if (confirmed) return;
       if (retry !== undefined) clearTimeout(retry);
+      retry = undefined;
       const current = ++revision;
       const ready = await askProOfferReady();
-      if (!live || current !== revision) return;
-      answered = true;
-      proOfferReady = ready;
-      void rememberProOfferReady(ready);
-      // Bounded startup recovery: no background poll survives this popup or a positive answer.
-      if (!ready && ++attempts < 3) retry = setTimeout(refresh, 500 * attempts);
+      if (!live || current !== revision || confirmed) return;
+      // No answer (no receiver yet, a failure, the deadline) changes nothing shown or remembered.
+      if (ready !== undefined) {
+        answered = true;
+        proOfferReady = ready;
+        void rememberProOfferReady(ready);
+        confirmed = ready;
+      }
+      // Bounded startup recovery (about 7.5 s): no background poll survives this popup.
+      if (!confirmed && attempts < PRO_OFFER_RETRY_MS.length)
+        retry = setTimeout(refresh, PRO_OFFER_RETRY_MS[attempts++]);
     }
     // Account/access hydration can settle after the startup retries. A new authority observation
-    // invalidates the earlier display answer instead of requiring another popup opening.
+    // restarts the schedule until the first "yes" instead of requiring another popup opening.
     const unsubscribe = committedPopupBinding?.subscribe(() => {
+      if (confirmed) return;
       attempts = 0;
       void refresh();
     });

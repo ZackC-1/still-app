@@ -5,7 +5,12 @@
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
   import SettingsSiteList from "./SettingsSiteList.svelte";
-  import { proKnownMissing } from "./presentation.js";
+  import {
+    createProOfferLatch,
+    proAccessChecking,
+    proKnownMissing,
+  } from "./presentation.js";
+  import PopupProCard from "./PopupProCard.svelte";
   import SyncCard from "./SyncCard.svelte";
   import ProOfferCard from "./ProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
@@ -30,6 +35,7 @@
     platformKnown = true,
     sync,
     pro,
+    proHandoff,
     restore,
     onRestore,
     link,
@@ -55,6 +61,7 @@
   $effect(() => {
     if (deleteTarget && !deleteTargetCurrent) deleteTarget = null;
   });
+  // Purchase entries read the real snapshot: nothing here asks for money while Still is unsure.
   let knownMissing = $derived(proKnownMissing(access));
   let accessHeld = $derived(
     FEATURE_REGISTRY.some(
@@ -74,6 +81,22 @@
         row.tier === "pro" && access.states[row.id] === "verification_required",
     ),
   );
+  // The rows, and Safari's app hand-off (which takes no money here), draw from the latched access:
+  // a sync or setting change re-confirms access and never takes the lock chips or the hand-off
+  // card away (ISS-0032). The Still Pro card above keeps its own held "checking" state meanwhile.
+  const offerAccess = createProOfferLatch();
+  let shownAccess = $derived(offerAccess(access, sync.account?.identity ?? sync.account?.address ?? null));
+  // Safari (no `pro` producer): the Still app owns Still Pro, so the settings page shows the same
+  // compact card as the Safari popup, and it and the lock chips open the app (ISS-0032).
+  let handoffReady = $derived(
+    !pro && Boolean(proHandoff) && proKnownMissing(shownAccess),
+  );
+  let handoffChecking = $derived(
+    !pro && Boolean(proHandoff) && proAccessChecking(shownAccess),
+  );
+  function openHandoff() {
+    if (handoffReady) proHandoff?.();
+  }
   let restoreHeld = $derived(
     restore?.state === "checking" ||
       restore?.state === "verify" ||
@@ -223,7 +246,7 @@
   {/if}
   <SettingsSiteList
     {settings}
-    {access}
+    access={shownAccess}
     {onServiceChange}
     {onFeatureChange}
     {commandsDisabled}
@@ -231,7 +254,12 @@
     {services}
     {features}
     {labels}
-    onProAction={proActionReady ? revealPro : undefined}
+    onProAction={proActionReady
+      ? revealPro
+      : handoffReady
+        ? openHandoff
+        : undefined}
+    host={proHandoff && !pro ? "safari" : "browser"}
   />
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and the account's sync status,
     beside the Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
@@ -273,6 +301,11 @@
         <p class="caption muted">{proReturnGuidance}</p>
       {/if}
     </div>
+  {/if}
+  {#if handoffReady}
+    <PopupProCard onOpen={openHandoff} appHandoff />
+  {:else if handoffChecking}
+    <PopupProCard checking />
   {/if}
   {#if freeRestoreShown}
     <!-- Free period: the Still Pro card's slot holds only its plain Restore link, so past

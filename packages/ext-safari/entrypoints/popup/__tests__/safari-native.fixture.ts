@@ -15,6 +15,20 @@ import {
 export type SavedShape = "atomic" | "legacy" | "absent";
 
 export const ACCOUNT_ID = "00000000-0000-4000-8000-0000000000aa";
+const SESSION_ID = "00000000-0000-4000-8000-0000000000cc";
+const LINEAGE = "00000000-0000-4000-8000-0000000000bb";
+
+/**
+ * How the synthetic native host behaves, to model the real Safari native-messaging channel.
+ * `latencyMs` delays each settings or account reply (`get`, `settingsIntent`,
+ * `getAccountSyncStatus`) so a page's requests can overlap; `busy: "reject"` makes the host refuse
+ * a second such message while an earlier one is still outstanding, the overlap that froze the real
+ * Safari popups (ISS-0050).
+ */
+export interface SafariHostBehavior {
+  readonly latencyMs?: (kind: string) => number;
+  readonly busy?: "reject";
+}
 
 export async function installSafari(options: {
   saved: SavedShape;
@@ -24,11 +38,27 @@ export async function installSafari(options: {
   projection?: boolean;
   /** What the app's App Group answers to a `getEntitlement` pull (absent: no stamp, an empty reply). */
   entitlement?: { entitled: boolean; updatedAt: number; installId?: string };
+  /**
+   * The atomic record's account shape: "unknown" (default), "signed-out" (local edits after an
+   * earlier account, previous-account ownership) or "signed-in" (an acknowledged account scope).
+   */
+  account?: "unknown" | "signed-out" | "signed-in";
+  /** Page settings reads go straight to the native host, as on a real Safari extension page. */
+  nativeReads?: boolean;
+  host?: SafariHostBehavior;
 }) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   if (options.saved === "atomic") {
-    await writer.initialize("unknown");
+    const account = options.account ?? "unknown";
+    const initial = await writer.initialize(account === "unknown" ? "unknown" : "never-linked");
+    if (account !== "unknown") {
+      const entered = await writer.enterScope(ACCOUNT_ID, SESSION_ID);
+      await writer.acknowledge({ protocol: 2, empty: false, settings: initial.settings, version: 1,
+        serverUpdatedAt: "2026-10-15T00:00:00Z", lastWriteId: null, lineage: LINEAGE,
+        receipt: { version: 1, lineage: LINEAGE, revision: 1, mac: "A".repeat(43) } } as never, entered.atomic!.scope);
+      if (account === "signed-out") await writer.enterScope(null);
+    }
     // A saved Off the page must never rewrite.
     await writer.commit({ path: "services.tiktok", value: false, updatedAt: 2 });
   }
@@ -43,9 +73,9 @@ export async function installSafari(options: {
   // While held, every settings read waits (a first read that has not answered yet).
   let readGate: Promise<void> | null = null;
   let releaseGate: () => void = () => {};
-  const sendNativeMessage = vi.fn(async (_app: string, message: Record<string, unknown>) => {
-    native.push(structuredClone(message));
-    if (nativeDown) throw new Error("native host unavailable");
+  let outstanding = 0;
+  const busyRefusals: string[] = [];
+  const answer = vi.fn(async (_app: string, message: Record<string, unknown>) => {
     switch (message.kind) {
       case "get": {
         if (readGate) await readGate;
@@ -60,7 +90,7 @@ export async function installSafari(options: {
       }
       case "getAccountSyncStatus":
         return {
-          accountSyncStatus: options.signedIn
+          accountSyncStatus: options.signedIn || options.account === "signed-in"
             ? { accountId: ACCOUNT_ID, email: "person@example.invalid", lastSyncedAt: 5, pendingUpload: false, cloudReachable: true, updatedAt: 5 }
             : null,
         };
@@ -78,6 +108,27 @@ export async function installSafari(options: {
         return {};
     }
   });
+  // The page's settings and account reads/writes: the messages the Safari popup sends repeatedly.
+  const settingsKinds = new Set(["get", "settingsIntent", "getAccountSyncStatus"]);
+  const sendNativeMessage = vi.fn(async (app: string, message: Record<string, unknown>) => {
+    native.push(structuredClone(message));
+    if (nativeDown) throw new Error("native host unavailable");
+    const kind = String(message.kind);
+    if (!settingsKinds.has(kind)) return answer(app, message);
+    if (options.host?.busy === "reject" && outstanding > 0) {
+      busyRefusals.push(kind);
+      throw new Error("native host busy");
+    }
+    outstanding += 1;
+    try {
+      const latency = options.host?.latencyMs?.(kind) ?? 0;
+      if (latency > 0) await new Promise((resolve) => setTimeout(resolve, latency));
+      return await answer(app, message);
+    } finally {
+      outstanding -= 1;
+    }
+  });
+  if (options.nativeReads) vi.stubGlobal("location", { protocol: "safari-web-extension:", href: "safari-web-extension://still/popup.html" });
   const messages: Record<string, unknown>[] = [];
   const sendMessage = vi.fn(async (message: Record<string, unknown>) => {
     messages.push(structuredClone(message));
@@ -139,6 +190,8 @@ export async function installSafari(options: {
     openOptionsPage,
     createTab,
     nativeKinds: () => native.map((m) => m.kind),
+    /** Settings messages the host refused because another from the page was outstanding. */
+    busyRefusals,
     nativeRecord,
     setNativeDown(down: boolean) {
       nativeDown = down;

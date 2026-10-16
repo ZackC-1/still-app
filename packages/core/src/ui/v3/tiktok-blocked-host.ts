@@ -119,6 +119,18 @@ export interface TikTokBlockedHostDeps {
   readonly timeoutMs?: number;
   /** While the dialog is open, how often to confirm the background still holds it. */
   readonly heartbeatMs?: number;
+  /**
+   * Safari: re-establish this document's link to the background before each request. Safari
+   * unloads an idle background and drops the page's port; the page reconnects instead of dying.
+   * False means no link could be made, so the request is treated as unanswered.
+   */
+  readonly prepare?: () => Promise<boolean>;
+  /**
+   * Safari: waits before asking again when the first screen answer is not usable. Safari for Mac
+   * moves the tab to a new id when it swaps in this page, and the background may still be moving
+   * the tab's record. Omitted: the answer is taken once (Chrome and Firefox).
+   */
+  readonly startRetryDelaysMs?: readonly number[];
 }
 
 export const TIKTOK_PAGE_TIMEOUT_MS = 15_000;
@@ -145,7 +157,9 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
-        Promise.resolve().then(() => deps.send({ kind })),
+        deps.prepare
+          ? Promise.resolve().then(deps.prepare).then((linked) => (linked ? deps.send({ kind }) : null))
+          : Promise.resolve().then(() => deps.send({ kind })),
         new Promise<null>((resolve) => {
           timer = setTimeout(() => resolve(null), deps.timeoutMs ?? TIKTOK_PAGE_TIMEOUT_MS);
         }),
@@ -245,7 +259,16 @@ export function createTikTokBlockedHost(deps: TikTokBlockedHostDeps) {
     async start(): Promise<void> {
       if (stopped) return;
       const token = ++intent;
-      const reply = await ask(TIKTOK_ROUTE.screen);
+      const delays = deps.startRetryDelaysMs ?? [];
+      let reply = await ask(TIKTOK_ROUTE.screen);
+      for (const delay of delays) {
+        if (!current(token)) return;
+        const status = statusOf(reply);
+        if (status === "blocked" || status === "granted" || status === "open") break;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (!current(token)) return;
+        reply = await ask(TIKTOK_ROUTE.screen);
+      }
       if (!current(token)) return;
       const status = statusOf(reply);
       const url = reply && typeof reply === "object" ? (reply as { url?: unknown }).url : undefined;

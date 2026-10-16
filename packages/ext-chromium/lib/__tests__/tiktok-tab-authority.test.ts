@@ -303,7 +303,7 @@ describe("dormant Chromium browser-session TikTok adapter", () => {
     expect(await owner.isAllowed(h.page())).toBe(true);
     await owner.stop();
   });
-  it("close and replacement events invalidate old IDs without copying permission to a new one", async () => {
+  it("close ends an allowance; a browser replacement moves a completed one to the same visible tab's new ID only", async () => {
     const h = host();
     const owner = h.create();
     expect(await owner.allow(sender)).toBe(true);
@@ -316,11 +316,27 @@ describe("dormant Chromium browser-session TikTok adapter", () => {
     expect(
       await next.allow({ ...sender, documentId: "document-8", tab: { id: 8 } }),
     ).toBe(true);
-    for (const listener of h.replaced) listener(9, 8);
+    // tabs.onReplaced: the browser shows the same tab under a new ID (Safari for Mac swaps web
+    // views between TikTok and the blocked page; Chrome prerender/discard). The old ID ends.
     h.tabs.delete(8);
     h.tabs.set(9, { id: 9, url: target });
-    expect(await next.isAllowed(h.page(9))).toBe(false);
+    for (const listener of h.replaced) listener(9, 8);
+    expect(await next.isAllowed(h.page(9))).toBe(true);
+    expect(await next.isAllowed({ ...h.page(9), tab: { id: 8 } })).toBe(false);
+    h.tabs.set(10, { id: 10, url: target });
+    expect(await next.isAllowed(h.page(10))).toBe(false);
+    h.tabs.delete(9);
+    for (const listener of h.removed) listener(9);
     await next.stop();
+    expect(h.session.size).toBe(0);
+  });
+  it("a replacement whose new tab is already gone carries nothing", async () => {
+    const h = host();
+    const owner = h.create();
+    expect(await owner.allow(sender)).toBe(true);
+    h.tabs.delete(7);
+    for (const listener of h.replaced) listener(9, 7);
+    await owner.stop();
     expect(h.session.size).toBe(0);
   });
   it("a changed/closed actual tab during confirmation cannot grant a stale sender", async () => {

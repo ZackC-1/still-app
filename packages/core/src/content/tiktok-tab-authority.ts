@@ -48,6 +48,8 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
   const flights = new Map<number, Promise<boolean>>();
   const closed = new Set<number>();
   const unfinished = new Set<number>();
+  /** Ids the browser replaced; an id closed here is never reopened, even if reported again. */
+  const replacedIds = new Set<number>();
   let stopped = false;
 
   const live = (context: TiktokTabContext) =>
@@ -209,6 +211,45 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
           (await completed(context.tabId)) &&
           (await eligible(context))
         );
+      });
+    },
+    /**
+     * The browser replaced `removed` with `added`: one visible tab under a new id. Only a completed
+     * allowance moves, written for the new id through the same pending protocol as a confirmation,
+     * after the old id is closed and cleaned up. Anything unfinished ends, like a closed tab.
+     */
+    replaceTab(removed: number, added: number): Promise<boolean> {
+      replacedIds.add(removed);
+      const next = snapshot({ tabId: added, frameId: 0, target: "" });
+      const carried = serial(removed, async () => {
+        // Fenced at its turn, so a carry still landing on `removed` (A to B to C) completes first.
+        closed.add(removed);
+        const carry = await completed(removed).catch(() => false);
+        return (await cleanup(removed, true)) && carry;
+      });
+      if (added === removed || !live(next)) return carried.then(() => false);
+      // Queue the new id now, so a check for it that arrives meanwhile waits for the carry.
+      return serial(added, async () => {
+        if (!(await carried) || !live(next) || unfinished.has(added) ||
+            (await deps.store.getPending(added)) !== undefined) return false;
+        let wrote = false;
+        try {
+          // A tab already replaced again (A to B to C) need not be living: its own carry follows.
+          if (!replacedIds.has(added) && !(await deps.isLivingTab(added))) return false;
+          wrote = true;
+          unfinished.add(added);
+          await deps.store.setPending(added);
+          if ((await deps.store.getPending(added)) !== true || !live(next)) throw new Error("Unverified carried intent");
+          await deps.store.set(added, true);
+          if ((await deps.store.get(added)) !== true || !live(next)) throw new Error("Unverified carried grant");
+          await deps.store.removePending(added);
+          if ((await deps.store.getPending(added)) !== undefined || !live(next)) throw new Error("Unverified carried completion");
+          unfinished.delete(added);
+          return true;
+        } catch {
+          if (wrote) await cleanup(added, true);
+          return false;
+        }
       });
     },
     closeTab(tabId: number): Promise<boolean> {

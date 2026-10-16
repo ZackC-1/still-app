@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.13",
+  "version": "3.0.14",
   "services": {
     "youtube": {
       "matches": [
@@ -101,7 +101,8 @@
             "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)",
             "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
-            "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])"
+            "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])",
+            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))"
           ]
         },
         {
@@ -268,6 +269,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "48f846463dd050e6bab95e74f9f56e3aafd0db5c7bbac5bf42c65f41440730c83ae22ae0c1811153f9e31936b86fc0e67f5608b467f231d842eed35c58cf0508"
+    "value": "394cf8f4dfa22071cb4af2c0dba36d7213172a2cc47c461b404a0c0c52d8f7ad6860a9735a302d8e6f4508066e52e3ad8dd92be2cd2ef35cd5656821c661b20e"
   }
 }
