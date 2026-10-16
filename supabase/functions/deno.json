@@ -6,6 +6,7 @@
     "linkedom": "npm:linkedom@0.18",
     "@still/shared-types": "../../packages/shared-types/src/index.ts",
     "@noble/hashes/utils.js": "npm:@noble/hashes@2.4.0/utils.js",
+    "@noble/curves/nist.js": "npm:@noble/curves@2.4.0/nist.js",
     "../../packages/core/src/rules/canonical.js": "../../packages/core/src/rules/canonical.ts",
     "../../packages/shared-types/src/rules.js": "../../packages/shared-types/src/rules.ts",
     "../../packages/shared-types/src/settings.js": "../../packages/shared-types/src/settings.ts",

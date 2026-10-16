@@ -15,8 +15,8 @@ const name = (value: string) => new pki.RelativeDistinguishedNames({ typesAndVal
 const extension = (oid: string, value: asn1.BaseBlock, critical = false) => new pki.Extension({ extnID: oid, critical, extnValue: value.toBER(false) });
 interface Identity { cert: pki.Certificate; keys: CryptoKeyPair; }
 let serial = 1;
-async function identity(label: string, issuer?: Identity, options: { ca?: boolean; oid?: string; usage?: number; expired?: boolean; eku?: boolean; ocspUrl?: string } = {}): Promise<Identity> {
-  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+async function identity(label: string, issuer?: Identity, options: { ca?: boolean; oid?: string; usage?: number; expired?: boolean; eku?: boolean; ocspUrl?: string; curve?: "P-256" | "P-384"; hash?: "SHA-256" | "SHA-384" } = {}): Promise<Identity> {
+  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: options.curve ?? "P-256" }, true, ["sign", "verify"]);
   const cert = new pki.Certificate({ version: 2, serialNumber: new asn1.Integer({ value: serial++ }), issuer: issuer?.cert.subject ?? name(label), subject: name(label),
     notBefore: new pki.Time({ type: 0, value: new Date(now - 60_000) }),
     notAfter: new pki.Time({ type: 0, value: new Date(options.expired ? now - 120_000 : now + 3_600_000) }), extensions: [
@@ -27,7 +27,7 @@ async function identity(label: string, issuer?: Identity, options: { ca?: boolea
       extension("1.3.6.1.5.5.7.1.1", new pki.InfoAccess({ accessDescriptions: [new pki.AccessDescription({ accessMethod: "1.3.6.1.5.5.7.48.1", accessLocation: new pki.GeneralName({ type: 6, value: options.ocspUrl ?? "http://ocsp.apple.com/test" }) })] }).toSchema()),
     ] });
   await cert.subjectPublicKeyInfo.importKey(keys.publicKey, engine);
-  await cert.sign(issuer?.keys.privateKey ?? keys.privateKey, "SHA-256", engine);
+  await cert.sign(issuer?.keys.privateKey ?? keys.privateKey, options.hash ?? "SHA-256", engine);
   return { cert: pki.Certificate.fromBER(cert.toSchema().toBER(false)), keys };
 }
 const der = (cert: pki.Certificate) => cert.toSchema().toBER(false);
@@ -211,4 +211,48 @@ Deno.test("foreign application tuples fail before any revocation network work", 
     assertEquals(calls, 0);
   }
   await v.verifyAndDecodeTransaction(await transaction(c)); assertEquals(calls, 1);
+});
+
+/** Supabase Edge Runtime 1.77 (Deno 2.1.4) WebCrypto, as observed on the hosted QA route: ECDSA
+ * verification throws "Not implemented" unless the hash matches the curve (P-256/SHA-256,
+ * P-384/SHA-384, P-521/SHA-512). Newer Deno accepts every pair, which hid the failure locally. */
+function edgeRuntimeWebCrypto(): () => void {
+  const original = crypto.subtle.verify;
+  const pairs: Record<string, string> = { "P-256": "SHA-256", "P-384": "SHA-384", "P-521": "SHA-512" };
+  crypto.subtle.verify = function (this: SubtleCrypto, algorithm: AlgorithmIdentifier | EcdsaParams, key: CryptoKey, signature: BufferSource, data: BufferSource) {
+    const hash = typeof algorithm === "object" && "hash" in algorithm ? algorithm.hash : undefined;
+    const hashName = typeof hash === "string" ? hash : hash?.name;
+    const curve = (key.algorithm as EcKeyAlgorithm).namedCurve;
+    if (typeof algorithm === "object" && algorithm.name === "ECDSA" && pairs[curve] !== hashName) {
+      return Promise.reject(new DOMException("Not implemented", "NotSupportedError"));
+    }
+    return original.call(this, algorithm, key, signature, data);
+  } as typeof crypto.subtle.verify;
+  return () => { crypto.subtle.verify = original; };
+}
+
+Deno.test("Apple's root OCSP responder (P-384 root, SHA-256 signature) verifies on the Edge Runtime's WebCrypto (ISS-0070)", async t => {
+  // Apple Root CA - G3 has a P-384 key; its current OCSP responder certificate (Aug 2026) is signed
+  // with ecdsa-with-SHA256. The intermediate's revocation check depends on that certificate.
+  const root = await identity("Test P-384 Root", undefined, { ca: true, curve: "P-384", hash: "SHA-384" });
+  const intermediate = await identity("Test Apple Intermediate", root, { ca: true, oid: "1.2.840.113635.100.6.2.1", curve: "P-384", hash: "SHA-384" });
+  const responder = await identity("Test root OCSP responder", root, { eku: true, hash: "SHA-256" });
+  const restore = edgeRuntimeWebCrypto();
+  try {
+    await t.step("the delegated responder's mixed curve/hash certificate is accepted", async () =>
+      await verifyAppleOcsp(await response(intermediate, root, { signer: responder }), intermediate.cert, root.cert, root.cert));
+    await t.step("a mixed curve/hash signature that does not verify is still refused", async () => {
+      const forged = pki.Certificate.fromBER(der(responder.cert));
+      forged.signatureValue.valueBlock.valueHexView[8]! ^= 1;
+      await assertRejects(async () => await verifyAppleOcsp(await response(intermediate, root, { signer: { cert: forged, keys: responder.keys } }), intermediate.cert, root.cert, root.cert));
+    });
+    await t.step("a tampered response from the same responder is refused", async () => {
+      await assertRejects(async () => await verifyAppleOcsp(await response(intermediate, root, { signer: responder, tamper: true }), intermediate.cert, root.cert, root.cert));
+    });
+    await t.step("a responder certificate from another P-384 root is refused", async () => {
+      const other = await identity("Other P-384 Root", undefined, { ca: true, curve: "P-384", hash: "SHA-384" });
+      const stranger = await identity("Stranger responder", other, { eku: true, hash: "SHA-256" });
+      await assertRejects(async () => await verifyAppleOcsp(await response(intermediate, root, { signer: stranger }), intermediate.cert, root.cert, root.cert));
+    });
+  } finally { restore(); }
 });
