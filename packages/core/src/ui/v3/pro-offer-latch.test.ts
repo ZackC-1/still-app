@@ -45,4 +45,13 @@ describe("createProOfferLatch", () => {
     const shown = latch(pro("checking"));
     for (const id of PRO) expect(shown.states[id]).toBe("locked");
   });
+
+  it("another account is a new answer: a hold after signing in or out is drawn as it is", () => {
+    const latch = createProOfferLatch();
+    latch(pro("locked"), null);
+    expect(latch(pro("verification_required"), null).states[PRO[0]!]).toBe("locked");
+    expect(latch(pro("verification_required"), "reader@example.test")).toEqual(pro("verification_required"));
+    latch(pro("locked"), "reader@example.test");
+    expect(latch(pro("checking"), null)).toEqual(pro("checking"));
+  });
 });

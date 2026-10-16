@@ -21,9 +21,10 @@ function locked(): BenefitAccessSnapshot {
   return { ...base, states, refreshAfterMs: null };
 }
 
-function cacheWith(observe: () => Promise<BenefitAccessSnapshot>) {
+function cacheWith(observe: () => Promise<BenefitAccessSnapshot>, onAccess?: (listener: () => void) => void) {
   const adapter: EntitlementAdapter = {
     get: async () => null, set: async () => {}, subscribe: () => () => {}, observeBenefits: observe,
+    subscribeAccess: (listener) => { onAccess?.(listener); return () => {}; },
   };
   return new EntitlementCache(adapter, { access: context });
 }
@@ -59,6 +60,24 @@ describe("EntitlementCache recovery after a failed observation", () => {
     expect(observe).toHaveBeenCalledTimes(6);
     // A failure never grants anything: a Pro row is never usable while unanswered.
     expect(["checking", "verification_required"]).toContain(cache.currentAccess(PRO));
+    stop();
+  });
+
+  it("an access change after a run of failures starts the quick schedule again", async () => {
+    vi.useFakeTimers();
+    let changed: (() => void) | undefined;
+    const observe = vi.fn<() => Promise<BenefitAccessSnapshot>>().mockRejectedValue(new Error("down"));
+    const cache = cacheWith(observe, (listener) => { changed = listener; });
+    const stop = cache.watch();
+    await cache.refreshAccess();
+    await vi.advanceTimersByTimeAsync(15_100);
+    expect(observe).toHaveBeenCalledTimes(5);
+    // An auth or record change: one immediate read (fails), then a retry within seconds.
+    changed!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(observe).toHaveBeenCalledTimes(6);
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(observe).toHaveBeenCalledTimes(7);
     stop();
   });
 });

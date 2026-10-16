@@ -80,7 +80,7 @@
   } as const;
   // A sync or setting change re-confirms access; it never takes the offer away (ISS-0032).
   const offerAccess = createProOfferLatch();
-  let shownAccess = $derived(offerAccess(access));
+  let shownAccess = $derived(offerAccess(access, account?.address ?? null));
   let knownMissing = $derived(proKnownMissing(shownAccess));
   let dormant = $derived(proRowsDormant(access));
   let appActionReady = $derived(

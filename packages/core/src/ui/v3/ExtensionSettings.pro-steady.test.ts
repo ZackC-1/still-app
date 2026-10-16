@@ -91,10 +91,10 @@ describe("Safari settings: the Still app hand-off card (proHandoff)", () => {
   it.each(["purchased", "unsupported"] as const)("%s: no Still Pro card and nothing opens the app", async (state) => {
     const f = await safari(state);
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
-    for (const lock of document.querySelectorAll<HTMLElement>(".lock-pro")) {
-      await fireEvent.click(lock);
-      expect(lock.getAttribute("aria-disabled")).toBe("true");
-    }
+    expect(screen.queryByText("Opens the Still app")).toBeNull();
+    // No live lock chip exists (purchased rows are switches; unsupported rows say so).
+    expect(screen.queryByRole("button", { name: /Included in Still Pro\. Open the Still app$/ })).toBeNull();
+    expect(screen.getAllByRole("switch").length).toBeGreaterThan(0);
     expect(f.proHandoff).not.toHaveBeenCalled();
   });
 

@@ -84,21 +84,27 @@ export function proAccessChecking(
  *
  * While latched, held Pro rows are drawn `locked`, so the card and the chips stay; other states
  * (free, unsupported) are drawn as they are. Any Pro row purchased or protected (verified
- * ownership) ends the latch at once and the real snapshot is drawn again. Display only: a locked row has no switch, so a hold can never make
- * a Pro row usable, and commands keep validating against the binding's own snapshot. One latch per
- * mounted view; it never outlives the view.
+ * ownership) ends the latch at once and the real snapshot is drawn again; so does another account
+ * (the host passes the account it shows). Display only: a locked row has no switch, so a hold can
+ * never make a Pro row usable, and commands keep validating against the binding's own snapshot.
+ * Purchase entries that take money must read the real snapshot instead. One latch per mounted
+ * view; it never outlives the view.
  */
 export function createProOfferLatch(): (
   access: BenefitAccessSnapshot,
+  account?: string | null,
 ) => BenefitAccessSnapshot {
   let latched = false;
-  return (access) => {
+  let latchedFor: string | null = null;
+  return (access, account = null) => {
     const pro = FEATURE_REGISTRY.filter((row) => row.tier === "pro");
     const ended = pro.some((row) =>
       ["purchased", "protected"].includes(access.states[row.id]),
     );
-    if (ended) latched = false;
-    else if (proKnownMissing(access)) latched = true;
+    // Another account (signing in or out, or a switch) is a new answer, never a re-check.
+    if (ended || account !== latchedFor) latched = false;
+    latchedFor = account;
+    if (!ended && proKnownMissing(access)) latched = true;
     if (!latched) return access;
     const held = (state: string) =>
       state === "checking" || state === "verification_required";

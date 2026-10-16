@@ -85,7 +85,7 @@
   // a sync or setting change re-confirms access and never takes the lock chips or the hand-off
   // card away (ISS-0032). The Still Pro card above keeps its own held "checking" state meanwhile.
   const offerAccess = createProOfferLatch();
-  let shownAccess = $derived(offerAccess(access));
+  let shownAccess = $derived(offerAccess(access, sync.account?.identity ?? sync.account?.address ?? null));
   // Safari (no `pro` producer): the Still app owns Still Pro, so the settings page shows the same
   // compact card as the Safari popup, and it and the lock chips open the app (ISS-0032).
   let handoffReady = $derived(

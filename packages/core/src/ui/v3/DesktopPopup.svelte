@@ -74,7 +74,7 @@
   } as const;
   // A sync or setting change re-confirms access; it never takes the offer away (ISS-0032).
   const offerAccess = createProOfferLatch();
-  let shownAccess = $derived(offerAccess(access));
+  let shownAccess = $derived(offerAccess(access, account?.address ?? null));
   let knownMissing = $derived(proKnownMissing(shownAccess));
   // Get Still Pro and the feature locks open the full offer (the host's Still Pro destination).
   let proDestinationReady = $derived(Boolean(onSeePro) && knownMissing);

@@ -350,6 +350,22 @@ describe("a steady Still Pro offer (ISS-0032)", () => {
     await waitFor(() => expect(screen.getByRole("region", { name: "Still Pro" })).toBeTruthy(), { timeout: 8_000 });
   }, 12_000);
 
+  it.each(["Chrome", "Firefox"] as const)("%s reopening: no answer yet keeps the remembered card and the memory", async name => {
+    const answer = vi.fn<() => Promise<boolean>>().mockResolvedValueOnce(true)
+      .mockRejectedValue(new Error("Could not establish connection. Receiving end does not exist."));
+    const f = await popup(name, false, "locked", true, answer);
+    await waitFor(() => expect(f.records[PRO_OFFER_READY_KEY]).toBe(true));
+    f.view.unmount();
+    const binding = createDesktopPopupBinding(f.f.cache, f.access);
+    stops.push(binding.stop);
+    render(PopupApp, { props: { ...f.props, committedPopupBinding: binding } });
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await new Promise(resolve => setTimeout(resolve, 1_700));
+    expect(answer.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
+    expect(f.records[PRO_OFFER_READY_KEY]).toBe(true);
+  }, 8_000);
+
   it.each(["Chrome", "Firefox"] as const)("%s: a setting change while open keeps the card even when a re-ask would say no", async name => {
     const answer = vi.fn<() => Promise<boolean>>().mockResolvedValueOnce(true).mockResolvedValue(false);
     const f = await popup(name, false, "locked", true, answer);

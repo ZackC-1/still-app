@@ -196,6 +196,8 @@ export class EntitlementCache {
   private invalidateAccess(): void {
     this.accessEpoch++;
     this.accessRetryDelay = null;
+    // A new access context starts its own quick-retry schedule.
+    this.accessFailures = 0;
     if (this.accessTimer !== null) clearTimeout(this.accessTimer);
     this.accessTimer = null;
     this.accessRefreshDeadline = Infinity;

@@ -30,21 +30,24 @@ export const PRO_OFFER_READY_KEY = "still:pro-offer-ready";
  * shows only on a yes, so it never leads to a card that says Still Pro can't be bought here. The
  * same question the Settings card asks (lib/browser-pro.ts askCheckoutAvailable, answered by
  * lib/checkout-availability.ts in paid-tier builds); spelled here so the popup takes no value from
- * the Settings card's module. Any failure, or no answer, is "no". Display only: checkout runs its
- * own fresh check before anything opens.
+ * the Settings card's module. `true` and `false` are the background's answers (anything malformed
+ * is "no"); `undefined` is no answer at all (no receiver yet, a failure or the deadline), which the
+ * popup treats as "ask again", never as "no". Display only: checkout runs its own fresh check
+ * before anything opens.
  */
-export async function askProOfferReady(timeoutMs = PRO_OFFER_ASK_TIMEOUT_MS): Promise<boolean> {
+export async function askProOfferReady(timeoutMs = PRO_OFFER_ASK_TIMEOUT_MS): Promise<boolean | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const unanswered = Symbol("unanswered");
   try {
     const reply: unknown = await Promise.race([
       chrome.runtime.sendMessage({ kind: "still:session", action: "checkoutAvailable" }),
       // A background that never replies (still waking, or a sales check that hangs) is "no answer
       // yet", so the popup can ask again instead of waiting for this opening to end.
-      new Promise((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(unanswered), timeoutMs); }),
     ]);
-    return reply === true;
+    return reply === unanswered || reply === undefined ? undefined : reply === true;
   } catch {
-    return false;
+    return undefined;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

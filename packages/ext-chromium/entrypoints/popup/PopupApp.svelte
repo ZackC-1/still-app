@@ -104,12 +104,15 @@
       const current = ++revision;
       const ready = await askProOfferReady();
       if (!live || current !== revision || confirmed) return;
-      answered = true;
-      proOfferReady = ready;
-      void rememberProOfferReady(ready);
-      if (ready) confirmed = true;
+      // No answer (no receiver yet, a failure, the deadline) changes nothing shown or remembered.
+      if (ready !== undefined) {
+        answered = true;
+        proOfferReady = ready;
+        void rememberProOfferReady(ready);
+        confirmed = ready;
+      }
       // Bounded startup recovery (about 7.5 s): no background poll survives this popup.
-      else if (attempts < PRO_OFFER_RETRY_MS.length)
+      if (!confirmed && attempts < PRO_OFFER_RETRY_MS.length)
         retry = setTimeout(refresh, PRO_OFFER_RETRY_MS[attempts++]);
     }
     // Account/access hydration can settle after the startup retries. A new authority observation
