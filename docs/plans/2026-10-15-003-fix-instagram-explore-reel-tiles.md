@@ -38,13 +38,15 @@ Keep every Explore row a real, measurable box, and change only rows that hold a 
    while a tile is open in the post viewer over it.
 2. Rule data hides Explore Reel tile boxes (`display:none`), as before (a Reel tile is told by its
    looping video or its Reel/Clip badge).
-3. Packaged layout, for a row that holds a Reel tile only: the row becomes a single flex line in
-   which the remaining tiles share the row's width equally (no hole at the row's end). A row whose
-   tiles are all Reels keeps a 1px box, so it is never a 0x0 box a ResizeObserver cannot report.
+3. Packaged layout, for a row that holds a Reel tile only: the row becomes a flex box in which
+   the remaining tiles share each line's width equally (no hole at a line's end). A row that states
+   its column count wraps at that many tiles a line, so a row with more tiles than columns is never
+   squeezed into one line. A row whose tiles are all Reels keeps a 1px box, so it is never a 0x0
+   box a ResizeObserver cannot report.
    A widened tile is capped at 75% of the viewport height so one post cannot fill a desktop screen.
 4. No `display:contents`, no column-level rewrite, and no switching off under virtualized padding.
    Rows without a Reel keep Instagram's own grid. Rows a widened tile makes taller are measured as
-   they are, so the content stays about as tall as Instagram's own and the loader keeps arriving.
+   they are; widened tiles make rows taller, not shorter, so the loader keeps arriving.
 
 Rejected: flattening rows (ISS-0053 mechanism); per-row hide without layout (holes); keeping
 Reel cells as blank placeholders (holes); intercepting Instagram's data (needs live captures and a

@@ -40,10 +40,12 @@ and page-session continuation logic; the first clip needs no pending redirect co
 For Explore (ISS-0064, owner decision 15 Oct: hide the Reel tiles without stalls or holes),
 `packages/core/src/rules/instagram.ts` restores the address-scoped Explore mark and the Reel tile
 hide (rule data, `display:none`). It adds a packaged layout that changes only a row holding a Reel.
-That row becomes one flex line, and the remaining posts share its width, so the row has no end
-hole. A row of only Reels keeps a 1px box. A widened post is capped at 75vh. There is no
-`display:contents`, no column rewrite, and no padding-dependent switch. Rows without a Reel keep
-Instagram's grid. Rows stay about as tall as Instagram's, so the loader keeps arriving. Do not
+That row becomes a flex box, and the remaining posts share each line's width, so no line has an end
+hole. A row that states its column count (`repeat(N,`) wraps at N posts a line; a row holding more
+tiles than columns is therefore never squeezed into one line. A row of only Reels keeps a 1px box,
+and a widened post is capped at 75vh. There is no `display:contents`, no column rewrite, and no
+padding-dependent switch. Rows without a Reel keep Instagram's grid. Widened posts make rows
+taller rather than shorter, so the content stays long enough for the loader to keep arriving. Do not
 reintroduce a row-flattening or cross-row reflow: it makes rows unmeasurable. Re-sign the
 packaged rules and update the free-surface pin with any selector change.
 
@@ -63,15 +65,18 @@ packaged rules and update the free-surface pin with any selector change.
 - `fixtures-format2.spec.ts` (Chromium, 1280px and 390px, both loaders) and `tests/firefox`
   (real Firefox, both loaders, plus a 390px viewport) scroll to the last page. Every step requires
   no Reel shown, no 0x0 or unmeasured row, and no blank band over 8px. Live Off restores
-  Instagram's grid, and On hides it again. The captured static fixture checks edge-to-edge rows,
+  Instagram's grid (in Chromium, the exact boxes of an untouched page), and On hides it again. The captured static fixture checks edge-to-edge rows,
   including under non-zero virtualized padding. The viewer cases still send a Reel's Next Home.
 - These tests failed before the repair: Reel tiles were drawn. In an isolated run of the model, the
   old flattening layout stalled the scroll loader on page 1 at 390px and left rows unmeasured.
   The repaired layout's CSS also passed the model in an isolated WebKit run.
-- Not established: Instagram's iPhone DOM (only the desktop structure was captured; the iPhone
-  grid shows tall tiles), its real loader, and installed-package behavior. Physical iPhone Safari
-  and Firefox desktop retests with live pagination remain required (IOS-16, FX-17, CH-17, MAC-17).
-  If the iPhone grid's nesting differs, the hide does not match and Reels stay (no holes).
+- Not established by these checks: Instagram's iPhone DOM (only the desktop structure was
+  captured; the iPhone grid shows tall tiles, and the tall-tile row in the static test is a
+  hypothetical shape), Instagram's real loader, and installed-package behavior on devices. Live
+  pagination on physical devices is the deciding check. If the iPhone grid's nesting differs, the
+  hide does not match and Reels stay (no holes).
+- Reel tiles are recognized by a looping video or an English Reel/Clip badge. A tile whose video
+  is added late in another language is hidden only once the video appears.
 
 ## Prevention
 

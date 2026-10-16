@@ -287,7 +287,8 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       for (const row of rows) expect(getComputedStyle(row).display).not.toBe("contents");
       for (const row of reelRows) {
         expect(getComputedStyle(row).display).toBe("flex");
-        expect(getComputedStyle(row).flexWrap).toBe("nowrap");
+        // Each row states four columns, so it wraps at four posts a line rather than squeezing.
+        expect(getComputedStyle(row).flexWrap).toBe("wrap");
         // A row of only Reels keeps a box a ResizeObserver can report.
         expect(getComputedStyle(row).minHeight).toBe("1px");
       }
@@ -301,6 +302,12 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       }
     };
     assertLaidOut();
+    // A row that states no column count stays one line (it cannot know where to wrap).
+    const stated = reelRows[0]!.getAttribute("style")!;
+    reelRows[0]!.removeAttribute("style");
+    expect(getComputedStyle(reelRows[0]!).display).toBe("flex");
+    expect(getComputedStyle(reelRows[0]!).flexWrap).toBe("nowrap");
+    reelRows[0]!.setAttribute("style", stated);
     // A column Instagram is virtualizing keeps the same layout: no switch back to holes.
     grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 7784px; padding-top: 4060px; position: relative;");
     assertLaidOut();

@@ -143,15 +143,25 @@ export const INSTAGRAM_EXPLORE_MARKER: MarkerAdapter = Object.freeze({
  * stands in for the rows it has unmounted with the column's inline padding. So every row stays a
  * real box at all times. Never display:contents (a row with no box cannot be measured, and a
  * ResizeObserver never reports one), never a 0x0 row, never a rewritten column, and no switching
- * back when the padding becomes non-zero. Only a row that holds a Reel changes: it becomes one flex
- * line whose remaining posts share the row's width (no hole at the row's end), and a row of only
- * Reels keeps a 1px box. A widened post is capped at 75% of the viewport height so one post cannot
- * fill a desktop screen. Rows keep roughly Instagram's own height, so its loader keeps arriving.
- * Bound to the tile hide: the hide selects exactly some of the tile boxes laid out here.
+ * back when the padding becomes non-zero. Only a row that holds a Reel changes: it becomes a flex
+ * box whose remaining posts share each line's width (no hole at a line's end), and a row of only
+ * Reels keeps a 1px box. A row that states its column count (`repeat(N,` in its inline style)
+ * wraps at N posts a line, so a row holding more tiles than columns (a tall tile beside smaller
+ * ones) keeps N to a line instead of squeezing into one; a row that states none stays one line.
+ * A widened post is capped at 75% of the viewport height so one post cannot fill a desktop screen.
+ * Widened posts make rows taller rather than shorter, so the content stays long enough for the
+ * loader to keep arriving. Bound to the tile hide: the hide selects exactly some of the tile
+ * boxes laid out here.
  */
 export const INSTAGRAM_EXPLORE_LAYOUT: readonly LayoutRule[] = Object.freeze([
   Object.freeze({ selector: EXPLORE_REEL_ROW, declarations: "display:flex!important;flex-wrap:nowrap!important;min-height:1px!important" }),
   Object.freeze({ selector: `${EXPLORE_REEL_ROW} > div`, declarations: "flex:1 1 0!important;min-width:0!important;max-height:75vh!important;overflow:hidden!important" }),
+  ...[2, 3, 4, 5].flatMap((columns) => [
+    // With or without a space after the comma; a basis a little under 1/N so gaps never push the
+    // Nth post onto the next line, and growth fills each line exactly.
+    Object.freeze({ selector: `${EXPLORE_REEL_ROW}[style*="repeat(${columns},"]`, declarations: "flex-wrap:wrap!important" }),
+    Object.freeze({ selector: `${EXPLORE_REEL_ROW}[style*="repeat(${columns},"] > div`, declarations: `flex-basis:calc(100% / ${columns} - 10px)!important` }),
+  ]),
 ]);
 
 /** Captured core Reels discovery targets for explicit internal format2 opt-in.

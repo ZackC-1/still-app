@@ -723,11 +723,23 @@ const exploreBoxes = (page: Page) =>
   }));
 
 /**
- * No Reel tile drawn, no row flattened, and every row that still shows posts is filled edge to
- * edge by them, at one height: no hole at a row's end and no ragged tile.
+ * A row holding more tiles than columns: a tall Reel spanning two lines beside six posts. This
+ * shape is HYPOTHETICAL (Instagram's iPhone grid shows tall tiles but was never captured); it
+ * guards the layout against squeezing such a row into one line.
+ */
+const TALL_ROW = `<div id="tall-row" class="row" style="--x-gridTemplateColumns: repeat(4, 1fr);">
+  <div id="explore-reel-tall" style="grid-row: span 2;"><div style="--x-width: 100%; height: 100%;"><a role="link" href="/p/ExReelT/" style="height: 100%;"><div class="tile" style="height: 100%;"><video loop playsinline></video></div></a></div></div>
+  ${[1, 2, 3, 4, 5, 6].map((n) => `<div id="keep-tall-${n}"><div style="--x-width: 100%;"><a role="link" href="/p/ExTall${n}/"><div class="tile"></div></a></div></div>`).join("")}
+</div>`;
+const KEPT_EXPLORE = ["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6",
+  "keep-tall-1", "keep-tall-2", "keep-tall-3", "keep-tall-4", "keep-tall-5", "keep-tall-6"];
+
+/**
+ * No Reel tile drawn, no row flattened, and every line of posts is filled edge to edge at one
+ * height: no hole at a line's end and no ragged tile.
  */
 async function expectExploreWithoutReelsOrHoles(page: Page) {
-  for (const id of ["#explore-reel-1", "#explore-reel-4", "#explore-reel-7", "#explore-reel-10"]) {
+  for (const id of ["#explore-reel-1", "#explore-reel-4", "#explore-reel-7", "#explore-reel-10", "#explore-reel-tall"]) {
     await expect(page.locator(id), id).toHaveCount(1);
     await expect(page.locator(id), id).toBeHidden();
   }
@@ -739,14 +751,23 @@ async function expectExploreWithoutReelsOrHoles(page: Page) {
       expect(row.height, `row ${index} of only Reels`).toBeLessThanOrEqual(1);
       continue;
     }
-    const covered = row.tiles.reduce((sum, tile) => sum + tile.width, 0) + (row.tiles.length - 1);
-    expect(Math.abs(covered - row.width), `row ${index} filled edge to edge`).toBeLessThanOrEqual(1);
-    expect(Math.abs(row.tiles[0]!.x - row.x), `row ${index} starts at its edge`).toBeLessThanOrEqual(1);
-    for (const tile of row.tiles) expect(Math.abs(tile.height - row.height), `${tile.id} fills its row`).toBeLessThanOrEqual(1);
+    const lines = new Map<number, typeof row.tiles>();
+    for (const tile of row.tiles) lines.set(Math.round(tile.y), [...(lines.get(Math.round(tile.y)) ?? []), tile]);
+    for (const [y, line] of lines) {
+      const covered = line.reduce((sum, tile) => sum + tile.width, 0) + (line.length - 1);
+      expect(Math.abs(covered - row.width), `row ${index} line at ${y} filled edge to edge`).toBeLessThanOrEqual(1);
+      expect(Math.abs(line[0]!.x - row.x), `row ${index} line at ${y} starts at its edge`).toBeLessThanOrEqual(1);
+      for (const tile of line) expect(Math.abs(tile.height - line[0]!.height), `${tile.id} matches its line`).toBeLessThanOrEqual(1);
+      // Never squeezed: no line holds more posts than the row's four columns.
+      expect(line.length, `row ${index} line at ${y}`).toBeLessThanOrEqual(4);
+    }
   }
-  expect(rows.flatMap((row) => row.tiles.map((tile) => tile.id)))
-    .toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
+  expect(rows.flatMap((row) => row.tiles.map((tile) => tile.id))).toEqual(KEPT_EXPLORE);
 }
+
+const exploreFixture = () => fixture("instagram-explore.html")
+  .replace("</head>", "<style>main {width:100%;max-width:880px}.row > div{min-width:0}.tile video{width:100%;height:100%}</style></head>")
+  .replace("      </div></div></div>\n    </main>", `${TALL_ROW}\n      </div></div></div>\n    </main>`);
 
 for (const width of [1280, 390])
   test(`format-2 instagram explore: Reel tiles leave the captured grid without holes, rows stay measurable, Off restores, at ${width}px`, async ({ context, extensionId }) => {
@@ -754,8 +775,9 @@ for (const width of [1280, 390])
     await page.setViewportSize({ width, height: 844 });
     // The captured desktop structure at two widths; the width override is test scaffolding,
     // not a claimed capture of the iPhone site's DOM.
-    await serve(page, "**://*.instagram.com/**", fixture("instagram-explore.html")
-      .replace("</head>", "<style>main {width:100%;max-width:880px}.row > div{min-width:0}.tile video{width:100%;height:100%}</style></head>"));
+    const html = exploreFixture();
+    expect(html).toContain('id="tall-row"');
+    await serve(page, "**://*.instagram.com/**", html);
     await page.goto("https://www.instagram.com/explore/");
     await expectFormat2Lane(page);
     await expect(page.locator("html")).toHaveAttribute("data-still-instagram-explore", "");
@@ -765,10 +787,17 @@ for (const width of [1280, 390])
     await expectExploreWithoutReelsOrHoles(page);
     const toggle = await stillSwitch(context, extensionId);
     await toggle();
-    // Off: Instagram's own rows, every tile back in its cell.
+    // Off: exactly Instagram's own boxes, as a page Still never touched draws them.
     await expect(page.locator("#explore-reel-1")).toBeVisible();
-    await expect.poll(async () => (await exploreBoxes(page)).map((row) => [row.display, row.tiles.length]))
-      .toEqual([["grid", 4], ["grid", 4], ["grid", 4], ["grid", 4]]);
+    const untouched = await context.newPage();
+    await untouched.setViewportSize({ width, height: 844 });
+    await serve(untouched, "**://*.instagram.com/**", html);
+    await untouched.goto("https://www.instagram.com/explore/");
+    await untouched.locator("#explore-grid").evaluate((grid) => { (grid as HTMLElement).style.paddingTop = "4060px"; });
+    const own = await exploreBoxes(untouched);
+    await untouched.close();
+    expect(own.map((row) => [row.display, row.tiles.length])).toEqual([["grid", 4], ["grid", 4], ["grid", 4], ["grid", 4], ["grid", 7]]);
+    await expect.poll(() => exploreBoxes(page)).toEqual(own);
     await toggle();
     await expectExploreWithoutReelsOrHoles(page);
   });
