@@ -24,9 +24,12 @@ try {
   if (error.code !== "ENOENT") throw error;
 }
 
+const preservingFetch = async () => { throw new Error("synthetic fetch"); };
+
 function launch(env = {}, responseError = null) {
   const calls = [];
   let clientCount = 0;
+  let clientOptions;
   let backendOptions;
   let authority;
   let sessionDeps;
@@ -61,7 +64,8 @@ function launch(env = {}, responseError = null) {
     createAppAnalytics: (deps) => { analyticsFactory = "2.x"; analyticsDeps = deps; return analyticsStub(); },
     createDefaultOnAppAnalytics: (deps) => { analyticsFactory = "default-on"; analyticsDeps = deps; return analyticsStub(); },
     supabaseSubjectIssuer: (client, projectKey) => { subjectIssuerClient = client; subjectIssuerKey = projectKey; return async () => ({ state: "active", subject: "synthetic" }); },
-    createClient() { clientCount++; return client; },
+    createClient(_url, _key, options) { clientCount++; clientOptions = options; return client; },
+    preserveAuthErrorCodes: () => preservingFetch,
     SupabaseAuthPort: class { currentVerifiedAccount = async () => ({ id: "synthetic", emailConfirmed: true }); },
     packagedAccessTrust: config => ({ environment: config.environment === "sandbox" ? "sandbox" : "production", keys: [] }),
     createApplePurchaseAuthority(deps) { authority = deps; return { invalidateAccount: () => {invalidations++;}, refreshAccountAccess: async () => {accountRefreshes++;}, verifyLocalPurchase: async () => ({}), refreshOwnership: async () => {}, ownershipRevision: () => 0, purchaseLink: {}, readLinkEligibility: async () => null }; },
@@ -77,8 +81,14 @@ function launch(env = {}, responseError = null) {
     isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, subjectIssuerKey: () => subjectIssuerKey, calls, clientCount, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
+  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, subjectIssuerKey: () => subjectIssuerKey, calls, clientCount, clientOptions: () => clientOptions, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
+
+test("the WebView Supabase client keeps Auth error codes readable cross-origin (ISS-0060)", () => {
+  const { clientOptions, clientCount } = launch();
+  assert.equal(clientCount, 1);
+  assert.equal(clientOptions().global.fetch, preservingFetch);
+});
 
 test("usage analytics is on by default exactly where the V3 screens are", () => {
   assert.equal(launch().analyticsFactory, "default-on");

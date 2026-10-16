@@ -13,7 +13,7 @@ function codeClient(fns: { signInWithOtp?: ReturnType<typeof vi.fn>; verifyOtp?:
   return { auth: fns } as unknown as SupabaseClient;
 }
 
-/** GoTrue-shaped error: classification must read `code`, never `status` or `message` (R1). */
+/** GoTrue-shaped error: classification reads `code` (plus a 429 status, ISS-0060), never `message` (R1). */
 function gotrueError(code: string | undefined, status: number) {
   return { code, status, message: "raw backend text that must never reach the UI" };
 }
@@ -102,6 +102,66 @@ describe("SupabaseAuthPort.requestCode classification (R1/R5/R7)", () => {
   });
 });
 
+// ISS-0060: a provider refusal must render the honest wait on every surface. The Apple app's
+// WKWebView reads Auth responses cross-origin, where supabase-js can lose the structured `code`
+// (it needs the API-version response header to read the 2024-01-01 body), but the 429 status is
+// always readable. The per-email wait lives only in GoTrue's message, so its seconds are parsed —
+// classification itself never depends on message text.
+describe("SupabaseAuthPort.requestCode provider limits (ISS-0060)", () => {
+  const send = async (error: unknown) =>
+    new SupabaseAuthPort(codeClient({ signInWithOtp: vi.fn(async () => ({ error })) })).requestCode("a@b.c");
+  const frequency = (seconds: number, code?: string) => ({
+    code,
+    status: 429,
+    message: `For security purposes, you can only request this after ${seconds} seconds.`,
+  });
+
+  it("per-email interval → send-rate-limited with the server's remaining seconds (+1 for truncation)", async () => {
+    expect(await send(frequency(23, "over_email_send_rate_limit"))).toEqual({
+      kind: "send-rate-limited",
+      retryAfterSeconds: 24,
+    });
+  });
+
+  it("a code-absent 429 (cross-origin WebView shape) is still a wait, never the generic failure", async () => {
+    expect(await send(frequency(41))).toEqual({ kind: "send-rate-limited", retryAfterSeconds: 42 });
+    expect(await send({ code: undefined, status: 429, message: "Email rate limit exceeded" })).toEqual({
+      kind: "send-rate-limited",
+    });
+  });
+
+  it("the per-IP sign-in limit on the code endpoint → send-rate-limited", async () => {
+    expect(
+      await send({ code: "over_request_rate_limit", status: 429, message: "Request rate limit reached" }),
+    ).toEqual({ kind: "send-rate-limited" });
+  });
+
+  it("the hourly email cap carries no seconds → the controller's fixed lock applies", async () => {
+    expect(
+      await send({ code: "over_email_send_rate_limit", status: 429, message: "Email rate limit exceeded" }),
+    ).toEqual({ kind: "send-rate-limited" });
+  });
+
+  it("an absurd stated wait is clamped to the 10-minute ceiling; a zero wait still locks briefly", async () => {
+    expect(await send(frequency(999999, "over_email_send_rate_limit"))).toEqual({
+      kind: "send-rate-limited",
+      retryAfterSeconds: 600,
+    });
+    expect(await send(frequency(0, "over_email_send_rate_limit"))).toEqual({
+      kind: "send-rate-limited",
+      retryAfterSeconds: 1,
+    });
+  });
+
+  it("seconds are never read from a non-429 response, and genuine failures keep the generic outcome", async () => {
+    expect(await send({ ...frequency(30), status: 500, code: "unexpected_failure" })).toEqual({ kind: "send-failed" });
+    expect(await send({ code: "email_address_invalid", status: 400, message: "after 5 seconds" })).toEqual({
+      kind: "send-failed",
+    });
+    expect(await send({ code: undefined, status: 0, message: "Failed to fetch" })).toEqual({ kind: "send-failed" });
+  });
+});
+
 describe("SupabaseAuthPort.verifyCode classification (R1/R5/R7)", () => {
   const verify = async (verifyOtp: ReturnType<typeof vi.fn>) =>
     new SupabaseAuthPort(codeClient({ verifyOtp })).verifyCode("a@b.c", "123456");
@@ -125,6 +185,14 @@ describe("SupabaseAuthPort.verifyCode classification (R1/R5/R7)", () => {
   it("over_request_rate_limit (per-IP verify throttle) → verify-rate-limited, not an attempt kind", async () => {
     const verifyOtp = vi.fn(async () => ({ data: {}, error: gotrueError("over_request_rate_limit", 429) }));
     expect((await verify(verifyOtp)).kind).toBe("verify-rate-limited");
+  });
+
+  it("a code-absent 429 (cross-origin WebView shape) → verify-rate-limited, not a calm retry (ISS-0060)", async () => {
+    const verifyOtp = vi.fn(async () => ({
+      data: {},
+      error: { code: undefined, status: 429, message: "Request rate limit reached" },
+    }));
+    expect(await verify(verifyOtp)).toEqual({ kind: "verify-rate-limited" });
   });
 
   it("a non-OTP 403 (otp_disabled) → verify-failed — NEVER 'wrong code' (the old catch-all dead end)", async () => {
