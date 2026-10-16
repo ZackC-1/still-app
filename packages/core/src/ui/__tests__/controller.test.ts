@@ -831,6 +831,44 @@ describe("rate-limited send/verify wait states (R2/R3/R4)", () => {
     c.dismissSignIn();
   });
 
+  it("a send refused with the server's stated wait counts down exactly that long (ISS-0060/0059)", async () => {
+    let t = 1_000_000;
+    const requestCode = vi.fn(() =>
+      Promise.resolve<RequestCodeOutcome>({ kind: "send-rate-limited", retryAfterSeconds: 24 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ requestCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("error");
+    expect(c.sendBlockRemaining).toBe(24);
+
+    t += 23_000;
+    vi.advanceTimersByTime(23_000);
+    expect(c.sendBlockRemaining).toBe(1);
+    await c.signIn("a@b.com"); // still inside the server's window — no request
+    expect(requestCode).toHaveBeenCalledTimes(1);
+
+    t += 1_000;
+    vi.advanceTimersByTime(1_000);
+    expect(c.sendBlockRemaining).toBe(0);
+    expect(c.authFlow).toBe("idle");
+
+    // From the code view: the resend button shows the server's remaining seconds, not a fixed 60.
+    requestCode.mockResolvedValueOnce({ kind: "sent" });
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("code-entry");
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    requestCode.mockResolvedValueOnce({ kind: "send-rate-limited", retryAfterSeconds: 9 });
+    await c.resendCode();
+    expect(c.codeErrorKind).toBe("resend-rate-limited");
+    expect(c.sendBlockRemaining).toBe(9);
+    t += 9_000;
+    vi.advanceTimersByTime(9_000);
+    expect(c.sendBlockRemaining).toBe(0);
+    expect(c.codeErrorKind).toBe(null);
+    c.dismissSignIn();
+  });
+
   it("a rate-limited RESEND locks the resend affordance and never touches expiry state (AE2)", async () => {
     let t = 1_000_000;
     const auth = codeAuth();
