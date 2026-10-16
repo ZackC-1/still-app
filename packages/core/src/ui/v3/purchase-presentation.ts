@@ -27,6 +27,9 @@ interface PurchaseViewCommon {
     confirmed?: boolean;
     /** Charged/native pending evidence awaiting signed verification; never a new acquisition. */
     verificationRequired?: boolean;
+    /** With `failed`: the store provably never started this purchase, so nothing was charged.
+     * Set only by a host that knows the request never reached the store (ISS-0070). */
+    notCharged?: boolean;
   };
   restore?: {
     state: RestoreStatusCardProps["state"] | "unknown";

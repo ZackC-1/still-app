@@ -11,6 +11,7 @@
     restoreHeld = false,
     state = "idle",
     verificationRequired = false,
+    notCharged = false,
     onBuy,
     onRestore,
     onRetry,
@@ -125,11 +126,17 @@
       <div class="status-line" data-tone="failed" role="alert">
         <span class="glyph"><Glyph name="alert" size={16} /></span>
         <div class="status-body">
-          <span>The purchase wasn't confirmed.</span><span
-            class="muted"
-            style="font-size:calc(12.5px * var(--text-scale, 1));"
-            >If you were charged, Restore purchase will find it.</span
-          >{#if onRetry}<button
+          <!-- Only a Buy the App Store never started may say nothing was charged (ISS-0070);
+            any other failure may follow a charge, so it points to Restore purchase. -->
+          {#if notCharged}<span>Still Pro couldn't be bought right now.</span><span
+              class="muted"
+              style="font-size:calc(12.5px * var(--text-scale, 1));"
+              >Nothing was charged. Make sure you're signed in to the App Store, then try again.</span
+            >{:else}<span>The purchase wasn't confirmed.</span><span
+              class="muted"
+              style="font-size:calc(12.5px * var(--text-scale, 1));"
+              >If you were charged, Restore purchase will find it.</span
+            >{/if}{#if onRetry}<button
               type="button"
               class="link status-action"
               disabled={!retryReady}

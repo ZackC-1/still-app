@@ -168,11 +168,21 @@
       <section class="card card-stack">
         <StaticProControlList controls={props.controls} gap={10} />
       </section>
-      {#if props.purchase.state === "failed"}{@render status({
-          tone: "failed",
-          text: "The purchase wasn't confirmed.",
-          detail: "If you were charged, Restore purchase will find it.",
-        })}{/if}
+      {#if props.purchase.state === "failed"}{@render status(
+          // Only a Buy the store never started may say nothing was charged (ISS-0070).
+          props.host === "apple" && props.purchase.notCharged
+            ? {
+                tone: "failed",
+                text: "Still Pro couldn't be bought right now.",
+                detail:
+                  "Nothing was charged. Make sure you're signed in to the App Store, then try again.",
+              }
+            : {
+                tone: "failed",
+                text: "The purchase wasn't confirmed.",
+                detail: "If you were charged, Restore purchase will find it.",
+              },
+        )}{/if}
       {#if restoreState}{@render status({
           ...restoreMessages[restoreState],
           onAction:

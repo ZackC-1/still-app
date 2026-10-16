@@ -16,6 +16,8 @@ export interface NativeProOfferCardProps extends Omit<
   offer?: { price: string; priceNote?: string };
   /** Signed local fulfillment is pending; recovery is separate from a new acquisition. */
   verificationRequired?: boolean;
+  /** With a failed state: the App Store never started this purchase, so nothing was charged. */
+  notCharged?: boolean;
 }
 
 type AppleSettingsAccount = Omit<

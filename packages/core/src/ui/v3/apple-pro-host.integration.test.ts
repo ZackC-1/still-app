@@ -499,6 +499,44 @@ describe("mounted Apple host accepted access, provenance and verification recove
   });
 });
 
+describe("mounted Apple Buy the App Store never started (ISS-0070)", () => {
+  const notStarted = "Still Pro couldn't be bought right now.";
+  const notStartedDetail =
+    "Nothing was charged. Make sure you're signed in to the App Store, then try again.";
+  const ambiguous = "The purchase wasn't confirmed.";
+  const ambiguousDetail = "If you were charged, Restore purchase will find it.";
+  it("a native unavailable Buy says nothing was charged on the purchase view and the card", async () => {
+    const f = await compose();
+    f.purchase.mockResolvedValueOnce({ outcome: "unavailable", receipt: "noSignal" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText(notStarted);
+    expect(screen.getByText(notStartedDetail)).toBeInTheDocument();
+    expect(screen.queryByText(ambiguous)).toBeNull();
+    expect(screen.queryByText(ambiguousDetail)).toBeNull();
+    expect(screen.queryByText("Your purchase needs to be verified.")).toBeNull();
+    expect(f.purchase).toHaveBeenCalledOnce();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await within(card).findByText(notStarted);
+    expect(within(card).getByText(notStartedDetail)).toBeInTheDocument();
+    expect(within(card).queryByText(ambiguous)).toBeNull();
+    expect(within(card).queryByText(ambiguousDetail)).toBeNull();
+    expect(within(card).getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+  it("an ambiguous native failed Buy keeps the may-have-been-charged copy", async () => {
+    const f = await compose();
+    f.purchase.mockResolvedValueOnce({ outcome: "failed", receipt: "noSignal" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText(ambiguous);
+    expect(screen.getByText(ambiguousDetail)).toBeInTheDocument();
+    expect(screen.queryByText(notStarted)).toBeNull();
+    expect(screen.queryByText(notStartedDetail)).toBeNull();
+  });
+});
+
 describe("mounted Opus pending local fulfillment provenance", () => {
   it.each(["purchased", "protected"] as const)(
     "a rejected local verifier retains recovery despite accepted generic %s benefits",

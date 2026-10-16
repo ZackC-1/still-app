@@ -152,7 +152,47 @@ describe("real Apple Pro host composition", () => {
     host.props([]).native.onBuy?.();
     await settle();
     expect(deps.bridge.purchasePro).not.toHaveBeenCalled();
-    expect(host.props([]).purchase.state).toBe("failed");
+    // The Buy never reached the App Store, so the copy must not suggest a charge (ISS-0070).
+    expect(host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(host.settings().pro).toMatchObject({ state: "failed", notCharged: true });
+  });
+  it("a Buy the App Store never started reports nothing charged (ISS-0070)", async () => {
+    const { host, deps, settle } = await harness();
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce({
+      outcome: "unavailable",
+      receipt: "noSignal",
+    });
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(host.settings().pro).toMatchObject({ state: "failed", notCharged: true });
+    expect(host.settings().pro?.verificationRequired).toBeUndefined();
+    // Try again buys normally once the App Store can start the purchase.
+    host.settings().pro?.onRetry?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(host.settings().pro?.notCharged).toBeUndefined();
+  });
+  it.each([
+    { label: "a failed native reply", result: { outcome: "failed", receipt: "noSignal" } },
+    { label: "a stale identity", result: { outcome: "staleIdentity", receipt: "noSignal" } },
+  ] as const)("$label keeps the ambiguous failed state, never nothing charged", async ({ result }) => {
+    const { host, deps, settle } = await harness();
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(result);
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed" });
+    expect(host.settings().pro?.notCharged).toBeUndefined();
+  });
+  it("a lost native reply keeps the ambiguous failed state", async () => {
+    const { host, deps, settle } = await harness();
+    vi.mocked(deps.bridge.purchasePro).mockRejectedValueOnce(new Error("reply lost"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed" });
+    expect(host.settings().pro?.notCharged).toBeUndefined();
   });
   it.each(["checking", "verification_required"] as const)(
     "held %s access cannot buy",
@@ -800,7 +840,9 @@ describe("Apple operation cleanup ownership", () => {
     h.setAccount(user);
     finish({outcome:"unavailable", receipt:"noSignal"});
     await h.settle();
-    expect(h.host.props([]).purchase).toEqual({state:"failed"});
+    // A refused native Buy never reached the App Store; a refused Restore is not a purchase.
+    expect(h.host.props([]).purchase).toEqual(
+      kind === "buy" ? {state:"failed", notCharged:true} : {state:"failed"});
     expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
     h.host.props([]).native.onBuy?.();
     await h.settle();
