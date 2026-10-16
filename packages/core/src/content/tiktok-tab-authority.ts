@@ -48,6 +48,8 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
   const flights = new Map<number, Promise<boolean>>();
   const closed = new Set<number>();
   const unfinished = new Set<number>();
+  /** Ids the browser replaced; an id closed here is never reopened, even if reported again. */
+  const replacedIds = new Set<number>();
   let stopped = false;
 
   const live = (context: TiktokTabContext) =>
@@ -217,9 +219,11 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
      * after the old id is closed and cleaned up. Anything unfinished ends, like a closed tab.
      */
     replaceTab(removed: number, added: number): Promise<boolean> {
-      closed.add(removed);
+      replacedIds.add(removed);
       const next = snapshot({ tabId: added, frameId: 0, target: "" });
       const carried = serial(removed, async () => {
+        // Fenced at its turn, so a carry still landing on `removed` (A to B to C) completes first.
+        closed.add(removed);
         const carry = await completed(removed).catch(() => false);
         return (await cleanup(removed, true)) && carry;
       });
@@ -230,7 +234,8 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
             (await deps.store.getPending(added)) !== undefined) return false;
         let wrote = false;
         try {
-          if (!(await deps.isLivingTab(added))) return false;
+          // A tab already replaced again (A to B to C) need not be living: its own carry follows.
+          if (!replacedIds.has(added) && !(await deps.isLivingTab(added))) return false;
           wrote = true;
           unfinished.add(added);
           await deps.store.setPending(added);

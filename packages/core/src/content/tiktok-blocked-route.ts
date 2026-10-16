@@ -111,6 +111,13 @@ export interface TiktokBlockedRouteDeps {
   readonly canVerifyDocuments: boolean;
   /** Firefox: replace the blocked TikTok history entry instead of adding one. */
   readonly replaceHistory?: boolean;
+  /**
+   * Safari: how long a TikTok document whose tab has no allowance waits for the browser to report
+   * that its tab replaced another (tabs.onReplaced) before redirecting. Safari for Mac swaps the
+   * tab into a new view, and so a new id, when the blocked page reopens TikTok; the allowance
+   * follows the replacement, which can be reported just after TikTok's first message.
+   */
+  readonly replacementGraceMs?: number;
   readonly createAuthority: (hooks: TiktokRouteHooks) => TiktokRouteAuthority;
   readonly randomId: () => string;
   readonly limits?: {
@@ -125,6 +132,8 @@ export interface TiktokBlockedRouteDeps {
 }
 
 export const TIKTOK_WAIT_MS = 3_000;
+/** How long a redirect whose tab disappeared waits for the browser to report a replacement. */
+const REPLACEMENT_REPORT_MS = 500;
 export const TIKTOK_CONFIRM_MS = 120_000;
 /** Whole-answer budgets, each shorter than its sender's own bound (content 10 s, page 15 s). */
 export const TIKTOK_CONTENT_ANSWER_MS = 8_000;
@@ -188,6 +197,10 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
   const pending = new Map<number, PendingConfirmation>();
   /** Replacement records still being moved, keyed by the new tab id. Each step is bounded. */
   const moves = new Map<number, Promise<void>>();
+  /** Ids the browser reported as replaced: their records move, never get forgotten in between. */
+  const replacedFrom = new Set<number>();
+  /** Waiters for a replacement, keyed "into:<id>" (see replacementGraceMs) or "from:<id>". */
+  const replacementWaiters = new Map<string, Set<() => void>>();
   let stopped = false;
 
   const tabOf = (sender: TiktokRouteSender): number | null => {
@@ -336,15 +349,42 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
         (!tab.pendingUrl || tab.pendingUrl === sender.url)
       );
     };
-    if (await authority.isAllowed(sender).catch(() => false)) return { status: "allowed" };
+    let allowed = await authority.isAllowed(sender).catch(() => false);
+    if (!allowed && !traversal && deps.replacementGraceMs && (await replacedWithin(`into:${tabId}`, deps.replacementGraceMs)))
+      allowed = await authority.isAllowed(sender).catch(() => false);
+    if (allowed) return { status: "allowed" };
     // Back/Forward into a blocked entry stays on this page's own block instead of re-sending the
     // person forward to the blocked page, which would trap Back.
     if (traversal || !(await blockedHere(sender.url!)) || !(await current())) return { status: "held" };
-    const request = deps.randomId();
+    // A replacement may still be moving an older record into this tab; let it land first.
+    await moves.get(tabId);
+    // Asking again for the same address (Safari re-asks when a swap was dropped) keeps the same
+    // request, so a slow first swap and the second one both reach a page with a matching record.
+    let reused: string | null = null;
+    try {
+      const existing = (await session!.get(originKey(tabId)))[originKey(tabId)] as
+        { request?: unknown; target?: unknown } | undefined;
+      const prior = existing?.target === sender.url ? existing?.request : undefined;
+      if (typeof prior === "string" && REQUEST_ID.test(prior)) reused = prior;
+    } catch {
+      // Unreadable session storage: the write below fails the same way.
+    }
+    const request = reused ?? deps.randomId();
     if (!REQUEST_ID.test(request)) return { status: "held" };
     // Never leave an address behind for a redirect that did not happen. Only this request's own
-    // record is removed, so a newer redirect of the same tab keeps its binding.
+    // record is removed, so a newer redirect of the same tab keeps its binding. A reused record
+    // belongs to an earlier redirect that may still arrive. A tab that disappeared may have been
+    // replaced mid-redirect (Safari for Mac); its record then moves with the replacement.
     const forget = async () => {
+      if (reused || replacedFrom.has(tabId)) return;
+      let gone = false;
+      try {
+        await bound(() => tabs!.get(tabId));
+      } catch {
+        gone = true;
+      }
+      if (gone && (replacedFrom.has(tabId) || (await replacedWithin(`from:${tabId}`, REPLACEMENT_REPORT_MS))))
+        return;
       try {
         const stored = (await session!.get(originKey(tabId)))[originKey(tabId)];
         if ((stored as { request?: unknown } | undefined)?.request === request)
@@ -460,6 +500,22 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
   // time it swaps the tab between TikTok's web view and this extension's page, so the blocked
   // page's original address follows the tab instead of being forgotten. Any confirmation still
   // belongs to the replaced document and ends. A newer redirect saved for the new id always wins.
+  /** True once the browser reports a replacement matching `key` within `ms`. */
+  function replacedWithin(key: string, ms: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const waiters = replacementWaiters.get(key) ?? new Set<() => void>();
+      const done = (value: boolean) => {
+        clearTimeout(timer);
+        waiters.delete(arrived);
+        if (waiters.size === 0 && replacementWaiters.get(key) === waiters) replacementWaiters.delete(key);
+        resolve(value);
+      };
+      const arrived = () => done(true);
+      const timer = setTimeout(() => done(false), ms);
+      waiters.add(arrived);
+      replacementWaiters.set(key, waiters);
+    });
+  }
   const moveTab = async (removed: number, added: number) => {
     settlePending(removed);
     await moves.get(removed);
@@ -476,10 +532,13 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
   const onRemoved = (tabId: number) => forgetTab(tabId);
   const onReplaced = (added: number, removed: number) => {
     if (!Number.isSafeInteger(added) || added < 0 || added === removed) return forgetTab(removed);
+    replacedFrom.add(removed);
     const move = moveTab(removed, added).finally(() => {
       if (moves.get(added) === move) moves.delete(added);
     });
     moves.set(added, move);
+    for (const key of [`into:${added}`, `from:${removed}`])
+      for (const arrived of [...(replacementWaiters.get(key) ?? [])]) arrived();
   };
   if (wired) {
     tabs!.onRemoved.addListener(onRemoved);

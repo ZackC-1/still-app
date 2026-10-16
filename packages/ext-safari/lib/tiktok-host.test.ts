@@ -17,6 +17,7 @@ function harness(withSession = true) {
   type Listener = Parameters<SafariTiktokBrowser["runtime"]["onMessage"]["addListener"]>[0];
   const messages = new Set<Listener>(); let generation = 0;
   let nativeAvailable = true;
+  let onUpdate: ((id: number, url: string) => Promise<unknown>) | undefined;
   let settings: StillSettings = { ...DEFAULT_SETTINGS, services: { ...DEFAULT_SETTINGS.services } };
   const area = { get: async (key: string) => (session.has(key) ? { [key]: session.get(key) } : {}), set: async (items: Record<string, unknown>) => { for (const [k,v] of Object.entries(items)) session.set(k,v); }, remove: async (key: string) => { session.delete(key); } };
   const native = (id = 7): TiktokRouteSender => { const tab = tabs.get(id)!; return { id: "still", url: tab.url, frameId: 0, documentId: tab.documentId, tab: { id } }; };
@@ -24,7 +25,7 @@ function harness(withSession = true) {
   const browser: SafariTiktokBrowser = {
     runtime: { id: "still", getURL: (path) => ORIGIN+path, onConnect: connect, onMessage: { addListener: (fn) => { messages.add(fn); }, removeListener: (fn) => { messages.delete(fn); } } },
     storage: withSession ? { session: area } : {},
-    tabs: { get: async (id) => { const tab=tabs.get(id); if (!tab) throw new Error("Missing tab"); return tab.url.startsWith(ORIGIN) ? { id } : { id, url: tab.url }; }, update: async (id, props) => { navigate(id,props.url); return {}; }, onRemoved: removed, onReplaced: { addListener: (fn) => { replaced.add(fn); }, removeListener: (fn) => { replaced.delete(fn); } } },
+    tabs: { get: async (id) => { const tab=tabs.get(id); if (!tab) throw new Error("Missing tab"); return tab.url.startsWith(ORIGIN) ? { id } : { id, url: tab.url }; }, update: async (id, props) => { if (onUpdate) return onUpdate(id, props.url); navigate(id,props.url); return {}; }, onRemoved: removed, onReplaced: { addListener: (fn) => { replaced.add(fn); }, removeListener: (fn) => { replaced.delete(fn); } } },
   };
   const readCommitted = vi.fn(async (): Promise<TiktokCommittedSnapshot | null> => {
     if (!nativeAvailable) throw new Error("Native committed settings unavailable");
@@ -49,7 +50,8 @@ function harness(withSession = true) {
     const tab = tabs.get(from)!; tabs.delete(from); tabs.set(to, { ...tab, id: to });
     for (const fn of [...replaced]) fn(to, from);
   };
-  return { create, session, tabs, native, navigate, send, bind, removed, replace, readCommitted, enable: () => { settings = structuredClone(DEFAULT_SETTINGS); }, disableMain: () => { settings = { ...settings, globalOn: false }; }, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
+  const replaceEvent = (to: number, from: number) => { for (const fn of [...replaced]) fn(to, from); };
+  return { create, session, tabs, native, navigate, send, bind, removed, replace, replaceEvent, readCommitted, setUpdate: (fn: typeof onUpdate) => { onUpdate = fn; }, enable: () => { settings = structuredClone(DEFAULT_SETTINGS); }, disableMain: () => { settings = { ...settings, globalOn: false }; }, loseNative: () => { nativeAvailable=false; }, settings: () => settings, disable: () => { settings={...settings,services:{...settings.services,tiktok:false}}; } };
 }
 async function block(h: ReturnType<typeof harness>) {
   h.navigate(7,TIKTOK);
@@ -262,6 +264,53 @@ describe("Safari for Mac replaces the tab when it swaps between TikTok and Still
     expect(await h.send(TIKTOK_ROUTE.confirm, h.native(9))).toEqual({ status: "failed" });
     expect(grants(h)).toEqual([]);
     h.navigate(9, TIKTOK); expect(await h.send(TIKTOK_ROUTE.blocked, h.native(9))).toEqual({ status: "redirected" });
+    await owner.stop();
+  });
+
+  it("a redirect whose tab is replaced while the update is still answering keeps its address", async () => {
+    const h = harness(); const owner = h.create(); h.navigate(7, TIKTOK);
+    h.setUpdate(async (id, url) => { h.navigate(id, url); h.replace(7, 8); throw new Error("Tab 7 was replaced"); });
+    expect(await h.send(TIKTOK_ROUTE.blocked)).toEqual({ status: "held" });
+    h.setUpdate(undefined); await settle(); h.bind(h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.screen, h.native(8))).toEqual({ status: "blocked", tab: 8 });
+    await owner.stop();
+  });
+
+  it("asking again for the same address keeps the same request, so a slow first swap still finds its record", async () => {
+    const h = harness(); const owner = h.create(); await block(h);
+    const first = h.tabs.get(7)!.url;
+    h.navigate(7, TIKTOK); expect(await h.send(TIKTOK_ROUTE.blocked)).toEqual({ status: "redirected" });
+    expect(h.tabs.get(7)!.url).toBe(first);
+    await owner.stop();
+  });
+
+  it("TikTok's first message can arrive just before Safari reports the replacement and is still allowed", async () => {
+    const h = harness(); const owner = h.create(); await blockAndSwap(h); h.bind(h.native(8));
+    await h.send(TIKTOK_ROUTE.request, h.native(8)); await h.send(TIKTOK_ROUTE.confirm, h.native(8));
+    expect(await h.send(TIKTOK_ROUTE.open, h.native(8))).toEqual({ status: "open", url: TIKTOK });
+    h.navigate(9, TIKTOK);
+    const asked = h.send(TIKTOK_ROUTE.blocked, h.native(9));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    h.tabs.delete(8); h.replaceEvent(9, 8);
+    expect(await asked).toEqual({ status: "allowed" });
+    await owner.stop();
+  });
+
+  it("a newer TikTok address in the replacement tab wins over the moved older record", async () => {
+    const h = harness(); const owner = h.create(); await block(h);
+    h.replace(7, 8);
+    h.navigate(8, "https://www.tiktok.com/@other");
+    expect(await h.send(TIKTOK_ROUTE.blocked, h.native(8))).toEqual({ status: "redirected" });
+    expect((h.session.get("still:tiktok-origin:8") as { target: string }).target).toBe("https://www.tiktok.com/@other");
+    await owner.stop();
+  });
+
+  it("back-to-back replacements still carry a completed allowance to the last tab", async () => {
+    const h = harness(); const owner = h.create(); await blockAndSwap(h); h.bind(h.native(8));
+    await h.send(TIKTOK_ROUTE.request, h.native(8)); await h.send(TIKTOK_ROUTE.confirm, h.native(8));
+    h.navigate(8, TIKTOK); h.replace(8, 9); h.replace(9, 10);
+    expect(await h.send(TIKTOK_ROUTE.blocked, h.native(10))).toEqual({ status: "allowed" });
+    expect(grants(h)).toEqual(["still:tiktok-tab:10"]);
     await owner.stop();
   });
 });
