@@ -51,11 +51,12 @@ Two display inputs each treat "not sure right now" as "take the offer away":
 - **Display latch (core, presentation only).** `presentation.ts` gains `createProOfferLatch()`.
   Once a view has seen Pro access conclusively locked, a later hold (`checking` or
   `verification_required` on Pro rows, with no Pro row purchased or protected) is shown as
-  `locked`. Any purchased or protected Pro row (verified ownership), or a Pro row turning
-  `unsupported`, ends the latch at once. A change of shown account resets it. DesktopPopup and
-  MobilePopup render from the latched snapshot. ExtensionSettings uses it for the rows and the
-  Safari hand-off only, and Buy keeps reading the real snapshot (no money while unsure). Commands still use the binding's real snapshot, and a locked row has no
-  switch, so a hold can never make a Pro row usable.
+  `locked` (free and unsupported rows are drawn as they are). Any purchased or protected Pro row
+  (verified ownership) ends the latch at once, and a change of shown account resets it.
+  DesktopPopup and MobilePopup render from the latched snapshot. ExtensionSettings uses it for the
+  rows and the Safari hand-off only; Buy keeps reading the real snapshot (no money while unsure).
+  Commands still use the binding's real snapshot, and a locked row has no switch, so a hold can
+  never make a Pro row usable.
 - **Offer readiness (Chrome/Firefox popup).** A live "yes" in this popup stays for the popup's life;
   later publications do not re-ask (checkout still runs its own fresh check). "No answer" (no
   receiver, failure, 3 s deadline) is not "no": it changes nothing shown or remembered. Before the first yes,
