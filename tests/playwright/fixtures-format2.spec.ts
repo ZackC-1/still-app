@@ -497,6 +497,45 @@ test("format-2 facebook mobile: Reels hidden and retained, the tab keeps its slo
   );
 });
 
+test("format-2 facebook mobile Page (ISS-0035): the whole Reels tab hides, the other tabs stay put, Off restores", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 393, height: 852 });
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile-page.html"));
+  for (const href of ["https://m.facebook.com/stillpage/", "https://m.facebook.com/stillpage/reels/"]) {
+    await page.goto(href);
+    await expectFormat2Lane(page);
+    await expect(page).toHaveURL(href);
+    // The outer tab is Facebook's tap target, so it goes as a whole: no invisible Reels area.
+    await expect(page.locator("#fb-mobile-page-tab-reels")).toHaveCount(1);
+    await expect(page.locator("#fb-mobile-page-tab-reels")).toBeHidden();
+    // Facebook places each tab at a fixed offset; the remaining tabs neither move nor change.
+    const sample = await page.evaluate(async () => {
+      const row = document.getElementById("fb-mobile-page-tabs")!;
+      let mutations = 0;
+      const observer = new MutationObserver((list) => { mutations += list.length; });
+      observer.observe(row, { subtree: true, attributes: true, childList: true });
+      for (let frame = 0; frame < 30; frame++) await new Promise(requestAnimationFrame);
+      observer.disconnect();
+      // Each tab's left edge and its top relative to the row: the captured inner row sits 1 px up,
+      // and the outer row clips anything pulled further up.
+      const top = Math.round(row.getBoundingClientRect().top);
+      const at = (id: string) => {
+        const box = document.getElementById(id)!.getBoundingClientRect();
+        return [Math.round(box.x), Math.round(box.top) - top, Math.round(box.height)];
+      };
+      return { mutations, all: at("keep-fb-mobile-page-tab-all"), photos: at("keep-fb-mobile-page-tab-photos"), mentions: at("keep-fb-mobile-page-tab-mentions") };
+    });
+    // Still writes nothing into Facebook's row; the fixture has no Facebook script, so this proves
+    // only Still's side. The live check of Facebook's own row is recorded in the plan.
+    expect(sample).toEqual({ mutations: 0, all: [0, -1, 46], photos: [73, -1, 46], mentions: [271, -1, 46] });
+  }
+  await expectHiddenRetainedReversible(
+    page, context, extensionId,
+    ["#fb-mobile-page-tab-reels"],
+    await keepAll(page),
+  );
+});
+
 test("format-2 lane never adds a legacy placeholder or root marker without an account or purchase", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));

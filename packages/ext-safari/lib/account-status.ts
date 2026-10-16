@@ -1,14 +1,19 @@
 import { parseAccountSyncStatus } from "@still/core/sync";
-import { parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
+import { parseStoredSettingsRecord, sendSafariNativeMessage, type StoredSettingsRecord } from "@still/core/storage";
 import type { AccountStatusSnapshot } from "@still/core/ui";
-import { NATIVE_APP } from "./native-settings.js";
 
-/** Only popup/options call this. Account metadata never enters content-script storage. */
-export async function readAccountStatus(local: StoredSettingsRecord): Promise<AccountStatusSnapshot | null> {
-  const [accountReply, settingsReply] = await Promise.all([
-    browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getAccountSyncStatus" }),
-    browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "get" }),
-  ]);
+/**
+ * Only popup/options call this. Account metadata never enters content-script storage. Both reads
+ * take their turn on the page's one native channel, never overlapping a settings save (ISS-0050).
+ */
+export async function readAccountStatus(
+  current: StoredSettingsRecord | (() => StoredSettingsRecord),
+): Promise<AccountStatusSnapshot | null> {
+  const accountReply = (await sendSafariNativeMessage({ kind: "getAccountSyncStatus" })) as { accountSyncStatus?: unknown } | undefined;
+  const settingsReply = (await sendSafariNativeMessage({ kind: "get" })) as { settings?: unknown } | undefined;
+  // Compared with this page's settings as they are now: saves queued ahead of this read have
+  // already reached both sides, so they are not a pending upload.
+  const local = typeof current === "function" ? current() : current;
   if (!accountReply || !("accountSyncStatus" in accountReply)) throw new Error("Still app unavailable");
   if (accountReply.accountSyncStatus === null) return null;
   const status = parseAccountSyncStatus(accountReply.accountSyncStatus);

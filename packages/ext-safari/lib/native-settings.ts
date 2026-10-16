@@ -1,4 +1,4 @@
-import type { StoredSettingsRecord } from "@still/core/storage";
+import { SAFARI_NATIVE_APP, type StoredSettingsRecord } from "@still/core/storage";
 
 // The native App-Group message the extension uses to WRITE settings into the app's shared container
 // (KTD4). Shared by the background reconciler and the popup: on iOS Safari the background may be
@@ -7,7 +7,7 @@ import type { StoredSettingsRecord } from "@still/core/storage";
 // content-script reconcile happens to run.
 
 /** The native host id (the app's bundle id); browser.runtime.sendNativeMessage targets it. */
-export const NATIVE_APP = "com.chartash.still";
+export const NATIVE_APP = SAFARI_NATIVE_APP;
 
 /** Write a settings record to the App Group via the app's SafariWebExtensionHandler. Best-effort:
  * a missing native host (extension running outside the app container) is swallowed. */
