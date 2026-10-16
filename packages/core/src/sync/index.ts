@@ -18,7 +18,7 @@ export type {
   SyncedSettingsEnvelope,
 } from "./ports.js";
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
-export { SupabaseAuthPort } from "./auth.js";
+export { SupabaseAuthPort, preserveAuthErrorCodes } from "./auth.js";
 export { SupabaseBackendPort } from "./profile.js";
 export { backendRoutes, backendRouteEnvironmentMatches, readBackendRouteProfile,
   type BackendRouteProfile, type BackendRoutes } from "./backend-route-profile.js";

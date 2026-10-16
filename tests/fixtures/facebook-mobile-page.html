@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Facebook mobile Page fixture</title>
+    <style>
+      /* Facebook's mobile layout positions every row with server-computed inline sizes. */
+      body { margin: 0; font: 16px -apple-system, system-ui, sans-serif; }
+      .m { position: relative; overflow: hidden; }
+      .m > .m { display: block; }
+      .bg-s4 { background: #fff; }
+      .bg-s7 { background: #0866ff; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Captured 15 Oct 2026 (ISS-0035) from Facebook's mobile Page layout, signed out, WebKit with
+      an iPhone device profile, at m.facebook.com/<page>/ and /<page>/reels/. The same layout is
+      what iPhone Safari shows signed in. Structure only: tags, roles, interface labels, inline
+      sizes and the names of data-* attributes. Page content and attribute values are placeholders.
+
+      The tab row is two nested tablists. Each tab is an outer role="tab" (the tap target; it
+      carries data-action-id except on the selected tab) holding a wrapper and an inner role="tab"
+      whose aria-label is exactly the tab name. Each tab after the first sits at a fixed
+      margin-left and is pulled back up with margin-top:-46px, so hiding one leaves the others in
+      place.
+    -->
+    <div data-mcomponent="MScreen" data-type="container" data-focusable="true">
+      <div id="fb-mobile-page-scroller" data-mcomponent="MContainer" data-type="vscroller" data-focusable="true" data-scrollable="1">
+        <div class="m" data-mcomponent="MContainer" data-type="container" data-actual-height="62" style="height:62px; width:393px;">
+          <div id="keep-fb-mobile-page-title" data-mcomponent="ServerTextArea" data-type="text"><span>Still Test Page</span></div>
+        </div>
+
+        <div id="fb-mobile-page-tabs" role="tablist" class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="46" style="margin-top:4px; height:46px; z-index:0; width:393px;">
+          <div role="tablist" class="m bg-s4" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="46" style="margin-top:-1px; height:46px; z-index:0; width:393px;">
+            <div id="keep-fb-mobile-page-tab-all" role="tab" aria-selected="true" class="m" data-tti-phase="1" data-type="container" data-mcomponent="MContainer" data-actual-height="46" style="height:46px; z-index:0; width:73px;">
+              <div tabindex="-1" class="m bg-s4" data-focusable="true" data-type="container" data-mcomponent="MContainer" data-actual-height="44" style="height:44px; z-index:0; width:73px;">
+                <div id="keep-fb-mobile-page-label-all" role="tab" aria-label="All" aria-selected="false" class="m" data-mcomponent="ServerTextArea" data-type="text" style="margin-top:11px; height:21px; z-index:0; width:49px; margin-left:12px;">
+                  <div><div dir="auto"><span>All</span></div></div>
+                </div>
+              </div>
+              <div class="m bg-s7" style="height:2px; z-index:0; width:73px;"></div>
+            </div>
+            <div id="keep-fb-mobile-page-tab-photos" role="tab" tabindex="-1" aria-selected="false" class="m" data-focusable="true" data-action-id="1" data-actual-height="46" data-mcomponent="MContainer" data-type="container" style="margin-top:-46px; height:46px; z-index:0; width:105px; margin-left:73px;">
+              <div tabindex="-1" class="m bg-s4" data-focusable="true" data-type="container" data-mcomponent="MContainer" data-actual-height="44" style="height:44px; z-index:0; width:105px;">
+                <div id="keep-fb-mobile-page-label-photos" role="tab" aria-label="Photos" aria-selected="false" class="m" data-mcomponent="ServerTextArea" data-type="text" style="margin-top:11px; height:21px; z-index:0; width:82px; margin-left:12px;">
+                  <div><div dir="auto"><span>Photos</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div id="fb-mobile-page-tab-reels" role="tab" tabindex="-1" aria-selected="false" class="m" data-focusable="true" data-action-id="2" data-actual-height="46" data-mcomponent="MContainer" data-type="container" style="margin-top:-46px; height:46px; z-index:0; width:93px; margin-left:178px;">
+              <div tabindex="-1" class="m bg-s4" data-focusable="true" data-type="container" data-mcomponent="MContainer" data-actual-height="44" style="height:44px; z-index:0; width:93px;">
+                <div id="fb-mobile-page-label-reels" role="tab" aria-label="Reels" aria-selected="false" class="m" data-mcomponent="ServerTextArea" data-type="text" style="margin-top:11px; height:21px; z-index:0; width:71px; margin-left:12px;">
+                  <div><div dir="auto"><span>Reels</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div id="keep-fb-mobile-page-tab-mentions" role="tab" tabindex="-1" aria-selected="false" class="m" data-focusable="true" data-action-id="3" data-actual-height="46" data-mcomponent="MContainer" data-type="container" style="margin-top:-46px; height:46px; z-index:0; width:122px; margin-left:271px;">
+              <div tabindex="-1" class="m bg-s4" data-focusable="true" data-type="container" data-mcomponent="MContainer" data-actual-height="44" style="height:44px; z-index:0; width:122px;">
+                <div id="keep-fb-mobile-page-label-mentions" role="tab" aria-label="Mentions" aria-selected="false" class="m" data-mcomponent="ServerTextArea" data-type="text" style="margin-top:11px; height:21px; z-index:0; width:98px; margin-left:12px;">
+                  <div><div dir="auto"><span>Mentions</span></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- An ordinary long-form video post on the Page's All tab: mobile posts are flat sibling
+             rows (header, media, actions); the player is an MVideo with data-is-reels="false". -->
+        <div id="keep-fb-mobile-page-post-header" class="m" data-mcomponent="MContainer" data-type="container" data-actual-height="63" style="height:63px; width:393px;">
+          <div aria-label="Video, Public" data-mcomponent="TextArea" data-type="text"><span>A Page video</span></div>
+        </div>
+        <div class="m" data-mcomponent="MContainer" data-type="container" data-actual-height="221" style="height:221px; width:393px;">
+          <div class="m" data-mcomponent="MContainer" data-type="container">
+            <div id="keep-fb-mobile-page-video" role="button" aria-label="Video player" data-mcomponent="MVideo" data-type="video" data-is-reels="false" data-video-id="1" style="height:221px; width:393px; background:#222;"></div>
+          </div>
+        </div>
+        <div id="keep-fb-mobile-page-post-actions" class="m" data-mcomponent="MContainer" data-type="container" data-actual-height="43" style="height:43px; width:393px;">
+          <div role="button" aria-label="Like" data-action-id="4" data-focusable="true"><span>Like</span></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
