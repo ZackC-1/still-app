@@ -68,8 +68,10 @@ test.beforeAll(async () => {
       return '<!doctype html><title>Reels</title><script>history.replaceState(null, "", "/reel/XYZ/")</script><p>a Reel</p>';
     // A profile in Instagram's current desktop markup (ISS-0033, ISS-0034).
     if (host.endsWith("instagram.com") && url.pathname.startsWith("/profileuser/")) return fixture("instagram-profile.html");
-    // Explore in Instagram's current desktop markup (ISS-0038).
-    if (host.endsWith("instagram.com") && url.pathname === "/explore/") return fixture("instagram-explore.html");
+    // Explore in Instagram's current desktop markup (ISS-0038); with ?loader=, the same structure
+    // driven by a synthetic paginating virtual list (ISS-0053, ISS-0064).
+    if (host.endsWith("instagram.com") && url.pathname === "/explore/")
+      return fixture(url.searchParams.has("loader") ? "instagram-explore-feed.html" : "instagram-explore.html");
     if (host.endsWith("instagram.com")) return fixture("instagram.html");
     // Facebook's current navigation and Reels player markup (ISS-0035) answers one group's pages.
     if (host.endsWith("facebook.com") && url.pathname.startsWith("/groups/chosen")) return fixture("facebook-nav.html");
@@ -225,30 +227,92 @@ test("instagram current desktop markup: the Reels menu item, the profile Reels t
   await tab.close();
 });
 
-test("instagram explore: discovery tiles and measured rows keep their geometry", async () => {
+/** Explore rows as drawn: display, box and the boxes of the tiles still laid out. */
+const exploreRows = (tab: Tab) => tab.evaluate<Array<{ display: string; x: number; width: number; height: number; tiles: Array<{ id: string; x: number; width: number; height: number }> }>>(
+  `[...document.querySelectorAll("#explore-grid > div")].map((row) => {
+    const box = row.getBoundingClientRect();
+    return { display: getComputedStyle(row).display, x: box.x, width: box.width, height: box.height,
+      tiles: [...row.children].map((tile) => ({ id: tile.id, ...JSON.parse(JSON.stringify(tile.getBoundingClientRect())) }))
+        .filter((tile) => tile.width > 0).map(({ id, x, width, height }) => ({ id, x, width, height })) };
+  })`);
+
+test("instagram explore: Reel tiles leave the grid without holes, rows stay measurable, Off restores", async () => {
   const tab = await firefox.openTab("https://www.instagram.com/explore/");
   await waitWorking(tab, "instagram");
-  for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10", "#keep-explore-1", "#keep-explore-6"])
-    expect(await tab.isVisible(id), id).toBe(true);
-  const measure = () => tab.evaluate<Array<[number, number, number]>>(`[...document.querySelectorAll("#explore-grid > div > div")]
-    .map((tile) => tile.getBoundingClientRect()).filter((box) => box.width > 0)
-    .map((box) => [Math.round(box.x), Math.round(box.y), Math.round(box.width)])`);
-  const boxes = await measure();
-  expect(boxes).toHaveLength(16);
-  expect(new Set(boxes.map((box) => box[1])).size).toBe(4);
-  expect(await tab.evaluate<string[]>('[...document.querySelectorAll("#explore-grid > div")].map(row => getComputedStyle(row).display)'))
-    .toEqual(["grid", "grid", "grid", "grid"]);
+  const expectWithoutReelsOrHoles = async () => {
+    for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10"]) await waitHiddenPresent(tab, id);
+    const rows = await exploreRows(tab);
+    for (const [index, row] of rows.entries()) {
+      expect(row.display, `row ${index}`).not.toBe("contents");
+      expect(row.height, `row ${index} keeps a box`).toBeGreaterThan(0);
+      if (row.tiles.length === 0) {
+        expect(row.height, `row ${index} of only Reels`).toBeLessThanOrEqual(1);
+        continue;
+      }
+      const covered = row.tiles.reduce((sum, tile) => sum + tile.width, 0) + (row.tiles.length - 1);
+      expect(Math.abs(covered - row.width), `row ${index} filled edge to edge`).toBeLessThanOrEqual(1);
+      for (const tile of row.tiles) expect(Math.abs(tile.height - row.height), `${tile.id} fills its row`).toBeLessThanOrEqual(1);
+    }
+    expect(rows.flatMap((row) => row.tiles.map((tile) => tile.id)))
+      .toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
+  };
+  await expectWithoutReelsOrHoles();
   const popup = await firefox.openExtensionPage("popup.html");
   try {
     await setSwitch(popup, "Still", false);
     await tab.waitFor("Still to release the page", () => stillIsWorking(tab, "instagram"), (working) => !working);
-    expect(await measure()).toEqual(boxes);
+    expect((await exploreRows(tab)).map((row) => [row.display, row.tiles.length])).toEqual([["grid", 4], ["grid", 4], ["grid", 4], ["grid", 4]]);
+    await setSwitch(popup, "Still", true);
+    await waitWorking(tab, "instagram");
+    await expectWithoutReelsOrHoles();
   } finally {
     await setSwitch(popup, "Still", true);
     await popup.close();
     await tab.close();
   }
 });
+
+type ExploreProbe = { pages: number; unmeasuredMounted: number; zeroHeightRows: number; reelsShown: number; postsShown: number; blank: number; atEnd: boolean; done: boolean };
+
+for (const [loader, viewport] of [["io", null], ["scroll", null], ["io", { width: 390, height: 844 }]] as const)
+  test(`instagram explore: mixed pages keep loading without Reels or holes (${loader} loader${viewport ? ", iPhone viewport" : ""})`, async () => {
+    const tab = await firefox.openTab("about:blank");
+    try {
+      if (viewport) await tab.setViewport(viewport);
+      await tab.goto(`https://www.instagram.com/explore/?loader=${loader}&pages=8`);
+      if (viewport) expect(await tab.evaluate<number>("innerWidth")).toBe(viewport.width);
+      await waitWorking(tab, "instagram");
+      let stalled = 0;
+      let finished = false;
+      for (let step = 0; step < 120 && !finished; step++) {
+        await tab.evaluate("scrollBy(0, innerHeight * 0.8)");
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const state = await tab.evaluate<ExploreProbe>("window.__explore()");
+        expect(state.reelsShown, `step ${step}: no Reel tile shown`).toBe(0);
+        expect(state.zeroHeightRows, `step ${step}: no 0x0 row`).toBe(0);
+        expect(state.unmeasuredMounted, `step ${step}: every drawn row measured`).toBe(0);
+        expect(state.blank, `step ${step}: no hole or blank band`).toBeLessThanOrEqual(8);
+        finished = state.done && state.atEnd;
+        stalled = state.atEnd ? stalled + 1 : 0;
+        expect(stalled, `loading stalled at page ${state.pages}`).toBeLessThan(15);
+      }
+      expect(finished, "reached the last page").toBe(true);
+      // Live Off brings Instagram's own grid and its Reels back; On hides them again.
+      const reelsLaidOut = () => tab.evaluate<number>(`[...document.querySelectorAll('#explore-grid [data-kind="R"]')].filter((t) => t.getBoundingClientRect().width > 0).length`);
+      const popup = await firefox.openExtensionPage("popup.html");
+      try {
+        await setSwitch(popup, "Still", false);
+        await tab.waitFor("Reel tiles back with Still Off", reelsLaidOut, (n) => n > 0);
+        await setSwitch(popup, "Still", true);
+        await tab.waitFor("Reel tiles gone again with Still On", reelsLaidOut, (n) => n === 0);
+      } finally {
+        await setSwitch(popup, "Still", true);
+        await popup.close();
+      }
+    } finally {
+      await tab.close();
+    }
+  });
 
 test("facebook: a Reel article and the Reels shortcut follow the paid-tier switch, an ordinary post stays", async () => {
   const tab = await firefox.openTab("https://www.facebook.com/");

@@ -230,6 +230,11 @@ export class Tab {
     await this.bidi.send("browsingContext.close", { context: this.context });
   }
 
+  /** Emulate a viewport size, such as an iPhone's, for this tab; null restores the window's. */
+  async setViewport(viewport: { width: number; height: number } | null): Promise<void> {
+    await this.bidi.send("browsingContext.setViewport", { context: this.context, viewport });
+  }
+
   /** Run an expression in the page and return its (JSON-able) value. */
   async evaluate<T>(expression: string): Promise<T> {
     const reply = await this.bidi.send("script.evaluate", {

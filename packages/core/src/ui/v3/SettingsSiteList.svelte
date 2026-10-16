@@ -17,6 +17,7 @@
     features,
     labels = {},
     onProAction,
+    host = "browser",
     commandsDisabled = false,
   }: SettingsSiteListProps = $props();
   let open = $state<ServiceId | null>(
@@ -121,6 +122,7 @@
                     if (!commandsDisabled) onFeatureChange(row.id, next);
                   }}
                   onLock={onProAction}
+                  {host}
                 />
               {/each}
             </div>

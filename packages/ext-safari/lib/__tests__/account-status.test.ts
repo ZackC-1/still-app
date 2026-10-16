@@ -40,3 +40,24 @@ it("compares effective settings after the existing parser clears a legacy native
   install(JSON.stringify(status), { ...local, settings: { ...local.settings, pauses: ["youtube.com"] } });
   await expect(readAccountStatus(local)).resolves.toMatchObject({ extensionMatchesApp: true, pendingUpload: false });
 });
+it("compares the app with the page's settings as they are when the reads answer (ISS-0050)", async () => {
+  // A switch saved while this poll waited its turn reaches the app and the page alike.
+  const saved = { ...local, settings: { ...local.settings, globalOn: false, updatedAt: 90 } };
+  install(JSON.stringify(status), saved);
+  let current = local;
+  const reading = readAccountStatus(() => current);
+  current = saved;
+  await expect(reading).resolves.toMatchObject({ extensionMatchesApp: true, pendingUpload: false });
+});
+it("reads the account and settings one after the other, never overlapping", async () => {
+  let outstanding = 0, peak = 0;
+  const send = vi.fn(async (_host: string, message: { kind: string }) => {
+    peak = Math.max(peak, ++outstanding);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    outstanding--;
+    return message.kind === "getAccountSyncStatus" ? { accountSyncStatus: JSON.stringify(status) } : { settings: JSON.stringify(local) };
+  });
+  vi.stubGlobal("browser", { runtime: { sendNativeMessage: send } });
+  await expect(readAccountStatus(local)).resolves.toMatchObject({ extensionMatchesApp: true });
+  expect(peak).toBe(1);
+});

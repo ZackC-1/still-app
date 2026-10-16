@@ -4,7 +4,7 @@ import type { SafariPopupSurface } from "../../lib/safari-v3.js";
 import SafariV3Popup from "./SafariV3Popup.svelte";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { createSafariAppHandoff, type SafariAppRoute } from "../../lib/app-handoff.js";
-import { NATIVE_APP } from "../../lib/native-settings.js";
+import { sendSafariNativeMessage } from "@still/core/storage";
 
 // The V3 popup components and their global stylesheet. Loaded by ./v3 only after the record gate
 // has chosen V3.
@@ -20,7 +20,8 @@ export function mountSafariV3Popup(
   // Get Still Pro, lock chips and Sign in open the Still app (lib/app-handoff): directly on the
   // Mac through the native handler, through a Safari tab on iPhone and iPad.
   const handoff = createSafariAppHandoff(surface, {
-    sendNative: (message) => browser.runtime.sendNativeMessage(NATIVE_APP, message),
+    // On the page's native channel, so a hand-off never overlaps a settings save (ISS-0050).
+    sendNative: (message) => sendSafariNativeMessage(message as Record<string, unknown>),
     openTab: (url) => browser.tabs.create({ url }),
     close: () => window.close(),
   });
