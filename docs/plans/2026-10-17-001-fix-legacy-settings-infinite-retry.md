@@ -1,6 +1,6 @@
 ---
 title: Stop the released apps' settings save from retrying forever on the server
-status: in_progress
+status: completed
 date: 2026-10-17
 ---
 
@@ -116,4 +116,12 @@ where usename = 'authenticator' and state = 'active'
   return 200, and a second apply changes nothing.
 - CI: the settings rehearsal runs the same proof on a GitHub-hosted runner; the QA functions
   rehearsal runs the prerequisite gate at 0024.
-- Not verified before deploy: that the hosted loops stop on their own (checked after deploy above).
+- Production (17 Oct 2026, applied 16:10 UTC): the function body now hashes to the 0024 value.
+  Rolled-back transactions went from about 1,700 a second to 0 within the first minute; the
+  "settings client upgrade required" log line went from 6,000 a minute (the cap) to none after
+  16:10; all project log lines fell from about 6,080 to about 70 a minute. The 20 looping
+  `authenticator` backends that started on 16 Oct closed by themselves, and no connection is left
+  idle in a transaction. No backend had to be terminated.
+- First attempt refused: a deploy dispatched before another PR changed
+  `scripts/backend/deploy/operations.mjs` was rejected by the freshness check (`main-moved`) and
+  applied nothing. Dispatch production runs only after every PR touching `scripts/backend/` merges.
