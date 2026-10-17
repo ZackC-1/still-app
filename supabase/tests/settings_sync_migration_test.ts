@@ -922,6 +922,8 @@ Deno.test({
               updatedAt: Date.now(),
             }, crypto.randomUUID())
           );
+          // This suite runs at exactly 0015, whose guard raised 40001. 0024 changed only the code
+          // to PT409 (PostgREST retried 40001 forever); legacy_settings_guard_test.ts proves it.
           assertEquals(error.code, "40001");
           assertEquals(error.message, "settings client upgrade required");
           assertEquals(await snapshot(admin, CURRENT), before);

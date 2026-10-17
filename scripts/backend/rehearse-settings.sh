@@ -162,6 +162,34 @@ for artifact in deno.json deno.lock; do
   docker exec supabase_edge_runtime_still-app cat "$mounted_functions/sync-settings/$artifact" > "$RUNNER_TEMP/u3-mounted-$artifact"
   cmp "supabase/functions/sync-settings/$artifact" "$RUNNER_TEMP/u3-mounted-$artifact"
 done
+# Migration 0024 on its own, on this settings-bearing database brought to 0023 as production holds
+# it: at 0023 the released apps' RPC still refuses with 40001 (which a hosted PostgREST retries
+# forever); the CLI then applies 0024 as the ordinary postgres role, application rows stay
+# byte-identical, every refusal becomes PT409 (HTTP 409 through the real gateway) and no retry loop
+# is left running; a second apply changes nothing. Skipped by the TERM-cleanup probe run, which
+# only needs the CLI lifecycle above.
+if [[ ${STILL_SETTINGS_REHEARSAL_WAIT_FOR_CANCEL:-} != true ]]; then
+  legacy_guard_test() {
+    STILL_LEGACY_GUARD_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_LEGACY_GUARD_TEST_MODE="$1" \
+    STILL_LEGACY_GUARD_API_KEY="$STILL_SETTINGS_CLI_ANON_KEY" \
+      deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=scripts/backend/deploy/verify --allow-net=127.0.0.1:54321,127.0.0.1:54322 supabase/tests/legacy_settings_guard_test.ts
+  }
+  legacy_guard_rows() {
+    psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X -At --set=ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0024_legacy_settings_guard_non_retryable.invariant.sql
+  }
+  migrate_up_to 0023
+  legacy_guard_test pre-upgrade
+  rows_before=$(legacy_guard_rows)
+  migrate_up_to 0024
+  rows_after=$(legacy_guard_rows)
+  if [[ "$rows_before" != "$rows_after" ]]; then echo '0024 changed application rows.' >&2; exit 1; fi
+  unset rows_before rows_after
+  legacy_guard_test upgrade
+  psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X -q --set=ON_ERROR_STOP=1 --single-transaction --file=supabase/migrations/0024_legacy_settings_guard_non_retryable.sql >/dev/null
+  reapplied=$(psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X -At --set=ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0024_legacy_settings_guard_non_retryable.sql | tail -n 1)
+  if [[ $reapplied != '[]' ]]; then echo "0024 end-state check failed after a second apply: $reapplied" >&2; exit 1; fi
+  echo '0024 upgrade, unchanged rows, PT409 refusals, gateway 409 and idempotent re-apply: PASS.'
+fi
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u3-plan.json" "$2"
 if [[ ${STILL_SETTINGS_REHEARSAL_WAIT_FOR_CANCEL:-} == true ]]; then
   # The separate hosted cancellation probe waits until this exact CLI process has
