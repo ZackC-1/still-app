@@ -33,7 +33,13 @@ pattern that was rejected. The owner chose option B.
    guard stays: the same account and session before and after, a purchaser this device can prove
    (purchased, never family-shared), and the ownership revision the device read. If the account
    changes or signs out in between, nothing is linked and the device keeps its local Still Pro. If
-   linking fails, Still Pro stays on the device and the link card offers Try again.
+   linking fails, Still Pro stays on the device and the link card offers Try again. An account
+   update before Apple's sheet opens (the session settling) re-arms the continuation once, and
+   only for the same account; a sign-out or another account drops it.
+   A purchase that Apple completes later (Ask to Buy, or one recovered after an interrupted
+   reply) is verified when the app next refreshes and is not linked automatically. That is
+   deliberate: the person who started it may no longer be the one signed in. The existing link
+   card offers the link instead.
 5. **Already signed in, there is no sign-in step.**
 6. **Restore never requires sign-in** (also required by Guideline 3.1.1). It installs the same
    device-local access proof (`paid_apple_local`) as before.

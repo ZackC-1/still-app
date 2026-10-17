@@ -181,7 +181,8 @@
       // A concluded Restore may sit beside it (ISS-0071: restored holders are invited to sign in).
       (!restore || restore.state === "restored") &&
       !confirming &&
-      (!pro?.state || pro.state === "idle") &&
+      // Also right after a completed purchase (ISS-0071: one bought without an account).
+      (!pro?.state || pro.state === "idle" || pro.state === "success") &&
       sharing?.state !== "unasked" &&
       (!sharing?.withdrawal || sharing.withdrawal === "none") &&
       sync.account?.status?.tone !== "failed",

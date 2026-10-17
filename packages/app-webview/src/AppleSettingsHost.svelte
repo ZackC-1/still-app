@@ -115,6 +115,7 @@
               : null,
           signIn: () => c.openSignIn(),
           canSignIn: () => c.canSignIn,
+          signedIn: () => c.userId !== null,
           chooseOtherAccount: async () => {
             await c.signOut();
           },
@@ -439,7 +440,7 @@
   <div bind:this={purchaseScreen}>
     <PurchaseView {...purchaseProps} onBack={platform === "mac" ? closePurchase : purchaseProps.onBack} phone={platformKnown && platform === "ios"} />
   </div>
-  {#if canLink}<div class="still-ui app">
+  {#if canLink && !signedOutLink}<div class="still-ui app">
       <button
         type="button"
         class="secondary block"

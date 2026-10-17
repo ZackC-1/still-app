@@ -38,6 +38,15 @@ ADR 0005).
   Apple runbook and store listing copy (review notes with a "[review account]" placeholder).
   `STRATEGY.md` rechecked: its "without an account" lines are about blocking and sync and stay true.
 
+Review follow-ups (same PR): the continuation is re-armed at most once and only for the same
+account id (a sign-out or another account drops it); the automatic link reads eligibility inside
+the guarded link, once more after an overlapping access refresh, and ends in the failed card with
+Try again instead of silently skipping; an overlapping refresh no longer cancels a link in flight;
+"signed out" for Get Still Pro is based on the session, not on the address being known; and the
+sign-in card shows right after a purchase made without an account. A purchase Apple completes
+later (Ask to Buy, or one recovered after an interrupted reply) is not linked automatically, by
+design; the link card offers it (ADR 0005).
+
 No server function, Swift or StillKit change. The Safari popup's Get Still Pro still hands off to
 the app; Chrome and Firefox purchase is unchanged.
 
@@ -55,6 +64,11 @@ Get Still Pro opens sign-in, cancel opens nothing, sign-in continues without a s
 accountless, signed-in purchase auto-links, link failure keeps local Pro with Try again, new copy,
 no "No account needed"). Guard tests (account switch or sign-out mid-flow never links; an unprovable
 purchaser is never linked; Restore never asks for sign-in) passed before and after.
+
+Review round: 10 further tests failed first (sign-out or account switch during the continued check
+through the real host, re-arm at most once, overlapping eligibility refresh, unprovable purchaser
+ends in Try again, session without an address, the card right after an accountless purchase). The
+cancel test now signs in after cancelling and fails if the host's dismissal effect is removed.
 
 Gates (local, this branch, unconfigured):
 

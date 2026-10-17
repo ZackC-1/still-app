@@ -118,6 +118,9 @@ async function compose(
     ownershipRevision: 1,
   }));
   const acknowledgments: number[] = [];
+  // ISS-0071: hold the pre-sheet offer read, and choose who the next code sign-in is.
+  let offeringGate: Promise<void> | null = null;
+  let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
   const accountRequests: unknown[] = [];
   const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -144,6 +147,7 @@ async function compose(
               case "getBenefitAccess":
                 return { ok: true, snapshot: rights };
               case "proOffering":
+                if (offeringGate) await offeringGate;
                 return {
                   offer: {
                     productId: "still_pro_v3",
@@ -206,9 +210,9 @@ async function compose(
     ...(options.codeAuth ? {auth: {
       signOut: async () => {},
       requestCode: async () => ({ kind: "sent" as const }),
-      verifyCode: async (email: string) => ({ kind: "verified" as const, userId: accountId, email }),
-      currentVerifiedAccount: async () => controller.userId === accountId
-        ? {id: accountId, email: "account@still.test", emailConfirmed: true} : null,
+      verifyCode: async () => ({ kind: "verified" as const, userId: nextAccount.id, email: nextAccount.email }),
+      currentVerifiedAccount: async () => controller.userId
+        ? {id: controller.userId, email: controller.accountEmail ?? "", emailConfirmed: true} : null,
     }} : {}),
   });
   const accountAuthority = options.accountOnly ? createApplePurchaseAuthority({
@@ -276,6 +280,12 @@ async function compose(
     },
     purchase,
     restore,
+    holdOffering() {
+      let release!: () => void;
+      offeringGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { offeringGate = null; release(); };
+    },
+    nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
     verifyLocalPurchase,
     linkPurchase,
     acknowledgments,
@@ -1049,6 +1059,14 @@ describe("mounted Apple known account removal", () => {
 describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
   const NOTE = "Sign in first, so Still Pro stays with your account.";
   const SKIP = "Buy without an account";
+  async function enterCode(address: string) {
+    const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+    await fireEvent.input(email, { target: { value: address } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+    const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    await fireEvent.input(code, { target: { value: "123456" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+  }
   async function openBuy() {
     const f = await compose({ codeAuth: true });
     await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
@@ -1063,14 +1081,57 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     expect(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel })).toBeVisible();
     expect(f.purchase).not.toHaveBeenCalled();
   });
-  it("cancelling sign-in opens no Apple sheet and changes nothing", async () => {
+  it("cancelling sign-in opens no Apple sheet, and a later sign-in buys nothing", async () => {
     const f = await openBuy();
     const sheet = await screen.findByRole("dialog");
     await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.auth.cancel }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(f.purchase).not.toHaveBeenCalled();
     expect(f.controller.userId).toBeNull();
-    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
+    // Sign in afterwards, for sync: no purchase line, no skip link, and no Apple sheet.
+    f.controller.openSignIn();
+    const again = await screen.findByRole("dialog");
+    expect(within(again).queryByText(NOTE)).toBeNull();
+    expect(within(again).queryByRole("button", { name: SKIP })).toBeNull();
+    await enterCode("account@still.test");
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("signing out while the continued purchase is still checking opens no sheet on a later sign-in", async () => {
+    const f = await openBuy();
+    const release = f.holdOffering();
+    await enterCode("account@still.test");
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await f.controller.signOut();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    f.controller.openSignIn();
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).queryByRole("button", { name: SKIP })).toBeNull();
+    await enterCode("account@still.test");
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("switching to another account while the continued purchase is checking opens no sheet and links nothing", async () => {
+    const f = await openBuy();
+    const release = f.holdOffering();
+    await enterCode("account@still.test");
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await f.controller.signOut();
+    f.nextSignIn("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "other@still.test");
+    f.controller.openSignIn();
+    await enterCode("other@still.test");
+    await waitFor(() => expect(f.controller.userId).toBe("dddddddd-dddd-4ddd-8ddd-dddddddddddd"));
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("Buy without an account goes straight to Apple's sheet, as before", async () => {
     const f = await openBuy();
@@ -1080,6 +1141,14 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
     expect(f.controller.userId).toBeNull();
+  });
+  it("right after a purchase without an account, Back to settings shows the sign-in card", async () => {
+    await openBuy();
+    await fireEvent.click(await screen.findByRole("button", { name: SKIP }));
+    expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+    expect(await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." })).toBeVisible();
+    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
   });
   it("signing in continues to Apple's sheet without a second tap and links the purchase", async () => {
     const f = await openBuy();

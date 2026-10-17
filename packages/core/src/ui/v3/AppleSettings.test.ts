@@ -512,6 +512,22 @@ describe("controlled D04 Apple settings", () => {
     expect(onLink).toHaveBeenCalledOnce();
     view.unmount();
   });
+  it("shows the invitation right after a purchase made without an account (ISS-0071)", async () => {
+    const { props } = await fixture("purchased");
+    const view = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: { ownership: "owned", channel: "ready", state: "success" },
+        restore: undefined,
+        setup: undefined,
+        link: undefined,
+        sharing: undefined,
+        linkInvitation: { eligibleLaterVisit: true, onLink: vi.fn(), onDismiss: vi.fn() },
+      },
+    });
+    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    view.unmount();
+  });
   it("shows the invitation beside a concluded Restore, so a restored holder can sign in (ISS-0071)", async () => {
     const { props } = await fixture("purchased");
     const view = render(AppleSettings, {
