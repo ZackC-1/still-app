@@ -163,3 +163,44 @@ describe("committed paid page access re-check", () => {
     expect(h.controller.recheckAccess).toBeUndefined();
   });
 });
+
+describe("committed paid page lifetime", () => {
+  // A disposed page must not keep watching: its access timer (the ISS-0032 quick retry or the
+  // freshness refresh) and storage listeners would otherwise keep messaging the background after
+  // the page is gone, and in a shared test runtime they land in the next test's browser fixture.
+  it("stops observing access and settings once its owner disposes the controller", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await browser();
+      const original = chrome.runtime.sendMessage;
+      const observed = vi.fn();
+      Object.assign(chrome.runtime, {
+        sendMessage: vi.fn(async (message: { kind?: string }) => {
+          // An unanswered observation arms the quick retry, so a live page keeps asking.
+          if (message.kind === "observeBenefits") { observed(); return { ok: false }; }
+          return original(message);
+        }),
+      });
+      let binding: { stop(): void } | undefined;
+      const controller = createExtensionUiController(purchase().deps, {
+        accessHost: "chromium",
+        onCommittedPopupBinding: (b) => { binding = b; },
+      });
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(observed.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(controller.settings.globalOn).toBe(true);
+      binding!.stop();
+      controller.dispose();
+      const seen = observed.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(120_000);
+      await chrome.storage.local.set({ "still:entitlement": { entitled: true, updatedAt: Date.now(), access: undefined } });
+      const saved = f.store["still:settings"] as { settings: { globalOn: boolean } };
+      await f.external({ ...saved, settings: { ...saved.settings, globalOn: false } } as Parameters<typeof f.external>[0]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(observed).toHaveBeenCalledTimes(seen);
+      expect(controller.settings.globalOn).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
