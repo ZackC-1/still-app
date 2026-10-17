@@ -1,7 +1,7 @@
 ---
 title: Sign in before an Apple Still Pro purchase, and a "Still Pro" tag beside the account (ISS-0071, ISS-0073)
 date: 2026-10-16
-status: design — awaiting owner approval, no code yet
+status: approved by the owner 2026-10-16 (option B, copy and tag as written, tag ships first)
 issues: ISS-0071 (major, owner decision), ISS-0073 (minor, owner change)
 ---
 
@@ -164,7 +164,13 @@ app.
 - **IOS-49 / MAC-49:** add "account switch between sign-in and Apple's sheet" as a case,
   engineering route only.
 
-## Questions for the owner
+## Owner decisions (16 October 2026)
+
+1. **Option B:** Get Still Pro on Apple opens sign-in first, with a "Buy without an account" link.
+2. The copy in section 4 and the tag in section 5 are approved as written.
+3. ISS-0073 (the tag) ships first, in its own PR and package; ISS-0071 follows.
+
+## Questions the owner answered
 
 1. **A (required) or B (sign-in first, skippable)?** B is recommended; A has a high chance of the
    same 5.1.1(v) rejection Still already received once.
