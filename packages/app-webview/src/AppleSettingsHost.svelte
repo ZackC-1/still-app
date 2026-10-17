@@ -8,6 +8,7 @@
   import PurchaseView from "@still/core/ui/v3/PurchaseView.svelte";
   import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import {
+    APPLE_PURCHASE_SIGN_IN_COPY,
     createAppleProHost,
     type AppleProHostDeps,
   } from "@still/core/ui/v3/apple-pro-host";
@@ -113,6 +114,7 @@
                 }
               : null,
           signIn: () => c.openSignIn(),
+          canSignIn: () => c.canSignIn,
           chooseOtherAccount: async () => {
             await c.signOut();
           },
@@ -160,6 +162,23 @@
     void proRevision;
     return proHost?.canLink ?? false;
   });
+  // ISS-0071: Get Still Pro opened sign-in. The sheet adds one line and "Buy without an account".
+  let purchaseSignIn = $derived.by(() => {
+    void proRevision;
+    return proHost?.signInForPurchase ?? false;
+  });
+  // Closed without signing in (Cancel, the scrim, Escape or any other close): nothing is bought.
+  $effect(() => {
+    if (!c.signInOpen && c.userId === null) untrack(() => proHost?.signInDismissed());
+  });
+  function buyWithoutAccount() {
+    proHost?.buyWithoutAccount();
+    c.dismissSignIn();
+  }
+  // Accountless holders, signed out: "Sign in to keep Still Pro with your account." runs the
+  // existing explicit link. Not now hides it until the app is next opened.
+  let linkInviteDismissed = $state(false);
+  let signedOutLink = $derived(canLink && c.userId === null && c.canSignIn);
   $effect(() => {
     void c.userId;
     void c.accountEmail;
@@ -447,6 +466,13 @@
     {sync}
     pro={settingsPro}
     link={proState?.link}
+    linkInvitation={signedOutLink && !linkInviteDismissed
+      ? {
+          eligibleLaterVisit: true,
+          onLink: () => void proHost?.requestLink(),
+          onDismiss: () => (linkInviteDismissed = true),
+        }
+      : undefined}
     {restore}
     onRestore={restoreBridge ? freeRestore.start : undefined}
     {setup}
@@ -462,7 +488,7 @@
       >
     </div>
   {/if}
-  {#if canLink}<div class="still-ui app">
+  {#if canLink && !signedOutLink}<div class="still-ui app">
       <button type="button" class="link" onclick={() => proHost?.requestLink()}
         >Link Still Pro to an account</button
       >
@@ -488,5 +514,12 @@
 </div>
 
 {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
-  <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />
+  <SignInSheet
+    controller={c}
+    onDismiss={() => c.dismissSignIn()}
+    note={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.note : undefined}
+    skip={purchaseSignIn
+      ? { label: APPLE_PURCHASE_SIGN_IN_COPY.skip, onSkip: buyWithoutAccount }
+      : undefined}
+  />
 {/if}

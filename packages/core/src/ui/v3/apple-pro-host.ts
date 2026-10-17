@@ -46,10 +46,19 @@ export interface AppleProHostDeps {
     intent: ApplePurchaseLinkIntent,
   ): Promise<ApplePurchaseLinkResult>;
   signIn(): void;
+  /** Whether this build can sign in. Present and true, a signed-out Get Still Pro asks for
+   * sign-in first (ISS-0071, ADR 0005); absent or false, it goes straight to Apple as before. */
+  canSignIn?(): boolean;
   chooseOtherAccount(): Promise<void>;
   publish(): void;
   operationId?(): string;
 }
+/** The two lines the sign-in sheet adds when Get Still Pro opened it (ISS-0071, option B). */
+export const APPLE_PURCHASE_SIGN_IN_COPY = {
+  note: "Sign in first, so Still Pro stays with your account.",
+  skip: "Buy without an account",
+} as const;
+
 export function appleProOwnership(
   access: BenefitAccessSnapshot,
 ): "none" | "owned" | "checking" | "verify" {
@@ -81,6 +90,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let linkingRequested = false;
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
+  // ISS-0071: Get Still Pro asked a signed-out person to sign in first. A confirmed sign-in
+  // continues the purchase; cancelling, skipping or leaving the screen drops it.
+  let purchaseSignIn = false;
+  // The purchase that sign-in continued, until it reaches Apple. An account update before then
+  // (the session settling) cancels that preflight; the continuation is re-armed, not lost.
+  let signInContinuation: number | undefined;
   let preflightGeneration: number | undefined;
   let nativeAcquisitionGeneration: number | undefined;
   const changed = () => {
@@ -164,7 +179,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     await refreshLinkEligibility();
     changed();
   }
-  async function transact(kind: "buy" | "restore") {
+  async function transact(kind: "buy" | "restore", fromSignIn = false) {
     if (
       stopped ||
       busy ||
@@ -178,13 +193,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     busy = true;
     const generation = ++epoch;
     preflightGeneration = generation;
+    signInContinuation = fromSignIn ? generation : undefined;
     let verifyingLocal = false;
+    // A purchase started signed in links to that account once it is verified (ISS-0071).
+    let linkTo: AppleProAccount | null = null;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
     restore = kind === "restore" ? { state: "checking" } : undefined;
     changed();
     try {
       const observed = accessEpoch;
       const account = deps.account();
+      const buyer = kind === "buy" && account?.confirmed ? { ...account } : null;
       if (kind === "buy" && account && !account.confirmed && deps.refreshAccountAccess)
         throw new Error("Current account requires verification before purchase");
       const accountCheck = account?.confirmed && deps.refreshAccountAccess;
@@ -227,6 +246,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         return;
       }
       preflightGeneration = undefined;
+      signInContinuation = undefined;
       nativeAcquisitionGeneration = generation;
       const result =
         kind === "buy"
@@ -295,6 +315,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (verifying === accessEpoch) access = verified;
         if (access === verified && appleProOwnership(verified) === "owned") {
           pendingKind = undefined;
+          linkTo = buyer;
           purchase =
             kind === "buy"
               ? { state: "success", confirmed: true }
@@ -335,11 +356,42 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     } finally {
       if (generation === epoch) {
         preflightGeneration = undefined;
+        if (signInContinuation === generation) signInContinuation = undefined;
         busy = false;
-        void refreshLinkEligibility();
+        if (linkTo) void linkPurchased(linkTo);
+        else void refreshLinkEligibility();
         changed();
       }
     }
+  }
+  /** Get Still Pro: signed out on a build that can sign in, ask for sign-in first (ISS-0071). */
+  function buy() {
+    if (stopped) return;
+    if (!deps.account() && deps.canSignIn?.()) {
+      purchaseSignIn = true;
+      changed();
+      deps.signIn();
+      return;
+    }
+    void transact("buy");
+  }
+  /** A purchase started signed in, now verified on this device: link it to that same account
+   * through the existing guarded link (same account and session, a purchaser this device can
+   * prove, the ownership revision it read). Any mismatch leaves Still Pro on this device only. */
+  async function linkPurchased(account: AppleProAccount) {
+    await refreshLinkEligibility();
+    if (
+      stopped ||
+      busy ||
+      link ||
+      owner() !== "owned" ||
+      !eligiblePurchase ||
+      !sameAccount(account)
+    )
+      return;
+    const generation = ++linkGeneration;
+    linkAccount = { ...account };
+    await confirmLink(linkAccount, generation);
   }
   async function requestLink() {
     if (stopped || busy || owner() !== "owned" || !eligiblePurchase) return;
@@ -452,12 +504,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     },
     close() {
       opening = false;
+      purchaseSignIn = false;
       changed();
     },
     accountChanged() {
       // Cancel only checks that have not reached native purchase/Restore. A dispatched
       // purchase still needs its independent signed-rights recovery, never another charge.
       if (preflightGeneration === epoch) {
+        if (signInContinuation === preflightGeneration) purchaseSignIn = true;
+        signInContinuation = undefined;
         preflightGeneration = undefined;
         if (pendingKind === undefined) {
           purchase = { state: "idle" };
@@ -474,7 +529,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       if (linkingRequested && !linkAccount && deps.account()?.confirmed)
         requestLink();
-      if (deps.account()?.confirmed && deps.refreshAccountAccess) void refresh();
+      if (purchaseSignIn && deps.account()?.confirmed) {
+        // Signed in from Get Still Pro: continue to Apple's sheet without a second tap. The
+        // purchase's own fresh account check replaces the ordinary refresh.
+        purchaseSignIn = false;
+        void transact("buy", true);
+      } else if (deps.account()?.confirmed && deps.refreshAccountAccess) void refresh();
       changed();
     },
     /** Takes a pending still://pro. `pending` is the route the app router already read once
@@ -514,12 +574,13 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           : {}),
         native: {
           verified: deps.bridge.available,
-          onBuy: () => void transact("buy"),
+          onBuy: buy,
           onRestore: () => void transact("restore"),
           ...(!busy ? { onVerify: () => void refresh() } : {}),
         },
         onBack: () => {
           opening = false;
+          purchaseSignIn = false;
           changed();
         },
       };
@@ -552,6 +613,23 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       };
     },
     requestLink,
+    /** The sign-in sheet was closed without signing in: nothing is bought. */
+    signInDismissed() {
+      if (!purchaseSignIn) return;
+      purchaseSignIn = false;
+      changed();
+    },
+    /** "Buy without an account": Apple's sheet, exactly as an accountless purchase always was. */
+    buyWithoutAccount() {
+      if (stopped || !purchaseSignIn) return;
+      purchaseSignIn = false;
+      changed();
+      void transact("buy");
+    },
+    /** True while the sign-in sheet is open because Get Still Pro asked for it. */
+    get signInForPurchase() {
+      return purchaseSignIn;
+    },
     get open() {
       return opening;
     },

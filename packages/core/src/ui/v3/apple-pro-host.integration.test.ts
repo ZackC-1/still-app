@@ -39,6 +39,7 @@ import {
   initialAccessSnapshot,
 } from "../../entitlement/access-policy.js";
 import { UiController } from "../controller.svelte.js";
+import { STRINGS } from "../strings.js";
 import {
   appleSettingsCacheOptions,
   createAppleSettingsAuthority,
@@ -90,6 +91,8 @@ async function compose(
     verificationHeld?: boolean;
     purchasePending?: boolean;
     observeSetup?: () => Promise<SafariSetupObservation | null>;
+    /** The app's email-code sign-in, starting signed out (ISS-0071). */
+    codeAuth?: boolean;
   } = {},
 ) {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
@@ -198,8 +201,15 @@ async function compose(
     hydration: cache.whenHydrated(),
   });
   authorities.push(authority);
-  const controller = new UiController({ cache, host: { canPurchase: true },
+  const controller: UiController = new UiController({ cache, host: { canPurchase: true },
     ...(options.accountOnly ? {auth: {signOut: async () => {}, currentVerifiedAccount: async () => ({id: accountId, email: "account@still.test", emailConfirmed: true})}} : {}),
+    ...(options.codeAuth ? {auth: {
+      signOut: async () => {},
+      requestCode: async () => ({ kind: "sent" as const }),
+      verifyCode: async (email: string) => ({ kind: "verified" as const, userId: accountId, email }),
+      currentVerifiedAccount: async () => controller.userId === accountId
+        ? {id: accountId, email: "account@still.test", emailConfirmed: true} : null,
+    }} : {}),
   });
   const accountAuthority = options.accountOnly ? createApplePurchaseAuthority({
     trust: {environment: "sandbox", keys: []}, bridge: native,
@@ -1031,5 +1041,90 @@ describe("mounted Apple known account removal", () => {
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
     expect(f.purchase).not.toHaveBeenCalled();
     expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+// ISS-0071 (owner decision, option B; ADR 0005): signed out, Get Still Pro opens the app's
+// email-code sign-in first, with one added line and "Buy without an account" under it.
+describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
+  const NOTE = "Sign in first, so Still Pro stays with your account.";
+  const SKIP = "Buy without an account";
+  async function openBuy() {
+    const f = await compose({ codeAuth: true });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    return f;
+  }
+  it("signed out, Get Still Pro opens the email-code sign-in with the line and the skip link", async () => {
+    const f = await openBuy();
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText(NOTE)).toBeVisible();
+    expect(within(sheet).getByRole("button", { name: SKIP })).toBeVisible();
+    expect(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel })).toBeVisible();
+    expect(f.purchase).not.toHaveBeenCalled();
+  });
+  it("cancelling sign-in opens no Apple sheet and changes nothing", async () => {
+    const f = await openBuy();
+    const sheet = await screen.findByRole("dialog");
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.auth.cancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.controller.userId).toBeNull();
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
+  });
+  it("Buy without an account goes straight to Apple's sheet, as before", async () => {
+    const f = await openBuy();
+    await fireEvent.click(await screen.findByRole("button", { name: SKIP }));
+    await waitFor(() => expect(f.purchase).toHaveBeenCalledOnce());
+    expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    expect(f.controller.userId).toBeNull();
+  });
+  it("signing in continues to Apple's sheet without a second tap and links the purchase", async () => {
+    const f = await openBuy();
+    const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+    await fireEvent.input(email, { target: { value: "account@still.test" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+    const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    await fireEvent.input(code, { target: { value: "123456" } });
+    expect(f.purchase).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+    await waitFor(() => expect(f.purchase).toHaveBeenCalledOnce());
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(f.linkPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ intendedAccountId: f.controller.userId, expectedOwnershipRevision: 0 }),
+    );
+    expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
+  });
+  it("the purchase screen never says No account needed", async () => {
+    await openBuy();
+    expect(document.body.textContent).not.toMatch(/No account needed/i);
+    expect(screen.getByText("Payment is handled by Apple.")).toBeInTheDocument();
+  });
+  it("an accountless holder sees the sign-in card; Not now hides it and Sign in runs the explicit link", async () => {
+    const f = await compose({ codeAuth: true, initial: "purchased" });
+    const card = await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." });
+    expect(within(card).getByText("Sign in to keep Still Pro with your account.")).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Sign in" })).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Not now" })).toBeVisible();
+    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText("So you can restore it in other browsers. Optional.")).toBeNull();
+    await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(f.controller.signInOpen).toBe(true));
+    const sheet = await screen.findByRole("dialog");
+    // The explicit link's sign-in is not a purchase: no purchase line, no skip link.
+    expect(within(sheet).queryByText(NOTE)).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: SKIP })).toBeNull();
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Not now hides the accountless holder's card", async () => {
+    await compose({ codeAuth: true, initial: "purchased" });
+    const card = await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." });
+    await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Sign in to keep Still Pro with your account." })).toBeNull(),
+    );
   });
 });

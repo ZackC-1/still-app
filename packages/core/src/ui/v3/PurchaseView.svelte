@@ -267,7 +267,7 @@
           style="text-align:center;"
         >
           {props.host === "apple"
-            ? "Payment is handled by Apple. No account needed."
+            ? "Payment is handled by Apple."
             : confirmedAccount
               ? "Checkout opens in a new tab."
               : "You'll sign in first, so you can restore Still Pro in other browsers."}

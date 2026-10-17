@@ -22,6 +22,8 @@ import AppleSettings from "./AppleSettings.svelte";
 import SyncCard from "./SyncCard.svelte";
 import { STRINGS } from "../strings.js";
 import ProOfferCard from "./ProOfferCard.svelte";
+// ISS-0071: the accountless holder's invitation (was "Link Still Pro to an account").
+const INVITE = "Sign in to keep Still Pro with your account.";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 /** Existing paid/consent fixtures supply both producers; absence is tested separately. */
@@ -281,7 +283,7 @@ describe("controlled D04 Apple settings", () => {
     expect(buy).toHaveBeenCalledTimes(2);
     expect(props.sync.onSignIn).not.toHaveBeenCalled();
     expect(screen.queryByText("fixture verified localized offer")).toBeNull();
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(props.sharing.onChange).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(props.sync.onSignIn).toHaveBeenCalledOnce();
@@ -304,7 +306,7 @@ describe("controlled D04 Apple settings", () => {
       within(purchased).queryByRole("button", { name: "Restore purchase" }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(await storage.get()).toEqual(saved);
     view.unmount();
   });
@@ -461,16 +463,16 @@ describe("controlled D04 Apple settings", () => {
     };
     const saved = await storage.get();
     const view = render(AppleSettings, { props });
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     props.linkInvitation.eligibleLaterVisit = true;
     await view.rerender(props);
-    await fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
     await fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(link).toHaveBeenCalledOnce();
     expect(dismiss).toHaveBeenCalledOnce();
     props.sharing.state = "unasked";
     await view.rerender(props);
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     props.sharing.state = "off";
     props.setup = {
       title: "Supplied setup",
@@ -479,15 +481,54 @@ describe("controlled D04 Apple settings", () => {
       actionLabel: "Supplied action",
     };
     await view.rerender(props);
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     props.setup = undefined;
     props.restore = { state: "failed" };
     await view.rerender(props);
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(await storage.get()).toEqual(saved);
     view.unmount();
   });
 
+  it("words the accountless holder's invitation as one sign-in line with Sign in and Not now (ISS-0071)", async () => {
+    const { props } = await fixture("purchased");
+    const onLink = vi.fn();
+    const view = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: { ownership: "owned", channel: "unverified" },
+        restore: undefined,
+        setup: undefined,
+        link: undefined,
+        sharing: undefined,
+        linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss: vi.fn() },
+      },
+    });
+    const card = screen.getByRole("region", { name: INVITE });
+    expect(within(card).getByRole("heading", { name: INVITE })).toBeVisible();
+    expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Sign in", "Not now"]);
+    expect(card.textContent).not.toMatch(/Link Still Pro to an account|So you can restore it|Optional/);
+    await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
+    expect(onLink).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+  it("shows the invitation beside a concluded Restore, so a restored holder can sign in (ISS-0071)", async () => {
+    const { props } = await fixture("purchased");
+    const view = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: { ownership: "owned", channel: "unverified" },
+        restore: { state: "restored" },
+        setup: undefined,
+        link: undefined,
+        sharing: undefined,
+        linkInvitation: { eligibleLaterVisit: true, onLink: vi.fn(), onDismiss: vi.fn() },
+      },
+    });
+    expect(screen.getByText("Still Pro is restored on this device.")).toBeVisible();
+    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    view.unmount();
+  });
   it("keeps combined sharing explicit with approved purposes and routes supplied setup/help/link/verification actions", async () => {
     const { props, storage } = await fixture("locked");
     const share = vi.fn(),
@@ -1392,7 +1433,7 @@ describe("D04 optional paid and combined-consent producers", () => {
       expect(screen.getByText("Settings sync")).toBeVisible();
       expect(screen.queryByText("Still Pro and sync")).toBeNull();
       expect(screen.queryByText("Purchased")).toBeNull();
-      expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+      expect(screen.queryByText(INVITE)).toBeNull();
       await fireEvent.click(
         screen.getByRole("button", { name: "YouTube Blocker" }),
       );
@@ -1451,8 +1492,8 @@ describe("D04 optional paid and combined-consent producers", () => {
           linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss },
         },
       });
-      expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
+      expect(screen.queryByText(INVITE)).toBeNull();
+      expect(screen.queryByRole("region", { name: INVITE })).toBeNull();
       expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
       expect(onLink).not.toHaveBeenCalled();
       expect(onDismiss).not.toHaveBeenCalled();
@@ -1485,11 +1526,11 @@ describe("D04 optional paid and combined-consent producers", () => {
     expect(
       screen.queryByText("Share your email and usage data with Still?"),
     ).toBeNull();
-    expect(screen.getByText("Link Still Pro to an account")).toBeVisible();
+    expect(screen.getByText(INVITE)).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Keep legacy usage sharing off" }),
     ).toBeVisible();
-    await fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
     expect(onLink).toHaveBeenCalledOnce();
     expect(onDismiss).not.toHaveBeenCalled();
     view.unmount();
