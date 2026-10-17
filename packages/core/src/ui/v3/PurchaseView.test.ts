@@ -126,9 +126,9 @@ describe("controlled D18 purchase view", () => {
       expect(props.native.onBuy).toHaveBeenCalledOnce();
       expect(props.native.onRestore).toHaveBeenCalledOnce();
     }
-    expect(
-      screen.getByText("Payment is handled by Apple. No account needed."),
-    ).toBeTruthy();
+    // ISS-0071: the line no longer claims no account is needed (sign-in is offered first).
+    expect(screen.getByText("Payment is handled by Apple.")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/No account needed/i);
   });
   for (const state of [
     "owned",
@@ -456,5 +456,21 @@ describe("Apple Buy the App Store never started (ISS-0070)", () => {
       screen.getByText("If you were charged, Restore purchase will find it."),
     ).toBeVisible();
     expect(screen.queryByText("Still Pro couldn't be bought right now.")).toBeNull();
+  });
+});
+
+// ISS-0071 copy rule: no Apple purchase surface says "No account needed" any more.
+describe("Apple purchase surfaces never say No account needed (ISS-0071)", () => {
+  it.each([
+    "PurchaseView.svelte",
+    "NativeProOfferCard.svelte",
+    "AppleSettings.svelte",
+    "apple-pro-host.ts",
+    "../../../../app-webview/src/AppleSettingsHost.svelte",
+  ])("%s", async (file) => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const source = readFileSync(resolve(import.meta.dirname, file), "utf8");
+    expect(source).not.toMatch(/No account needed/i);
   });
 });

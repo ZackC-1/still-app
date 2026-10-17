@@ -994,3 +994,279 @@ describe("Apple operation cleanup ownership", () => {
     expect(h.deps.bridge.restorePro).not.toHaveBeenCalled();
   });
 });
+
+// ISS-0071 (owner decision, option B; ADR 0005): on Apple, Get Still Pro asks a signed-out person
+// to sign in first, with "Buy without an account" under it. The purchase then continues by itself,
+// and a purchase started signed in links to that account through the existing guarded link path.
+describe("Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
+  async function signInCapable() {
+    const h = await harness();
+    h.deps.canSignIn = () => true;
+    return h;
+  }
+  const other = { ...user, id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", revision: 2 };
+  it("signed out, Get Still Pro opens sign-in and never Apple's sheet", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.host.signInForPurchase).toBe(true);
+    expect(h.host.props([]).purchase.state).toBe("idle");
+  });
+  it("cancelling that sign-in opens no Apple sheet, and a later sign-in buys nothing", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    h.host.signInDismissed();
+    expect(h.host.signInForPurchase).toBe(false);
+    h.setAccount(user);
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.host.props([]).purchase.state).toBe("idle");
+  });
+  it("a successful sign-in continues to Apple's sheet without a second tap and links to that account", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    // Signed in but not yet confirmed: still waiting, nothing charged.
+    h.setAccount({ ...user, confirmed: false });
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    h.setAccount(user);
+    await vi.waitFor(() => expect(h.deps.linkPurchase).toHaveBeenCalledOnce());
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledWith(offer);
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    expect(h.host.signInForPurchase).toBe(false);
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(h.deps.linkPurchase).toHaveBeenCalledWith({
+      intendedAccountId: user.id,
+      expectedOwnershipRevision: 0,
+      operationId: "00000000-0000-4000-8000-000000000001",
+    });
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+  });
+  it("an account update while the continued purchase is still checking re-arms it instead of losing it", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    let release!: (value: BenefitAccessSnapshot) => void;
+    vi.mocked(h.deps.readAccess).mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    h.setAccount(user);
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    // The session settles: a new revision, briefly unconfirmed, then confirmed again.
+    h.setAccount({ ...user, revision: 2, confirmed: false });
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    h.setAccount({ ...user, revision: 2 });
+    release(access("locked"));
+    await vi.waitFor(() => expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce());
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+  });
+  it("Buy without an account goes straight to Apple's sheet and links nothing", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    h.host.buyWithoutAccount();
+    await h.settle();
+    expect(h.host.signInForPurchase).toBe(false);
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    // Signing in afterwards neither buys again nor links on its own.
+    h.setAccount(user);
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Buy without an account is inert unless Get Still Pro asked for sign-in", async () => {
+    const h = await signInCapable();
+    h.host.buyWithoutAccount();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+  });
+  it("already signed in, there is no sign-in step and the purchase links to the account", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.deps.linkPurchase).toHaveBeenCalledOnce());
+    expect(h.deps.signIn).not.toHaveBeenCalled();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(h.deps.linkPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ intendedAccountId: user.id, expectedOwnershipRevision: 0 }),
+    );
+  });
+  it("an account switch while Apple's sheet is open never links, and Still Pro stays on this device", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementation(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce());
+    h.setAccount(other);
+    finish(owned);
+    await h.settle();
+    await h.host.refresh();
+    await h.settle();
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.host.settings().link).toBeUndefined();
+  });
+  it("signing out during verification never links", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    let verified!: (value: BenefitAccessSnapshot) => void;
+    vi.mocked(h.deps.verifyLocalPurchase).mockImplementationOnce(
+      () => new Promise((resolve) => { verified = resolve; }),
+    );
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce());
+    h.setAccount(null);
+    verified(access("purchased"));
+    await h.settle();
+    await h.host.refresh();
+    await h.settle();
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a purchaser the device cannot prove is never linked; the failed card offers Try again", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue(null);
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.host.settings().link?.state).toBe("failed"));
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    // Try again re-runs the same guarded link once the purchaser can be proved.
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 0 });
+    h.host.settings().link?.onRetry?.();
+    await vi.waitFor(() => expect(h.host.settings().link?.state).toBe("linked"));
+    expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+  });
+  it("an overlapping access refresh during the automatic link cannot silently drop it", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    const reads: Array<(value: { ownershipRevision: number } | null) => void> = [];
+    vi.mocked(h.deps.readLinkEligibility!).mockImplementation(
+      () => new Promise((resolve) => { reads.push(resolve); }),
+    );
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(reads.length).toBe(1));
+    // An app return or still:accountAccess republishes access while the link reads eligibility.
+    h.host.observeAccess(access("purchased"));
+    await vi.waitFor(() => expect(reads.length).toBe(2));
+    reads[1]!(null);
+    await h.settle();
+    reads[0]!({ ownershipRevision: 0 });
+    await h.settle();
+    for (const read of reads.slice(2)) read({ ownershipRevision: 0 });
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 0 });
+    await h.settle();
+    await vi.waitFor(() => expect(h.host.settings().link?.state).toMatch(/linked|failed/));
+    expect(h.host.settings().link).toBeDefined();
+  });
+  it("signed in without an address yet, Get Still Pro is never a dead button", async () => {
+    const h = await signInCapable();
+    h.deps.signedIn = () => true;
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.deps.signIn).not.toHaveBeenCalled();
+    expect(h.host.signInForPurchase).toBe(false);
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+  });
+  it("a sign-out during the continued check drops the continuation", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    let release!: (value: BenefitAccessSnapshot) => void;
+    vi.mocked(h.deps.readAccess).mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    h.setAccount(user);
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    h.setAccount(null);
+    expect(h.host.signInForPurchase).toBe(false);
+    release(access("locked"));
+    await h.settle();
+    h.setAccount(user);
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+  });
+  it("a switch to another account during the continued check opens no sheet and links nothing", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    let release!: (value: BenefitAccessSnapshot) => void;
+    vi.mocked(h.deps.readAccess).mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    h.setAccount(user);
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    h.setAccount(other);
+    release(access("locked"));
+    await h.settle();
+    expect(h.host.signInForPurchase).toBe(false);
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("the continuation is re-armed at most once", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    vi.mocked(h.deps.readAccess).mockImplementation(() => new Promise(() => {}));
+    h.setAccount(user);
+    await h.settle();
+    h.setAccount({ ...user, revision: 2 }); // first update: re-armed and continued again
+    await h.settle();
+    h.setAccount({ ...user, revision: 3 }); // second update: dropped
+    await h.settle();
+    expect(h.host.signInForPurchase).toBe(false);
+    // The harness's first read, the continued purchase, and its one re-armed retry.
+    expect(vi.mocked(h.deps.readAccess).mock.calls.length).toBe(3);
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+  });
+  it("a failed link keeps Still Pro on this device and offers Try again", async () => {
+    const h = await signInCapable();
+    vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "unavailable" });
+    h.setAccount(user);
+    await h.settle();
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.host.settings().link?.state).toBe("failed"));
+    expect(h.host.settings().link?.onRetry).toBeTypeOf("function");
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+  });
+  it("Restore works signed out and never asks for sign-in", async () => {
+    const h = await signInCapable();
+    h.host.props([]).native.onRestore?.();
+    await h.settle();
+    expect(h.host.settings().restore?.state).toBe("restored");
+    expect(h.deps.signIn).not.toHaveBeenCalled();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("leaving the Still Pro screen drops the purchase sign-in, so a later sign-in buys nothing", async () => {
+    const h = await signInCapable();
+    h.host.show();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    h.host.close();
+    expect(h.host.signInForPurchase).toBe(false);
+    h.setAccount(user);
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+  });
+});

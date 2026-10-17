@@ -7,8 +7,12 @@
   interface Props {
     controller: UiController;
     onDismiss: () => void;
+    /** One added line under the prompt, supplied by the host that opened the sheet. */
+    note?: string;
+    /** A host-supplied way to continue without signing in (Apple Get Still Pro, ISS-0071). */
+    skip?: { label: string; onSkip: () => void };
   }
-  let { controller: c, onDismiss }: Props = $props();
+  let { controller: c, onDismiss, note, skip }: Props = $props();
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
@@ -121,6 +125,7 @@
       {inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}
     {/if}
   </p>
+  {#if note}<p class="body">{note}</p>{/if}
 
   {#if c.needsEmailConsent}
     <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
@@ -233,6 +238,10 @@
             : (c.authError ?? STRINGS.auth.error)}
       </p>
     {/if}
+  {/if}
+
+  {#if skip}
+    <button class="link" onclick={skip.onSkip}>{skip.label}</button>
   {/if}
 
   <button class="dismiss" onclick={onDismiss}>

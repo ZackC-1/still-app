@@ -32,7 +32,9 @@ prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highli
 accounts, Threads links; Facebook Stories, Videos, sidebar ads. Dormant in shipped 2.x builds.
 
 Pro is a property of an Entitlement, not of an account: Apple receipt ownership can work without
-an account, while an account carries entitlement between supported surfaces. Shipped 2.x access
+an account, while an account carries entitlement between supported surfaces. On Apple (V3), Get
+Still Pro offers sign-in first, skippable with "Buy without an account", and a purchase started
+signed in is linked to that account; Restore never needs sign-in (ADR 0005). Shipped 2.x access
 requires neither form of entitlement, and free blocking and sync never require Pro.
 
 ### Entitlement

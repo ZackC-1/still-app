@@ -178,9 +178,11 @@
       !accessHeld &&
       !setup &&
       !link &&
-      !restore &&
+      // A concluded Restore may sit beside it (ISS-0071: restored holders are invited to sign in).
+      (!restore || restore.state === "restored") &&
       !confirming &&
-      (!pro?.state || pro.state === "idle") &&
+      // Also right after a completed purchase (ISS-0071: one bought without an account).
+      (!pro?.state || pro.state === "idle" || pro.state === "success") &&
       sharing?.state !== "unasked" &&
       (!sharing?.withdrawal || sharing.withdrawal === "none") &&
       sync.account?.status?.tone !== "failed",
@@ -302,19 +304,17 @@
       : undefined}
   />
   {#if showInvitation}
-    <section class="card card-stack" aria-label="Link Still Pro to an account">
+    <!-- ISS-0071: one line for accountless holders; Sign in runs the existing explicit link. -->
+    <section class="card card-stack" aria-label="Sign in to keep Still Pro with your account.">
       <div class="sync-row-text">
-        <h2 class="sync-row-title">Link Still Pro to an account</h2>
-        <p class="muted sync-row-sub">
-          So you can restore it in other browsers. Optional.
-        </p>
+        <h2 class="sync-row-title">Sign in to keep Still Pro with your account.</h2>
       </div>
       <div class="inline-actions">
         <button
           type="button"
           class="primary inline"
           disabled={!linkInvitation?.onLink}
-          onclick={linkInvitation?.onLink}>Link</button
+          onclick={linkInvitation?.onLink}>Sign in</button
         >
         <button
           type="button"

@@ -51,6 +51,15 @@ The current reviewer flow is:
    account deletion is in-app, and export help is available through `privacy@stillapp.fit`.
 5. Explain the Safari-only mobile boundary and retained legacy purchase product in review notes.
 
+For a V3 submission with Still Pro on ([ADR 0005](../adr/0005-apple-still-pro-purchase-starts-with-sign-in.md)),
+signed out, Get Still Pro opens the email-code sign-in first, with a "Buy without an account" link
+that goes straight to Apple's sheet; Restore never needs sign-in. Use these review notes (the
+review account goes only in the private portal fields, never in this repository):
+
+```
+Still Pro is a one-time purchase that unlocks twelve extra controls in Safari on this device and in Still for Chrome and Firefox on the person's other computers. The Still account (an emailed six-digit code, no password) is how one purchase reaches the browsers that are not on Apple devices. Blocking YouTube Shorts and Reels, and settings sync, need no account and no purchase. Restore purchase works without signing in. Sign-in details for review: [review account]. Signing in is offered before purchase and can be skipped with 'Buy without an account'.
+```
+
 The [auth/reviewer runbook](extension-purchase-deploy-checklist.md) governs fixed-code access.
 Do not rotate or disable the shared reviewer code while either submitted platform still needs it.
 Never put account credentials in this repository.

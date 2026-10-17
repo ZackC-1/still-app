@@ -103,6 +103,16 @@ purchases follow Apple's refund process). One qualifying purchase covers support
 through the approved Restore flow. Free blocking and sync never require Pro. Full contract:
 [V3 release record](release/history/v3/README.md).
 
+Apple purchase and sign-in (V3, [ADR 0005](adr/0005-apple-still-pro-purchase-starts-with-sign-in.md)):
+signed out, Get Still Pro in the iPhone and Mac apps opens the email-code sign-in first, with
+"Sign in first, so Still Pro stays with your account." and a "Buy without an account" link that
+goes straight to Apple's sheet. Cancelling opens no Apple sheet. After sign-in the purchase continues
+without a second tap and, once verified, is linked to that account (same account and session,
+purchased not family-shared, same ownership revision; otherwise Still Pro stays on the device only).
+A failed link keeps Still Pro on the device and offers Try again. Restore works signed out. A signed-out
+holder sees "Sign in to keep Still Pro with your account." with Sign in and Not now. The Safari
+popup's Get Still Pro opens the app; Chrome and Firefox purchases already need an account.
+
 ## Retained purchase infrastructure
 
 In shipped 2.x, `PAID_TIER_ENABLED` and `MonetizationConfig.paidTierEnabled` are both `false`.
