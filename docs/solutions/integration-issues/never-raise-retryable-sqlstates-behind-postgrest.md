@@ -64,6 +64,11 @@ terminate exactly those with an owner-approved `pg_terminate_backend`; PostgREST
 connections by itself. The runbook is
 `docs/plans/2026-10-17-001-fix-legacy-settings-infinite-retry.md`.
 
+On the hosted project (PostgREST 14) the redefinition was enough: within a minute of the deploy
+the rollback rate fell to zero, the log line stopped, and the looping backends, which had run for
+about 36 hours, closed on their own. No termination was needed. Keep the check anyway; a
+different loop shape may not re-read the function.
+
 ## Prevention
 
 - `scripts/backend/deploy/deploy.test.mjs` scans every migration (latest definition wins) and
