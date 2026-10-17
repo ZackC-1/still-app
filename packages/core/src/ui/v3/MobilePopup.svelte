@@ -6,6 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
+    proPurchased,
     proRowsDormant,
     rowsFor,
   } from "./presentation.js";
@@ -18,6 +19,7 @@
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
+  import StillProTag from "./StillProTag.svelte";
   import "./design/styles.css";
 
   let {
@@ -83,6 +85,8 @@
   let shownAccess = $derived(offerAccess(access, account?.address ?? null));
   let knownMissing = $derived(proKnownMissing(shownAccess));
   let dormant = $derived(proRowsDormant(access));
+  // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
+  let stillPro = $derived(proPurchased(access));
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
   );
@@ -275,13 +279,20 @@
     <div class="sync-row">
       <div class="sync-row-text">
         <h2 class="sync-row-title">Settings sync</h2>
-        <p class="muted sync-row-sub">
-          {account
-            ? account.address
-            : "Free. Keep your block settings consistent across every supported device and browser."}
-        </p>
+        {#if account}<p class="muted sync-row-sub account-line">
+            {#if account.address}<span class="account-address"
+                >{account.address}</span
+              >{/if}
+            {#if stillPro}<StillProTag />{/if}
+          </p>{:else}<p class="muted sync-row-sub">
+            Free. Keep your block settings consistent across every supported device and browser.
+          </p>{/if}
       </div>
-      {#if !account && onSignIn}<div class:popup-action={handoff}><button
+      {#if !account && stillPro && !onSignIn}<StillProTag />{/if}
+      {#if !account && onSignIn}<div
+          class:popup-action={handoff}
+          class:pro-signin={stillPro}
+        >{#if stillPro}<StillProTag />{/if}<button
           type="button"
           class="primary inline"
           class:with-glyph={handoff}

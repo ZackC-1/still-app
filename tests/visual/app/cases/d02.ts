@@ -10,7 +10,7 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { FrameSpec, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY, POPUP_PRO_CARD } from "./shared.js";
+import { OWNER_SYNC_COPY, POPUP_PRO_CARD, STILL_PRO_TAG } from "./shared.js";
 
 const screen = "d02-mobile-popup";
 
@@ -103,7 +103,7 @@ const cases: VisualCase[] = [
         values: { yt_comments: true, yt_autoplay: true },
       }),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -185,6 +185,7 @@ const cases: VisualCase[] = [
         },
       },
     }),
+    deviations: [STILL_PRO_TAG],
   },
   {
     ...base,
@@ -252,7 +253,7 @@ const cases: VisualCase[] = [
       settings: settingsFor({ values: { yt_endscreen: true } }),
       labels: labelsFor(DE_YT),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
 ];
 

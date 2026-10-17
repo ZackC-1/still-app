@@ -2,6 +2,7 @@
   import type { SyncCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   import SyncSummary from "./SyncSummary.svelte";
+  import StillProTag from "./StillProTag.svelte";
   import {
     SHARED_DATA_COPY,
     WITHDRAWAL_OUTCOMES,
@@ -11,6 +12,7 @@
     account,
     onSignIn,
     accountActions,
+    stillPro = false,
   }: SyncCardProps = $props();
   const icons = {
     pending: "spinner",
@@ -36,7 +38,12 @@
   <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
   <h2 class="card-title">Settings sync</h2>
   {#if account}
-    {#if account.address}<p class="synced">{account.address}</p>{/if}
+    {#if account.address || stillPro}<p class="synced account-line">
+        {#if account.address}<span class="account-address"
+            >{account.address}</span
+          >{/if}
+        {#if stillPro}<StillProTag />{/if}
+      </p>{/if}
     {#if account.status}
       <div
         class="status-line"
@@ -141,12 +148,19 @@
     <p class="muted">
       Free. Keep your block settings consistent across every supported device and browser.
     </p>
-    <button
-      type="button"
-      class="primary block"
-      disabled={!onSignIn}
-      onclick={onSignIn}>Sign in</button
-    >
+    {#if stillPro}<div class="account-signin">
+        <StillProTag /><button
+          type="button"
+          class="primary block"
+          disabled={!onSignIn}
+          onclick={onSignIn}>Sign in</button
+        >
+      </div>{:else}<button
+        type="button"
+        class="primary block"
+        disabled={!onSignIn}
+        onclick={onSignIn}>Sign in</button
+      >{/if}
   {/if}
   {#if accountActions}{@render accountActions()}{/if}
 </section>
