@@ -1,4 +1,4 @@
--- Current modern prerequisites for the fixed QA function operation, after 0021.
+-- Current modern prerequisites for the fixed QA function operation, after 0024 (released apps' settings RPC body).
 -- One read-only SELECT. Private catalog facts are hashed in memory, never printed.
 -- Complements the 0021 gate; does not rerun the initial-Off/exact-era 0015/0016 gates.
 with recursive
@@ -21,13 +21,13 @@ client_reach(oid) as (
  ('private.read_product_policy_state(uuid,text,text)',true,'still_policy_admin','2a1de40e3d9e718c86387e9205ca70d2'),
  ('private.preview_product_policy(uuid,text,text,bigint,text,bigint)',true,'still_policy_admin','d8ccd612daf98806810c07d3135d5892'),
  ('private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])',true,'still_policy_admin','24cd12ae029693fd59ff3e6e5054f4ca'),
- ('public.write_profile_settings(jsonb,uuid)',true,'authenticated','a77f3d44e9cd733e57d24aedcdebddfd'),
+ ('public.write_profile_settings(jsonb,uuid)',true,'authenticated','4a0d205e2d0a57d4677a60c01c26c344'),
  ('public.consume_rate_limit(text,integer,integer)',true,'still_analytics_eraser,still_entitlement_writer,still_settings_writer','2b78affbf6ca0102c1e2cdcc08f1196e')
 ), prerequisite_routines as (
  select e.*,p.oid,p.proowner,p.prosecdef,p.prosrc,p.proacl,p.proconfig
  from expected e left join pg_catalog.pg_proc p on p.oid=pg_catalog.to_regprocedure(e.sig)
 ), issues(code) as (
- select 'missing_history:'||v from unnest(array['0015','0016','0019','0020','0021']) v
+ select 'missing_history:'||v from unnest(array['0015','0016','0019','0020','0021','0024']) v
  where not exists(select 1 from supabase_migrations.schema_migrations m where m.version=v)
  union all select 'missing_routine:'||sig from prerequisite_routines where oid is null
  union all select 'routine_owner:'||sig from prerequisite_routines where proowner is distinct from
