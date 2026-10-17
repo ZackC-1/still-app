@@ -32,7 +32,7 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: "2.119.0"
-      - name: Parse migration 0015 SQL and all PLpgSQL bodies
+      - name: Parse migrations 0015 and 0024 SQL and all PLpgSQL bodies
         run: |
           python3 -m venv "$RUNNER_TEMP/u3-parser"
           "$RUNNER_TEMP/u3-parser/bin/python" -m pip install --disable-pip-version-check pglast==7.20
@@ -40,11 +40,12 @@ jobs:
           from pathlib import Path
           import re
           from pglast import parse_sql, parse_plpgsql
-          source = Path('supabase/migrations/0015_settings_sync_per_field.sql').read_text()
-          print('statements', len(parse_sql(source)), 'PLpgSQL', len(parse_plpgsql(source)))
-          for body in re.findall(r'\$\$(.*?)\$\$', source, re.S):
-              if body.lstrip().lower().startswith(('select ', 'with ', 'delete ', 'set ')):
-                  parse_sql(body)
+          for name in ('0015_settings_sync_per_field.sql', '0024_legacy_settings_guard_non_retryable.sql'):
+              source = Path('supabase/migrations/' + name).read_text()
+              print(name, 'statements', len(parse_sql(source)), 'PLpgSQL', len(parse_plpgsql(source)))
+              for body in re.findall(r'\$\$(.*?)\$\$', source, re.S):
+                  if body.lstrip().lower().startswith(('select ', 'with ', 'delete ', 'set ')):
+                      parse_sql(body)
           PY
       - name: Verify local source boundaries and actual root Deno configuration
         run: |

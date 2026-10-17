@@ -50,6 +50,7 @@ import {
   issueCounts,
   runReplay,
   sha256,
+  stripComments,
 } from "./deploy.mjs";
 
 const SECRET = "synthetic-password-sentinel-9f2c";
@@ -268,6 +269,191 @@ test("actual 0022 plan binds its account-deletion gate and bounded-repair invari
   const open = source.indexOf("$$", start);
   const body = source.slice(open + 2, source.indexOf("$$", open + 2));
   assert.match(gate, new RegExp(`'${createHash("md5").update(body).digest("hex")}'`));
+});
+
+test("actual 0024 plan binds its legacy-guard gate and changes only the released apps' settings RPC", async (t) => {
+  const { root, head } = await qaMigrationRepo(t, 24);
+  const p = await plan(root, head, "0024_legacy_settings_guard_non_retryable.sql");
+  assert.equal(p.priorMigrations.length, 23);
+  assert.equal(p.expectedHistoryBefore.at(-1).version, "0023");
+  assert.deepEqual(p.expectedHistoryAfter.at(-1), {
+    version: "0024",
+    name: "legacy_settings_guard_non_retryable",
+  });
+  const [migration] = p.migrations;
+  for (const [kind, filename] of [
+    ["verification", "0024_legacy_settings_guard_non_retryable.sql"],
+    ["invariant", "0024_legacy_settings_guard_non_retryable.invariant.sql"],
+  ]) {
+    const bytes = await readFile(new URL(`./verify/${filename}`, import.meta.url));
+    assert.deepEqual(migration[kind], {
+      path: `scripts/backend/deploy/verify/${filename}`,
+      sha256: sha256(bytes),
+    });
+    assert.equal(lintVerificationSql(bytes.toString()), true);
+  }
+  const read = (path) => readFile(new URL(`../../../${path}`, import.meta.url), "utf8");
+  const source = await read("supabase/migrations/0024_legacy_settings_guard_non_retryable.sql");
+  assert.deepEqual([...routinesChanged(source)], ["public.write_profile_settings"]);
+  const gate = await read("scripts/backend/deploy/verify/0024_legacy_settings_guard_non_retryable.sql");
+  assert.deepEqual([...routinesPinned(gate)], ["public.write_profile_settings"]);
+  const bodyOf = (sql) => {
+    const open = sql.indexOf("$$", sql.indexOf("function public.write_profile_settings(")) + 2;
+    return sql.slice(open, sql.indexOf("$$", open));
+  };
+  const md5 = (text) => createHash("md5").update(text).digest("hex");
+  // The new body is the 0015 body with exactly one change: the guard's error code.
+  const body0015 = bodyOf(await read("supabase/migrations/0015_settings_sync_per_field.sql"));
+  const body = bodyOf(source);
+  assert.equal(md5(body0015), "a77f3d44e9cd733e57d24aedcdebddfd");
+  assert.equal(
+    body,
+    body0015.replace(
+      "raise exception 'settings client upgrade required' using errcode = '40001';",
+      "raise exception 'settings client upgrade required' using errcode = 'PT409';",
+    ),
+  );
+  assert.notEqual(body, body0015);
+  // The gate, the migration's own self-check and the QA function prerequisite gate all pin it.
+  assert.match(gate, new RegExp(`'${md5(body)}'`));
+  assert.ok(source.split(`'${md5(body)}'`).length - 1 >= 2, "precondition and self-check pin the new body");
+  assert.match(
+    await read("scripts/backend/deploy/verify/qa-function-prerequisites.sql"),
+    new RegExp(`\\('public\\.write_profile_settings\\(jsonb,uuid\\)',true,'authenticated','${md5(body)}'\\)`),
+  );
+  // Same signature, result columns, definer, owner, search_path and grants as 0015.
+  const header = (sql) => {
+    const start = sql.indexOf("create or replace function public.write_profile_settings(");
+    return sql.slice(start, sql.indexOf("$$", start));
+  };
+  assert.equal(header(source), header(await read("supabase/migrations/0015_settings_sync_per_field.sql")));
+  assert.match(source, /revoke all on function public\.write_profile_settings\(jsonb, uuid\) from public, anon, service_role;\ngrant execute on function public\.write_profile_settings\(jsonb, uuid\) to authenticated;/);
+});
+
+// ── PostgREST retry boundary ─────────────────────────────────────────────────────────────────
+// PostgREST re-runs a whole transaction that fails with 40001 (serialization_failure) or 40P01
+// (deadlock_detected); the hosted version retries without a limit. A function a client request can
+// reach must therefore never raise either code for a business decision, or one refused request
+// becomes a server-side loop (the 0015 legacy-guard incident fixed by 0024).
+const RETRYABLE_SQLSTATE = /\b40001\b|\b40p01\b|\bserialization_failure\b|\bdeadlock_detected\b/;
+const CLIENT_ROLES = new Set(["anon", "authenticated", "public"]);
+
+/** Latest definition, client grants and trigger use of every function, across ordered migrations. */
+function functionCatalog(migrations) {
+  const functions = new Map();
+  const fn = (name) => {
+    if (!functions.has(name)) functions.set(name, { name, body: null, file: null, clients: new Set(), trigger: false });
+    return functions.get(name);
+  };
+  for (const { file, text } of migrations) {
+    const sql = stripComments(text);
+    for (const m of sql.matchAll(/\bcreate\s+(?:or\s+replace\s+)?function\s+([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g)) {
+      const rest = sql.slice(m.index);
+      const quoted = /\bas\s+(\$[a-z0-9_]*\$)/.exec(rest);
+      const end = rest.indexOf(";");
+      let body;
+      if (quoted && (end < 0 || quoted.index < end)) {
+        const start = quoted.index + quoted[0].length;
+        body = rest.slice(start, rest.indexOf(quoted[1], start));
+      } else body = rest.slice(0, end < 0 ? undefined : end);
+      Object.assign(fn(`${m[1]}.${m[2]}`), { body, file });
+    }
+    for (const m of sql.matchAll(/\b(grant|revoke)\s+([^;]*?)\bon\s+(?:function|routine|procedure)s?\s+([^;]*?)\s+(?:to|from)\s+([^;]*);/g)) {
+      if (m[1] === "revoke" && /grant\s+option\s+for/.test(m[2])) continue;
+      if (m[1] === "grant" && !/\b(?:all|execute)\b/.test(m[2])) continue;
+      const roles = m[4].replace(/\bwith\s+grant\s+option\b|\bgranted\s+by\s+\S+|\bcascade\b|\brestrict\b/g, " ")
+        .split(",").map((r) => r.trim().replace(/"/g, "")).filter(Boolean);
+      for (const r of m[3].matchAll(/([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g)) {
+        const entry = fn(`${r[1]}.${r[2]}`);
+        for (const role of roles) {
+          if (!CLIENT_ROLES.has(role)) continue;
+          if (m[1] === "grant") entry.clients.add(role);
+          else entry.clients.delete(role);
+        }
+      }
+    }
+    for (const m of sql.matchAll(/\b(grant|revoke)\s+([^;]*?)\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([a-z_][a-z0-9_]*)\s+(?:to|from)\s+([^;]*);/g)) {
+      const roles = m[4].split(",").map((r) => r.trim()).filter((r) => CLIENT_ROLES.has(r));
+      for (const entry of functions.values()) {
+        if (!entry.name.startsWith(`${m[3]}.`)) continue;
+        for (const role of roles) {
+          if (m[1] === "grant" && /\b(?:all|execute)\b/.test(m[2])) entry.clients.add(role);
+          if (m[1] === "revoke" && !/grant\s+option\s+for/.test(m[2])) entry.clients.delete(role);
+        }
+      }
+    }
+    for (const m of sql.matchAll(/\bcreate\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger\b[^;]*?\bexecute\s+(?:function|procedure)\s+([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g)) {
+      fn(`${m[1]}.${m[2]}`).trigger = true;
+    }
+  }
+  return functions;
+}
+
+/**
+ * Functions a PostgREST request can run: anything in an API schema (config.toml [api] schemas;
+ * reachable even before 0014 through default privileges), anything granted to a client role, and
+ * any trigger function (a client write through PostgREST fires it). Deliberately conservative.
+ */
+function retryableClientRaises(migrations, apiSchemas) {
+  return [...functionCatalog(migrations).values()]
+    .filter((f) => f.body !== null && RETRYABLE_SQLSTATE.test(f.body))
+    .filter((f) => apiSchemas.includes(f.name.split(".")[0]) || f.clients.size > 0 || f.trigger)
+    .map((f) => `${f.name} (${f.file})`)
+    .sort();
+}
+
+async function actualMigrations() {
+  const dir = new URL("../../../supabase/migrations/", import.meta.url);
+  const files = (await readdir(dir)).filter((f) => /^\d+_[a-z0-9_]+\.sql$/.test(f)).sort();
+  return await Promise.all(files.map(async (file) => ({ file, text: await readFile(new URL(file, dir), "utf8") })));
+}
+
+test("no function a PostgREST request can reach raises a retryable SQLSTATE (latest definition wins)", async () => {
+  const config = await readFile(new URL("../../../supabase/config.toml", import.meta.url), "utf8");
+  const api = config.slice(config.indexOf("[api]"));
+  const apiSchemas = JSON.parse(/\nschemas\s*=\s*(\[[^\]]*\])/.exec(api)[1]);
+  assert.ok(apiSchemas.includes("public"));
+  const migrations = await actualMigrations();
+  assert.deepEqual(retryableClientRaises(migrations, apiSchemas), []);
+  // The only remaining 40001 raises are the per-field commit helper's, which PostgREST cannot
+  // reach: private, executable only by still_settings_writer, called by sync-settings over its
+  // own direct PostgreSQL connection (no automatic retry), and not a trigger.
+  const catalog = functionCatalog(migrations);
+  const remaining = [...catalog.values()].filter((f) => f.body !== null && RETRYABLE_SQLSTATE.test(f.body));
+  assert.deepEqual(remaining.map((f) => f.name), ["private.commit_settings"]);
+  assert.equal(remaining[0].clients.size, 0);
+  assert.equal(remaining[0].trigger, false);
+  // 0015 alone is the incident: the legacy RPC raised 40001 and is reachable by signed-in users.
+  const through0023 = migrations.filter((m) => m.file < "0024");
+  assert.deepEqual(retryableClientRaises(through0023, apiSchemas), [
+    "public.write_profile_settings (0015_settings_sync_per_field.sql)",
+  ]);
+});
+
+test("the retry-boundary scan sees grants, revokes, triggers and later replacements", () => {
+  const scan = (...texts) =>
+    retryableClientRaises(texts.map((text, i) => ({ file: `000${i}_x.sql`, text })), ["public"]);
+  const raise = (code) => `begin raise exception 'x' using errcode = '${code}'; end`;
+  assert.deepEqual(scan(`create function public.f() returns void language plpgsql as $$${raise("40001")}$$;`), ["public.f (0000_x.sql)"]);
+  assert.deepEqual(scan(`create or replace function public.f() returns void language plpgsql as $body$${raise("40P01")}$body$;`), ["public.f (0000_x.sql)"]);
+  assert.deepEqual(scan(`create function public.f() returns void language plpgsql as $$begin raise serialization_failure; end$$;`), ["public.f (0000_x.sql)"]);
+  // A later replacement wins, in either direction.
+  assert.deepEqual(scan(
+    `create function public.f() returns void language plpgsql as $$${raise("40001")}$$;`,
+    `create or replace function public.f() returns void language plpgsql as $$${raise("PT409")}$$;`,
+  ), []);
+  // A private function is reachable only through a client grant, until it is revoked again.
+  const privateFn = `create function private.g() returns void language plpgsql as $$${raise("40001")}$$;`;
+  assert.deepEqual(scan(privateFn), []);
+  assert.deepEqual(scan(privateFn, "grant execute on function private.g() to authenticated;"), ["private.g (0000_x.sql)"]);
+  assert.deepEqual(scan(privateFn, "grant all on function private.g() to anon;", "revoke all on function private.g() from public, anon;"), []);
+  assert.deepEqual(scan(privateFn, "grant execute on all functions in schema private to authenticated;"), ["private.g (0000_x.sql)"]);
+  assert.deepEqual(scan(privateFn, "grant execute on function private.g() to still_settings_writer;"), []);
+  // A trigger function runs inside the client's own write.
+  assert.deepEqual(scan(privateFn, "create trigger t after update on public.profiles for each row execute function private.g();"), ["private.g (0000_x.sql)"]);
+  // Comments never count, and a rollback note does not define a function.
+  assert.deepEqual(scan(`-- create function public.h() returns void language plpgsql as $$${raise("40001")}$$;`), []);
+  assert.deepEqual(scan(`create function public.f() returns void language plpgsql as $$begin -- not 40001\nend$$;`), []);
 });
 
 test("plan binds commit, hashes, verification, tooling and exact expected history", async (t) => {

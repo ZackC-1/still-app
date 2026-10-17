@@ -62,7 +62,12 @@ jobs:
           trap cleanup EXIT
           trap 'exit 130' INT TERM
           supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
-          supabase db reset --local --no-seed --version 0021 >/dev/null
+          # The read-only 0023 gate must also work before its routines/trigger exist.
+          supabase db reset --local --no-seed --version 0022 >/dev/null
+          baseline="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql)"
+          test "$(printf '%s' "$baseline" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
+          # The current prerequisites pin the 0024 body of the released apps' settings RPC.
+          supabase db reset --local --no-seed --version 0024 >/dev/null
           # Fixture-only role/policy readiness, on this runner's empty database.
           # No real users, provider keys, registry admissions or enabled sales.
           psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -q -v ON_ERROR_STOP=1 <<'SQL'
@@ -76,9 +81,6 @@ jobs:
           '00000000-0000-4000-8000-000000000001',clock_timestamp());
           SQL
           node --test scripts/backend/deploy/qa-functions.test.mjs
-          # The read-only gate must also work before its routines/trigger exist.
-          baseline="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0023_qa_settings_notifications.sql)"
-          test "$(printf '%s' "$baseline" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
           # Real managed Realtime table, policy and transactional notification delivery.
           supabase db reset --local --no-seed --version 0023 >/dev/null
           export STILL_NOTIFICATION_TEST_ANON_KEY="$(supabase status -o json | jq -r .ANON_KEY)"

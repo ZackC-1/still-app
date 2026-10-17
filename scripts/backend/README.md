@@ -233,9 +233,10 @@ Free sync for released apps keeps its 0012 behaviour: any signed-in account may 
 object, the row is replaced, the version increments and database time is stamped; there is no
 write-id deduplication or timestamp arbitration on that path. 0015 adds one guard: the legacy RPC
 takes the same per-account lock as the writer path and then refuses, with
-`settings client upgrade required` (40001) and no change, an account that has saved through the
+`settings client upgrade required` and no change, an account that has saved through the
 per-field path, whose stored document carries a `schemaVersion` other than 1, or whose incoming
-document carries a `schemaVersion` other than 1. The stricter
+document carries a `schemaVersion` other than 1. 0015 raised that refusal as SQLSTATE 40001, which
+PostgREST retries forever; 0024 changed only the code, to `PT409` (HTTP 409), see below. The stricter
 coarse-write grammar and timestamp arbitration in the earlier candidate were not adopted, because
 they would have refused writes that released apps make today (for example from a device whose
 clock runs ahead of the server).
@@ -494,6 +495,36 @@ $$;
 Deletions then keep working (rights are only detached, as before 0022) and the 0022 gate reports
 `routine_body`. Restore the reviewed body with a new forward migration that also re-runs the
 one-time orphan repair, then confirm the gate returns `[]` again.
+
+### Released apps' settings RPC refusal is not retryable (0024)
+
+`0024_legacy_settings_guard_non_retryable.sql` replaces `public.write_profile_settings` with the
+0015 body, changing only the guard's error code from `40001` to `PT409`. PostgREST re-runs a whole
+transaction that fails with 40001 (serialization_failure) or 40P01 (deadlock_detected), and the
+hosted version retries without a limit, so each refused released-app save became a server-side loop
+that held a PostgREST pool connection and rolled back thousands of transactions a second
+(2026-10-16 incident; PGRST003 pool timeouts for other users). `PT409` is answered as HTTP 409 and
+never retried; released apps parse no code and back off on any failed write. Signature, result
+columns, owner, SECURITY DEFINER, search path and the signed-in-only grant are unchanged and
+restated.
+
+Never raise 40001 or 40P01 for a business decision in a function a PostgREST request can reach
+(anything in an API schema, anything granted to `anon`/`authenticated`/PUBLIC, any trigger
+function). `deploy/deploy.test.mjs` scans the migration history (latest definition wins) and fails
+otherwise. `private.commit_settings` keeps its two 40001 raises: only `still_settings_writer` may
+execute it and `sync-settings` calls it over its own direct PostgreSQL connection, which does not
+retry.
+
+Deploy 0024 alone through the protected migration operation. Its gate
+`deploy/verify/0024_legacy_settings_guard_non_retryable.sql` pins the new body hash, definer,
+owner, search path, argument/result names and the only grantee; its invariant requires every
+existing row to stay byte-identical (live released-app saves during the run can show as a
+warning). `qa-function-prerequisites.sql` pins the 0024 body, so QA function deploys need 0024
+applied first. `rehearse-settings.sh` rehearses the 0023 to 0024 upgrade, both directly and through
+the real PostgREST gateway, and re-applies the file. Applying 0024 does not by itself prove the
+loops already running stopped; the post-deploy checks and the owner-approved termination of
+looping `authenticator` backends are in
+`docs/plans/2026-10-17-001-fix-legacy-settings-infinite-retry.md`.
 
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves

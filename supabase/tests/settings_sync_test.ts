@@ -372,6 +372,8 @@ Deno.test({
         message: string,
         code: string,
       ) => {
+        // This lifecycle runs at 0018, where the guard still raises 40001. 0024 changed only the
+        // code to PT409 (PostgREST retried 40001 forever); legacy_settings_guard_test.ts proves it.
         const before = await snapshot(subject);
         const failure = await assertRejects(() => legacyWrite(subject, body));
         assertEquals((failure as Error & { code: string }).code, code);
