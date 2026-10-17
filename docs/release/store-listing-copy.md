@@ -132,6 +132,11 @@ Privacy: https://stillapp.fit/privacy/
 
 - Sign-in required: **No** (blocking needs no account). Put any review sign-in details only in the
   private portal fields, never in this file.
+- V3 submission (Still Pro on, [ADR 0005](../adr/0005-apple-still-pro-purchase-starts-with-sign-in.md)):
+  sign-in is offered before a Still Pro purchase and can always be skipped, so the purchase itself
+  never requires it. Answer **Sign-in required: Yes** only to hand the reviewer the review account
+  for the signed-in purchase and sync paths; the real details go in the portal fields only, never
+  here. Add the V3 Still Pro paragraph below to the notes.
 - Contact: the owner's details (portal only). Notes:
 
 ```
@@ -144,6 +149,8 @@ New in 2.1: first-party usage analytics with a one-time notice and a "Share usag
 V3 copy (use instead of the 2.1 paragraph above for a V3 submission; ADR 0004, 2026-10-12): First-party usage analytics is on by default, with a single "Share usage data" switch in Settings (no separate one-time notice). It records product events only (for example, setup steps and switch changes); never the websites, pages or videos someone visits, searches or page content. It is declared in the App Privacy section, is not used for tracking or advertising, and the App Tracking Transparency prompt is not required. Deleting an account also deletes its analytics data.
 
 Purchase infrastructure remains in the project for historical entitlements, with paid features disabled. No in-app purchase is needed to use Still.
+
+V3 Still Pro copy (use instead of the paragraph above for a V3 submission with Still Pro on; ADR 0005, 2026-10-16; replace [review account] in the portal only): Still Pro is a one-time purchase that unlocks twelve extra controls in Safari on this device and in Still for Chrome and Firefox on the person's other computers. The Still account (an emailed six-digit code, no password) is how one purchase reaches the browsers that are not on Apple devices. Blocking YouTube Shorts and Reels, and settings sync, need no account and no purchase. Restore purchase works without signing in. Sign-in details for review: [review account]. Signing in is offered before purchase and can be skipped with 'Buy without an account'.
 ```
 
 ## 4. Apple — App Privacy (the label)

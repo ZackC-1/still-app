@@ -9,6 +9,7 @@ lives in [ARCHITECTURE.md](../ARCHITECTURE.md); implementation plans live in `do
 | [0002: Packaged CSS and bundled hides](0002-packaged-css-owns-bundled-hides-only.md) | One build formatter; fetched rules retain JS application. |
 | [0003: Receipt and server entitlement](0003-entitlement-authority-receipt-and-server.md) | Preserve distinct device/account authorities and stamp policy. |
 | [0004: First-party usage analytics](0004-first-party-usage-analytics.md) | A closed event schema, no browsing data, no fingerprinting, consent per device. |
+| [0005: Apple purchase starts with sign-in](0005-apple-still-pro-purchase-starts-with-sign-in.md) | Sign-in offered before an Apple Still Pro purchase, always skippable; Restore never needs it. |
 
 Add a numbered, descriptive Markdown file for a new accepted decision. Include date, status,
 context, decision, consequences and links to relevant evidence. When superseding a decision,

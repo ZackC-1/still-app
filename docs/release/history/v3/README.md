@@ -1,8 +1,8 @@
 # Still V3 — release record (curated)
 
 Status: in preparation. All five phase plans approved (G1/D520, G2/D521,
-G3/D522, G4/D523, G5/D524); execution authorized under D525. Next decision ID:
-D526. No application, store, payment, or production changes are claimed by
+G3/D522, G4/D523, G5/D524); execution authorized under D525. D526–D542 are
+recorded in the local-only decision log; D543 is below. Next decision ID: D544. No application, store, payment, or production changes are claimed by
 this record — it curates local-only preparation into committed docs.
 
 V3 keeps the free core and adds an optional one-time-purchase Pro tier. This
@@ -32,9 +32,11 @@ Curated from the local-only commercial package and decision summary; see
 
 - Sync: authenticated baseRevision/localStep, independent fields, one atomic
   writer, account fences, conservative first-link/CAS repair.
-- Purchase: no Apple account wall, explicit optional linking, verified
-  ownership/Restore/dual-auth transfer; web checkout only through an
-  enforceably managed provider.
+- Purchase: on Apple, sign-in is offered first and can always be skipped
+  ("Buy without an account"); a purchase started signed in links to that
+  account automatically, and accountless holders keep explicit optional
+  linking (D543). Verified ownership/Restore/dual-auth transfer; Restore never
+  needs sign-in; web checkout only through an enforceably managed provider.
 - Paid offline: signed 30-day deadlines, revocation/expiry latches, clock
   rollback safeguards; no DRM or fingerprinting.
 - Analytics: fresh optional combined email/usage/AI consent; 42 retained
@@ -44,6 +46,17 @@ Curated from the local-only commercial package and decision summary; see
 - Rating: owner-controlled, initially Off; no rating analytics.
 - Deferred/removed: counting/history/summary, Edge, native Android/Play,
   trials, desktop sponsored-feed detection, non-TikTok placeholders.
+
+## Apple sign-in before buying (D543, 16 October 2026)
+
+Owner decision D543 (ISS-0071, option B): signed out, Get Still Pro in the iPhone and Mac apps
+opens the email-code sign-in first, with "Sign in first, so Still Pro stays with your account." and
+a "Buy without an account" link. A successful sign-in continues to Apple's sheet without a second
+tap, and the verified purchase links to that account through the existing guarded link. Cancelling
+opens no Apple sheet. Restore and accountless purchase stay fully supported (Guideline 5.1.1(v)).
+Accountless holders see "Sign in to keep Still Pro with your account." with Sign in and Not now.
+See [ADR-0005](../../../adr/0005-apple-still-pro-purchase-starts-with-sign-in.md) and the
+[design note](../../../plans/2026-10-16-005-design-apple-signin-before-buy-and-pro-tag.md).
 
 ## Mobile Pro amendment (8 October 2026)
 

@@ -1,6 +1,12 @@
 # ADR-0003: Entitlement has two authorities — the StoreKit receipt and the server
 
-Date: 2026-07-15 · Status: accepted
+Date: 2026-07-15 · Status: accepted; amended by
+[ADR-0005](0005-apple-still-pro-purchase-starts-with-sign-in.md) on 2026-10-16
+
+> **V3 amendment, October 16:** on Apple, Get Still Pro now offers sign-in first and can be skipped
+> ("Buy without an account"); a purchase started signed in links to that account automatically.
+> The receipt stays the device's authority for Restore and for accountless buyers. See
+> [ADR-0005](0005-apple-still-pro-purchase-starts-with-sign-in.md).
 
 > **2.0.0 applicability, September 14:** this remains the authority/stamp contract for retained
 > purchase records. All blocking and optional sync are free and neither receipt nor account

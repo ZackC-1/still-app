@@ -130,7 +130,8 @@ app.
 - **Unchanged:** sign-in never gates free blocking or free settings sync. It is asked for only at
   Get Still Pro on Apple. Restore never requires it. Browser purchases already require an account
   (the browsers have no device receipt).
-- **Decision record:** a new owner decision **D526** in the V3 release record, and
+- **Decision record:** a new owner decision **D526** in the V3 release record (recorded as **D543**:
+  D527–D542 were already used in the local decision log), and
   **ADR-0005** "Apple Still Pro purchase starts with sign-in". ADR-0005 supersedes ADR-0003's
   consequence that "a signed-out purchaser has full Pro … without requiring an account" for *new*
   purchases (A) or amends it (B). Both keep the receipt authority for Restore and existing holders.
