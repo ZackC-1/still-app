@@ -10,7 +10,7 @@ import type { MobilePopupProps } from "../../../../packages/core/src/ui/v3/mobil
 import type { PopupInvitationPresentation } from "../../../../packages/core/src/ui/v3/invitation-presentation.js";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { Rendered, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY } from "./shared.js";
+import { OWNER_SYNC_COPY, STILL_PRO_TAG } from "./shared.js";
 
 const screen = "d28-rating-prompt";
 
@@ -107,7 +107,7 @@ const cases: VisualCase[] = [
       access: accessAll("purchased"),
       invitation: invitation("rating", "firefox"),
     }),
-    deviations: [OWNER_SYNC_COPY],
+    deviations: [OWNER_SYNC_COPY, STILL_PRO_TAG],
   },
   {
     ...base,

@@ -4,7 +4,11 @@ import type { AppleSettingsProps } from "../../../../packages/core/src/ui/v3/app
 import type { ServiceId } from "@still/shared-types";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { FrameSpec, Rendered, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY, REFERENCE_DEMO_ACCOUNT } from "./shared.js";
+import {
+  OWNER_SYNC_COPY,
+  REFERENCE_DEMO_ACCOUNT,
+  STILL_PRO_TAG,
+} from "./shared.js";
 
 const screen = "d04-apple-app-settings";
 
@@ -153,7 +157,7 @@ const cases: VisualCase[] = [
       open: "youtube",
       values: { values: { yt_comments: true } },
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -233,7 +237,7 @@ const cases: VisualCase[] = [
       sync: { tone: "success", text: "Settings synced." },
     }),
     focus: { selector: '.hero [role="switch"]' },
-    deviations: [demoMark],
+    deviations: [demoMark, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -249,7 +253,7 @@ const cases: VisualCase[] = [
       link: "confirm",
       signedIn: true,
     }),
-    deviations: [demoMark],
+    deviations: [demoMark, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -290,7 +294,7 @@ const cases: VisualCase[] = [
       pro: "owned",
       open: "youtube",
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
 ];
 

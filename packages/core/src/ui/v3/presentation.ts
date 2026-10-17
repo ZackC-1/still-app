@@ -75,6 +75,27 @@ export function proAccessChecking(
 }
 
 /**
+ * True only while Still Pro is verified as purchased (ISS-0073): some Still Pro row is `purchased`
+ * and none is still `checking` or `verification_required`. The sync card's account row then shows
+ * the small "Still Pro" tag on every popup and settings surface. Frozen released-free protection
+ * (`protected` alone), a check in progress, a locked offer and a paid-off build show none. Hosts
+ * pass the real snapshot, never the offer latch's.
+ */
+export function proPurchased(
+  access: Pick<BenefitAccessSnapshot, "states">,
+): boolean {
+  const states = FEATURE_REGISTRY.filter((row) => row.tier === "pro").map(
+    (row) => access.states[row.id],
+  );
+  return (
+    states.includes("purchased") &&
+    !states.some(
+      (state) => state === "checking" || state === "verification_required",
+    )
+  );
+}
+
+/**
  * The access a Still Pro offer surface draws from (ISS-0032, reopened 15 Oct 2026). Once this view
  * has seen Still Pro conclusively missing (proKnownMissing), a later hold is Still re-confirming the
  * same answer, not a new one: the access cache holds Pro rows as `checking` or

@@ -31,6 +31,11 @@ export interface SyncCardProps {
   onSignIn?: () => void;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
+  /**
+   * ISS-0073: true only while Still Pro is verified as purchased (`proPurchased` of the real
+   * access). The account row then shows the "Still Pro" tag beside the address, or beside Sign in.
+   */
+  stillPro?: boolean;
 }
 
 export interface SharedDataProps {

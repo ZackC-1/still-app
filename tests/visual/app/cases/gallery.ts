@@ -14,7 +14,11 @@ import type { DesktopPopupProps } from "../../../../packages/core/src/ui/v3/pres
 import type { MobilePopupProps } from "../../../../packages/core/src/ui/v3/mobile-presentation.js";
 import type { ExtensionSettingsProps } from "../../../../packages/core/src/ui/v3/extension-settings-presentation.js";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
-import { OWNER_SYNC_COPY, REFERENCE_DEMO_ACCOUNT } from "./shared.js";
+import {
+  OWNER_SYNC_COPY,
+  REFERENCE_DEMO_ACCOUNT,
+  STILL_PRO_TAG,
+} from "./shared.js";
 import type { ScreenCases, VisualCase } from "../types.js";
 
 const screen = "system-gallery";
@@ -232,10 +236,10 @@ const offerNote = `${fixtureNote} Production ProOfferCard with the registry-owne
 
 const cases: VisualCase[] = [
   specimen(1, "01-light.png", "Light", 380, "light", "DesktopPopup", popup(), {
-    deviations: [OWNER_SYNC_COPY],
+    deviations: [OWNER_SYNC_COPY, STILL_PRO_TAG],
   }),
   specimen(2, "02-dark.png", "Dark", 380, "dark", "DesktopPopup", popup(), {
-    deviations: [OWNER_SYNC_COPY],
+    deviations: [OWNER_SYNC_COPY, STILL_PRO_TAG],
   }),
   specimen(
     3,
@@ -245,7 +249,7 @@ const cases: VisualCase[] = [
     "light",
     "DesktopPopup",
     popup(true),
-    { deviations: [OWNER_SYNC_COPY] },
+    { deviations: [OWNER_SYNC_COPY, STILL_PRO_TAG] },
   ),
   specimen(
     4,
