@@ -6,6 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
+    proPurchased,
     proRowsDormant,
     rowsFor,
     type DesktopPopupProps,
@@ -22,6 +23,7 @@
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
   import SyncSummary from "./SyncSummary.svelte";
+  import StillProTag from "./StillProTag.svelte";
   import "./design/styles.css";
 
   let {
@@ -93,6 +95,8 @@
     Boolean(onSeePro) && proOfferReady && proAccessChecking(shownAccess) && popupClear,
   );
   let dormant = $derived(proRowsDormant(access));
+  // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
+  let stillPro = $derived(proPurchased(access));
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -307,13 +311,22 @@
     <div class="sync-row">
       <div class="sync-row-text">
         <h2 class="sync-row-title">Settings sync</h2>
-        {#if !account || account.address}<p class="muted sync-row-sub">
-            {account
-              ? account.address
-              : "Free. Keep your block settings consistent across every supported device and browser."}
+        {#if account && (account.address || stillPro)}<p
+            class="muted sync-row-sub account-line"
+          >
+            {#if account.address}<span class="account-address"
+                >{account.address}</span
+              >{/if}
+            {#if stillPro}<StillProTag />{/if}
+          </p>{:else if !account}<p class="muted sync-row-sub">
+            Free. Keep your block settings consistent across every supported device and browser.
           </p>{/if}
       </div>
-      {#if !account && onSignIn}<div class:popup-action={appHandoff}><button
+      {#if !account && stillPro && !onSignIn}<StillProTag />{/if}
+      {#if !account && onSignIn}<div
+          class:popup-action={appHandoff}
+          class:pro-signin={stillPro}
+        >{#if stillPro}<StillProTag />{/if}<button
           type="button"
           class="primary inline"
           class:with-glyph={appHandoff}

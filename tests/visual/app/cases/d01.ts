@@ -11,7 +11,7 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY, POPUP_PRO_CARD } from "./shared.js";
+import { OWNER_SYNC_COPY, POPUP_PRO_CARD, STILL_PRO_TAG } from "./shared.js";
 
 const screen = "d01-desktop-popup";
 
@@ -77,7 +77,7 @@ const cases: VisualCase[] = [
       open: "instagram",
       settings: settingsFor({ values: { ig_stories: true, ig_explore: true } }),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -103,7 +103,7 @@ const cases: VisualCase[] = [
         values: { yt_comments: true, yt_autoplay: true },
       }),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -117,7 +117,7 @@ const cases: VisualCase[] = [
       open: "youtube",
       settings: settingsFor({ on: false, values: { yt_comments: true } }),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -170,7 +170,7 @@ const cases: VisualCase[] = [
       open: "youtube",
       settings: settingsFor({ values: { yt_autoplay: true } }),
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -181,7 +181,7 @@ const cases: VisualCase[] = [
     textScale: 1.5,
     frame: { kind: "popup", innerTextScale: 1.5 },
     render: popup({ access: accessAll("purchased"), open: "youtube" }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,
@@ -199,7 +199,7 @@ const cases: VisualCase[] = [
       labels: labelsFor(DE),
       heroTitle: "Still ist aktiv",
     }),
-    deviations: signedOut,
+    deviations: [...signedOut, STILL_PRO_TAG],
   },
   {
     ...base,

@@ -61,5 +61,8 @@ doubt removed the offer, and nothing brought it back until the popup was reopene
   "conclusive answer, then hold, then setting change" as well as the first render.
 - Display-only stickiness is fine for navigation entries. Purchase entries must keep reading the
   real snapshot.
+- An ownership signal is the opposite case. The sync card's "Still Pro" tag (ISS-0073) reads the
+  real snapshot through `proPurchased`, never the latch, and stays hidden during a hold or for
+  `protected` alone, so it never claims Still Pro that has not been verified as purchased.
 - A "yes" that only enables navigation does not need to be re-asked on every state change. Re-ask
   only until the first yes.

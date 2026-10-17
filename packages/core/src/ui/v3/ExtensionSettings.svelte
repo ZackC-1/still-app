@@ -9,6 +9,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
+    proPurchased,
   } from "./presentation.js";
   import PopupProCard from "./PopupProCard.svelte";
   import SyncCard from "./SyncCard.svelte";
@@ -264,6 +265,7 @@
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and the account's sync status,
     beside the Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
+    stillPro={proPurchased(access)}
     onSignIn={sync.onSignIn}
     accountActions={sync.accountActions}
     account={sync.account
