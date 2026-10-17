@@ -39,12 +39,20 @@ function access(state: AccessState, override: Partial<Record<string, AccessState
 
 function page(initial: DocumentVisibilityState = "visible") {
   const listeners = new Set<() => void>();
+  const focusListeners = new Set<() => void>();
   const value = {
     visibilityState: initial,
     addEventListener: vi.fn((_type: string, listener: () => void) => { listeners.add(listener); }),
     removeEventListener: vi.fn((_type: string, listener: () => void) => { listeners.delete(listener); }),
     show(state: DocumentVisibilityState) { value.visibilityState = state; for (const listener of [...listeners]) listener(); },
     listeners,
+    /** The page's window. */
+    window: {
+      addEventListener: vi.fn((_type: string, listener: () => void) => { focusListeners.add(listener); }),
+      removeEventListener: vi.fn((_type: string, listener: () => void) => { focusListeners.delete(listener); }),
+    },
+    focus() { for (const listener of [...focusListeners]) listener(); },
+    focusListeners,
   };
   return value;
 }
@@ -86,7 +94,8 @@ function harness(options: {
   });
   const available = vi.fn(async () => options.available ?? true);
   const states: BrowserProState[] = [];
-  const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, page: visible as unknown as BrowserProDeps["page"], now: () => clock };
+  const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, page: visible as unknown as BrowserProDeps["page"],
+    focus: visible.window as unknown as BrowserProDeps["focus"], now: () => clock };
   const flow = createBrowserPro(deps, state => states.push(state));
   return {
     flow, controller, checkout, available, page: visible, states, pending, tabs, record, open,
@@ -285,13 +294,13 @@ describe("the browser Still Pro flow", () => {
     expect(published).not.toContain("checking"); // no flash while it asks
   });
 
-  it("renews a visible known none before it lapses, a bounded number of times per page lifetime", async () => {
+  it("renews a visible known none before it lapses, for a bounded allowance that showing the page restarts", async () => {
     vi.useFakeTimers();
     const h = harness();
     h.observe("none"); await settle();
     for (let i = 0; i < KEEP_ALIVE_LIMIT + 3; i++) { await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS); }
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
-    // Hidden stops it. Shown again re-checks once, but the renewal allowance does not restart.
+    // Hidden stops it. Shown again re-checks once and the renewal allowance starts again (ISS-0072).
     h.page.show("hidden");
     await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
@@ -299,11 +308,132 @@ describe("the browser Still Pro flow", () => {
     h.page.show("visible"); await settle();
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 1);
     await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
-    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 1);
-    // Nor does another account signing in.
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 4);
+    // Another account signing in runs its sign-in check and renews its own known none.
     h.observe("none", OTHER); await settle();
-    await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 3);
-    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 2); // its sign-in check only
+    expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 5);
+  });
+
+  describe("an open page whose known none goes stale (ISS-0072)", () => {
+    it("left visible for twenty minutes keeps renewing it, past the old ten-renewal cap", async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.observe("none"); await settle();
+      const ticks = Math.ceil((20 * 60_000) / KEEP_ALIVE_MS);
+      for (let i = 0; i < ticks; i++) await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS);
+      // One renewal every 45 s, each well inside the minute the "known none" evidence lasts.
+      expect(ticks).toBeGreaterThan(10);
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(ticks);
+      expect(h.states.some(state => state.renewing)).toBe(false);
+    });
+
+    it("re-checks at once when it turns into verify again, showing renewing meanwhile", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      // A sync, a sign-in refresh or the end of a checkout replaced the evidence.
+      h.observe("verify");
+      expect(h.state.renewing).toBe(true);
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      await settle();
+      expect(h.state.renewing).toBe(false);
+      h.observe("none"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    });
+
+    it("leaves verify again only when that re-check does not confirm none, and does not loop", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.answer("verification_required", "unknown");
+      h.observe("verify"); await settle();
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2); // the renewal and its one fresh retry
+      expect(h.state.renewing).toBe(false);
+      const failed = harness();
+      failed.observe("none"); await settle();
+      failed.controller.recheckAccess.mockRejectedValueOnce(new Error("worker gone"));
+      failed.answer("verification_required", "unknown"); // the fresh retry does not confirm none either
+      failed.observe("verify"); await settle();
+      expect(failed.state.renewing).toBe(false);
+      failed.observe("verify"); await settle();
+      expect(failed.controller.recheckAccess).toHaveBeenCalledTimes(2); // the renewal and its one retry
+    });
+
+    it("a renewal that joined a check already under way gets one fresh check before verify again", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      // The joined check was stale (a token refresh landed during it); the fresh one confirms none.
+      h.controller.recheckAccess.mockResolvedValueOnce({ access: access("verification_required"), outcome: "unknown" });
+      h.observe("verify");
+      expect(h.state.renewing).toBe(true);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+      expect(h.state.renewing).toBe(false);
+      h.observe("none"); await settle();
+      // Still remembered as a known none: a later stale answer is renewed again.
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(3);
+    });
+
+    it("past the allowance it waits, then focusing the window re-checks it and restarts the allowance", async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.observe("none"); await settle();
+      for (let i = 0; i < KEEP_ALIVE_LIMIT + 2; i++) await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS);
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT);
+      expect(h.state.renewing).toBe(false);
+      h.page.focus();
+      expect(h.state.renewing).toBe(true);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 1);
+      h.observe("none"); await settle();
+      await vi.advanceTimersByTimeAsync(KEEP_ALIVE_MS * 2);
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 3);
+    });
+
+    it("gone stale while hidden, showing the page re-checks even inside the spacing", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.page.show("hidden");
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+      h.page.show("visible");
+      expect(h.state.renewing).toBe(true);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    });
+
+    it("focus inside the spacing does not re-check a fresh known none", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.page.focus(); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      h.page.focus(); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce(); // inside the spacing: nothing
+      h.advance(VISIBLE_RECHECK_SPACING_MS);
+      h.page.focus(); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+    });
+
+    it("another account's verify again is not a stale known none", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.answer("verification_required", "unknown");
+      h.observe("verify", OTHER); await settle();
+      expect(h.state.renewing).toBe(false);
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce(); // the new account's sign-in check only
+    });
+
+    it("stop removes the focus listener", () => {
+      const h = harness();
+      h.flow.stop();
+      expect(h.page.focusListeners.size).toBe(0);
+    });
   });
 
   it("does not renew anything that is not a known none, or while hidden", async () => {

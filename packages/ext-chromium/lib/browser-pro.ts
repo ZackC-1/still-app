@@ -23,19 +23,20 @@ export const BROWSER_PRO_SESSION_KIND = "still:session";
 export const BROWSER_PRO_AVAILABLE_ACTION = "checkoutAvailable";
 
 /**
- * A page shown again re-checks at most this often, and not at all while Still Pro shows as owned
- * (the page-open check and Restore still re-check an owner). Coming back from an open checkout
- * always re-checks: that return is when a purchase completes.
+ * A page shown or focused again re-checks at most this often, and not at all while Still Pro shows
+ * as owned (the page-open check and Restore still re-check an owner). Coming back from an open
+ * checkout always re-checks: that return is when a purchase completes.
  */
 export const VISIBLE_RECHECK_SPACING_MS = 30_000;
 /**
  * While a visible page shows Buy, the short-lived "known none" evidence (about a minute) is
  * renewed shortly before it lapses, so the card does not fall back to "verify again" under a
- * person reading it. Bounded for the page's whole lifetime; after that, showing the page again
- * or Restore re-checks.
+ * person reading it (ISS-0072). The allowance covers about an hour since the page was last shown
+ * or focused, and starts again each time it is; a page left untouched for longer stops asking the
+ * server, and showing it again, focusing it or Restore re-checks.
  */
 export const KEEP_ALIVE_MS = 45_000;
-export const KEEP_ALIVE_LIMIT = 10;
+export const KEEP_ALIVE_LIMIT = 80;
 
 /** The card's reading of the access observation's twelve Still Pro rows. */
 export type ProOwnership = "owned" | "verify" | "checking" | "none" | "hidden";
@@ -191,6 +192,9 @@ export interface BrowserProDeps {
   /** Defaults to askCheckoutAvailable over the extension runtime. */
   readonly available?: () => Promise<boolean>;
   readonly page?: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
+  /** Receives the window's focus (a page can be visible behind another window). Defaults to the
+   * page's own window. */
+  readonly focus?: Pick<Window, "addEventListener" | "removeEventListener">;
   readonly now?: () => number;
 }
 
@@ -199,6 +203,12 @@ export interface BrowserProState {
   readonly channel: "unknown" | "checking" | "ready" | "unavailable";
   readonly purchase: "idle" | "opening" | "waiting" | "failed";
   readonly restore: RestoreStatusCardProps | undefined;
+  /**
+   * A known "none" turned into "verify again" (its short-lived evidence lapsed, or a sync or
+   * sign-in refresh replaced it) and the re-check that renews it is running. The card shows its
+   * "checking" state meanwhile; "verify again" shows only if that re-check does not confirm none.
+   */
+  readonly renewing: boolean;
 }
 
 export interface BrowserProObservation {
@@ -211,12 +221,14 @@ export const INITIAL_BROWSER_PRO_STATE: BrowserProState = Object.freeze({
   channel: "unknown",
   purchase: "idle",
   restore: undefined,
+  renewing: false,
 });
 
 /**
  * The card's host flow. Re-checks (the scoped reconcile plus a fresh access read, shared with the
- * page-open check) run when an account signs in here, when the page is shown again, on Restore,
- * after a checkout that the server says is already owned, and to renew a visible "known none".
+ * page-open check) run when an account signs in here, when the page is shown or focused again, on
+ * Restore, after a checkout that the server says is already owned, and to renew a visible "known
+ * none", before it lapses or once it has gone stale.
  * Buy asks the background's existing createCheckout, which opens the hosted checkout; the
  * purchase completes on the next re-check (normally when this page is shown again). A result that
  * arrives after the account changed, or after `stop`, is dropped.
@@ -225,6 +237,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   const now = deps.now ?? (() => Date.now());
   const available = deps.available ?? (() => askCheckoutAvailable());
   const page = deps.page ?? document;
+  const focusTarget = deps.focus ?? (typeof window === "undefined" ? undefined : window);
   const pendingStore = deps.pending ?? sessionPendingStore();
   const tabs = deps.tabs ?? extensionCheckoutTabs();
   let state: BrowserProState = INITIAL_BROWSER_PRO_STATE;
@@ -235,6 +248,10 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   let lastRecheckAt = -Infinity;
   let keepAlive: ReturnType<typeof setTimeout> | null = null;
   let keepAliveCount = 0;
+  // This account was last seen conclusively without Still Pro, and nothing since has refuted it:
+  // a later "verify again" is that answer going stale, which a re-check renews (ISS-0072).
+  let knownNone = false;
+  let renewFlight = false;
 
   function set(next: Partial<BrowserProState>): void {
     if (stopped) return;
@@ -275,6 +292,40 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (ticket !== generation) return;
     channelFlight = false;
     set({ channel: allowed ? "ready" : "unavailable" });
+  }
+
+  /** Renew a known none that went stale, quietly, once per stale answer (at most two checks). Not
+   * while hidden or past
+   * the renewal allowance: the next time the page is shown or focused does it then. */
+  function renew(): void {
+    if (stopped || renewFlight || !knownNone || seen?.userId == null || seen.ownership !== "verify" || !visible()) return;
+    if (keepAliveCount >= KEEP_ALIVE_LIMIT) return;
+    keepAliveCount += 1;
+    renewFlight = true;
+    const ticket = generation;
+    set({ renewing: true });
+    const confirmed = (result: AccessRecheck | null) => result !== null && proOwnership(result.access) === "none";
+    void (async () => {
+      let result = await recheck(true);
+      // The first answer may come from a check already under way when the answer went stale (the
+      // page shares one flight), so one fresh check decides before "verify again" is shown.
+      if (!stopped && ticket === generation && !confirmed(result)) result = await recheck(true);
+      if (ticket !== generation) return;
+      renewFlight = false;
+      // Not confirmed none: the stale answer is not renewed and the card says "verify again".
+      if (!confirmed(result)) knownNone = false;
+      set({ renewing: false });
+    })();
+  }
+
+  /** The person showed or focused the page: the renewal allowance starts again. */
+  function engage(): void {
+    keepAliveCount = 0;
+    if (state.purchase === "waiting") void recheck(true);
+    else if (seen?.ownership === "owned") return;
+    else if (seen?.ownership === "verify" && knownNone) renew();
+    else if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck(true);
+    else if (seen?.ownership === "none") armKeepAlive();
   }
 
   async function recheck(refreshChannel = false): Promise<AccessRecheck | null> {
@@ -414,12 +465,13 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       clearKeepAlive();
       return;
     }
-    if (state.purchase === "waiting") void recheck(true);
-    else if (seen?.ownership === "owned") return;
-    else if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck(true);
-    else if (seen?.ownership === "none") armKeepAlive();
+    engage();
+  }
+  function onFocus(): void {
+    if (!stopped && visible()) engage();
   }
   page.addEventListener("visibilitychange", onVisibility);
+  focusTarget?.addEventListener("focus", onFocus);
 
   return {
     /** Feed every account and access change; the card calls this from its reactive effect. */
@@ -432,8 +484,10 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // Before anything runs for the new account, so its own checks are not fenced off.
         generation += 1;
         channelFlight = false;
+        renewFlight = false;
+        knownNone = false;
         clearKeepAlive();
-        set({ channel: "unknown", purchase: "idle" });
+        set({ channel: "unknown", purchase: "idle", renewing: false });
       }
       // A Restore waiting on this sign-in runs its re-check now (shared with the one below).
       observeRestore(previous, next);
@@ -441,6 +495,9 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       // changing storage, so read it now rather than waiting for the refresh timer.
       if (switched && next.userId !== null) void recheck();
       if (next.ownership === "owned" && state.purchase !== "idle") set({ purchase: "idle" });
+      if (next.userId === null || next.ownership === "owned" || next.ownership === "hidden") knownNone = false;
+      else if (next.ownership === "none") knownNone = true;
+      if (next.ownership === "verify") renew();
       if (next.ownership === "none" && next.userId !== null) {
         if (state.channel === "unknown") void askChannel();
         armKeepAlive();
@@ -472,6 +529,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       stopped = true;
       clearKeepAlive();
       page.removeEventListener("visibilitychange", onVisibility);
+      focusTarget?.removeEventListener("focus", onFocus);
     },
   };
 }
