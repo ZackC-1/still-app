@@ -140,7 +140,7 @@ export const PROTECTED_OPERATOR_SUBJECT =
 /**
  * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the successor
  * candidates (sequences 357, 359, notification candidate 361, and the 15/16 Oct QA packages 370,
- * 371, 374 and 376) during QA.
+ * 371, 374, 376 and 379) during QA.
  * Extensions present their manifest version
  * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
  * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
@@ -173,6 +173,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.376"],
     ["firefox_desktop", "2.1.1.376"],
     ["firefox_android", "2.1.1.376"],
+    ["chrome_desktop", "2.1.1.379"],
+    ["firefox_desktop", "2.1.1.379"],
+    ["firefox_android", "2.1.1.379"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -361,7 +364,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "79ab3bd2bf1a9c42b25dca9aea5030889f7337ac2627c070f001f7d20af8bb00",
+        "44ca0b5f625c493b1207e134387a82d70e7324853340d0b6804ab2b31f7277f0",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -373,7 +376,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "4225c8cb3d22962ae914c11718392dc4c00473ba18ea6d38c23e1672864609ab",
+        "88d7804c2124c75f41f7aa88602e366280e68d4603020bebde01cde73f8b96f5",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
