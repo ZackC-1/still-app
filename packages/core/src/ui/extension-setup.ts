@@ -105,7 +105,7 @@ export function createExtensionUiController(
     void hydration.catch(() => {
       /* The producer exposes this current failed read; only an explicit view retry rereads it. */
     });
-  cache.watch();
+  const stopSettingsWatch = cache.watch();
   if (options?.onLocalSettingsCommit) {
     const onCommit = options.onLocalSettingsCommit;
     // Only the user's own edits in THIS page (source "local") need pushing outward; "external" and
@@ -127,6 +127,8 @@ export function createExtensionUiController(
   if (options?.analytics && options.openedWhere) {
     options.analytics.track("opened", { where: options.openedWhere });
   }
+  // The page's storage watchers live exactly as long as its view: the owner's dispose stops them.
+  controller.addTeardown(stopSettingsWatch);
   controller.accountManagedByApp = options?.accountManagedByApp ?? false;
   controller.retrySync = purchase?.retrySync;
   if (purchase) controller.paywallPrice = purchase.displayPrice;
@@ -151,7 +153,9 @@ export function createExtensionUiController(
   void entitlement.hydrate().then((entitled) => {
     controller.entitled = entitled;
   });
-  entitlement.watch();
+  // Stopping also cancels a pending access refresh or quick retry, so a closed page never keeps
+  // asking the background for access.
+  controller.addTeardown(entitlement.watch());
   // A committed paid page starts held and asks the existing scoped authority once. Hydrating
   // the historical Boolean cache cannot verify Pro; subsequent epochs use the same watcher.
   if (PAID_TIER_ENABLED && options?.onCommittedPopupBinding)
