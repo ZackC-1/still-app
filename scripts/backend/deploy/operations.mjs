@@ -140,7 +140,7 @@ export const PROTECTED_OPERATOR_SUBJECT =
 /**
  * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the builds still installed
  * during QA: the notification candidate 361 (the Firefox Android emulator), the 17 Oct package 383
- * (every other runtime) and the 18 Oct package 385. The server accepts at most 32 build entries
+ * (every other runtime) and the 18 Oct packages 385 and 387. The server accepts at most 32 build entries
  * (private.product_policy_body_valid), so superseded packages that no device runs any more (357,
  * 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026 to make room.
  * Extensions present their manifest version
@@ -163,6 +163,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.385"],
     ["firefox_desktop", "2.1.1.385"],
     ["firefox_android", "2.1.1.385"],
+    ["chrome_desktop", "2.1.1.387"],
+    ["firefox_desktop", "2.1.1.387"],
+    ["firefox_android", "2.1.1.387"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -351,7 +354,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "5508b6fab6173835c06aa4c9a11c4700ccbd706b0aebc8b998d90bd66ea13336",
+        "9cb1cab9cc975cfb0ef21f84568149b5311216ba56f74680ef68b71acc561230",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -363,7 +366,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "8b0724a7a96d5304adb7fc3797588dc4bc0cc3d03e0fc1351d113f49064e9730",
+        "0e7d57112c2ff2b4bba8d2c6c54101f5a661e05efe9e6fda1afc5704cc5cdb28",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,

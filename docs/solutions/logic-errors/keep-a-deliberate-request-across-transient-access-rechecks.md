@@ -58,6 +58,14 @@ in one flush let the request see the answer the last read wrote.
 Code: `packages/core/src/ui/v3/apple-pro-host.ts` (`refreshLinkEligibility`, `offerRequestedLink`,
 `requestLink`, `observeAccess`, `signInDismissed`).
 
+## A refusal is not a verdict (second finding, same day)
+
+The first fix kept the request across held snapshots and fenced reads, but still took a **thrown**
+native read ("requires verification", sent while a reconcile is in flight) as a settled "not
+eligible": the request was dropped again, and the confirmation's single re-read turned the refusal
+into "Linking didn't finish". Treat a refused read as no answer (keep the last settled one, ask
+again on the next refresh), and let a deliberate confirmation retry one refusal.
+
 ## How to reproduce it in a test
 
 Make the fixture behave like the device in the two ways that matter: advance the native record
