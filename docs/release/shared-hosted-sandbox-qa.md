@@ -210,8 +210,8 @@ ordinary production subscriptions keep their existing route. No QA function rede
 Build the next candidate from a clean main commit using `paid-sandbox apple-all`. Verify its derived
 manifest version against the reviewed sales-policy admission before applying that separate protected
 operation. A policy-only merge also increments the QA sequence; never infer the next version from
-the last packaged candidate. The admissions are 2.1.1.361 (notification candidate) and the
-15/16 Oct QA packages 2.1.1.370, 2.1.1.371, 2.1.1.374, 2.1.1.376 and the 17 Oct packages 2.1.1.379 and 2.1.1.383, preserving earlier entries. Every QA package card
+the last packaged candidate. The admissions are test set 7 (2.1.1.351, decision A3), 2.1.1.361
+(notification candidate, still on the Firefox Android emulator), the 17 Oct package 2.1.1.383 and the 18 Oct package 2.1.1.385. The server accepts at most 32 build entries, so superseded packages that no device runs any more (357, 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026. Every QA package card
 records the allowlist revision it was checked against (see `scripts/qa/README.md`). Source merge, migration application, admission and installed acceptance are separate gates.
 
 Active clients refresh canonical settings after a private hint or channel join; the existing
