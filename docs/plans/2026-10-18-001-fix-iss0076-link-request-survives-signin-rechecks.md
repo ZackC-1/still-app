@@ -95,6 +95,22 @@ The guard test (conclusively locked access drops the request) passed before and 
 After the fix: the three files pass (265 tests), StillKit `swift test` is untouched by this change.
 Repository gates: see the package card for this build and the PR.
 
+## Second fix (18 October, afternoon; PR467)
+
+The automated Mac lane on package 2.1.1.385 found the invitation's sign-in still ending on the
+signed-in offer card, and "Link to this account" ending in "Linking didn't finish" twice; the
+read-only DB-17 check showed no link operation reached the server. One path was still treated as
+conclusive: native refuses the link-eligibility read while the sign-in's reconcile is in flight
+(and again at confirmation), and `refreshLinkEligibility` turned the refusal into "not eligible",
+dropping the request; inside `confirmLink` the single re-read turned it into a failure.
+
+Change (`apple-pro-host.ts`): a refused read is no answer (the last settled answer and the request
+stay; the next snapshot or refresh asks again); the confirmation retries one refused read and, like
+the automatic link, re-reads once more when an access refresh lands during the first read. Tests:
+two host tests (refusal during sign-in; refusal after the account confirmed) and a real-host
+integration test where the reconcile refuses the reads, red before the change; the fence test was
+re-phrased for the extra read. Package 2.1.1.387 carries it.
+
 ## Owner retests
 
 MAC-85, MAC-86, DB-39 (DB-17 with account=delete), MAC-87, and the iPhone equivalent of the
