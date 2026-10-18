@@ -138,9 +138,11 @@ export const PROTECTED_OPERATOR_SUBJECT =
   "00000000-0000-0000-0000-000000000000";
 
 /**
- * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the successor
- * candidates (sequences 357, 359, notification candidate 361, and the 15/16 Oct QA packages 370,
- * 371, 374, 376, 379, 383 and the 18 Oct package 385) during QA.
+ * Decision A3: retain test set 7 (main 4b94f2c8, sequence 351) alongside the builds still installed
+ * during QA: the notification candidate 361 (the Firefox Android emulator), the 17 Oct package 383
+ * (every other runtime) and the 18 Oct package 385. The server accepts at most 32 build entries
+ * (private.product_policy_body_valid), so superseded packages that no device runs any more (357,
+ * 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026 to make room.
  * Extensions present their manifest version
  * (`browser.runtime.getManifest().version` = package.json version + `.` + VITE_QA_BUILD_SEQUENCE);
  * Apple hosts present CFBundleShortVersionString (MARKETING_VERSION). A new QA test set changes these
@@ -152,30 +154,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.351"],
     ["firefox_desktop", "2.1.1.351"],
     ["firefox_android", "2.1.1.351"],
-    ["chrome_desktop", "2.1.1.357"],
-    ["firefox_desktop", "2.1.1.357"],
-    ["firefox_android", "2.1.1.357"],
-    ["chrome_desktop", "2.1.1.359"],
-    ["firefox_desktop", "2.1.1.359"],
-    ["firefox_android", "2.1.1.359"],
     ["chrome_desktop", "2.1.1.361"],
     ["firefox_desktop", "2.1.1.361"],
     ["firefox_android", "2.1.1.361"],
-    ["chrome_desktop", "2.1.1.370"],
-    ["firefox_desktop", "2.1.1.370"],
-    ["firefox_android", "2.1.1.370"],
-    ["chrome_desktop", "2.1.1.371"],
-    ["firefox_desktop", "2.1.1.371"],
-    ["firefox_android", "2.1.1.371"],
-    ["chrome_desktop", "2.1.1.374"],
-    ["firefox_desktop", "2.1.1.374"],
-    ["firefox_android", "2.1.1.374"],
-    ["chrome_desktop", "2.1.1.376"],
-    ["firefox_desktop", "2.1.1.376"],
-    ["firefox_android", "2.1.1.376"],
-    ["chrome_desktop", "2.1.1.379"],
-    ["firefox_desktop", "2.1.1.379"],
-    ["firefox_android", "2.1.1.379"],
     ["chrome_desktop", "2.1.1.383"],
     ["firefox_desktop", "2.1.1.383"],
     ["firefox_android", "2.1.1.383"],
@@ -370,7 +351,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "e9a18c6bba299a857f2ec24427c13ba480f0557881aa756bc75a421c7258880a",
+        "5508b6fab6173835c06aa4c9a11c4700ccbd706b0aebc8b998d90bd66ea13336",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -382,7 +363,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "4bd5b4275c73ef0a4b590ae54898a79462a44b75b3715b66a06404fd67d3c0ee",
+        "8b0724a7a96d5304adb7fc3797588dc4bc0cc3d03e0fc1351d113f49064e9730",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
