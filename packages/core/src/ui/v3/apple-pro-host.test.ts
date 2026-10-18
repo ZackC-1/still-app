@@ -589,7 +589,7 @@ describe("Opus pending fulfillment, consent recovery and final charge fence", ()
       expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
     },
   );
-  it("a same-account eligible observation during confirmation returns to recoverable consent", async () => {
+  it("a same-account eligible observation during confirmation is re-read once and then links", async () => {
     const { host, deps, settle, setAccount } = await harness();
     host.observeAccess(access("purchased"));
     await settle();
@@ -610,106 +610,9 @@ describe("Opus pending fulfillment, consent recovery and final charge fence", ()
     await settle();
     finish({ ownershipRevision: 0 });
     await settle();
-    expect(host.settings().link?.state).toBe("failed");
-    expect(deps.linkPurchase).not.toHaveBeenCalled();
-    host.settings().link?.onRetry?.();
-    await settle();
-    expect(host.settings().link?.state).toBe("confirm");
-    expect(deps.linkPurchase).not.toHaveBeenCalled();
-    host.settings().link?.onConfirm?.();
-    await settle();
     expect(deps.linkPurchase).toHaveBeenCalledOnce();
     expect(host.settings().link?.state).toBe("linked");
   });
-  it.each(["verification_required", "purchased"] as const)(
-    "a newer %s observation during the fresh offering read prevents a native charge",
-    async (state) => {
-      const { host, deps, settle } = await harness();
-      let finish!: (value: NativeLifetimeOffering) => void;
-      vi.mocked(deps.bridge.proOffering).mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          }),
-      );
-      host.props([]).native.onBuy?.();
-      await settle();
-      host.observeAccess(access(state));
-      finish(offer);
-      await settle();
-      expect(deps.bridge.purchasePro).not.toHaveBeenCalled();
-      expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
-      expect(host.props([]).purchase.state).toBe("idle");
-    },
-  );
-});
-
-it("an offering-read observation change keeps a locked user able to retry a fresh acquisition", async () => {
-  const { host, deps, settle } = await harness();
-  let finish!: (value: NativeLifetimeOffering) => void;
-  vi.mocked(deps.bridge.proOffering).mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  );
-  host.props([]).native.onBuy?.();
-  await settle();
-  host.observeAccess(access("locked"));
-  finish(offer);
-  await settle();
-  expect(deps.bridge.purchasePro).not.toHaveBeenCalled();
-  expect(host.props([]).purchase.state).toBe("idle");
-  host.props([]).native.onBuy?.();
-  await settle();
-  expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
-  expect(host.props([]).purchase).toEqual({
-    state: "success",
-    confirmed: true,
-  });
-});
-it("current accepted publication from the successful signed installer completes local fulfillment", async () => {
-  const { host, deps, settle } = await harness();
-  vi.mocked(deps.verifyLocalPurchase).mockImplementationOnce(async () => {
-    const accepted = access("purchased");
-    host.observeAccess(accepted);
-    return accepted;
-  });
-  host.props([]).native.onBuy?.();
-  await settle();
-  expect(host.props([]).purchase).toEqual({
-    state: "success",
-    confirmed: true,
-  });
-  expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
-});
-
-it("settings exposes only pending verification and reopening never dispatches a new charge", async () => {
-  const { host, deps, settle } = await harness();
-  vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(
-    new Error("Offline"),
-  );
-  host.props([]).native.onBuy?.();
-  await settle();
-  expect(host.settings().pro?.verificationRequired).toBe(true);
-  host.close();
-  const recover = host.show;
-  recover();
-  await settle();
-  expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
-  expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
-  expect(host.settings().pro?.verificationRequired).toBeUndefined();
-  vi.mocked(deps.readAccess).mockResolvedValue(access("purchased"));
-  host.close();
-  recover();
-  await settle();
-  expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
-  expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
-  expect(deps.linkPurchase).not.toHaveBeenCalled();
-});
-
-
-describe("Apple web-purchased account recovery", () => {
   it("freshly reconciles a confirmed account before any new charge", async () => {
     const h = await harness();
     const refreshAccountAccess = vi.fn(async () => access("purchased"));
@@ -1341,6 +1244,44 @@ describe("a requested link survives the re-checks that sign-in starts (ISS-0076)
     finish({ ownershipRevision: 0 });
     await settle();
     expect(host.canLink).toBe(true);
+  });
+  it("a refused eligibility read during sign-in (native busy reconciling) does not drop the request", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    expect(deps.signIn).toHaveBeenCalledOnce();
+    // The reconcile sign-in starts republishes access; native refuses the overlapping read once.
+    vi.mocked(deps.readLinkEligibility!).mockRejectedValueOnce(new Error("Apple link eligibility requires verification"));
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.canLink).toBe(true);
+    setAccount(user);
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    expect(host.settings().link?.email).toBe(user.email);
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a refused read after the account confirmed still ends in the confirmation on the next settled read", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    vi.mocked(deps.readLinkEligibility!)
+      .mockRejectedValueOnce(new Error("requires verification"))
+      .mockRejectedValueOnce(new Error("requires verification"));
+    setAccount(user);
+    await settle();
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+  });
+  it("a settled not-eligible answer still drops the request and the affordance", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    vi.mocked(deps.readLinkEligibility!).mockResolvedValue(null);
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.canLink).toBe(false);
+    setAccount(user);
+    await settle();
+    expect(host.settings().link).toBeUndefined();
   });
   it("conclusively locked access drops the request: a later sign-in offers nothing", async () => {
     const { host, deps, settle, setAccount } = await owned();

@@ -133,14 +133,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     linkSignInAsked = false;
   }
   /** Re-read the native purchaser provenance behind the link affordance. The last settled answer
-   * stays in place while a read is in flight or access is being re-checked, so the affordance
-   * neither blinks off nor loses a request; a settled answer replaces it, and a settled eligible
-   * one offers a requested link (`offer`, off only for the request's own read). */
+   * stays in place while a read is in flight, while access is being re-checked, or when native
+   * refuses the read (it does while the account reconcile that sign-in starts is in flight), so
+   * the affordance neither blinks off nor loses a request; a settled answer replaces it, and a
+   * settled eligible one offers a requested link (`offer`, off only for the request's own read). */
   async function refreshLinkEligibility(offer = true) {
     const ticket = ++eligibilityEpoch;
     const observed = accessEpoch;
     if (stopped || owner() !== "owned") return;
-    let next: typeof eligiblePurchase = null;
+    let next: typeof eligiblePurchase;
     try {
       const result = await deps.readLinkEligibility?.();
       if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
@@ -152,7 +153,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           ? result
           : null;
     } catch {
-      /* An unknown native purchaser never offers linking. */
+      // A refused read is no answer: the next snapshot or refresh asks again. Only a settled
+      // "no purchaser" below withdraws the affordance and a requested link.
+      return;
     }
     if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
       return;
@@ -478,7 +481,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       link = {
         state: "confirm",
         email: target.email,
-        onConfirm: () => void confirmLink(target, generation),
+        // Two reads, as the automatic link after a purchase: an access refresh landing during the
+      // first re-read (the cache's minute refresh, a sync publish) must not fail a deliberate
+      // link; a second overlap, or anything the reads cannot prove, ends in the failed card.
+      onConfirm: () => void confirmLink(target, generation, requestLink, 2),
         onChooseOther: () => {
           if (
             !stopped &&
@@ -528,9 +534,19 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     changed();
     try {
       let eligible: { readonly ownershipRevision: number } | null | undefined;
+      // Native refuses a read while it is busy (a reconcile or revocation in flight); one such
+      // refusal is asked again rather than failing the link. A verdict (an unproven purchaser or
+      // access that changed meanwhile) keeps the attempt rule below.
+      let refusals = 0;
       for (let attempt = 1; ; attempt++) {
         const observed = accessEpoch;
-        eligible = await deps.readLinkEligibility?.();
+        try {
+          eligible = await deps.readLinkEligibility?.();
+        } catch (error) {
+          if (refusals++ >= 1) throw error;
+          attempt--;
+          continue;
+        }
         if (
           stopped ||
           generation !== linkGeneration ||
