@@ -304,17 +304,21 @@
       : undefined}
   />
   {#if showInvitation}
-    <!-- ISS-0071: one line for accountless holders; Sign in runs the existing explicit link. -->
-    <section class="card card-stack" aria-label="Sign in to keep Still Pro with your account.">
+    <!-- ISS-0071: one line for accountless holders; Sign in runs the existing explicit link.
+         ISS-0076: signed in, the same line offers the link itself (Link runs that explicit link). -->
+    {@const invitation = linkInvitation?.signedIn
+      ? { title: "Link Still Pro to your account.", action: "Link" }
+      : { title: "Sign in to keep Still Pro with your account.", action: "Sign in" }}
+    <section class="card card-stack" aria-label={invitation.title}>
       <div class="sync-row-text">
-        <h2 class="sync-row-title">Sign in to keep Still Pro with your account.</h2>
+        <h2 class="sync-row-title">{invitation.title}</h2>
       </div>
       <div class="inline-actions">
         <button
           type="button"
           class="primary inline"
           disabled={!linkInvitation?.onLink}
-          onclick={linkInvitation?.onLink}>Sign in</button
+          onclick={linkInvitation?.onLink}>{invitation.action}</button
         >
         <button
           type="button"

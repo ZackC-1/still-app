@@ -89,7 +89,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let restore: AppleSettingsProps["restore"];
   let link: AppleSettingsProps["link"];
   let linkAccount: AppleProAccount | null = null;
+  // ISS-0076: a deliberate link request (the invitation's Sign in, the link card's Link) stays
+  // requested across the re-checks that sign-in starts: the account reconcile republishes access,
+  // the cache holds rows while a refresh is in flight, and every snapshot re-reads link eligibility.
+  // Only a conclusive answer (nothing owned, nothing eligible, the sheet closed signed out, another
+  // account) drops it; a settled eligible answer re-offers the confirmation.
   let linkingRequested = false;
+  let linkSignInAsked = false;
+  let requestingLink = false;
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
   // ISS-0071: Get Still Pro asked a signed-out person to sign in first. A confirmed sign-in
@@ -123,17 +130,22 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     link = undefined;
     linkAccount = null;
     linkingRequested = false;
+    linkSignInAsked = false;
   }
-  async function refreshLinkEligibility() {
+  /** Re-read the native purchaser provenance behind the link affordance. The last settled answer
+   * stays in place while a read is in flight or access is being re-checked, so the affordance
+   * neither blinks off nor loses a request; a settled answer replaces it, and a settled eligible
+   * one offers a requested link (`offer`, off only for the request's own read). */
+  async function refreshLinkEligibility(offer = true) {
     const ticket = ++eligibilityEpoch;
     const observed = accessEpoch;
-    eligiblePurchase = null;
     if (stopped || owner() !== "owned") return;
+    let next: typeof eligiblePurchase = null;
     try {
       const result = await deps.readLinkEligibility?.();
       if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
         return;
-      eligiblePurchase =
+      next =
         result &&
         Number.isSafeInteger(result.ownershipRevision) &&
         result.ownershipRevision >= 0
@@ -144,16 +156,41 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     }
     if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
       return;
+    eligiblePurchase = next;
     // A link already in flight rereads eligibility itself and ends in linked or failed (with
     // Try again); an overlapping refresh must not cancel it silently.
     if (!eligiblePurchase && link?.state !== "pending") clearLink();
     changed();
+    if (offer) offerRequestedLink();
+  }
+  /** A requested link whose sign-in has confirmed: show the confirmation as soon as access is
+   * owned and the purchaser provenance has settled, whichever of the two lands last. */
+  function offerRequestedLink() {
+    if (
+      stopped ||
+      busy ||
+      requestingLink ||
+      !linkingRequested ||
+      link ||
+      linkAccount ||
+      owner() !== "owned" ||
+      !eligiblePurchase ||
+      !deps.account()?.confirmed
+    )
+      return;
+    void requestLink();
   }
   function observeAccess(snapshot: BenefitAccessSnapshot) {
     if (stopped) return;
     accessEpoch++;
     access = snapshot;
-    if (owner() !== "owned") clearLink();
+    // Conclusively nothing owned: nothing to link. A re-check in flight ("checking") or a held
+    // snapshot ("verify") keeps a requested link and the last eligibility answer for owned access
+    // to come back to.
+    if (owner() === "none") {
+      eligiblePurchase = null;
+      clearLink();
+    }
     void refreshLinkEligibility();
     changed();
   }
@@ -406,43 +443,56 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     await confirmLink(linkAccount, generation, () => void linkPurchased(account), 2);
   }
   async function requestLink() {
-    if (stopped || busy || owner() !== "owned" || !eligiblePurchase) return;
-    const generation = ++linkGeneration;
-    const before = deps.account();
-    await refreshLinkEligibility();
-    if (
-      stopped ||
-      busy ||
-      generation !== linkGeneration ||
-      owner() !== "owned" ||
-      !eligiblePurchase ||
-      before?.id !== deps.account()?.id ||
-      before?.revision !== deps.account()?.revision
-    )
-      return;
+    if (stopped || busy || requestingLink || owner() === "none" || !eligiblePurchase) return;
+    // Remembered before any read: a hold or an overlapping re-read cannot lose the request.
     linkingRequested = true;
-    const account = deps.account();
-    if (!account?.confirmed) {
-      deps.signIn();
-      return;
+    if (owner() !== "owned") return;
+    requestingLink = true;
+    try {
+      const generation = ++linkGeneration;
+      const before = deps.account();
+      await refreshLinkEligibility(false);
+      if (
+        stopped ||
+        busy ||
+        generation !== linkGeneration ||
+        before?.id !== deps.account()?.id ||
+        before?.revision !== deps.account()?.revision
+      )
+        return;
+      // A hold landed meanwhile or the read was overtaken: the request stays, and the next settled
+      // owned, eligible answer offers it. A settled "not eligible" already cleared the request.
+      if (owner() !== "owned" || !eligiblePurchase) return;
+      const account = deps.account();
+      if (!account?.confirmed) {
+        // Asked once per request: every later re-read must not reopen the sheet.
+        if (!linkSignInAsked) {
+          linkSignInAsked = true;
+          deps.signIn();
+        }
+        return;
+      }
+      linkSignInAsked = false;
+      linkAccount = { ...account };
+      const target = linkAccount;
+      link = {
+        state: "confirm",
+        email: target.email,
+        onConfirm: () => void confirmLink(target, generation),
+        onChooseOther: () => {
+          if (
+            !stopped &&
+            !busy &&
+            generation === linkGeneration &&
+            sameAccount(target)
+          )
+            void chooseOther();
+        },
+      };
+      changed();
+    } finally {
+      requestingLink = false;
     }
-    linkAccount = { ...account };
-    const target = linkAccount;
-    link = {
-      state: "confirm",
-      email: target.email,
-      onConfirm: () => void confirmLink(target, generation),
-      onChooseOther: () => {
-        if (
-          !stopped &&
-          !busy &&
-          generation === linkGeneration &&
-          sameAccount(target)
-        )
-          void chooseOther();
-      },
-    };
-    changed();
   }
   async function chooseOther() {
     linkGeneration++;
@@ -463,10 +513,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       busy ||
       generation !== linkGeneration ||
       !linkAccount ||
-      !sameAccount(account) ||
-      owner() !== "owned"
+      !sameAccount(account)
     )
       return;
+    if (owner() !== "owned") {
+      // Access is being re-checked right now: say so (Try again re-offers), never nothing.
+      link = { state: "failed", email: account.email, onRetry };
+      changed();
+      return;
+    }
     const operation = ++epoch;
     busy = true;
     link = { state: "pending", email: account.email };
@@ -555,14 +610,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       epoch++;
       busy = false;
-      if (linkAccount && !sameAccount(linkAccount)) {
-        linkGeneration++;
-        link = undefined;
-        linkAccount = null;
-        linkingRequested = false;
-      }
+      if (linkAccount && !sameAccount(linkAccount)) clearLink();
       if (linkingRequested && !linkAccount && deps.account()?.confirmed)
-        requestLink();
+        void requestLink();
       const current = deps.account();
       if (
         purchaseSignIn &&
@@ -658,12 +708,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       };
     },
     requestLink,
-    /** The sign-in sheet was closed without signing in: nothing is bought. */
+    /** The sign-in sheet was closed without signing in: nothing is bought, and a link request
+     * that opened it is dropped (a later sign-in offers the link card, not the confirmation). */
     signInDismissed() {
-      if (!purchaseSignIn) return;
-      purchaseSignIn = false;
-      purchaseSignInAccount = null;
-      changed();
+      let dropped = false;
+      if (purchaseSignIn) {
+        purchaseSignIn = false;
+        purchaseSignInAccount = null;
+        dropped = true;
+      }
+      if (linkSignInAsked && !deps.account()?.confirmed) {
+        linkingRequested = false;
+        linkSignInAsked = false;
+        dropped = true;
+      }
+      if (dropped) changed();
     },
     /** "Buy without an account": Apple's sheet, exactly as an accountless purchase always was. */
     buyWithoutAccount() {

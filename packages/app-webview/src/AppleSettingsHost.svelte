@@ -176,10 +176,12 @@
     proHost?.buyWithoutAccount();
     c.dismissSignIn();
   }
-  // Accountless holders, signed out: "Sign in to keep Still Pro with your account." runs the
-  // existing explicit link. Not now hides it until the app is next opened.
+  // Accountless holders: signed out, "Sign in to keep Still Pro with your account."; signed in,
+  // "Link Still Pro to your account." (ISS-0076). Both run the existing explicit link, which ends in
+  // the "Link Still Pro to this account?" confirmation. Not now hides the card until the app is
+  // next opened.
   let linkInviteDismissed = $state(false);
-  let signedOutLink = $derived(canLink && c.userId === null && c.canSignIn);
+  let linkOffer = $derived(canLink && (c.userId !== null || c.canSignIn));
   $effect(() => {
     void c.userId;
     void c.accountEmail;
@@ -440,7 +442,7 @@
   <div bind:this={purchaseScreen}>
     <PurchaseView {...purchaseProps} onBack={platform === "mac" ? closePurchase : purchaseProps.onBack} phone={platformKnown && platform === "ios"} />
   </div>
-  {#if canLink && !signedOutLink}<div class="still-ui app">
+  {#if canLink && c.userId !== null}<div class="still-ui app">
       <button
         type="button"
         class="secondary block"
@@ -467,9 +469,10 @@
     {sync}
     pro={settingsPro}
     link={proState?.link}
-    linkInvitation={signedOutLink && !linkInviteDismissed
+    linkInvitation={linkOffer && !linkInviteDismissed
       ? {
           eligibleLaterVisit: true,
+          signedIn: c.userId !== null,
           onLink: () => void proHost?.requestLink(),
           onDismiss: () => (linkInviteDismissed = true),
         }
@@ -489,11 +492,6 @@
       >
     </div>
   {/if}
-  {#if canLink && !signedOutLink}<div class="still-ui app">
-      <button type="button" class="link" onclick={() => proHost?.requestLink()}
-        >Link Still Pro to an account</button
-      >
-    </div>{/if}
   {#if view.settingsUnavailable && !reading}
     <div class="still-ui app" data-host="apple">
       {@render settingsRecovery()}
