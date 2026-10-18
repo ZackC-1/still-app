@@ -91,6 +91,8 @@ async function compose(
     /** The app's native account lane (reconcile on sign-in) with the email-code sign-in, starting
      * signed out: the path a real sign-in from Settings takes (ISS-0076). Implies `codeAuth`. */
     accountAccess?: boolean;
+    /** Native refuses the link-eligibility read this many times (a reconcile in flight), then answers. */
+    refuseEligibility?: number;
     eligible?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -129,6 +131,7 @@ async function compose(
   // let them finish one at a time (each read returns on its own there, never in one flush).
   let eligibilityHeld = false;
   const eligibilityWaiters: Array<() => void> = [];
+  let refusedEligibility = 0;
   if (options.accountAccess) options.codeAuth = true;
   let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
   const accountRequests: unknown[] = [];
@@ -265,6 +268,10 @@ async function compose(
         ownershipRevision: () => 0,
         readLinkEligibility: async () => {
           if (eligibilityHeld) await new Promise<void>((resolve) => eligibilityWaiters.push(resolve));
+          if (options.refuseEligibility && refusedEligibility < options.refuseEligibility) {
+            refusedEligibility++;
+            throw new Error("still: Apple link eligibility requires verification");
+          }
           return options.eligible === false ? null : { ownershipRevision: 0 };
         },
         linkPurchase,
@@ -300,6 +307,8 @@ async function compose(
       offeringGate = new Promise<void>((resolve) => { release = resolve; });
       return () => { offeringGate = null; release(); };
     },
+    /** Native refuses the next `n` link-eligibility reads (a reconcile in flight), then answers. */
+    refuseEligibility(n: number) { options.refuseEligibility = n; refusedEligibility = 0; },
     holdEligibility() {
       eligibilityHeld = true;
       return {
@@ -1277,6 +1286,23 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     expect(f.linkPurchase).toHaveBeenCalledWith(
       expect.objectContaining({ intendedAccountId: f.controller.userId, expectedOwnershipRevision: 0 }),
     );
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+  });
+  it("signing in from the invitation shows the confirmation even when native refuses the eligibility reads during the reconcile", async () => {
+    const f = await compose({ accountAccess: true, initial: "purchased", accountState: "none" });
+    const invite = await screen.findByRole("region", { name: INVITE });
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    // Native refuses the read the sign-in's reconcile overlaps and the confirmation's first
+    // re-read, then answers (the Mac on 18 Oct: both refused, the link reported "didn't finish").
+    f.refuseEligibility(2);
+    await enterCode();
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    const card = await confirmation();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
     expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
   });
   it("a plain sign-in from the sync card offers the link card; Link asks for confirmation; nothing links before the tap", async () => {
