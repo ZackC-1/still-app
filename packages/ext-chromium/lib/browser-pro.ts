@@ -29,6 +29,10 @@ export const BROWSER_PRO_AVAILABLE_ACTION = "checkoutAvailable";
  */
 export const VISIBLE_RECHECK_SPACING_MS = 30_000;
 /**
+ * A visible page that showed "Purchased" re-checks quietly when that answer lapses into "verify
+ * again" (the background's account evidence lasts some minutes), so the card does not flash
+ * "needs to be verified again" with nothing having failed (ISS-0077).
+ *
  * While a visible page shows Buy, the short-lived "known none" evidence (about a minute) is
  * renewed shortly before it lapses, so the card does not fall back to "verify again" under a
  * person reading it (ISS-0072). The allowance covers about an hour since the page was last shown
@@ -251,6 +255,9 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   // This account was last seen conclusively without Still Pro, and nothing since has refuted it:
   // a later "verify again" is that answer going stale, which a re-check renews (ISS-0072).
   let knownNone = false;
+  // Likewise last seen owning Still Pro (ISS-0077): the background's account evidence lapses
+  // after some minutes, and a visible page re-checks instead of saying "verify again".
+  let knownOwned = false;
   let renewFlight = false;
 
   function set(next: Partial<BrowserProState>): void {
@@ -294,17 +301,18 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     set({ channel: allowed ? "ready" : "unavailable" });
   }
 
-  /** Renew a known none that went stale, quietly, once per stale answer (at most two checks). Not
-   * while hidden or past
-   * the renewal allowance: the next time the page is shown or focused does it then. */
+  /** Renew a known none, or a known owned (ISS-0077), that went stale, quietly, once per stale
+   * answer (at most two checks). Not while hidden or past the renewal allowance: the next time the
+   * page is shown or focused does it then. */
   function renew(): void {
-    if (stopped || renewFlight || !knownNone || seen?.userId == null || seen.ownership !== "verify" || !visible()) return;
+    const expected: ProOwnership | null = knownNone ? "none" : knownOwned ? "owned" : null;
+    if (stopped || renewFlight || expected === null || seen?.userId == null || seen.ownership !== "verify" || !visible()) return;
     if (keepAliveCount >= KEEP_ALIVE_LIMIT) return;
     keepAliveCount += 1;
     renewFlight = true;
     const ticket = generation;
     set({ renewing: true });
-    const confirmed = (result: AccessRecheck | null) => result !== null && proOwnership(result.access) === "none";
+    const confirmed = (result: AccessRecheck | null) => result !== null && proOwnership(result.access) === expected;
     void (async () => {
       let result = await recheck(true);
       // The first answer may come from a check already under way when the answer went stale (the
@@ -312,8 +320,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (!stopped && ticket === generation && !confirmed(result)) result = await recheck(true);
       if (ticket !== generation) return;
       renewFlight = false;
-      // Not confirmed none: the stale answer is not renewed and the card says "verify again".
-      if (!confirmed(result)) knownNone = false;
+      // Not confirmed: the stale answer is not renewed and the card says "verify again".
+      if (!confirmed(result)) { knownNone = false; knownOwned = false; }
       set({ renewing: false });
     })();
   }
@@ -323,7 +331,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     keepAliveCount = 0;
     if (state.purchase === "waiting") void recheck(true);
     else if (seen?.ownership === "owned") return;
-    else if (seen?.ownership === "verify" && knownNone) renew();
+    else if (seen?.ownership === "verify" && (knownNone || knownOwned)) renew();
     else if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck(true);
     else if (seen?.ownership === "none") armKeepAlive();
   }
@@ -486,6 +494,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         channelFlight = false;
         renewFlight = false;
         knownNone = false;
+        knownOwned = false;
         clearKeepAlive();
         set({ channel: "unknown", purchase: "idle", renewing: false });
       }
@@ -497,6 +506,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (next.ownership === "owned" && state.purchase !== "idle") set({ purchase: "idle" });
       if (next.userId === null || next.ownership === "owned" || next.ownership === "hidden") knownNone = false;
       else if (next.ownership === "none") knownNone = true;
+      if (next.userId === null || next.ownership === "none" || next.ownership === "hidden") knownOwned = false;
+      else if (next.ownership === "owned") knownOwned = true;
       if (next.ownership === "verify") renew();
       if (next.ownership === "none" && next.userId !== null) {
         if (state.channel === "unknown") void askChannel();

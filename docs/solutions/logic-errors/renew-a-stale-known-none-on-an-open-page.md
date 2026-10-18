@@ -1,5 +1,5 @@
 ---
-title: An open page must renew short-lived "known none" evidence after it is replaced, not only before it lapses
+title: An open page must renew short-lived "known none" and "known owned" evidence after it is replaced, not only before it lapses
 category: logic-errors
 track: bug
 problem_type: logic_error
@@ -52,10 +52,22 @@ the evidence was replaced*, whether by the deadline or by a background event.
   or its window is focused. Window focus re-checks like showing the page. A stale known none is
   renewed on show or focus regardless of the 30 s spacing.
 
+## The same fault on the other answer (ISS-0077, 2026-10-18)
+
+The fix above remembered only a conclusive "none". A signed-in account that **owns** Still Pro
+has the same short-lived evidence, so on 2.1.1.385 an open Chrome Settings page read "Purchased",
+then "Still Pro needs to be verified again." at about ten minutes, then "Purchased" again once the
+next background refresh reconciled. The host now remembers a conclusive "owned" as well
+(`knownOwned`) and renews whichever answer is remembered when a visible page's answer turns into
+"verify": the re-check must confirm the remembered answer, otherwise both memories are dropped and
+"verify again" stands. Plan:
+[2026-10-18-003](../../plans/2026-10-18-003-fix-iss0077-renew-stale-owned-answer-on-open-page.md).
+
 ## Prevention
 
-- When an offer depends on negative evidence with a deadline, test both ways it ends: the clock
-  passing **and** an unrelated event replacing it (sync, token refresh, record write).
+- When an offer or a status depends on evidence with a deadline, positive or negative, test both
+  ways it ends: the clock passing **and** an unrelated event replacing it (sync, token refresh,
+  record write). Fixing one answer and not its opposite leaves the same fault for the other.
 - A bound on background renewals needs a reset tied to the person returning (show, focus).
   Otherwise "left open a while" becomes a false error state.
 - Fake-timer tests should run past the old bound (here 20 minutes against a 7.5 minute cap) and

@@ -314,6 +314,53 @@ describe("the browser Still Pro flow", () => {
     expect(h.controller.recheckAccess).toHaveBeenCalledTimes(KEEP_ALIVE_LIMIT + 5);
   });
 
+  describe("an open page whose owned answer goes stale (ISS-0077)", () => {
+    it("re-checks at once when owned turns into verify again, showing renewing meanwhile", async () => {
+      const h = harness({ recheck: "purchased" });
+      h.observe("owned"); await settle();
+      h.controller.recheckAccess.mockClear();
+      // The background's account evidence lapsed; the page should ask again, not say "verify again".
+      h.observe("verify");
+      expect(h.state.renewing).toBe(true);
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      await settle();
+      expect(h.state.renewing).toBe(false);
+      h.observe("owned"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    });
+
+    it("leaves verify again only when the re-check does not confirm owned, and does not loop", async () => {
+      const h = harness({ recheck: "verification_required" });
+      h.observe("owned"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.observe("verify"); await settle();
+      // A second fresh check decides, then the stale owned answer is given up.
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+      expect(h.state.renewing).toBe(false);
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+    });
+
+    it("showing the page again with a stale owned answer renews it once", async () => {
+      const h = harness({ recheck: "purchased" });
+      h.observe("owned"); await settle();
+      h.page.show("hidden");
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+      h.page.show("visible"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    });
+
+    it("another account's sign-in forgets the previous account's owned answer", async () => {
+      const h = harness({ recheck: "locked" });
+      h.observe("owned"); await settle();
+      h.observe("verify", OTHER); await settle();
+      // The switch runs the sign-in check; the stale owned answer of the other account is not renewed.
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      expect(h.state.renewing).toBe(false);
+    });
+  });
+
   describe("an open page whose known none goes stale (ISS-0072)", () => {
     it("left visible for twenty minutes keeps renewing it, past the old ten-renewal cap", async () => {
       vi.useFakeTimers();
