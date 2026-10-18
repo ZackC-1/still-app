@@ -26,6 +26,20 @@ final class SafariSetupObservationTests: XCTestCase {
     }
   }
 
+  func testTheIOSDirectExtensionPageKeepsTheWebViewContractUnchanged() throws {
+    // ISS-0074: on iOS 26.2+ the SwiftUI onboarding opens Still's Safari extension page directly,
+    // but the web view's setup reply keeps its one iOS shape (unknown, settingsAppStillPage), which
+    // is what the bundled web UI parses and what `openDestination` can open there.
+    let observation = SafariSetupObservation(
+      platform: .ios, extensionStatus: .enabled, enableLocation: .settingsAppSafariExtensionPage)
+    XCTAssertEqual(observation.enableLocation, .settingsAppStillPage)
+    XCTAssertEqual(observation.extensionStatus, .unknown)
+    try assertReply(observation, platform: "ios", status: "unknown", location: "settingsAppStillPage")
+    let mac = SafariSetupObservation(
+      platform: .macos, extensionStatus: .enabled, enableLocation: .settingsAppSafariExtensionPage)
+    XCTAssertEqual(mac.enableLocation, .safariExtensionSettings)
+  }
+
   func testIncompatibleDestinationCannotEscapeItsActualPlatform() throws {
     let ios = SafariSetupObservation(
       platform: .ios, extensionStatus: .enabled, enableLocation: .safariExtensionSettings)

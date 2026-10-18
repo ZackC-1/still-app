@@ -75,19 +75,22 @@ final class OnboardingTests: XCTestCase {
 
   // ── Screen-3 enable-step copy (OnboardingCopy) ─────────────────────────────────────────────────
 
-  func testEnableStepListsAlwaysHaveFourSteps() {
-    XCTAssertEqual(OnboardingCopy.enableSteps(iOS18OrLater: true).count, 4)
-    XCTAssertEqual(OnboardingCopy.enableSteps(iOS18OrLater: false).count, 4)
+  private let walkThroughs = [
+    OnboardingCopy.enableSteps(for: .settingsAppStillPage, iOS18OrLater: true),
+    OnboardingCopy.enableSteps(for: .settingsAppStillPage, iOS18OrLater: false),
+  ]
+  private var directPage: [String] { OnboardingCopy.enableSteps(for: .settingsAppSafariExtensionPage) }
+
+  func testEnableStepCountsPerDestination() {
+    for steps in walkThroughs { XCTAssertEqual(steps.count, 4, "the walk-through is four steps") }
+    XCTAssertEqual(directPage.count, 3, "landing on the extension page leaves nothing to navigate")
     XCTAssertEqual(OnboardingCopy.macOSEnableSteps.count, 4)
+    XCTAssertEqual(OnboardingCopy.enableSteps(for: .safariExtensionSettings), OnboardingCopy.macOSEnableSteps)
   }
 
   func testSiteListsFollowTheOwnerOrderInstagramFacebookYouTubeTikTok() {
     let order = ["Instagram", "Facebook", "YouTube", "TikTok"]
-    let lists = [
-      OnboardingCopy.enableSteps(iOS18OrLater: true)[2],
-      OnboardingCopy.enableSteps(iOS18OrLater: false)[2],
-      OnboardingCopy.macOSEnableSteps[2],
-    ]
+    let lists = walkThroughs.map { $0[2] } + [directPage[1], OnboardingCopy.macOSEnableSteps[2]]
     for line in lists {
       let positions = order.compactMap { line.range(of: $0)?.lowerBound }
       XCTAssertEqual(positions.count, 4, line)
@@ -95,9 +98,9 @@ final class OnboardingTests: XCTestCase {
     }
   }
 
-  func testIOSVariantsShareEverythingButTheSettingsPath() {
-    let ios18 = OnboardingCopy.enableSteps(iOS18OrLater: true)
-    let earlier = OnboardingCopy.enableSteps(iOS18OrLater: false)
+  func testIOSWalkThroughVariantsShareEverythingButTheSettingsPath() {
+    let ios18 = walkThroughs[0]
+    let earlier = walkThroughs[1]
     XCTAssertEqual(ios18[0], earlier[0], "step 1 is shared verbatim")
     XCTAssertEqual(ios18[2], earlier[2], "step 3 is shared verbatim")
     XCTAssertEqual(ios18[3], earlier[3], "step 4 is shared verbatim")
@@ -106,14 +109,33 @@ final class OnboardingTests: XCTestCase {
 
   func testIOSSettingsPathMatchesEachOSGeneration() {
     XCTAssertEqual(
-      OnboardingCopy.enableSteps(iOS18OrLater: true)[1],
+      walkThroughs[0][1],
       "Go to Apps → Safari → Extensions → Still",
       "iOS 18 moved Safari's settings under Apps"
     )
+    XCTAssertEqual(walkThroughs[1][1], "Go to Safari → Extensions → Still")
+  }
+
+  func testTheWalkThroughNeverQuotesABackButtonLabel() {
+    // ISS-0074: on iOS 26 the back control in Settings is a bare chevron, while earlier versions
+    // label it "Settings". A step quoting either label is wrong for the other, so step 1 says to go
+    // back without naming the control.
+    for steps in walkThroughs {
+      XCTAssertEqual(steps[0], "Tap “Open Settings” below, then go back")
+      XCTAssertFalse(steps[0].contains("‹"), steps[0])
+      XCTAssertFalse(steps[0].contains("tap Settings"), steps[0])
+    }
+  }
+
+  func testTheDirectPageStepsAreTheSwitchTheWebsitesAndTheReopen() {
+    // ISS-0074: on iOS 26.2 and later the button lands on Still's Safari extension page itself.
     XCTAssertEqual(
-      OnboardingCopy.enableSteps(iOS18OrLater: false)[1],
-      "Go to Safari → Extensions → Still"
-    )
+      directPage,
+      [
+        "Tap “Open Settings” below",
+        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
+        "Close Safari, then reopen it",
+      ])
   }
 
   func testStepOneNamesTheButtonUnderIt() {
@@ -121,56 +143,55 @@ final class OnboardingTests: XCTestCase {
     // step has to call it what the button calls itself. These two drifted apart once already, when
     // the button was renamed to one cross-platform phrase and the steps kept the old iOS and macOS
     // names, leaving first-launch users and App Review told to tap a control that was not there.
-    for steps in [
-      OnboardingCopy.enableSteps(iOS18OrLater: true),
-      OnboardingCopy.enableSteps(iOS18OrLater: false),
-    ] {
-      XCTAssertTrue(
-        steps[0].contains(OnboardingCopy.openButtonTitle(for: .settingsAppStillPage)),
-        "step 1 must name the button as it reads: \(steps[0])"
-      )
+    for location in [EnableLocation.settingsAppStillPage, .settingsAppSafariExtensionPage, .safariExtensionSettings] {
+      for iOS18OrLater in [true, false] {
+        let steps = OnboardingCopy.enableSteps(for: location, iOS18OrLater: iOS18OrLater)
+        XCTAssertTrue(
+          steps[0].contains("“\(OnboardingCopy.openButtonTitle(for: location))”"),
+          "step 1 must name the button as it reads: \(steps[0])"
+        )
+      }
     }
-    XCTAssertTrue(
-      OnboardingCopy.macOSEnableSteps[0].contains(OnboardingCopy.openButtonTitle(for: .safariExtensionSettings)),
-      "step 1 must name the button as it reads: \(OnboardingCopy.macOSEnableSteps[0])"
-    )
   }
 
   func testTheButtonLabelDescribesWhereThatButtonActuallyGoes() {
     // Matching the step is not enough. The pair agreed once on a phrase that was false: on iOS the
-    // button runs UIApplication.openSettingsURLString, which opens Still's own page in the Settings
-    // app, because that is as close as a containing app can get on the iPhone versions this build
-    // supports. A label naming Safari there promises a screen nothing opens, and makes the step
-    // that follows it ("then tap ‹ Settings") read as nonsense.
-    XCTAssertFalse(
-      OnboardingCopy.openButtonTitle(for: .settingsAppStillPage).lowercased().contains("safari"),
-      "the Settings-app button cannot claim to open anything in Safari"
-    )
+    // button opens the Settings app (Still's own page before iOS 26.2, Still's Safari extension
+    // page from 26.2), because that is as close as a containing app can get. A label naming Safari
+    // there promises a screen nothing opens.
+    for location in [EnableLocation.settingsAppStillPage, .settingsAppSafariExtensionPage] {
+      XCTAssertTrue(location.isSettingsApp)
+      XCTAssertEqual(OnboardingCopy.openButtonTitle(for: location), "Open Settings")
+      XCTAssertFalse(
+        OnboardingCopy.openButtonTitle(for: location).lowercased().contains("safari"),
+        "a Settings-app button cannot claim to open anything in Safari"
+      )
+    }
     // macOS does land in Safari's own settings, at the Extensions pane, through
     // SFSafariApplication.showPreferencesForExtension, so there the label says so.
+    XCTAssertFalse(EnableLocation.safariExtensionSettings.isSettingsApp)
     XCTAssertTrue(
       OnboardingCopy.openButtonTitle(for: .safariExtensionSettings).lowercased().contains("safari"),
       "the Safari-settings button should say where it goes"
     )
   }
 
-  func testOnlyTheJourneyThroughTheSettingsAppWalksTheReaderToSafari() {
-    // The count of steps is not the point; who has to do the walking is. On iOS the button stops
-    // one screen short, so a step has to carry the reader the rest of the way. On macOS the button
-    // arrives, so no step should be sending them off to find it.
-    for steps in [
-      OnboardingCopy.enableSteps(iOS18OrLater: true),
-      OnboardingCopy.enableSteps(iOS18OrLater: false),
-    ] {
+  func testOnlyTheJourneyThroughStillsAppPageWalksTheReaderToSafari() {
+    // The count of steps is not the point; who has to do the walking is. Before iOS 26.2 the button
+    // stops one screen short, so a step has to carry the reader the rest of the way. On macOS and on
+    // iOS 26.2+ the button arrives, so no step should be sending them off to find it.
+    for steps in walkThroughs {
       XCTAssertTrue(
         steps.contains { $0.contains("Safari → Extensions") },
         "the button stops at Still's page in Settings, so the steps have to reach Safari: \(steps)"
       )
     }
-    XCTAssertFalse(
-      OnboardingCopy.macOSEnableSteps.contains { $0.contains("Safari → Extensions") },
-      "the button already opened Safari's extension settings, so nothing should navigate there"
-    )
+    for steps in [directPage, OnboardingCopy.macOSEnableSteps] {
+      XCTAssertFalse(
+        steps.contains { $0.contains("Safari → Extensions") || $0.contains("go back") },
+        "the button already opened the extension's settings, so nothing should navigate there: \(steps)"
+      )
+    }
   }
 
   func testGateShowsUntilMarkedComplete() {
