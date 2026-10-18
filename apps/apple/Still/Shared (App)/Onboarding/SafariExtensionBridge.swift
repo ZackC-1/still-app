@@ -4,24 +4,25 @@
 //
 //  Bridges the pure SwiftUI OnboardingView (U18) to the platform's Safari-extension APIs. On macOS,
 //  SFSafariExtensionManager reports the live enabled state and SFSafariApplication opens the prefs
-//  pane, so screen 3 reflects reality. Across the iPhone versions this build supports, back to
-//  iOS 15, a containing app has neither of those, so it reports `.unknown` and opens the app's own
-//  Settings page as the closest guided entry point.
+//  pane, so screen 3 reflects reality. On iOS 26.2 and later the iPhone has the same two things:
+//  SFSafariExtensionManager reports the state and SFSafariSettings.openExtensionsSettings opens
+//  Settings straight on Still's Safari extension page (ISS-0074). On the earlier iPhone versions
+//  this build supports, back to iOS 15, a containing app has neither, so it reports `.unknown` and
+//  opens the app's own Settings page as the closest guided entry point; the onboarding steps walk
+//  the rest of the way.
 //
-//  Both arrived on iOS in 26.2, as SFSafariSettings.openExtensionsSettings(forIdentifiers:) and
-//  SFSafariExtensionManager. Using them means an availability fork and a device pass on the one
-//  screen between installing Still and it working, so what ships here is the path that works for
-//  every version the app targets.
+//  The availability fork lives in `enableLocation` below; the label and the steps on screen 3 are
+//  written from that value, so they can never describe a page this file does not open.
 //
 
 import Foundation
 import StillKit
+import SafariServices
 
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
 import AppKit
-import SafariServices
 #endif
 
 enum SafariExtensionBridge {
@@ -39,8 +40,8 @@ enum SafariExtensionBridge {
       platform: platform, extensionStatus: await currentStatus(), enableLocation: enableLocation)
   }
 
-  /// The live extension state. Real on macOS; always `.unknown` on the iPhone versions this build
-  /// targets, where reading it is not available to a containing app.
+  /// The live extension state. Real on macOS and on iOS 26.2 and later; `.unknown` on an earlier
+  /// iPhone, where reading it is not available to a containing app.
   static func currentStatus() async -> SafariExtensionStatus {
     #if DEBUG
     // Simulator/Mac QA lane only (QA/QAHooks.swift); inert unless STILL_QA_SAFARI is set.
@@ -57,6 +58,38 @@ enum SafariExtensionBridge {
       }
     }
     #else
+    if #available(iOS 26.2, *) {
+      // A failed read (no such extension, a refused query) is not knowable state, never "off".
+      // The read is bounded: the rating prompt and the analytics context await this status, and a
+      // reply that never comes (observed on the iOS 26.2 simulator) must not hold them forever.
+      return await withTaskGroup(of: SafariExtensionStatus.self) { group in
+        group.addTask {
+          do {
+            let state = try await SFSafariExtensionManager.stateOfExtension(withIdentifier: extensionBundleID)
+            #if DEBUG
+            print("still qa: stateOfExtension answered enabled=\(state.isEnabled)")
+            #endif
+            return state.isEnabled ? .enabled : .disabled
+          } catch {
+            #if DEBUG
+            // Simulator QA lane only: the refusal, for the lane's console capture.
+            print("still qa: stateOfExtension refused: \(error)")
+            #endif
+            return .unknown
+          }
+        }
+        group.addTask {
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
+          #if DEBUG
+          if !Task.isCancelled { print("still qa: stateOfExtension timed out") }
+          #endif
+          return .unknown
+        }
+        let first = await group.next() ?? .unknown
+        group.cancelAll()
+        return first
+      }
+    }
     return .unknown
     #endif
   }
@@ -69,23 +102,43 @@ enum SafariExtensionBridge {
     #if os(macOS)
     return .safariExtensionSettings
     #else
+    if #available(iOS 26.2, *) { return .settingsAppSafariExtensionPage }
     return .settingsAppStillPage
     #endif
   }
 
-  /// Open where the user enables Still: the Safari extensions prefs pane on macOS, the Settings app
-  /// on iOS. No iPhone version this build supports lets a containing app open a Safari extension's
-  /// toggle directly, so this lands on Still's own page in Settings and the onboarding steps walk
-  /// the rest of the way.
+  /// Open where the user enables Still: the Safari extensions prefs pane on macOS; on iOS 26.2 and
+  /// later, Settings straight on Still's Safari extension page (the switch, Private Browsing and the
+  /// website permissions); on an earlier iPhone, Still's own page in Settings, from where the
+  /// onboarding steps walk the rest of the way. If the direct open is refused (the system asks for
+  /// a foreground app), the app's own page is the fallback, and the steps for it still get there.
   @MainActor static func openEnableLocation() {
     #if os(macOS)
     SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) { _ in }
     #elseif os(iOS)
+    if #available(iOS 26.2, *) {
+      SFSafariSettings.openExtensionsSettings(forIdentifiers: [extensionBundleID]) { error in
+        guard let error else { return }
+        #if DEBUG
+        // Simulator QA lane only: the refusal, for the lane's console capture.
+        print("still qa: openExtensionsSettings refused: \(error)")
+        #endif
+        openAppSettingsPage()
+      }
+      return
+    }
+    openAppSettingsPage()
+    #endif
+  }
+
+  #if os(iOS)
+  /// Still's own page in the Settings app (`UIApplication.openSettingsURLString`).
+  @MainActor private static func openAppSettingsPage() {
     if let url = URL(string: UIApplication.openSettingsURLString) {
       UIApplication.shared.open(url)
     }
-    #endif
   }
+  #endif
 
   /// Open one fixed destination for the web view's `openDestination` message, after
   /// `NativeOpenRequest.authorize` accepted it. The enable locations use the same calls as

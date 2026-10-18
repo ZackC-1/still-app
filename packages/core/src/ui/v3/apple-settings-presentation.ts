@@ -81,9 +81,14 @@ export interface AppleSettingsProps extends Pick<
    */
   onRestore?: () => void;
   link?: AccountLinkCardProps;
-  /** Eligibility is supplied only for a later ordinary visit, never inferred from buying. */
+  /** Eligibility is supplied only for a later ordinary visit, never inferred from buying. Signed
+   * out it reads "Sign in to keep Still Pro with your account." (Sign in / Not now); with
+   * `signedIn` it reads "Link Still Pro to your account." (Link / Not now), the offer a plain
+   * sign-in leaves an accountless holder with (ISS-0076). Both run the explicit link, which ends in
+   * the `link` confirmation; the offer yields to that card. */
   linkInvitation?: {
     eligibleLaterVisit: boolean;
+    signedIn?: boolean;
     onLink?: () => void;
     onDismiss?: () => void;
   };

@@ -18,7 +18,10 @@
 //                        value. The D12-marker check still applies, so "web" with a legacy web
 //                        bundle still falls back to SwiftUI, exactly as a real Info.plist would.
 //    STILL_QA_SAFARI     "enabled" / "disabled" / "unknown": the Safari extension state the app
-//                        reports. Meaningful on macOS only; iOS observations are always unknown.
+//                        reports. Meaningful on macOS and iOS 26.2+; earlier iOS is always unknown.
+//    STILL_QA_ONBOARDING_OPEN "1": with STILL_ONBOARDING_STEP=2, perform the SwiftUI onboarding's
+//                        "Open Settings" action after STILL_QA_SETTLE_MS, so a simulator without
+//                        the Simulator app can still show where that button lands (ISS-0074).
 //    STILL_QA_TAPS       buttons to activate in order, by exact accessible name, "|" separated
 //                        (e.g. "Continue|Continue"), to reach later steps without UI automation.
 //    STILL_QA_LAYOUT_DUMP "1": after the page settles (and any taps), write the position dump of
@@ -41,6 +44,7 @@ enum QAHooks {
     static let state = "STILL_QA_STATE"
     static let presenter = "STILL_QA_PRESENTER"
     static let safari = "STILL_QA_SAFARI"
+    static let onboardingOpen = "STILL_QA_ONBOARDING_OPEN"
     static let taps = "STILL_QA_TAPS"
     static let layoutDump = "STILL_QA_LAYOUT_DUMP"
     static let settleMs = "STILL_QA_SETTLE_MS"
@@ -65,6 +69,13 @@ enum QAHooks {
     case "unknown": return .unknown
     default: return nil
     }
+  }
+
+  /// Whether to perform the SwiftUI onboarding's enable action after the screen is presented,
+  /// and how long to wait first (STILL_QA_SETTLE_MS, default 2500).
+  static var onboardingOpenDelayMs: Int? {
+    guard environment[Key.onboardingOpen] == "1" else { return nil }
+    return max(0, Int(environment[Key.settleMs] ?? "") ?? 2500)
   }
 
   /// Seeds App Group state and installs the layout probe. Call before the web view loads.

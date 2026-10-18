@@ -8,8 +8,8 @@
 //  This is pure SwiftUI — the platform actions
 //  (probe the live Safari-extension state, open the place the user enables it) are injected as
 //  closures by OnboardingPresenter, so this view imports neither SafariServices nor UIKit/AppKit and
-//  renders the same on iOS and macOS. Screen 3 reflects the real extension state on macOS (live) and
-//  is instructional on iOS, where the app cannot read a Safari extension's enabled state.
+//  renders the same on iOS and macOS. Screen 3 reflects the real extension state where the app can
+//  read it (macOS, and iOS 26.2 or later) and is instructional on an earlier iPhone.
 //
 
 import SwiftUI
@@ -22,9 +22,10 @@ import UIKit
 #endif
 
 struct OnboardingView: View {
-  /// Probe the live Safari-extension state — real on macOS, `.unknown` on iOS.
+  /// Probe the live Safari-extension state — real on macOS and iOS 26.2+, `.unknown` earlier on iOS.
   var checkStatus: () async -> SafariExtensionStatus = { .unknown }
-  /// Open where the user enables the extension: Safari settings on macOS, the Settings app on iOS.
+  /// Open where the user enables the extension: Safari settings on macOS, the Settings app on iOS
+  /// (straight on Still's Safari extension page from iOS 26.2).
   var openEnableLocation: () -> Void = {}
   /// Where the closure above lands, declared by whoever implements it. The button's label and the
   /// steps are both written from this, so neither can describe a screen the button does not open.
@@ -43,8 +44,8 @@ struct OnboardingView: View {
   /// `Color.accentColor`, which macOS remaps to the user's system accent preference.
   private static let stillBlue = Color("AccentColor")
   private let lastStep = 3
-  /// Polls both directions while screen 3 is active — no "Check again" tap needed. Real on macOS;
-  /// a no-op on iOS (status stays `.unknown`, no API to read it).
+  /// Polls both directions while screen 3 is active — no "Check again" tap needed. Real on macOS
+  /// and iOS 26.2+; a no-op on an earlier iPhone (status stays `.unknown`, no API to read it).
   private let statusPoll = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
   var body: some View {
@@ -259,17 +260,18 @@ struct OnboardingView: View {
     .background(Capsule().fill(Color.primary.opacity(0.05)))
   }
 
-  /// Platform-specific guided steps for enabling the extension. The copy lives in StillKit
-  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants, that step 1 still names the
-  /// button below it, and that the name matches where that button goes; this only resolves the OS.
+  /// Guided steps for enabling the extension, written for where the button below them lands. The
+  /// copy lives in StillKit (`OnboardingCopy`), where `swift test` proves the per-destination
+  /// variants, that step 1 still names the button below it, and that the name matches where that
+  /// button goes; this only resolves the OS generation for the walk-through.
   private var enableSteps: [String] {
     #if os(iOS)
     if #available(iOS 18.0, *) {
-      return OnboardingCopy.enableSteps(iOS18OrLater: true)
+      return OnboardingCopy.enableSteps(for: enableLocation, iOS18OrLater: true)
     }
-    return OnboardingCopy.enableSteps(iOS18OrLater: false)
+    return OnboardingCopy.enableSteps(for: enableLocation, iOS18OrLater: false)
     #else
-    return OnboardingCopy.macOSEnableSteps
+    return OnboardingCopy.enableSteps(for: enableLocation)
     #endif
   }
 

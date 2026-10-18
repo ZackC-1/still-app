@@ -84,8 +84,13 @@ async function compose(
   options: {
     initial?: "locked" | "purchased" | "protected";
     accountOnly?: boolean;
-    accountState?: "locked" | "purchased" | "verification_required";
+    /** "none": the signed-in account holds no rights, while the device keeps its local proof
+     * (an accountless Apple buyer who signs in; ISS-0076). */
+    accountState?: "locked" | "purchased" | "verification_required" | "none";
     accountUncertain?: "unavailable" | "conflict";
+    /** The app's native account lane (reconcile on sign-in) with the email-code sign-in, starting
+     * signed out: the path a real sign-in from Settings takes (ISS-0076). Implies `codeAuth`. */
+    accountAccess?: boolean;
     eligible?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -120,6 +125,11 @@ async function compose(
   const acknowledgments: number[] = [];
   // ISS-0071: hold the pre-sheet offer read, and choose who the next code sign-in is.
   let offeringGate: Promise<void> | null = null;
+  // ISS-0076: hold the native link-eligibility reads, as slow StoreKit answers do on a device, and
+  // let them finish one at a time (each read returns on its own there, never in one flush).
+  let eligibilityHeld = false;
+  const eligibilityWaiters: Array<() => void> = [];
+  if (options.accountAccess) options.codeAuth = true;
   let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
   const accountRequests: unknown[] = [];
   const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -141,9 +151,12 @@ async function compose(
                 return writer.initialize("unknown");
               case "reconcileAccountAccess":
                 accountRequests.push(message);
-                if (!options.accountUncertain) rights = snapshot(options.accountState ?? "purchased");
-                return {schema: 1, status: "committed", accountStatus: options.accountUncertain ? options.accountUncertain : options.accountState === "locked" ? "none" : "verified", generation: 2, accountId, sessionId,
-                  issuerTime: 1800000000000, proofIdentities: options.accountUncertain || options.accountState === "locked" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
+                // "none" leaves the device's own rights alone: the account adds nothing. Binding the
+                // session still advances native's record generation, so the next read is a new snapshot.
+                if (!options.accountUncertain && options.accountState !== "none") rights = snapshot(options.accountState ?? "purchased");
+                else if (options.accountState === "none") rights = { ...rights, generation: rights.generation + 1 };
+                return {schema: 1, status: "committed", accountStatus: options.accountUncertain ? options.accountUncertain : options.accountState === "locked" || options.accountState === "none" ? "none" : "verified", generation: 2, accountId, sessionId,
+                  issuerTime: 1800000000000, proofIdentities: options.accountUncertain || options.accountState === "locked" || options.accountState === "none" ? [] : ["synthetic-access:" + "ab".repeat(64)]};
               case "getBenefitAccess":
                 return { ok: true, snapshot: rights };
               case "proOffering":
@@ -215,14 +228,14 @@ async function compose(
         ? {id: controller.userId, email: controller.accountEmail ?? "", emailConfirmed: true} : null,
     }} : {}),
   });
-  const accountAuthority = options.accountOnly ? createApplePurchaseAuthority({
+  const accountAuthority = options.accountOnly || options.accountAccess ? createApplePurchaseAuthority({
     trust: {environment: "sandbox", keys: []}, bridge: native,
     readVerifiedAccount: async () => controller.userId ? {id: controller.userId, emailConfirmed: true} : null,
     readAccessToken: async () => controller.userId ? {accountId: controller.userId, accessToken: "synthetic-transient-token", sessionId} : null,
     verifyLocal: async () => {throw new Error("Account-only cannot verify a local receipt");},
     fulfillLink: async () => {throw new Error("Account-only cannot link a receipt");},
   }) : undefined;
-  if (accountAuthority) {
+  if (accountAuthority && options.accountOnly) {
     controller.userId = accountId;
     controller.accountEmail = "account@still.test";
     await controller.refreshAccountConfirmation();
@@ -250,8 +263,10 @@ async function compose(
         verifyLocalPurchase,
         ...(accountAuthority ? {refreshAccountAccess: accountAuthority.refreshAccountAccess} : {}),
         ownershipRevision: () => 0,
-        readLinkEligibility: async () =>
-          options.eligible === false ? null : { ownershipRevision: 0 },
+        readLinkEligibility: async () => {
+          if (eligibilityHeld) await new Promise<void>((resolve) => eligibilityWaiters.push(resolve));
+          return options.eligible === false ? null : { ownershipRevision: 0 };
+        },
         linkPurchase,
       },
       appRoutes: native,
@@ -284,6 +299,17 @@ async function compose(
       let release!: () => void;
       offeringGate = new Promise<void>((resolve) => { release = resolve; });
       return () => { offeringGate = null; release(); };
+    },
+    holdEligibility() {
+      eligibilityHeld = true;
+      return {
+        waiting: () => eligibilityWaiters.length,
+        releaseOne: () => eligibilityWaiters.shift()?.(),
+        releaseAll: () => {
+          eligibilityHeld = false;
+          eligibilityWaiters.splice(0).forEach((resolve) => resolve());
+        },
+      };
     },
     nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
     verifyLocalPurchase,
@@ -1195,5 +1221,109 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Sign in to keep Still Pro with your account." })).toBeNull(),
     );
+  });
+});
+// ISS-0076: on 2.1.1.383 a Mac holding an accountless Still Pro showed the invitation, but signing in
+// from it landed on the main screen with no "Link Still Pro to this account?" and nothing to link
+// with afterwards. The fixture here is the real host with the native account lane the app wires
+// (reconcile on sign-in), an account that holds nothing, and a link-eligibility read that can be
+// held open, as StoreKit's answer is on a device.
+describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)", () => {
+  const INVITE = "Sign in to keep Still Pro with your account.";
+  const OFFER = "Link Still Pro to your account.";
+  const ACCOUNT = "account@still.test";
+  async function holder() {
+    return compose({ accountAccess: true, initial: "purchased", accountState: "none" });
+  }
+  async function enterCode() {
+    const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+    await fireEvent.input(email, { target: { value: ACCOUNT } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+    const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    await fireEvent.input(code, { target: { value: "123456" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+  }
+  async function confirmation() {
+    const card = await screen.findByRole("region", { name: "Link Still Pro" });
+    expect(within(card).getByRole("heading", { name: "Link Still Pro to this account?" })).toBeVisible();
+    expect(within(card).getByText(ACCOUNT)).toBeVisible();
+    expect(within(card).getByText("You'll use this account to restore Still Pro in other browsers.")).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Link to this account" })).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Use a different account" })).toBeVisible();
+    return card;
+  }
+  it("signing in from the invitation shows the confirmation, even though sign-in re-reads access and eligibility meanwhile", async () => {
+    const f = await holder();
+    const invite = await screen.findByRole("region", { name: INVITE });
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    const gate = f.holdEligibility();
+    await enterCode();
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    // The request's own read, the reconcile's re-read and the refresh's re-read are all waiting.
+    await waitFor(() => expect(gate.waiting()).toBeGreaterThanOrEqual(2));
+    while (gate.waiting() > 0) {
+      gate.releaseOne();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    gate.releaseAll();
+    const card = await confirmation();
+    expect(screen.queryByRole("region", { name: INVITE })).toBeNull();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(f.linkPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ intendedAccountId: f.controller.userId, expectedOwnershipRevision: 0 }),
+    );
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+  });
+  it("a plain sign-in from the sync card offers the link card; Link asks for confirmation; nothing links before the tap", async () => {
+    const f = await holder();
+    const sync = document.querySelector('[data-still-card="sync"]') as HTMLElement;
+    await fireEvent.click(within(sync).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    await enterCode();
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    const offer = await screen.findByRole("region", { name: OFFER });
+    expect(within(offer).getByRole("heading", { name: OFFER })).toBeVisible();
+    expect(within(offer).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Link", "Not now"]);
+    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(offer).getByRole("button", { name: "Link" }));
+    const card = await confirmation();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+  });
+  it("Not now hides the signed-in link card for this visit and links nothing", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none" });
+    const offer = await screen.findByRole("region", { name: OFFER });
+    await fireEvent.click(within(offer).getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: OFFER })).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("closing the invitation's sign-in sheet drops the request: a later sign-in shows the link card, not the confirmation", async () => {
+    const f = await holder();
+    const invite = await screen.findByRole("region", { name: INVITE });
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    const sheet = await screen.findByRole("dialog");
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.auth.cancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const sync = document.querySelector('[data-still-card="sync"]') as HTMLElement;
+    await fireEvent.click(within(sync).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    await enterCode();
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
   });
 });
