@@ -91,6 +91,14 @@ enum OnboardingPresenter {
     controller.modalPresentationStyle = .fullScreen
     controller.isModalInPresentation = true // must finish the flow — no swipe-to-dismiss
     host.present(controller, animated: true)
+    #if DEBUG
+    // Simulator QA lane only (QA/QAHooks.swift): perform the screen-3 enable action without a tap.
+    if let delay = QAHooks.onboardingOpenDelayMs {
+      DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) {
+        SafariExtensionBridge.openEnableLocation()
+      }
+    }
+    #endif
     #elseif os(macOS)
     // The sheet is fixed-size, so pin the SwiftUI content to it and opt the hosting view out of
     // AppKit constraint-based sizing. On macOS 26, NSHostingView's safe-area-corner-inset

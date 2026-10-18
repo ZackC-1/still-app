@@ -1270,3 +1270,129 @@ describe("Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
     expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
   });
 });
+// ISS-0076: an accountless holder who taps Sign in on the invitation must end at the link
+// confirmation. Sign-in itself starts access re-checks (the account reconcile, the cache's minute
+// refresh, each one re-reading link eligibility), and the request has to survive all of them.
+describe("a requested link survives the re-checks that sign-in starts (ISS-0076)", () => {
+  async function owned() {
+    const h = await harness();
+    h.host.props([]).native.onBuy?.();
+    await h.settle();
+    expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.host.canLink).toBe(true);
+    return h;
+  }
+  it("a held access snapshot during sign-in does not drop the request; owned access brings the confirmation", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    expect(deps.signIn).toHaveBeenCalledOnce();
+    // The entitlement cache holds the rows while a refresh is in flight, then publishes the read.
+    host.observeAccess(access("verification_required"));
+    await settle();
+    host.observeAccess(access("purchased"));
+    await settle();
+    setAccount(user);
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    expect(host.settings().link?.email).toBe(user.email);
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a hold that lands after the account confirmed still ends in the confirmation once access is owned again", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    setAccount(user);
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    host.observeAccess(access("verification_required"));
+    await settle();
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("an eligibility re-read still in flight when the account confirms does not lose the request", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    expect(deps.signIn).toHaveBeenCalledOnce();
+    let finish!: (value: { ownershipRevision: number }) => void;
+    vi.mocked(deps.readLinkEligibility!).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    // The reconcile sign-in starts publishes a fresh owned snapshot; its eligibility read is slow.
+    host.observeAccess(access("purchased"));
+    await settle();
+    setAccount(user);
+    await settle();
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+    finish({ ownershipRevision: 0 });
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    expect(host.settings().link?.email).toBe(user.email);
+  });
+  it("a fresh snapshot while linking is requested keeps the link affordance instead of blinking it off", async () => {
+    const { host, deps, settle } = await owned();
+    let finish!: (value: { ownershipRevision: number }) => void;
+    vi.mocked(deps.readLinkEligibility!).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.canLink).toBe(true);
+    finish({ ownershipRevision: 0 });
+    await settle();
+    expect(host.canLink).toBe(true);
+  });
+  it("conclusively locked access drops the request: a later sign-in offers nothing", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    host.observeAccess(access("locked"));
+    await settle();
+    setAccount(user);
+    await settle();
+    expect(host.settings().link).toBeUndefined();
+    expect(host.canLink).toBe(false);
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("closing the sign-in sheet signed out drops the request: a later sign-in shows no confirmation", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    expect(deps.signIn).toHaveBeenCalledOnce();
+    host.signInDismissed();
+    setAccount(user);
+    await settle();
+    expect(host.settings().link).toBeUndefined();
+    expect(host.canLink).toBe(true);
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("nothing links without the confirmation tap, and the tap links exactly once", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    await host.requestLink();
+    host.observeAccess(access("verification_required"));
+    host.observeAccess(access("purchased"));
+    await settle();
+    setAccount(user);
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+    host.settings().link?.onConfirm?.();
+    await settle();
+    expect(deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(host.settings().link?.state).toBe("linked");
+  });
+  it("confirming during a held snapshot reports a failure with Try again instead of doing nothing", async () => {
+    const { host, deps, settle, setAccount } = await owned();
+    setAccount(user);
+    await host.requestLink();
+    expect(host.settings().link?.state).toBe("confirm");
+    host.observeAccess(access("verification_required"));
+    host.settings().link?.onConfirm?.();
+    await settle();
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+    expect(host.settings().link?.state).toBe("failed");
+    host.observeAccess(access("purchased"));
+    await settle();
+    host.settings().link?.onRetry?.();
+    await settle();
+    expect(host.settings().link?.state).toBe("confirm");
+  });
+});

@@ -512,6 +512,41 @@ describe("controlled D04 Apple settings", () => {
     expect(onLink).toHaveBeenCalledOnce();
     view.unmount();
   });
+  it("words the signed-in holder's offer as one line with Link and Not now, and yields to the confirmation (ISS-0076)", async () => {
+    const { props } = await fixture("purchased");
+    const onLink = vi.fn(),
+      onDismiss = vi.fn();
+    const base = {
+      ...props,
+      pro: { ownership: "owned" as const, channel: "unverified" as const },
+      restore: undefined,
+      setup: undefined,
+      link: undefined,
+      sharing: undefined,
+      sync: { ...props.sync, account: { address: "qa@still.test", confirmed: true } },
+    };
+    const view = render(AppleSettings, {
+      props: { ...base, linkInvitation: { eligibleLaterVisit: true, signedIn: true, onLink, onDismiss } },
+    });
+    const OFFER = "Link Still Pro to your account.";
+    const card = screen.getByRole("region", { name: OFFER });
+    expect(within(card).getByRole("heading", { name: OFFER })).toBeVisible();
+    expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Link", "Not now"]);
+    expect(screen.queryByText(INVITE)).toBeNull();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link" }));
+    expect(onLink).toHaveBeenCalledOnce();
+    await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+    // The confirmation replaces the offer; it never sits beside it.
+    await view.rerender({
+      ...base,
+      linkInvitation: { eligibleLaterVisit: true, signedIn: true, onLink, onDismiss },
+      link: { state: "confirm", email: "qa@still.test", onConfirm: vi.fn(), onChooseOther: vi.fn() },
+    });
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.getByRole("region", { name: "Link Still Pro" })).toBeVisible();
+    view.unmount();
+  });
   it("shows the invitation right after a purchase made without an account (ISS-0071)", async () => {
     const { props } = await fixture("purchased");
     const view = render(AppleSettings, {

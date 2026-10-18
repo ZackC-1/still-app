@@ -28,7 +28,9 @@ public struct SafariSetupObservation: Equatable, Sendable {
     let destination: String
     switch enableLocation {
     case .safariExtensionSettings: destination = "safariExtensionSettings"
-    case .settingsAppStillPage: destination = "settingsAppStillPage"
+    // The init keeps iOS on the app page for the web view (its parser and `openDestination`
+    // know only these two values); the direct extension page is the SwiftUI onboarding's.
+    case .settingsAppStillPage, .settingsAppSafariExtensionPage: destination = "settingsAppStillPage"
     }
     return [
       "ok": true, "platform": platform.rawValue, "extensionStatus": status,
