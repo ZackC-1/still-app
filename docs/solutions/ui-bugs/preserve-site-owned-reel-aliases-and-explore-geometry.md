@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core
 applies_when: Blocking rewrites a single-item viewer address or changes the geometry of a measured discovery grid
 date: 2026-10-14
-updated: 2026-10-15
+updated: 2026-10-19
 status: active
 tags: [instagram, navigation, aliases, virtualization, explore, resizeobserver]
 ---
@@ -39,15 +39,21 @@ and page-session continuation logic; the first clip needs no pending redirect co
 
 For Explore (ISS-0064, owner decision 15 Oct: hide the Reel tiles without stalls or holes),
 `packages/core/src/rules/instagram.ts` restores the address-scoped Explore mark and the Reel tile
-hide (rule data, `display:none`). It adds a packaged layout that changes only a row holding a Reel.
-That row becomes a flex box, and the remaining posts share each line's width, so no line has an end
-hole. A row that states its column count (`repeat(N,`) wraps at N posts a line; a row holding more
-tiles than columns is therefore never squeezed into one line. A row of only Reels keeps a 1px box,
-and a widened post is capped at 75vh. There is no `display:contents`, no column rewrite, and no
-padding-dependent switch. Rows without a Reel keep Instagram's grid. Widened posts make rows
-taller rather than shorter, so the content stays long enough for the loader to keep arriving. Do not
-reintroduce a row-flattening or cross-row reflow: it makes rows unmeasurable. Re-sign the
-packaged rules and update the free-surface pin with any selector change.
+hide (rule data, `display:none`). There is no `display:contents`, no column rewrite, and no
+padding-dependent switch.
+
+The first ISS-0064 layout also widened the posts left in a row holding a Reel so they filled the
+row. On a phone, with a Reel-heavy Explore, most rows keep one post, so Explore became a
+one-post-a-row feed of posts up to three times Instagram's cell size. Rows were up to three times
+taller than Instagram's own, and loading felt slower (ISS-0083). The owner's expectation (19 Oct)
+is Instagram's grid and speed with only the Reel tiles gone. So `INSTAGRAM_EXPLORE_LAYOUT` now
+changes one thing: a row holding a Reel gets `min-height:1px`, so a row of only Reels is still a
+measurable box. Every row keeps Instagram's display, columns and tile size. A hidden Reel leaves
+its row, and the remaining posts take the row's first cells. The space it leaves is at the row's
+end; this is the accepted trade-off. Widening a row's posts turns the grid into a feed. Filling the
+gap across rows needs a cross-row reflow, which makes rows unmeasurable (ISS-0053). Do not
+reintroduce either. Re-sign the packaged rules and update the free-surface pin with any selector
+change (the ISS-0083 change is layout code only, so the rule set is unchanged).
 
 ## Verification and limits
 
@@ -64,10 +70,13 @@ packaged rules and update the free-surface pin with any selector change.
   Neither the list nor the loader is Instagram's code.
 - `fixtures-format2.spec.ts` (Chromium, 1280px and 390px, both loaders) and `tests/firefox`
   (real Firefox, both loaders, plus a 390px viewport) scroll to the last page. Every step requires
-  no Reel shown, no 0x0 or unmeasured row, and no blank band over 8px. Live Off restores
-  Instagram's grid (in Chromium, the exact boxes of an untouched page), and On hides it again. The captured static fixture checks edge-to-edge rows,
-  including under non-zero virtualized padding. The viewer cases still send a Reel's Next Home.
-- These tests failed before the repair: Reel tiles were drawn. In an isolated run of the model, the
+  no Reel shown, no 0x0 or unmeasured row, no blank band across the whole column, and every post at
+  Instagram's cell width. On the captured static fixture every row keeps the untouched page's
+  display and columns, and each post keeps one cell's width and takes the row's next cell, also
+  under non-zero virtualized padding. Live Off restores the untouched page's exact boxes (Chromium),
+  and On hides the Reels again. The viewer cases still send a Reel's Next Home.
+- These tests failed before the repair: Reel tiles were drawn. The grid checks (ISS-0083) failed on
+  the widening layout: rows became flex lines and a 390px post was 261px wider than its cell. In an isolated run of the model, the
   old flattening layout stalled the scroll loader on page 1 at 390px and left rows unmeasured.
   The repaired layout's CSS also passed the model in an isolated WebKit run.
 - Not established by these checks: Instagram's iPhone DOM (only the desktop structure was
