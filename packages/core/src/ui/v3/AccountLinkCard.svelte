@@ -15,15 +15,15 @@
   {#if state === "confirm"}
     <h2 class="card-title">Link Still Pro to this account?</h2>
     <p class="synced">{email}</p>
-    <p class="card-body">
-      You'll use this account to restore Still Pro in other browsers.
-    </p>
     <button
       type="button"
       class="primary block"
       disabled={!onConfirm}
       onclick={onConfirm}>Link to this account</button
     >
+    <p class="card-body">
+      You'll use this account to restore Still Pro in other browsers.
+    </p>
     <button
       type="button"
       class="link center"

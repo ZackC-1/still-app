@@ -48,7 +48,7 @@ describe("the invitation wrapper around the V3 popup", () => {
     expect(screen.queryByRole("region", { name: CARD })).toBeNull();
     commit.resolve(true);
     expect(await screen.findByRole("region", { name: CARD })).toBeTruthy();
-    expect(screen.getByText("Free. Keep your block settings consistent across every supported device and browser.")).toBeTruthy();
+    expect(screen.getByText("Free. Keep your settings the same across every supported device and browser.")).toBeTruthy();
   });
 
   it("shows no card when the commit is rejected or nothing is reserved", async () => {

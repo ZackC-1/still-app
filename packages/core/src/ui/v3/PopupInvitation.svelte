@@ -75,7 +75,7 @@
   let title = $derived(presentation?.kind === "sync" && canonicalSync
     ? "Settings sync" : presentation ? copy[presentation.kind][0] : "");
   let detail = $derived(presentation?.kind === "sync" && canonicalSync
-    ? "Free. Keep your block settings consistent across every supported device and browser."
+    ? "Free. Keep your settings the same across every supported device and browser."
     : presentation ? copy[presentation.kind][1] : "");
   function intent(
     observation: PopupInvitationPresentation,

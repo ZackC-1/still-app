@@ -125,7 +125,7 @@ struct OnboardingView: View {
       glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
       Text("Turn on Still in Safari")
         .font(.still(size: 28, weight: .semibold, relativeTo: .title))
-      Text("Enable the Still extension in Safari, then choose the websites where you want short-form video removed.")
+      Text("Enable the Still extension to use in Safari.")
         .font(.still(size: 16, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -166,11 +166,6 @@ struct OnboardingView: View {
       // The one reassurance worth spending space on here, because it is what someone is quietly
       // wondering while an app asks them to turn something on in their browser.
       Text("No account or purchase is needed. Still does not collect your browsing history.")
-        .font(.still(size: 12, relativeTo: .caption))
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-      Text("Still only reads those four sites to hide short-form video, nothing else you browse.")
         .font(.still(size: 12, relativeTo: .caption))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -279,6 +274,15 @@ struct OnboardingView: View {
 
   private var footer: some View {
     VStack(spacing: 12) {
+      // "Check again" sits above the primary button so that button lands where "Continue" and
+      // "Get started" do on the other screens (owner, 19 Oct).
+      if step == 2 {
+        Button("Check again") { statusObserver.refresh(check: checkStatus) }
+          .buttonStyle(.plain)
+          .font(.still(size: 13, relativeTo: .footnote))
+          .foregroundColor(.secondary)
+      }
+
       Button(action: advance) {
         Text(primaryTitle)
           .font(.still(size: 16, weight: .semibold, relativeTo: .body))
@@ -288,13 +292,6 @@ struct OnboardingView: View {
           .foregroundColor(.white)
       }
       .buttonStyle(.plain)
-
-      if step == 2 {
-        Button("Check again") { statusObserver.refresh(check: checkStatus) }
-          .buttonStyle(.plain)
-          .font(.still(size: 13, relativeTo: .footnote))
-          .foregroundColor(.secondary)
-      }
     }
   }
 

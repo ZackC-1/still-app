@@ -40,13 +40,12 @@
     <button
       type="button"
       class="primary inline"
-      class:with-glyph={appHandoff}
       aria-describedby={appHandoff ? "popup-pro-handoff" : undefined}
       onclick={onOpen}
-      >Get Still Pro{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
+      >Get Still Pro</button
     >
   {#if appHandoff}<p class="handoff" id="popup-pro-handoff">
-      <Glyph name="external" size={13} />Opens the Still app
+      Opens the Still app
     </p>{/if}
     </div>
   </div>

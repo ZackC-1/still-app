@@ -194,7 +194,7 @@ describe("controlled D02 mobile presentation", () => {
     const view = render(MobilePopup, { props });
     expect(
       screen.getByText(
-        "Free. Keep your block settings consistent across every supported device and browser.",
+        "Free. Keep your settings the same across every supported device and browser.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
@@ -208,7 +208,7 @@ describe("controlled D02 mobile presentation", () => {
     });
     expect(
       screen.getByText(
-        "Free. Keep your block settings consistent across every supported device and browser.",
+        "Free. Keep your settings the same across every supported device and browser.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/every device and browser/)).toBeNull();

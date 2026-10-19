@@ -121,7 +121,7 @@ describe("live popup/App/browser Pro navigation", () => {
     };
     const read = vi.fn(async () => ({ ...account }));
     stops.push(watchAccountStatus(f.controller, read));
-    await screen.findByText("Synced with your account.");
+    await screen.findByText("Synced");
     const card = screen.getByRole("region", { name: "Still Pro" });
     const before = await f.f.storage.get();
 
@@ -133,7 +133,7 @@ describe("live popup/App/browser Pro navigation", () => {
 
     account.pendingUpload = false;
     document.dispatchEvent(new Event("visibilitychange"));
-    await screen.findByText("Synced with your account.");
+    await screen.findByText("Synced");
     expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
     expect(f.openOptionsPage).not.toHaveBeenCalled();
     expect(await f.f.storage.get()).toEqual(before);
@@ -384,7 +384,7 @@ describe("a steady Still Pro offer (ISS-0032)", () => {
     if (signedIn) {
       const account = { accountId: "synthetic-account", email: "reader@example.test", lastSyncedAt: Date.now(), pendingUpload: false, cloudReachable: true, updatedAt: Date.now() };
       stops.push(watchAccountStatus(f.controller, vi.fn(async () => ({ ...account }))));
-      await screen.findByText("Synced with your account.");
+      await screen.findByText("Synced");
     }
     const card = await screen.findByRole("region", { name: "Still Pro" });
     expect(screen.getByRole("button", { name: LOCK })).toBeTruthy();

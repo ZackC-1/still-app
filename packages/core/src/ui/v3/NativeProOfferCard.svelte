@@ -49,7 +49,7 @@
   {#if ownership === "owned"}
     <div class="offer-head">
       <h2 class="card-title">Still Pro</h2>
-      <span class="access-tag boxed">Purchased</span>
+      <span class="access-tag boxed success">Still Pro Purchased</span>
     </div>
     <p class="card-body">
       You have Still Pro. New controls start off, so turn on the ones you want.
@@ -76,12 +76,6 @@
     </div>
   {:else}
     <div class="offer-head"><h2 class="card-title">Still Pro</h2></div>
-    {#if ready && offer?.priceNote}<p
-        class="card-body"
-        style="margin-block-start:-8px;"
-      >
-        {offer.priceNote}
-      </p>{/if}
     {#if ready}
       <button
         type="button"
@@ -93,6 +87,9 @@
         }}
         >{state === "pending" ? "Waiting for Apple…" : "Get Still Pro"}</button
       >
+      <!-- Owner (19 Oct screens review): the line sits under the button, as on the Settings
+        sync card. -->
+      {#if offer?.priceNote}<p class="card-body">{offer.priceNote}</p>{/if}
     {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
