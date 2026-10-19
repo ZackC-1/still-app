@@ -388,16 +388,12 @@ describe("actual desktop presentation on the maintained authority", () => {
     state.controller.lastSyncedAt = 61000;
     await tick();
     expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
-    expect(status.querySelector("time")?.textContent).toBe(new Date(61000).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    }));
+    expect(status.querySelector("time")?.textContent).toBe(`${new Date(61000).toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${new Date(61000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`);
     state.controller.pendingUpload = true;
     await tick();
     expect(status.textContent).toContain(STRINGS.sync.syncing);
     // A space separates the visible label from the time ("Last synced Dec 31", not "Last syncedDec 31").
-    expect(status.textContent!.replace(/\s+/g, " ")).toContain(`${STRINGS.sync.lastSynced} ${new Date(61000).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    })}`);
+    expect(status.textContent!.replace(/\s+/g, " ")).toContain(`${STRINGS.sync.lastSynced} ${new Date(61000).toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${new Date(61000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`);
     expect(status.querySelector("time")?.dateTime).toBe(new Date(61000).toISOString());
     expect(screen.queryByText(STRINGS.sync.synced)).toBeNull();
     state.controller.cloudReachable = false;

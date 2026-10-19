@@ -223,7 +223,8 @@
 </script>
 
 {#snippet proCard()}
-  {#if pro && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+  <!-- Owned: no card (owner, 19 Oct); the sync card's Still Pro tag is the signal. -->
+  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <!-- Checking and verify stay separate so the card shows the matching presentation;
       accessHeld covers only rights not known missing for any other reason. -->
     <div bind:this={proSection} style="display:contents;">
@@ -240,18 +241,7 @@
 {/snippet}
 
 <div class="still-ui app" class:mac-settings={platform === "mac"} data-host="apple">
-  <section class="hero compact" class:off={!settings.globalOn}>
-    <div class="hero-text">
-      <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
-    </div>
-    <Toggle
-      disabled={commandsDisabled}
-      checked={settings.globalOn}
-      onChange={onGlobalChange}
-      label="Still"
-      onBlue={settings.globalOn}
-    />
-  </section>
+  <!-- The setup card leads the screen when the extension is off (owner, 19 Oct). -->
   {#if setup}
     <section class="card card-stack">
       <h2 class="section-label">{setup.title}</h2>
@@ -271,6 +261,18 @@
       >
     </section>
   {/if}
+  <section class="hero compact" class:off={!settings.globalOn}>
+    <div class="hero-text">
+      <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
+    </div>
+    <Toggle
+      disabled={commandsDisabled}
+      checked={settings.globalOn}
+      onChange={onGlobalChange}
+      label="Still"
+      onBlue={settings.globalOn}
+    />
+  </section>
   <SettingsSiteList
     {commandsDisabled}
     {settings}
@@ -283,12 +285,14 @@
     features={supportedRows}
     onProAction={proActionReady ? revealPro : undefined}
   />
-  {#if platform === "mac"}{@render proCard()}{/if}
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
     Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
     stillPro={proPurchased(access)}
     onSignIn={sync.onSignIn}
+    invitation={showInvitation && !linkInvitation?.signedIn
+      ? { onAccept: linkInvitation?.onLink, onDismiss: linkInvitation?.onDismiss }
+      : undefined}
     account={sync.account
       ? {
           // The shared card renders these only; the native epoch stays in this fence.
@@ -297,18 +301,13 @@
           status: sync.account.status,
           lastSyncedAt: sync.account.lastSyncedAt,
           onSignOut: sync.account.onSignOut,
-          onDeleteAccount: validDeleteAccount(sync.account)
-            ? openDelete
-            : undefined,
         }
       : undefined}
   />
-  {#if showInvitation}
-    <!-- ISS-0071: one line for accountless holders; Sign in runs the existing explicit link.
-         ISS-0076: signed in, the same line offers the link itself (Link runs that explicit link). -->
-    {@const invitation = linkInvitation?.signedIn
-      ? { title: "Link Still Pro to your account.", action: "Link" }
-      : { title: "Sign in to keep Still Pro with your account.", action: "Sign in" }}
+  {#if showInvitation && linkInvitation?.signedIn}
+    <!-- ISS-0076: signed in, one line offers the link itself (Link runs that explicit link).
+         ISS-0071's signed-out line lives inside the sync card above (owner, 19 Oct). -->
+    {@const invitation = { title: "Link Still Pro to your account.", action: "Link" }}
     <section class="card card-stack" aria-label={invitation.title}>
       <div class="sync-row-text">
         <h2 class="sync-row-title">{invitation.title}</h2>
@@ -330,7 +329,8 @@
     </section>
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if platform !== "mac"}{@render proCard()}{/if}
+  <!-- The same order on the Mac as on the iPhone (owner, 19 Oct): sync first, then Still Pro. -->
+  {@render proCard()}
   {#if freeRestoreShown}
     <!-- Free period (owner decision 17): the Still Pro card's slot holds only its plain Restore
       link, so past purchasers can restore; no offer, Buy or price. -->
@@ -353,8 +353,9 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. -->
-  <section class="card card-stack" aria-label="Help">
+  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
+    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+  <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
@@ -373,6 +374,11 @@
       disabled={!help.onPrivacy}
       onclick={help.onPrivacy}>Privacy policy</button
     >
+    {#if validDeleteAccount(sync.account)}<button
+        type="button"
+        class="link"
+        onclick={openDelete}>Delete account</button
+      >{/if}
   </section>
   <ConfirmationDialog
     open={confirming}

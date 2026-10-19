@@ -1182,7 +1182,7 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     await fireEvent.click(await screen.findByRole("button", { name: SKIP }));
     expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
-    expect(await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." })).toBeVisible();
+    expect(await screen.findByText("You have Still Pro. Sign in to keep Still Pro with your account.")).toBeVisible();
     expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
   });
   it("signing in continues to Apple's sheet without a second tap and links the purchase", async () => {
@@ -1208,8 +1208,10 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
   });
   it("an accountless holder sees the sign-in card; Not now hides it and Sign in runs the explicit link", async () => {
     const f = await compose({ codeAuth: true, initial: "purchased" });
-    const card = await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." });
-    expect(within(card).getByText("Sign in to keep Still Pro with your account.")).toBeVisible();
+    // The invitation lives in the sync card (owner, 19 Oct): Sign in, Not now and the one line.
+    const line = await screen.findByText("You have Still Pro. Sign in to keep Still Pro with your account.");
+    const card = line.closest("section")!;
+    expect(within(card).getByRole("heading", { name: "Settings sync" })).toBeVisible();
     expect(within(card).getByRole("button", { name: "Sign in" })).toBeVisible();
     expect(within(card).getByRole("button", { name: "Not now" })).toBeVisible();
     expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
@@ -1225,11 +1227,14 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
   });
   it("Not now hides the accountless holder's card", async () => {
     await compose({ codeAuth: true, initial: "purchased" });
-    const card = await screen.findByRole("region", { name: "Sign in to keep Still Pro with your account." });
+    const line = await screen.findByText("You have Still Pro. Sign in to keep Still Pro with your account.");
+    const card = line.closest("section")!;
     await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
     await waitFor(() =>
-      expect(screen.queryByRole("region", { name: "Sign in to keep Still Pro with your account." })).toBeNull(),
+      expect(screen.queryByText("You have Still Pro. Sign in to keep Still Pro with your account.")).toBeNull(),
     );
+    // The plain Sign in stays available on the card.
+    expect(within(card).getByRole("button", { name: "Sign in" })).toBeVisible();
   });
 });
 // ISS-0076: on 2.1.1.383 a Mac holding an accountless Still Pro showed the invitation, but signing in
@@ -1238,8 +1243,10 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
 // (reconcile on sign-in), an account that holds nothing, and a link-eligibility read that can be
 // held open, as StoreKit's answer is on a device.
 describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)", () => {
-  const INVITE = "Sign in to keep Still Pro with your account.";
+  const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
   const OFFER = "Link Still Pro to your account.";
+  // The invitation lives in the sync card (owner, 19 Oct); its Sign in runs the explicit link.
+  const inviteCard = async () => (await screen.findByText(INVITE)).closest("section")!;
   const ACCOUNT = "account@still.test";
   async function holder() {
     return compose({ accountAccess: true, initial: "purchased", accountState: "none" });
@@ -1263,7 +1270,7 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
   }
   it("signing in from the invitation shows the confirmation, even though sign-in re-reads access and eligibility meanwhile", async () => {
     const f = await holder();
-    const invite = await screen.findByRole("region", { name: INVITE });
+    const invite = await inviteCard();
     await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
     await screen.findByRole("dialog");
     const gate = f.holdEligibility();
@@ -1278,7 +1285,7 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     }
     gate.releaseAll();
     const card = await confirmation();
-    expect(screen.queryByRole("region", { name: INVITE })).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
@@ -1290,7 +1297,7 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
   });
   it("signing in from the invitation shows the confirmation even when native refuses the eligibility reads during the reconcile", async () => {
     const f = await compose({ accountAccess: true, initial: "purchased", accountState: "none" });
-    const invite = await screen.findByRole("region", { name: INVITE });
+    const invite = await inviteCard();
     await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
     await screen.findByRole("dialog");
     // Native refuses the read the sign-in's reconcile overlaps and the confirmation's first
@@ -1305,26 +1312,23 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
     expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
   });
-  it("a plain sign-in from the sync card offers the link card; Link asks for confirmation; nothing links before the tap", async () => {
+  it("after Not now, a plain sign-in from the sync card links nothing and offers nothing this visit", async () => {
+    // The sync card's Sign in is the invitation's while the line shows (owner, 19 Oct); a plain
+    // sign-in exists only after Not now, which also holds the signed-in offer for this visit.
     const f = await holder();
+    const invite = await inviteCard();
+    await fireEvent.click(within(invite).getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(screen.queryByText(INVITE)).toBeNull());
     const sync = document.querySelector('[data-still-card="sync"]') as HTMLElement;
     await fireEvent.click(within(sync).getByRole("button", { name: "Sign in" }));
     await screen.findByRole("dialog");
     await enterCode();
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
-    const offer = await screen.findByRole("region", { name: OFFER });
-    expect(within(offer).getByRole("heading", { name: OFFER })).toBeVisible();
-    expect(within(offer).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Link", "Not now"]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
-    await fireEvent.click(within(offer).getByRole("button", { name: "Link" }));
-    const card = await confirmation();
-    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
-    expect(f.linkPurchase).not.toHaveBeenCalled();
-    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
-    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
-    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
   });
   it("Not now hides the signed-in link card for this visit and links nothing", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none" });
@@ -1336,20 +1340,20 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
-  it("closing the invitation's sign-in sheet drops the request: a later sign-in shows the link card, not the confirmation", async () => {
+  it("closing the invitation's sign-in sheet keeps the invitation: the next Sign in renews the request and shows the confirmation", async () => {
     const f = await holder();
-    const invite = await screen.findByRole("region", { name: INVITE });
+    const invite = await inviteCard();
     await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
     const sheet = await screen.findByRole("dialog");
     await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.auth.cancel }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    const sync = document.querySelector('[data-still-card="sync"]') as HTMLElement;
-    await fireEvent.click(within(sync).getByRole("button", { name: "Sign in" }));
+    expect(screen.getByText(INVITE)).toBeVisible();
+    await fireEvent.click(within(await inviteCard()).getByRole("button", { name: "Sign in" }));
     await screen.findByRole("dialog");
     await enterCode();
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
-    expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    await confirmation();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
 });

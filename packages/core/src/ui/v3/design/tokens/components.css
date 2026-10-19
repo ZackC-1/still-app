@@ -111,6 +111,14 @@
 /* Cards and settings rows */
 .card { background: var(--surface-raised); border-radius: var(--radius-card); }
 .card-stack { display: flex; flex-direction: column; gap: var(--sync-gap, var(--space-3)); padding: var(--sync-padding, var(--space-4)); }
+/* The sync card keeps a quarter less vertical padding (owner, 19 Oct). */
+.card-stack.sync { padding-block: var(--space-3); }
+/* Sign in at two thirds, Not now at one third, on one line (owner, 19 Oct). */
+.split-actions { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-2); }
+.split-actions > button { min-block-size: var(--tap-target); }
+/* The Help card is condensed (owner, 19 Oct): tighter gap and padding, link-sized text. */
+.card-stack.help { gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+.card-stack.help .link { font-size: calc(14px * var(--text-scale, 1)); }
 .section-label { margin: 0; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; letter-spacing: 0.01em; color: var(--ink-secondary); }
 .setting-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--sync-padding, var(--space-4)); }
 .setting-row .row-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-inline-size: 0; }
@@ -184,7 +192,7 @@
 
 /* Site sections (D06) and switch rows (D07). One section per site; header switch is the existing service boolean. */
 .service-group { display: flex; flex-direction: column; background: var(--surface-raised); border-radius: var(--radius-card); }
-.service-group .divider { block-size: 1px; background: var(--border); margin-inline-start: calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
+.service-group .divider { block-size: 1px; background: var(--border); margin-inline-start: calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); margin-inline-end: var(--service-card-padding-inline, var(--space-4)); }
 .service-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--service-card-padding-block, var(--space-3)) var(--service-card-padding-inline, var(--space-4)); }
 .service-row .icon { inline-size: var(--service-icon-size, 42px); block-size: var(--service-icon-size, 42px); flex: none; display: block; }
 .service-row .expander { flex: 1; min-inline-size: 0; display: flex; align-items: center; gap: 6px; background: transparent; border: none; padding: 0; text-align: start; font: inherit; color: inherit; cursor: pointer; }
@@ -235,6 +243,8 @@
 .access-tag { display: inline-flex; align-items: center; gap: 4px; font-size: calc(12px * var(--text-scale, 1)); font-weight: 500; line-height: 1.3; color: var(--ink-secondary); white-space: nowrap; }
 .access-tag svg { flex: none; }
 .access-tag.boxed { border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 7px; }
+/* The purchased tag reads as success (owner, 19 Oct). */
+.access-tag.boxed.success { color: var(--status-success); border-color: var(--status-success); }
 /* ISS-0073: the sync card's account row carries the "Still Pro" tag beside the address, or beside
    Sign in when signed out. A long address wraps under its own line; the tag never shrinks. */
 .account-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }

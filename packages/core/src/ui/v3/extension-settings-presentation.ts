@@ -31,6 +31,10 @@ export interface SyncCardProps {
   onSignIn?: () => void;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
+  /** Apple accountless Still Pro holder, signed out (ISS-0071; moved into this card by the owner
+   * on 19 Oct): Sign in runs the explicit link flow, Not now hides the line until the next launch,
+   * and the card says "You have Still Pro. Sign in to keep Still Pro with your account." */
+  invitation?: { onAccept?: () => void; onDismiss?: () => void };
   /**
    * ISS-0073: true only while Still Pro is verified as purchased (`proPurchased` of the real
    * access). The account row then shows the "Still Pro" tag beside the address, or beside Sign in.

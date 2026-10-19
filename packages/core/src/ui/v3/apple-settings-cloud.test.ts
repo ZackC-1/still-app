@@ -193,7 +193,7 @@ async function composeCloud(options: { modernSettings: boolean; start?: "upgrade
   };
 }
 
-const SYNC_LINE = "Free. Keep your block settings consistent across every supported device and browser.";
+const SYNC_LINE = "Free. Keep your settings the same across every supported device and browser.";
 
 async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>, platform?: "ios" | "mac") {
   const Host = await loadHost();
@@ -301,12 +301,12 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
 });
 
 // ISS-0061: the app's sync card shows when it last synced, as the Chrome popup does (ISS-0056):
-// "Synced with your account. · Oct 15, 2:24 PM", the time of the last successful cloud exchange.
+// "Synced with your account. · Oct 15 at 2:24 PM", the time of the last successful cloud exchange.
 describe("Apple sync card: last successful sync time (ISS-0061)", () => {
   // The Chrome popup's exact format (DesktopPopup.svelte), so both read the same.
-  const chromeTime = (ms: number) => new Date(ms).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-  });
+  // SyncSummary's form for a day that is neither today nor yesterday (owner, 19 Oct).
+  const chromeTime = (ms: number) =>
+    `${new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
   const card = () => document.querySelector<HTMLElement>('[data-still-card="sync"]')!;
   const clock = () => {
     const c = { t: Date.UTC(2026, 9, 15, 21, 24), now: () => c.t };

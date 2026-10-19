@@ -67,8 +67,8 @@ describe("Delete shared data on all devices", () => {
     expect(action).toBeEnabled();
     expect(action).toHaveAccessibleDescription(SUB);
     expect(screen.getByText(SUB)).toBeVisible();
-    // Next to Delete account, inside the same settings-sync card.
-    const card = screen.getByRole("button", { name: "Delete account" }).closest("section")!;
+    // Inside the settings-sync card (Delete account itself moved to the Help card, owner 19 Oct).
+    const card = screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
     expect(within(card).getByRole("button", { name: LABEL })).toBe(action);
     expect(dialog()).toBeNull();
     for (const line of [REQUESTED, VERIFYING, DELETED, FAILED, ELSEWHERE]) expect(screen.queryByText(line)).toBeNull();

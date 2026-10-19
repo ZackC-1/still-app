@@ -185,7 +185,7 @@
           <span class="b"
             >{signedIn
               ? `Signed in as ${sync.account!.address}.`
-              : "Free. Keep your block settings consistent across every supported device and browser."}</span
+              : "Free. Keep your settings the same across every supported device and browser."}</span
           >
           {#if !signedIn}<div class="a">
               <button

@@ -301,41 +301,33 @@
       </div>
     {/each}
   </div>
-  {#if proCardShown}<PopupProCard
-      onOpen={openPro}
-      {appHandoff}
-    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
   {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
-        <h2 class="sync-row-title">Settings sync</h2>
-        {#if account && (account.address || stillPro)}<p
-            class="muted sync-row-sub account-line"
-          >
-            {#if account.address}<span class="account-address"
-                >{account.address}</span
-              >{/if}
-            {#if stillPro}<StillProTag />{/if}
+        <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). -->
+        <div class="offer-head">
+          <h2 class="sync-row-title">Settings sync</h2>
+          {#if stillPro}<StillProTag />{/if}
+        </div>
+        {#if account?.address}<p class="muted sync-row-sub account-line">
+            <span class="account-address">{account.address}</span>
           </p>{:else if !account}<p class="muted sync-row-sub">
-            Free. Keep your block settings consistent across every supported device and browser.
+            Free. Keep your settings the same across every supported device and browser.
           </p>{/if}
       </div>
-      {#if !account && stillPro && !onSignIn}<StillProTag />{/if}
       {#if !account && onSignIn}<div
           class:popup-action={appHandoff}
-          class:pro-signin={stillPro}
-        >{#if stillPro}<StillProTag />{/if}<button
+        ><button
           type="button"
           class="primary inline"
-          class:with-glyph={appHandoff}
           aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
-          >Sign in{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
+          >Sign in</button
         >
         {#if appHandoff}<p class="handoff" id="popup-signin-handoff">
-          <Glyph name="external" size={13} />Opens the Still app
+          Opens the Still app
         </p>{/if}
         </div>{/if}
     </div>
@@ -364,6 +356,10 @@
     {#if accountActions}{@render accountActions()}{/if}
   </section>
   {/if}
+  {#if proCardShown}<PopupProCard
+      onOpen={openPro}
+      {appHandoff}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <footer class="popup-footer">
     <button
       type="button"

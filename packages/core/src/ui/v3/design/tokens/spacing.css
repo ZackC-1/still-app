@@ -6,14 +6,14 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
-  --radius-control: 8px;
-  --radius-card: 12px;
+  --radius-control: 16px;
+  --radius-card: 16px;
   --radius-sheet: 16px;
   --popup-inline-size: 380px;
   --content-max-inline-size: 432px;
   --sheet-max-inline-size: 420px;
   --tap-target: 44px;
-  --service-icon-size: 42px;
+  --service-icon-size: 31px;
   --logo-mark-size: 28px;
   --logo-word-size: 22px;
   --ds-version: "3.0.1"; /* @kind other */

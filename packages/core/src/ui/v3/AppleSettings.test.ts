@@ -23,7 +23,8 @@ import SyncCard from "./SyncCard.svelte";
 import { STRINGS } from "../strings.js";
 import ProOfferCard from "./ProOfferCard.svelte";
 // ISS-0071: the accountless holder's invitation (was "Link Still Pro to an account").
-const INVITE = "Sign in to keep Still Pro with your account.";
+const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
+const inviteCard = () => screen.getByText(INVITE).closest("section")!;
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 /** Existing paid/consent fixtures supply both producers; absence is tested separately. */
@@ -100,7 +101,8 @@ describe("controlled D04 Apple settings", () => {
     render(AppleSettings, { props });
     const pro = screen.getByRole("region", { name: "Still Pro" });
     const sync = screen.getByRole("heading", { name: "Settings sync" });
-    expect(Boolean(pro.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(platform === "mac");
+    // Owner (19 Oct): the Mac mirrors the iPhone, so the sync card comes first on both.
+    expect(Boolean(sync.compareDocumentPosition(pro) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(pro).toHaveTextContent("One-time purchase. Lifetime access.");
   });
 
@@ -297,14 +299,13 @@ describe("controlled D04 Apple settings", () => {
     expect(buy).toHaveBeenCalledTimes(2);
     props.pro = { ...props.pro, ownership: "owned", state: "idle" };
     await view.rerender(props);
-    // ISS-0032: purchased shows its own "Still Pro · Purchased" card beside the sync card.
+    // Owned (owner, 19 Oct): no Still Pro card; the sync card's heading row carries the tag.
     expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    // (The sync card's tag follows verified purchased access, which this buy fixture never
+    // reaches; the tag itself is covered in still-pro-tag.test.ts.)
     expect(screen.getByText("Settings sync")).toBeVisible();
-    const purchased = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(purchased).getByText("Purchased")).toBeVisible();
-    expect(
-      within(purchased).queryByRole("button", { name: "Restore purchase" }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(await storage.get()).toEqual(saved);
@@ -390,7 +391,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText(/without an account/)).toBeNull();
     expect(
       screen.getByText(
-        "Free. Keep your block settings consistent across every supported device and browser.",
+        "Free. Keep your settings the same across every supported device and browser.",
       ),
     ).toBeTruthy();
     props.sync.account = {
@@ -415,9 +416,8 @@ describe("controlled D04 Apple settings", () => {
 
   it("the sync card shows a supplied last successful sync time in Chrome's compact form, and nothing without one (ISS-0061)", async () => {
     const time = Date.UTC(2026, 9, 15, 21, 24);
-    const chrome = new Date(time).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    });
+    // SyncSummary's form for a day that is neither today nor yesterday (owner, 19 Oct).
+    const chrome = `${new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${new Date(time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
     // Without the field (Chrome's settings page), the status line is unchanged.
     const plain = render(SyncCard, {
       props: { account: { confirmed: true, status: { tone: "success", text: STRINGS.sync.synced } } },
@@ -466,7 +466,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText(INVITE)).toBeNull();
     props.linkInvitation.eligibleLaterVisit = true;
     await view.rerender(props);
-    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
+    await fireEvent.click(within(inviteCard()).getByRole("button", { name: "Sign in" }));
     await fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(link).toHaveBeenCalledOnce();
     expect(dismiss).toHaveBeenCalledOnce();
@@ -504,8 +504,9 @@ describe("controlled D04 Apple settings", () => {
         linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss: vi.fn() },
       },
     });
-    const card = screen.getByRole("region", { name: INVITE });
-    expect(within(card).getByRole("heading", { name: INVITE })).toBeVisible();
+    const card = inviteCard();
+    expect(within(card).getByRole("heading", { name: "Settings sync" })).toBeVisible();
+    expect(within(card).getByText(INVITE)).toBeVisible();
     expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Sign in", "Not now"]);
     expect(card.textContent).not.toMatch(/Link Still Pro to an account|So you can restore it|Optional/);
     await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
@@ -560,7 +561,7 @@ describe("controlled D04 Apple settings", () => {
         linkInvitation: { eligibleLaterVisit: true, onLink: vi.fn(), onDismiss: vi.fn() },
       },
     });
-    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    expect(screen.getByText(INVITE)).toBeVisible();
     view.unmount();
   });
   it("shows the invitation beside a concluded Restore, so a restored holder can sign in (ISS-0071)", async () => {
@@ -577,7 +578,7 @@ describe("controlled D04 Apple settings", () => {
       },
     });
     expect(screen.getByText("Still Pro is restored on this device.")).toBeVisible();
-    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    expect(screen.getByText(INVITE)).toBeVisible();
     view.unmount();
   });
   it("keeps combined sharing explicit with approved purposes and routes supplied setup/help/link/verification actions", async () => {
@@ -1544,7 +1545,6 @@ describe("D04 optional paid and combined-consent producers", () => {
         },
       });
       expect(screen.queryByText(INVITE)).toBeNull();
-      expect(screen.queryByRole("region", { name: INVITE })).toBeNull();
       expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
       expect(onLink).not.toHaveBeenCalled();
       expect(onDismiss).not.toHaveBeenCalled();
@@ -1581,7 +1581,7 @@ describe("D04 optional paid and combined-consent producers", () => {
     expect(
       screen.getByRole("button", { name: "Keep legacy usage sharing off" }),
     ).toBeVisible();
-    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
+    await fireEvent.click(within(inviteCard()).getByRole("button", { name: "Sign in" }));
     expect(onLink).toHaveBeenCalledOnce();
     expect(onDismiss).not.toHaveBeenCalled();
     view.unmount();
@@ -1971,7 +1971,7 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     ).toEqual(["Instagram Blocker", "Facebook Blocker", "YouTube Blocker", "TikTok Blocker"]);
     expect(screen.getByRole("heading", { name: "Settings sync" }).className).toBe("card-title");
     expect(
-      screen.getByText("Free. Keep your block settings consistent across every supported device and browser."),
+      screen.getByText("Free. Keep your settings the same across every supported device and browser."),
     ).toBeVisible();
   });
 

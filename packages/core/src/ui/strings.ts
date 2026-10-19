@@ -239,7 +239,8 @@ export const STRINGS = {
     deviceOnly: "Settings are saved on this device.",
     pending: "Getting Still ready.",
     syncing: "Syncing your settings.",
-    synced: "Synced with your account.",
+    // Owner (19 Oct): one word; the time after it says when ("Synced · Today at 2:10 PM").
+    synced: "Synced",
     checking: "Checking sync…",
     lastSynced: "Last synced",
     appLastSynced: "Last synced in Still app",
