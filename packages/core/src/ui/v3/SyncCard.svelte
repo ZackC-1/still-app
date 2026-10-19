@@ -145,9 +145,8 @@
       </div>
     {/if}
   {:else}
-    <p class="muted">
-      Free. Keep your block settings consistent across every supported device and browser.
-    </p>
+    <!-- Owner (19 Oct screens review): the button sits above the line, and the line uses the
+      Still Pro card's body size, so the signed-out card stays compact. -->
     {#if stillPro}<div class="account-signin">
         <StillProTag /><button
           type="button"
@@ -161,6 +160,9 @@
         disabled={!onSignIn}
         onclick={onSignIn}>Sign in</button
       >{/if}
+    <p class="card-body">
+      Free. Keep your block settings consistent across every supported device and browser.
+    </p>
   {/if}
   {#if accountActions}{@render accountActions()}{/if}
 </section>
