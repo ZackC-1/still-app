@@ -297,9 +297,6 @@
           status: sync.account.status,
           lastSyncedAt: sync.account.lastSyncedAt,
           onSignOut: sync.account.onSignOut,
-          onDeleteAccount: validDeleteAccount(sync.account)
-            ? openDelete
-            : undefined,
         }
       : undefined}
   />
@@ -353,8 +350,9 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. -->
-  <section class="card card-stack" aria-label="Help">
+  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
+    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+  <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
@@ -373,6 +371,11 @@
       disabled={!help.onPrivacy}
       onclick={help.onPrivacy}>Privacy policy</button
     >
+    {#if validDeleteAccount(sync.account)}<button
+        type="button"
+        class="link"
+        onclick={openDelete}>Delete account</button
+      >{/if}
   </section>
   <ConfirmationDialog
     open={confirming}

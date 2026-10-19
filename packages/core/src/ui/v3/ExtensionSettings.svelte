@@ -271,9 +271,8 @@
     account={sync.account
       ? {
           ...sync.account,
-          onDeleteAccount: sync.account.onDeleteAccount
-            ? openDelete
-            : undefined,
+          // Delete account moved to the Help card (owner, 19 Oct); the card never shows it.
+          onDeleteAccount: undefined,
           sharedData: sync.account.sharedData
             ? {
                 ...sync.account.sharedData,
@@ -326,8 +325,9 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. -->
-  <section class="card card-stack" aria-label="Help">
+  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
+    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+  <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
@@ -346,6 +346,11 @@
       disabled={!help.onPrivacy}
       onclick={help.onPrivacy}>Privacy policy</button
     >
+    {#if sync.account?.onDeleteAccount}<button
+        type="button"
+        class="link"
+        onclick={openDelete}>Delete account</button
+      >{/if}
   </section>
   <ConfirmationDialog
     open={deleteTargetCurrent}

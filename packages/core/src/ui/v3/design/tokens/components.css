@@ -111,6 +111,9 @@
 /* Cards and settings rows */
 .card { background: var(--surface-raised); border-radius: var(--radius-card); }
 .card-stack { display: flex; flex-direction: column; gap: var(--sync-gap, var(--space-3)); padding: var(--sync-padding, var(--space-4)); }
+/* The Help card is condensed (owner, 19 Oct): tighter gap and padding, link-sized text. */
+.card-stack.help { gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+.card-stack.help .link { font-size: calc(14px * var(--text-scale, 1)); }
 .section-label { margin: 0; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; letter-spacing: 0.01em; color: var(--ink-secondary); }
 .setting-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--sync-padding, var(--space-4)); }
 .setting-row .row-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-inline-size: 0; }

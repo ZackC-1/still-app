@@ -208,7 +208,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     }, { email });
     await page.goto(`chrome-extension://${extensionId}/popup.html`);
     await expect(page.getByText(email, { exact: true })).toBeVisible();
-    await expect(page.getByText("Synced with your account.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Synced", { exact: true })).toBeVisible();
     const fit = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight,

@@ -16,10 +16,19 @@
     const date = new Date(lastSyncedAt);
     return Number.isNaN(date.getTime()) ? undefined : date;
   });
+  /** "Today at 2:10 PM", "Yesterday at 2:10 PM", else "Oct 15 at 2:24 PM" (owner, 19 Oct). */
+  function syncTime(date: Date, now: Date = new Date()): string {
+    const clock = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    if (date.toDateString() === now.toDateString()) return `Today at ${clock}`;
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${clock}`;
+    return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${clock}`;
+  }
 </script>
 
 <!-- The compact sync status line (ISS-0056), shared by the popups and the Apple app's sync card
-     (ISS-0061): "Synced with your account. · Oct 15, 2:24 PM". The label stays visible unless
+     (ISS-0061): "Synced · Today at 2:24 PM" (or "Oct 15 at 2:24 PM"). The label stays visible unless
      the status already says the sync succeeded, so an earlier time never reads as current. The
      time is not re-announced on its own each time it advances (aria-live off). -->
 <span class="sync-summary">
@@ -28,12 +37,7 @@
     <span aria-hidden="true"> · </span>
     <span class="muted" aria-live="off"><span class:sr-only={tone === "success"}>{`${STRINGS.sync.lastSynced} `}</span><time
         datetime={time.toISOString()}
-        >{time.toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        })}</time
+        >{syncTime(time)}</time
       ></span>
   {/if}
 </span>

@@ -415,9 +415,8 @@ describe("controlled D04 Apple settings", () => {
 
   it("the sync card shows a supplied last successful sync time in Chrome's compact form, and nothing without one (ISS-0061)", async () => {
     const time = Date.UTC(2026, 9, 15, 21, 24);
-    const chrome = new Date(time).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    });
+    // SyncSummary's form for a day that is neither today nor yesterday (owner, 19 Oct).
+    const chrome = `${new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${new Date(time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
     // Without the field (Chrome's settings page), the status line is unchanged.
     const plain = render(SyncCard, {
       props: { account: { confirmed: true, status: { tone: "success", text: STRINGS.sync.synced } } },

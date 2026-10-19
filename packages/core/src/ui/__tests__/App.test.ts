@@ -762,11 +762,11 @@ describe("account identity and sync status", () => {
     c.lastSyncedAt = Date.now();
     render(App, { controller: c });
     expect(screen.getByText("person@example.com")).toBeTruthy();
-    expect(screen.getByText("Synced with your account.")).toBeTruthy();
+    expect(screen.getByText("Synced")).toBeTruthy();
     c.pendingUpload = true;
     await tick();
     expect(screen.getByText("Syncing your settings.")).toBeTruthy();
-    expect(screen.queryByText("Synced with your account.")).toBeNull();
+    expect(screen.queryByText("Synced")).toBeNull();
     c.cloudReachable = false;
     await tick();
     expect(screen.getByText("person@example.com")).toBeTruthy();
