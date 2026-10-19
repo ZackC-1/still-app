@@ -166,6 +166,9 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.387"],
     ["firefox_desktop", "2.1.1.387"],
     ["firefox_android", "2.1.1.387"],
+    ["chrome_desktop", "2.1.1.392"],
+    ["firefox_desktop", "2.1.1.392"],
+    ["firefox_android", "2.1.1.392"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -354,7 +357,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "9cb1cab9cc975cfb0ef21f84568149b5311216ba56f74680ef68b71acc561230",
+        "ee89e4571f0b6515992bd6e51ffed931db3a002adfcf9a0e9965f7243a1ae3b0",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -366,7 +369,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "0e7d57112c2ff2b4bba8d2c6c54101f5a661e05efe9e6fda1afc5704cc5cdb28",
+        "950081c420b0c040b3baf8bdc910f41d0b5c68565b4980a651d603d59e8b0765",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
