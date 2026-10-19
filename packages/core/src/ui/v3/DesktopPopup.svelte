@@ -322,13 +322,12 @@
         ><button
           type="button"
           class="primary inline"
-          class:with-glyph={appHandoff}
           aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
-          >Sign in{#if appHandoff}<Glyph name="external" size={13} />{/if}</button
+          >Sign in</button
         >
         {#if appHandoff}<p class="handoff" id="popup-signin-handoff">
-          <Glyph name="external" size={13} />Opens the Still app
+          Opens the Still app
         </p>{/if}
         </div>{/if}
     </div>

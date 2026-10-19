@@ -134,6 +134,7 @@
 <div
   class="still-ui app"
   data-density="compact"
+  class:app-handoff={handoff}
   class:invitation-scroll={invitationReady && invitationVisible(invitation)}
 >
   <section class="hero compact" class:off={!settings.globalOn}>
@@ -291,13 +292,12 @@
         ><button
           type="button"
           class="primary inline"
-          class:with-glyph={handoff}
           aria-describedby={handoff ? "popup-signin-handoff" : undefined}
           onclick={onSignIn}
-          >Sign in{#if handoff}<Glyph name="external" size={13} />{/if}</button
+          >Sign in</button
         >
         {#if handoff}<p class="handoff" id="popup-signin-handoff">
-          <Glyph name="external" size={13} />Opens the Still app
+          Opens the Still app
         </p>{/if}
         </div>{/if}
     </div>
