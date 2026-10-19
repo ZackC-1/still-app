@@ -43,30 +43,21 @@ function syncCard() {
 }
 
 function expectTagBesideAddress() {
-  const card = syncCard();
-  const tag = within(card).getByText("Still Pro");
-  expect(tag).toHaveClass("access-tag", "boxed");
-  expect(tag).toBeVisible();
-  // Read with the address, as part of the account row (not an icon-only badge).
-  expect(tag.parentElement).toHaveTextContent(`${ADDRESS} Still Pro`);
+  // Since the owner's 19 Oct review every surface carries the tag on the heading row.
+  expectTagOnHeading();
+  expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
 }
 
 function expectTagBesideSignIn() {
-  const card = syncCard();
-  const tag = within(card).getByText("Still Pro");
-  expect(tag).toHaveClass("access-tag", "boxed");
-  const signIn = within(card).getByRole("button", { name: /^Sign in/ });
-  expect(tag.parentElement).toContainElement(signIn);
-  expect(
-    tag.compareDocumentPosition(signIn) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  expectTagOnHeading();
+  expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
 }
 
 /** The shared sync card (browser Settings, Apple app) carries the tag on its heading row, in the
  * success green (owner, 19 Oct), whether signed in or out. */
 function expectTagOnHeading() {
   const card = syncCard();
-  const tag = within(card).getByText("Still Pro");
+  const tag = within(card).getByText("Still Pro User");
   expect(tag).toHaveClass("access-tag", "boxed", "success");
   expect(tag).toBeVisible();
   const heading = within(card).getByRole("heading", { name: "Settings sync" });
@@ -77,7 +68,7 @@ function expectTagOnHeading() {
 }
 
 function expectNoTag() {
-  expect(within(syncCard()).queryByText("Still Pro")).toBeNull();
+  expect(within(syncCard()).queryByText("Still Pro User")).toBeNull();
 }
 
 const NOT_PURCHASED: [string, AccessState, AccessState?][] = [

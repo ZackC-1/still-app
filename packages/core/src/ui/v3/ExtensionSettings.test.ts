@@ -192,7 +192,7 @@ describe("controlled D03 extension settings", () => {
     const { props } = await fixture();
     const view = render(ExtensionSettings, { props });
     const invitation =
-      "Free. Keep your block settings consistent across every supported device and browser.";
+      "Free. Keep your settings the same across every supported device and browser.";
     expect(screen.getByText(invitation)).toBeVisible();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeVisible();

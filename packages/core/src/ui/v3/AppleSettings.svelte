@@ -285,7 +285,6 @@
     features={supportedRows}
     onProAction={proActionReady ? revealPro : undefined}
   />
-  {#if platform === "mac"}{@render proCard()}{/if}
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
     Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
@@ -330,7 +329,8 @@
     </section>
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if platform !== "mac"}{@render proCard()}{/if}
+  <!-- The same order on the Mac as on the iPhone (owner, 19 Oct): sync first, then Still Pro. -->
+  {@render proCard()}
   {#if freeRestoreShown}
     <!-- Free period (owner decision 17): the Still Pro card's slot holds only its plain Restore
       link, so past purchasers can restore; no offer, Buy or price. -->

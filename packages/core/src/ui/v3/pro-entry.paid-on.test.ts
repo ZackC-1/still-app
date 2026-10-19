@@ -83,7 +83,7 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     expect(PAID_TIER_ENABLED).toBe(true);
   });
 
-  it("locked: shows the compact Still Pro card under the site list, above Settings sync", async () => {
+  it("locked: shows the compact Still Pro card under the site list, below Settings sync (owner, 19 Oct)", async () => {
     const { view, seePro } = await mountPopup(surface, "locked");
     const card = proCard()!;
     expect(card).toBeVisible();
@@ -97,7 +97,7 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     const services = view.container.querySelector(".services")!;
     const sync = screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
     expect(services.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(card.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sync.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Get Still Pro opens the full offer; it never starts a payment (there is no purchase port).
     const get = within(card).getByRole("button", { name: "Get Still Pro" });
     await fireEvent.click(get);
@@ -229,7 +229,7 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
     const services = view.container.querySelector(".services")!;
     const sync = screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
     expect(services.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(region.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sync.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("checking without a destination, or while the destination would not sell: no checking line", async () => {
@@ -303,7 +303,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
       props: { ...props, pro: { ...ready, onBuy, onSignIn, onRestore } },
     });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Extras that hide more of what distracts you.")).toBeVisible();
+    expect(within(card).getByText("Hide more of what distracts you.")).toBeVisible();
     const rows = within(card)
       .getAllByRole("listitem")
       .map((item) => [
@@ -427,7 +427,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(sync).getByText("Synced with your account.")).toBeVisible();
     expect(within(sync).queryByText("Purchased")).toBeNull();
     // Owned (owner, 19 Oct): the tag on the sync card's heading row is the one signal.
-    expect(within(sync).getByText("Still Pro")).toHaveClass("access-tag", "success");
+    expect(within(sync).getByText("Still Pro User")).toHaveClass("access-tag", "success");
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
   });
 });

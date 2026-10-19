@@ -20,6 +20,7 @@
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
   import StillProTag from "./StillProTag.svelte";
+  import SyncSummary from "./SyncSummary.svelte";
   import "./design/styles.css";
 
   let {
@@ -269,30 +270,25 @@
       </div>
     {/each}
   </div>
-  {#if proCardShown}<PopupProCard
-      onOpen={openPro}
-      appHandoff={handoff}
-    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
   {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
-        <h2 class="sync-row-title">Settings sync</h2>
-        {#if account}<p class="muted sync-row-sub account-line">
-            {#if account.address}<span class="account-address"
-                >{account.address}</span
-              >{/if}
-            {#if stillPro}<StillProTag />{/if}
-          </p>{:else}<p class="muted sync-row-sub">
-            Free. Keep your block settings consistent across every supported device and browser.
+        <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). -->
+        <div class="offer-head">
+          <h2 class="sync-row-title">Settings sync</h2>
+          {#if stillPro}<StillProTag />{/if}
+        </div>
+        {#if account?.address}<p class="muted sync-row-sub account-line">
+            <span class="account-address">{account.address}</span>
+          </p>{:else if !account}<p class="muted sync-row-sub">
+            Free. Keep your settings the same across every supported device and browser.
           </p>{/if}
       </div>
-      {#if !account && stillPro && !onSignIn}<StillProTag />{/if}
       {#if !account && onSignIn}<div
           class:popup-action={handoff}
-          class:pro-signin={stillPro}
-        >{#if stillPro}<StillProTag />{/if}<button
+        ><button
           type="button"
           class="primary inline"
           class:with-glyph={handoff}
@@ -315,7 +311,11 @@
             ><Glyph name={statusGlyph[account.status.tone]} /></span
           >{/if}
         <div class="status-body">
-          <span>{account.status.text}</span>{#if account.status.retry}<button
+          <SyncSummary
+            text={account.status.text}
+            tone={account.status.tone}
+            lastSyncedAt={account.lastSyncedAt}
+          />{#if account.status.retry}<button
               type="button"
               class="link status-action"
               onclick={account.status.retry}>Try again</button
@@ -326,6 +326,10 @@
     {#if accountActions}{@render accountActions()}{/if}
   </section>
   {/if}
+  {#if proCardShown}<PopupProCard
+      onOpen={openPro}
+      appHandoff={handoff}
+    />{:else if proCheckingShown}<PopupProCard checking />{/if}
   <footer class="popup-footer">
     <button
       type="button"

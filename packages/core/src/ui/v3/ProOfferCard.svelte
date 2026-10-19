@@ -97,7 +97,7 @@
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
     {#if valueLed}
-      <p class="card-body">Extras that hide more of what distracts you.</p>
+      <p class="card-body">Hide more of what distracts you.</p>
       <ul class="value-list">
         {#each value as row (row.service)}
           <li>

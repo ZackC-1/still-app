@@ -148,7 +148,7 @@ describe("actual paid-V3 informational options destination", () => {
       // Owned (owner, 19 Oct): no Still Pro card; the sync card's heading carries the tag.
       await waitFor(() => expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull());
       const sync = screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
-      await within(sync).findByText("Still Pro");
+      await within(sync).findByText("Still Pro User");
       expect(screen.queryByText("Still Pro and sync")).toBeNull();
     } else {
       const region = await screen.findByRole("region", { name: "Still Pro" });

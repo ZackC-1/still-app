@@ -101,7 +101,8 @@ describe("controlled D04 Apple settings", () => {
     render(AppleSettings, { props });
     const pro = screen.getByRole("region", { name: "Still Pro" });
     const sync = screen.getByRole("heading", { name: "Settings sync" });
-    expect(Boolean(pro.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(platform === "mac");
+    // Owner (19 Oct): the Mac mirrors the iPhone, so the sync card comes first on both.
+    expect(Boolean(sync.compareDocumentPosition(pro) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(pro).toHaveTextContent("One-time purchase. Lifetime access.");
   });
 
@@ -390,7 +391,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText(/without an account/)).toBeNull();
     expect(
       screen.getByText(
-        "Free. Keep your block settings consistent across every supported device and browser.",
+        "Free. Keep your settings the same across every supported device and browser.",
       ),
     ).toBeTruthy();
     props.sync.account = {
@@ -1970,7 +1971,7 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     ).toEqual(["Instagram Blocker", "Facebook Blocker", "YouTube Blocker", "TikTok Blocker"]);
     expect(screen.getByRole("heading", { name: "Settings sync" }).className).toBe("card-title");
     expect(
-      screen.getByText("Free. Keep your block settings consistent across every supported device and browser."),
+      screen.getByText("Free. Keep your settings the same across every supported device and browser."),
     ).toBeVisible();
   });
 

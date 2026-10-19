@@ -217,7 +217,7 @@ describe("paid-tier browser Still Pro card", () => {
     const reads = f.actions().filter(action => action === "observeBenefits").length;
     visibility("visible");
     const syncSection = () => screen.getByRole("heading", { name: "Settings sync" }).closest("section")!;
-    await waitFor(() => expect(within(syncSection()).getByText("Still Pro")).toBeTruthy());
+    await waitFor(() => expect(within(syncSection()).getByText("Still Pro User")).toBeTruthy());
     // Let that re-check finish its second access read before the next return to the page.
     await waitFor(() => expect(f.actions().filter(action => action === "observeBenefits").length).toBe(reads + 2));
     // Owned (owner, 19 Oct): the sync card's Still Pro tag is the signal; no Still Pro card.
@@ -225,7 +225,7 @@ describe("paid-tier browser Still Pro card", () => {
     expect(screen.getByRole("heading", { name: "Settings sync" })).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
-      expect(within(syncSection()).getByText("Still Pro")).toBeTruthy();
+      expect(within(syncSection()).getByText("Still Pro User")).toBeTruthy();
     });
     // An owner's page shown again does not re-check.
     const settled = f.actions().filter(action => action === "reconcile").length;
@@ -240,7 +240,7 @@ describe("paid-tier browser Still Pro card", () => {
     cleanup();
     render(OptionsApp);
     expect(await within(await region()).findByRole("button", { name: "Get Still Pro" })).toBeTruthy();
-    expect(within(screen.getByRole("heading", { name: "Settings sync" }).closest("section")!).queryByText("Still Pro")).toBeNull();
+    expect(within(screen.getByRole("heading", { name: "Settings sync" }).closest("section")!).queryByText("Still Pro User")).toBeNull();
   });
 
   it("reopened with a settings checkout pending, the page re-checks and never shows the legacy priced sheet", async () => {
@@ -345,7 +345,7 @@ describe("paid-tier browser Still Pro card", () => {
     f.set({ after: "purchased", outcome: "entitled" });
     await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
     await screen.findByText("Still Pro is restored on this device.");
-    await waitFor(() => expect(within(screen.getByRole("heading", { name: "Settings sync" }).closest("section")!).getByText("Still Pro")).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole("heading", { name: "Settings sync" }).closest("section")!).getByText("Still Pro User")).toBeTruthy());
     expect(intent(f.messages)).toEqual([]);
   });
 

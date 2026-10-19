@@ -111,6 +111,11 @@
 /* Cards and settings rows */
 .card { background: var(--surface-raised); border-radius: var(--radius-card); }
 .card-stack { display: flex; flex-direction: column; gap: var(--sync-gap, var(--space-3)); padding: var(--sync-padding, var(--space-4)); }
+/* The sync card keeps a quarter less vertical padding (owner, 19 Oct). */
+.card-stack.sync { padding-block: var(--space-3); }
+/* Sign in at two thirds, Not now at one third, on one line (owner, 19 Oct). */
+.split-actions { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-2); }
+.split-actions > button { min-block-size: var(--tap-target); }
 /* The Help card is condensed (owner, 19 Oct): tighter gap and padding, link-sized text. */
 .card-stack.help { gap: var(--space-2); padding: var(--space-3) var(--space-4); }
 .card-stack.help .link { font-size: calc(14px * var(--text-scale, 1)); }

@@ -35,7 +35,7 @@
 </script>
 
 <!-- data-still-card: the Apple app's still://sync link scrolls to this card (apple-sync-route). -->
-<section class="card card-stack" data-still-card="sync">
+<section class="card card-stack sync" data-still-card="sync">
   <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
   <!-- The Still Pro tag sits on the heading row, right-aligned, in the success green (owner,
     19 Oct): the one signal on this screen that the person has Still Pro. -->
@@ -150,18 +150,20 @@
   {:else if invitation}
     <!-- The accountless holder's invitation lives here (owner, 19 Oct): Sign in and Not now,
       then the one line that says why. -->
-    <button
-      type="button"
-      class="primary block"
-      disabled={!invitation.onAccept}
-      onclick={invitation.onAccept}>Sign in</button
-    >
-    <button
-      type="button"
-      class="link"
-      disabled={!invitation.onDismiss}
-      onclick={invitation.onDismiss}>Not now</button
-    >
+    <div class="split-actions">
+      <button
+        type="button"
+        class="primary block"
+        disabled={!invitation.onAccept}
+        onclick={invitation.onAccept}>Sign in</button
+      >
+      <button
+        type="button"
+        class="secondary block"
+        disabled={!invitation.onDismiss}
+        onclick={invitation.onDismiss}>Not now</button
+      >
+    </div>
     <p class="card-body">
       You have Still Pro. Sign in to keep Still Pro with your account.
     </p>
@@ -175,7 +177,7 @@
       onclick={onSignIn}>Sign in</button
     >
     <p class="card-body">
-      Free. Keep your block settings consistent across every supported device and browser.
+      Free. Keep your settings the same across every supported device and browser.
     </p>
   {/if}
   {#if accountActions}{@render accountActions()}{/if}
