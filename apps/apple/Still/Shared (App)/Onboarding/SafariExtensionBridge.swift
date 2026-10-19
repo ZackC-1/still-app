@@ -111,32 +111,45 @@ enum SafariExtensionBridge {
   /// later, Settings straight on Still's Safari extension page (the switch, Private Browsing and the
   /// website permissions); on an earlier iPhone, Still's own page in Settings, from where the
   /// onboarding steps walk the rest of the way. If the direct open is refused (the system asks for
-  /// a foreground app), the app's own page is the fallback, and the steps for it still get there.
+  /// a foreground app and allows about two a minute), the app's own page is the fallback.
   @MainActor static func openEnableLocation() {
     #if os(macOS)
     SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) { _ in }
     #elseif os(iOS)
     if #available(iOS 26.2, *) {
-      SFSafariSettings.openExtensionsSettings(forIdentifiers: [extensionBundleID]) { error in
-        guard let error else { return }
-        #if DEBUG
-        // Simulator QA lane only: the refusal, for the lane's console capture.
-        print("still qa: openExtensionsSettings refused: \(error)")
-        #endif
-        openAppSettingsPage()
-      }
+      Task { _ = await openSafariExtensionPage() }
       return
     }
-    openAppSettingsPage()
+    Task { await openAppSettingsPage() }
     #endif
   }
 
   #if os(iOS)
   /// Still's own page in the Settings app (`UIApplication.openSettingsURLString`).
-  @MainActor private static func openAppSettingsPage() {
-    if let url = URL(string: UIApplication.openSettingsURLString) {
-      UIApplication.shared.open(url)
+  @MainActor @discardableResult private static func openAppSettingsPage() async -> Bool {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
+    // The async form: UIKit resumes this main-actor caller itself, so no handler closure exists.
+    return await UIApplication.shared.open(url, options: [:])
+  }
+
+  /// Settings straight on Still's Safari extension page (ISS-0074), for both the SwiftUI onboarding
+  /// and the web view's setup card. True only when that page opened. Apple rate-limits this call to
+  /// about two a minute and refuses it for a background app; a refusal opens Still's app page
+  /// instead and returns false, so a reply never names a page that did not open.
+  @available(iOS 26.2, *)
+  @MainActor private static func openSafariExtensionPage() async -> Bool {
+    let opened = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      SFSafariSettings.openExtensionsSettings(forIdentifiers: [extensionBundleID]) {
+        @Sendable error in
+        #if DEBUG
+        // Simulator QA lane only: the refusal, for the lane's console capture.
+        if let error { print("still qa: openExtensionsSettings refused: \(error)") }
+        #endif
+        continuation.resume(returning: error == nil)
+      }
     }
+    if !opened { await openAppSettingsPage() }
+    return opened
   }
   #endif
 
@@ -170,15 +183,16 @@ enum SafariExtensionBridge {
           continuation.resume(returning: error == nil)
         }
       }
-    case .settingsAppStillPage:
+    case .settingsAppStillPage, .settingsAppSafariExtensionPage:
       return false
     }
     #elseif os(iOS)
     switch destination {
     case .settingsAppStillPage:
-      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
-      // The async form: UIKit resumes this main-actor caller itself, so no handler closure exists.
-      return await UIApplication.shared.open(url, options: [:])
+      return await openAppSettingsPage()
+    case .settingsAppSafariExtensionPage:
+      guard #available(iOS 26.2, *) else { return false }
+      return await openSafariExtensionPage()
     case .safariExtensionSettings, .safari:
       return false
     }

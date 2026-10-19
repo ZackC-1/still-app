@@ -164,24 +164,50 @@ export function observeAppleSetup(
 
 /**
  * Opens one fixed native destination from a tap (the `openDestination` message, through
- * `openNativeDestination`). The setup card only ever asks for Safari's extension settings.
+ * `openNativeDestination`): Safari's extension settings on the Mac, Still's Safari extension page
+ * in the Settings app on the iPhone.
  */
-export type AppleSetupOpener = (destination: "safariExtensionSettings") => void;
+export type AppleSetupOpener = (
+  destination: "safariExtensionSettings" | "settingsAppSafariExtensionPage",
+) => void;
+
+const SETUP_TITLE = "Turn on Still in Safari";
+const SETUP_DETAIL =
+  "Still works inside Safari. Your choices are saved and start working once it's on.";
 
 /**
- * The setup card appears only when native observes the Mac extension turned off. iOS cannot
- * observe it, and an unknown, missing or late observation never nags. Its "Open Safari Settings"
- * action opens the fixed Safari extension settings destination when an opener is supplied, and
- * stays unsupplied (disabled) otherwise.
+ * The iPhone onboarding's owner-approved steps for Still's Safari extension page (iOS 26.2+):
+ * StillKit `OnboardingCopy.enableSteps(for: .settingsAppSafariExtensionPage)`. A test pins them to
+ * Onboarding.swift, so the card and onboarding cannot drift apart.
+ */
+export const IOS_EXTENSION_PAGE_ENABLE_STEPS: readonly string[] = [
+  "Tap “Open Settings” below",
+  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
+  "Close Safari, then reopen it",
+];
+
+/**
+ * The setup card appears only when native observes the extension turned off: on the Mac, and on
+ * an iPhone with iOS 26.2 or later (earlier iPhones cannot read it and stay "unknown"). An unknown,
+ * missing or late observation never nags. Its button opens the platform's fixed enable location
+ * when an opener is supplied, and stays unsupplied (disabled) otherwise.
  */
 export function appleSettingsSetup(
   observation: SafariSetupObservation | null,
   open?: AppleSetupOpener,
 ): AppleSettingsProps["setup"] {
-  if (observation?.platform !== "macos" || observation.extensionStatus !== "disabled") return undefined;
+  if (observation?.extensionStatus !== "disabled") return undefined;
+  if (observation.platform === "ios")
+    return {
+      title: SETUP_TITLE,
+      detail: SETUP_DETAIL,
+      steps: IOS_EXTENSION_PAGE_ENABLE_STEPS,
+      actionLabel: "Open Settings",
+      onAction: open ? () => open("settingsAppSafariExtensionPage") : undefined,
+    };
   return {
-    title: "Turn on Still in Safari",
-    detail: "Still works inside Safari. Your choices are saved and start working once it's on.",
+    title: SETUP_TITLE,
+    detail: SETUP_DETAIL,
     // Owner-approved macOS steps (2026-10-05); title, detail and label from the D04 reference.
     steps: [
       "Open Safari, then Settings, then Extensions.",
