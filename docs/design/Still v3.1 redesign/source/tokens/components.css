@@ -180,7 +180,7 @@
 
 /* Site sections (D06) and switch rows (D07). One section per site; header switch is the existing service boolean. */
 .service-group { display: flex; flex-direction: column; background: var(--surface-raised); border-radius: var(--radius-card); }
-.service-group .divider { block-size: 1px; background: var(--border); margin-inline-start: calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
+.service-group .divider { block-size: 1px; background: var(--border); margin-inline-start: calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); margin-inline-end: var(--service-card-padding-inline, var(--space-4)); }
 .service-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--service-card-padding-block, var(--space-3)) var(--service-card-padding-inline, var(--space-4)); }
 .service-row .icon { inline-size: var(--service-icon-size, 42px); block-size: var(--service-icon-size, 42px); flex: none; display: block; }
 .service-row .expander { flex: 1; min-inline-size: 0; display: flex; align-items: center; gap: 6px; background: transparent; border: none; padding: 0; text-align: start; font: inherit; color: inherit; cursor: pointer; }
