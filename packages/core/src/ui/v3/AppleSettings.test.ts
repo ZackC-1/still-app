@@ -298,14 +298,13 @@ describe("controlled D04 Apple settings", () => {
     expect(buy).toHaveBeenCalledTimes(2);
     props.pro = { ...props.pro, ownership: "owned", state: "idle" };
     await view.rerender(props);
-    // ISS-0032: purchased shows its own "Still Pro · Purchased" card beside the sync card.
+    // Owned (owner, 19 Oct): no Still Pro card; the sync card's heading row carries the tag.
     expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    // (The sync card's tag follows verified purchased access, which this buy fixture never
+    // reaches; the tag itself is covered in still-pro-tag.test.ts.)
     expect(screen.getByText("Settings sync")).toBeVisible();
-    const purchased = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(purchased).getByText("Still Pro Purchased")).toBeVisible();
-    expect(
-      within(purchased).queryByRole("button", { name: "Restore purchase" }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(await storage.get()).toEqual(saved);

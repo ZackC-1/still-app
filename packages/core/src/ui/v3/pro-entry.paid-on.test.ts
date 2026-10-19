@@ -405,7 +405,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     },
   );
 
-  it("purchased: the sync card stays its own card beside Still Pro · Purchased", async () => {
+  it("purchased: the sync card carries the Still Pro tag and no Still Pro card renders", async () => {
     const { props } = await settingsFixture("purchased");
     render(ExtensionSettings, {
       props: {
@@ -426,11 +426,9 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(sync).getByText("person@still.test")).toBeVisible();
     expect(within(sync).getByText("Synced with your account.")).toBeVisible();
     expect(within(sync).queryByText("Purchased")).toBeNull();
-    const pro = screen.getByRole("region", { name: "Still Pro" });
-    expect(pro).not.toBe(sync);
-    expect(within(pro).getByText("Still Pro Purchased")).toBeVisible();
-    expect(within(pro).queryByRole("button")).toBeNull();
-    expect(sync.compareDocumentPosition(pro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Owned (owner, 19 Oct): the tag on the sync card's heading row is the one signal.
+    expect(within(sync).getByText("Still Pro")).toHaveClass("access-tag", "success");
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
   });
 });
 

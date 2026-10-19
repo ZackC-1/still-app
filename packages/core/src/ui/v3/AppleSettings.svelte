@@ -223,7 +223,8 @@
 </script>
 
 {#snippet proCard()}
-  {#if pro && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+  <!-- Owned: no card (owner, 19 Oct); the sync card's Still Pro tag is the signal. -->
+  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <!-- Checking and verify stay separate so the card shows the matching presentation;
       accessHeld covers only rights not known missing for any other reason. -->
     <div bind:this={proSection} style="display:contents;">
@@ -240,18 +241,7 @@
 {/snippet}
 
 <div class="still-ui app" class:mac-settings={platform === "mac"} data-host="apple">
-  <section class="hero compact" class:off={!settings.globalOn}>
-    <div class="hero-text">
-      <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
-    </div>
-    <Toggle
-      disabled={commandsDisabled}
-      checked={settings.globalOn}
-      onChange={onGlobalChange}
-      label="Still"
-      onBlue={settings.globalOn}
-    />
-  </section>
+  <!-- The setup card leads the screen when the extension is off (owner, 19 Oct). -->
   {#if setup}
     <section class="card card-stack">
       <h2 class="section-label">{setup.title}</h2>
@@ -271,6 +261,18 @@
       >
     </section>
   {/if}
+  <section class="hero compact" class:off={!settings.globalOn}>
+    <div class="hero-text">
+      <h1>{settings.globalOn ? "Still is active" : "Still is off"}</h1>
+    </div>
+    <Toggle
+      disabled={commandsDisabled}
+      checked={settings.globalOn}
+      onChange={onGlobalChange}
+      label="Still"
+      onBlue={settings.globalOn}
+    />
+  </section>
   <SettingsSiteList
     {commandsDisabled}
     {settings}

@@ -37,13 +37,15 @@
 <!-- data-still-card: the Apple app's still://sync link scrolls to this card (apple-sync-route). -->
 <section class="card card-stack" data-still-card="sync">
   <!-- The same heading as the Still Pro and Share usage data cards (owner, 12 Oct). -->
-  <h2 class="card-title">Settings sync</h2>
+  <!-- The Still Pro tag sits on the heading row, right-aligned, in the success green (owner,
+    19 Oct): the one signal on this screen that the person has Still Pro. -->
+  <div class="offer-head">
+    <h2 class="card-title">Settings sync</h2>
+    {#if stillPro}<StillProTag />{/if}
+  </div>
   {#if account}
-    {#if account.address || stillPro}<p class="synced account-line">
-        {#if account.address}<span class="account-address"
-            >{account.address}</span
-          >{/if}
-        {#if stillPro}<StillProTag />{/if}
+    {#if account.address}<p class="synced account-line">
+        <span class="account-address">{account.address}</span>
       </p>{/if}
     {#if account.status}
       <div
@@ -166,19 +168,12 @@
   {:else}
     <!-- Owner (19 Oct screens review): the button sits above the line, and the line uses the
       Still Pro card's body size, so the signed-out card stays compact. -->
-    {#if stillPro}<div class="account-signin">
-        <StillProTag /><button
-          type="button"
-          class="primary block"
-          disabled={!onSignIn}
-          onclick={onSignIn}>Sign in</button
-        >
-      </div>{:else}<button
-        type="button"
-        class="primary block"
-        disabled={!onSignIn}
-        onclick={onSignIn}>Sign in</button
-      >{/if}
+    <button
+      type="button"
+      class="primary block"
+      disabled={!onSignIn}
+      onclick={onSignIn}>Sign in</button
+    >
     <p class="card-body">
       Free. Keep your block settings consistent across every supported device and browser.
     </p>

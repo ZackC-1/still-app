@@ -284,7 +284,8 @@
         }
       : undefined}
   />
-  {#if pro && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
+  <!-- Owned: no card (owner, 19 Oct); the sync card's Still Pro tag is the signal. -->
+  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
     <div bind:this={proSection} style="display:contents;">
       <ProOfferCard
         {...pro}
