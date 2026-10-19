@@ -1092,7 +1092,7 @@ describe("mounted Apple known account removal", () => {
 // ISS-0071 (owner decision, option B; ADR 0005): signed out, Get Still Pro opens the app's
 // email-code sign-in first, with one added line and "Buy without an account" under it.
 describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
-  const NOTE = "Sign in first, so Still Pro stays with your account.";
+  const NOTE = "Sign in before purchase to associate Still Pro with your account.";
   const SKIP = "Buy without an account";
   async function enterCode(address: string) {
     const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
@@ -1111,6 +1111,10 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
   it("signed out, Get Still Pro opens the email-code sign-in with the line and the skip link", async () => {
     const f = await openBuy();
     const sheet = await screen.findByRole("dialog");
+    // ISS-0085 (owner, 19 Oct): the purchase-opened sheet has its own heading and prompt.
+    expect(within(sheet).getByRole("heading", { name: "Sign in to purchase Still Pro" })).toBeVisible();
+    expect(within(sheet).getByText("Enter your email to get a 6-digit code.")).toBeVisible();
+    expect(within(sheet).queryByText(STRINGS.auth.prompt)).toBeNull();
     expect(within(sheet).getByText(NOTE)).toBeVisible();
     expect(within(sheet).getByRole("button", { name: SKIP })).toBeVisible();
     expect(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel })).toBeVisible();
@@ -1126,6 +1130,9 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     // Sign in afterwards, for sync: no purchase line, no skip link, and no Apple sheet.
     f.controller.openSignIn();
     const again = await screen.findByRole("dialog");
+    // The sync-opened sheet keeps its own words (ISS-0085).
+    expect(within(again).getByRole("heading", { name: STRINGS.auth.title })).toBeVisible();
+    expect(within(again).getByText(STRINGS.auth.prompt)).toBeVisible();
     expect(within(again).queryByText(NOTE)).toBeNull();
     expect(within(again).queryByRole("button", { name: SKIP })).toBeNull();
     await enterCode("account@still.test");

@@ -516,6 +516,8 @@
   <SignInSheet
     controller={c}
     onDismiss={() => c.dismissSignIn()}
+    title={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.title : undefined}
+    prompt={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.prompt : undefined}
     note={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.note : undefined}
     skip={purchaseSignIn
       ? { label: APPLE_PURCHASE_SIGN_IN_COPY.skip, onSkip: buyWithoutAccount }

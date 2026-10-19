@@ -7,12 +7,16 @@
   interface Props {
     controller: UiController;
     onDismiss: () => void;
+    /** The email step's heading and prompt, when the host that opened the sheet has its own
+     * (the Apple purchase sheet, ISS-0085). The consent and code steps keep their own words. */
+    title?: string;
+    prompt?: string;
     /** One added line under the prompt, supplied by the host that opened the sheet. */
     note?: string;
     /** A host-supplied way to continue without signing in (Apple Get Still Pro, ISS-0071). */
     skip?: { label: string; onSkip: () => void };
   }
-  let { controller: c, onDismiss, note, skip }: Props = $props();
+  let { controller: c, onDismiss, title, prompt, note, skip }: Props = $props();
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
@@ -117,12 +121,12 @@
   <!-- The dialog is named by its own heading rather than by a fixed string, because the heading
        changes on the consent step. A screen reader must not announce "sign in" on the one screen
        that is asking a question about an email address. -->
-  <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : STRINGS.auth.title}</h2>
+  <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}</h2>
   <p class="body">
     {#if c.needsEmailConsent}
       {STRINGS.emailConsent.body}
     {:else}
-      {inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}
+      {inCodeEntry ? STRINGS.codeAuth.prompt : (prompt ?? STRINGS.auth.prompt)}
     {/if}
   </p>
   {#if note}<p class="body">{note}</p>{/if}
