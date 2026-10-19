@@ -6,7 +6,9 @@ import Foundation
 ///
 ///   • `safariExtensionSettings`: Safari's Extensions settings with Still selected (macOS).
 ///   • `settingsAppStillPage`: Still's own page in the Settings app (iOS), the closest entry a
-///     containing app can open on the iPhone versions this build supports.
+///     containing app can open before iOS 26.2.
+///   • `settingsAppSafariExtensionPage`: Settings on Still's page under Safari, Extensions (iOS
+///     26.2 and later, ISS-0074). Offered only when the host says it exists.
 ///   • `safari`: the Safari app itself (macOS). iOS has no public way to open Safari specifically
 ///     (an `https` link opens whichever browser the person chose as default), so it is not
 ///     offered there and the D12 "Open Safari" button stays disabled on iOS.
@@ -16,16 +18,23 @@ import Foundation
 public enum NativeOpenDestination: String, CaseIterable, Equatable, Sendable {
   case safariExtensionSettings
   case settingsAppStillPage
+  case settingsAppSafariExtensionPage
   case safari
 
   /// Safari's bundle identifier, the one application `safari` may launch on macOS.
   public static let safariBundleIdentifier = "com.apple.Safari"
 
   /// What this platform can actually open. Anything else is refused before native acts.
-  public static func supported(on platform: SafariSetupObservation.Platform) -> Set<NativeOpenDestination> {
+  /// `extensionPageAvailable` is the host's own verdict that the direct Safari extension page exists
+  /// (iOS 26.2 and later); it never adds anything on macOS.
+  public static func supported(
+    on platform: SafariSetupObservation.Platform, extensionPageAvailable: Bool = false
+  ) -> Set<NativeOpenDestination> {
     switch platform {
     case .macos: return [.safariExtensionSettings, .safari]
-    case .ios: return [.settingsAppStillPage]
+    case .ios:
+      return extensionPageAvailable
+        ? [.settingsAppStillPage, .settingsAppSafariExtensionPage] : [.settingsAppStillPage]
     }
   }
 }
@@ -79,6 +88,7 @@ public enum NativeOpenRequest {
     body: Any,
     frame: BridgeFrame,
     platform: SafariSetupObservation.Platform,
+    extensionPageAvailable: Bool = false,
     appIsActive: Bool
   ) -> Result<NativeOpenDestination, Refusal> {
     guard frame.isTrusted else { return .failure(.untrustedFrame) }
@@ -88,7 +98,10 @@ public enum NativeOpenRequest {
           let raw = dict["destination"] as? String,
           let destination = NativeOpenDestination(rawValue: raw)
     else { return .failure(.malformed) }
-    guard NativeOpenDestination.supported(on: platform).contains(destination) else {
+    guard
+      NativeOpenDestination.supported(on: platform, extensionPageAvailable: extensionPageAvailable)
+        .contains(destination)
+    else {
       return .failure(.unsupported)
     }
     guard appIsActive else { return .failure(.inactive) }

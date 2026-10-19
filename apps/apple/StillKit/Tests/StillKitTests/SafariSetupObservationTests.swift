@@ -15,7 +15,9 @@ final class SafariSetupObservationTests: XCTestCase {
     }
   }
 
-  func testIOSAlwaysUnknownEvenIfSuppliedEnabledOrDisabled() throws {
+  func testIOSBeforeTheDirectPageIsAlwaysUnknownEvenIfSuppliedEnabledOrDisabled() throws {
+    // Before iOS 26.2 a containing app cannot read the extension's state; the app declares the app
+    // page there, and the reply never claims a status it could not read.
     for status in [SafariExtensionStatus.enabled, .disabled, .unknown] {
       let observation = SafariSetupObservation(
         platform: .ios, extensionStatus: status, enableLocation: .settingsAppStillPage)
@@ -26,18 +28,23 @@ final class SafariSetupObservationTests: XCTestCase {
     }
   }
 
-  func testTheIOSDirectExtensionPageKeepsTheWebViewContractUnchanged() throws {
-    // ISS-0074: on iOS 26.2+ the SwiftUI onboarding opens Still's Safari extension page directly,
-    // but the web view's setup reply keeps its one iOS shape (unknown, settingsAppStillPage), which
-    // is what the bundled web UI parses and what `openDestination` can open there.
-    let observation = SafariSetupObservation(
-      platform: .ios, extensionStatus: .enabled, enableLocation: .settingsAppSafariExtensionPage)
-    XCTAssertEqual(observation.enableLocation, .settingsAppStillPage)
-    XCTAssertEqual(observation.extensionStatus, .unknown)
-    try assertReply(observation, platform: "ios", status: "unknown", location: "settingsAppStillPage")
+  func testIOSWithTheDirectExtensionPageCarriesTheRealStatus() throws {
+    // ISS-0082: on iOS 26.2+ the app reads the real state and opens Still's Safari extension page
+    // directly (ISS-0074), so the web view gets both and can show the setup card when it is off.
+    for (status, name) in [
+      (SafariExtensionStatus.enabled, "enabled"), (.disabled, "disabled"), (.unknown, "unknown"),
+    ] {
+      let observation = SafariSetupObservation(
+        platform: .ios, extensionStatus: status, enableLocation: .settingsAppSafariExtensionPage)
+      XCTAssertEqual(observation.extensionStatus, status)
+      XCTAssertEqual(observation.enableLocation, .settingsAppSafariExtensionPage)
+      try assertReply(
+        observation, platform: "ios", status: name, location: "settingsAppSafariExtensionPage")
+    }
     let mac = SafariSetupObservation(
       platform: .macos, extensionStatus: .enabled, enableLocation: .settingsAppSafariExtensionPage)
     XCTAssertEqual(mac.enableLocation, .safariExtensionSettings)
+    try assertReply(mac, platform: "macos", status: "enabled", location: "safariExtensionSettings")
   }
 
   func testIncompatibleDestinationCannotEscapeItsActualPlatform() throws {

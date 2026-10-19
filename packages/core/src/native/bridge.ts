@@ -147,13 +147,21 @@ export const STILL_SYNC_APP_URL = "still://sync";
 export type NativeAppRouteName = "pro" | "sync";
 export interface NativeAppRoute { readonly route: NativeAppRouteName; readonly revision: number }
 
-/** Native extension state only; this never proves site permission or onboarding completion. */
+/** Native extension state only; this never proves site permission or onboarding completion.
+ * Before iOS 26.2 the iPhone cannot read it ("unknown", Still's app page); from iOS 26.2 the status
+ * is real and comes with Still's Safari extension page (SafariSetupObservation.swift). */
 export type SafariSetupObservation =
   | {
       readonly ok: true;
       readonly platform: "ios";
       readonly extensionStatus: "unknown";
       readonly enableLocation: "settingsAppStillPage";
+    }
+  | {
+      readonly ok: true;
+      readonly platform: "ios";
+      readonly extensionStatus: "enabled" | "disabled" | "unknown";
+      readonly enableLocation: "settingsAppSafariExtensionPage";
     }
   | {
       readonly ok: true;
@@ -210,17 +218,22 @@ export function boundedNativeRead<T>(
 
 /** The fixed places native may open for the web view (NativeOpenDestination.swift). The names
  * match `SafariSetupObservation.enableLocation`. macOS opens Safari's Extensions settings and
- * Safari; iOS opens only Still's page in the Settings app. */
+ * Safari; iOS opens Still's page in the Settings app and, from iOS 26.2, Still's Safari extension
+ * page there. */
 export type NativeOpenDestination =
   | "safariExtensionSettings"
   | "settingsAppStillPage"
+  | "settingsAppSafariExtensionPage"
   | "safari";
 
 const NATIVE_OPEN_DESTINATIONS: readonly NativeOpenDestination[] = [
   "safariExtensionSettings",
   "settingsAppStillPage",
+  "settingsAppSafariExtensionPage",
   "safari",
 ];
+
+const SAFARI_EXTENSION_STATUSES: readonly string[] = ["enabled", "disabled", "unknown"];
 
 export interface OpenNativeDestinationOptions {
   /** The host window (default: globalThis). */
@@ -369,10 +382,21 @@ export class NativeBridge {
         };
       }
       if (
+        obj.platform === "ios" &&
+        SAFARI_EXTENSION_STATUSES.includes(obj.extensionStatus as string) &&
+        obj.enableLocation === "settingsAppSafariExtensionPage"
+      ) {
+        return {
+          ok: true,
+          platform: "ios",
+          extensionStatus: obj.extensionStatus as
+            "enabled" | "disabled" | "unknown",
+          enableLocation: "settingsAppSafariExtensionPage",
+        };
+      }
+      if (
         obj.platform === "macos" &&
-        ["enabled", "disabled", "unknown"].includes(
-          obj.extensionStatus as string,
-        ) &&
+        SAFARI_EXTENSION_STATUSES.includes(obj.extensionStatus as string) &&
         obj.enableLocation === "safariExtensionSettings"
       ) {
         return {
