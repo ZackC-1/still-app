@@ -187,13 +187,24 @@
           // The longest vertical run, on four lines that never fall on a tile edge for 1-4 tiles a
           // row, where the drawn rows show no post: a hole, or a gap between rows.
           let blank = 0;
-          for (const fraction of [0.1, 0.42, 0.58, 0.9]) {
+          const fractions = [0.1, 0.42, 0.58, 0.9];
+          const hits = new Map(); // y -> any of the four lines shows a post
+          for (const fraction of fractions) {
             let run = 0;
             for (let y = contentTop; y < contentBottom; y += 2) {
               const hit = document.elementFromPoint(box.left + box.width * fraction, y)?.closest('a[href^="/p/"]');
               run = hit ? 0 : run + 2;
               blank = Math.max(blank, run);
+              if (hit) hits.set(y, true);
             }
+          }
+          // The longest vertical run where NONE of the four lines shows a post: a blank band
+          // across the whole column (a row drawn empty, or a gap between rows). Space at the end
+          // of a row that still shows a post is not a band.
+          let emptyBand = 0;
+          for (let y = contentTop, run = 0; y < contentBottom; y += 2) {
+            run = hits.get(y) ? 0 : run + 2;
+            emptyBand = Math.max(emptyBand, run);
           }
           const shown = (node) => {
             const rect = node.getBoundingClientRect();
@@ -207,7 +218,13 @@
             zeroHeightRows: [...mounted.values()].filter((row) => row.getBoundingClientRect().height === 0).length,
             reelsShown: [...grid.querySelectorAll('[data-kind="R"]')].filter(shown).length,
             postsShown: [...grid.querySelectorAll('[data-kind="P"], [data-kind="C"]')].filter(shown).length,
+            // Every post's drawn width, and Instagram's own cell width for this column count: a post
+            // keeps its grid cell's size, never widened into a feed (ISS-0083).
+            postWidths: [...new Set([...grid.querySelectorAll('[data-kind="P"], [data-kind="C"]')].filter(shown)
+              .map((node) => Math.round(node.getBoundingClientRect().width)))],
+            cellWidth: Math.round((grid.clientWidth - (columns - 1)) / columns),
             blank,
+            emptyBand,
             paddingTop: parseFloat(grid.style.paddingTop),
             atEnd: scrollY + innerHeight >= document.documentElement.scrollHeight - 2,
             done: pages >= maxPages,

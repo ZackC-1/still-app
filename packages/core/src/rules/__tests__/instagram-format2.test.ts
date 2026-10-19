@@ -268,55 +268,58 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       "https://www.instagram.com/someuser/reels/", "https://about.instagram.com/features/", "https://www.instagram.com/Explore/"])
       expect(at(href), href).toBe(false);
   });
-  it("Explore: Reel tiles go whole and only rows holding a Reel become one measurable line, only with the mark", () => {
+  it("Explore: Reel tiles go whole while every row keeps Instagram's own grid and tile size, only with the mark", () => {
     render("instagram-explore.html");
+    // Instagram's own row and tile layout (the captured computed styles), so a change is visible.
+    const site = document.createElement("style");
+    site.textContent = ".row{display:grid;grid-template-columns:var(--x-gridTemplateColumns);column-gap:1px}.row>div{min-width:0;overflow:visible}";
+    document.head.append(site);
     const s = session(), url = new URL("https://www.instagram.com/explore/");
     const grid = document.getElementById("explore-grid")!;
-    // A row with no Reel at all (a later batch): it must keep Instagram's own layout.
+    // A row with no Reel at all (a later batch).
     const plain = document.createElement("div");
+    plain.className = "row";
     plain.setAttribute("style", "--x-gridTemplateColumns: repeat(4, 1fr);");
     plain.innerHTML = ["Pl1", "Pl2", "Pl3", "Pl4"].map((code) =>
       `<div id="plain-${code}"><div style="--x-width: 100%;"><a role="link" href="/p/${code}/"><div class="tile"></div></a></div></div>`).join("");
     grid.append(plain);
     const rows = [...grid.children] as HTMLElement[];
     const reelRows = rows.slice(0, 4);
+    // What Instagram's own styles give every row and tile, before Still applies anything.
+    const LAYOUT = ["display", "grid-template-columns", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis", "width", "max-height", "overflow"];
+    const layoutOf = (node: Element) => LAYOUT.map((name) => `${name}:${getComputedStyle(node).getPropertyValue(name)}`).join(";");
+    const own = new Map([grid, ...rows, ...rows.flatMap((row) => [...row.children])].map((node) => [node, layoutOf(node)]));
+    expect(getComputedStyle(reelRows[0]!).display).toBe("grid");
     s.applyDom(DEFAULT_SETTINGS_V2, url, document);
-    const assertLaidOut = () => {
-      // The column is never rewritten, and no row ever stops being a box (ISS-0053).
-      expect(getComputedStyle(grid).display).not.toBe("grid");
-      for (const row of rows) expect(getComputedStyle(row).display).not.toBe("contents");
+    const assertGridKept = () => {
+      // The column, every row and every remaining post keep Instagram's own layout: no row turns
+      // into a flex line, no post is widened, capped or clipped (ISS-0083), and no row is
+      // flattened (ISS-0053). Only Reel tiles leave.
+      for (const [node, layout] of own) {
+        if (node.id.startsWith("explore-reel-")) continue;
+        expect(layoutOf(node), node.id || node.className || node.tagName).toBe(layout);
+      }
       for (const row of reelRows) {
-        expect(getComputedStyle(row).display).toBe("flex");
-        // Each row states four columns, so it wraps at four posts a line rather than squeezing.
-        expect(getComputedStyle(row).flexWrap).toBe("wrap");
+        expect(getComputedStyle(row).display).toBe("grid");
         // A row of only Reels keeps a box a ResizeObserver can report.
         expect(getComputedStyle(row).minHeight).toBe("1px");
       }
-      expect(getComputedStyle(plain).display).not.toBe("flex");
+      expect(getComputedStyle(plain).minHeight).not.toBe("1px");
       for (const tile of plain.children) expect(visible(tile), tile.id).toBe(true);
       for (const id of ["explore-reel-1", "explore-reel-7", "explore-reel-10"]) expect(visible(document.getElementById(id)!), id).toBe(false);
-      for (const id of ["keep-explore-1", "keep-explore-5", "keep-explore-6"]) {
-        const tile = document.getElementById(id)!;
-        expect(visible(tile), id).toBe(true);
-        expect(getComputedStyle(tile).overflow, id).toBe("hidden");
-      }
+      for (const id of ["keep-explore-1", "keep-explore-5", "keep-explore-6"]) expect(visible(document.getElementById(id)!), id).toBe(true);
     };
-    assertLaidOut();
-    // A row that states no column count stays one line (it cannot know where to wrap).
-    const stated = reelRows[0]!.getAttribute("style")!;
-    reelRows[0]!.removeAttribute("style");
-    expect(getComputedStyle(reelRows[0]!).display).toBe("flex");
-    expect(getComputedStyle(reelRows[0]!).flexWrap).toBe("nowrap");
-    reelRows[0]!.setAttribute("style", stated);
-    // A column Instagram is virtualizing keeps the same layout: no switch back to holes.
+    assertGridKept();
+    // A column Instagram is virtualizing keeps the same layout: no switch back.
     grid.setAttribute("style", "display: flex; flex-direction: column; padding-bottom: 7784px; padding-top: 4060px; position: relative;");
-    assertLaidOut();
-    // The mark is the only scope: without it Explore keeps Instagram's own rows and its Reels.
+    own.set(grid, layoutOf(grid));
+    assertGridKept();
+    // The mark is the only scope: without it Explore keeps its Reels.
     document.documentElement.removeAttribute(INSTAGRAM_EXPLORE_MARKER.attribute);
-    for (const row of rows) expect(getComputedStyle(row).display).not.toBe("flex");
     expect(visible(document.getElementById("explore-reel-1")!)).toBe(true);
+    for (const row of reelRows) expect(getComputedStyle(row).minHeight).not.toBe("1px");
     document.documentElement.setAttribute(INSTAGRAM_EXPLORE_MARKER.attribute, "");
-    assertLaidOut();
+    assertGridKept();
     // Off (the service or the Reels core): everything back, live.
     for (const settings of [
       { ...DEFAULT_SETTINGS_V2, services: { ...DEFAULT_SETTINGS_V2.services, instagram: false } },
@@ -324,14 +327,14 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     ]) {
       s.applyDom(settings, url, document);
       for (const row of rows) {
-        expect(getComputedStyle(row).display).not.toBe("flex");
+        expect(getComputedStyle(row).minHeight).not.toBe("1px");
         for (const tile of row.children) expect(visible(tile), tile.id).toBe(true);
       }
       s.applyDom(DEFAULT_SETTINGS_V2, url, document);
-      assertLaidOut();
+      assertGridKept();
     }
     // The style text carries the Explore layout after the hides, under the same feature class.
-    const text = document.head.querySelector("style")!.textContent!;
+    const text = [...document.head.querySelectorAll("style")].map((style) => style.textContent).join("\n");
     for (const rule of INSTAGRAM_EXPLORE_LAYOUT) expect(text).toContain(`:is(${rule.selector}){${rule.declarations}}`);
     expect(text).not.toContain("display:contents!important;");
   });
@@ -389,11 +392,12 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     expect(hides.selectors.filter((selector) => selector.startsWith(`${tileBoxes}:has(`))).toHaveLength(1);
     // ...and it is the selector the profile mark exists for, so the content script sets the mark.
     expect(hides.selectors).toContain(INSTAGRAM_PROFILE_MARKER.ruleSelector);
-    // Explore: the hidden tile boxes are exactly tile boxes the Explore layout lays out, and the
-    // hide is the selector the Explore mark exists for.
-    const exploreTiles = INSTAGRAM_EXPLORE_LAYOUT[1]!.selector;
+    // Explore: the hidden tile boxes are exactly tile boxes of the rows the Explore layout keeps
+    // measurable, and the hide is the selector the Explore mark exists for.
+    const exploreTiles = `${INSTAGRAM_EXPLORE_LAYOUT[0]!.selector} > div`;
     expect(hides.selectors.filter((selector) => selector.startsWith(`${exploreTiles}:has(`))).toEqual([INSTAGRAM_EXPLORE_MARKER.ruleSelector]);
-    expect(exploreTiles).toBe(`${INSTAGRAM_EXPLORE_LAYOUT[0]!.selector} > div`);
+    // The Explore layout touches rows only, and only their minimum height (ISS-0083).
+    expect(INSTAGRAM_EXPLORE_LAYOUT).toEqual([{ selector: INSTAGRAM_EXPLORE_LAYOUT[0]!.selector, declarations: "min-height:1px!important" }]);
     expect(INSTAGRAM_REELS_LAYOUT).toEqual(expect.arrayContaining([...INSTAGRAM_EXPLORE_LAYOUT]));
   });
   it("a post dialog over the profile is never the grid: its comment and Reel links keep their layout", () => {

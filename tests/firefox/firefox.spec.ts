@@ -236,22 +236,27 @@ const exploreRows = (tab: Tab) => tab.evaluate<Array<{ display: string; x: numbe
         .filter((tile) => tile.width > 0).map(({ id, x, width, height }) => ({ id, x, width, height })) };
   })`);
 
-test("instagram explore: Reel tiles leave the grid without holes, rows stay measurable, Off restores", async () => {
+test("instagram explore: Reel tiles leave the grid, which keeps Instagram's own rows and cell size, Off restores", async () => {
   const tab = await firefox.openTab("https://www.instagram.com/explore/");
   await waitWorking(tab, "instagram");
+  // Instagram's grid kept (ISS-0083): every row stays a four-column grid, every remaining post
+  // keeps one cell's width (never widened into a feed) and takes the row's next cell from the left.
+  // A row of only Reels keeps a 1px box (ISS-0053).
   const expectWithoutReelsOrHoles = async () => {
     for (const id of ["#explore-reel-1", "#explore-reel-7", "#explore-reel-10"]) await waitHiddenPresent(tab, id);
     const rows = await exploreRows(tab);
     for (const [index, row] of rows.entries()) {
-      expect(row.display, `row ${index}`).not.toBe("contents");
+      expect(row.display, `row ${index} keeps Instagram's grid`).toBe("grid");
       expect(row.height, `row ${index} keeps a box`).toBeGreaterThan(0);
       if (row.tiles.length === 0) {
         expect(row.height, `row ${index} of only Reels`).toBeLessThanOrEqual(1);
         continue;
       }
-      const covered = row.tiles.reduce((sum, tile) => sum + tile.width, 0) + (row.tiles.length - 1);
-      expect(Math.abs(covered - row.width), `row ${index} filled edge to edge`).toBeLessThanOrEqual(1);
-      for (const tile of row.tiles) expect(Math.abs(tile.height - row.height), `${tile.id} fills its row`).toBeLessThanOrEqual(1);
+      const cell = (row.width - 3) / 4;
+      for (const [at, tile] of row.tiles.entries()) {
+        expect(Math.abs(tile.width - cell), `${tile.id} keeps one cell's width`).toBeLessThanOrEqual(1);
+        expect(Math.abs(tile.x - (row.x + at * (cell + 1))), `${tile.id} takes the next cell`).toBeLessThanOrEqual(1);
+      }
     }
     expect(rows.flatMap((row) => row.tiles.map((tile) => tile.id)))
       .toEqual(["keep-explore-1", "keep-explore-2", "keep-explore-3", "keep-explore-4", "keep-explore-5", "keep-explore-6"]);
@@ -272,10 +277,10 @@ test("instagram explore: Reel tiles leave the grid without holes, rows stay meas
   }
 });
 
-type ExploreProbe = { pages: number; unmeasuredMounted: number; zeroHeightRows: number; reelsShown: number; postsShown: number; blank: number; atEnd: boolean; done: boolean };
+type ExploreProbe = { pages: number; unmeasuredMounted: number; zeroHeightRows: number; reelsShown: number; postsShown: number; postWidths: number[]; cellWidth: number; emptyBand: number; atEnd: boolean; done: boolean };
 
 for (const [loader, viewport] of [["io", null], ["scroll", null], ["io", { width: 390, height: 844 }]] as const)
-  test(`instagram explore: mixed pages keep loading without Reels or holes (${loader} loader${viewport ? ", iPhone viewport" : ""})`, async () => {
+  test(`instagram explore: mixed pages keep loading in Instagram's grid without Reels or blank bands (${loader} loader${viewport ? ", iPhone viewport" : ""})`, async () => {
     const tab = await firefox.openTab("about:blank");
     try {
       if (viewport) await tab.setViewport(viewport);
@@ -291,7 +296,9 @@ for (const [loader, viewport] of [["io", null], ["scroll", null], ["io", { width
         expect(state.reelsShown, `step ${step}: no Reel tile shown`).toBe(0);
         expect(state.zeroHeightRows, `step ${step}: no 0x0 row`).toBe(0);
         expect(state.unmeasuredMounted, `step ${step}: every drawn row measured`).toBe(0);
-        expect(state.blank, `step ${step}: no hole or blank band`).toBeLessThanOrEqual(8);
+        expect(state.emptyBand, `step ${step}: no blank band across the column`).toBeLessThanOrEqual(8);
+        for (const width of state.postWidths)
+          expect(Math.abs(width - state.cellWidth), `step ${step}: posts keep Instagram's cell size`).toBeLessThanOrEqual(1);
         finished = state.done && state.atEnd;
         stalled = state.atEnd ? stalled + 1 : 0;
         expect(stalled, `loading stalled at page ${state.pages}`).toBeLessThan(15);
