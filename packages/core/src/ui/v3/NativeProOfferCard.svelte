@@ -49,7 +49,7 @@
   {#if ownership === "owned"}
     <div class="offer-head">
       <h2 class="card-title">Still Pro</h2>
-      <span class="access-tag boxed">Purchased</span>
+      <span class="access-tag boxed success">Still Pro Purchased</span>
     </div>
     <p class="card-body">
       You have Still Pro. New controls start off, so turn on the ones you want.

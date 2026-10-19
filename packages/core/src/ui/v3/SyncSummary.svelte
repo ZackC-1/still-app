@@ -1,5 +1,6 @@
 <script lang="ts">
   import { STRINGS } from "../strings.js";
+  import { formatSyncTime } from "./sync-time.js";
   let {
     text,
     tone,
@@ -16,15 +17,6 @@
     const date = new Date(lastSyncedAt);
     return Number.isNaN(date.getTime()) ? undefined : date;
   });
-  /** "Today at 2:10 PM", "Yesterday at 2:10 PM", else "Oct 15 at 2:24 PM" (owner, 19 Oct). */
-  function syncTime(date: Date, now: Date = new Date()): string {
-    const clock = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    if (date.toDateString() === now.toDateString()) return `Today at ${clock}`;
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${clock}`;
-    return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${clock}`;
-  }
 </script>
 
 <!-- The compact sync status line (ISS-0056), shared by the popups and the Apple app's sync card
@@ -37,7 +29,7 @@
     <span aria-hidden="true"> · </span>
     <span class="muted" aria-live="off"><span class:sr-only={tone === "success"}>{`${STRINGS.sync.lastSynced} `}</span><time
         datetime={time.toISOString()}
-        >{syncTime(time)}</time
+        >{formatSyncTime(time)}</time
       ></span>
   {/if}
 </span>

@@ -13,6 +13,7 @@
     onSignIn,
     accountActions,
     stillPro = false,
+    invitation,
   }: SyncCardProps = $props();
   const icons = {
     pending: "spinner",
@@ -144,6 +145,24 @@
         {/if}
       </div>
     {/if}
+  {:else if invitation}
+    <!-- The accountless holder's invitation lives here (owner, 19 Oct): Sign in and Not now,
+      then the one line that says why. -->
+    <button
+      type="button"
+      class="primary block"
+      disabled={!invitation.onAccept}
+      onclick={invitation.onAccept}>Sign in</button
+    >
+    <button
+      type="button"
+      class="link"
+      disabled={!invitation.onDismiss}
+      onclick={invitation.onDismiss}>Not now</button
+    >
+    <p class="card-body">
+      You have Still Pro. Sign in to keep Still Pro with your account.
+    </p>
   {:else}
     <!-- Owner (19 Oct screens review): the button sits above the line, and the line uses the
       Still Pro card's body size, so the signed-out card stays compact. -->

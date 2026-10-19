@@ -428,7 +428,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(sync).queryByText("Purchased")).toBeNull();
     const pro = screen.getByRole("region", { name: "Still Pro" });
     expect(pro).not.toBe(sync);
-    expect(within(pro).getByText("Purchased")).toBeVisible();
+    expect(within(pro).getByText("Still Pro Purchased")).toBeVisible();
     expect(within(pro).queryByRole("button")).toBeNull();
     expect(sync.compareDocumentPosition(pro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -457,7 +457,7 @@ describe("Mac and iPhone app Still Pro card", () => {
       props: { ownership: "owned", channel: "ready", onRestore: vi.fn() },
     });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Purchased")).toBeVisible();
+    expect(within(card).getByText("Still Pro Purchased")).toBeVisible();
     expect(within(card).queryByRole("button")).toBeNull();
   });
 });

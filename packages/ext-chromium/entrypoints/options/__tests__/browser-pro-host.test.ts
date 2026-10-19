@@ -216,15 +216,15 @@ describe("paid-tier browser Still Pro card", () => {
     vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
     const reads = f.actions().filter(action => action === "observeBenefits").length;
     visibility("visible");
-    await screen.findByText("Purchased");
+    await screen.findByText("Still Pro Purchased");
     // Let that re-check finish its second access read before the next return to the page.
     await waitFor(() => expect(f.actions().filter(action => action === "observeBenefits").length).toBe(reads + 2));
-    // ISS-0032: the sync card keeps its own heading beside the Still Pro card's "Purchased".
+    // ISS-0032: the sync card keeps its own heading beside the Still Pro card's "Still Pro Purchased".
     expect(screen.queryByText("Still Pro and sync")).toBeNull();
     expect(screen.getByRole("heading", { name: "Settings sync" })).toBeTruthy();
     await waitFor(() => {
       const purchased = screen.getByRole("region", { name: "Still Pro" });
-      expect(within(purchased).getByText("Purchased")).toBeTruthy();
+      expect(within(purchased).getByText("Still Pro Purchased")).toBeTruthy();
       expect(within(purchased).queryByRole("button")).toBeNull();
     });
     // An owner's page shown again does not re-check.
@@ -240,7 +240,7 @@ describe("paid-tier browser Still Pro card", () => {
     cleanup();
     render(OptionsApp);
     expect(await within(await region()).findByRole("button", { name: "Get Still Pro" })).toBeTruthy();
-    expect(screen.queryByText("Purchased")).toBeNull();
+    expect(screen.queryByText("Still Pro Purchased")).toBeNull();
   });
 
   it("reopened with a settings checkout pending, the page re-checks and never shows the legacy priced sheet", async () => {
@@ -345,7 +345,7 @@ describe("paid-tier browser Still Pro card", () => {
     f.set({ after: "purchased", outcome: "entitled" });
     await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
     await screen.findByText("Still Pro is restored on this device.");
-    await screen.findByText("Purchased");
+    await screen.findByText("Still Pro Purchased");
     expect(intent(f.messages)).toEqual([]);
   });
 

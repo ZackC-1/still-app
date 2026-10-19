@@ -23,7 +23,8 @@ import SyncCard from "./SyncCard.svelte";
 import { STRINGS } from "../strings.js";
 import ProOfferCard from "./ProOfferCard.svelte";
 // ISS-0071: the accountless holder's invitation (was "Link Still Pro to an account").
-const INVITE = "Sign in to keep Still Pro with your account.";
+const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
+const inviteCard = () => screen.getByText(INVITE).closest("section")!;
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 /** Existing paid/consent fixtures supply both producers; absence is tested separately. */
@@ -301,7 +302,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText("Still Pro and sync")).toBeNull();
     expect(screen.getByText("Settings sync")).toBeVisible();
     const purchased = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(purchased).getByText("Purchased")).toBeVisible();
+    expect(within(purchased).getByText("Still Pro Purchased")).toBeVisible();
     expect(
       within(purchased).queryByRole("button", { name: "Restore purchase" }),
     ).toBeNull();
@@ -465,7 +466,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText(INVITE)).toBeNull();
     props.linkInvitation.eligibleLaterVisit = true;
     await view.rerender(props);
-    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
+    await fireEvent.click(within(inviteCard()).getByRole("button", { name: "Sign in" }));
     await fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(link).toHaveBeenCalledOnce();
     expect(dismiss).toHaveBeenCalledOnce();
@@ -503,8 +504,9 @@ describe("controlled D04 Apple settings", () => {
         linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss: vi.fn() },
       },
     });
-    const card = screen.getByRole("region", { name: INVITE });
-    expect(within(card).getByRole("heading", { name: INVITE })).toBeVisible();
+    const card = inviteCard();
+    expect(within(card).getByRole("heading", { name: "Settings sync" })).toBeVisible();
+    expect(within(card).getByText(INVITE)).toBeVisible();
     expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Sign in", "Not now"]);
     expect(card.textContent).not.toMatch(/Link Still Pro to an account|So you can restore it|Optional/);
     await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
@@ -559,7 +561,7 @@ describe("controlled D04 Apple settings", () => {
         linkInvitation: { eligibleLaterVisit: true, onLink: vi.fn(), onDismiss: vi.fn() },
       },
     });
-    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    expect(screen.getByText(INVITE)).toBeVisible();
     view.unmount();
   });
   it("shows the invitation beside a concluded Restore, so a restored holder can sign in (ISS-0071)", async () => {
@@ -576,7 +578,7 @@ describe("controlled D04 Apple settings", () => {
       },
     });
     expect(screen.getByText("Still Pro is restored on this device.")).toBeVisible();
-    expect(screen.getByRole("region", { name: INVITE })).toBeVisible();
+    expect(screen.getByText(INVITE)).toBeVisible();
     view.unmount();
   });
   it("keeps combined sharing explicit with approved purposes and routes supplied setup/help/link/verification actions", async () => {
@@ -1543,7 +1545,6 @@ describe("D04 optional paid and combined-consent producers", () => {
         },
       });
       expect(screen.queryByText(INVITE)).toBeNull();
-      expect(screen.queryByRole("region", { name: INVITE })).toBeNull();
       expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
       expect(onLink).not.toHaveBeenCalled();
       expect(onDismiss).not.toHaveBeenCalled();
@@ -1580,7 +1581,7 @@ describe("D04 optional paid and combined-consent producers", () => {
     expect(
       screen.getByRole("button", { name: "Keep legacy usage sharing off" }),
     ).toBeVisible();
-    await fireEvent.click(within(screen.getByRole("region", { name: INVITE })).getByRole("button", { name: "Sign in" }));
+    await fireEvent.click(within(inviteCard()).getByRole("button", { name: "Sign in" }));
     expect(onLink).toHaveBeenCalledOnce();
     expect(onDismiss).not.toHaveBeenCalled();
     view.unmount();

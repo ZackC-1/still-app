@@ -289,6 +289,9 @@
   <SyncCard
     stillPro={proPurchased(access)}
     onSignIn={sync.onSignIn}
+    invitation={showInvitation && !linkInvitation?.signedIn
+      ? { onAccept: linkInvitation?.onLink, onDismiss: linkInvitation?.onDismiss }
+      : undefined}
     account={sync.account
       ? {
           // The shared card renders these only; the native epoch stays in this fence.
@@ -300,12 +303,10 @@
         }
       : undefined}
   />
-  {#if showInvitation}
-    <!-- ISS-0071: one line for accountless holders; Sign in runs the existing explicit link.
-         ISS-0076: signed in, the same line offers the link itself (Link runs that explicit link). -->
-    {@const invitation = linkInvitation?.signedIn
-      ? { title: "Link Still Pro to your account.", action: "Link" }
-      : { title: "Sign in to keep Still Pro with your account.", action: "Sign in" }}
+  {#if showInvitation && linkInvitation?.signedIn}
+    <!-- ISS-0076: signed in, one line offers the link itself (Link runs that explicit link).
+         ISS-0071's signed-out line lives inside the sync card above (owner, 19 Oct). -->
+    {@const invitation = { title: "Link Still Pro to your account.", action: "Link" }}
     <section class="card card-stack" aria-label={invitation.title}>
       <div class="sync-row-text">
         <h2 class="sync-row-title">{invitation.title}</h2>
