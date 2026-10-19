@@ -12,13 +12,16 @@
 //    • Safari setup (read-only; SafariSetupObservation.swift is the contract):
 //        { kind:"safariSetupState" }          → { ok:true, platform:"ios", extensionStatus:"unknown",
 //                                               enableLocation:"settingsAppStillPage" }
+//                                             | { ok:true, platform:"ios",
+//                                               extensionStatus:"enabled"|"disabled"|"unknown",
+//                                               enableLocation:"settingsAppSafariExtensionPage" }
 //                                             | { ok:true, platform:"macos",
 //                                               extensionStatus:"enabled"|"disabled"|"unknown",
 //                                               enableLocation:"safariExtensionSettings" }
-//      Opens nothing and writes nothing. iOS is always "unknown" (a containing app cannot read the
-//      extension's state on the iPhone versions this build targets), so only a macOS "enabled" is a
-//      positive signal. Callers bound the read with a deadline and treat a timeout, a malformed reply
-//      or "unknown" as not confirmed.
+//      Opens nothing and writes nothing. Before iOS 26.2 the iPhone is always "unknown" (a
+//      containing app cannot read the extension's state there); from iOS 26.2 the status is real and
+//      comes with the direct Safari extension page. Callers bound the read with a deadline and treat
+//      a timeout, a malformed reply or "unknown" as not confirmed.
 //
 //    • Onboarding (the one OnboardingGate; OnboardingGatePresenter.swift is the contract):
 //        { kind:"onboardingState" }           → { ok:true, shouldShow:Bool, platform:"ios"|"macos",
@@ -33,12 +36,14 @@
 //      web build keeps SwiftUI (OnboardingGate.presenter(fromInfoValue:webUIIndexHTML:)).
 //
 //    • Open a fixed destination (NativeOpenDestination.swift is the contract):
-//        { kind:"openDestination", destination:"safariExtensionSettings"|"settingsAppStillPage"|"safari" }
+//        { kind:"openDestination", destination:"safariExtensionSettings"|"settingsAppStillPage"
+//                                               |"settingsAppSafariExtensionPage"|"safari" }
 //                                             → { ok:true, destination } | error "still: open refused
 //                                               (<reason>)" | error "still: open failed"
 //      Exactly those two keys; no URL ever comes from the page. Native re-checks the bundled main
 //      frame, accepts only a destination this platform supports (macOS: Safari's Extensions settings
-//      and Safari; iOS: Still's page in the Settings app) and only while the app is active.
+//      and Safari; iOS: Still's page in the Settings app, plus Still's Safari extension page on iOS
+//      26.2 and later) and only while the app is active.
 //
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
@@ -262,6 +267,7 @@ final class WebBridgeRouter {
     case NativeOpenRequest.messageKind:
       switch NativeOpenRequest.authorize(
         body: body, frame: frame, platform: Self.setupPlatform,
+        extensionPageAvailable: SafariExtensionBridge.enableLocation == .settingsAppSafariExtensionPage,
         appIsActive: SafariExtensionBridge.appIsActive)
       {
       case .failure(let refusal):
