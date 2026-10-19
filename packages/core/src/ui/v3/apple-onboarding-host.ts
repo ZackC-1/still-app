@@ -21,7 +21,7 @@ import {
 //   • Visible only when `onboardingState` says `shouldShow: true`. A timeout, a malformed reply or
 //     no native host keeps it hidden (the native gate is untouched, so it shows on a later launch).
 //   • Setup status comes from `observeSafariSetup` under a deadline. Only a macOS "enabled" is a
-//     positive signal; iOS is always "unknown" and never claims the extension is on.
+//     positive signal; onboarding never claims the extension is on for iOS.
 //   • Completion calls `completeOnboarding` once per gesture and reports done only after the native
 //     gate confirmed it; a refusal, failure or timeout keeps onboarding visible so the user can retry.
 //   • Leaving the app goes only through caller-supplied ports: the setup button opens this

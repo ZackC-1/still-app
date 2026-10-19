@@ -27,7 +27,12 @@ afterEach(() => {
 });
 
 describe("openNativeDestination", () => {
-  it.each(["safariExtensionSettings", "settingsAppStillPage", "safari"] as const)(
+  it.each([
+    "safariExtensionSettings",
+    "settingsAppStillPage",
+    "settingsAppSafariExtensionPage",
+    "safari",
+  ] as const)(
     "posts exactly { kind, destination } for %s and resolves true on the native confirmation",
     async (destination) => {
       const { port, win } = host(opened);
