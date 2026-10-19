@@ -100,7 +100,7 @@ struct OnboardingView: View {
       brandMark
       Text("Still")
         .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("Do what you came to do. Remove distractions like short-form video from your favorite sites.")
+      Text("Do what you came to do. Remove distractions like short-form video from your favorite websites.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
