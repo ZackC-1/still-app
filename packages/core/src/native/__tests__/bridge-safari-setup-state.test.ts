@@ -17,6 +17,13 @@ const ios = {
   extensionStatus: "unknown",
   enableLocation: "settingsAppStillPage",
 };
+/** iOS 26.2+: the real status, with Still's Safari extension page (ISS-0082). */
+const iosDirect = {
+  ok: true,
+  platform: "ios",
+  extensionStatus: "disabled",
+  enableLocation: "settingsAppSafariExtensionPage",
+};
 function host(reply: unknown) {
   const port = { postMessage: vi.fn(async (_message: unknown) => reply) };
   const win: StillBridgeWindow = {
@@ -43,6 +50,9 @@ describe("NativeBridge Safari setup observation", () => {
     ["mac disabled", { ...mac, extensionStatus: "disabled" }],
     ["mac unknown", { ...mac, extensionStatus: "unknown" }],
     ["ios unknown", ios],
+    ["ios direct page disabled", iosDirect],
+    ["ios direct page enabled", { ...iosDirect, extensionStatus: "enabled" }],
+    ["ios direct page unknown", { ...iosDirect, extensionStatus: "unknown" }],
   ])(
     "accepts %s from object and JSON, posting only a pure read",
     async (_label, reply) => {
@@ -84,6 +94,16 @@ describe("NativeBridge Safari setup observation", () => {
       { ...ios, enableLocation: "safariExtensionSettings" },
     ],
     ["mac ios destination", { ...mac, enableLocation: "settingsAppStillPage" }],
+    [
+      "mac with the iPhone extension page",
+      { ...mac, enableLocation: "settingsAppSafariExtensionPage" },
+    ],
+    ["ios direct page wrong status", { ...iosDirect, extensionStatus: "off" }],
+    ["ios direct page wrong platform", { ...iosDirect, platform: "ipados" }],
+    [
+      "ios unknown future location",
+      { ...iosDirect, enableLocation: "settingsAppSomewhereElse" },
+    ],
   ])(
     "rejects %s instead of manufacturing setup truth",
     async (_label, reply) => {

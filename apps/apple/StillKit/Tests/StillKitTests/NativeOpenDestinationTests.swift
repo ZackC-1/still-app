@@ -15,10 +15,12 @@ final class NativeOpenDestinationTests: XCTestCase {
     _ body: Any,
     frame: BridgeFrame? = nil,
     platform: SafariSetupObservation.Platform = .macos,
+    extensionPage: Bool = false,
     active: Bool = true
   ) -> Result<NativeOpenDestination, NativeOpenRequest.Refusal> {
     NativeOpenRequest.authorize(
-      body: body, frame: frame ?? trusted, platform: platform, appIsActive: active)
+      body: body, frame: frame ?? trusted, platform: platform,
+      extensionPageAvailable: extensionPage, appIsActive: active)
   }
 
   // MARK: fixed destinations per platform
@@ -35,17 +37,48 @@ final class NativeOpenDestinationTests: XCTestCase {
     // No public iOS API opens Safari itself; an https link opens the default browser instead.
     XCTAssertEqual(authorize(message("safari"), platform: .ios), .failure(.unsupported))
     XCTAssertEqual(authorize(message("safariExtensionSettings"), platform: .ios), .failure(.unsupported))
+    // Before iOS 26.2 there is no direct Safari extension page to open.
+    XCTAssertEqual(
+      authorize(message("settingsAppSafariExtensionPage"), platform: .ios), .failure(.unsupported))
+  }
+
+  func testIOSWithTheDirectPageAlsoOpensStillsSafariExtensionPage() {
+    // ISS-0082: on iOS 26.2+ the setup card opens Settings straight on Still's Safari extension
+    // page (ISS-0074); Still's app page stays available for the onboarding walk-through.
+    XCTAssertEqual(
+      try authorize(message("settingsAppSafariExtensionPage"), platform: .ios, extensionPage: true)
+        .get(),
+      .settingsAppSafariExtensionPage)
+    XCTAssertEqual(
+      try authorize(message("settingsAppStillPage"), platform: .ios, extensionPage: true).get(),
+      .settingsAppStillPage)
+    XCTAssertEqual(
+      NativeOpenDestination.supported(on: .ios, extensionPageAvailable: true),
+      [.settingsAppStillPage, .settingsAppSafariExtensionPage])
+    // macOS never opens an iPhone Settings page, whatever the flag says.
+    XCTAssertEqual(
+      authorize(message("settingsAppSafariExtensionPage"), platform: .macos, extensionPage: true),
+      .failure(.unsupported))
+    XCTAssertEqual(
+      NativeOpenDestination.supported(on: .macos, extensionPageAvailable: true),
+      [.safariExtensionSettings, .safari])
   }
 
   func testDestinationsMatchTheSetupReadsEnableLocations() {
     // The web view opens the place `safariSetupState` named, by the same spelling.
-    for platform in [SafariSetupObservation.Platform.ios, .macos] {
-      let location = SafariSetupObservation(
-        platform: platform, extensionStatus: .unknown,
-        enableLocation: platform == .ios ? .settingsAppStillPage : .safariExtensionSettings
+    let reads: [(SafariSetupObservation.Platform, EnableLocation, Bool)] = [
+      (.ios, .settingsAppStillPage, false),
+      (.ios, .settingsAppSafariExtensionPage, true),
+      (.macos, .safariExtensionSettings, false),
+    ]
+    for (platform, location, extensionPage) in reads {
+      let name = SafariSetupObservation(
+        platform: platform, extensionStatus: .unknown, enableLocation: location
       ).bridgeReply["enableLocation"] as? String
-      let destination = try? authorize(message(location ?? ""), platform: platform).get()
-      XCTAssertEqual(destination?.rawValue, location)
+      let destination = try? authorize(
+        message(name ?? ""), platform: platform, extensionPage: extensionPage
+      ).get()
+      XCTAssertEqual(destination?.rawValue, name)
     }
     XCTAssertEqual(NativeOpenDestination.safariBundleIdentifier, "com.apple.Safari")
   }

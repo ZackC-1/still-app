@@ -59,6 +59,7 @@ import {
   appleSettingsPlatform,
   appleSettingsRestore,
   appleSettingsSetup,
+  IOS_EXTENSION_PAGE_ENABLE_STEPS,
   createAppleSettingsRestore,
   SUPPORT_MAILTO,
   createAppleSettingsSync,
@@ -70,6 +71,7 @@ import {
   openExternalLink,
   selectAppleSettingsMode,
   type AppleSettingsAccountSource,
+  type AppleSetupOpener,
 } from "./apple-settings-host.js";
 
 // The host component lives in packages/app-webview (the only bundle allowed to carry D04's global
@@ -1223,11 +1225,27 @@ const IOS: SafariSetupObservation = {
   extensionStatus: "unknown",
   enableLocation: "settingsAppStillPage",
 };
+/** iOS 26.2+: the app reads the real state and names Still's Safari extension page (ISS-0082). */
+const IOS_DIRECT = {
+  ok: true,
+  platform: "ios",
+  enableLocation: "settingsAppSafariExtensionPage",
+} as const;
 const MAC_STEPS = [
   "Open Safari, then Settings, then Extensions.",
   "Turn on Still.",
   "Allow it on every website.",
 ];
+/** The iPhone onboarding's steps for the direct page (StillKit OnboardingCopy.enableSteps). */
+const IOS_STEPS = [
+  "Tap “Open Settings” below",
+  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
+  "Close Safari, then reopen it",
+];
+const ONBOARDING_SWIFT = resolve(
+  import.meta.dirname,
+  "../../../../../apps/apple/StillKit/Sources/StillKit/Onboarding.swift",
+);
 
 describe("Safari setup card", () => {
   it("macOS disabled -> the approved card with exact steps and no invented action", () => {
@@ -1255,9 +1273,57 @@ describe("Safari setup card", () => {
     expect(
       appleSettingsSetup({ ...MAC, extensionStatus: "disabled" })?.onAction,
     ).toBeUndefined();
-    // Never a card (and so never an open) where native did not observe the Mac extension off.
+    // Never a card (and so never an open) where native did not observe the extension off.
     expect(appleSettingsSetup(IOS, open)).toBeUndefined();
     expect(appleSettingsSetup(null, open)).toBeUndefined();
+    expect(open).toHaveBeenCalledOnce();
+  });
+
+  it("iOS disabled -> the same card with the iPhone onboarding's direct-page steps and Open Settings", () => {
+    expect(
+      appleSettingsSetup({ ...IOS_DIRECT, extensionStatus: "disabled" }),
+    ).toEqual({
+      title: "Turn on Still in Safari",
+      detail:
+        "Still works inside Safari. Your choices are saved and start working once it's on.",
+      steps: IOS_STEPS,
+      actionLabel: "Open Settings",
+    });
+  });
+
+  it("with an opener, Open Settings opens only Still's Safari extension page", () => {
+    const open = vi.fn();
+    const setup = appleSettingsSetup(
+      { ...IOS_DIRECT, extensionStatus: "disabled" },
+      open,
+    );
+    expect(open).not.toHaveBeenCalled();
+    setup?.onAction?.();
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      "settingsAppSafariExtensionPage",
+    );
+    expect(
+      appleSettingsSetup({ ...IOS_DIRECT, extensionStatus: "disabled" })
+        ?.onAction,
+    ).toBeUndefined();
+  });
+
+  it("the iPhone steps are the owner-approved onboarding copy in Onboarding.swift, with no em dash", () => {
+    expect(IOS_EXTENSION_PAGE_ENABLE_STEPS).toEqual(IOS_STEPS);
+    const swift = readFileSync(ONBOARDING_SWIFT, "utf8");
+    const direct = swift.slice(
+      swift.indexOf("case .settingsAppSafariExtensionPage:\n      return ["),
+    );
+    expect(direct).not.toBe(swift);
+    // Step 1 names the button through `openButtonTitle(for:)`, which reads "Open Settings" there.
+    expect(swift).toContain(
+      'case .settingsAppStillPage, .settingsAppSafariExtensionPage: return "Open Settings"',
+    );
+    expect(direct).toContain('"Tap “\\(open)” below",');
+    for (const step of IOS_STEPS.slice(1))
+      expect(direct.slice(0, direct.indexOf("]"))).toContain(`"${step}",`);
+    for (const line of [...IOS_STEPS, ...MAC_STEPS])
+      expect(line).not.toMatch(/\u2014/);
   });
 
   it.each([
@@ -1269,7 +1335,15 @@ describe("Safari setup card", () => {
       "macOS unknown",
       { ...MAC, extensionStatus: "unknown" } as SafariSetupObservation,
     ],
-    ["iOS", IOS],
+    ["iOS before 26.2 (state not readable)", IOS],
+    [
+      "iOS enabled",
+      { ...IOS_DIRECT, extensionStatus: "enabled" } as SafariSetupObservation,
+    ],
+    [
+      "iOS unknown (a failed or slow state read)",
+      { ...IOS_DIRECT, extensionStatus: "unknown" } as SafariSetupObservation,
+    ],
     ["no observation", null],
   ])("%s -> no card", (_name, observation) => {
     expect(appleSettingsSetup(observation)).toBeUndefined();
@@ -1396,11 +1470,11 @@ describe("Safari setup card", () => {
     await renderHost(f, {
       observeSetup: async () => ({ ...MAC, extensionStatus: "disabled" }),
       // The entry's opener (main.ts), with this test's port and activation in place of the page's.
-      openDestination: (destination: "safariExtensionSettings") =>
+      openDestination: ((destination) =>
         void openNativeDestination(destination, {
           win: f.native.win,
           userActivation: { isActive: active },
-        }),
+        })) satisfies AppleSetupOpener,
     });
     const button = await screen.findByRole("button", {
       name: "Open Safari Settings",
@@ -1414,6 +1488,63 @@ describe("Safari setup card", () => {
     active = false;
     await fireEvent.click(button);
     expect(f.native.messages.slice(before)).toHaveLength(1);
+    f.authority.stop();
+  });
+
+  it("iPhone: shows the card while native observes the extension off, and drops it on return once it is on", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    let next: SafariSetupObservation | null = {
+      ...IOS_DIRECT,
+      extensionStatus: "disabled",
+    };
+    await renderHost(f, { observeSetup: async () => next });
+    expect(
+      await screen.findByRole("heading", { name: "Turn on Still in Safari" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(expect.arrayContaining(IOS_STEPS));
+    expect(screen.getByRole("button", { name: "Open Settings" })).toBeDisabled();
+    next = { ...IOS_DIRECT, extensionStatus: "enabled" };
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Turn on Still in Safari" }),
+      ).toBeNull(),
+    );
+    f.authority.stop();
+  });
+
+  it("iPhone: a tap on Open Settings posts exactly one openDestination for Still's Safari extension page", async () => {
+    const f = await composeAtomic(tsBackend, {
+      replies: {
+        openDestination: async () =>
+          JSON.stringify({
+            ok: true,
+            destination: "settingsAppSafariExtensionPage",
+          }),
+      },
+    });
+    await f.hydrated;
+    await renderHost(f, {
+      observeSetup: async () => ({ ...IOS_DIRECT, extensionStatus: "disabled" }),
+      openDestination: ((destination) =>
+        void openNativeDestination(destination, {
+          win: f.native.win,
+          userActivation: { isActive: true },
+        })) satisfies AppleSetupOpener,
+    });
+    const button = await screen.findByRole("button", { name: "Open Settings" });
+    expect(button).toBeEnabled();
+    const before = f.native.messages.length;
+    await fireEvent.click(button);
+    expect(f.native.messages.slice(before)).toEqual([
+      {
+        kind: "openDestination",
+        destination: "settingsAppSafariExtensionPage",
+      },
+    ]);
     f.authority.stop();
   });
 });
