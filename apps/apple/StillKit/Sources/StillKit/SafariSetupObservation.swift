@@ -8,14 +8,25 @@ public struct SafariSetupObservation: Equatable, Sendable {
   public let extensionStatus: SafariExtensionStatus
   public let enableLocation: EnableLocation
 
+  /// macOS keeps the status it read and always names Safari's extension settings. On iOS the status
+  /// is real only with the direct Safari extension page, which the app declares on iOS 26.2 and
+  /// later, the versions where it can also read the extension's state (ISS-0074). Any other iOS
+  /// observation is "unknown" on Still's app page, so an earlier iPhone never claims a status.
   public init(
     platform: Platform, extensionStatus: SafariExtensionStatus, enableLocation: EnableLocation
   ) {
     self.platform = platform
-    self.extensionStatus = platform == .ios ? .unknown : extensionStatus
-    let expected: EnableLocation =
-      platform == .ios ? .settingsAppStillPage : .safariExtensionSettings
-    self.enableLocation = enableLocation == expected ? enableLocation : expected
+    switch platform {
+    case .macos:
+      self.extensionStatus = extensionStatus
+      self.enableLocation = .safariExtensionSettings
+    case .ios where enableLocation == .settingsAppSafariExtensionPage:
+      self.extensionStatus = extensionStatus
+      self.enableLocation = .settingsAppSafariExtensionPage
+    case .ios:
+      self.extensionStatus = .unknown
+      self.enableLocation = .settingsAppStillPage
+    }
   }
 
   public var bridgeReply: [String: Any] {
@@ -28,9 +39,8 @@ public struct SafariSetupObservation: Equatable, Sendable {
     let destination: String
     switch enableLocation {
     case .safariExtensionSettings: destination = "safariExtensionSettings"
-    // The init keeps iOS on the app page for the web view (its parser and `openDestination`
-    // know only these two values); the direct extension page is the SwiftUI onboarding's.
-    case .settingsAppStillPage, .settingsAppSafariExtensionPage: destination = "settingsAppStillPage"
+    case .settingsAppStillPage: destination = "settingsAppStillPage"
+    case .settingsAppSafariExtensionPage: destination = "settingsAppSafariExtensionPage"
     }
     return [
       "ok": true, "platform": platform.rawValue, "extensionStatus": status,
