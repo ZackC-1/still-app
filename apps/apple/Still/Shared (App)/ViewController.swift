@@ -29,8 +29,15 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     private var settingsObserver: SettingsReadObserver?
 
     // Routes web messages to native: the App-Group settings bridge (U17) plus the U19 auth/purchase
-    // actions.
-    private lazy var router = WebBridgeRouter(settings: settingsExecutor)
+    // actions. The settings Help card's "Safari setup" sheet (ISS-0075) is presented from this view.
+    private lazy var router: WebBridgeRouter = {
+        let router = WebBridgeRouter(settings: settingsExecutor)
+        router.presentSafariSetup = { [weak self] in
+            guard let self else { return false }
+            return OnboardingPresenter.presentSafariSetup(from: self)
+        }
+        return router
+    }()
 
     // The block-based didBecomeActive observer's token — NotificationCenter retains the block, and
     // removeObserver(self) does NOT deregister a block observer, so the token is the only handle
@@ -94,6 +101,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 #if DEBUG
         // Simulator QA lane only (QA/QAHooks.swift); inert unless a STILL_QA_* launch key is set.
         QAHooks.prepare(webView: self.webView)
+        if let delay = QAHooks.safariSetupDelayMs {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
+                if let self { OnboardingPresenter.presentSafariSetup(from: self) }
+            }
+        }
 #endif
 
         if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {

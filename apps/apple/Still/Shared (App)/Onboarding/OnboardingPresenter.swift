@@ -15,6 +15,10 @@
 //  web UI contains the D12 onboarding (OnboardingGate.webD12Marker); with a legacy web build the
 //  SwiftUI flow keeps the gate, so a mismatched build can never end up with no onboarding.
 //
+//  The settings Help card's "Safari setup" link (ISS-0075) shows screen 3 again as a closable sheet
+//  (presentSafariSetup(from:)). That path never touches the gate and does not depend on which
+//  presenter was selected, so first-run onboarding is exactly as above.
+//
 
 import SwiftUI
 import StillKit
@@ -100,6 +104,46 @@ enum OnboardingPresenter {
     }
     #endif
     #elseif os(macOS)
+    presentMacSheet(view, from: host)
+    #endif
+  }
+
+  /// The settings Help card's "Safari setup" link (ISS-0075): onboarding screen 3 ("Turn on Still
+  /// in Safari") again, as a sheet with a Close button. Its steps, "Open Settings", "Check again"
+  /// and "I've turned it on" are screen 3's own, with the same enable location
+  /// (SafariExtensionBridge); finishing closes the sheet. It never reads, completes or resets
+  /// OnboardingGate. False when something is already presented (first-run onboarding included), so
+  /// two sheets never stack.
+  @MainActor @discardableResult
+  static func presentSafariSetup(from host: PlatformViewController) -> Bool {
+    #if os(iOS)
+    guard host.presentedViewController == nil else { return false }
+    #elseif os(macOS)
+    guard host.presentedViewControllers?.isEmpty ?? true else { return false }
+    #endif
+
+    let view = OnboardingView(
+      checkStatus: { await SafariExtensionBridge.currentStatus() },
+      openEnableLocation: { SafariExtensionBridge.openEnableLocation() },
+      enableLocation: SafariExtensionBridge.enableLocation,
+      initialStep: OnboardingView.enableExtensionStep,
+      onClose: { [weak host] in Self.dismiss(host) }
+    )
+
+    #if os(iOS)
+    let controller = UIHostingController(rootView: view)
+    // A card over settings (a centred panel on iPad); swiping it down closes it too.
+    controller.modalPresentationStyle = .formSheet
+    host.present(controller, animated: true)
+    #elseif os(macOS)
+    presentMacSheet(view, from: host)
+    #endif
+    return true
+  }
+
+  #if os(macOS)
+  @MainActor
+  private static func presentMacSheet(_ view: OnboardingView, from host: PlatformViewController) {
     // The sheet is fixed-size, so pin the SwiftUI content to it and opt the hosting view out of
     // AppKit constraint-based sizing. On macOS 26, NSHostingView's safe-area-corner-inset
     // invalidation can post setNeedsUpdateConstraints DURING the sheet window's display-cycle
@@ -116,11 +160,13 @@ enum OnboardingPresenter {
     // normal first launch min(660, height) is simply 660 and the clamp changes nothing. It engages
     // only when the window is already shorter than 660pt at the moment the sheet is presented,
     // which is the relaunch case (the window carries a frame autosave name, so a user who shrank it
-    // and quit mid-onboarding reopens short) and the DEBUG screenshot hook above. Both clamps are
-    // snapshots: the frame stays FIXED at presentation time because sizingOptions = [] below (the
-    // macOS 26 race fix) depends on the hosting view never renegotiating size, so dragging the
-    // window smaller while the sheet is up still overhangs. Closing that would mean giving the
-    // hosting view its sizing options back, which is the crash this workaround exists to avoid.
+    // and quit mid-onboarding reopens short) and the DEBUG screenshot hook above. The Safari setup
+    // sheet opens over whatever size the window has by then, so for it the clamp does real work.
+    // Both clamps are snapshots: the frame stays FIXED at presentation time because
+    // sizingOptions = [] below (the macOS 26 race fix) depends on the hosting view never
+    // renegotiating size, so dragging the window smaller while the sheet is up still overhangs.
+    // Closing that would mean giving the hosting view its sizing options back, which is the crash
+    // this workaround exists to avoid.
     let sheetWidth = min(520, host.view.bounds.width)
     let sheetHeight = min(660, host.view.bounds.height)
     let controller = NSHostingController(
@@ -131,8 +177,8 @@ enum OnboardingPresenter {
       controller.sizingOptions = []
     }
     host.presentAsSheet(controller)
-    #endif
   }
+  #endif
 
   @MainActor
   private static func dismiss(_ host: PlatformViewController?) {

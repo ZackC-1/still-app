@@ -45,6 +45,14 @@
 //      and Safari; iOS: Still's page in the Settings app, plus Still's Safari extension page on iOS
 //      26.2 and later) and only while the app is active.
 //
+//    • Safari setup sheet (SafariSetupSheet.swift is the contract; ISS-0075):
+//        { kind:"presentSafariSetup" }        → { ok:true } | error "still: safari setup refused
+//                                               (<reason>)" | error "still: safari setup not shown"
+//      The settings Help card's "Safari setup" link. Exactly that one key; native shows onboarding
+//      screen 3 as a closable sheet (OnboardingPresenter.presentSafariSetup), from the bundled main
+//      frame only, while the app is active, and never over another presented screen. It never
+//      touches OnboardingGate.
+//
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
@@ -179,6 +187,10 @@ final class WebBridgeRouter {
   /// paid path returns, which is exactly when it will be needed again.
   private var hasAskedAppleForPurchaseHistoryThisLaunch = false
 
+  /// Shows the Safari setup sheet from the app's root view (`presentSafariSetup`, ISS-0075). Set by
+  /// ViewController, which owns the view it is presented from; true only when the sheet was shown.
+  var presentSafariSetup: (() -> Bool)?
+
   init(
     settings: SettingsExecutor,
     entitlement: EntitlementBridge = EntitlementBridge(
@@ -280,6 +292,17 @@ final class WebBridgeRouter {
             reply(nil, "still: open failed")
           }
         }
+      }
+
+    case SafariSetupSheetRequest.messageKind:
+      if let refusal = SafariSetupSheetRequest.refusal(
+        body: body, frame: frame, appIsActive: SafariExtensionBridge.appIsActive)
+      {
+        reply(nil, "still: safari setup refused (\(refusal.rawValue))")
+      } else if presentSafariSetup?() == true {
+        reply(Self.json(SafariSetupSheetRequest.reply()), nil)
+      } else {
+        reply(nil, "still: safari setup not shown")
       }
 
     case "signInWithApple":
