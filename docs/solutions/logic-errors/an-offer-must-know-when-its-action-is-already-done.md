@@ -77,7 +77,10 @@ That read sits behind the same lineage and revocation fences as the rest of the 
 - `native-apple-access.test.ts` covers the closed grammar (member required, UUID or null).
 - `apple-pro-host.test.ts` and `apple-pro-host.integration.test.ts` ("ISS-0081") cover these cases:
   linked to the signed-in account on launch (sync card's Still Pro User tag and nothing else), linked
-  to another account (today's offer, and the server refuses), accountless and signed in (offer), and
+  to another account (since ISS-0104, 20 Oct: no offer; the card says "Still Pro works on this
+  device. It's linked to another account." (owner wording, 20 Oct), remembered per account and
+  purchaser revision after the server's owned_elsewhere, or at once when native names the account),
+  accountless and signed in (offer), and
   signed out (the invitation stays). Signing in as the holder with the reconcile held shows the
   confirmation first, then "linked" once the proof arrives, without calling the server.
 
