@@ -114,36 +114,62 @@ enum OnboardingPresenter {
   /// (SafariExtensionBridge); finishing closes the sheet. It never reads, completes or resets
   /// OnboardingGate. False when something is already presented (first-run onboarding included), so
   /// two sheets never stack.
+  ///
+  /// While it is up, Apple's rating sheet is held (SafariSetupSheetLifecycle), since Open Settings
+  /// leaves the app and the return counts as an opening. It closes once, dismissing only this
+  /// sheet, and `finished` runs once it is gone, however it went.
   @MainActor @discardableResult
-  static func presentSafariSetup(from host: PlatformViewController) -> Bool {
+  static func presentSafariSetup(
+    from host: PlatformViewController, finished: @escaping () -> Void
+  ) -> Bool {
     #if os(iOS)
     guard host.presentedViewController == nil else { return false }
     #elseif os(macOS)
     guard host.presentedViewControllers?.isEmpty ?? true else { return false }
     #endif
 
+    let lifecycle = SafariSetupSheetLifecycle(finished: finished)
+    // Set once the controller exists; the Close action dismisses this sheet and nothing else.
+    weak var sheet: PlatformViewController?
     let view = OnboardingView(
       checkStatus: { await SafariExtensionBridge.currentStatus() },
       openEnableLocation: { SafariExtensionBridge.openEnableLocation() },
       enableLocation: SafariExtensionBridge.enableLocation,
       initialStep: OnboardingView.enableExtensionStep,
-      onClose: { [weak host] in Self.dismiss(host) }
+      onClose: { lifecycle.close { Self.dismissSheet(sheet) } }
     )
 
     #if os(iOS)
-    let controller = UIHostingController(rootView: view)
+    let controller = SafariSetupHostingController(rootView: view)
+    controller.lifecycle = lifecycle
     // A card over settings (a centred panel on iPad); swiping it down closes it too.
     controller.modalPresentationStyle = .formSheet
+    sheet = controller
     host.present(controller, animated: true)
     #elseif os(macOS)
-    presentMacSheet(view, from: host)
+    // A Mac sheet closes only through the view's own buttons (Close, Escape, the primary button,
+    // a confirming Check again), all of which go through the lifecycle above.
+    sheet = presentMacSheet(view, from: host)
     #endif
     return true
   }
 
-  #if os(macOS)
+  /// Dismiss exactly this sheet, if it is still presented.
   @MainActor
-  private static func presentMacSheet(_ view: OnboardingView, from host: PlatformViewController) {
+  private static func dismissSheet(_ sheet: PlatformViewController?) {
+    guard let sheet, let presenter = sheet.presentingViewController else { return }
+    #if os(iOS)
+    presenter.dismiss(animated: true)
+    #elseif os(macOS)
+    presenter.dismiss(sheet)
+    #endif
+  }
+
+  #if os(macOS)
+  @MainActor @discardableResult
+  private static func presentMacSheet(
+    _ view: OnboardingView, from host: PlatformViewController
+  ) -> PlatformViewController {
     // The sheet is fixed-size, so pin the SwiftUI content to it and opt the hosting view out of
     // AppKit constraint-based sizing. On macOS 26, NSHostingView's safe-area-corner-inset
     // invalidation can post setNeedsUpdateConstraints DURING the sheet window's display-cycle
@@ -177,6 +203,7 @@ enum OnboardingPresenter {
       controller.sizingOptions = []
     }
     host.presentAsSheet(controller)
+    return controller
   }
   #endif
 
@@ -192,3 +219,16 @@ enum OnboardingPresenter {
     #endif
   }
 }
+
+#if os(iOS)
+/// The Safari setup sheet's controller (ISS-0075): a swipe down ends the sheet's life the way
+/// Close does, so the rating hold is released and the page re-reads the extension state.
+private final class SafariSetupHostingController: UIHostingController<OnboardingView> {
+  var lifecycle: SafariSetupSheetLifecycle?
+
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
+    if isBeingDismissed { lifecycle?.finish() }
+  }
+}
+#endif

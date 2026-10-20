@@ -51,7 +51,8 @@
 //      The settings Help card's "Safari setup" link. Exactly that one key; native shows onboarding
 //      screen 3 as a closable sheet (OnboardingPresenter.presentSafariSetup), from the bundled main
 //      frame only, while the app is active, and never over another presented screen. It never
-//      touches OnboardingGate.
+//      touches OnboardingGate. Apple's rating sheet is held while it is up, and once it is gone
+//      the page gets the fixed DOM event `still:safari-setup-closed` (re-read the setup state).
 //
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }

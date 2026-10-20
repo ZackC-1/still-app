@@ -312,7 +312,10 @@ struct OnboardingView: View {
   private var primaryTitle: String {
     switch step {
     case 0, 1: return "Continue"
-    case 2: return status.isConfirmedEnabled ? "Continue" : "I've turned it on"
+    case 2:
+      // The Safari setup sheet has no next screen, so its confirmed state reads "Done".
+      if status.isConfirmedEnabled { return onClose == nil ? "Continue" : "Done" }
+      return "I've turned it on"
     default: return "Get started"
     }
   }

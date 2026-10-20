@@ -34,7 +34,9 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         let router = WebBridgeRouter(settings: settingsExecutor)
         router.presentSafariSetup = { [weak self] in
             guard let self else { return false }
-            return OnboardingPresenter.presentSafariSetup(from: self)
+            return OnboardingPresenter.presentSafariSetup(from: self) { [weak self] in
+                self?.safariSetupSheetClosed()
+            }
         }
         return router
     }()
@@ -103,7 +105,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         QAHooks.prepare(webView: self.webView)
         if let delay = QAHooks.safariSetupDelayMs {
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
-                if let self { OnboardingPresenter.presentSafariSetup(from: self) }
+                guard let self else { return }
+                OnboardingPresenter.presentSafariSetup(from: self) { [weak self] in
+                    self?.safariSetupSheetClosed()
+                }
             }
         }
 #endif
@@ -122,6 +127,13 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             // Fixed event only: the page reads the trusted pending route through the bridge.
             self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('still:route'))")
         }
+    }
+
+    // The Safari setup sheet is gone (ISS-0075). A sheet never hides the page, so tell it with one
+    // fixed event to re-read the extension state (the Mac's setup card, for one).
+    private func safariSetupSheetClosed() {
+        webView.evaluateJavaScript(
+            "window.dispatchEvent(new Event('\(SafariSetupSheetRequest.closedEvent)'))")
     }
 
     deinit {
