@@ -150,7 +150,7 @@ const PRO_VALUE_PHRASES: Record<string, string> = {
   "instagram.suggested": "suggested accounts",
   "instagram.threads": "Threads links",
   "facebook.stories": "Stories",
-  "facebook.videos": "Videos and Watch",
+  "facebook.videos": "the Video tab",
   "facebook.sponsored": "desktop sidebar ads",
   "youtube.related": "Related videos",
   "youtube.endscreen": "end-of-video suggestions",
@@ -160,10 +160,10 @@ const PRO_VALUE_PHRASES: Record<string, string> = {
 };
 
 /**
- * Joins the phrases for one site. Three or more: "a, b and c", with a serial comma only where the
- * item before the final "and" itself contains "and" ("Stories, Videos and Watch, and desktop
- * sidebar ads"). Two: "a and b", or "a, plus b" where either already contains "and" (on a phone,
- * "Stories, plus Videos and Watch").
+ * Joins the phrases for one site. Three or more: "a, b and c" ("Stories, the Video tab and desktop
+ * sidebar ads"), with a serial comma only where the item before the final "and" itself contains
+ * "and" (as Instagram's "Stories and Highlights" does). Two: "a and b" (on a phone, "Stories and
+ * the Video tab"), or "a, plus b" where either already contains "and".
  */
 function joinPhrases(items: readonly string[]): string {
   if (items.length < 2) return items.join("");

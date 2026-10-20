@@ -21,7 +21,7 @@ const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 const ROWS_BY_SERVICE = {
   YouTube: ["Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat"],
   Instagram: ["Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links"],
-  Facebook: ["Facebook Stories", "Videos and Watch", "Desktop sidebar ads"],
+  Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
 } as const;
 
 test("purchase matcher: approved copy passes, purchase offers fail", () => {
