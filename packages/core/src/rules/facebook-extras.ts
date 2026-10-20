@@ -7,10 +7,12 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * Surface ids must never reuse a free surface id, and surfaces may target only this service's
  * Still Pro features (rules/__tests__/extras-free-protection.test.ts).
  *
- * The selector families below are UNVERIFIED candidates modelled on the synthetic fixtures in
- * tests/fixtures/extras/fb-*.html. Each control's release gate still needs the owner's structural
- * checks (H-012, H-013, H-014). Uncertain content stays visible: every guard below errs towards
- * leaving a block on the page.
+ * The Stories tray and sidebar ads selectors follow the desktop www.facebook.com Home seen signed
+ * in, in Chrome, on 2026-10-19 (ISS-0088); the feed Videos selectors could not be checked then
+ * (see VIDEOS_FEED). The synthetic fixtures in tests/fixtures/extras/fb-*.html still mark every
+ * family as a candidate, and each control's release gate still needs the owner's structural checks
+ * (H-012, H-013, H-014). Uncertain content stays visible: every guard below errs towards leaving
+ * a block on the page. No selector here depends on English text.
  *
  * Free Reels stay independent and always win. The core's Reels routing (/reels/, /watch/reels/)
  * runs before any entry here, no entry may ever match /reel/, /reels/ or /watch/reels/
@@ -23,15 +25,20 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
 const NOT_A_REEL = ':not(:has(a[href*="/reel/"])):not(:has(a[href*="/reels/"]))';
 
 /**
- * Facebook Stories (CP-081): the story cards in the tray, never the virtualiser wrapper that
- * holds them (its geometry stays), "People you may know", posts or messages. A card is a direct
- * child of a virtualised wrapper whose own direct child link opens a Story, OUTSIDE the feed: the
- * feed virtualises its posts with the same wrapper shape, so a post sharing a Story stays.
+ * Facebook Stories (CP-081): the Stories tray above the feed, never "People you may know", posts or
+ * messages. On 2026-10-19 the tray was a region holding a grid (rows of grid cells, each a card
+ * whose link opens a Story) plus its scroll arrows, inside the main column's virtualised wrapper.
+ * The hide takes that region: it is the only region in the main column with a grid of Story links.
+ * A feed post that links to a Story (an author's story ring, a shared Story) has no grid, so it
+ * stays; the in-feed Reels shelf is a grid with no Story links, so it stays too. The region must
+ * hold no other region and no Reel link (a Reel is only ever hidden by the Reels control), and is
+ * never inside a feed.
  */
 const NOT_IN_FEED = ':not([role="feed"] *)';
+const TRAY_REGION = `[role="main"] [role="region"]:not(:has([role="region"]))${NOT_A_REEL}${NOT_IN_FEED}`;
 const STORIES_TRAY = Object.freeze([
-  `[role="main"] [data-virtualized] > div:has(> a[href^="/stories/"])${NOT_IN_FEED}`,
-  `[role="main"] [data-virtualized] > div:has(> a[href^="https://www.facebook.com/stories/"])${NOT_IN_FEED}`,
+  `${TRAY_REGION}:has([role="grid"] a[href^="/stories/"])`,
+  `${TRAY_REGION}:has([role="grid"] a[href^="https://www.facebook.com/stories/"])`,
 ]);
 
 /**
@@ -44,6 +51,13 @@ const STORIES_TRAY = Object.freeze([
  * A unit whose only video link is /watch/?v=<id> is NOT a feed video: a Reel shared into the feed
  * can carry just that link (no /reel/ link for the Reel guard to see), and a Reel is only ever
  * hidden by the free Reels control. Uncertain, so it stays.
+ *
+ * UNVERIFIED and currently inert (ISS-0088, 2026-10-19): the signed-in desktop feed no longer
+ * renders [role="feed"] or [role="article"], so these selectors match nothing. Every feed video
+ * seen in that check was a Reel playing in the normal player, and its post carried no /videos/ or
+ * /reel/ link until the pointer moved over its timestamp (Facebook fills that link in on hover).
+ * A replacement must not identify a feed video by its player alone, or it would hide Reels. Kept
+ * unchanged until a non-Reel feed video can be observed.
  */
 const FEED_UNIT = '[role="feed"] [role="article"]:not([role="article"] [role="article"])';
 const VIDEOS_FEED = Object.freeze([
@@ -70,13 +84,21 @@ const VIDEOS_WATCH_NAV = Object.freeze([
 
 /**
  * Desktop sidebar ads (CP-083, D039): only a right-column block made of outbound sponsored links.
- * Any block that also holds a Facebook link, a list, a region or a grid stays visible, so
- * Contacts, birthdays and group chats are never hidden. No text or "Sponsored"-letter detection,
- * no feed ads and no mobile claim.
+ * Any block that also holds a same-site (relative) or www/web/m Facebook link, a list, a region
+ * or a grid stays visible, so Contacts, birthdays and group chats are never hidden. No text or
+ * "Sponsored"-letter detection, no feed ads and no mobile claim.
+ *
+ * On 2026-10-19 each ad's outbound link (through Facebook's l.facebook.com redirect, rel=nofollow)
+ * sat several boxes deep in the right column, and the Sponsored heading, the ads and their divider
+ * shared one box beside the Birthdays box. So the match is any box in the column that holds such a
+ * link and nothing a guard rejects: the outermost one is the whole Sponsored block, and the box
+ * that also holds Birthdays (a relative link) stays. The redirect host is not a guarded Facebook
+ * link, because every sidebar ad link goes through it.
  */
+const FACEBOOK_LINK = ':is(a[href^="/"], a[href*="//www.facebook.com/"], a[href*="//web.facebook.com/"], a[href*="//m.facebook.com/"], a[href*="//facebook.com/"])';
 const SIDEBAR_ADS = Object.freeze([
-  '[role="complementary"] > div:has(> a[href^="https://"][rel~="nofollow"])'
-    + ':not(:has(a[href^="/"])):not(:has(a[href*="facebook.com/"]))'
+  '[role="complementary"] div:has(a[href^="https://"][rel~="nofollow"])'
+    + `:not(:has(${FACEBOOK_LINK}))`
     + ':not(:has([role="region"])):not(:has([role="list"])):not(:has([role="grid"]))',
 ]);
 

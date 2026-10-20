@@ -179,7 +179,7 @@ describe("free Facebook Reels are never shadowed", () => {
 });
 
 describe("Facebook Stories tray (fb-stories.html)", () => {
-  it("hides only the story cards, keeping the wrapper, People you may know, posts and messages", () => {
+  it("hides the tray region, keeping its virtualised wrapper, the composer, People you may know, posts and messages", () => {
     render("fb-stories.html");
     const engine = session();
     engine.applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
@@ -193,10 +193,9 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
     expect(document.body.innerHTML).toBe(before);
   });
 
-  it("a virtualised feed post whose own direct link opens a Story is not a tray card", () => {
+  it("feed posts that link to a Story stay: no grid, so they are never the tray", () => {
     render("fb-stories.html");
-    // The feed's own virtualiser shape: [role=feed] > [data-virtualized] > post, the Story link a
-    // direct child of the post, exactly the shape a tray card has outside the feed.
+    // A post whose own direct link opens a Story, relative and absolute, in a virtualised wrapper.
     document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
       '<div data-virtualized="false" id="keep-feed-virtualizer">'
       + '<div id="keep-story-link-post"><a href="/stories/900000000009/">An invented shared Story</a></div>'
@@ -205,8 +204,48 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("keep-story-link-post")).toBe(true);
     expect(visible("keep-story-link-post-absolute")).toBe(true);
+    expect(visible("keep-post-story-ring")).toBe(true);
+    expect(visible("keep-shelf-grid")).toBe(true);
     // The tray itself is still hidden.
-    expect(visible("target-story-card-1")).toBe(false);
+    expect(visible("target-stories-tray")).toBe(false);
+  });
+
+  it("an absolute Story link in the tray grid counts too", () => {
+    render("fb-stories.html");
+    for (const anchor of document.querySelectorAll('#target-stories-tray a[href^="/stories/"]'))
+      anchor.setAttribute("href", `https://www.facebook.com${anchor.getAttribute("href")}`);
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("target-stories-tray")).toBe(false);
+  });
+
+  it("uncertain regions stay: one that wraps other regions, one inside a feed, one that also holds a Reel", () => {
+    render("fb-stories.html");
+    // A region around the whole column (composer, tray and posts): only the inner tray hides.
+    const column = document.querySelector('[role="main"] > div')!;
+    column.setAttribute("role", "region");
+    column.id = "keep-column-region";
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("keep-column-region")).toBe(true);
+    expect(visible("keep-post")).toBe(true);
+    expect(visible("target-stories-tray")).toBe(false);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    // A Stories and Reels tray in one region belongs partly to the free Reels control: it stays.
+    render("fb-stories.html");
+    document.querySelector('#target-stories-tray [role="row"]')!.insertAdjacentHTML("beforeend",
+      '<div role="gridcell"><a href="/reel/900000000011/">An invented Reel card</a></div>');
+    session().applyDom(settingsWith({ "facebook.stories": true }), new URL(`${FB}/`), document, ON);
+    expect(visible("target-stories-tray")).toBe(true);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    // A tray-shaped region inside a feed is a post, not the tray.
+    render("fb-stories.html");
+    document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+      '<div role="feed"><div role="region" id="keep-feed-region"><div role="grid">'
+      + '<a href="/stories/900000000012/">An invented Story in a post</a></div></div></div>');
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("keep-feed-region")).toBe(true);
+    expect(visible("target-stories-tray")).toBe(false);
   });
 });
 
@@ -335,11 +374,31 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
 });
 
 describe("Desktop sidebar ads (fb-sidebar.html)", () => {
-  it("hides only the right-column ad block", () => {
+  it("hides only the right-column ad block, its l.facebook.com redirect links included", () => {
     render("fb-sidebar.html");
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("target-sidebar-ad-block")).toBe(false);
     for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
+    // The block's own box is the outermost match: the box that also holds Birthdays stays.
+    const matched = FACEBOOK_EXTRAS.surfaces.find((surface) => surface.feature === "facebook.sponsored")!.selectors
+      .flatMap((selector) => [...document.querySelectorAll(selector)]);
+    expect(matched).toContain(document.getElementById("target-sidebar-ad-block"));
+    expect(matched).not.toContain(document.getElementById("keep-column-stack"));
+    expect(matched.every((node) => node.closest("#target-sidebar-ad-block") !== null)).toBe(true);
+  });
+
+  it("a box holding an outbound link beside a www, web, m or bare Facebook link stays", () => {
+    for (const host of ["https://www.facebook.com", "https://web.facebook.com", "https://m.facebook.com", "https://facebook.com"]) {
+      render("fb-sidebar.html");
+      document.getElementById("keep-column-stack")!.insertAdjacentHTML("beforebegin",
+        `<div id="keep-page-card"><a href="https://ads.invented.example/click?id=ad4" rel="nofollow">Invented outbound</a>`
+        + `<a href="${host}/inventedpage/">Invented page</a></div>`);
+      const engine = session();
+      engine.applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+      expect(visible("keep-page-card"), host).toBe(true);
+      expect(visible("target-sidebar-ad-block"), host).toBe(false);
+      engine.stop?.();
+    }
   });
 
   it("Contacts, birthdays and group chats stay visible in every combination of the Facebook controls", () => {
