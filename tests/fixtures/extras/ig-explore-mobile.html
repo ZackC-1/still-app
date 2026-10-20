@@ -6,22 +6,35 @@
   </head>
   <body>
     <!--
-      Synthetic structural model for instagram.explore on the iPhone layout, where Search and
-      Explore are one combined entry that must stay. UNVERIFIED CANDIDATE: recommendation tiles
-      beneath the search field. Invented text and handles only.
+      Synthetic structural model for instagram.explore on the phone layout, where Search and
+      Explore are one combined entry that must stay. UNVERIFIED CANDIDATE, mirroring the phone-width
+      search entry seen on 2026-10-19 (ISS-0087): the main column holds a nav with the search
+      field (a plain text input, no form) and the suggestions shown while typing, then a box of
+      recommended tiles nested in rows. Invented text and handles only.
     -->
     <nav id="keep-tabbar">
       <a href="/" id="keep-tab-home">Home</a>
       <a href="/explore/" id="keep-tab-search-explore" aria-label="Search and Explore">Search and Explore</a>
       <a href="/direct/inbox/" id="keep-tab-messages">Messages</a>
     </nav>
-    <main>
-      <form id="keep-mobile-search"><input id="keep-mobile-search-input" type="search" placeholder="Search" /></form>
+    <main role="main">
+      <nav id="keep-mobile-search">
+        <div>
+          <div><input id="keep-mobile-search-input" type="text" placeholder="Search" aria-label="Search input" /></div>
+          <div id="keep-mobile-results">
+            <ul>
+              <li><a href="/explore/search/keyword/?q=invented">invented</a></li>
+              <li><a href="/inventeduser/">inventeduser</a></li>
+            </ul>
+          </div>
+        </div>
+      </nav>
       <div id="target-mobile-explore-grid">
-        <a href="/p/InvD4/">Invented mobile tile one</a>
-        <a href="/p/InvE5/">Invented mobile tile two</a>
+        <div>
+          <div><div><a href="/p/InvD4/">Invented mobile tile one</a></div></div>
+          <div><div><a href="/reel/InvE5/">Invented mobile tile two</a></div></div>
+        </div>
       </div>
-      <div id="keep-mobile-results"><a href="/inventeduser/">inventeduser</a></div>
     </main>
   </body>
 </html>

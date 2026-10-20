@@ -7,26 +7,55 @@
   <body>
     <!--
       Synthetic structural model for instagram.stories (CP-078): the home Stories tray, the
-      profile Highlights container, and a profile header whose photo, bio, counts and grid stay.
-      UNVERIFIED CANDIDATE selector family: the tray (role=menu / listbox of story buttons) and the
-      Highlights list directly under the profile header. Invented text and handles only.
+      profile Highlights row, and a profile header whose photo, bio, counts and buttons stay.
+      UNVERIFIED CANDIDATE selector family, mirroring the desktop shapes seen signed in on
+      2026-10-19 (ISS-0087): the tray is the region Instagram names data-pagelet="story_tray"
+      (a list of story buttons plus a scroll arrow); the Highlights links sit a few boxes deep in
+      a list inside a menu-role row of the profile header. A feed post whose avatar links to its
+      author's story stays. Invented text and handles only.
     -->
     <nav id="keep-nav"><a href="/direct/inbox/" id="keep-messages-link">Messages</a></nav>
-    <div id="target-home-tray" role="menu" aria-label="Stories">
-      <button role="menuitem"><span>inventeduser1</span></button>
-      <button role="menuitem"><span>inventeduser2</span></button>
-    </div>
-    <article id="keep-feed-post"><a href="/p/InvF6/">An invented feed post</a></article>
-    <header id="keep-profile-header">
-      <a href="/inventeduser1/" id="keep-profile-photo"><img alt="inventeduser1's profile photo" width="40" height="40" /></a>
-      <p id="keep-profile-bio">Invented bio line.</p>
-      <ul id="keep-profile-counts"><li>12 posts</li><li>34 followers</li><li>56 following</li></ul>
-    </header>
-    <div id="target-highlights" role="list" aria-label="Highlights">
-      <a href="/stories/highlights/900000000000001/">Invented highlight one</a>
-      <a href="/stories/highlights/900000000000002/">Invented highlight two</a>
-    </div>
-    <div id="keep-profile-grid"><a href="/p/InvG7/">Invented grid post</a></div>
+    <main role="main">
+      <div data-pagelet="story_tray" id="target-home-tray">
+        <div role="presentation">
+          <div>
+            <ul>
+              <li><div role="button" tabindex="0" aria-label="Story by inventeduser1, not seen"><canvas width="10" height="10"></canvas><span>inventeduser1</span></div></li>
+              <li><div role="button" tabindex="0" aria-label="Story by inventeduser2, not seen"><canvas width="10" height="10"></canvas><span>inventeduser2</span></div></li>
+            </ul>
+          </div>
+          <button aria-label="Next">Next</button>
+        </div>
+      </div>
+      <article id="keep-feed-post">
+        <a href="/stories/inventeduser2/" id="keep-feed-post-story-ring">inventeduser2's story ring</a>
+        <a href="/p/InvF6/">An invented feed post</a>
+      </article>
+      <header id="keep-profile-header">
+        <div id="keep-profile-top">
+          <a href="/inventeduser1/" id="keep-profile-photo"><img alt="inventeduser1's profile photo" width="40" height="40" /></a>
+          <ul id="keep-profile-counts"><li>12 posts</li><li>34 followers</li><li>56 following</li></ul>
+          <button id="keep-profile-follow">Follow</button>
+        </div>
+        <section id="keep-profile-bio"><span>Invented bio line.</span></section>
+        <section>
+          <div role="menu" id="target-highlights">
+            <div>
+              <div role="presentation">
+                <div>
+                  <ul>
+                    <li><div><div><a href="/stories/highlights/900000000000001/" aria-label="View invented highlight one">Invented highlight one</a></div></div></li>
+                    <li><div><div><a href="/stories/highlights/900000000000002/" aria-label="View invented highlight two">Invented highlight two</a></div></div></li>
+                  </ul>
+                </div>
+                <button aria-label="Next">Next</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </header>
+      <div id="keep-profile-grid"><a href="/p/InvG7/">Invented grid post</a></div>
+    </main>
     <div id="keep-messages-list"><a href="/direct/t/900000000001/">Invented conversation</a></div>
   </body>
 </html>
