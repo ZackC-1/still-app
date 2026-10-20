@@ -7,6 +7,7 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import { proPurchased } from "./presentation.js";
+  import { SUPPORT_EMAIL } from "../config.js";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
@@ -375,6 +376,7 @@
       disabled={!help.onSupport}
       onclick={help.onSupport}>Contact support</button
     >
+    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
     <button
       type="button"
       class="link"

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
+import { SUPPORT_EMAIL } from "../config.js";
 import {
   DEFAULT_SETTINGS,
   FEATURE_REGISTRY,
@@ -642,6 +643,7 @@ describe("controlled D04 Apple settings", () => {
     expect(other).toHaveBeenCalledOnce();
     await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
     expect(verify).toHaveBeenCalledOnce();
+    expect(screen.getByText(SUPPORT_EMAIL)).toBeVisible();
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );
@@ -1992,6 +1994,15 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
       "Contact support",
       "Privacy policy",
     ]);
+    expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
+    expect(
+      within(help).getByRole("button", { name: "Contact support" })
+        .nextElementSibling?.textContent,
+    ).toBe(SUPPORT_EMAIL);
+    expect(
+      Array.from(help.children).map((c) => c.textContent?.trim()).slice(0, 5),
+    ).toEqual(["Setup guide", "Safari setup", "Contact support", SUPPORT_EMAIL, "Privacy policy"]);
+    expect(within(help).queryByRole("link")).toBeNull();
     expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
   });
 
