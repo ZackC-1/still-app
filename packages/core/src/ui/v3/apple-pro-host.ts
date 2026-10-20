@@ -175,13 +175,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
    * as another account, a new revision (the holder moved it) or a proof naming this account ends it.
    * No transfer screen this release (owner, 20 Oct): the holder's own sign-in is how it moves. */
   const heldElsewhere = readHeldElsewhere(deps.heldElsewhereMemory);
-  const rememberHeldElsewhere = (account: string, revision: number) => {
-    heldElsewhere.set(account, revision);
+  const writeHeldElsewhere = () => {
     try {
       deps.heldElsewhereMemory?.write(JSON.stringify(Object.fromEntries(heldElsewhere)));
     } catch {
       // A refused write keeps the process memory only.
     }
+  };
+  const rememberHeldElsewhere = (account: string, revision: number) => {
+    heldElsewhere.set(account, revision);
+    writeHeldElsewhere();
+  };
+  /** An answer that disproves the memory for this account (native's proof names it, or a link
+   * went through) drops its entry, so the memory holds only accounts still refused. */
+  const forgetHeldElsewhere = (account: string) => {
+    if (heldElsewhere.delete(account)) writeHeldElsewhere();
   };
   const linkedElsewhere = () => {
     const current = deps.account();
@@ -257,9 +265,11 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // Once it is no longer held elsewhere (the holder moved it, or native's proof now names this
     // account) the card leaves; linked here offers nothing, anything else offers as usual.
     const current = deps.account();
+    if (current && linkedHere()) forgetHeldElsewhere(current.id);
     if (current?.confirmed && linkedElsewhere() && (!link || link.state === "confirm")) {
       linkGeneration++;
       linkingRequested = false;
+      linkSignInAsked = false;
       linkAccount = { ...current };
       link = elsewhereCard(current);
     } else if (link?.state === "elsewhere" && !linkedElsewhere()) {
@@ -702,6 +712,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         rememberHeldElsewhere(account.id, eligible!.ownershipRevision);
         link = elsewhereCard(account);
       } else {
+        if (result.status === "linked" || result.status === "already_linked")
+          forgetHeldElsewhere(account.id);
         link =
           result.status === "linked" || result.status === "already_linked"
             ? { state: "linked", email: account.email }

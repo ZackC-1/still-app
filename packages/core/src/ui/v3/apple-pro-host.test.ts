@@ -1505,6 +1505,34 @@ describe("a right linked to a different account is stated, not offered (ISS-0104
       expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
       expect(store.write).toHaveBeenCalledWith(JSON.stringify({ [user.id]: 1 }));
     });
+    it("an answer that disproves the memory drops that account's entry: a proof naming it, or a link that went through", async () => {
+      const store = memory();
+      const h = await refusedWith(store);
+      // Native's proof now names this account (the holder moved it to them): the entry goes.
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.settings().link?.state).not.toBe("elsewhere");
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({});
+      // Another account refused, then linked on a later revision: only the refused one stays.
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: null });
+      h.setAccount(stranger);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({ [stranger.id]: 2 });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 3, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "linked", ownershipRevision: 4 });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "linked", email: stranger.email });
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({});
+    });
     it("a refused write keeps the fact for this launch", async () => {
       const store = { read: vi.fn(() => null), write: vi.fn(() => { throw new Error("quota"); }) };
       const h = await harness({ heldElsewhereMemory: store });
