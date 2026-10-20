@@ -25,6 +25,89 @@ test("the options page renders the four service cards", async ({
   await expect(page.locator("[data-service], .site-section")).toHaveCount(4);
 });
 
+// The site list is one card whose dividers sit directly between the rows (owner, 19 Oct: each site
+// as tall as the hero). Measured in the real built extension, because jsdom has no layout. Each
+// row's top-to-top step is the row plus its 1px divider; the card is four rows and three dividers.
+async function measureSiteList(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const group = document.querySelector<HTMLElement>(".service-group")!;
+    const box = group.getBoundingClientRect();
+    const sections = [...group.querySelectorAll<HTMLElement>(":scope > .site-section")];
+    const dividers = [...group.querySelectorAll<HTMLElement>(":scope > .divider")];
+    const rows = sections.map((section) => section.querySelector(".service-row")!.getBoundingClientRect());
+    return {
+      card: box.height,
+      gap: getComputedStyle(group).rowGap,
+      rows: rows.map((row) => row.height),
+      steps: rows.slice(1).map((row, i) => row.top - rows[i]!.top),
+      // Space between each section and the divider under it, and between that divider and the
+      // next section: both zero when the dividers sit directly between the rows.
+      around: dividers.flatMap((divider, i) => {
+        const line = divider.getBoundingClientRect();
+        return [line.top - sections[i]!.getBoundingClientRect().bottom, sections[i + 1]!.getBoundingClientRect().top - line.bottom];
+      }),
+      dividerInsetEnd: dividers.map((divider) => box.right - divider.getBoundingClientRect().right),
+    };
+  });
+}
+
+test("the Settings page site list puts its dividers directly between 55px rows", async ({
+  context,
+  extensionId,
+}) => {
+  // The configured 2.x build keeps the legacy screens, which have no grouped site list.
+  test.skip(syncConfigured === "true", "V3 site list: unconfigured lane only");
+  await context.route(/^https?:/, (route) => route.abort());
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto(`chrome-extension://${extensionId}/options.html`);
+  await expect(page.locator(".site-section")).toHaveCount(4);
+  await page.evaluate(() => document.fonts.ready);
+
+  const list = await measureSiteList(page);
+  expect(list.gap).toBe("0px");
+  expect(list.rows).toEqual([55, 55, 55, 55]);
+  expect(list.steps).toEqual([56, 56, 56]);
+  expect(list.around).toEqual([0, 0, 0, 0, 0, 0]);
+  expect(list.card).toBe(223);
+  // PR #472's rule stays: every divider stops at the row's right padding.
+  expect(list.dividerInsetEnd).toEqual([16, 16, 16]);
+
+  // Opened, the site's own rows keep their dividers ending at the same right padding.
+  await page.getByRole("button", { name: "YouTube Blocker" }).click();
+  await expect(page.locator("#site-youtube-panel")).toHaveClass(/\bopen\b/);
+  const insets = await page.evaluate(() => {
+    const group = document.querySelector(".service-group")!.getBoundingClientRect();
+    return [...document.querySelectorAll("#site-youtube-panel .option-row")].map(
+      (row) => group.right - row.getBoundingClientRect().right,
+    );
+  });
+  expect(insets.length).toBeGreaterThan(0);
+  for (const inset of insets) expect(inset).toBe(16);
+});
+
+test("the popup site list keeps its own 48px rows with dividers directly between them", async ({
+  context,
+  extensionId,
+}) => {
+  // The configured 2.x build keeps the legacy screens, which have no grouped site list.
+  test.skip(syncConfigured === "true", "V3 site list: unconfigured lane only");
+  await context.route(/^https?:/, (route) => route.abort());
+  const page = await context.newPage();
+  await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect(page.getByRole("switch")).toHaveCount(5);
+  await page.evaluate(() => document.fonts.ready);
+
+  // Unchanged by the Settings page fix: the popup already matched the canvas.
+  const list = await measureSiteList(page);
+  expect(list.gap).toBe("0px");
+  expect(list.rows).toEqual([48, 48, 48, 48]);
+  expect(list.steps).toEqual([49, 49, 49]);
+  expect(list.around).toEqual([0, 0, 0, 0, 0, 0]);
+  expect(list.card).toBe(195);
+});
+
 test("the popup keeps every primary control visible without scaling or overflow", async ({
   context,
   extensionId,

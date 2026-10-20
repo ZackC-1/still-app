@@ -349,6 +349,9 @@
         identity,
         revision: optionsAccountRevision,
         confirmed: controller.accountConfirmed,
+        // The time sits on the synced line ("Synced · Today at 2:10 PM", owner, 19 Oct), the same
+        // line the Apple app and the popup show; there is no separate "Last synced" line below.
+        lastSyncedAt: controller.lastSyncedAt,
         status: !controller.cloudReachable
           ? {
               tone: "failed",
@@ -642,7 +645,13 @@
         {:else if c.deleteFlow === "deleting"}
           <button class="link" disabled>{STRINGS.account.deleting}</button>
         {:else}
-          <button class="link danger" onclick={() => c.requestDeleteAccount()}
+          <!-- In the Chrome and Firefox popup, Delete account is a plain link like Sign out, with
+            no red (owner, ISS-0095), as in the Settings page's Help card. The confirmation that
+            follows still says what deleting does. -->
+          <button
+            class="link"
+            class:danger={!desktopPresentation}
+            onclick={() => c.requestDeleteAccount()}
             >{STRINGS.account.delete}</button
           >
           {#if c.deleteFlow === "error"}<p class="error">
@@ -670,19 +679,6 @@
   {/snippet}
 
   {#snippet optionsAccountActions()}
-    {#if c.userId && c.lastSyncedAt !== null}
-      <p class="sync-time">
-        {STRINGS.sync.lastSynced}
-        <time datetime={new Date(c.lastSyncedAt).toISOString()}
-          >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}</time
-        >
-      </p>
-    {/if}
     {#if c.userId && c.deleteFlow === "deleting"}<p role="status">
         {STRINGS.account.deleting}
       </p>{/if}
@@ -1212,6 +1208,14 @@
   }
   .link.danger {
     color: #c2261e;
+  }
+  /* The popup's Sign out and Delete account use the same plain link colour as the V3 screens'
+     links (the Settings page's Help card), not the older App blue. */
+  .v3-popup-host .account .link:not(:disabled) {
+    color: var(--link, var(--still-blue));
+  }
+  .v3-popup-host .account .link:not(:disabled):hover {
+    color: var(--link-pressed, var(--still-blue-pressed));
   }
   .confirm {
     display: flex;

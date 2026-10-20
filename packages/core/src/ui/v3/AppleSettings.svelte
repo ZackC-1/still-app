@@ -401,7 +401,6 @@
   /* Mac app only: reduce vertical whitespace by 12.5%; keep text and targets their full size. */
   .mac-settings {
     --app-gap: calc(var(--space-3) * 0.875);
-    --services-gap: calc(var(--space-2) * 0.875);
     --service-card-padding-block: calc(var(--space-3) * 0.875);
     --sync-gap: calc(var(--space-3) * 0.875);
     --sync-padding: calc(var(--space-4) * 0.875) var(--space-4);
