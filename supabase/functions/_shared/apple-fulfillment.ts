@@ -119,8 +119,10 @@ export function handleLinkAppleAccess(req: Request, deps: AppleFulfillmentDeps):
     try { return await linkAppleAccess(req, deps, holder); }
     catch (error) {
       // QA stores refuse an account without enabled QA membership (for example one deleted and
-      // signed up again, which has a new id). That is a structured answer, not an outage. The
-      // refusal rolls back in SQL before any write, and no production store raises this code.
+      // signed up again, which has a new id). That is a structured answer, not an outage. At the
+      // limiter and the link commit the refusal rolls back in SQL before any write; at the later
+      // confirm (membership removed mid-request) the commit is already saved and no proof is
+      // returned, the same fail-closed outcome. No production store raises this code.
       if (hasErrorCode(error, "qa_subject_unavailable")) return unavailable();
       throw error;
     }
