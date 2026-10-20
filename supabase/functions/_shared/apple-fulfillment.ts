@@ -7,6 +7,7 @@ import { jsonResponse, optionsResponse } from "./store.ts";
 import { isAppleEvidence, type AppleAccessVerifier, type AppleEvidence } from "./apple-access.ts";
 import type { AppleAccessStore, AppleAccessLink } from "./apple-access-store.ts";
 import type { AccessSigner } from "./access-issuer.ts";
+import { hasErrorCode } from "./coded-error.ts";
 
 export interface ConfirmedAppleAccountPort { confirmed(token: string, holder: string): Promise<boolean>; }
 export interface AppleFulfillmentDeps extends AuthDeps {
@@ -115,32 +116,43 @@ export async function handleVerifyAppleAccess(req: Request, deps: AppleFulfillme
  * requires fresh project-authenticated source authority; client owner strings prove nothing. */
 export function handleLinkAppleAccess(req: Request, deps: AppleFulfillmentDeps): Promise<Response> {
   return withAuthenticatedUser(req, deps, async holder => {
-    const limit = await limited(req, deps, holder); if (limit) return limit;
-    const body = await readBody(req);
-    const keys = object(body) ? Object.keys(body).sort().join(",") : "";
-    const first = "evidence,expectedOwnershipRevision,intendedAccountId,operationId";
-    const transfer = "evidence,expectedOwnershipRevision,intendedAccountId,operationId,sourceAccountId,sourceAuthority";
-    if (!object(body) || (keys !== first && keys !== transfer) || body.intendedAccountId !== holder ||
-      (typeof body.operationId !== "string" || !isUuid(body.operationId)) || !safe(body.expectedOwnershipRevision) || body.expectedOwnershipRevision >= Number.MAX_SAFE_INTEGER ||
-      !isAppleEvidence(body.evidence)) return invalid();
-    const bearer = req.headers.get("Authorization")!.slice(7);
-    const expiresAt = await confirmed(bearer, holder, deps);
-    if (!expiresAt) return jsonResponse(403, { error: "confirmed_account_required" });
-    const link: AppleAccessLink = { holder, operation: body.operationId, expectedRevision: body.expectedOwnershipRevision };
-    if (keys === transfer) {
-      if ((typeof body.sourceAccountId !== "string" || !isUuid(body.sourceAccountId)) || body.sourceAccountId === holder || typeof body.sourceAuthority !== "string" ||
-        body.sourceAuthority.length > 8_000) {
-        return jsonResponse(403, { error: "source_authority_required" });
-      }
-      const source = body.sourceAccountId, sourceToken = body.sourceAuthority;
-      const sourceExpiresAt = await confirmed(sourceToken, source, deps);
-      if (!sourceExpiresAt) return jsonResponse(403, { error: "source_authority_required" });
-      const currentAuthority = () => expiresAt > Date.now() && sourceExpiresAt > Date.now();
-      return await fulfill(body.evidence, deps, { ...link, sourceHolder: source },
-        async () => !!await confirmed(bearer, holder, deps) && !!await confirmed(sourceToken, source, deps) && currentAuthority(), currentAuthority);
+    try { return await linkAppleAccess(req, deps, holder); }
+    catch (error) {
+      // QA stores refuse an account without enabled QA membership (for example one deleted and
+      // signed up again, which has a new id). That is a structured answer, not an outage. The
+      // refusal rolls back in SQL before any write, and no production store raises this code.
+      if (hasErrorCode(error, "qa_subject_unavailable")) return unavailable();
+      throw error;
     }
-    return await fulfill(body.evidence, deps, link, async () => !!await confirmed(bearer, holder, deps), () => expiresAt > Date.now());
   });
+}
+
+async function linkAppleAccess(req: Request, deps: AppleFulfillmentDeps, holder: string): Promise<Response> {
+  const limit = await limited(req, deps, holder); if (limit) return limit;
+  const body = await readBody(req);
+  const keys = object(body) ? Object.keys(body).sort().join(",") : "";
+  const first = "evidence,expectedOwnershipRevision,intendedAccountId,operationId";
+  const transfer = "evidence,expectedOwnershipRevision,intendedAccountId,operationId,sourceAccountId,sourceAuthority";
+  if (!object(body) || (keys !== first && keys !== transfer) || body.intendedAccountId !== holder ||
+    (typeof body.operationId !== "string" || !isUuid(body.operationId)) || !safe(body.expectedOwnershipRevision) || body.expectedOwnershipRevision >= Number.MAX_SAFE_INTEGER ||
+    !isAppleEvidence(body.evidence)) return invalid();
+  const bearer = req.headers.get("Authorization")!.slice(7);
+  const expiresAt = await confirmed(bearer, holder, deps);
+  if (!expiresAt) return jsonResponse(403, { error: "confirmed_account_required" });
+  const link: AppleAccessLink = { holder, operation: body.operationId, expectedRevision: body.expectedOwnershipRevision };
+  if (keys === transfer) {
+    if ((typeof body.sourceAccountId !== "string" || !isUuid(body.sourceAccountId)) || body.sourceAccountId === holder || typeof body.sourceAuthority !== "string" ||
+      body.sourceAuthority.length > 8_000) {
+      return jsonResponse(403, { error: "source_authority_required" });
+    }
+    const source = body.sourceAccountId, sourceToken = body.sourceAuthority;
+    const sourceExpiresAt = await confirmed(sourceToken, source, deps);
+    if (!sourceExpiresAt) return jsonResponse(403, { error: "source_authority_required" });
+    const currentAuthority = () => expiresAt > Date.now() && sourceExpiresAt > Date.now();
+    return await fulfill(body.evidence, deps, { ...link, sourceHolder: source },
+      async () => !!await confirmed(bearer, holder, deps) && !!await confirmed(sourceToken, source, deps) && currentAuthority(), currentAuthority);
+  }
+  return await fulfill(body.evidence, deps, link, async () => !!await confirmed(bearer, holder, deps), () => expiresAt > Date.now());
 }
 
 /** Live project Auth read: bans/deletion/anonymous or unconfirmed accounts cannot link rights. */

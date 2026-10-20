@@ -26,6 +26,22 @@ function transaction(tx: VerifiedAppleTransaction): void {
       typeof tx.transactionId !== "string" || !/^[1-9][0-9]{0,39}$/.test(tx.transactionId) ||
       typeof tx.active !== "boolean" || (tx.localOnly !== undefined && tx.localOnly !== true)) throw new Error("Invalid QA Apple transaction");
 }
+/** 0021's fixed account-admission refusals (private.qa_sandbox_subject and
+ * private.qa_sandbox_confirmed_account): no QA membership row for this Auth id (never enrolled,
+ * or deleted and signed up again, which gives a new id while the old id's row went with the FK
+ * cascade), no Auth row, or a positive path on a disabled membership. Matched by SQLSTATE and
+ * exact fixed text: the server-role refusal shares 42501 and must stay a fault. */
+const SUBJECT_REFUSALS = new Set(["QA account unavailable", "QA membership disabled"]);
+function subjectRefusal(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: unknown }).code === "42501" && SUBJECT_REFUSALS.has(error.message);
+}
+/** A not-admitted account is an answer, not an outage. The driver error never escapes. */
+function notAdmitted(): CodedError {
+  return new CodedError("qa_subject_unavailable", "QA account not admitted");
+}
+async function admitted<T>(query: Promise<T>): Promise<T> {
+  try { return await query; } catch (error) { throw subjectRefusal(error) ? notAdmitted() : error; }
+}
 function confirmed(rows: readonly { confirmed: unknown }[]): boolean {
   if (rows.length !== 1 || typeof rows[0]?.confirmed !== "boolean") throw new Error("QA confirmation unavailable");
   return rows[0].confirmed;
@@ -51,10 +67,10 @@ export class QaSandboxAppleAccessStore implements AppleAccountAccessStore {
           positiveLink.sourceHolder === positiveLink.holder) throw new Error("Invalid QA Apple link");
     }
     const rows = positiveLink
-      ? await this.sql<{ result: unknown }[]>`select public.qa_sandbox_commit_apple_link(
+      ? await admitted(this.sql<{ result: unknown }[]>`select public.qa_sandbox_commit_apple_link(
         ${tx.key}, ${token}::uuid, ${tx.active}, ${positiveLink.holder}::uuid,
         ${positiveLink.operation}::uuid, ${positiveLink.expectedRevision}::bigint,
-        ${positiveLink.sourceHolder ?? null}::uuid) as result`
+        ${positiveLink.sourceHolder ?? null}::uuid) as result`)
       : await this.sql<{ result: unknown }[]>`select public.qa_sandbox_commit_apple_local(
         ${tx.key}, ${token}::uuid, ${tx.active}) as result`;
     const result = rows[0]?.result;
@@ -73,9 +89,9 @@ export class QaSandboxAppleAccessStore implements AppleAccountAccessStore {
     const rows = right.holder === right.right
       ? await this.sql<{ confirmed: unknown }[]>`select public.qa_sandbox_confirm_apple_local(
         ${tx.key}, ${token}::uuid, ${right.right}::uuid, ${right.revision}::bigint, ${right.verified_at}::bigint) as confirmed`
-      : await this.sql<{ confirmed: unknown }[]>`select public.qa_sandbox_confirm_apple_account(
+      : await admitted(this.sql<{ confirmed: unknown }[]>`select public.qa_sandbox_confirm_apple_account(
         ${tx.key}, ${token}::uuid, ${right.right}::uuid, ${right.holder}::uuid,
-        ${right.revision}::bigint, ${right.verified_at}::bigint) as confirmed`;
+        ${right.revision}::bigint, ${right.verified_at}::bigint) as confirmed`);
     return confirmed(rows);
   }
   async linkedTransactions(holder: string, environment: AccessEnvironment): Promise<readonly VerifiedAppleTransaction[]> {
@@ -157,7 +173,9 @@ export class QaSandboxPgRateLimiter implements RateLimiter {
       const rows = await this.sql<{ wait: unknown }[]>`select public.qa_sandbox_consume_rate_limit(${qaKey}, ${maxRequests}, ${windowSeconds}) as wait`;
       if (rows.length !== 1 || !safe(rows[0]?.wait) || rows[0].wait > 60) throw new Error("Invalid QA rate result");
       return rows[0].wait;
-    } catch {
+    } catch (error) {
+      // The user bucket runs the QA subject gate first. A not-admitted account is not an outage.
+      if (subjectRefusal(error)) throw notAdmitted();
       // Driver errors may echo the account/address. Expose only the fixed operator category.
       throw new CodedError("rate_limiter_unavailable", "Rate limiter unavailable");
     }
