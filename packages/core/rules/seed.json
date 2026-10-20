@@ -1,5 +1,5 @@
 {
-  "version": "1.1.11",
+  "version": "1.1.12",
   "services": {
     "youtube": {
       "matches": [
@@ -262,7 +262,8 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))"
+            "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+            "div[data-virtualized] > div:has(:is(a[href^=\"/reel/\"], a[href*=\"facebook.com/reel/\"]):not([data-ad-rendering-role=\"story_message\"] *)):has(video):not(:has([data-virtualized]))"
           ]
         },
         {
@@ -345,6 +346,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "8a29bdf46dc9d5a9ffa5ddaf520bde9dffd0a36c78d1e07612023856f9169cefd9a7314b8437b02fdf8132a36c03da45b33b25635e766c162e2a10b7cd6a2d08"
+    "value": "cffcbc2bfde65dd782ccee04e28fa8a04e122c79becb1e81d08c523ca86e8f63dbdf2323f4f8a46c648487825d5b3bbec9550d43a93f79ff72b5aff9f15ec801"
   }
 }

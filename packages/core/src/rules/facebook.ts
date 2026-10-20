@@ -33,9 +33,21 @@ const reelsFeedEntries = REELS_FEED_HREF_PREFIXES.flatMap((origin) => [
 const selectors = Object.freeze([
   'nav a[aria-label="Reels"]',
   'nav li:has(> a[aria-label="Reels"])',
+  // A feed article whose own direct child is a Reel link. Home no longer renders feed or article
+  // roles (19 Oct 2026), but the Groups feed (/groups/feed/) and search results still do, so these
+  // stay for those layouts.
   '[role="feed"] [role="article"]:has(> a[href^="/reel/"])',
   '[role="feed"] [role="article"]:has(> a[href^="/reels/"])',
   'div[data-virtualized] > div:has(div[role="grid"][aria-label="Reels"]):not(:has([data-virtualized]))',
+  // ISS-0091: a single Reel post in a feed (Home, a Page, the Groups feed, search), captured 19 Oct
+  // 2026. Every feed item is its own div[data-virtualized] unit; a Reel post's unit holds a video
+  // and a link to a Facebook Reel (/reel/<id>, relative or absolute): its own "N second Reel" link,
+  // its timestamp, or its comments' permalinks. Plain posts and shared Stories carry no Reel link,
+  // a text post that only links a Reel has no video, and a Reel link in the post's own caption
+  // (Facebook's story_message box) never counts, so those all stay. Some Home Reel posts show their
+  // Reel link only once the pointer reaches the timestamp; until then nothing marks them as Reels,
+  // so they stay visible until that moment. Hides the unit's child, like the shelf rule above.
+  'div[data-virtualized] > div:has(:is(a[href^="/reel/"], a[href*="facebook.com/reel/"]):not([data-ad-rendering-role="story_message"] *)):has(video):not(:has([data-virtualized]))',
   'a[role="tab"][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"]) > *',
   '[role="menu"] a[role="menuitemradio"][aria-checked][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"])',
   '[role="tab"][aria-label^="Reels," i] > *',

@@ -60,6 +60,7 @@
         "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
         "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
         "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+        "div[data-virtualized] > div:has(:is(a[href^=\"/reel/\"], a[href*=\"facebook.com/reel/\"]):not([data-ad-rendering-role=\"story_message\"] *)):has(video):not(:has([data-virtualized]))",
         "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
         "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
         "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",

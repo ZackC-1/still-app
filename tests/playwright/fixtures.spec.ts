@@ -565,9 +565,20 @@ test("facebook home: the whole Reels shelf goes, header included, and every othe
     "keep-outer-unit-post",
     "keep-shallow-feed-post",
     "keep-article",
+    "keep-video-post",
+    "keep-caption-reel-post",
+    "keep-story-ring-post",
+    "keep-text-reel-link-post",
   ]) {
     await expect(page.locator(`#${id}`), id).toBeVisible();
   }
+  // ISS-0091: single Reel posts in today's feed units go too (the packaged stylesheet and the
+  // engine both carry the rule). A Home Reel post with no Reel link yet stays until its timestamp
+  // link turns into the Reel's address, then hides.
+  for (const id of ["reel-post-card", "reel-post-absolute-card"]) await expect(page.locator(`#${id}`), id).toBeHidden();
+  await expect(page.locator("#rest-reel-post-card")).toBeVisible();
+  await page.locator("#rest-reel-post-timestamp").evaluate((a) => a.setAttribute("href", "/reel/900000000403/?s=chrono"));
+  await expect(page.locator("#rest-reel-post-card")).toBeHidden();
 });
 
 // The shelf must go whichever runs first: the stylesheet hiding the card or the sweep removing its

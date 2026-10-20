@@ -171,6 +171,34 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     });
   });
 
+  it("ISS-0091: single feed Reel posts hide in today's layout; ordinary feed posts stay", () => {
+    render("facebook.html");
+    const card = (id: string) => document.getElementById(id)!;
+    const s = session();
+    const url = new URL("https://www.facebook.com/");
+    s.applyDom(DEFAULT_SETTINGS_V2, url, document);
+    for (const id of ["reel-post-card", "reel-post-absolute-card"]) expect(visible(card(id)), id).toBe(false);
+    // The unit Facebook measures keeps its own box; only its child hides.
+    for (const id of ["reel-post-unit", "reel-post-absolute-unit"]) expect(visible(card(id)), id).toBe(true);
+    for (const id of ["keep-video-post", "keep-caption-reel-post", "keep-story-ring-post", "keep-text-reel-link-post"])
+      expect(visible(card(id)), id).toBe(true);
+    // A Home Reel post at rest carries no Reel link yet, so nothing marks it: it stays...
+    expect(visible(card("rest-reel-post-card"))).toBe(true);
+    // ...until the pointer reaches its timestamp and Facebook writes the Reel's address in.
+    card("rest-reel-post-timestamp").setAttribute("href", "/reel/900000000403/?s=chrono");
+    expect(visible(card("rest-reel-post-card"))).toBe(false);
+    // A unit that wraps another unit is never the target, whatever it holds.
+    const outer = document.createElement("div");
+    outer.setAttribute("data-virtualized", "false");
+    outer.innerHTML = '<div id="keep-wrapping-child"><div data-virtualized="false"><div><span><a href="/reel/900000000410/">Invented</a></span><video></video></div></div>'
+      + '<p id="keep-wrapped-post">An ordinary post beside a nested unit</p></div>';
+    document.querySelector("main")!.append(outer);
+    expect(visible(card("keep-wrapped-post"))).toBe(true);
+    // Reels Off restores every one of them.
+    s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, url, document);
+    for (const id of ["reel-post-card", "reel-post-absolute-card", "rest-reel-post-card"]) expect(visible(card(id)), id).toBe(true);
+  });
+
   it("caption and external links do not identify an ordinary or sponsored feed card", () => {
     render("facebook.html");
     for (const id of ["keep-article", "keep-sponsored-post"]) {

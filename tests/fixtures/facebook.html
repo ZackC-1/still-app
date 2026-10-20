@@ -270,6 +270,52 @@
           <div role="article" id="keep-outer-unit-post">An ordinary post beside a nested unit</div>
         </div>
       </div>
+      <!--
+        ISS-0091: single feed posts as recorded signed in on 2026-10-19 (people, captions and
+        Facebook's tracking queries replaced). Home no longer renders feed or article roles; each
+        post is its own div[data-virtualized] unit. A Reel post holds a video and a link to the
+        Reel (its "N second Reel" link or its timestamp), relative or absolute. Some Home Reel
+        posts show that link only once the pointer reaches the timestamp: until then the timestamp
+        href is a bare tracking query. Plain photo and video posts, posts with a Story ring, a
+        Reel link in a post's own caption, and a text post that only links a Reel all stay.
+      -->
+      <div data-virtualized="false" id="reel-post-unit">
+        <div id="reel-post-card">
+          <div><span><a href="/inventedpage/">An invented Page</a></span></div>
+          <div><span><a href="/reel/900000000401/?s=feed" aria-label="16 second Reel">An invented Reel caption</a></span></div>
+          <div data-video-id="900000000401"><div role="button" aria-label="Video player"><video></video></div></div>
+        </div>
+      </div>
+      <div data-virtualized="false" id="reel-post-absolute-unit">
+        <div id="reel-post-absolute-card">
+          <div><span><a href="/inventedpage2/">Another invented Page</a></span></div>
+          <div data-video-id="900000000402"><div role="button" aria-label="Video player"><video></video></div></div>
+          <div><span><a href="https://www.facebook.com/reel/900000000402/?comment_id=1">2d</a></span></div>
+        </div>
+      </div>
+      <div data-virtualized="false" id="rest-reel-post-unit">
+        <div id="rest-reel-post-card">
+          <div><span><a href="/inventedperson/?__cft__[0]=invented">An invented person</a></span></div>
+          <div><span><a id="rest-reel-post-timestamp" href="?__cft__[0]=invented">5h</a></span></div>
+          <div data-video-id="900000000403"><div role="button" aria-label="Video player"><video></video></div></div>
+        </div>
+      </div>
+      <div data-virtualized="false" id="keep-video-post-unit">
+        <div id="keep-video-post"><span><a href="/inventedpage/videos/900000000404/">An ordinary video</a></span>
+          <div data-video-id="900000000404"><video></video></div></div>
+      </div>
+      <div data-virtualized="false" id="keep-caption-reel-unit">
+        <div id="keep-caption-reel-post"><span><a href="/inventedperson2/">Invented person two</a></span>
+          <div data-ad-rendering-role="story_message"><span>Also watch <a href="/reel/900000000405/">this invented Reel</a></span></div>
+          <div data-video-id="900000000406"><video></video></div></div>
+      </div>
+      <div data-virtualized="false" id="keep-story-ring-unit">
+        <div id="keep-story-ring-post"><span><a href="/stories/900000000407/">An invented Story ring</a></span>
+          <span><a href="/photo/?fbid=900000000408">An invented photo</a></span></div>
+      </div>
+      <div data-virtualized="false" id="keep-text-reel-link-unit">
+        <div id="keep-text-reel-link-post"><span>Look at <a href="/reel/900000000409/">this invented Reel</a></span></div>
+      </div>
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
       <div role="article" id="keep-article">A normal status update</div>
       <div role="article" id="keep-lookalike-article">

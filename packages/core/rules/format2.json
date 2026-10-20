@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.16",
+  "version": "3.0.17",
   "services": {
     "youtube": {
       "matches": [
@@ -184,6 +184,7 @@
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+            "div[data-virtualized] > div:has(:is(a[href^=\"/reel/\"], a[href*=\"facebook.com/reel/\"]):not([data-ad-rendering-role=\"story_message\"] *)):has(video):not(:has([data-virtualized]))",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
@@ -274,6 +275,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "c70d8e78d5fda4eefadf9f0adee8d752cc04b686c62e4fa721d70240c559f355288f6982f8ca13eba2c8f6bafa1f9eb2dde26c735e8061c3a917a33741b0e900"
+    "value": "46facb99e7fec3d5c70ab4dc5659d41c2c683a0aaa8c369d0deed0dfef298ba32dc96d93c3a538a0074f460e18697c3bb704deb53e23cc6d88a3b2aa2851d60c"
   }
 }
