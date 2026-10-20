@@ -104,8 +104,10 @@ carousels (no reel cards) visible; a changed depth or label fails open.
 
 ## The top tab bar (ISS-0102, 20 Oct 2026)
 
-The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labelled `Home, 1 of 6` …
-`Reels, 4 of 6`, each with an inline width (one sixth of the bar) and `margin-left`; no links. The
+The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labelled `feed, 1 of 6`
+(live: `feed, 1,755 new, 1 of 6`), `friends, 2 of 6`, `messages, 3 of 6`, `reels, 100 new, 4 of 6`,
+`notifications, 5 of 6`, `marketplace, 6 of 6`, each with an inline width (one sixth of the bar) and
+`margin-left`, stacked in a column and pulled up with `margin-top:-50px`; no links. The
 Reels tab's contents are hidden (issue #58), so it kept a 65 px empty slot and its share of the line
 under the bar was missing. `display:none` or `width:0` on the tab moves nothing, because the others
 are placed by their own margins. The packaged layout (`FACEBOOK_REELS_LAYOUT`, code, not rule data)
