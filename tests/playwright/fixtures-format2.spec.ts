@@ -142,6 +142,12 @@ const instagram = [
   ["instagram current desktop menu and profile", "instagram-profile.html", "https://www.instagram.com/someuser/",
     ["#menu-reels", "#profile-reels-tab-slot", "#grid-reel-1", "#grid-reel-2", "#grid-reel-3", "#grid-reel-4",
       "#grid-reel-5", "#grid-reel-6"], null],
+  // A standalone post page is the profile's post viewer, so its "More posts from" grids are laid out
+  // like the profile grid; a section of only Reels goes whole, heading included (ISS-0099).
+  ["instagram post page related posts", "instagram-post.html", "https://www.instagram.com/someuser/p/Post0001/",
+    ["#related-reels-only", "#related-mixed-reel-1", "#related-mixed-reel-2", "#related-mixed-reel-3", "#related-mixed-reel-4"],
+    ["#keep-post", "#keep-post-actions", "#keep-post-time", "#keep-post-comment-link", "#keep-related-mixed",
+      "#keep-related-mixed-account", "#keep-related-mixed-post-1", "#keep-related-mixed-post-2"]],
 ] as const;
 
 for (const [name, file, url, targets, keep] of instagram)

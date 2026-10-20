@@ -57,6 +57,22 @@ const ROW = `${GRID} > div:has(> div > a[href^="/"])`;
 const PROFILE_REEL_TILE = `${PROFILE} ${ROW} > div:has(> a[href^="/"][href*="/reel/"])`;
 
 /**
+ * A standalone post page's "More posts from <user>" section (captured 20 Oct 2026). The page's
+ * address is the profile's post viewer (/<user>/p/<code>/), so the profile mark is on, and the
+ * section's tile rows have the profile grid's shape, so its Reel tiles go with PROFILE_REEL_TILE
+ * and the remaining posts close up. The section is a box of two children: a heading box (the
+ * "More posts from" line with the account link) followed by a wrapper holding the column. When
+ * every tile is a Reel the heading would stand over nothing (ISS-0099), so the whole section goes:
+ * the two-child shape with a Reel tile at the column's depth and no post link anywhere in it. A
+ * profile's own grid never has that shape (its wrappers hold the column alone, its tabs row and
+ * header sit above it) and must never be hidden: Instagram keeps loading it as the page scrolls,
+ * and a hidden column cannot be measured (ISS-0053).
+ */
+const RELATED_POSTS_REELS_ONLY = `${PROFILE} div:not([role="dialog"] *, article *)`
+  + ':has(> div + div > div > div > div > div > a[href^="/"][href*="/reel/"])'
+  + ':not(:has(a[href^="/"][href*="/p/"], [role="tablist"], header))';
+
+/**
  * Sets the profile mark on the document root while the address is a profile page. Not
  * address-scoped (no per-change address re-read on browsers without the Navigation API): a mark
  * that outlives the profile by one URL poll is harmless, because only a profile grid's structure
@@ -184,6 +200,8 @@ const selectors = Object.freeze([
   PROFILE_REEL_TILE,
   // Explore's Reel tiles: the whole tile box. Explore stays; its Reels do not (ISS-0064).
   EXPLORE_REEL_TILE,
+  // A post page's related-posts section holding only Reels: heading and tiles together (ISS-0099).
+  RELATED_POSTS_REELS_ONLY,
 ]);
 
 export const INSTAGRAM_REELS_RULES: ServiceRulesV2 = Object.freeze({

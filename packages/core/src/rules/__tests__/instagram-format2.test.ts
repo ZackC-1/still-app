@@ -37,6 +37,14 @@ const layouts = [
       "explore-reel-6", "explore-reel-7", "explore-reel-8", "explore-reel-9", "explore-reel-10"],
     ["explore-grid"],
   ],
+  [
+    // A standalone post page: its "More posts from" sections are laid out like the profile grid.
+    // One of only Reels goes whole, heading included; a mixed one keeps its heading and posts
+    // (ISS-0099). The post itself, with its timestamp and comment links, stays.
+    "instagram-post.html",
+    ["related-reels-only", "related-mixed-reel-1", "related-mixed-reel-2", "related-mixed-reel-3", "related-mixed-reel-4"],
+    ["keep-related-mixed-grid"],
+  ],
 ] as const;
 const visible = (node: Element) => {
   for (let at: Element | null = node; at; at = at.parentElement)
@@ -46,7 +54,7 @@ const visible = (node: Element) => {
 function render(file: string) {
   // The content script's marker hook sets the profile mark from the address; the profile fixture
   // stands for a profile page.
-  document.documentElement.toggleAttribute(INSTAGRAM_PROFILE_MARKER.attribute, file === "instagram-profile.html");
+  document.documentElement.toggleAttribute(INSTAGRAM_PROFILE_MARKER.attribute, file === "instagram-profile.html" || file === "instagram-post.html");
   document.documentElement.toggleAttribute(INSTAGRAM_EXPLORE_MARKER.attribute, file === "instagram-explore.html");
   document.body.innerHTML = new DOMParser().parseFromString(
     readFileSync(resolve("../../tests/fixtures", file), "utf8"),
@@ -415,6 +423,24 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       expect(getComputedStyle(node).flexWrap, id).not.toBe("wrap");
       expect(visible(node), id).toBe(true);
     }
+  });
+  it("a post page's related posts: a section of only Reels goes whole, a mixed one keeps its heading and posts (ISS-0099)", () => {
+    render("instagram-post.html");
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/p/Post0001/"), document);
+    expect(visible(document.getElementById("related-reels-only")!)).toBe(false);
+    for (const id of ["keep-related-mixed", "keep-related-mixed-account", "keep-related-mixed-post-1", "keep-related-mixed-post-2"])
+      expect(visible(document.getElementById(id)!), id).toBe(true);
+    for (const id of ["related-mixed-reel-1", "related-mixed-reel-2", "related-mixed-reel-3", "related-mixed-reel-4"])
+      expect(visible(document.getElementById(id)!), id).toBe(false);
+    // The mixed grid closes up like a profile grid, and the post's own box is untouched.
+    expect(getComputedStyle(document.getElementById("keep-related-mixed-grid")!).flexWrap).toBe("wrap");
+    for (const id of ["keep-post", "keep-post-actions", "keep-post-time", "keep-post-comment-link"])
+      expect(visible(document.getElementById(id)!), id).toBe(true);
+    // A profile's own grid never has the section's shape, even while only its Reel tiles are rendered.
+    render("instagram-profile.html");
+    for (const link of document.querySelectorAll('#profile-grid a[href*="/p/"]')) link.parentElement!.remove();
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/"), document);
+    for (const id of ["profile-grid", "profile-tabs", "keep-profile-header"]) expect(visible(document.getElementById(id)!), id).toBe(true);
   });
   it("profile rules stay off pages without the profile mark (Home, Explore, posts, search)", () => {
     render("instagram-profile.html");
