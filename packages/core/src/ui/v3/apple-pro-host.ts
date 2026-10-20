@@ -57,6 +57,13 @@ export interface AppleProHostDeps {
   chooseOtherAccount(): Promise<void>;
   publish(): void;
   operationId?(): string;
+  /** ISS-0104: keeps the server's "owned_elsewhere" answers (account id to purchaser revision)
+   * across launches, so a relaunch states the fact instead of offering Link again. Absent, the
+   * memory lasts the process. A read that throws or returns junk counts as empty. */
+  heldElsewhereMemory?: {
+    read(): string | null | undefined;
+    write(value: string): void;
+  };
 }
 /** The two lines the sign-in sheet adds when Get Still Pro opened it (ISS-0071, option B). */
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
@@ -82,6 +89,24 @@ export function appleProOwnership(
 }
 
 /** Thin host state for the shared D18/D24/D25 screens. Store feedback never establishes rights. */
+/** ISS-0104: the remembered "owned_elsewhere" answers, account id to purchaser revision. Anything
+ * unreadable (a thrown read, non-JSON, a non-object, a non-number) is treated as empty. */
+function readHeldElsewhere(
+  memory: AppleProHostDeps["heldElsewhereMemory"],
+): Map<string, number> {
+  const held = new Map<string, number>();
+  try {
+    const raw = memory?.read();
+    if (typeof raw !== "string") return held;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return held;
+    for (const [account, revision] of Object.entries(parsed))
+      if (typeof revision === "number" && Number.isFinite(revision)) held.set(account, revision);
+  } catch {
+    // Unreadable memory is empty memory.
+  }
+  return held;
+}
 export function createAppleProHost(deps: AppleProHostDeps) {
   let stopped = false;
   let epoch = 0;
@@ -143,6 +168,39 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     const holder = eligiblePurchase?.linkedAccount;
     return typeof holder === "string" && holder === deps.account()?.id;
   };
+  /** ISS-0104: the purchase is linked to a different account, so there is nothing to offer this
+   * one and the card says so instead of asking. Native names such an account only when it holds
+   * a proof for it (it never holds another account's proofs), so in practice this is the server's
+   * own "owned_elsewhere" answer to a link from this account at this purchaser revision. A sign-in
+   * as another account, a new revision (the holder moved it) or a proof naming this account ends it.
+   * No transfer screen this release (owner, 20 Oct): the holder's own sign-in is how it moves. */
+  const heldElsewhere = readHeldElsewhere(deps.heldElsewhereMemory);
+  const writeHeldElsewhere = () => {
+    try {
+      deps.heldElsewhereMemory?.write(JSON.stringify(Object.fromEntries(heldElsewhere)));
+    } catch {
+      // A refused write keeps the process memory only.
+    }
+  };
+  const rememberHeldElsewhere = (account: string, revision: number) => {
+    heldElsewhere.set(account, revision);
+    writeHeldElsewhere();
+  };
+  /** An answer that disproves the memory for this account (native's proof names it, or a link
+   * went through) drops its entry, so the memory holds only accounts still refused. */
+  const forgetHeldElsewhere = (account: string) => {
+    if (heldElsewhere.delete(account)) writeHeldElsewhere();
+  };
+  const linkedElsewhere = () => {
+    const current = deps.account();
+    if (!current || !eligiblePurchase) return false;
+    const holder = eligiblePurchase.linkedAccount;
+    // Native's own proof decides first, either way: it names this account, so nothing is held
+    // elsewhere whatever the memory says; it names another, so it is.
+    if (typeof holder === "string") return holder !== current.id;
+    return heldElsewhere.get(current.id) === eligiblePurchase.ownershipRevision;
+  };
+  const elsewhereCard = (account: AppleProAccount) => ({ state: "elsewhere" as const, email: account.email });
   function clearLink() {
     linkGeneration++;
     link = undefined;
@@ -201,6 +259,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       linkingRequested = false;
       linkSignInAsked = false;
       link = { state: "linked", email: linkAccount.email };
+    }
+    // ISS-0104: linked to a different account: a pending confirmation is withdrawn and the card
+    // says where the purchase is; nothing is offered until the account or the revision changes.
+    // Once it is no longer held elsewhere (the holder moved it, or native's proof now names this
+    // account) the card leaves; linked here offers nothing, anything else offers as usual.
+    const current = deps.account();
+    if (current && linkedHere()) forgetHeldElsewhere(current.id);
+    if (current?.confirmed && linkedElsewhere() && (!link || link.state === "confirm")) {
+      linkGeneration++;
+      linkingRequested = false;
+      linkSignInAsked = false;
+      linkAccount = { ...current };
+      link = elsewhereCard(current);
+    } else if (link?.state === "elsewhere" && !linkedElsewhere()) {
+      clearLink();
     }
     changed();
     if (offer) offerRequestedLink();
@@ -518,6 +591,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         changed();
         return;
       }
+      if (account?.confirmed && linkedElsewhere()) {
+        // ISS-0104: the purchase is another account's; say so, offer nothing.
+        linkingRequested = false;
+        linkSignInAsked = false;
+        linkAccount = { ...account };
+        link = elsewhereCard(account);
+        changed();
+        return;
+      }
       if (!account?.confirmed) {
         // Asked once per request: every later re-read must not reopen the sheet.
         if (!linkSignInAsked) {
@@ -624,10 +706,19 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       });
       if (stopped || generation !== linkGeneration || !sameAccount(account))
         return;
-      link =
-        result.status === "linked" || result.status === "already_linked"
-          ? { state: "linked", email: account.email }
-          : { state: "failed", email: account.email, onRetry };
+      if (result.status === "owned_elsewhere") {
+        // ISS-0104: held by another account at this revision; remembered for this account so the
+        // offer does not come back, and shown as a fact rather than a failure with Try again.
+        rememberHeldElsewhere(account.id, eligible!.ownershipRevision);
+        link = elsewhereCard(account);
+      } else {
+        if (result.status === "linked" || result.status === "already_linked")
+          forgetHeldElsewhere(account.id);
+        link =
+          result.status === "linked" || result.status === "already_linked"
+            ? { state: "linked", email: account.email }
+            : { state: "failed", email: account.email, onRetry };
+      }
       // Link failure does not touch the independent local proof lane.
     } catch {
       if (!stopped && generation === linkGeneration && sameAccount(account))
@@ -677,7 +768,22 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       epoch++;
       busy = false;
-      if (linkAccount && !sameAccount(linkAccount)) clearLink();
+      if (linkAccount && !sameAccount(linkAccount)) {
+        // ISS-0104: the elsewhere card is a fact about the account, not about one session
+        // revision; the same signed-in account (id and address) keeps it and only re-settles.
+        const current = deps.account();
+        if (
+          link?.state === "elsewhere" &&
+          current?.confirmed &&
+          current.id === linkAccount.id &&
+          current.email === linkAccount.email
+        ) {
+          linkAccount = { ...current };
+          link = elsewhereCard(current);
+        } else {
+          clearLink();
+        }
+      }
       if (linkingRequested && !linkAccount && deps.account()?.confirmed)
         void requestLink();
       const current = deps.account();
@@ -811,6 +917,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         owner() === "owned" &&
         eligiblePurchase !== null &&
         !linkedHere() &&
+        !linkedElsewhere() &&
         !link
       );
     },

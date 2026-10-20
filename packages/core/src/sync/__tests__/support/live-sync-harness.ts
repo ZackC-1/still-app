@@ -63,8 +63,14 @@ function field(settings: SettingsV2, path: SettingsField): boolean {
   if (path === "globalOn") return settings.globalOn;
   return (path.startsWith("services.") ? settings.services[path.slice(9)] : settings.sites[path.slice(6)]) as boolean;
 }
+export type RealtimeStatus = "SUBSCRIBED" | "CHANNEL_ERROR" | "CLOSED" | "TIMED_OUT";
 export async function client(server: ReturnType<typeof canonicalServer>, routeProfile: BackendRouteProfile = "shared-hosted-sandbox",
-  storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 })) {
+  storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 }),
+  transport: {
+    readonly latencyMs?: number;
+    /** The first status the change-notification channel reports; absent, it never reports one. */
+    readonly realtime?: RealtimeStatus;
+  } = {}) {
   const writer = new AtomicSettingsWriter(storage);
   const cache = new SettingsCache({ get: () => storage.get(), set: r => writer.replace(r).then(() => undefined),
     subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer), initializeAtomic: writer.initialize.bind(writer),
@@ -78,12 +84,21 @@ export async function client(server: ReturnType<typeof canonicalServer>, routePr
     expect(name).toBe(routeProfile === "shared-hosted-sandbox" ? "qa-sandbox-sync-settings" : "sync-settings");
     const read = (options.body as { action?: string }).action === "read";
     if (read) reads.push(Date.now()); else writes.push(structuredClone(options.body));
+    // A hosted settings call takes time (about 800 ms observed); fake timers advance through it.
+    if (transport.latencyMs) await new Promise(resolve => setTimeout(resolve, transport.latencyMs));
     if (!online) return { data: null, error: new Error("offline") };
     const data = activeServer.exchange(options.body);
     if (read && held) { const pending = held; held = null; pending.started(); await pending.wait; }
     return { data, error: null };
   });
-  const channel = vi.fn(() => ({ on() { return this; }, subscribe() { return this; }, unsubscribe() {} }));
+  // Notifications themselves are never delivered: these clients prove the HTTP fallback read.
+  let reportStatus: ((status: RealtimeStatus) => void) | null = null;
+  const channel = vi.fn(() => ({ on() { return this; }, subscribe(callback?: (status: RealtimeStatus) => void) {
+    reportStatus = callback ?? null;
+    const first = transport.realtime;
+    if (first) void Promise.resolve().then(() => reportStatus?.(first));
+    return this;
+  }, unsubscribe() {} }));
   const backend = new SupabaseBackendPort({ functions: { invoke }, channel, removeChannel: async () => "ok",
     from: () => ({ select: () => ({ maybeSingle: async () => ({ data: { still_sync: false }, error: null }) }) }),
   } as unknown as SupabaseClient, { modernSettings: true, routeProfile });
@@ -102,6 +117,8 @@ export async function client(server: ReturnType<typeof canonicalServer>, routePr
   return { service, cache, storage, writer, binding, channel, reads, writes, events,
     observeState(receive: (state: SyncState) => void) { receiveState = receive; receive(service.getState()); },
     setOnline(value: boolean) { online = value; },
+    /** Report a channel status, as Supabase Realtime does when a join succeeds or drops. */
+    reportRealtime(status: RealtimeStatus) { reportStatus?.(status); },
     setAccount(value: string, nextServer = server) { account = value; activeServer = nextServer; },
     holdRead() {
       let started!: () => void, release!: () => void;

@@ -2,6 +2,8 @@ import { assertEquals, assertRejects } from "@std/assert";
 import type { VerifiedAppleTransaction } from "./apple-access.ts";
 import type { AccountRight, CommittedAccess } from "./access-issuer.ts";
 import { QaSandboxAccessRightStore, QaSandboxAppleAccessStore, QaSandboxPgRateLimiter } from "./qa-sandbox-store.ts";
+import { CodedError } from "./coded-error.ts";
+import postgres from "postgres";
 
 type Sql = ConstructorParameters<typeof QaSandboxAccessRightStore>[0];
 const HOLDER = "11111111-1111-1111-1111-111111111111";
@@ -242,4 +244,32 @@ Deno.test("QA limiter rejects malformed waits and hides raw driver address/accou
   assertEquals(thrown.cause, undefined);
   assertEquals(Object.keys(thrown), ["code"]);
   assertEquals(await new QaSandboxPgRateLimiter(mockSql([{ wait: 0 }]).sql).consume(`reconcile:user:${HOLDER}`, 10, 60), 0);
+});
+
+/** The driver's error for a plpgsql `raise exception '<text>' using errcode='<code>'`. */
+const raised = (message: string, code = "42501") => new postgres.PostgresError({ message, code, severity: "ERROR" } as never);
+
+Deno.test("QA limiter reports a not-admitted account (no QA membership row) as its own code, not an outage", async () => {
+  const thrown = await assertRejects(() => new QaSandboxPgRateLimiter(mockSql([], raised("QA account unavailable")).sql)
+    .consume(`reconcile:user:${HOLDER}`, 10, 60), CodedError);
+  assertEquals([thrown.code, thrown.message], ["qa_subject_unavailable", "QA account not admitted"]);
+  // The server-role refusal shares SQLSTATE 42501 but is a deployment fault; other faults stay faults.
+  for (const fault of [raised("QA server role required"), raised("server role required"), raised("QA account unavailable", "P0001"),
+    Object.assign(new Error("QA account unavailable"), { code: "08006" })]) {
+    const other = await assertRejects(() => new QaSandboxPgRateLimiter(mockSql([], fault).sql).consume(`reconcile:user:${HOLDER}`, 10, 60), CodedError);
+    assertEquals(other.code, "rate_limiter_unavailable");
+  }
+});
+
+Deno.test("QA Apple link and account confirmation report a not-admitted account without the driver error", async () => {
+  const link = { holder: HOLDER, operation: OPERATION, expectedRevision: 0 };
+  for (const message of ["QA account unavailable", "QA membership disabled"]) {
+    const commit = await assertRejects(() => new QaSandboxAppleAccessStore(mockSql([], raised(message)).sql).commit(TX, TOKEN, link), CodedError);
+    assertEquals(commit.code, "qa_subject_unavailable");
+    const confirm = await assertRejects(() => new QaSandboxAppleAccessStore(mockSql([], raised(message)).sql).confirm(TX, TOKEN, ACCOUNT), CodedError);
+    assertEquals(confirm.code, "qa_subject_unavailable");
+  }
+  // Any other SQL failure is untouched, so the route still fails closed.
+  const fault = raised("Apple retry changed", "P0001");
+  assertEquals(await assertRejects(() => new QaSandboxAppleAccessStore(mockSql([], fault).sql).commit(TX, TOKEN, link)), fault);
 });
