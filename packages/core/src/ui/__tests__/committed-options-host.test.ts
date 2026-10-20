@@ -20,6 +20,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { STRINGS } from "../strings.js";
 import { formatSyncTime } from "../v3/sync-time.js";
 import App from "../App.svelte";
+import { SUPPORT_EMAIL } from "../config.js";
 import {
   requireModernSettings,
   type StoredSettingsRecord,
@@ -427,7 +428,11 @@ describe("options loader failure recovery actions", () => {
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     await fireEvent.click(screen.getByRole("button", { name: "Setup guide" }));
     // ISS-0112: the address is plain selectable text under the button.
-    expect(screen.getByText("support@stillapp.fit").tagName).toBe("P");
+    expect(screen.getByText(SUPPORT_EMAIL).tagName).toBe("P");
+    expect(
+      screen.getByRole("button", { name: "Contact support" })
+        .nextElementSibling?.textContent,
+    ).toBe(SUPPORT_EMAIL);
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );

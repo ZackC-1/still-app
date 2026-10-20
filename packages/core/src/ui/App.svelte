@@ -898,7 +898,7 @@
         disabled={!settingsHost.help.onSupport}
         onclick={settingsHost.help.onSupport}>Contact support</button
       >
-      <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
+      <p class="muted syncrow-sub">{SUPPORT_EMAIL}</p>
       <button
         type="button"
         class="link"
