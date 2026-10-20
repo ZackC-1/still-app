@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook phone Home feed fixture (Stories tray)</title>
+  </head>
+  <body>
+    <!--
+      m.facebook.com Home in iPhone Safari, captured signed in on 20 Oct 2026 (ISS-0101), reduced to
+      roles, generic labels, data attribute names and nesting. No main region, no virtualised
+      wrapper, no Story links. The feed is the vscroller; each row is one direct child. The Stories
+      tray row holds a horizontal scroller four levels down whose cards are buttons: the person's own
+      "Create story" card, then "View <name> story. N new story" cards. Invented text throughout; the
+      selector family is an UNVERIFIED candidate until the live structural check (E0) confirms it.
+    -->
+    <div data-type="vscroller" id="keep-vscroller">
+      <div id="keep-header-row"><div><span>facebook</span></div></div>
+      <div role="tablist" id="keep-top-tabs">
+        <div role="tab" id="keep-tab-home" aria-label="feed, 1 of 6">Home</div>
+        <div role="tab" id="keep-tab-notifications" aria-label="Notifications, 5 of 6">Notifications</div>
+      </div>
+      <div id="keep-composer-row"><div><div role="button" aria-label="What's on your mind?">What's on your mind?</div><div role="button" aria-label="Photo">Photo</div></div></div>
+
+      <div id="target-stories-row" data-srat="1">
+        <div><div>
+          <div style="overflow: hidden">
+            <div data-is-h-scrollable="true" data-scrollable="true" id="target-stories-scroller">
+              <div id="target-story-create"><div><div role="button" aria-label="Create story" data-focusable="true"><span>Create story</span></div></div></div>
+              <div id="target-story-card-1"><div><div role="button" aria-label="View Invented Person story. 1 new story" data-focusable="true" data-action-id="1"><span>Invented Person</span></div></div></div>
+              <div id="target-story-card-2"><div><div role="button" aria-label="View Invented Page story. 2 new stories" data-focusable="true" data-action-id="2"><span>Invented Page</span></div></div></div>
+            </div>
+          </div>
+          <div></div>
+        </div></div>
+      </div>
+      <div id="divider-row"></div>
+
+      <!-- An ordinary post: its author line carries a story ring button, not inside a scroller. -->
+      <div id="keep-post-row">
+        <div><div><div><div>
+          <div role="button" aria-label="View Invented Person story" id="keep-post-story-ring"><span>ring</span></div>
+          <span>Invented Person</span><span>An invented post</span>
+        </div></div></div></div>
+      </div>
+
+      <!-- The Home feed's Reels section: a heading and a scroller of "View reel video" buttons. The free
+           Reels control owns it (hidden while Reels is On); the Stories control must leave it alone. -->
+      <div id="free-reels-row">
+        <div><div><div><h2>Reels</h2></div>
+          <div style="overflow: hidden"><div data-is-h-scrollable="true">
+            <div><div><div role="button" aria-label="View reel video from Invented Person" id="free-reel-card-1"><span>reel</span></div></div></div>
+          </div></div>
+        </div></div>
+      </div>
+
+      <!-- People you may know: a scroller of profile buttons. -->
+      <div id="keep-pymk-row">
+        <div><div><div style="overflow: hidden"><div data-is-h-scrollable="true">
+          <div><div><div role="button" aria-label="Invented Person, Add friend" id="keep-pymk-card"><span>Add friend</span></div></div></div>
+        </div></div></div></div>
+      </div>
+    </div>
+  </body>
+</html>

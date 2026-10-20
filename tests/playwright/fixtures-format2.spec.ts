@@ -492,12 +492,35 @@ test("format-2 facebook: a shared Reel still opens and plays; its player's feed 
   await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
 });
 
-test("format-2 facebook mobile: Reels hidden and retained, the tab keeps its slot, Off restores", async ({ context, extensionId }) => {
+test("format-2 facebook mobile: Reels hidden and retained, the top bar closes up around the hidden Reels tab, Off restores", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile.html"));
   await page.goto("https://m.facebook.com/");
   await expectFormat2Lane(page);
   await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
+  // ISS-0102: the tab is invisible and untappable, its neighbours slide half a tab towards it.
+  // With the captured geometry (65 px tabs at 0, 65 and 130 px), the tab before slides to about
+  // 33 px, the tab after to about 98 px, and a tap at the old Reels slot's centre lands on the latter.
+  const layout = () => page.evaluate(() => {
+    const reels = document.getElementById("fb-mobile-reels-tab")!;
+    const r = reels.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) as HTMLElement | null;
+    const origin = document.getElementById("fb-mobile-tablist")!.getBoundingClientRect().left;
+    const left = (id: string) => Math.round(document.getElementById(id)!.getBoundingClientRect().left - origin);
+    return {
+      reels: getComputedStyle(reels).visibility,
+      reelsBox: Math.round(r.width) > 0 && Math.round(r.height) > 0,
+      hit: hit?.closest("[role=tab]")?.id ?? null,
+      before: left("keep-fb-mobile-home-tab"),
+      after: left("keep-fb-mobile-notifications-tab"),
+    };
+  });
+  const seen = await (async () => { for (let i = 0; i < 40; i++) { const v = await layout(); if (v.reels === "hidden" && v.hit === "keep-fb-mobile-notifications-tab") return v; await page.waitForTimeout(100); } return layout(); })();
+  expect(seen.reels).toBe("hidden");
+  expect(seen.reelsBox).toBe(true);
+  expect(seen.hit).toBe("keep-fb-mobile-notifications-tab");
+  expect(Math.abs(seen.before - 32.5)).toBeLessThanOrEqual(2);
+  expect(Math.abs(seen.after - 97.5)).toBeLessThanOrEqual(2);
   await expectHiddenRetainedReversible(
     page, context, extensionId,
     ["#fb-mobile-reel", "#fb-mobile-reels", "#fb-mobile-reels-tab span"],
