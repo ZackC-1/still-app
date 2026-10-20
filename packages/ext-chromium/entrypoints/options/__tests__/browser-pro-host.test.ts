@@ -37,11 +37,18 @@ afterEach(async () => {
   cleanup();
   document.body.innerHTML = "";
   vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.clear();
+  delete (navigator as { onLine?: boolean }).onLine;
 });
 
 function access(state: AccessState): BenefitAccessSnapshot {
   const value = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
   return { ...value, states: Object.fromEntries(Object.entries(value.states).map(([id, prior]) => [id, FEATURE_REGISTRY.some(row => row.id === id && row.tier === "pro") ? state : prior])) as BenefitAccessSnapshot["states"] };
+}
+
+/** The browser's network signal, as navigator.onLine and the window's online/offline events. */
+function network(online: boolean) {
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+  window.dispatchEvent(new Event(online ? "online" : "offline"));
 }
 
 function visibility(state: "visible" | "hidden") {
@@ -330,6 +337,53 @@ describe("paid-tier browser Still Pro card", () => {
     await f.lapse();
     await within(card).findByText("Still Pro needs to be verified again.");
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+  });
+
+  it("offline, Restore on an account that never bought changes nothing, and its lapse never says verify again (ISS-0090)", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    network(false);
+    // The reconcile cannot reach the server; the background still holds the known none.
+    f.set({ after: "locked", outcome: "unknown" });
+    await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
+    await screen.findByText("We couldn't finish checking. Nothing changed.");
+    expect((within(card).getByRole("button", { name: "Get Still Pro" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+    // That known none's minute then passes while still offline.
+    const reconciles = f.actions().filter(action => action === "reconcile").length;
+    await f.lapse();
+    await within(card).findByText("Still can't check right now.");
+    expect(within(card).getByText("Try again when you're online.")).toBeTruthy();
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    // The Still Pro rows keep their locks.
+    expect(screen.queryByText("Verify Still Pro to use this. Your choice is saved.")).toBeNull();
+    expect(document.querySelector('[data-access="verify"]')).toBeNull();
+    expect(document.querySelectorAll('[data-access="locked"]').length).toBeGreaterThan(0);
+    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles);
+    // Back online: the known none is renewed and Get Still Pro returns without a reload.
+    f.set({ after: "locked", outcome: "not-entitled" });
+    network(true);
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    expect(within(card).queryByText("Still can't check right now.")).toBeNull();
+    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles + 1);
+  });
+
+  it("offline, a page that cannot ask about Buy says Still can't check right now, not that it can't be bought here (ISS-0090)", async () => {
+    const f = await host({ available: false });
+    network(false);
+    render(OptionsApp);
+    const card = await region();
+    await within(card).findByText("Still can't check right now.");
+    expect(within(card).getByText("Try again when you're online.")).toBeTruthy();
+    expect(within(card).queryByText("Still Pro can't be bought here yet.")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    f.set({ available: true });
+    network(true);
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    expect(within(card).queryByText("Still can't check right now.")).toBeNull();
   });
 
   it("Restore runs the scoped re-check and reports from the access it reads", async () => {

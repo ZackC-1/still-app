@@ -63,6 +63,13 @@ function harness(options: {
 } = {}) {
   let clock = 1_000_000;
   const visible = page();
+  // The browser's network signal: navigator.onLine and the window's "online" event.
+  let isOnline = true;
+  const networkListeners = new Set<() => void>();
+  const network = {
+    addEventListener: vi.fn((_type: string, listener: () => void) => { networkListeners.add(listener); }),
+    removeEventListener: vi.fn((_type: string, listener: () => void) => { networkListeners.delete(listener); }),
+  };
   let next = { access: access(options.recheck ?? "locked"), outcome: options.outcome ?? "not-entitled" as CheckoutReconcileOutcome };
   const controller = {
     userId: ACCOUNT as string | null,
@@ -95,12 +102,16 @@ function harness(options: {
   const available = vi.fn(async () => options.available ?? true);
   const states: BrowserProState[] = [];
   const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, page: visible as unknown as BrowserProDeps["page"],
-    focus: visible.window as unknown as BrowserProDeps["focus"], now: () => clock };
+    focus: visible.window as unknown as BrowserProDeps["focus"], now: () => clock,
+    online: () => isOnline, network: network as unknown as BrowserProDeps["network"] };
   const flow = createBrowserPro(deps, state => states.push(state));
   return {
     flow, controller, checkout, available, page: visible, states, pending, tabs, record, open,
     get state() { return flow.state; },
     advance(ms: number) { clock += ms; },
+    networkListeners,
+    offline() { isOnline = false; },
+    reconnect() { isOnline = true; for (const listener of [...networkListeners]) listener(); },
     answer(state: AccessState, outcome: CheckoutReconcileOutcome = "not-entitled") { next = { access: access(state), outcome }; },
     observe(ownership: ProOwnership, userId: string | null = ACCOUNT) {
       controller.userId = userId;
@@ -480,6 +491,132 @@ describe("the browser Still Pro flow", () => {
       const h = harness();
       h.flow.stop();
       expect(h.page.focusListeners.size).toBe(0);
+    });
+  });
+
+  describe("an offline browser (ISS-0090)", () => {
+    it("keeps a known none that goes stale while offline: no re-check, never verify again", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.offline();
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+      expect(h.state.offlineNone).toBe(true);
+      expect(h.state.renewing).toBe(false);
+      // Showing or focusing the page while offline asks nothing either.
+      h.page.show("hidden"); h.page.show("visible"); h.page.focus(); await settle();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+      expect(h.state.offlineNone).toBe(true);
+      // Another account's answer is a new one.
+      h.observe("verify", OTHER); await settle();
+      expect(h.state.offlineNone).toBe(false);
+    });
+
+    it("back online, renews it, and the card offers Buy again", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.offline();
+      h.observe("verify"); await settle();
+      h.reconnect();
+      expect(h.state.offlineNone).toBe(false);
+      expect(h.state.renewing).toBe(true);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+      expect(h.state.renewing).toBe(false);
+      h.observe("none"); await settle();
+      expect(h.state.channel).toBe("ready");
+    });
+
+    it("back online while hidden, it is renewed when the page is shown", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.offline();
+      h.observe("verify"); await settle();
+      h.page.show("hidden");
+      h.reconnect(); await settle();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+      h.page.show("visible");
+      expect(h.state.renewing).toBe(true);
+      expect(h.state.offlineNone).toBe(false);
+      await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledOnce();
+    });
+
+    it("a renewal that fails because the browser went offline meanwhile keeps the known none", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      h.controller.recheckAccess.mockClear();
+      h.answer("verification_required", "unknown");
+      const answer = h.controller.recheckAccess.getMockImplementation()!;
+      h.controller.recheckAccess.mockImplementation(async () => { h.offline(); return answer(); });
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2); // the renewal and its one retry
+      expect(h.state.renewing).toBe(false);
+      expect(h.state.offlineNone).toBe(true);
+      h.controller.recheckAccess.mockImplementation(answer);
+      h.answer("locked");
+      h.reconnect(); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(3);
+      expect(h.state.offlineNone).toBe(false);
+    });
+
+    it("an owned answer that goes stale offline still says verify again (ISS-0077 unchanged)", async () => {
+      const h = harness();
+      h.observe("owned"); await settle();
+      h.offline();
+      h.answer("verification_required", "unknown");
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+      expect(h.state.offlineNone).toBe(false);
+      expect(h.state.renewing).toBe(false);
+      h.observe("verify"); await settle();
+      expect(h.controller.recheckAccess).toHaveBeenCalledTimes(2);
+    });
+
+    it("Restore offline on an account that never bought fails and changes nothing else", async () => {
+      const h = harness();
+      h.observe("none"); await settle();
+      expect(h.state.channel).toBe("ready");
+      h.offline();
+      // The reconcile could not reach the server; the access read still holds the known none.
+      h.answer("locked", "unknown");
+      h.flow.restore(); await settle();
+      expect(h.state.restore?.state).toBe("failed");
+      expect(h.state.channel).toBe("ready");
+      expect(h.state.purchase).toBe("idle");
+      expect(h.state.offlineNone).toBe(false);
+      // Its minute then passes offline: held, not "verify again".
+      h.observe("verify"); await settle();
+      expect(h.state.offlineNone).toBe(true);
+    });
+
+    it("a no about Buy while offline reads offline, and back online it asks again", async () => {
+      const h = harness({ available: false });
+      h.offline();
+      h.observe("none"); await settle();
+      expect(h.state.channel).toBe("offline");
+      h.available.mockResolvedValue(true);
+      h.reconnect(); await settle();
+      expect(h.available).toHaveBeenCalledTimes(2);
+      expect(h.state.channel).toBe("ready");
+    });
+
+    it("a no about Buy while online stays unavailable, and coming online asks nothing", async () => {
+      const h = harness({ available: false });
+      h.observe("none"); await settle();
+      expect(h.state.channel).toBe("unavailable");
+      h.reconnect(); await settle();
+      expect(h.available).toHaveBeenCalledOnce();
+      expect(h.controller.recheckAccess).not.toHaveBeenCalled();
+    });
+
+    it("stop removes the online listener", () => {
+      const h = harness();
+      h.flow.stop();
+      expect(h.networkListeners.size).toBe(0);
     });
   });
 
