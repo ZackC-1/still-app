@@ -119,6 +119,10 @@ export interface NativeAppleAccessRight {
   readonly expiresAt: number;
   readonly localProofIdentity: string;
   readonly status: "purchased" | "verification_required";
+  /** The account this right is linked to, as a current server-signed account proof held by the
+   * account native bound from a verified session says; null when native holds no such proof.
+   * Display only (ISS-0081): it hides the link offer and never grants or links anything. */
+  readonly linkedAccount: string | null;
 }
 export interface NativeAppleAccessObservation {
   readonly schema: 1;
@@ -780,11 +784,13 @@ export class NativeBridge {
     }
     const rights = r.rights.map(value => {
       const right = asObject(value);
-      if (!right || Object.keys(right).sort().join(",") !== "expiresAt,localProofIdentity,localRight,ownershipRevision,status,verifiedAt" ||
-        !["purchased", "verification_required"].includes(right.status as string)) {
+      if (!right || Object.keys(right).sort().join(",") !== "expiresAt,linkedAccount,localProofIdentity,localRight,ownershipRevision,status,verifiedAt" ||
+        !["purchased", "verification_required"].includes(right.status as string) ||
+        !(right.linkedAccount === null || isAccessUUID(right.linkedAccount))) {
         throw new Error("Invalid native Apple right observation");
       }
-      parseNativeAppleAccessCommit({ ...right, schema: 1, status: "committed", generation: r.generation, accountProofIdentity: null });
+      const { linkedAccount: _linkedAccount, ...signed } = right;
+      parseNativeAppleAccessCommit({ ...signed, schema: 1, status: "committed", generation: r.generation, accountProofIdentity: null });
       return right as unknown as NativeAppleAccessRight;
     });
     if (new Set(rights.map(r => r.localRight)).size !== rights.length) throw new Error("Duplicate native Apple right");
