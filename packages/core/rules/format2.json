@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.17",
+  "version": "3.0.18",
   "services": {
     "youtube": {
       "matches": [
@@ -105,7 +105,8 @@
             "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
             "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])",
-            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))"
+            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))",
+            "[data-still-instagram-profile] div:not([role=\"dialog\"], [role=\"dialog\"] *, article *):has(> div > div > a[href^=\"/\"][href$=\"/\"]:not([href*=\"/p/\"], [href*=\"/reel/\"], [href*=\"/saved/\"], [href*=\"/tagged/\"], [href*=\"/explore/\"], [href*=\"/stories/\"])):has(> div + div > div > div > div > div > a[href^=\"/\"][href*=\"/reel/\"]):not(:has(a[href^=\"/\"][href*=\"/p/\"], [role=\"tablist\"], header, section, form, textarea, time, video))"
           ]
         },
         {
@@ -278,6 +279,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "778078dc5ba71b42281519de1575738410748ffbe0d84a92832210052cf59c8837a28e3a706f55c06962be45ebddc983309afdeea42ca23172523310899e330d"
+    "value": "288262488ea0e31934f1fe1f9b2ebeb2e7c3df98b47f927cc439b2423711e53c776912d36225e3ffd1c2fd3738ccade8b263414b6c6bd9a59a19214d3db9bd09"
   }
 }
