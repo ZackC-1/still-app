@@ -4,7 +4,7 @@ import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { createAppAnalytics } from "../apple-app.js";
 import { QUEUE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
-import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics } from "../default-on.js";
+import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 
 // A V3 build: the default-on basis is compiled in (build-basis.ts reads the build flags).
@@ -276,6 +276,48 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(t.queue().length).toBeGreaterThan(0);
     expect(t.native.subject).toBeNull();
   });
+
+  it("ISS-0106: a test build signed in on iPhone sends nothing more (test_channel), until it signs out", async () => {
+    // The QA sequence: signed-out use reports, a code sign-in completes, and from then on the
+    // server answers test_channel (a test build's events go to the PostHog test project), so no
+    // identity is issued, nothing is published for the Safari extension, and everything waits on
+    // the device bound to the account. That is the designed hold, not a lost queue.
+    const invoke = vi.fn(async () => ({ data: { state: "test_channel" }, error: null }));
+    const issue = supabaseSubjectIssuer(
+      {
+        auth: { getSession: async () => ({ data: { session: { access_token: "t", user: { id: ACCOUNT } } }, error: null }) },
+        functions: { invoke },
+      },
+      "phc_test",
+    );
+    const t = setup(undefined, true, issue);
+    await launch(t);
+    t.app.ui.track("sign_in_opened", {});
+    t.app.ui.track("code_requested", {});
+    await vi.waitFor(() => expect(t.sent()).toEqual(expect.arrayContaining(["sign_in_opened", "code_requested"])), {
+      timeout: 5_000,
+    });
+    const before = t.fetch.mock.calls.length;
+
+    await t.app.identifyAccount(ACCOUNT); // the session's onAccountEntered, inside the verified code
+    t.app.ui.identify(ACCOUNT);
+    t.app.ui.track("signed_in", {});
+    t.app.ui.track("opened", { where: "app" });
+    await vi.waitFor(() => expect(t.queue()).toEqual(expect.arrayContaining(["signed_in", "opened"])));
+    await t.app.start(); // a relaunch's flush
+    await t.app.recheckSetup(); // a foreground return
+    await new Promise((r) => setTimeout(r, 1_700)); // past the client's send delay
+    expect(invoke).toHaveBeenCalledTimes(1); // asked once; the issuer then waits SUBJECT_RETRY_MS
+    expect(t.fetch.mock.calls.length).toBe(before);
+    expect(t.native.subject).toBeNull(); // the Safari extension has no identity to follow either
+
+    // Signing out lets the account go: what waited for it is dropped, and reporting resumes.
+    await t.app.ui.reset();
+    await t.app.start();
+    expect(t.fetch.mock.calls.length).toBeGreaterThan(before);
+    expect(t.sent()).not.toContain("signed_in");
+    expect(t.bodies().slice(before).join("\n")).toContain('"signed_in":false');
+  }, 15_000);
 
   it("a server stop ends sharing on this device", async () => {
     const t = setup(undefined, true, async () => ({ state: "stopped" }));
