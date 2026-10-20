@@ -38,24 +38,54 @@ onboarding, and there is a plain way to close it. First-run onboarding does not 
 8. DEBUG-only QA hook `STILL_QA_SAFARI_SETUP=1` shows the sheet after the settle time, so the
    headless simulator lane (no Simulator app to tap) can capture it.
 
+### Review follow-ups
+
+9. Rating hold: StillKit `SafariSetupSheetLifecycle` holds `RatingHold` `.setup` (a new
+   `RatingHold.hold(_:)` token that counts once and ends itself if released) from present until
+   the sheet is gone, so Apple's review sheet cannot appear over it when the person returns from
+   Settings. It ends on Close, Escape, "I've turned it on", a confirming Check again and the iPhone
+   swipe down (the sheet's hosting controller reports a dismissal in `viewDidDisappear`).
+10. Close runs once and dismisses only the sheet it presented (captured at present time), so two
+    quick taps, or Check again plus Close, never dismiss twice or pick another sheet on the Mac.
+11. Page refresh: once the sheet is gone, native dispatches the fixed DOM event
+    `still:safari-setup-closed` (StillKit `SafariSetupSheetRequest.closedEvent`, pinned to core's
+    `SAFARI_SETUP_CLOSED_EVENT`). `watchAppleSetup` re-reads the setup state on it and on window
+    focus, so the Mac's extension-off card drops without a visibility change.
+12. Wording: with Still confirmed on, the sheet's primary button reads "Done" (onboarding keeps
+    "Continue"). Check again stays visible before iOS 26.2, as on onboarding (owner copy call).
+13. The WebKit QA lane's native model answers `presentSafariSetup` the way the router does.
+
 ## Tests
 
-- StillKit: `SafariSetupSheetTests` (exact shape, trusted frame, active app, reply) and three
-  `OnboardingTests` cases for the answered check.
+- StillKit: `SafariSetupSheetTests` (exact shape, trusted frame, active app, reply),
+  `SafariSetupSheetLifecycleTests` (hold while up, close once, swipe then close, release on
+  deinit, token counts once, event name) and three `OnboardingTests` cases for the answered check.
 - Core vitest: `bridge-safari-setup-sheet.test.ts`; `AppleSettings.test.ts` (link order, click,
   disabled without opener, both platforms); `apple-settings-host.test.ts` (rendered host posts
   exactly one `presentSafariSetup` from a tap and nothing without activation, helper shape,
-  `main.ts` wiring).
+  `main.ts` wiring, re-read on the closed event and window focus, the Mac card dropping on the
+  closed event, the event name pinned to the Swift source).
+- WebKit QA lane: the shim refuses an extra key and answers `{ ok: true }`; a real click on
+  "Safari setup" posts exactly one `presentSafariSetup`.
 
 ## Verification
 
-- StillKit `swift test`: 503 tests, 0 failures.
+- StillKit `swift test`: 509 tests, 0 failures.
 - `xcodebuild build` (Debug, signing off) for "Still (iOS)" (iOS simulator) and "Still (macOS)":
   both succeed, no warnings in the changed files.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test` (core 5564 passed), `pnpm build`: pass.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` (core 5567 passed), `pnpm build`: pass.
 - `pnpm exec playwright test --project=fixtures` (unconfigured lane): 356 passed, 25 skipped.
+- WebKit QA lane (V3 opt-in builds): the two new cases pass; 21 passed, 3 failed, and the same
+  three fail on main (shipped-entry onboarding, the D12 fill diagnostic, the Safari paid-off page).
 - iOS 26 simulator (QA lane, light): the sheet renders with Close, the iOS 26.2 direct-page steps,
   Open Settings, Check again and "I've turned it on".
+
+## Residual risks
+
+- On iOS 26.2 and later Apple rate-limits the direct Safari extension page open to about two a
+  minute. The sheet is a third place that spends it (with onboarding and the extension-off card).
+- After that fallback the person lands on Still's own Settings page while the sheet's steps still
+  describe the extension page.
 
 ## Not covered
 
