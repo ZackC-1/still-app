@@ -409,9 +409,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // applied, so a live Off detaches it and nothing comes back while Off.
   // Bounds: at most ten restores a second. A page that strips them again as fast as Still restores
   // them gets three such seconds; then restoring stops until the next navigation, settings change
-  // or access change (any other reapply), so a fight costs at most thirty restores. A restore that
-  // leaves them lost (the legacy lane's redirect decision keeps its old classes) also stops until
-  // that next reapply, rather than re-running on every later class or <head> change.
+  // or access change (any other reapply), so a fight costs at most thirty restores in the format-2
+  // lane. The legacy lane re-applies on every frame that adds an element, which re-arms the cap, so
+  // there a fight is bounded by the ten-a-second window instead. A restore that leaves them lost
+  // (the legacy lane's redirect decision keeps its old classes) also stops until that next reapply,
+  // rather than re-running on every later class or <head> change.
   const rootEffects = (): "none" | "intact" | "lost" => {
     if (modern) return pageSession.ownedRootEffects?.() ?? "none";
     if (legacyRootClasses.size === 0) return "none";
