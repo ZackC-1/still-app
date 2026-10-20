@@ -60,3 +60,81 @@ final class SafariSetupSheetTests: XCTestCase {
     XCTAssertEqual(reply.count, 1)
   }
 }
+
+/// The sheet's life (ISS-0075): Apple's rating sheet stays held while it is up, and closing runs
+/// exactly once whichever way the sheet goes.
+@MainActor
+final class SafariSetupSheetLifecycleTests: XCTestCase {
+  func testTheRatingSheetIsHeldUntilTheSetupSheetCloses() {
+    let hold = RatingHold()
+    hold.report("none")
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+    var finished = 0
+    let sheet = SafariSetupSheetLifecycle(ratingHold: hold) { finished += 1 }
+    XCTAssertEqual(hold.suppression(onboardingShowing: false), .setup)
+    var dismissed = 0
+    sheet.close { dismissed += 1 }
+    XCTAssertTrue(sheet.isClosed)
+    XCTAssertEqual(dismissed, 1)
+    XCTAssertEqual(finished, 1)
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+  }
+
+  func testASecondCloseDismissesNothingAndTellsThePageNothing() {
+    let hold = RatingHold()
+    hold.report("none")
+    var finished = 0
+    var dismissed = 0
+    let sheet = SafariSetupSheetLifecycle(ratingHold: hold) { finished += 1 }
+    // Two quick Check again answers, or Check again then Close.
+    sheet.close { dismissed += 1 }
+    sheet.close { dismissed += 1 }
+    sheet.finish()
+    XCTAssertEqual(dismissed, 1)
+    XCTAssertEqual(finished, 1)
+    // A second sheet's hold is not released by the first one's extra closes.
+    let second = SafariSetupSheetLifecycle(ratingHold: hold) {}
+    sheet.close { dismissed += 1 }
+    XCTAssertEqual(hold.suppression(onboardingShowing: false), .setup)
+    second.finish()
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+  }
+
+  func testASwipeDownFinishesTheSheetAndALaterCloseDoesNothing() {
+    let hold = RatingHold()
+    hold.report("none")
+    var finished = 0
+    let sheet = SafariSetupSheetLifecycle(ratingHold: hold) { finished += 1 }
+    sheet.finish() // the system dismissed it
+    XCTAssertEqual(finished, 1)
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+    sheet.close { XCTFail("Nothing is left to dismiss") }
+    XCTAssertEqual(finished, 1)
+  }
+
+  func testASheetReleasedWithoutClosingStillReleasesTheHold() {
+    let hold = RatingHold()
+    hold.report("none")
+    var sheet: SafariSetupSheetLifecycle? = SafariSetupSheetLifecycle(ratingHold: hold) {}
+    XCTAssertEqual(hold.suppression(onboardingShowing: false), .setup)
+    XCTAssertNotNil(sheet)
+    sheet = nil
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+  }
+
+  func testAHoldTokenCountsOnce() {
+    let hold = RatingHold()
+    hold.report("none")
+    let first = hold.hold(.setup)
+    let second = hold.hold(.setup)
+    first.end()
+    first.end()
+    XCTAssertEqual(hold.suppression(onboardingShowing: false), .setup)
+    second.end()
+    XCTAssertNil(hold.suppression(onboardingShowing: false))
+  }
+
+  func testTheClosedEventName() {
+    XCTAssertEqual(SafariSetupSheetRequest.closedEvent, "still:safari-setup-closed")
+  }
+}

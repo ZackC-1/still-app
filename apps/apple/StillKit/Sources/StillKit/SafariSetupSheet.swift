@@ -36,4 +36,41 @@ public enum SafariSetupSheetRequest {
 
   /// The reply after native presented the sheet.
   public static func reply() -> [String: Any] { ["ok": true] }
+
+  /// The fixed DOM event native dispatches on the page once the sheet is gone, so the settings
+  /// screen re-reads the extension state (a sheet never hides the page, so no visibility change
+  /// tells it). Mirrors `SAFARI_SETUP_CLOSED_EVENT` in packages/core; a core test pins the two.
+  public static let closedEvent = "still:safari-setup-closed"
+}
+
+/// One Safari setup sheet, from shown to gone (ISS-0075). Apple's rating sheet is held (`.setup`)
+/// for as long as it is up, whichever way it goes: Close, Escape, "I've turned it on", a
+/// "Check again" that confirms Still is on, or a swipe down on the iPhone. Closing runs once: a
+/// second tap, or a tap after the sheet already went, dismisses nothing and tells the page nothing.
+@MainActor public final class SafariSetupSheetLifecycle {
+  private var hold: RatingHold.Token?
+  private let finished: () -> Void
+  public private(set) var isClosed = false
+
+  /// Starts holding the rating sheet. `finished` runs once, when the sheet is gone.
+  public init(ratingHold: RatingHold = .app, finished: @escaping () -> Void) {
+    hold = ratingHold.hold(.setup)
+    self.finished = finished
+  }
+
+  /// The sheet asked to close: `dismiss` runs once, then the sheet is finished.
+  public func close(dismiss: () -> Void) {
+    guard !isClosed else { return }
+    dismiss()
+    finish()
+  }
+
+  /// The sheet is gone (closed here, or dismissed by the system): ends the hold, tells the page.
+  public func finish() {
+    guard !isClosed else { return }
+    isClosed = true
+    hold?.end()
+    hold = nil
+    finished()
+  }
 }
