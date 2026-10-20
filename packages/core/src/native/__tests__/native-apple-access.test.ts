@@ -140,6 +140,10 @@ it("reads purchaser-only local provenance through its dedicated closed observati
     { schema: 1, generation: 3, rights: [(({ linkedAccount: _omitted, ...rest }) => rest)(right)] },
     { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "account@still.test" }] },
     { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: true }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "" }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: 1 }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB" }] },
   ])
     await expect(
       host(async () => reply).bridge.observeAppleLinkAccess(),

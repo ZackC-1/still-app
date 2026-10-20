@@ -42,14 +42,18 @@ answer from the server:
 - StillKit (`observeAppleAccess(wall:matching:)`) names the account only when the record holds a
   current, unrevoked, server-signed `paid_account` proof for the same right. The proof's holder must
   be the account native bound from a session that hosted Auth verified, and its ownership revision
-  must be at least the local binding's. Otherwise the field is an explicit `null`. An account proof
-  from an earlier session generation already reads as revoked.
+  must be at least the local binding's. Otherwise the field is an explicit `null`. Binding another
+  session or signing out (`changeAccessSession`/`bindSession`) deletes the earlier session's
+  account proofs, so a new session names no one until its reconcile installs them again.
 - The host (`apple-pro-host.ts`, `linkedHere`) hides the offer only when that account equals the
   account shown as signed in. If they differ, or the person is signed out, the offer works as it did
   before, and the server still decides any Link.
 - A link request that resolves to "already linked here" shows the linked status instead of asking
   for confirmation again. This happens when someone signs in from the signed-out invitation as the
-  account that already holds the right.
+  account that already holds the right, but only once the reconcile has installed that account's
+  proof. A brand-new session starts with none, so the read right after sign-in usually still says
+  "not linked" and the confirmation appears first. When a later read names this account, the host
+  turns that confirmation into the linked status and fences its Link tap.
 
 ### Why not use the reconcile acknowledgement
 
@@ -64,14 +68,24 @@ That read sits behind the same lineage and revocation fences as the rest of the 
 
 - StillKit `AppleRightBindingTests.testLinkEligibilityNamesTheBoundAccountOnlyFromItsCurrentServerProof`
   covers accountless and signed-in-without-proof (null), linked (the account), a newer local binding,
-  another account, signed out, an expired proof, and the explicit-null encoding.
+  a session change and sign-out (proofs deleted), an expired proof, and the explicit-null encoding.
+- `testLinkedAccountComesOnlyFromTheBoundAccountsCurrentProofForTheSameRight` exercises each guard
+  with the proofs still stored: the account's proof for a different right (a web purchase) names no
+  one, the reconcile's newer proof for this right names the account, and a stored proof that is
+  revoked or held by another account names no one. A revoked proof also fails the clock check
+  (`validPaid`), so the explicit `!revoked` test is defence in depth.
 - `native-apple-access.test.ts` covers the closed grammar (member required, UUID or null).
 - `apple-pro-host.test.ts` and `apple-pro-host.integration.test.ts` ("ISS-0081") cover these cases:
   linked to the signed-in account on launch (sync card's Still Pro User tag and nothing else), linked
   to another account (today's offer, and the server refuses), accountless and signed in (offer), and
-  signed out (the invitation stays; signing in as the holder shows "linked").
+  signed out (the invitation stays). Signing in as the holder with the reconcile held shows the
+  confirmation first, then "linked" once the proof arrives, without calling the server.
 
 ## Prevention
+
+- Test fixtures must deliver the answer when the device would, not earlier. The first version of
+  these tests named the account as soon as anyone signed in, which hid the confirmation-first
+  ordering that a real new session produces.
 
 - When an affordance offers an action, also ask whether the action's result already exists. Ask the
   authority that records the result, not the display state the UI keeps in memory.
