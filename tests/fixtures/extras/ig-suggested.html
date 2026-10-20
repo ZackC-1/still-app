@@ -13,7 +13,10 @@
       the "See all" link to /explore/people/; on a profile the panel is a header section with its
       own h4 heading and a carousel list. The in-feed carousel was not seen and keeps its earlier
       English-label shape. Ordinary account lists (followers, following, search, account switcher,
-      footer) and feed posts stay. No text-based targeting. Invented text and handles only.
+      footer) and feed posts stay, and so do look-alikes: an activity list whose own box holds a
+      "See all" row, a flatter right column whose box holds the switcher, the "See all" row and the
+      footer together, and profile header sections that hold the name, the counts or bio links
+      beside an h4 and a list. No text-based targeting. Invented text and handles only.
     -->
     <main role="main">
       <div id="keep-feed">
@@ -38,6 +41,19 @@
         </div>
         <footer id="keep-footer"><nav><ul><li><a href="/about/">About</a></li><li><a href="/legal/privacy/">Privacy</a></li></ul></nav></footer>
       </div>
+      <div id="keep-flat-right-column">
+        <div><a href="/inventedme2/">inventedme2</a> <a href="/accounts/switch/">Switch</a></div>
+        <div><span>Suggested for you</span><a href="/explore/people/">See all</a></div>
+        <div><a href="/inventedsuggest7/">inventedsuggest7</a> <button>Follow</button></div>
+        <footer><nav><ul><li><a href="/about/">About</a></li></ul></nav></footer>
+      </div>
+      <div id="keep-activity-panel">
+        <div id="keep-activity-list">
+          <div><a href="/inventedfriend1/">inventedfriend1</a> liked your post. <a href="/p/InvJ1/">Invented post</a></div>
+          <div><span>Suggested for you</span><a href="/explore/people/">See all</a></div>
+          <div><a href="/inventedsuggest8/">inventedsuggest8</a> <button>Follow</button></div>
+        </div>
+      </div>
       <header id="keep-profile-header">
         <div id="keep-profile-top">
           <a href="/inventeduser1/" id="keep-profile-photo">inventeduser1</a>
@@ -45,6 +61,15 @@
           <div role="button" tabindex="0" id="keep-similar-toggle">Similar accounts</div>
         </div>
         <section id="keep-profile-bio"><span>Invented bio line.</span></section>
+        <section id="keep-profile-identity">
+          <h2>inventeduser1</h2>
+          <h4>Invented category</h4>
+          <ul><li><a href="/inventeduser1/followers/">34 followers</a></li><li><a href="/inventeduser1/following/">56 following</a></li></ul>
+        </section>
+        <section id="keep-profile-bio-links">
+          <h4>Invented links</h4>
+          <ul><li><a href="https://l.instagram.com/?u=https%3A%2F%2Finvented.example%2F">invented.example</a></li></ul>
+        </section>
         <section id="target-profile-similar">
           <div>
             <div><div><h4>Suggested for you</h4></div><a href="/inventeduser1/">See all</a></div>

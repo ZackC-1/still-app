@@ -146,11 +146,18 @@ export const INSTAGRAM_EXTRAS: ServiceExtras = Object.freeze({
       // the footer and feed posts stay.
       selectors: Object.freeze([
         // Home right column: the block whose heading row holds the "See all" link to the
-        // Suggested page, heading and list together. Never a box that holds a feed post.
-        'div:has(> div > a[href="/explore/people/"]):not(:has(article))',
+        // Suggested page, heading and list together. Never a box that also holds a feed post, a
+        // post or Reel link (an activity list), a footer or nav (a flatter right column whose box
+        // also holds the account switcher and footer) or a named page region such as the Stories
+        // tray (a new account's main column): such boxes stay.
+        'div:has(> div > a[href="/explore/people/"])'
+          + ':not(:has(article, footer, nav, [data-pagelet], a[href^="/p/"], a[href^="/reel/"]))',
         // Profile: the header section with its own heading and a carousel list of accounts (shown
-        // by the header's similar-accounts toggle or after Follow), never the Highlights row.
-        'header > section:has(h4):has(ul):not(:has(a[href^="/stories/highlights/"]))',
+        // by the header's similar-accounts toggle or after Follow). Never the Highlights row, and
+        // never a section holding the profile's own name heading, its follower or following
+        // counts, or outbound (bio) links, whatever headings and lists it also has.
+        'header > section:has(h4):has(ul)'
+          + ':not(:has(a[href^="/stories/highlights/"], h1, h2, a[href$="/followers/"], a[href$="/following/"], a[href^="http"]))',
         // In-feed carousel: an English-only candidate; not seen in the 2026-10-19 check.
         '[role="list"][aria-label="Suggested accounts"]',
       ]),

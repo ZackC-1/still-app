@@ -279,6 +279,38 @@ describe("Instagram extras hide surfaces on the synthetic fixtures", () => {
     expect(shown("target-profile-similar")).toBe(false);
   });
 
+  it("Suggested: look-alike boxes stay (activity list, flatter right column, a new account's main column)", () => {
+    render("ig-suggested.html", "/", onlyPro("instagram.suggested"));
+    for (const id of ["keep-activity-list", "keep-activity-panel", "keep-flat-right-column", "keep-account-switcher", "keep-footer"])
+      expect(shown(id), id).toBe(true);
+    // A new account's Home: the suggestions row sits straight in the main column beside the tray.
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+      '<div id="keep-new-account-column"><div data-pagelet="story_tray"><ul><li>Invented story</li></ul></div>'
+      + '<div><span>Suggested for you</span><a href="/explore/people/">See all</a></div>'
+      + '<div><a href="/inventedsuggest9/">inventedsuggest9</a></div></div>');
+    expect(shown("keep-new-account-column")).toBe(true);
+    expect(shown("target-sidebar-suggestions")).toBe(false);
+    expect(shown("target-profile-similar")).toBe(false);
+  });
+
+  it("Suggested: a profile header section with the name, the counts or bio links stays, whatever else it holds", () => {
+    const variants = [
+      "<h2>inventeduser1</h2><h4>Invented category</h4><ul><li>12 posts</li></ul>",
+      "<h1>inventeduser1</h1><h4>Invented category</h4><ul><li>12 posts</li></ul>",
+      '<h4>Invented category</h4><ul><li><a href="/inventeduser1/followers/">34 followers</a></li></ul>',
+      '<h4>Invented category</h4><ul><li><a href="/inventeduser1/following/">56 following</a></li></ul>',
+      '<h4>Invented links</h4><ul><li><a href="https://invented.example/">invented.example</a></li></ul>',
+    ];
+    for (const [at, html] of variants.entries()) {
+      render("ig-suggested.html", "/inventeduser1/", onlyPro("instagram.suggested"));
+      document.getElementById("keep-profile-header")!.insertAdjacentHTML("beforeend", `<section id="keep-variant-${at}">${html}</section>`);
+      expect(shown(`keep-variant-${at}`), html).toBe(true);
+      expect(shown("keep-profile-identity")).toBe(true);
+      expect(shown("keep-profile-bio-links")).toBe(true);
+      expect(shown("target-profile-similar")).toBe(false);
+    }
+  });
+
   it("each feature alone hides nothing that belongs to another control", () => {
     for (const { feature: owner, file, path, hidden } of pages) for (const feature of IG_PRO) {
       if (feature === owner) continue;
