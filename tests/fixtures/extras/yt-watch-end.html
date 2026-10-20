@@ -11,7 +11,9 @@
       2026-10-19 (ISS-0086): end cards (.ytp-ce-element) with their own Hide toggle
       (.ytp-ce-hide-button-container), the older end-screen grid (.ytp-endscreen-content, still in
       the DOM) and the current end-of-video grid (.ytp-fullscreen-grid of .ytp-modern-videowall-still
-      tiles), each a direct child of the player. Not any parent that owns Replay, and not the
+      tiles, hidden only while the player carries its ended-state class, ended-mode, because the
+      same grid is the fullscreen "More videos" panel mid-video), each a direct child of the
+      player. Not any parent that owns Replay, and not the
       autonav countdown overlay, which belongs to Autoplay (ids "keep-*"). Invented text only.
     -->
     <div id="movie_player" class="html5-video-player ytp-fullscreen-grid-active ended-mode">

@@ -196,7 +196,7 @@ describe("YouTube Still Pro hide controls, paid on through the test seams", () =
       <ytd-comments id="late-comments"></ytd-comments>
       <ytd-live-chat-frame id="late-chat"></ytd-live-chat-frame>
       <div class="ytp-ce-element" id="late-end-card"></div>
-      <div class="ytp-fullscreen-grid" id="late-end-grid"></div>
+      <div class="html5-video-player ended-mode"><div class="ytp-fullscreen-grid" id="late-end-grid"></div></div>
       <ytd-playlist-panel-renderer id="late-playlist"></ytd-playlist-panel-renderer>`);
     for (const id of ["late-related", "late-comments", "late-chat", "late-end-card", "late-end-grid"]) expect(shown(byId(id)), id).toBe(false);
     expect(shown(byId("late-playlist"))).toBe(true);
@@ -310,6 +310,23 @@ describe("YouTube extras capability table and selector boundaries", () => {
     expect(initialAccessSnapshot(packagedAccessContext("safari"))).toEqual(initialAccessSnapshot());
     expect([...accessCapabilitiesForTest({ paidMode: true, host: "safari" }, IMPLEMENTED_PRO_FEATURES)].sort())
       .toEqual([...accessCapabilitiesForTest({ paidMode: true }, IMPLEMENTED_PRO_FEATURES)].sort());
+  });
+
+  it("End-of-video leaves the fullscreen More videos grid alone mid-video (it belongs to Related videos)", () => {
+    render("yt-watch-end.html");
+    const engine = session();
+    const url = new URL("https://www.youtube.com/watch?v=inv200000");
+    engine.applyDom(settings(["youtube.endscreen"]), url, document, paidOn());
+    expect(shown(byId("target-fullscreen-grid"))).toBe(false);
+    // The video plays again (or never ended): the player drops its ended-state class.
+    byId("movie_player").classList.remove("ended-mode");
+    expect(shown(byId("target-fullscreen-grid"))).toBe(true);
+    expect(shown(byId("target-modern-tile-1"))).toBe(true);
+    // End cards and their toggle are end-of-video only by nature, so they stay hidden.
+    expect(shown(byId("target-end-card-video"))).toBe(false);
+    expect(shown(byId("target-end-card-hide-toggle"))).toBe(false);
+    byId("movie_player").classList.add("ended-mode");
+    expect(shown(byId("target-fullscreen-grid"))).toBe(false);
   });
 
   it("no selector names a wrapper that also holds the playlist, live chat, comments or player controls", () => {

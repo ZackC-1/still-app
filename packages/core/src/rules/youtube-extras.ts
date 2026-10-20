@@ -41,15 +41,20 @@ const RELATED = Object.freeze([
  * suggestion tiles as .ytp-fullscreen-grid (a direct child of the player that holds only the tiles
  * and their show/hide button). The older .ytp-endscreen-content grid is still in the DOM but no
  * longer drawn. None of these holds Replay, the seek bar, settings or the autonav countdown.
+ *
+ * The same .ytp-fullscreen-grid is also the fullscreen "More videos" panel a viewer can open
+ * mid-video, which belongs to Related videos, not to this control. So the grid and its tiles are
+ * hidden only while the player carries its ended-state class (.ended-mode, set on the player when
+ * the video ends and cleared when it plays again).
  */
 const ENDSCREEN = Object.freeze([
   ".ytp-ce-element",
   // The end cards' own "Hide" toggle, which would otherwise float alone over the video.
   ".ytp-ce-hide-button-container",
   ".ytp-endscreen-content",
-  ".ytp-fullscreen-grid",
+  ".ended-mode > .ytp-fullscreen-grid",
   // The grid's tiles, in case the grid wrapper is renamed.
-  ".ytp-modern-videowall-still",
+  ".ended-mode .ytp-modern-videowall-still",
 ]);
 
 const COMMENTS_PANEL = "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))";
