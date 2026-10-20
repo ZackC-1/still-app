@@ -38,6 +38,8 @@ public enum SafariExtensionStatus: Equatable, Sendable {
   private var active = false
   private var generation = 0
   private var reading: Task<Void, Never>?
+  /// Callers of `refresh(check:then:)` waiting for the read in flight.
+  private var waiting: [(SafariExtensionStatus) -> Void] = []
 
   public init() {}
 
@@ -47,6 +49,7 @@ public enum SafariExtensionStatus: Equatable, Sendable {
     generation += 1
     reading?.cancel()
     reading = nil
+    waiting = []
     if active { refresh(check: check) }
   }
 
@@ -58,7 +61,23 @@ public enum SafariExtensionStatus: Equatable, Sendable {
       guard let self, self.active, self.generation == observed, !Task.isCancelled else { return }
       if self.status != next { self.status = next }
       self.reading = nil
+      let answered = self.waiting
+      self.waiting = []
+      for answer in answered { answer(next) }
     }
+  }
+
+  /// A "Check again" tap that needs the answer: the Safari setup sheet closes when it confirms
+  /// Still is on (ISS-0075). Refreshes the badge exactly like `refresh(check:)`, joining a read
+  /// already in flight rather than dropping the tap, then hands `then` the status that read stored.
+  /// `then` never runs for a read that was abandoned (the screen went inactive), or while inactive.
+  public func refresh(
+    check: @escaping () async -> SafariExtensionStatus,
+    then: @escaping (SafariExtensionStatus) -> Void
+  ) {
+    guard active else { return }
+    waiting.append(then)
+    refresh(check: check)
   }
 }
 
