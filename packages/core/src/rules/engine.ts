@@ -8,6 +8,7 @@ import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
 import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, instagramPostViewerCode, type LayoutRule } from "./instagram.js";
+import { FACEBOOK_REELS_LAYOUT } from "./facebook.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -535,6 +536,7 @@ const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
  */
 const PACKAGED_LAYOUT: Readonly<Partial<Record<ServiceId, Readonly<Partial<Record<BenefitId, readonly LayoutRule[]>>>>>> = Object.freeze({
   instagram: Object.freeze({ "instagram.reels": INSTAGRAM_REELS_LAYOUT }),
+  facebook: Object.freeze({ "facebook.reels": FACEBOOK_REELS_LAYOUT }),
 });
 
 /** Still Pro features a packaged content handler implements, per service (never rule data). */

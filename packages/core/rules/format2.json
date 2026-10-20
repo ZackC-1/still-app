@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.18",
+  "version": "3.0.19",
   "services": {
     "youtube": {
       "matches": [
@@ -218,7 +218,9 @@
           "action": "hide",
           "selectors": [
             "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
-            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])"
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"Create story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"View \" i][aria-label*=\" story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))"
           ]
         },
         {
@@ -279,6 +281,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "288262488ea0e31934f1fe1f9b2ebeb2e7c3df98b47f927cc439b2423711e53c776912d36225e3ffd1c2fd3738ccade8b263414b6c6bd9a59a19214d3db9bd09"
+    "value": "ed3e97e093331a9bcbd8a639c1c312a7fb46bcac7d6487a6da88b2278266bca1a16c0ff0176fe42f32cc49f276c095586fc991439f957e65a43b162f89632a09"
   }
 }

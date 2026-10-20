@@ -38,9 +38,24 @@ const NOT_A_REEL = ':not(:has(a[href*="/reel/"])):not(:has(a[href*="/reels/"]))'
  */
 const NOT_IN_FEED = ':not([role="feed"] *)';
 const TRAY_REGION = `[role="main"] [data-virtualized] > div > [role="region"]:not(:has([role="region"]))${NOT_A_REEL}${NOT_IN_FEED}`;
+/**
+ * The phone layout (m.facebook.com in iPhone Safari, captured signed in on 20 Oct 2026, ISS-0101):
+ * no main region, no virtualised wrapper and no Story links. The Home feed is the server-positioned
+ * vscroller, and the tray is one of its rows: a horizontal scroller four levels down whose cards are
+ * buttons, the person's own "Create story" card first, then "View <name> story. N new story" cards.
+ * No other feed row is a horizontal scroller of story buttons: the Reels section's cards read
+ * "View reel video …" (the free Reels control's, never this one), People you may know holds no
+ * story button, and a post's author story ring is not inside a scroller. Rows stack with margins,
+ * so hiding one closes its gap (docs/solutions/ui-bugs/facebook-mobile-layout-is-server-positioned.md).
+ * A row that also holds a heading, an article or a Reel stays; an unknown depth fails open.
+ */
+const MOBILE_TRAY_ROW = '[data-type="vscroller"] > :has(> * > * > * > [data-is-h-scrollable] [role="button"]';
+const NOT_ANOTHER_ROW = ':not(:has(h2, [role="article"], a[href*="/reel/"], a[href*="/reels/"], [aria-label^="View reel" i]))';
 const STORIES_TRAY = Object.freeze([
   `${TRAY_REGION}:has([role="grid"] a[href^="/stories/"])`,
   `${TRAY_REGION}:has([role="grid"] a[href^="https://www.facebook.com/stories/"])`,
+  `${MOBILE_TRAY_ROW}[aria-label^="Create story" i])${NOT_ANOTHER_ROW}`,
+  `${MOBILE_TRAY_ROW}[aria-label^="View " i][aria-label*=" story" i])${NOT_ANOTHER_ROW}`,
 ]);
 
 /**
