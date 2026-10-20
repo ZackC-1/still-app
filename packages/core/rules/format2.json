@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.15",
+  "version": "3.0.16",
   "services": {
     "youtube": {
       "matches": [
@@ -59,7 +59,10 @@
           "action": "hide",
           "selectors": [
             ".ytp-ce-element",
-            ".ytp-endscreen-content"
+            ".ytp-ce-hide-button-container",
+            ".ytp-endscreen-content",
+            ".ended-mode > .ytp-fullscreen-grid",
+            ".ended-mode .ytp-modern-videowall-still"
           ]
         },
         {
@@ -110,7 +113,7 @@
           "feature": "instagram.explore",
           "action": "hide",
           "selectors": [
-            "[data-still-instagram-search-entry] form:has(input[type=\"search\"]) ~ div:has(> a[href^=\"/p/\"], > a[href^=\"/reel/\"])"
+            "[data-still-instagram-search-entry] main :has(input) ~ div:has(a[href^=\"/p/\"], a[href^=\"/reel/\"])"
           ]
         },
         {
@@ -118,8 +121,9 @@
           "feature": "instagram.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"menu\"][aria-label=\"Stories\"]",
-            ":is(ul, [role=\"list\"]):has(> a[href^=\"/stories/highlights/\"], > li > a[href^=\"/stories/highlights/\"])"
+            "[data-pagelet=\"story_tray\"]",
+            "[role=\"menu\"]:has(a[href^=\"/stories/highlights/\"])",
+            "header :is(ul, [role=\"list\"]):has(> li a[href^=\"/stories/highlights/\"])"
           ]
         },
         {
@@ -127,9 +131,9 @@
           "feature": "instagram.suggested",
           "action": "hide",
           "selectors": [
-            "aside:has(> a[href=\"/explore/people/\"])",
-            "[role=\"list\"][aria-label=\"Suggested accounts\"]",
-            "[role=\"region\"][aria-label=\"Similar accounts\"]"
+            "div:has(> div > a[href=\"/explore/people/\"]):not(:has(article, footer, nav, [data-pagelet], a[href^=\"/p/\"], a[href^=\"/reel/\"]))",
+            "header > section:has(h4):has(ul):not(:has(a[href^=\"/stories/highlights/\"], h1, h2, a[href$=\"/followers/\"], a[href$=\"/following/\"], a[href^=\"http\"]))",
+            "[role=\"list\"][aria-label=\"Suggested accounts\"]"
           ]
         },
         {
@@ -208,8 +212,8 @@
           "feature": "facebook.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"/stories/\"]):not([role=\"feed\"] *)",
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"https://www.facebook.com/stories/\"]):not([role=\"feed\"] *)"
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])"
           ]
         },
         {
@@ -249,7 +253,7 @@
           "feature": "facebook.sponsored",
           "action": "hide",
           "selectors": [
-            "[role=\"complementary\"] > div:has(> a[href^=\"https://\"][rel~=\"nofollow\"]):not(:has(a[href^=\"/\"])):not(:has(a[href*=\"facebook.com/\"])):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
+            "[role=\"complementary\"] div:has(a[href^=\"https://\"][rel~=\"nofollow\"]):has(h2, h3, [role=\"heading\"]):not(:has(:is(a[href^=\"/\"], a[href*=\"//www.facebook.com/\"], a[href*=\"//web.facebook.com/\"], a[href*=\"//m.facebook.com/\"], a[href*=\"//facebook.com/\"]))):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
           ]
         }
       ]
@@ -270,6 +274,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "455a2947ed8d17e285c12d5387ce5a16b28e106c02a5ff1fe222950f3ee5db275f15d1beb4729d34765b9aa5db29d6c673a47294d630fa8fdabedaa62b167e0e"
+    "value": "c70d8e78d5fda4eefadf9f0adee8d752cc04b686c62e4fa721d70240c559f355288f6982f8ca13eba2c8f6bafa1f9eb2dde26c735e8061c3a917a33741b0e900"
   }
 }

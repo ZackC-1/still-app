@@ -6,30 +6,91 @@
   </head>
   <body>
     <!--
-      Synthetic structural model for instagram.suggested (CP-079): sidebar, in-feed and profile
-      recommendation containers, structurally bounded. UNVERIFIED CANDIDATE: containers of account
-      cards linking to profile roots that sit beside a "suggested" region. Ordinary account lists
-      (followers, following, search, account switcher, footer) stay. No text-based targeting.
-      Invented text and handles only.
+      Synthetic structural model for instagram.suggested (CP-079): Home's right-column block, a
+      profile's suggested-accounts panel and the in-feed carousel, each structurally bounded.
+      UNVERIFIED CANDIDATE selector family, mirroring the desktop shapes seen signed in on
+      2026-10-19 (ISS-0087): on Home the block is plain boxes (no aside) whose heading row holds
+      the "See all" link to /explore/people/; on a profile the panel is a header section with its
+      own h4 heading and a carousel list. The in-feed carousel was not seen and keeps its earlier
+      English-label shape. Ordinary account lists (followers, following, search, account switcher,
+      footer) and feed posts stay, and so do look-alikes: an activity list whose own box holds a
+      "See all" row, a flatter right column whose box holds the switcher, the "See all" row and the
+      footer together, and profile header sections that hold the name, the counts or bio links
+      beside an h4 and a list. No text-based targeting. Invented text and handles only.
     -->
-    <aside id="target-sidebar-suggestions" aria-label="Suggested for you">
-      <a href="/explore/people/">See all</a>
-      <a href="/inventedsuggest1/">inventedsuggest1</a>
-      <a href="/inventedsuggest2/">inventedsuggest2</a>
-    </aside>
-    <aside id="keep-account-switcher"><a href="/inventedme/">inventedme</a><a href="/accounts/switch/">Switch</a></aside>
-    <article id="keep-feed-post"><a href="/p/InvH8/">An invented feed post</a></article>
-    <div id="target-infeed-carousel" role="list" aria-label="Suggested accounts">
-      <a href="/inventedsuggest3/">inventedsuggest3</a>
-      <a href="/inventedsuggest4/">inventedsuggest4</a>
-    </div>
-    <div id="target-profile-similar" role="region" aria-label="Similar accounts">
-      <a href="/inventedsuggest5/">inventedsuggest5</a>
-    </div>
+    <main role="main">
+      <div id="keep-feed">
+        <article id="keep-feed-post"><a href="/p/InvH8/">An invented feed post</a></article>
+        <div id="target-infeed-carousel" role="list" aria-label="Suggested accounts">
+          <a href="/inventedsuggest3/">inventedsuggest3</a>
+          <a href="/inventedsuggest4/">inventedsuggest4</a>
+        </div>
+      </div>
+      <div id="keep-right-column">
+        <div id="keep-account-switcher"><a href="/inventedme/">inventedme</a> <a href="/accounts/switch/">Switch</a></div>
+        <div>
+          <div>
+            <div id="target-sidebar-suggestions">
+              <div><div><span>Suggested for you</span></div><a href="/explore/people/">See all</a></div>
+              <div>
+                <div><a href="/inventedsuggest1/">inventedsuggest1</a> <button>Follow</button></div>
+                <div><a href="/inventedsuggest2/">inventedsuggest2</a> <button>Follow</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer id="keep-footer"><nav><ul><li><a href="/about/">About</a></li><li><a href="/legal/privacy/">Privacy</a></li></ul></nav></footer>
+      </div>
+      <div id="keep-flat-right-column">
+        <div><a href="/inventedme2/">inventedme2</a> <a href="/accounts/switch/">Switch</a></div>
+        <div><span>Suggested for you</span><a href="/explore/people/">See all</a></div>
+        <div><a href="/inventedsuggest7/">inventedsuggest7</a> <button>Follow</button></div>
+        <footer><nav><ul><li><a href="/about/">About</a></li></ul></nav></footer>
+      </div>
+      <div id="keep-activity-panel">
+        <div id="keep-activity-list">
+          <div><a href="/inventedfriend1/">inventedfriend1</a> liked your post. <a href="/p/InvJ1/">Invented post</a></div>
+          <div><span>Suggested for you</span><a href="/explore/people/">See all</a></div>
+          <div><a href="/inventedsuggest8/">inventedsuggest8</a> <button>Follow</button></div>
+        </div>
+      </div>
+      <header id="keep-profile-header">
+        <div id="keep-profile-top">
+          <a href="/inventeduser1/" id="keep-profile-photo">inventeduser1</a>
+          <button id="keep-profile-follow">Follow</button>
+          <div role="button" tabindex="0" id="keep-similar-toggle">Similar accounts</div>
+        </div>
+        <section id="keep-profile-bio"><span>Invented bio line.</span></section>
+        <section id="keep-profile-identity">
+          <h2>inventeduser1</h2>
+          <h4>Invented category</h4>
+          <ul><li><a href="/inventeduser1/followers/">34 followers</a></li><li><a href="/inventeduser1/following/">56 following</a></li></ul>
+        </section>
+        <section id="keep-profile-bio-links">
+          <h4>Invented links</h4>
+          <ul><li><a href="https://l.instagram.com/?u=https%3A%2F%2Finvented.example%2F">invented.example</a></li></ul>
+        </section>
+        <section id="target-profile-similar">
+          <div>
+            <div><div><h4>Suggested for you</h4></div><a href="/inventeduser1/">See all</a></div>
+            <div>
+              <div role="presentation">
+                <div>
+                  <ul>
+                    <li><div><a href="/inventedsuggest5/">inventedsuggest5</a> <button>Follow</button></div></li>
+                    <li><div><a href="/inventedsuggest6/">inventedsuggest6</a> <button>Follow</button></div></li>
+                  </ul>
+                </div>
+                <button aria-label="Next">Next</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </header>
+    </main>
     <dialog open id="keep-followers-list">
       <ul><li><a href="/inventedfollower1/">inventedfollower1</a></li><li><a href="/inventedfollower2/">inventedfollower2</a></li></ul>
     </dialog>
     <div id="keep-search-box"><input type="search" placeholder="Search" /></div>
-    <footer id="keep-footer"><a href="/about/">About</a><a href="/legal/privacy/">Privacy</a></footer>
   </body>
 </html>

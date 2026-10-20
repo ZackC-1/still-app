@@ -7,11 +7,16 @@
   <body>
     <!--
       Synthetic structural model for youtube.endscreen (CP-085), at the moment the video ends.
-      UNVERIFIED CANDIDATE selector family: .ytp-ce-element (end cards) and .ytp-endscreen-content
-      (end-screen grid). Not any parent that owns Replay, and not the autonav countdown overlay,
-      which belongs to Autoplay (ids "keep-*"). Invented text only.
+      UNVERIFIED CANDIDATE selector family, mirroring the desktop player shape seen in Chrome on
+      2026-10-19 (ISS-0086): end cards (.ytp-ce-element) with their own Hide toggle
+      (.ytp-ce-hide-button-container), the older end-screen grid (.ytp-endscreen-content, still in
+      the DOM) and the current end-of-video grid (.ytp-fullscreen-grid of .ytp-modern-videowall-still
+      tiles, hidden only while the player carries its ended-state class, ended-mode, because the
+      same grid is the fullscreen "More videos" panel mid-video), each a direct child of the
+      player. Not any parent that owns Replay, and not the
+      autonav countdown overlay, which belongs to Autoplay (ids "keep-*"). Invented text only.
     -->
-    <div id="movie_player" class="html5-video-player ended-mode">
+    <div id="movie_player" class="html5-video-player ytp-fullscreen-grid-active ended-mode">
       <video></video>
       <div class="ytp-chrome-bottom" id="keep-controls">
         <button class="ytp-play-button" id="keep-replay" aria-label="Replay">Replay</button>
@@ -21,11 +26,25 @@
         <button class="ytp-settings-button" id="keep-settings">Settings</button>
         <button class="ytp-fullscreen-button" id="keep-fullscreen">Fullscreen</button>
       </div>
-      <div class="ytp-ce-element" id="target-end-card-video"><a href="/watch?v=inv200001">Invented end card video</a></div>
+      <div class="ytp-ce-element ytp-ce-video" id="target-end-card-video"><a href="/watch?v=inv200001">Invented end card video</a></div>
       <div class="ytp-ce-element ytp-ce-channel" id="target-end-card-channel"><a href="/@invented-channel">Invented end card channel</a></div>
-      <div class="ytp-endscreen-content" id="target-endscreen-grid">
-        <a class="ytp-videowall-still" href="/watch?v=inv200002">Invented grid tile one</a>
-        <a class="ytp-videowall-still" href="/watch?v=inv200003">Invented grid tile two</a>
+      <div class="ytp-ce-hide-button-container" id="target-end-card-hide-toggle"><button>Hide</button></div>
+      <div class="html5-endscreen ytp-player-content videowall-endscreen">
+        <div class="ytp-endscreen-content" id="target-endscreen-grid">
+          <a class="ytp-videowall-still" href="/watch?v=inv200002">Invented grid tile one</a>
+          <a class="ytp-videowall-still" href="/watch?v=inv200003">Invented grid tile two</a>
+        </div>
+      </div>
+      <div class="ytp-fullscreen-grid" id="target-fullscreen-grid" tabindex="0">
+        <div class="ytp-fullscreen-grid-buttons-container">
+          <button class="ytp-fullscreen-grid-expand-button ytp-button">Hide videos</button>
+        </div>
+        <div class="ytp-fullscreen-grid-main-content">
+          <div class="ytp-fullscreen-grid-stills-container">
+            <a class="ytp-modern-videowall-still ytp-suggestion-set" id="target-modern-tile-1" href="/watch?v=inv200004">Invented modern tile one</a>
+            <a class="ytp-modern-videowall-still ytp-suggestion-set" id="target-modern-tile-2" href="/watch?v=inv200005">Invented modern tile two</a>
+          </div>
+        </div>
       </div>
       <div class="ytp-autonav-endscreen-countdown-overlay" id="keep-autonav-countdown">
         <span>Up next in 8</span>

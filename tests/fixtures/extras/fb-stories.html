@@ -6,19 +6,50 @@
   </head>
   <body>
     <!--
-      Synthetic structural model for facebook.stories (CP-081): tray children only, inside a
-      verified boundary, keeping the virtualiser wrapper geometry. UNVERIFIED CANDIDATE: story
-      cards (anchors to /stories/<id>/) inside the tray region, in both the header-layout and
-      feed-layout variants. "People you may know", posts and messages stay. Invented text only.
+      Synthetic structural model for facebook.stories (CP-081). UNVERIFIED CANDIDATE selector
+      family, mirroring the desktop Home seen signed in on 2026-10-19 (ISS-0088): inside the main
+      column's virtualised wrapper, the tray is a region holding a grid (a row of grid cells, each a
+      card whose link opens a Story) and its scroll arrows. The region is the target; the wrapper
+      keeps its place. The composer, "People you may know", feed posts (including one that links to
+      its author's Story), a video shelf (a grid without Story links) and messages stay. There is
+      no feed or article role in this layout. Invented text only.
     -->
     <div role="main">
-      <div id="keep-tray-wrapper" data-virtualized="false">
-        <div id="target-story-card-1"><a href="/stories/900000000001/">Invented story one</a></div>
-        <div id="target-story-card-2"><a href="/stories/900000000002/">Invented story two</a></div>
-      </div>
-      <div id="keep-pymk" role="region" aria-label="People you may know"><a href="/inventedperson/">Invented person</a></div>
-      <div role="feed" id="keep-feed">
-        <div role="article" id="keep-post"><a href="/inventedpage/posts/900000000003">An invented post</a></div>
+      <div>
+        <div id="keep-composer" role="region" aria-label="Create a post"><a href="/inventedme/">Create an invented post</a></div>
+        <div id="keep-tray-wrapper" data-virtualized="false">
+          <div>
+            <div role="region" aria-label="Stories" id="target-stories-tray">
+              <div>
+                <h3>Stories</h3>
+                <div>
+                  <div><div role="button" tabindex="0" aria-label="Previous">Previous</div></div>
+                  <div>
+                    <div role="grid" aria-label="stories tray">
+                      <div role="row">
+                        <div role="gridcell" id="target-story-card-1"><div><div><a href="/stories/900000000001/">Invented story one</a></div></div></div>
+                        <div role="gridcell" id="target-story-card-2"><div><div><a href="/stories/900000000002/">Invented story two</a></div></div></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div><div role="button" tabindex="0" aria-label="Next">Next</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="keep-feed">
+          <h3>Feed posts</h3>
+          <div>
+            <div id="keep-post"><div><span><div><a href="/inventedpage/posts/900000000003">An invented post</a></div></span></div></div>
+            <div id="keep-post-story-ring"><div><span><div>
+              <a href="/stories/900000000005/">An invented author's story ring</a>
+              <a href="/inventedperson2/">Invented person two</a>
+            </div></span></div></div>
+            <div id="keep-shelf-grid"><div role="grid" aria-label="Invented shelf"><div role="row"><div role="gridcell"><a href="/inventedpage/videos/900000000006">An invented shelf video</a></div></div></div></div>
+          </div>
+        </div>
+        <div id="keep-pymk" role="region" aria-label="People you may know"><a href="/inventedperson/">Invented person</a></div>
       </div>
     </div>
     <div id="keep-messages"><a href="/messages/t/900000000004/">Invented conversation</a></div>
