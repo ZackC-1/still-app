@@ -192,7 +192,7 @@ test("J12.FD locked Pro rows show the lock and Still Pro, and offer nothing when
       "Suggested accounts",
       "Threads links",
     ],
-    Facebook: ["Facebook Stories", "Videos and Watch", "Desktop sidebar ads"],
+    Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
   };
   let tapped = 0;
   for (const [service, names] of Object.entries(rows)) {

@@ -11,6 +11,7 @@ import { NativeBridge } from "../../native/bridge.js";
 import { UiController } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import { createAppleSession } from "../../sync/apple-session.js";
+import { SETTINGS_FALLBACK_REFRESH_MS } from "../../sync/service.js";
 import { makeBridge } from "../../sync/__tests__/support/apple-session-harness.js";
 import { createAppleSettingsAuthority } from "./apple-settings-host.js";
 import { ACCOUNT, canonicalServer, client, settle } from "../../sync/__tests__/support/live-sync-harness.js";
@@ -119,7 +120,7 @@ describe("Apple settings host sign-in lifetime", () => {
         expect(controller.userId).toBe(ACCOUNT);
         const wanted = cycle === 1;
         await peer.cache.setService("youtube", wanted); await settle();
-        await vi.advanceTimersByTimeAsync(5_000); await settle(); await tick();
+        await vi.advanceTimersByTimeAsync(SETTINGS_FALLBACK_REFRESH_MS); await settle(); await tick();
         expect(phone.cache.current().services.youtube).toBe(wanted);
         expect(screen.getByRole("switch", { name: /YouTube/ })).toHaveAttribute("aria-checked", String(wanted));
         expect(controller.userId).toBe(ACCOUNT);

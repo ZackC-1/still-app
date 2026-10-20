@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.20",
+  "version": "3.0.21",
   "services": {
     "youtube": {
       "matches": [
@@ -224,15 +224,6 @@
           ]
         },
         {
-          "id": "facebook-videos-feed",
-          "feature": "facebook.videos",
-          "action": "hide",
-          "selectors": [
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
-          ]
-        },
-        {
           "id": "facebook-videos-watch-nav",
           "feature": "facebook.videos",
           "action": "hide",
@@ -281,6 +272,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "b1aaba1ec07a9bd1b6ec4fb0c3fd5813b947c76cf4cc49fc9fbce3284f4b45868cc9c87b8347d914af533ade51360b0205a85e543084dd2249e106bb0a901703"
+    "value": "6ac55c5f6f1fb8ab19ac95f6912385837f72b546ccb99d4a30f822d1c8fc1caa892390132ff8263d52d693da6a0078d537550ed70cab91d755f82d43b873fe0b"
   }
 }

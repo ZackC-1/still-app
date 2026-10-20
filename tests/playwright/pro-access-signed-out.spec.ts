@@ -19,7 +19,7 @@ const VERIFY_AGAIN = "Still Pro needs to be verified again.";
 const ROWS_BY_SERVICE = {
   YouTube: ["Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat"],
   Instagram: ["Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links"],
-  Facebook: ["Facebook Stories", "Videos and Watch", "Desktop sidebar ads"],
+  Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
 } as const;
 
 async function openSection(page: Page, service: keyof typeof ROWS_BY_SERVICE) {

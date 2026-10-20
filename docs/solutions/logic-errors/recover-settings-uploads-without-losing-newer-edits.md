@@ -6,7 +6,7 @@ problem_type: logic_error
 module: packages/core
 applies_when: A failed upload stays local until restart or a newer edit disappears during recovery
 date: 2026-09-09
-last_updated: 2026-10-14
+last_updated: 2026-10-20
 status: active
 tags: [sync, retry, realtime, account-isolation]
 ---
@@ -44,12 +44,29 @@ also cover stale reads, sign-out, deletion and account switches. See the related
 [invalidation lesson](invalidate-sync-work-by-session-lifecycle.md) for the ownership rule.
 
 Healthy idle clients need an acquisition trigger too. The hosted QA route deliberately has no
-production `public.profiles` subscription, and production notifications can also be missed.
-Modern SyncService therefore schedules a canonical read every five seconds while healthy and
-active, sharing `retryNow()` with existing recovery. A failure cancels this healthy timer so the
-exponential backoff remains the only recovery scheduler. Success rearms it; teardown cancels it
-and lifecycle checks reject retired completions. The cadence does not promise delivery while an
+production `public.profiles` subscription (it uses private `qa-settings-v1` hints instead), and
+production notifications can also be missed. Modern SyncService therefore makes at most one
+fallback canonical read per interval while healthy and active, sharing `retryNow()` with existing
+recovery. An armed timer is not pushed back by later exchanges. The interval has two speeds:
+`SETTINGS_FALLBACK_REFRESH_MS` (five minutes) only between a channel `subscribed` status and the
+next error or disconnect, and `SETTINGS_FALLBACK_WITHOUT_NOTIFICATIONS_MS` (20 seconds) otherwise,
+because with the channel down but HTTP working the fallback is the only receive path. Track that
+with its own flag: `realtimeStale` is cleared by every atomic read even while the channel is still
+down. A status change re-arms the pending timer at the new speed. A failure cancels this healthy
+timer so the exponential backoff remains the only recovery scheduler. Success rearms it; teardown
+cancels it and lifecycle checks reject retired completions. The cadence does not promise delivery while an
 OS suspends the runtime. Keep the QA subscription guard: removing it reaches the wrong authority.
+
+The fallback first shipped at five seconds. Each idle signed-in app then posted the settings route
+about every six seconds (the timer plus an ~800 ms call), all day: ISS-0079 measured 26 posts in
+2.5 minutes from an idle Mac app, and every surface sharing SyncService did the same. Prompt
+delivery does not depend on this timer: change notifications, launch/sign-in, Apple foreground,
+`online` and realtime rejoin all read the account immediately. Only a silently missed
+notification on an app that stays open and in front waits for the long fallback, so keep it in
+minutes. `live-sync.test.ts` reproduces the report with an 800 ms transport and a joined channel,
+and asserts that 2.5 idle minutes send no settings calls and one fallback interval sends exactly
+one read. Its channel-health tests prove that an error or close delivers a peer change within the
+short interval, keeps that cadence bounded, and that a rejoin returns to the quiet long interval.
 
 Safari has a separate local receive boundary. Native App Group writes do not generate browser
 storage events. Open visible Safari caches reread the existing native authority periodically,
@@ -60,8 +77,8 @@ already committed new account. Abort the old wait and fence its eventual complet
 cancels both the deadline and refresh timer.
 
 `live-sync.test.ts` composes real backend ports, services, atomic writers, caches and popup bindings
-with synthetic transport. It proves bidirectional and different-field convergence at a controlled
-five-second cadence, durable offline recovery, no overlapping cloud reads, session changes and
+with synthetic transport. It proves bidirectional and different-field convergence within one
+fallback interval with notifications withheld, durable offline recovery, no overlapping cloud reads, session changes and
 worker recreation. `apple-signin-lifecycle.integration.test.ts` also exercises a mounted host
 through repeated sign-in and delayed native cleanup. Safari's `settings-storage.test.ts` proves
 app-originated changes arrive without projection events; the compiled native

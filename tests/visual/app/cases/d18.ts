@@ -31,7 +31,7 @@ const PRO_CONTROLS = [
   { site: "Instagram", label: "Suggested accounts" },
   { site: "Instagram", label: "Threads links" },
   { site: "Facebook", label: "Facebook Stories" },
-  { site: "Facebook", label: "Videos and Watch" },
+  { site: "Facebook", label: "Video tab" },
   { site: "Facebook", label: "Desktop sidebar ads" },
 ];
 const MOBILE_CONTROLS = PRO_CONTROLS.filter(

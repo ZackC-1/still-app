@@ -118,7 +118,7 @@ const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore
 // content handler with no rule data (content/youtube-autoplay.ts), all run in the shared content
 // engine of every host.
 const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat", "youtube.autoplay"]);
-// Facebook's Stories, Videos and Watch, and Desktop sidebar ads (rules/facebook-extras.ts) run in
+// Facebook's Stories, Video tab and Desktop sidebar ads (rules/facebook-extras.ts) run in
 // every host's shared format-2 content engine.
 const FACEBOOK_PRO: readonly ProFeatureId[] = Object.freeze(["facebook.stories", "facebook.videos", "facebook.sponsored"]);
 const EVERY_PRO: readonly ProFeatureId[] = Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO, ...FACEBOOK_PRO]);
