@@ -645,7 +645,13 @@
         {:else if c.deleteFlow === "deleting"}
           <button class="link" disabled>{STRINGS.account.deleting}</button>
         {:else}
-          <button class="link danger" onclick={() => c.requestDeleteAccount()}
+          <!-- In the Chrome and Firefox popup, Delete account is a plain link like Sign out, with
+            no red (owner, ISS-0095), as in the Settings page's Help card. The confirmation that
+            follows still says what deleting does. -->
+          <button
+            class="link"
+            class:danger={!desktopPresentation}
+            onclick={() => c.requestDeleteAccount()}
             >{STRINGS.account.delete}</button
           >
           {#if c.deleteFlow === "error"}<p class="error">
@@ -1202,6 +1208,14 @@
   }
   .link.danger {
     color: #c2261e;
+  }
+  /* The popup's Sign out and Delete account use the same plain link colour as the V3 screens'
+     links (the Settings page's Help card), not the older App blue. */
+  .v3-popup-host .account .link:not(:disabled) {
+    color: var(--link, var(--still-blue));
+  }
+  .v3-popup-host .account .link:not(:disabled):hover {
+    color: var(--link-pressed, var(--still-blue-pressed));
   }
   .confirm {
     display: flex;

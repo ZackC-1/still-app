@@ -328,6 +328,34 @@ describe("actual desktop presentation on the maintained authority", () => {
     expect(f.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("signed in, Sign out and Delete account are the same plain link, with no red (owner, ISS-0095)", async () => {
+    await browser();
+    const p = purchase();
+    const state = capture({ purchase: p.deps });
+    await flush();
+    state.controller.userId = "synthetic-account";
+    state.controller.accountEmail = "synthetic@example.invalid";
+    state.controller.lastSyncedAt = Date.now();
+    await desktop(state);
+    const signOut = screen.getByRole("button", { name: STRINGS.auth.signOut });
+    const remove = screen.getByRole("button", { name: STRINGS.account.delete });
+    expect(remove.closest(".v3-popup-host")).not.toBeNull();
+    expect(remove.classList.contains("danger")).toBe(false);
+    expect(remove.classList.contains("link")).toBe(true);
+    expect(remove.className).toBe(signOut.className);
+    // Only the styling changed: Delete account still asks first, and Sign out still signs out.
+    await fireEvent.click(remove);
+    expect(
+      screen.getByRole("group", { name: STRINGS.account.deleteConfirmTitle }),
+    ).toBeTruthy();
+    expect(p.auth.deleteAccount).not.toHaveBeenCalled();
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.account.deleteCancel }),
+    );
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.auth.signOut }));
+    await waitFor(() => expect(p.auth.signOut).toHaveBeenCalledOnce());
+  });
+
   it("uses actual identity with no email and keeps retry/delete/time in one sync card without granting success", async () => {
     await browser();
     const p = purchase();
