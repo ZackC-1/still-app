@@ -326,6 +326,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         consent = context.consent;
         const allowed = await previous.client.canReport();
         if (!allowed || asked !== epoch) return false;
+        await previous.client.settleAccount(); // an account change owed while sharing was off
         await previous.client.track("analytics_choice_made", {
           choice: "share",
         });

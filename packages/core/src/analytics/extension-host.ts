@@ -712,8 +712,14 @@ export function createExtensionAnalyticsHost(
         }
         if (request.enabled && (await client.canReport())) {
           // A sign-out asked while sharing was off is still owed: install it first, so the choice
-          // is recorded as signed-out use and not dropped with what waited for the account.
+          // is recorded as signed-out use and not dropped with what waited for the account. A hold
+          // made under the earlier permission is re-tagged under this one.
           await client.settleAccount();
+          // Still signed in: the new origin needs its own identity (the earlier one is being
+          // erased), so ask for it before the choice is recorded. Until it is issued, the choice
+          // waits under this account's hold and is never sent unattributed.
+          const account = deps.subjects ? await client.accountInForce() : null;
+          if (account !== null) await identify(account);
           await client.track("analytics_choice_made", { choice: "share" });
           return true;
         }

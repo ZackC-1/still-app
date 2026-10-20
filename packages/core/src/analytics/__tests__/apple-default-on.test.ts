@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { createAppAnalytics } from "../apple-app.js";
-import { AnalyticsClient, QUEUE_KEY } from "../client.js";
+import { AnalyticsClient, QUEUE_KEY, STATE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
 import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
@@ -442,7 +442,8 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(await t.app.ui.setSharing!(true)).toBe(true);
     await t.app.start();
     expect(t.fetch).not.toHaveBeenCalled();
-    expect(t.queue()).toContain("analytics_choice_made");
+    expect(t.queue().filter((e) => e === "analytics_choice_made")).toHaveLength(1);
+    expect((t.store.data[STATE_KEY] as { heldFor: unknown }).heldFor).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("a server stop ends sharing on this device", async () => {

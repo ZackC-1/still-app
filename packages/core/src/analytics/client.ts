@@ -769,6 +769,21 @@ export class AnalyticsClient {
   settleAccount(): Promise<void> {
     return this.run(async () => {
       if (!this.confirmed) await this.establish(true);
+      // A sign-in hold that spans a permission change (made while sharing was off, or still waiting
+      // for its identity when sharing went off) is tagged under the earlier origin. Tag it under the
+      // permission now in force, or the identity confirmed later would not own what waits under it.
+      if (this.heldAccount !== null) await this.recordHold(this.heldAccount, null);
+    });
+  }
+
+  /** The account this device is signed in as for analytics, or null: the account it is held for,
+   * else the account whose identity it reports under. Never sent; a host re-identifies with it
+   * when sharing is turned back on (a new origin needs its own identity). */
+  accountInForce(): Promise<string | null> {
+    return this.run(async () => {
+      if (this.heldAccount !== null) return this.heldAccount;
+      const state = await this.read();
+      return state && state.userId !== null ? state.accountRef : null;
     });
   }
 
