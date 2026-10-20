@@ -45,6 +45,7 @@ describe("checkout-priced browser offer (paid tier compiled on)", () => {
     ["access not known none", { knownMissing: false }],
     ["channel unverified", { channel: "unverified" as const }],
     ["channel unavailable", { channel: "unavailable" as const }],
+    ["the browser offline", { channel: "offline" as const }],
     ["held access", { accessHeld: true }],
     ["checking access", { accessChecking: true }],
     ["verify access", { accessVerify: true }],
@@ -70,6 +71,40 @@ describe("checkout-priced browser offer (paid tier compiled on)", () => {
     render(ProOfferCard, { props: props({ state: "failed" }) });
     expect(screen.getByText("The purchase wasn't confirmed.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  describe("offline (ISS-0090)", () => {
+    it("says Still can't check right now, not that Still Pro can't be bought here", () => {
+      render(ProOfferCard, { props: props({ channel: "offline" }) });
+      const card = screen.getByRole("region", { name: "Still Pro" });
+      expect(within(card).getByText("Still can't check right now.")).toBeVisible();
+      expect(within(card).getByText("Try again when you're online.")).toBeVisible();
+      expect(within(card).queryByText("Still Pro can't be bought here yet.")).toBeNull();
+      expect(within(card).getByRole("button", { name: "Restore purchase" })).toBeEnabled();
+    });
+
+    it("a known none the host keeps through an offline hold says the same, never verify again", () => {
+      render(ProOfferCard, { props: props({ channel: "offline", accessHeld: true, accessVerify: true }) });
+      expect(screen.getByText("Still can't check right now.")).toBeVisible();
+      expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    });
+
+    it("an answer that needs verifying still says verify again", () => {
+      render(ProOfferCard, { props: props({ ownership: "verify", channel: "offline", accessVerify: true }) });
+      expect(screen.getByText("Still Pro needs to be verified again.")).toBeVisible();
+      expect(screen.queryByText("Still can't check right now.")).toBeNull();
+    });
+
+    it("keeps that line through a Restore check, never flashing verify again", () => {
+      render(ProOfferCard, {
+        props: props({ channel: "offline", accessHeld: true, accessVerify: true, restoreHeld: true }),
+      });
+      expect(screen.getByText("Still can't check right now.")).toBeVisible();
+      expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+      expect(screen.queryByText("Still Pro can't be bought here yet.")).toBeNull();
+      expect(screen.getByRole("button", { name: "Restore purchase" })).toBeDisabled();
+    });
   });
 
   it("shows the waiting state while the checkout is open", () => {

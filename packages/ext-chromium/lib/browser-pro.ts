@@ -41,6 +41,15 @@ export const VISIBLE_RECHECK_SPACING_MS = 30_000;
  */
 export const KEEP_ALIVE_MS = 45_000;
 export const KEEP_ALIVE_LIMIT = 80;
+/**
+ * ISS-0090: a check that fails while the browser is offline, or within this long after it came
+ * back online (the network often answers only after DNS or a sign-in portal settles), is "Still
+ * can't check right now", never "verify again" or "can't be bought here".
+ */
+export const RECONNECT_GRACE_MS = 15_000;
+/** After the browser comes back online, what is still waiting on the network asks again after
+ * these delays (the first requests often fail). They start within RECONNECT_GRACE_MS. */
+export const RECONNECT_RETRY_MS: readonly number[] = Object.freeze([1_000, 3_000, 6_000]);
 
 /** The card's reading of the access observation's twelve Still Pro rows. */
 export type ProOwnership = "owned" | "verify" | "checking" | "none" | "hidden";
@@ -199,12 +208,19 @@ export interface BrowserProDeps {
   /** Receives the window's focus (a page can be visible behind another window). Defaults to the
    * page's own window. */
   readonly focus?: Pick<Window, "addEventListener" | "removeEventListener">;
+  /** Whether the browser says it has a network connection. Defaults to `navigator.onLine`. */
+  readonly online?: () => boolean;
+  /** Receives the browser's "online" event. Defaults to the page's own window. */
+  readonly network?: Pick<Window, "addEventListener" | "removeEventListener">;
   readonly now?: () => number;
 }
 
 export interface BrowserProState {
-  /** Whether Buy may be offered for the current account; "unknown" until asked. */
-  readonly channel: "unknown" | "checking" | "ready" | "unavailable";
+  /**
+   * Whether Buy may be offered for the current account; "unknown" until asked. "offline": the
+   * answer was no while the browser was offline, so it says nothing about this build (ISS-0090).
+   */
+  readonly channel: "unknown" | "checking" | "ready" | "unavailable" | "offline";
   readonly purchase: "idle" | "opening" | "waiting" | "failed";
   readonly restore: RestoreStatusCardProps | undefined;
   /**
@@ -213,6 +229,13 @@ export interface BrowserProState {
    * "checking" state meanwhile; "verify again" shows only if that re-check does not confirm none.
    */
   readonly renewing: boolean;
+  /**
+   * A known none turned into "verify again" and the re-check that would renew it could not reach
+   * the server (the browser offline or just back online). The known none is kept: the card says
+   * Still can't check right now, never "verify again", and it is renewed once the browser is back
+   * online (ISS-0090). A known owned answer is never held this way.
+   */
+  readonly offlineNone: boolean;
 }
 
 export interface BrowserProObservation {
@@ -226,13 +249,15 @@ export const INITIAL_BROWSER_PRO_STATE: BrowserProState = Object.freeze({
   purchase: "idle",
   restore: undefined,
   renewing: false,
+  offlineNone: false,
 });
 
 /**
  * The card's host flow. Re-checks (the scoped reconcile plus a fresh access read, shared with the
  * page-open check) run when an account signs in here, when the page is shown or focused again, on
  * Restore, after a checkout that the server says is already owned, and to renew a visible "known
- * none", before it lapses or once it has gone stale.
+ * none", before it lapses or once it has gone stale. When that renewal cannot reach the server
+ * (the browser offline or just back online) the known none is kept and renewed once it is back.
  * Buy asks the background's existing createCheckout, which opens the hosted checkout; the
  * purchase completes on the next re-check (normally when this page is shown again). A result that
  * arrives after the account changed, or after `stop`, is dropped.
@@ -242,6 +267,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   const available = deps.available ?? (() => askCheckoutAvailable());
   const page = deps.page ?? document;
   const focusTarget = deps.focus ?? (typeof window === "undefined" ? undefined : window);
+  const networkTarget = deps.network ?? (typeof window === "undefined" ? undefined : window);
+  const online = deps.online ?? (() => typeof navigator === "undefined" || navigator.onLine !== false);
   const pendingStore = deps.pending ?? sessionPendingStore();
   const tabs = deps.tabs ?? extensionCheckoutTabs();
   let state: BrowserProState = INITIAL_BROWSER_PRO_STATE;
@@ -259,6 +286,13 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   // after some minutes, and a visible page re-checks instead of saying "verify again".
   let knownOwned = false;
   let renewFlight = false;
+  // A Buy question asked while one is in flight is asked again once it lands (ISS-0090).
+  let channelAgain = false;
+  let onlineAt = -Infinity;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectTries = 0;
+  /** Offline, or back online only moments ago: a failure now says nothing about the answer. */
+  const unsettled = () => !online() || now() - onlineAt < RECONNECT_GRACE_MS;
 
   function set(next: Partial<BrowserProState>): void {
     if (stopped) return;
@@ -286,9 +320,14 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   /** `quiet` re-asks behind the current answer (no "checking" flash): a page shown again learns
    * that sales were switched off, or on, without the card blinking. */
   async function askChannel(quiet = false): Promise<void> {
-    if (stopped || channelFlight || seen === null) return;
+    if (stopped || seen === null) return;
+    if (channelFlight) {
+      channelAgain = true;
+      return;
+    }
     channelFlight = true;
     const ticket = generation;
+    const startedUnsettled = unsettled();
     if (!quiet || state.channel === "unknown") set({ channel: "checking" });
     let allowed: boolean;
     try {
@@ -298,21 +337,33 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     }
     if (ticket !== generation) return;
     channelFlight = false;
-    set({ channel: allowed ? "ready" : "unavailable" });
+    // A "no" while the network was unsettled may only be a failed sales check (ISS-0090).
+    set({ channel: allowed ? "ready" : startedUnsettled || unsettled() ? "offline" : "unavailable" });
+    if (channelAgain) {
+      channelAgain = false;
+      void askChannel(true);
+    }
   }
 
   /** Renew a known none, or a known owned (ISS-0077), that went stale, quietly, once per stale
    * answer (at most two checks). Not while hidden or past the renewal allowance: the next time the
-   * page is shown or focused does it then. */
-  function renew(): void {
+   * page is shown or focused does it then. `again` (the person returned, or the browser came back
+   * online) re-checks a known none held offline; a mere access change while still offline does
+   * not. */
+  function renew(again = false): void {
     const expected: ProOwnership | null = knownNone ? "none" : knownOwned ? "owned" : null;
-    if (stopped || renewFlight || expected === null || seen?.userId == null || seen.ownership !== "verify" || !visible()) return;
-    if (keepAliveCount >= KEEP_ALIVE_LIMIT) return;
+    if (stopped || renewFlight || expected === null || seen?.userId == null || seen.ownership !== "verify") return;
+    if (!visible() || keepAliveCount >= KEEP_ALIVE_LIMIT || (state.offlineNone && !again && !online())) return;
     keepAliveCount += 1;
     renewFlight = true;
     const ticket = generation;
-    set({ renewing: true });
+    // The re-check is always tried: the browser's offline signal only explains a failure.
+    const startedUnsettled = unsettled();
+    // A held known none re-checks behind its offline line; otherwise the card shows checking.
+    if (!state.offlineNone) set({ renewing: true });
     const confirmed = (result: AccessRecheck | null) => result !== null && proOwnership(result.access) === expected;
+    const answered = (result: AccessRecheck | null) =>
+      result !== null && (result.outcome === "entitled" || result.outcome === "not-entitled");
     void (async () => {
       let result = await recheck(true);
       // The first answer may come from a check already under way when the answer went stale (the
@@ -320,9 +371,15 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (!stopped && ticket === generation && !confirmed(result)) result = await recheck(true);
       if (ticket !== generation) return;
       renewFlight = false;
+      // The server could not be reached (offline or just back online): the known none is kept,
+      // not turned into "verify again" (ISS-0090).
+      if (!confirmed(result) && expected === "none" && !answered(result) && (startedUnsettled || unsettled())) {
+        set({ renewing: false, offlineNone: true });
+        return;
+      }
       // Not confirmed: the stale answer is not renewed and the card says "verify again".
       if (!confirmed(result)) { knownNone = false; knownOwned = false; }
-      set({ renewing: false });
+      set({ renewing: false, offlineNone: false });
     })();
   }
 
@@ -331,7 +388,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     keepAliveCount = 0;
     if (state.purchase === "waiting") void recheck(true);
     else if (seen?.ownership === "owned") return;
-    else if (seen?.ownership === "verify" && (knownNone || knownOwned)) renew();
+    else if (seen?.ownership === "verify" && (knownNone || knownOwned)) renew(true);
     else if (now() - lastRecheckAt >= VISIBLE_RECHECK_SPACING_MS) void recheck(true);
     else if (seen?.ownership === "none") armKeepAlive();
   }
@@ -353,7 +410,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     // Buy is offered again (a second create resumes the same server-held checkout).
     if (returning && state.purchase === "waiting") set({ purchase: "idle" });
     if (proOwnership(result.access) === "none") {
-      if (state.channel === "unknown" || refreshChannel) void askChannel(true);
+      if (state.channel === "unknown" || state.channel === "offline" || refreshChannel) void askChannel(true);
       armKeepAlive();
     }
     return result;
@@ -418,6 +475,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       return;
     }
     if (!live()) return;
+    const startedUnsettled = unsettled();
     let outcome: Awaited<ReturnType<UiCheckout["createCheckout"]>>;
     try {
       outcome = await deps.checkout.createCheckout();
@@ -464,6 +522,13 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     // nothing until the page noticed the sign-out, then pop up unasked. (A sign-out the page has
     // noticed changes the account, which already dropped this answer above; the signed-out card
     // offers sign-in itself.)
+    // Offline or just back online, the checkout most likely never started: say Still can't check
+    // right now (the Buy question is asked again once the browser is back online) rather than
+    // "If you were charged, Restore purchase will find it" (ISS-0090).
+    if (startedUnsettled || unsettled()) {
+      set({ purchase: "idle", channel: "offline" });
+      return;
+    }
     set({ purchase: "failed" });
   }
 
@@ -478,8 +543,31 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   function onFocus(): void {
     if (!stopped && visible()) engage();
   }
+  function clearReconnect(): void {
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  /** Back online (ISS-0090): what waited on the network asks again, a few times over the first
+   * seconds, since the first requests often fail. Not the person returning: the renewal allowance
+   * does not start again. */
+  function onOnline(): void {
+    if (stopped) return;
+    onlineAt = now();
+    reconnectTries = 0;
+    retryAfterReconnect();
+  }
+  function retryAfterReconnect(): void {
+    clearReconnect();
+    const channelWaiting = state.channel === "offline" || channelFlight;
+    if (stopped || !online() || (!channelWaiting && !state.offlineNone)) return;
+    if (channelWaiting) void askChannel(true);
+    if (state.offlineNone) renew(true);
+    const delay = RECONNECT_RETRY_MS[reconnectTries++];
+    if (delay !== undefined) reconnectTimer = setTimeout(retryAfterReconnect, delay);
+  }
   page.addEventListener("visibilitychange", onVisibility);
   focusTarget?.addEventListener("focus", onFocus);
+  networkTarget?.addEventListener("online", onOnline);
 
   return {
     /** Feed every account and access change; the card calls this from its reactive effect. */
@@ -492,11 +580,12 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // Before anything runs for the new account, so its own checks are not fenced off.
         generation += 1;
         channelFlight = false;
+        channelAgain = false;
         renewFlight = false;
         knownNone = false;
         knownOwned = false;
         clearKeepAlive();
-        set({ channel: "unknown", purchase: "idle", renewing: false });
+        set({ channel: "unknown", purchase: "idle", renewing: false, offlineNone: false });
       }
       // A Restore waiting on this sign-in runs its re-check now (shared with the one below).
       observeRestore(previous, next);
@@ -508,6 +597,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       else if (next.ownership === "none") knownNone = true;
       if (next.userId === null || next.ownership === "none" || next.ownership === "hidden") knownOwned = false;
       else if (next.ownership === "owned") knownOwned = true;
+      if (next.ownership !== "verify" && state.offlineNone) set({ offlineNone: false });
       if (next.ownership === "verify") renew();
       if (next.ownership === "none" && next.userId !== null) {
         if (state.channel === "unknown") void askChannel();
@@ -539,8 +629,10 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     stop(): void {
       stopped = true;
       clearKeepAlive();
+      clearReconnect();
       page.removeEventListener("visibilitychange", onVisibility);
       focusTarget?.removeEventListener("focus", onFocus);
+      networkTarget?.removeEventListener("online", onOnline);
     },
   };
 }

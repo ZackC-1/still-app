@@ -103,11 +103,16 @@
       restore?.state === "verify" ||
       restore?.state === "failed",
   );
+  // The Still Pro card waits only while a Restore is checking or asks to verify. A failed Restore
+  // changed nothing, so the card keeps what it showed, Get Still Pro included (ISS-0090).
+  let proRestoreHeld = $derived(
+    restore?.state === "checking" || restore?.state === "verify",
+  );
   let proActionReady = $derived(
     pro !== undefined &&
       knownMissing &&
       pro.ownership === "none" &&
-      !restoreHeld &&
+      !proRestoreHeld &&
       pro.state !== "pending" &&
       pro.state !== "failed" &&
       pro.state !== "success",
@@ -297,7 +302,7 @@
         {accessHeld}
         {accessChecking}
         {accessVerify}
-        {restoreHeld}
+        restoreHeld={proRestoreHeld}
       />
       {#if proReturnGuidance}
         <p class="caption muted">{proReturnGuidance}</p>
