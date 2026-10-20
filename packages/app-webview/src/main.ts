@@ -391,9 +391,12 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
 
-void analytics.start();
+// The controller's first "Share usage data" read ran before this start; read it again once the
+// launch's analytics has settled, and at each return to the foreground (ISS-0111).
+void analytics.start().finally(() => void controller.refreshUsageSharing());
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") void analytics.recheckSetup();
+  if (document.visibilityState === "visible")
+    void analytics.recheckSetup().finally(() => void controller.refreshUsageSharing());
 });
 
 if (appleSettingsAdapter) void mountAppleScreens(appleSettingsAdapter);
