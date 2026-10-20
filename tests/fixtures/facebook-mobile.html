@@ -11,10 +11,15 @@
     </nav>
 
     <!-- The mobile tab bar keeps a fixed number of slots, so the Reels tab's contents are hidden
-         rather than the tab itself, which would otherwise leave a grey gap (issue #58). -->
-    <div role="tablist" id="fb-mobile-tablist">
-      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="Home, 1 of 6">Home</div>
-      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6"><span>Reels</span></div>
+         rather than the tab itself, which would otherwise leave a grey gap (issue #58). The packaged
+         layout then makes the tab invisible and untappable and slides its neighbours half a slot
+         towards it, so the bar shows no empty slot (ISS-0102). -->
+    <!-- The captured geometry (20 Oct 2026): a column whose tabs are pulled up into one row by
+         margin-top and placed by inline width and margin-left; three of the six tabs here. -->
+    <div role="tablist" id="fb-mobile-tablist" style="display: flex; flex-direction: column; width: 390px; height: 50px;">
+      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="feed, 1 of 6" style="height: 50px; width: 65px;">Home</div>
+      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 65px;"><span>Reels</span></div>
+      <div role="tab" id="keep-fb-mobile-notifications-tab" aria-label="Notifications, 5 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 130px;">Notifications</div>
     </div>
 
     <main role="feed">
