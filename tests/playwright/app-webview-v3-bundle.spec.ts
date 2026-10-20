@@ -91,7 +91,7 @@ class MemoryAppGroup implements StorageAdapter {
 }
 
 /** Answers window.webkit.messageHandlers.still the way WebBridgeRouter.swift shapes its replies. */
-function nativeHost(showOnboarding: boolean): (message: unknown) => Promise<unknown> {
+function nativeHost(showOnboarding: boolean, platform: "ios" | "macos" = "ios"): (message: unknown) => Promise<unknown> {
   const group = new MemoryAppGroup();
   let n = 0;
   const writer = new AtomicSettingsWriter(group, () => `00000000-0000-4000-8000-${(++n).toString(16).padStart(12, "0")}`);
@@ -107,12 +107,14 @@ function nativeHost(showOnboarding: boolean): (message: unknown) => Promise<unkn
         return JSON.stringify(await writer.initialize(command.ownership ?? "unknown"));
       }
       case "onboardingState":
-        return { ok: true, shouldShow: showOnboarding && !onboardingComplete, platform: "ios", osMajorVersion: 26 };
+        return { ok: true, shouldShow: showOnboarding && !onboardingComplete, platform, osMajorVersion: 26 };
       case "completeOnboarding":
         onboardingComplete = true;
         return { ok: true };
       case "safariSetupState":
-        return { ok: true, platform: "ios", extensionStatus: "unknown", enableLocation: "settingsAppStillPage" };
+        return platform === "ios"
+          ? { ok: true, platform, extensionStatus: "unknown", enableLocation: "settingsAppStillPage" }
+          : { ok: true, platform, extensionStatus: "unknown", enableLocation: "safariExtensionSettings" };
       case "receiptStatus":
         return { receipt: "noSignal" };
       case "setAccountSyncStatus":
@@ -133,12 +135,16 @@ test.describe("the V3 bundle in WebKit over file://", () => {
     await browser?.close();
   });
 
-  async function open(showOnboarding: boolean): Promise<{ page: Page; errors: string[] }> {
-    const context = await browser.newContext({ viewport: { width: 393, height: 759 } });
+  async function open(
+    showOnboarding: boolean,
+    platform: "ios" | "macos" = "ios",
+  ): Promise<{ page: Page; errors: string[] }> {
+    const viewport = platform === "ios" ? { width: 393, height: 759 } : { width: 480, height: 900 };
+    const context = await browser.newContext({ viewport });
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.exposeFunction("__stillGuardNative", nativeHost(showOnboarding));
+    await page.exposeFunction("__stillGuardNative", nativeHost(showOnboarding, platform));
     await page.addInitScript(() => {
       const w = window as unknown as {
         webkit?: unknown;
@@ -170,4 +176,33 @@ test.describe("the V3 bundle in WebKit over file://", () => {
     expect(errors).toEqual([]);
     await page.context().close();
   });
+
+  // The site list is one card whose dividers sit directly between the rows (owner, 19 Oct): on the
+  // iPhone 55px rows, 56px per site and a 223px card; the Mac keeps its 12.5% tighter rows (52px),
+  // so 53px per site and a 211px card. Measured in WebKit, the engine of the app's web view.
+  for (const [platform, row, card] of [["ios", 55, 223], ["macos", 52, 211]] as const) {
+    test(`D04 settings on ${platform}: the site list's dividers sit directly between the rows`, async () => {
+      const { page, errors } = await open(false, platform);
+      await expect(page.locator(".site-section")).toHaveCount(4);
+      if (platform === "macos") await expect(page.locator(".mac-settings")).toHaveCount(1);
+      await page.evaluate(() => document.fonts.ready);
+      const list = await page.evaluate(() => {
+        const group = document.querySelector<HTMLElement>(".service-group")!;
+        const sections = [...group.querySelectorAll<HTMLElement>(":scope > .site-section")];
+        const rows = sections.map((section) => section.querySelector(".service-row")!.getBoundingClientRect());
+        return {
+          gap: getComputedStyle(group).rowGap,
+          rows: rows.map((r) => Math.round(r.height)),
+          steps: rows.slice(1).map((r, i) => Math.round(r.top - rows[i]!.top)),
+          card: Math.round(group.getBoundingClientRect().height),
+        };
+      });
+      expect(list.gap).toBe("0px");
+      expect(list.rows).toEqual([row, row, row, row]);
+      expect(list.steps).toEqual([row + 1, row + 1, row + 1]);
+      expect(list.card).toBe(card);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+  }
 });
