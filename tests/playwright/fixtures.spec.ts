@@ -530,7 +530,7 @@ test("facebook menus: ordinary destinations survive the Page overflow rule", asy
   }
 });
 
-// fb-watch removes the shelf's tiles, which used to leave the card behind as an empty "Reels"
+// fb-watch used to remove the shelf's tiles, which left the card behind as an empty "Reels"
 // header. fb-feed-shelf hides the whole card, bounded by Facebook's own per-item feed unit rather
 // than by counting ancestors from the grid, so nothing outside that unit can go with it.
 test("facebook home: the whole Reels shelf goes, header included, and every other feed card stays", async ({
@@ -548,7 +548,9 @@ test("facebook home: the whole Reels shelf goes, header included, and every othe
     await expect(page.locator(`#${id}-header`)).toBeHidden();
   }
   await expect(page.locator("#reels-shelf-more")).toBeHidden();
-  await expect(page.locator("#reels-shelf-card [role='gridcell']")).toHaveCount(0);
+  // The seed's tile removal never acts inside a feed unit any more (ISS-0091): the tiles stay in the
+  // DOM, hidden with the card.
+  for (const cell of await page.locator("#reels-shelf-card [role='gridcell']").all()) await expect(cell).toBeHidden();
   // The unit Facebook measures keeps a laid-out box of zero height rather than losing its box.
   const unit = await page.evaluate(() => {
     const el = document.querySelector("#reels-shelf-unit")!;
@@ -572,13 +574,20 @@ test("facebook home: the whole Reels shelf goes, header included, and every othe
   ]) {
     await expect(page.locator(`#${id}`), id).toBeVisible();
   }
-  // ISS-0091: single Reel posts in today's feed units go too (the packaged stylesheet and the
-  // engine both carry the rule). A Home Reel post with no Reel link yet stays until its timestamp
-  // link turns into the Reel's address, then hides.
-  for (const id of ["reel-post-card", "reel-post-absolute-card"]) await expect(page.locator(`#${id}`), id).toBeHidden();
-  await expect(page.locator("#rest-reel-post-card")).toBeVisible();
-  await page.locator("#rest-reel-post-timestamp").evaluate((a) => a.setAttribute("href", "/reel/900000000403/?s=chrono"));
-  await expect(page.locator("#rest-reel-post-card")).toBeHidden();
+  // ISS-0091 (legacy lane: packaged stylesheet plus the seed's remove sweep): a feed Reel post hides
+  // by its own player, and the sweep never removes anything inside a feed unit, so the hidden Reel
+  // keeps its link and player and cannot reappear gutted or playable.
+  for (const id of ["reel-post-card", "reel-post-absolute-card", "search-reel-article", "direct-inner-reel-card"])
+    await expect(page.locator(`#${id}`), id).toBeHidden();
+  await expect(page.locator("#reel-post-player-link")).toHaveCount(1);
+  await expect(page.locator("#reel-post-card video")).toHaveCount(1);
+  for (const id of [
+    "keep-comment-reel-url-post", "keep-comment-reel-attachment-post", "keep-reels-entry-post", "keep-more-from-page-post",
+    "keep-reel-link-beside-video-post", "keep-search-video-article", "keep-rest-reel-post",
+  ]) await expect(page.locator(`#${id}`), id).toBeVisible();
+  await page.locator("#keep-rest-reel-post-timestamp").evaluate((a) => a.setAttribute("href", "/reel/900000000403/?s=chrono"));
+  await expect(page.locator("#keep-rest-reel-post")).toBeVisible();
+  await expect(page.locator("#keep-reel-link-beside-video-post a[href^='/reel/']")).toHaveCount(1);
 });
 
 // The shelf must go whichever runs first: the stylesheet hiding the card or the sweep removing its

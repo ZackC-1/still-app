@@ -184,7 +184,10 @@
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
-            "div[data-virtualized] > div:has(:is(a[href^=\"/reel/\"], a[href*=\"facebook.com/reel/\"]):not([data-ad-rendering-role=\"story_message\"] *)):has(video):not(:has([data-virtualized]))",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
@@ -275,6 +278,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "46facb99e7fec3d5c70ab4dc5659d41c2c683a0aaa8c369d0deed0dfef298ba32dc96d93c3a538a0074f460e18697c3bb704deb53e23cc6d88a3b2aa2851d60c"
+    "value": "778078dc5ba71b42281519de1575738410748ffbe0d84a92832210052cf59c8837a28e3a706f55c06962be45ebddc983309afdeea42ca23172523310899e330d"
   }
 }

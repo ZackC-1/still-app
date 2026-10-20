@@ -26,6 +26,40 @@ const reelsFeedEntries = REELS_FEED_HREF_PREFIXES.flatMap((origin) => [
   ...REELS_FEED_PATHS.map((paths) => `:is(nav, [role="navigation"]) li:has(${reelsFeedLink(origin, paths)}):not(:has(li))`),
 ]);
 
+/**
+ * ISS-0091: a single Reel post in a feed (Home, a Page, the Groups feed, search), captured 19 Oct
+ * 2026. Home no longer renders feed or article roles: every feed item is its own
+ * div[data-virtualized] unit. A Reel post is recognised by its own player: the video sits inside a
+ * link to that Reel (/reel/<id>, relative or absolute). Never by a Reel link elsewhere in the unit:
+ * a link in the post's own caption (Facebook's story_message box) or in a comment (a labelled
+ * article: a comment's permalink, a pasted URL or an attached Reel), a link to the Reels feed
+ * itself (/reel/, /reel/?s=..., /reel/following/, /reel/profile/), or a box beside an ordinary
+ * video ("More from this Page", a Marketplace or Live title) never counts. Home Reel posts that
+ * show no Reel link around their player stay visible.
+ *
+ * Two shapes: a unit with no post article (Home, Pages, Groups), whose child hides like the shelf
+ * rule above; and, inside a unit where posts are unlabelled articles (search modules, which can
+ * hold several posts in one unit), only the Reel post's own top-level article. A unit holding an
+ * article post is left to the article shape, and a unit that is or holds another unit never
+ * qualifies. A Reel opened on its own page is not in a feed unit and is never touched.
+ */
+const OWN_REEL_LINK_ORIGINS = Object.freeze([
+  ["a[href^=\"/reel/\"]", ""],
+  ["a[href*=\"facebook.com/reel/\"]", "facebook.com"],
+] as const);
+/** The singular /reel/ feed entries: the bare Reels feed and its Following and Profile tabs. */
+const REEL_FEED_PATHS: readonly string[] = REELS_FEED_PATHS[0]!;
+const notFeedEntry = (origin: string): string => origin === ""
+  ? REEL_FEED_PATHS.map((path) => `[href="${path}"],[href^="${path}?"]`).join(",")
+  : REEL_FEED_PATHS.map((path) => `[href$="${origin}${path}"],[href*="${origin}${path}?"]`).join(",");
+const NOT_CAPTION_OR_COMMENT = '[data-ad-rendering-role="story_message"] *,[role="article"][aria-label] *';
+const ownReelPlayer = (link: string, origin: string): string =>
+  `${link}:not(${notFeedEntry(origin)},${NOT_CAPTION_OR_COMMENT}) video`;
+const feedReelPosts = OWN_REEL_LINK_ORIGINS.flatMap(([link, origin]) => [
+  `div[data-virtualized] > div:not([data-virtualized]):has(${ownReelPlayer(link, origin)}):not(:has([data-virtualized],[role="article"]:not([aria-label])))`,
+  `div[data-virtualized] [role="article"]:not([aria-label]):not([role="article"] *):has(${ownReelPlayer(link, origin)})`,
+]);
+
 /** Captured core Reels discovery targets for explicit internal format2 opt-in.
  * Keep virtualizer and measured-tab boxes, renderer nodes and ordinary feed content.
  * Individual/shared playback and the optional Facebook categories remain separate.
@@ -39,15 +73,7 @@ const selectors = Object.freeze([
   '[role="feed"] [role="article"]:has(> a[href^="/reel/"])',
   '[role="feed"] [role="article"]:has(> a[href^="/reels/"])',
   'div[data-virtualized] > div:has(div[role="grid"][aria-label="Reels"]):not(:has([data-virtualized]))',
-  // ISS-0091: a single Reel post in a feed (Home, a Page, the Groups feed, search), captured 19 Oct
-  // 2026. Every feed item is its own div[data-virtualized] unit; a Reel post's unit holds a video
-  // and a link to a Facebook Reel (/reel/<id>, relative or absolute): its own "N second Reel" link,
-  // its timestamp, or its comments' permalinks. Plain posts and shared Stories carry no Reel link,
-  // a text post that only links a Reel has no video, and a Reel link in the post's own caption
-  // (Facebook's story_message box) never counts, so those all stay. Some Home Reel posts show their
-  // Reel link only once the pointer reaches the timestamp; until then nothing marks them as Reels,
-  // so they stay visible until that moment. Hides the unit's child, like the shelf rule above.
-  'div[data-virtualized] > div:has(:is(a[href^="/reel/"], a[href*="facebook.com/reel/"]):not([data-ad-rendering-role="story_message"] *)):has(video):not(:has([data-virtualized]))',
+  ...feedReelPosts,
   'a[role="tab"][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"]) > *',
   '[role="menu"] a[role="menuitemradio"][aria-checked][href^="https://www.facebook.com/"][href$="/reels_tab"]:not([href="https://www.facebook.com/reels_tab"]):not([href*="/groups/"]):not([href*="?"]):not([href*="#"])',
   '[role="tab"][aria-label^="Reels," i] > *',

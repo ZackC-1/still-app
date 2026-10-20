@@ -249,9 +249,9 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
-            "div[role=\"article\"]:has(a[href*=\"/reels/\"])",
-            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel/\"], a[href*=\"/reels/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"]):not(div[data-virtualized] *)",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"]):not(div[data-virtualized] *)",
+            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel/\"], a[href*=\"/reels/\"]):not(div[data-virtualized] *)"
           ]
         },
         {
@@ -263,7 +263,10 @@
           "enabledByDefault": true,
           "selectors": [
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
-            "div[data-virtualized] > div:has(:is(a[href^=\"/reel/\"], a[href*=\"facebook.com/reel/\"]):not([data-ad-rendering-role=\"story_message\"] *)):has(video):not(:has([data-virtualized]))"
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)"
           ]
         },
         {
@@ -311,9 +314,9 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div:has(> a[href*=\"/reel/\"])",
-            "div:has(> a[href*=\"/reels/\"])",
-            "[role=\"button\"][aria-label*=\"reel video\" i]"
+            "div:has(> a[href*=\"/reel/\"]):not(div[data-virtualized] *)",
+            "div:has(> a[href*=\"/reels/\"]):not(div[data-virtualized] *)",
+            "[role=\"button\"][aria-label*=\"reel video\" i]:not(div[data-virtualized] *)"
           ]
         },
         {
@@ -324,8 +327,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
-            "div[role=\"article\"]:has(a[href*=\"/reels/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"]):not(div[data-virtualized] *)",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"]):not(div[data-virtualized] *)"
           ]
         },
         {
@@ -336,8 +339,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
-            "div[role=\"article\"]:has(a[href*=\"/reels/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"]):not(div[data-virtualized] *)",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"]):not(div[data-virtualized] *)"
           ]
         }
       ]
@@ -346,6 +349,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "cffcbc2bfde65dd782ccee04e28fa8a04e122c79becb1e81d08c523ca86e8f63dbdf2323f4f8a46c648487825d5b3bbec9550d43a93f79ff72b5aff9f15ec801"
+    "value": "9dcd15771d24756c5477e380c0d146edb2b8eaac3fec1e568083e0f9b4a8469d84d886d845065baace665ff5c2e20409f9522364485fe8335dc16c6321f72000"
   }
 }
