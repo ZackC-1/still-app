@@ -9,7 +9,8 @@ export type FixedErrorCode =
   | "invalid_limiter_result"
   | "posthog_identify_failed"
   | "revenuecat_lookup_failed"
-  | "web_billing_unconfigured";
+  | "web_billing_unconfigured"
+  | "qa_subject_unavailable";
 
 export class CodedError extends Error {
   readonly code: FixedErrorCode;
@@ -25,3 +26,8 @@ export class CodedError extends Error {
 
 // On the prototype, so an instance carries no own property beyond its code (and status).
 Object.defineProperty(CodedError.prototype, "name", { value: "CodedError" });
+
+/** True only for a CodedError carrying exactly this fixed code. */
+export function hasErrorCode(error: unknown, code: FixedErrorCode): boolean {
+  return error instanceof CodedError && error.code === code;
+}

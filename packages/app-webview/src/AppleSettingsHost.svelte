@@ -340,9 +340,13 @@
       purchaseFlow:
         proState?.pro?.state === "pending" ? "purchasing" : c.purchaseFlow,
       checkoutFlow: c.checkoutFlow,
+      // ISS-0104: the "linked to another account" card states a fact and asks nothing, like
+      // the linked status; neither holds the rating prompt.
       paywallOpen:
         purchaseOpen ||
-        (proState?.link !== undefined && proState.link.state !== "linked") ||
+        (proState?.link !== undefined &&
+          proState.link.state !== "linked" &&
+          proState.link.state !== "elsewhere") ||
         c.paywallOpen,
       successScreen:
         purchaseOpen && proState?.pro?.state === "success"
