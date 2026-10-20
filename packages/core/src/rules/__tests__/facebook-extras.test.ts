@@ -178,6 +178,45 @@ describe("free Facebook Reels are never shadowed", () => {
   });
 });
 
+describe("Facebook Stories tray on the phone (fb-stories-mobile.html, ISS-0101)", () => {
+  it("hides the tray row of the phone Home feed and nothing else, Off restores", () => {
+    render("fb-stories-mobile.html");
+    const engine = session();
+    // Stories alone: the tray row goes; the Reels section row is the free control's and stays here.
+    engine.applyDom(settingsWith({ "facebook.reels": false, "facebook.stories": true }), new URL("https://m.facebook.com/"), document, ON);
+    for (const id of ids("target-")) expect(visible(id), id).toBe(false);
+    for (const id of [...ids("keep-"), "free-reels-row"]) expect(visible(id), id).toBe(true);
+    // Reels On as well: the free rule hides the Reels section row, the rest of the feed stays.
+    engine.applyDom(ALL_ON, new URL("https://m.facebook.com/"), document, ON);
+    expect(visible("free-reels-row")).toBe(false);
+    for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
+    const before = document.body.innerHTML;
+    engine.applyDom(settingsWith({ "facebook.reels": true }), new URL("https://m.facebook.com/"), document, ON);
+    for (const id of ids("target-")) expect(visible(id), id).toBe(true);
+    expect(document.body.innerHTML).toBe(before);
+  });
+
+  it("a tray without the person's own card still goes; a scroller at another depth, or one holding a Reel, stays", () => {
+    render("fb-stories-mobile.html");
+    document.getElementById("target-story-create")!.remove();
+    session().applyDom(settingsWith({ "facebook.stories": true }), new URL("https://m.facebook.com/"), document, ON);
+    expect(visible("target-stories-row")).toBe(false);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    render("fb-stories-mobile.html");
+    const scroller = document.getElementById("target-stories-scroller")!;
+    const extra = document.createElement("div"); scroller.replaceWith(extra); extra.append(scroller);
+    session().applyDom(settingsWith({ "facebook.stories": true }), new URL("https://m.facebook.com/"), document, ON);
+    expect(visible("target-stories-row")).toBe(true);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    render("fb-stories-mobile.html");
+    document.getElementById("target-stories-scroller")!.insertAdjacentHTML("beforeend", '<div><div><a href="/reel/900000000011/">An invented Reel card</a></div></div>');
+    session().applyDom(settingsWith({ "facebook.stories": true }), new URL("https://m.facebook.com/"), document, ON);
+    expect(visible("target-stories-row")).toBe(true);
+  });
+});
+
 describe("Facebook Stories tray (fb-stories.html)", () => {
   it("hides the tray region, keeping its virtualised wrapper, the composer, People you may know, posts and messages", () => {
     render("fb-stories.html");
@@ -481,7 +520,7 @@ describe("Desktop sidebar ads (fb-sidebar.html)", () => {
 });
 
 describe("Facebook extras stay dormant on the shipped paid-off defaults", () => {
-  it.each(["fb-stories.html", "fb-videos.html", "fb-sidebar.html"])("%s: every Pro saved On has no effect", (file) => {
+  it.each(["fb-stories.html", "fb-stories-mobile.html", "fb-videos.html", "fb-sidebar.html"])("%s: every Pro saved On has no effect", (file) => {
     render(file);
     const engine = session();
     engine.applyDom(ALL_ON, new URL(`${FB}/`), document);
