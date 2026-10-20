@@ -187,6 +187,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // A link already in flight rereads eligibility itself and ends in linked or failed (with
     // Try again); an overlapping refresh must not cancel it silently.
     if (!eligiblePurchase && link?.state !== "pending") clearLink();
+    // ISS-0081: a new session starts with no account proofs, so the read right after sign-in can
+    // offer the confirmation before the reconcile installs the proof. Once it says this account
+    // already holds the purchase, the confirmation becomes the linked status (and its old Link
+    // tap is fenced) instead of asking to link it again.
+    if (
+      linkedHere() &&
+      link?.state === "confirm" &&
+      linkAccount &&
+      sameAccount(linkAccount)
+    ) {
+      linkGeneration++;
+      linkingRequested = false;
+      linkSignInAsked = false;
+      link = { state: "linked", email: linkAccount.email };
+    }
     changed();
     if (offer) offerRequestedLink();
   }

@@ -95,7 +95,8 @@ async function compose(
     refuseEligibility?: number;
     eligible?: boolean;
     /** ISS-0081: the account native's current server-signed account proof links the right to. Native
-     * only holds account proofs for the account it bound, so it names it only while signed in. */
+     * holds that proof only once the signed-in account's reconcile has installed it (a new session
+     * starts with none), so it names the account only after that. */
     linkedAccount?: string | null;
     verificationFails?: boolean;
     verificationHeld?: boolean;
@@ -135,6 +136,9 @@ async function compose(
   let eligibilityHeld = false;
   const eligibilityWaiters: Array<() => void> = [];
   let refusedEligibility = 0;
+  // ISS-0081: the account proof exists on the device only after a reconcile installed it.
+  let proofInstalled = false;
+  let reconcileGate: Promise<void> | null = null;
   if (options.accountAccess) options.codeAuth = true;
   let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
   const accountRequests: unknown[] = [];
@@ -157,6 +161,14 @@ async function compose(
                 return writer.initialize("unknown");
               case "reconcileAccountAccess":
                 accountRequests.push(message);
+                if (reconcileGate) await reconcileGate;
+                if (options.linkedAccount) {
+                  proofInstalled = true;
+                  // Installing the proof advances native's record, so the cache publishes again.
+                  rights = { ...snapshot(options.accountState === "none" || !options.accountState ? "purchased" : options.accountState), generation: rights.generation + 1 };
+                  return {schema: 1, status: "committed", accountStatus: "verified", generation: 2, accountId, sessionId,
+                    issuerTime: 1800000000000, proofIdentities: ["synthetic-access:" + "ab".repeat(64)]};
+                }
                 // "none" leaves the device's own rights alone: the account adds nothing. Binding the
                 // session still advances native's record generation, so the next read is a new snapshot.
                 if (!options.accountUncertain && options.accountState !== "none") rights = snapshot(options.accountState ?? "purchased");
@@ -277,7 +289,7 @@ async function compose(
           }
           return options.eligible === false
             ? null
-            : { ownershipRevision: 0, linkedAccount: controller.userId ? (options.linkedAccount ?? null) : null };
+            : { ownershipRevision: 0, linkedAccount: controller.userId && proofInstalled ? (options.linkedAccount ?? null) : null };
         },
         linkPurchase,
       },
@@ -328,7 +340,12 @@ async function compose(
     nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
     verifyLocalPurchase,
     linkPurchase,
-    setLinkedAccount(account: string | null) { options.linkedAccount = account; },
+    /** Holds the account reconcile (and so the proof it installs) until released. */
+    holdReconcile() {
+      let release!: () => void;
+      reconcileGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { reconcileGate = null; release(); };
+    },
     acknowledgments,
     setRoute: (revision: number, route: "pro" | "sync" = "pro") => {
       pendingRoute = { route, revision };
@@ -1410,11 +1427,14 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
-  it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked", async () => {
+  it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked once the proof arrives", async () => {
     const f = await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
     const invite = (await screen.findByText(INVITE)).closest("section")!;
     await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
     await screen.findByRole("dialog");
+    // A brand-new session has no account proof until its reconcile installs it: hold that, so the
+    // read that follows sign-in finds none and the confirmation appears first.
+    const release = f.holdReconcile();
     const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
     await fireEvent.input(email, { target: { value: ACCOUNT } });
     await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
@@ -1422,6 +1442,8 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     await fireEvent.input(code, { target: { value: "123456" } });
     await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    expect(await screen.findByRole("heading", { name: "Link Still Pro to this account?" })).toBeVisible();
+    release();
     expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Link Still Pro to this account?" })).toBeNull();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();

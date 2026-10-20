@@ -1379,6 +1379,41 @@ describe("a right already linked to the signed-in account is not offered again (
     const { host } = await launch(user.id, null);
     expect(host.canLink).toBe(true);
   });
+  it("a proof that arrives only after the first read following sign-in turns the confirmation into linked", async () => {
+    const h = await harness();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.host.requestLink();
+    // A brand-new session: native holds no account proof yet when the request re-reads.
+    h.setAccount(user);
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    const staleConfirm = h.host.settings().link?.onConfirm;
+    // The sign-in's reconcile installs the proof and republishes access.
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    staleConfirm?.();
+    await h.settle();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.host.settings().link?.state).toBe("linked");
+  });
+  it("a confirmation for a right the read says is linked elsewhere stays a confirmation", async () => {
+    const h = await harness();
+    h.setAccount(user);
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.host.requestLink();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: "00000000-0000-4000-8000-000000000003" });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("confirm");
+  });
   it("signing in from the invitation as the account it is linked to says it is linked, without asking again", async () => {
     const h = await harness();
     vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
