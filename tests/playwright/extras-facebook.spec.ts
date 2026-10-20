@@ -106,6 +106,21 @@ test.describe("Facebook Stories (paid on)", () => {
     await expectKeptVisible(page, ["keep-tray-wrapper"]);
   });
 
+  test("hides the phone Home feed's Stories tray row (ISS-0101)", async ({ page, authority }) => {
+    await commit(authority, ALL_ON);
+    await serveFacebook(page, "fb-stories-mobile.html");
+    await page.goto("https://m.facebook.com/");
+    await engineRan(page);
+    for (const id of ["target-stories-row", "target-story-create", "target-story-card-1"]) {
+      await expect(page.locator(`#${id}`), id).toBeHidden();
+      await expect(page.locator(`#${id}`), id).toHaveCount(1);
+    }
+    // Reels On too: the free control hides the Reels section row; the rest of the feed stays.
+    await expect(page.locator("#free-reels-row")).toBeHidden();
+    for (const id of ["keep-post-row", "keep-post-story-ring", "keep-pymk-row", "keep-composer-row", "keep-top-tabs"])
+      await expect(page.locator(`#${id}`), id).toBeVisible();
+  });
+
   test("a Story link goes silently to Home, once", async ({ page, authority }) => {
     await commit(authority, ALL_ON);
     const loads = await serveFacebook(page, "fb-stories.html");

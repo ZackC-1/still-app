@@ -74,6 +74,7 @@ export const EXTRAS_CONTROLS: readonly ExtrasControl[] = [
   ] },
   { feature: "facebook.stories", service: "facebook", pages: [
     { file: "fb-stories.html", url: `${fb}/` },
+    { file: "fb-stories-mobile.html", url: "https://m.facebook.com/" },
     { file: "fb-stories.html", url: `${fb}/stories/900000000001/`, route: true },
   ] },
   { feature: "facebook.videos", service: "facebook", pages: [
