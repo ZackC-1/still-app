@@ -42,8 +42,9 @@ const layouts = [
     // One of only Reels goes whole, heading included; a mixed one keeps its heading and posts
     // (ISS-0099). The post itself, with its timestamp and comment links, stays.
     "instagram-post.html",
-    ["related-reels-only", "related-mixed-reel-1", "related-mixed-reel-2", "related-mixed-reel-3", "related-mixed-reel-4"],
-    ["keep-related-mixed-grid"],
+    ["related-reels-only", "related-mixed-reel-1", "related-mixed-reel-2", "related-mixed-reel-3", "related-mixed-reel-4",
+      "saved-reel-1", "saved-reel-2", "saved-reel-3"],
+    ["keep-related-mixed-grid", "keep-saved-grid"],
   ],
 ] as const;
 const visible = (node: Element) => {
@@ -434,13 +435,34 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       expect(visible(document.getElementById(id)!), id).toBe(false);
     // The mixed grid closes up like a profile grid, and the post's own box is untouched.
     expect(getComputedStyle(document.getElementById("keep-related-mixed-grid")!).flexWrap).toBe("wrap");
-    for (const id of ["keep-post", "keep-post-actions", "keep-post-time", "keep-post-comment-link"])
+    for (const id of ["keep-post", "keep-post-actions", "keep-post-time", "keep-post-comment-link", "keep-post-comment-form"])
       expect(visible(document.getElementById(id)!), id).toBe(true);
-    // A profile's own grid never has the section's shape, even while only its Reel tiles are rendered.
+    // A Reel's own page: the item's box has only /reel/ links and an author line at the heading's
+    // depth, and stays whole; a Saved collection's title row and grid stay (only its Reel tiles go).
+    render("instagram-post.html");
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/reel/Reel0001/"), document);
+    expect(visible(document.getElementById("related-reels-only")!)).toBe(false);
+    for (const id of ["keep-reel-item", "keep-reel-item-author", "keep-reel-item-actions", "keep-reel-item-comment-form",
+      "keep-saved-collection", "keep-saved-back", "keep-saved-grid"])
+      expect(visible(document.getElementById(id)!), id).toBe(true);
+    for (const id of ["saved-reel-1", "saved-reel-2", "saved-reel-3"]) expect(visible(document.getElementById(id)!), id).toBe(false);
+    // A profile's own grid is never hidden while only its Reel tiles are rendered: as the fixture
+    // lays it out, and under a plain title row inside a box (no tab row, no header to tell it apart).
     render("instagram-profile.html");
     for (const link of document.querySelectorAll('#profile-grid a[href*="/p/"]')) link.parentElement!.remove();
     session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/"), document);
     for (const id of ["profile-grid", "profile-tabs", "keep-profile-header"]) expect(visible(document.getElementById(id)!), id).toBe(true);
+    render("instagram-profile.html");
+    for (const link of document.querySelectorAll('#profile-grid a[href*="/p/"]')) link.parentElement!.remove();
+    document.getElementById("keep-profile-header")!.remove();
+    const tabs = document.getElementById("profile-tabs")!;
+    const wrapper = tabs.nextElementSibling!;
+    const box = document.createElement("div"); box.id = "plain-box";
+    tabs.replaceWith(box);
+    const title = document.createElement("div"); title.innerHTML = "<div><span>Posts</span></div>";
+    box.append(title, wrapper);
+    session().applyDom(DEFAULT_SETTINGS_V2, new URL("https://www.instagram.com/someuser/"), document);
+    for (const id of ["plain-box", "profile-grid"]) expect(visible(document.getElementById(id)!), id).toBe(true);
   });
   it("profile rules stay off pages without the profile mark (Home, Explore, posts, search)", () => {
     render("instagram-profile.html");

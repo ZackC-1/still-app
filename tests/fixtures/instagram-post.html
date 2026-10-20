@@ -19,13 +19,50 @@
     <main role="main">
       <div>
         <div id="keep-post">
-          <div><a href="/someuser/" id="keep-post-author">someuser</a></div>
+          <div><div><a href="/someuser/" id="keep-post-author">someuser</a></div></div>
           <div id="keep-post-media"><div class="tile"></div></div>
           <div><div><div>
             <section id="keep-post-actions"><span>Like</span><span>Comment</span><span>Share</span><span>Save</span></section>
-            <div><div><a href="/someuser/p/Post0001/" id="keep-post-time">1 hour ago</a></div></div>
+            <div><div><a href="/someuser/p/Post0001/" id="keep-post-time"><time datetime="2026-10-20T16:00:00.000Z">1 hour ago</time></a></div></div>
           </div></div></div>
           <div id="keep-post-comments"><div><a href="/someuser/p/Post0001/c/900001/" id="keep-post-comment-link">1w</a></div></div>
+          <form id="keep-post-comment-form"><textarea aria-label="Add a comment…"></textarea></form>
+        </div>
+        <hr />
+
+        <!--
+          The same box for a Reel opened on its own page (/someuser/reel/Reel0001/): every link in it is
+          a /reel/ link and its author line sits at the related heading's depth, so only the item's
+          own parts (actions section, timestamp, comment form) tell it from a related-posts section.
+          (Its timestamp box and its comment permalink box are one-tile rows to the profile tile rule
+          and go on their own: known, not this change's subject.)
+        -->
+        <div id="keep-reel-item">
+          <div><div><a href="/someuser/" id="keep-reel-item-author">someuser</a></div></div>
+          <div id="keep-reel-item-media"><div class="tile"></div></div>
+          <div><div><div><div>
+            <section id="keep-reel-item-actions"><span>Like</span><span>Comment</span><span>Share</span><span>Save</span></section>
+            <div><div><a href="/someuser/reel/Reel0001/" id="reel-item-time"><time datetime="2026-10-20T16:00:00.000Z">2 hours ago</time></a></div></div>
+          </div></div></div></div>
+          <div id="keep-reel-item-comments"><div><div><div><a href="/someuser/reel/Reel0001/c/900002/" id="reel-item-comment-link">3d</a></div></div></div></div>
+          <form id="keep-reel-item-comment-form"><textarea aria-label="Add a comment…"></textarea></form>
+        </div>
+        <hr />
+
+        <!--
+          A Saved collection's view (/someuser/saved/<name>/<id>/): a title row with the back link to
+          /someuser/saved/ above a grid Instagram keeps loading, here with only Reels rendered. Never
+          hidden: its title row is not the account's own link.
+        -->
+        <div id="keep-saved-collection">
+          <div><div><a href="/someuser/saved/" id="keep-saved-back">Back</a><span>All posts</span></div></div>
+          <div><div><div class="grid" id="keep-saved-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+            <div>
+              <div id="saved-reel-1"><a role="link" href="/otheruser/reel/Reel0301/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="saved-reel-2"><a role="link" href="/otheruser/reel/Reel0302/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="saved-reel-3"><a role="link" href="/otheruser/reel/Reel0303/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+            </div>
+          </div></div></div>
         </div>
         <hr />
 
