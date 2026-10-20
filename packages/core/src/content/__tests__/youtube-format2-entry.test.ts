@@ -208,4 +208,34 @@ describe("Still's root effects survive the page's own root writes (ISS-0084)", (
     await tick();
     expect(stillClasses()).toEqual([]);
   });
+  it("legacy lane: a redirect decision that leaves a root class lost is tried once, not on every later page change", async () => {
+    const h = await host();
+    const script = await h.start(false);
+    expect(stillClasses()).toContain("still-active");
+    // An in-page move to a Shorts address: the legacy redirect decision keeps its classes as they are.
+    // The redirect is issued but the page has not left yet (navigation still in flight).
+    h.replace.mockImplementation(() => {});
+    h.setHref("https://m.youtube.com/shorts/abc123def45");
+    script.reapply();
+    expect(h.replace).toHaveBeenCalledOnce();
+    const reads = vi.spyOn(h.win.location, "href", "get");
+    // The page sets its own root classes: one restore runs, and a redirect does not put still-active back.
+    document.documentElement.className = "page-own";
+    await tick();
+    const afterRestore = reads.mock.calls.length;
+    expect(afterRestore).toBeGreaterThan(0);
+    expect(stillClasses()).not.toContain("still-active");
+    // Later class changes find it still lost and run no more legacy reapplies. (An added element
+    // is the legacy lane's own reapply trigger, which re-arms the guard, so none is added here.)
+    const before = reads.mock.calls.length;
+    for (let i = 0; i < 5; i++) {
+      document.documentElement.classList.toggle("page-theme");
+      await tick();
+    }
+    expect(reads.mock.calls.length).toBe(before);
+    expect(h.replace).toHaveBeenCalledOnce();
+    // The next reapply trigger re-arms it.
+    script.reapply();
+    expect(reads.mock.calls.length).toBeGreaterThan(before);
+  });
 });

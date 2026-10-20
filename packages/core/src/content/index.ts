@@ -404,10 +404,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // after Still applied would otherwise show everything again until the next navigation or a
   // reload; a fresh load hides that behind its later DOMContentLoaded pass, a live On does not.
   // While Still owns root effects, one observer on <html>'s class attribute and on the direct
-  // children of <html> and <head> (never the subtree) restores them from the committed settings.
-  // It is attached only while something is applied, so a live Off detaches it and nothing comes
-  // back while Off. A page that keeps stripping them gets a bounded number of restores a second,
-  // then one more after the window, never a loop.
+  // children of the document, <html> and <head> (never a subtree) restores them from the
+  // committed settings, including onto a replaced <html>. It is attached only while something is
+  // applied, so a live Off detaches it and nothing comes back while Off.
+  // Bounds: at most ten restores a second. A page that strips them again as fast as Still restores
+  // them gets three such seconds; then restoring stops until the next navigation, settings change
+  // or access change (any other reapply), so a fight costs at most thirty restores. A restore that
+  // leaves them lost (the legacy lane's redirect decision keeps its old classes) also stops until
+  // that next reapply, rather than re-running on every later class or <head> change.
   const rootEffects = (): "none" | "intact" | "lost" => {
     if (modern) return pageSession.ownedRootEffects?.() ?? "none";
     if (legacyRootClasses.size === 0) return "none";
@@ -417,33 +421,54 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   };
   const ROOT_RESTORES_PER_WINDOW = 10;
   const ROOT_RESTORE_WINDOW_MS = 1_000;
-  let restoreWindowStart = 0;
+  const ROOT_RESTORE_FULL_WINDOWS = 3;
+  let restoreWindowStart = -Infinity;
   let restoresInWindow = 0;
+  let fullRestoreWindows = 0;
+  let restoresHeld = false;
   let restoreTimer: ReturnType<typeof setTimeout> | null = null;
   let rootGuard: MutationObserver | null = null;
   let guardedRoot: Element | null = null;
   let guardedHead: Element | null = null;
+  const cancelRestoreTimer = (): void => {
+    if (restoreTimer !== null) clearTimeout(restoreTimer);
+    restoreTimer = null;
+  };
   const stopRootGuard = (): void => {
     rootGuard?.disconnect();
     rootGuard = null;
     guardedRoot = guardedHead = null;
-    if (restoreTimer !== null) clearTimeout(restoreTimer);
-    restoreTimer = null;
+    cancelRestoreTimer();
   };
   teardowns.push(stopRootGuard);
+  const holdRestores = (): void => {
+    restoresHeld = true;
+    cancelRestoreTimer();
+  };
   const restoreRootEffects = (): void => {
-    if (stopped || !hydrated || rootEffects() !== "lost") return;
-    const now = Date.now();
-    if (now - restoreWindowStart >= ROOT_RESTORE_WINDOW_MS) { restoreWindowStart = now; restoresInWindow = 0; }
+    if (stopped || !hydrated || restoresHeld || rootEffects() !== "lost") return;
+    // Monotonic: a wall-clock jump backwards must not keep the window from ever closing.
+    const now = performance.now();
+    if (now - restoreWindowStart >= ROOT_RESTORE_WINDOW_MS) {
+      if (restoresInWindow < ROOT_RESTORES_PER_WINDOW) fullRestoreWindows = 0;
+      restoreWindowStart = now;
+      restoresInWindow = 0;
+    }
     if (restoresInWindow < ROOT_RESTORES_PER_WINDOW) {
       restoresInWindow++;
-      reapply();
-    } else {
-      restoreTimer ??= setTimeout(() => {
-        restoreTimer = null;
-        restoreRootEffects();
-      }, restoreWindowStart + ROOT_RESTORE_WINDOW_MS - now);
+      applyCommitted();
+      syncRootGuard();
+      if (rootEffects() === "lost") holdRestores();
+      return;
     }
+    if (restoreTimer !== null) return;
+    if (++fullRestoreWindows >= ROOT_RESTORE_FULL_WINDOWS) { holdRestores(); return; }
+    restoreTimer = setTimeout(() => {
+      restoreTimer = null;
+      // This window is over even if the timer fired a fraction early.
+      restoreWindowStart = -Infinity;
+      restoreRootEffects();
+    }, restoreWindowStart + ROOT_RESTORE_WINDOW_MS - now);
   };
   const syncRootGuard = (): void => {
     const root = doc.documentElement;
@@ -452,16 +477,21 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     rootGuard?.disconnect();
     rootGuard ??= new win.MutationObserver(() => {
       restoreRootEffects();
-      // A <head> parsed or replaced after the guard attached is watched from now on.
+      // A <head> parsed, or an <html> or <head> replaced, after the guard attached is watched from now on.
       if (doc.documentElement !== guardedRoot || doc.head !== guardedHead) syncRootGuard();
     });
+    rootGuard.observe(doc, { childList: true });
     rootGuard.observe(root, { attributes: true, attributeFilter: ["class"], childList: true });
     if (doc.head) rootGuard.observe(doc.head, { childList: true });
     guardedRoot = root;
     guardedHead = doc.head;
   };
 
+  // Every reapply trigger (navigation, settings or access change, the page's own load events)
+  // re-arms the root guard's restores; the guard's own restores do not.
   const reapply = (): void => {
+    restoresHeld = false;
+    fullRestoreWindows = 0;
     applyCommitted();
     syncRootGuard();
   };

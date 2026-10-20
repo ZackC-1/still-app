@@ -95,10 +95,11 @@ describe("actual opt-in format2 content session", () => {
     expect(h.win.MutationObserver).not.toHaveBeenCalled();
     await h.script.start(); expect(display("target")).toBe("none");
     await h.entitlement.refreshAccess(); expect(display("comments")).toBe("none");
-    // No document observer: only the root guard (ISS-0084), on <html>'s class and the direct
-    // children of <html> and <head>, never a subtree.
+    // No subtree observer: only the root guard (ISS-0084), on <html>'s class and the direct
+    // children of the document, <html> and <head>.
     expect(h.win.MutationObserver).toHaveBeenCalledTimes(1);
     expect(observe.mock.calls.map(([target, options]) => [(target as Element).nodeName, options])).toEqual([
+      ["#document", { childList: true }],
       ["HTML", { attributes: true, attributeFilter: ["class"], childList: true }],
       ["HEAD", { childList: true }],
     ]);

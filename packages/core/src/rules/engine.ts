@@ -142,7 +142,8 @@ export interface EnginePageSession {
    * Format-2 only: whether the session owns root effects (feature classes on <html>, Still's
    * <style>) and, if so, whether the page has left them in place. "lost" means the page itself
    * rewrote <html class>, dropped the stylesheet or replaced <html>; the next applyDom restores
-   * them from the same committed inputs (ISS-0084).
+   * them from the same committed inputs, onto the current <html> (ISS-0084). The content script's
+   * root guard watches the document's, <html>'s and <head>'s direct children for those cases.
    */
   ownedRootEffects?(): "none" | "intact" | "lost";
 }

@@ -384,9 +384,10 @@ describe("Still's root class and stylesheet survive the page's own writes (ISS-0
     expect(document.querySelectorAll("style")).toHaveLength(0);
   });
 
-  it("a page that strips Still's class on every write gets a bounded number of re-asserts", async () => {
+  it("a page that strips Still's class on every write gets at most thirty restores, until the next reapply", async () => {
     const { set } = await safariPage();
     await set(true);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
     let strips = 0;
     const fighter = new MutationObserver(() => {
       if (stillClasses().length === 0) return;
@@ -396,11 +397,41 @@ describe("Still's root class and stylesheet survive the page's own writes (ISS-0
     fighter.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     try {
       rewriteRootClass();
-      for (let i = 0; i < 5; i++) await tick();
-      expect(strips).toBeGreaterThan(0);
-      expect(strips).toBeLessThanOrEqual(20);
+      await vi.advanceTimersByTimeAsync(0);
+      // Ten restores in the first second, each stripped again before a paint.
+      expect(strips).toBe(10);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Three full seconds of fighting, then restores stop: a bounded cost, never a steady loop.
+      expect(strips).toBe(30);
+      expect(vi.getTimerCount()).toBe(0);
+      // Any reapply trigger (here the script's own reapply, as a navigation makes) re-arms them.
+      scripts[scripts.length - 1]!.reapply();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(strips).toBeGreaterThan(30);
+      expect(strips).toBeLessThanOrEqual(61);
     } finally {
       fighter.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a page that replaces <html> gets Still's class and stylesheet on the new one", async () => {
+    await safariPage();
+    const original = document.documentElement;
+    const fresh = original.cloneNode(true) as HTMLElement;
+    fresh.className = "ssr fab";
+    for (const style of fresh.querySelectorAll("style")) style.remove();
+    document.replaceChild(fresh, original);
+    try {
+      await tick();
+      expect(document.documentElement).toBe(fresh);
+      expect(stillClasses()).toHaveLength(1);
+      expect(fresh.querySelectorAll("style")).toHaveLength(1);
+      expect(hidden(tab)).toBe(true);
+      expect(fresh.classList.contains("ssr")).toBe(true);
+    } finally {
+      for (const script of scripts.splice(0)) script.stop();
+      document.replaceChild(original, document.documentElement);
     }
   });
 });
