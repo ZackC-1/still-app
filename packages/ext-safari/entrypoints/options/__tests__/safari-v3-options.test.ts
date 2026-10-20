@@ -6,6 +6,7 @@ import { requireModernSettings } from "@still/core/storage";
 import { SettingsCache } from "@still/core/storage";
 import { EntitlementCache } from "@still/core/entitlement";
 import { startSafariV3Options } from "../v3.js";
+import { formatSyncTime } from "../../../../core/src/ui/v3/sync-time.js";
 import { installSafari, UNPROMPTED_WRITES, type SavedShape } from "../../popup/__tests__/safari-native.fixture.js";
 
 const mounted = vi.hoisted(() => ({ instances: [] as Record<string, unknown>[] }));
@@ -244,6 +245,14 @@ describe("Safari V3 settings page", () => {
     await open("atomic", true);
     await waitFor(() => expect(screen.getByText("person@example.invalid")).toBeTruthy());
     for (const name of ["Sign out", "Delete account", "Sign in"]) expect(screen.queryByRole("button", { name })).toBeNull();
+    // The synced line carries the app's reported time, as on the popup and the app itself.
+    const time = await waitFor(() => {
+      const found = document.querySelector<HTMLTimeElement>('[data-still-card="sync"] .status-line time');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(time.getAttribute("datetime")).toBe(new Date(5).toISOString());
+    expect(time.textContent).toBe(formatSyncTime(new Date(5)));
   });
 
   it("configured build with modern sync: V3 over the atomic record, the account read-only (the app owns it)", async () => {

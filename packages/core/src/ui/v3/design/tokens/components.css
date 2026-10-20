@@ -190,8 +190,11 @@
 .open-options { background: transparent; border: none; color: var(--link); font: inherit; padding: 0; cursor: pointer; text-align: start; }
 .open-options:hover { color: var(--link-pressed); text-decoration: underline; text-underline-offset: 2px; }
 
-/* Site sections (D06) and switch rows (D07). One section per site; header switch is the existing service boolean. */
-.service-group { display: flex; flex-direction: column; background: var(--surface-raised); border-radius: var(--radius-card); }
+/* Site sections (D06) and switch rows (D07). One section per site; header switch is the existing service boolean.
+   One card: the dividers sit directly between the rows, with no gap above or below them (owner,
+   19 Oct: each site as tall as the hero, 55px rows, 56px per site). This overrides .services' gap,
+   which spaces the separate service cards of the older list. */
+.service-group { display: flex; flex-direction: column; gap: 0; background: var(--surface-raised); border-radius: var(--radius-card); }
 .service-group .divider { block-size: 1px; background: var(--border); margin-inline-start: calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); margin-inline-end: var(--service-card-padding-inline, var(--space-4)); }
 .service-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--service-card-padding-block, var(--space-3)) var(--service-card-padding-inline, var(--space-4)); }
 .service-row .icon { inline-size: var(--service-icon-size, 42px); block-size: var(--service-icon-size, 42px); flex: none; display: block; }
