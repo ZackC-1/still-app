@@ -66,6 +66,21 @@ eligible": the request was dropped again, and the confirmation's single re-read 
 into "Linking didn't finish". Treat a refused read as no answer (keep the last settled one, ask
 again on the next refresh), and let a deliberate confirmation retry one refusal.
 
+## The sign-in settles over two account revisions (third finding, 20 Oct, MAC-85)
+
+After both fixes the Mac still showed "Link Still Pro to your account." instead of the
+confirmation. The app's verified code first runs the session entry (`AppleSession.enterSession`):
+it advances the account revision and publishes the account, then waits on the settings mirror.
+The account is confirmed at that revision, so the confirmation appears early. Then `verifyCode`
+returns and the controller advances the revision again, and `accountChanged` treated the changed
+revision as a replaced account: it cleared the card and the request with it. Fixtures whose code
+sign-in returns immediately see only one revision and pass.
+
+The fix: while the sign-in that the request opened is still settling (same account id and
+address), fence the early card's taps but keep the request, and offer a fresh confirmation once
+the new revision is confirmed. Related gap: a refused read kept the last answer (so the offer
+card stayed on) but never offered the kept request. It now does, from that same answer.
+
 ## How to reproduce it in a test
 
 Make the fixture behave like the device in the two ways that matter: advance the native record
@@ -73,7 +88,9 @@ generation on reconcile so the cache publishes a new snapshot after sign-in, and
 native reads finish **one at a time** (`holdEligibility().releaseOne()`), never in one flush.
 `apple-pro-host.integration.test.ts` ("signing in from the invitation shows the confirmation…")
 and the host unit tests in `apple-pro-host.test.ts` ("a requested link survives the re-checks that
-sign-in starts") are the regression guards.
+sign-in starts", and "the MAC-85 sign-in from the invitation, in every order the Mac can
+produce") are the regression guards. The mounted test "the session entry's account revision, then
+the controller's own" holds the code inside the session entry (`holdSessionEntry()`).
 
 ## Prevention
 

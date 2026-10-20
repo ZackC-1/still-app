@@ -1659,3 +1659,246 @@ describe("a right already linked to the signed-in account is not offered again (
     expect(h.host.canLink).toBe(true);
   });
 });
+// ISS-0076, MAC-85 (Mac .383 to .387): an accountless holder taps Sign in on the invitation, enters
+// the code, and lands signed in with the offer card instead of "Link Still Pro to this account?".
+// These replay the sign-in the app really runs. The verified code first enters the session
+// (AppleSession.enterSession: a new account revision, the address, and the settings mirror the code
+// waits for) and only then returns to the controller, which advances the revision once more. Each
+// revision re-reads the account's confirmation, so the account is confirmed at one revision,
+// unconfirmed at the next, then confirmed again. Meanwhile the account reconcile republishes access
+// (a re-check, then owned) and native may refuse the eligibility read while it runs.
+describe("the MAC-85 sign-in from the invitation, in every order the Mac can produce (ISS-0076)", () => {
+  const other = "00000000-0000-4000-8000-000000000009";
+  const at = (revision: number, confirmed: boolean) => ({ ...user, revision, confirmed });
+  async function holder(options: { heldElsewhere?: string } = {}) {
+    let answer: { ownershipRevision: number; linkedAccount: string | null } | null = {
+      ownershipRevision: 0,
+      linkedAccount: null,
+    };
+    let refusing = 0;
+    const readLinkEligibility = vi.fn(async () => {
+      if (refusing > 0) {
+        refusing--;
+        throw new Error("still: Apple link eligibility requires verification");
+      }
+      return answer;
+    });
+    const reconciles: Array<(snapshot: BenefitAccessSnapshot) => void> = [];
+    const refreshAccountAccess = vi.fn(
+      () => new Promise<BenefitAccessSnapshot>((resolve) => reconciles.push(resolve)),
+    );
+    let memory = options.heldElsewhere ?? null;
+    const h = await harness({
+      readAccess: vi.fn(async () => access("purchased")),
+      readLinkEligibility,
+      refreshAccountAccess,
+      canSignIn: () => true,
+      heldElsewhereMemory: { read: () => memory, write: (value) => { memory = value; } },
+    });
+    expect(h.host.canLink).toBe(true);
+    // The invitation's Sign in: the host records the request and opens sign-in.
+    await h.host.requestLink();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    expect(h.host.settings().link).toBeUndefined();
+    return {
+      ...h,
+      refuse(n: number) { refusing = n; },
+      answer(next: typeof answer) { answer = next; },
+      /** The reconcile publishes a re-check and then owned access, and finishes. */
+      async republish() {
+        h.host.observeAccess(access("checking"));
+        await h.settle();
+        h.host.observeAccess(access("purchased"));
+        await h.settle();
+      },
+      async finishReconciles() {
+        while (reconciles.length) reconciles.shift()!(access("purchased"));
+        await h.settle();
+      },
+      /** enterSession's revision, confirmed, then the controller's own revision, confirmed. */
+      async signIn() {
+        h.setAccount(at(2, false));
+        await h.settle();
+        h.setAccount(at(2, true));
+        await h.settle();
+      },
+      async controllerRevision() {
+        h.setAccount(at(3, false));
+        await h.settle();
+        h.setAccount(at(3, true));
+        await h.settle();
+      },
+      async linksOnConfirm() {
+        expect(h.host.settings().link?.state).toBe("confirm");
+        expect(h.host.settings().link?.email).toBe(user.email);
+        expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+        h.host.settings().link?.onConfirm?.();
+        await h.settle();
+        expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+        expect(h.deps.linkPurchase).toHaveBeenCalledWith(
+          expect.objectContaining({ intendedAccountId: user.id, expectedOwnershipRevision: 0 }),
+        );
+        expect(h.host.settings().link?.state).toBe("linked");
+      },
+    };
+  }
+  it("the code's two account revisions: confirmed at the session's, then the controller's own", async () => {
+    const h = await holder();
+    await h.signIn();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("the controller's revision lands while the reconcile is still republishing access", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.host.observeAccess(access("checking"));
+    await h.settle();
+    await h.controllerRevision();
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("one account revision only (the address already known): the confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses the request's read when the account confirms (before the owned snapshot)", async () => {
+    const h = await holder();
+    h.refuse(1);
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses every read while the reconcile runs, then answers", async () => {
+    const h = await holder();
+    h.refuse(Number.POSITIVE_INFINITY);
+    await h.signIn();
+    await h.republish();
+    h.refuse(0);
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses every read until after the reconcile has finished: the last answer still offers it", async () => {
+    const h = await holder();
+    h.refuse(Number.POSITIVE_INFINITY);
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    // The affordance kept the last settled answer, so the request it holds must be offered too,
+    // not the offer card. Native answers by the time the person taps Link.
+    expect(h.host.canLink).toBe(false);
+    h.refuse(0);
+    await h.linksOnConfirm();
+  });
+  it("a re-check overtakes the request's own read, and native refuses every read after it", async () => {
+    const h = await holder();
+    let finish!: (value: { ownershipRevision: number; linkedAccount: null }) => void;
+    vi.mocked(h.deps.readLinkEligibility!).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    h.setAccount(at(2, true));
+    await h.settle();
+    // The request's read is still out when the reconcile republishes a re-check: it is overtaken.
+    h.host.observeAccess(access("checking"));
+    await h.settle();
+    finish({ ownershipRevision: 0, linkedAccount: null });
+    await h.settle();
+    h.refuse(Number.POSITIVE_INFINITY);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.finishReconciles();
+    // The last settled answer keeps the affordance, so it must offer the request it holds, not the
+    // offer card. Native answers again by the time the person taps Link.
+    expect(h.host.canLink).toBe(false);
+    h.refuse(0);
+    await h.linksOnConfirm();
+  });
+  it("the access republish lands before the account does", async () => {
+    const h = await holder();
+    await h.republish();
+    h.refuse(2);
+    await h.signIn();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native names the signed-in account (ISS-0081): nothing offered, nothing linked", async () => {
+    const h = await holder();
+    h.answer({ ownershipRevision: 0, linkedAccount: user.id });
+    await h.signIn();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    // The controller's revision clears the "linked" line; what stays is what a relaunch shows: the
+    // Still Pro tag and no offer. This is the only order that hides everything by design.
+    expect(h.host.settings().link?.state).not.toBe("confirm");
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("native names another account (ISS-0104): the elsewhere card, nothing offered", async () => {
+    const h = await holder();
+    h.answer({ ownershipRevision: 0, linkedAccount: other });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a remembered owned_elsewhere for this account at an older revision does not hide the confirmation", async () => {
+    const h = await holder({ heldElsewhere: JSON.stringify({ [user.id]: 7 }) });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("a remembered owned_elsewhere for this account at this revision states the fact instead (by design)", async () => {
+    const h = await holder({ heldElsewhere: JSON.stringify({ [user.id]: 0 }) });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a session revision bump much later for the same account still ends in the confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    h.setAccount(at(4, false));
+    await h.settle();
+    h.setAccount(at(4, true));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("signing in as someone else in between still drops the request", async () => {
+    const h = await holder();
+    await h.signIn();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 3, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+});
