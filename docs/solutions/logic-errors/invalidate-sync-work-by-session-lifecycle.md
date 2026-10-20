@@ -160,6 +160,7 @@ for the later session. Coalescing retains a trailing refresh when another hint a
 exchange; initial subscription success also reads, closing the initial-read/subscription gap.
 
 `atomic-sync.test.ts` verifies initial joins, a 50-hint burst during a held read, hints during a held
-local upload, and retired callbacks across A → B → A. The existing periodic fallback read (five minutes, ISS-0079) remains
-responsible for recovery when notifications are absent. A notification never supplies a receipt,
+local upload, and retired callbacks across A → B → A. The existing periodic fallback read (five
+minutes while joined, 20 seconds while the channel is down; ISS-0079) remains responsible for
+recovery when notifications are absent. A notification never supplies a receipt,
 settings patch or account authority.

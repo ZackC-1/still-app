@@ -84,20 +84,31 @@ type ReconcileOutcome = "device" | "account" | "freshStart" | "abandoned";
 type ReconcileVerdict = Exclude<ReconcileOutcome, "abandoned">;
 
 /**
- * How long a healthy, signed-in session waits after its last account exchange before it reads the
- * account again on its own. This is only the fallback for a change notification that never
- * arrived: launch, sign-in, foreground, coming back online, a realtime rejoin and every change
- * notification already read the account straight away. Five seconds made an idle Mac app post
- * the settings route about every six seconds (ISS-0079); five minutes keeps a missed notification
- * bounded without an idle device calling the server all day.
+ * While change notifications are connected, a healthy signed-in session makes at most one fallback
+ * read of the account per this interval (later exchanges do not push a pending one back). It only
+ * covers a notification that never arrived: launch, sign-in, foreground, coming back online, a
+ * realtime rejoin and every change notification already read the account straight away. Five
+ * seconds made an idle Mac app post the settings route about every six seconds (ISS-0079); five
+ * minutes keeps a missed notification bounded without an idle device calling the server all day.
  */
 export const SETTINGS_FALLBACK_REFRESH_MS = 5 * 60_000;
+
+/**
+ * The same fallback while the session knows its change notifications are not connected: before the
+ * first join, and after an error or disconnect until the channel reports joined again. HTTP can still
+ * work then (a blocked WebSocket, a Realtime incident, a private channel that keeps refusing), and
+ * the fallback read is the only way another device's change arrives.
+ */
+export const SETTINGS_FALLBACK_WITHOUT_NOTIFICATIONS_MS = 20_000;
 
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
   private unsubCache: (() => void) | null = null;
   private unsubRealtime: (() => void) | null = null;
   private realtimeStale = false;
+  // True only between a "subscribed" status and the next "error"/"disconnected". Separate from
+  // realtimeStale, which an atomic read clears even while the channel is still down.
+  private notificationsConnected = false;
   // Write coalescing: at most one in-flight writeProfile; a newer edit during a write replaces the
   // single pending value (latest-wins, matching updatedAt-LWW) and flushes when the in-flight settles.
   private writing = false;
@@ -770,8 +781,10 @@ export class SyncService {
     if (this.unsubRealtime !== null) return;
     const lifecycle = this.lifecycle;
     this.realtimeStale = false;
+    this.notificationsConnected = false;
     const onStatus = (status: "subscribed" | "disconnected" | "error") => {
       if (lifecycle !== this.lifecycle) return;
+      this.setNotificationsConnected(status === "subscribed", lifecycle);
       if (status === "disconnected" || status === "error") {
         this.realtimeStale = true;
         return;
@@ -798,11 +811,23 @@ export class SyncService {
     this.unsubRealtime?.();
     this.unsubRealtime = null;
     this.realtimeStale = false;
+    this.notificationsConnected = false;
+  }
+
+  /** A change in notification health moves a pending fallback read onto the matching interval. */
+  private setNotificationsConnected(connected: boolean, lifecycle: number): void {
+    if (this.notificationsConnected === connected) return;
+    this.notificationsConnected = connected;
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
+    this.scheduleRefresh(lifecycle);
   }
 
   /** Notifications are hints, not a delivery guarantee. The QA route uses private invalidation hints, never a public
-   * profile subscription. While this runtime is active, authenticate a canonical read periodically;
-   * resume/foreground recovery still owns catching up after the OS suspends it. */
+   * profile subscription. While this runtime is active, authenticate a canonical read periodically:
+   * at most once per SETTINGS_FALLBACK_REFRESH_MS while notifications are connected, otherwise once
+   * per SETTINGS_FALLBACK_WITHOUT_NOTIFICATIONS_MS. An armed timer is not pushed back by later
+   * exchanges. Resume/foreground recovery still owns catching up after the OS suspends it. */
   private scheduleRefresh(lifecycle: number): void {
     if (!this.backend.modernSettingsEnabled || lifecycle !== this.lifecycle ||
       this.unsubCache === null || this.refreshTimer !== null || !this.state.cloudReachable) return;
@@ -815,7 +840,7 @@ export class SyncService {
         () => this.scheduleRefresh(lifecycle),
         () => this.scheduleRefresh(lifecycle),
       );
-    }, SETTINGS_FALLBACK_REFRESH_MS);
+    }, this.notificationsConnected ? SETTINGS_FALLBACK_REFRESH_MS : SETTINGS_FALLBACK_WITHOUT_NOTIFICATIONS_MS);
   }
 
   private async refreshAfterRealtimeReconnect(): Promise<void> {
