@@ -154,7 +154,8 @@ test("J1.FD Open Still settings leads from first run to the settings page", asyn
   await page.evaluate(
     `[...document.querySelectorAll("button, a")].find((b) => b.textContent.trim() === "Open Still settings").click()`,
   );
-  // Firefox opens an add-on's embedded settings inside about:addons.
+  // Still's Settings open in their own tab on Firefox (ISS-0097); older builds embedded them in
+  // about:addons, which this still accepts.
   const urls = await page.waitFor(
     "a new tab for the settings",
     async () => {
