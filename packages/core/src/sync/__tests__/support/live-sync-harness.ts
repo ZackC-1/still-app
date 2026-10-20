@@ -64,7 +64,8 @@ function field(settings: SettingsV2, path: SettingsField): boolean {
   return (path.startsWith("services.") ? settings.services[path.slice(9)] : settings.sites[path.slice(6)]) as boolean;
 }
 export async function client(server: ReturnType<typeof canonicalServer>, routeProfile: BackendRouteProfile = "shared-hosted-sandbox",
-  storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 })) {
+  storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 }),
+  transport: { readonly latencyMs?: number } = {}) {
   const writer = new AtomicSettingsWriter(storage);
   const cache = new SettingsCache({ get: () => storage.get(), set: r => writer.replace(r).then(() => undefined),
     subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer), initializeAtomic: writer.initialize.bind(writer),
@@ -78,6 +79,8 @@ export async function client(server: ReturnType<typeof canonicalServer>, routePr
     expect(name).toBe(routeProfile === "shared-hosted-sandbox" ? "qa-sandbox-sync-settings" : "sync-settings");
     const read = (options.body as { action?: string }).action === "read";
     if (read) reads.push(Date.now()); else writes.push(structuredClone(options.body));
+    // A hosted settings call takes time (about 800 ms observed); fake timers advance through it.
+    if (transport.latencyMs) await new Promise(resolve => setTimeout(resolve, transport.latencyMs));
     if (!online) return { data: null, error: new Error("offline") };
     const data = activeServer.exchange(options.body);
     if (read && held) { const pending = held; held = null; pending.started(); await pending.wait; }

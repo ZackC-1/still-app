@@ -87,7 +87,11 @@ settings, adopt a newer account, or start a new account from defaults when the d
 another person's state. Subsequent reconciliation compares the complete anchored server-row state;
 it is not unbounded device-clock LWW. See [the decision table](PRODUCT.md#settings-sync-and-account-safety).
 
-Realtime updates and local storage notifications propagate accepted settings. The Apple
+Realtime updates and local storage notifications propagate accepted settings. A signed-in modern
+session also reads the account at launch or sign-in, when the Apple app returns to the foreground
+or comes back online, and on realtime rejoin; an idle session otherwise falls back to one read
+every five minutes, so a missed notification is bounded without idle devices calling the server
+continuously. The Apple
 `SettingsBridge` broadcasts App Group changes to the app and extension; sync epochs permit account
 adoption without retaining the previous account's version. Failed uploads retry with bounded
 backoff, and delayed acknowledgements cannot replace newer local changes. Lifecycle guards discard

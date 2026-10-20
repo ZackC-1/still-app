@@ -83,6 +83,16 @@ type ReconcileOutcome = "device" | "account" | "freshStart" | "abandoned";
 /** The three answers the decision itself can give; abandoning is decided around it, not by it. */
 type ReconcileVerdict = Exclude<ReconcileOutcome, "abandoned">;
 
+/**
+ * How long a healthy, signed-in session waits after its last account exchange before it reads the
+ * account again on its own. This is only the fallback for a change notification that never
+ * arrived: launch, sign-in, foreground, coming back online, a realtime rejoin and every change
+ * notification already read the account straight away. Five seconds made an idle Mac app post
+ * the settings route about every six seconds (ISS-0079); five minutes keeps a missed notification
+ * bounded without an idle device calling the server all day.
+ */
+export const SETTINGS_FALLBACK_REFRESH_MS = 5 * 60_000;
+
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
   private unsubCache: (() => void) | null = null;
@@ -799,13 +809,13 @@ export class SyncService {
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       if (lifecycle !== this.lifecycle) return;
-      // An outage uses the existing exponential backoff, never a second five-second retry loop.
+      // An outage uses the existing exponential backoff, never a second periodic retry loop.
       if (!this.state.cloudReachable) return;
       void this.retryNow().then(
         () => this.scheduleRefresh(lifecycle),
         () => this.scheduleRefresh(lifecycle),
       );
-    }, 5_000);
+    }, SETTINGS_FALLBACK_REFRESH_MS);
   }
 
   private async refreshAfterRealtimeReconnect(): Promise<void> {
