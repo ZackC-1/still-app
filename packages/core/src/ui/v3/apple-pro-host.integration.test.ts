@@ -1421,8 +1421,8 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     const card = await screen.findByRole("region", { name: "Link Still Pro" });
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Still Pro on this device is linked to another account.")).toBeVisible();
-    expect(screen.getByText("Sign in with that account to use it here.")).toBeVisible();
+    expect(await screen.findByText("Still Pro works on this device. It's linked to another account.")).toBeVisible();
+    expect(screen.queryByText(/sign in with that account/i)).toBeNull();
     expect(screen.queryByText("Linking didn't finish.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     await settled();

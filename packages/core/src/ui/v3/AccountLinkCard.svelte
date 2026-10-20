@@ -59,14 +59,9 @@
             : state === "linked"
               ? `Still Pro is linked to ${email}.`
               : state === "elsewhere"
-                ? "Still Pro on this device is linked to another account."
+                ? "Still Pro works on this device. It's linked to another account."
                 : "Linking didn't finish."}</span
         >
-        {#if state === "elsewhere"}<span
-            class="muted"
-            style="font-size:calc(12.5px * var(--text-scale, 1));"
-            >Sign in with that account to use it here.</span
-          >{/if}
         {#if state === "failed"}<span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
