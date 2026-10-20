@@ -80,11 +80,12 @@ export interface AccountAccessReconcilerDeps {
 export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps) {
   let requestGeneration = 0;
   let last: { epoch: number; status: "verified" | "none" | "conflict"; hasProofs: boolean; session: { userId: string; sessionId: string }; observedWall: number } | null = null;
-  // The latest conclusive "none" (the account evidence below). Unlike `last`, a re-check that gets
-  // no answer from the server (offline, timed out, unreadable) leaves it for the rest of its own
-  // sixty seconds: a check that could not reach the server changes nothing (ISS-0090). Any server
-  // answer, a refused session or an auth boundary (the epoch) replaces it.
-  let absence: { epoch: number; session: { userId: string; sessionId: string }; observedWall: number } | null = null;
+  // The latest conclusive "none" (the account evidence below). Unlike `last`, a re-check without a
+  // verified reply (offline, timed out, a server error, a reply that fails verification) leaves it
+  // for the rest of its own sixty seconds: a check that could not get an answer changes nothing
+  // (ISS-0090). A verified reply or a refused session for any request made after it was recorded
+  // replaces it, even when a newer request has since replaced that one; so does an auth boundary.
+  let absence: { epoch: number; request: number; session: { userId: string; sessionId: string }; observedWall: number } | null = null;
   return {
     async reconcile(): Promise<"ok" | "auth-required" | "unavailable"> {
       const epoch = deps.epoch();
@@ -102,19 +103,15 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
           unauthorized = deps.authRequired?.(response.error) === true;
           return response;
         }, session.userId, deps.trust, deps.routeProfile);
-        if (unauthorized && current()) {
-          absence = null;
-          return "auth-required";
-        }
+        if ((unauthorized || "revocations" in result) && absence && absence.request < request) absence = null;
+        if (unauthorized && current()) return "auth-required";
         if (!("revocations" in result) || !current()) return "unavailable";
-        // The server answered: only that answer may stand from here on.
-        absence = null;
         const committed = await deps.commit(session, result, current, () => authEpoch() === authBoundary);
         if (committed !== "committed" || !current()) return "unavailable";
         if (result.status === "unavailable") return "unavailable";
         const observedWall = deps.now?.() ?? Date.now();
         last = { epoch, status: result.status, hasProofs: result.proofs.length > 0, session, observedWall };
-        if (result.status === "none") absence = { epoch, session, observedWall };
+        if (result.status === "none") absence = { epoch, request, session, observedWall };
         deps.invalidateEvidence?.();
         return "ok";
       } catch { return "unavailable"; }

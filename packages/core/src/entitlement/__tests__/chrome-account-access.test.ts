@@ -638,6 +638,47 @@ describe("verified auth captured outside writer", () => {
       expect(h.r.evidenceStatus(session)).toBe("absent");
     });
 
+    it("keeps it through a server error or a reply that fails verification", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      for (const reply of [
+        { data: null, error: { status: 503 } },
+        { data: { access: { status: "none" } }, error: null },
+      ]) {
+        h.invoke.mockResolvedValueOnce(reply);
+        expect(await h.r.reconcile()).toBe("unavailable");
+        expect(h.r.evidenceStatus(session)).toBe("absent");
+      }
+    });
+
+    it("a verified reply to a request a newer one replaced still ends it", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      let release!: (value: { data: unknown; error: unknown }) => void;
+      h.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      const older = h.r.reconcile();
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+      h.invoke.mockResolvedValueOnce({ data: null, error: new Error("offline") });
+      expect(await h.r.reconcile()).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+      release({ data: response(), error: null });
+      expect(await older).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("unknown");
+    });
+
+    it("a late reply to an older request does not end a newer known none", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      let release!: (value: { data: unknown; error: unknown }) => void;
+      h.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      const older = h.r.reconcile();
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+      expect(await h.r.reconcile()).toBe("ok"); // a newer conclusive none
+      release({ data: response(), error: null });
+      expect(await older).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+    });
+
     it.each([
       ["a refused session", { data: null, error: { status: 401 } }, "auth-required"],
       ["an answer that only carries refunds", {
