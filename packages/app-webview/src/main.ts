@@ -138,7 +138,10 @@ let applePurchaseAuthority: {
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
+  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  | "heldElsewhereMemory"> | undefined;
+/** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
+const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
 
 if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
@@ -309,6 +312,9 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   });
 
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && applePurchaseAuthority) {
+    // ISS-0104: the server's "linked to another account" answers outlive the launch, so a
+    // relaunch states the fact instead of offering Link again. Same backing as the session.
+    const heldElsewhereStore = safeStorage();
     appleProServices = {
       bridge,
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
@@ -316,6 +322,14 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,
       linkPurchase: intent => session.linkPurchase(intent),
+      heldElsewhereMemory: {
+        read: () => {
+          // SupportedStorage.getItem is async-capable in its type; both real backings are sync.
+          const value = heldElsewhereStore.getItem(HELD_ELSEWHERE_KEY);
+          return typeof value === "string" ? value : null;
+        },
+        write: (value) => void heldElsewhereStore.setItem(HELD_ELSEWHERE_KEY, value),
+      },
     };
   }
   controller.retrySync = () => sync.retryNow();
