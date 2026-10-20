@@ -196,6 +196,44 @@ test.describe("format-2 build", () => {
     await expect(page).toHaveURL("https://www.instagram.com/reels/C0dE_1/");
   });
 
+  // ISS-0078. Drives the Settings page's own YouTube "Shorts" row, as a person does. Off: the
+  // network layer and the content script both leave a direct Shorts link alone while YouTube stays
+  // On. On: the open Shorts page is sent to the watch page (proving the content script was running
+  // there and chose not to redirect) and a new Shorts link is redirected before it loads again.
+  // On live YouTube, check this with a real Short's ID: YouTube itself answers /shorts/<id> for an
+  // ordinary video with a 303 to /watch?v=<id>, which looks exactly like this switch being ignored.
+  test("the YouTube Shorts row Off lets a direct Shorts link load; On redirects again", async ({ context, extensionId }) => {
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options.html`);
+    await options.getByRole("button", { name: "YouTube Blocker" }).click();
+    const shorts = options.getByRole("switch", { name: "Shorts", exact: true });
+    await expect(shorts).toHaveAttribute("aria-checked", "true");
+    await shorts.click();
+    await expect(shorts).toHaveAttribute("aria-checked", "false");
+    await expect(options.getByRole("switch", { name: "Still on YouTube", exact: true })).toHaveAttribute("aria-checked", "true");
+    // An Off is saved only after its rules are gone, and the static ruleset never comes back.
+    expect(await dnrState(context)).toEqual({ domains: ["facebook.com", "instagram.com"], staticOn: false });
+
+    const url = "https://www.youtube.com/shorts/abc123?feature=share";
+    const page = await context.newPage();
+    const seen = await watch(page, "youtube");
+    await page.goto(url);
+    await expect(page.locator("#page")).toBeVisible();
+    await expect(page).toHaveURL(url);
+    expect(seen.requested).toEqual([url]);
+
+    await shorts.click();
+    await expect(shorts).toHaveAttribute("aria-checked", "true");
+    const watchUrl = "https://www.youtube.com/watch?feature=share&v=abc123";
+    await expect(page).toHaveURL(watchUrl);
+    await expect.poll(async () => (await dnrState(context)).domains).toEqual(["facebook.com", "instagram.com", "youtube.com"]);
+    const again = await context.newPage();
+    const seenAgain = await watch(again, "youtube");
+    await again.goto(url);
+    await expect(again).toHaveURL(watchUrl);
+    expect(seenAgain.requested).toEqual([watchUrl]);
+  });
+
   test("the real switch saves Off only after every rule is gone; a page opened that moment is left alone", async ({ context, extensionId }) => {
     const options = await context.newPage();
     await options.goto(`chrome-extension://${extensionId}/options.html`);
