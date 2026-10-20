@@ -401,6 +401,8 @@ export class UiController {
   usageSharing = $state<boolean | null>(null);
   /** Bumped when the switch changes, so a sharing read that straddles the change is not shown. */
   private usageSharingRevision = 0;
+  /** Switch changes not yet settled: a read made while one is pending is not shown either. */
+  private usageTogglesInFlight = 0;
   /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
   usageNoticeVisible = $state(false);
   /** Account-wide "Delete shared data on all devices"; null hides it (not offered, or signed out). */
@@ -482,18 +484,19 @@ export class UiController {
    * this controller before `analytics.start()`), so an unknown first answer must not hide the
    * switch for the whole session (ISS-0111): hosts call this once their analytics has started or
    * returned to the foreground, and the controller calls it after a sign-out or account deletion.
-   * An unknown answer never replaces a known state, and an answer read across a switch change is
-   * dropped (the change's own result stands).
+   * An unknown answer never replaces a known state, and an answer read across a switch change, or
+   * while one is pending, is dropped (the change's own result stands).
    */
   async refreshUsageSharing(): Promise<void> {
     const revision = this.usageSharingRevision;
+    const pendingAtStart = this.usageTogglesInFlight > 0;
     let state: UsageSharingState | null | undefined;
     try {
       state = await this.analytics?.sharing?.();
     } catch {
       return; /* no switch rather than a wrong one */
     }
-    if (!state || revision !== this.usageSharingRevision) return;
+    if (!state || pendingAtStart || this.usageTogglesInFlight > 0 || revision !== this.usageSharingRevision) return;
     this.usageSharing = state.enabled;
     this.usageNoticeVisible = state.enabled && state.noticeNeeded;
   }
@@ -511,12 +514,15 @@ export class UiController {
       return;
     }
     this.usageSharingRevision += 1;
+    this.usageTogglesInFlight += 1;
     void request.then(
       (enabled) => {
+        this.usageTogglesInFlight -= 1;
         this.usageSharingRevision += 1;
         this.usageSharing = enabled;
       },
       () => {
+        this.usageTogglesInFlight -= 1;
         this.usageSharingRevision += 1;
         /* the previous state stands */
       },

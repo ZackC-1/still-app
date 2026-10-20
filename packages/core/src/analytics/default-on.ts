@@ -454,7 +454,13 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
         const state = await ui.sharing!.call(ui);
         // No one-time notice in V3 (owner, 2026-10-12; ADR 0004 "One usage-data control"): the
         // switch is the one control, whatever the acknowledgement record says.
-        if (state) return { enabled: state.enabled, noticeNeeded: false };
+        if (state?.enabled) return { enabled: true, noticeNeeded: false };
+        if (state) {
+          // The client reads off, but the App Group still grants (an off native refused): the
+          // Safari extension keeps reporting, so never show off; unknown keeps what is shown.
+          // A stored off, or a read that fails, stays off.
+          return (await storedState()) === "on" ? null : { enabled: false, noticeNeeded: false };
+        }
         if (!analyticsConfigured(deps.config)) return null;
         // Off on this device shows the switch (off); anything else unknown hides it, as before.
         return (await storedState()) === "off" ? { enabled: false, noticeNeeded: false } : null;

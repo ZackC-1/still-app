@@ -473,6 +473,23 @@ describe("ISS-0111: a device whose sharing is off keeps its switch at every laun
     }
   });
 
+  it("an off the App Group refused still shows on after a foreground re-read (PR #500 review)", async () => {
+    const t = setup();
+    await launch(t);
+    const { c } = makeController({ analytics: t.app.ui });
+    await settle();
+    expect(c.usageSharing).toBe(true);
+    t.native.refuseCommit = true; // native refuses (or times out) the App Group write
+    c.toggleUsageSharing(); // Off: the wrapper retries once, then reports the failure
+    await settle();
+    expect(c.usageSharing).toBe(true);
+    expect(t.record()?.state).toBe("granted");
+    await t.app.recheckSetup(); // the next return to the foreground, as main.ts runs it
+    await c.refreshUsageSharing();
+    expect(c.usageSharing).toBe(true); // the Safari extension still reports: never shown as off
+    expect(t.record()?.state).toBe("granted");
+  });
+
   it("an unknown first read does not hide the switch for the session: main.ts reads it again after start", async () => {
     const t = setup(undefined, true);
     t.native.slot = false;

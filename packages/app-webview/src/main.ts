@@ -98,6 +98,8 @@ const backendRouteProfile = readAppleBackendProfile(
 );
 
 let controller: UiController;
+/** Read the "Share usage data" switch again once analytics knows more (ISS-0111). */
+const refreshUsageSwitch = (): void => void controller.refreshUsageSharing();
 let identifyOnServer: (() => Promise<void>) | undefined;
 /** V3 only: requests this device's analytics identity for the signed-in account (set below). */
 let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
@@ -307,8 +309,10 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       if (error || !data.user) return { error: error?.message ?? "Sign in failed" };
       return { userId: data.user.id };
     },
-    onAccountEntered: (userId) => void analytics.identifyAccount(userId),
-    onAccountAbsent: () => void analytics.accountAbsent(),
+    // Each also reads the usage switch again (ISS-0111): the launch's account answer comes once
+    // the native analytics context is in, well before start()'s first send.
+    onAccountEntered: (userId) => void analytics.identifyAccount(userId).finally(refreshUsageSwitch),
+    onAccountAbsent: () => void analytics.accountAbsent().finally(refreshUsageSwitch),
   });
 
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && applePurchaseAuthority) {
@@ -387,16 +391,15 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
 } else {
   controller = new UiController({ cache, host: { canPurchase: true }, analytics: analytics.ui });
   // No account can exist in a build without sync; let go of any recorded earlier.
-  void analytics.accountAbsent();
+  void analytics.accountAbsent().finally(refreshUsageSwitch);
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
 
 // The controller's first "Share usage data" read ran before this start; read it again once the
 // launch's analytics has settled, and at each return to the foreground (ISS-0111).
-void analytics.start().finally(() => void controller.refreshUsageSharing());
+void analytics.start().finally(refreshUsageSwitch);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible")
-    void analytics.recheckSetup().finally(() => void controller.refreshUsageSharing());
+  if (document.visibilityState === "visible") void analytics.recheckSetup().finally(refreshUsageSwitch);
 });
 
 if (appleSettingsAdapter) void mountAppleScreens(appleSettingsAdapter);

@@ -98,14 +98,23 @@ test("usage analytics is on by default exactly where the V3 screens are", () => 
 });
 
 test("the usage-sharing switch is read again once analytics has started, and at each return (ISS-0111)", async () => {
-  for (const env of [{}, { VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }]) {
+  for (const [env, accountReads] of [[{}, 0], [{ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }, 0], [{ VITE_SUPABASE_URL: "" }, 1]]) {
     const host = launch(env);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(host.usageOrder, ["controller", "start", "refreshUsageSharing"]);
+    // The build without sync knows at once that no account exists, and reads again after that too.
+    const launchReads = Array(1 + accountReads).fill("refreshUsageSharing");
+    assert.deepEqual(host.usageOrder, ["controller", "start", ...launchReads]);
     host.listeners.visibilitychange();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(host.usageOrder.slice(3), ["recheckSetup", "refreshUsageSharing"]);
+    assert.deepEqual(host.usageOrder.slice(2 + launchReads.length), ["recheckSetup", "refreshUsageSharing"]);
   }
+  // With sync, the launch's account answer reads it again as soon as it is known.
+  const synced = launch();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  synced.sessionDeps.onAccountAbsent();
+  synced.sessionDeps.onAccountEntered("synthetic");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(synced.usageOrder.slice(3), ["refreshUsageSharing", "refreshUsageSharing"]);
 });
 
 test("V3 signed-in devices ask for their own identity through the configured client; 2.x never does", async () => {

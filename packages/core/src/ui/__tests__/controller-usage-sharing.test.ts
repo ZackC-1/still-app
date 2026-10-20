@@ -63,4 +63,19 @@ describe("UiController: the usage-sharing switch follows the host once it knows"
     await refresh;
     expect(c.usageSharing).toBe(false);
   });
+
+  it("a read that starts while a switch change is in flight does not show it before it lands", async () => {
+    const h = host({ enabled: true, noticeNeeded: false });
+    const { c } = makeController({ analytics: h.analytics });
+    await settle();
+    let refuse!: (error: Error) => void;
+    vi.mocked(h.analytics.setSharing!).mockImplementationOnce(() => new Promise((_resolve, reject) => (refuse = reject)));
+    c.toggleUsageSharing(); // Off, still in flight
+    h.answer({ enabled: false, noticeNeeded: false }); // the host already reads off locally
+    await c.refreshUsageSharing(); // starts and ends while the change is pending
+    expect(c.usageSharing).toBe(true);
+    refuse(new Error("Sharing could not be turned off"));
+    await settle();
+    expect(c.usageSharing).toBe(true); // the failed off never shows as off
+  });
 });
