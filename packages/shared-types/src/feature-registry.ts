@@ -15,7 +15,7 @@ export const FEATURE_REGISTRY = Object.freeze([
   Object.freeze({"id":"instagram.threads","service":"instagram","name":"Threads links","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"facebook.reels","service":"facebook","name":"Facebook Reels","tier":"free","freshDefault":true} as const),
   Object.freeze({"id":"facebook.stories","service":"facebook","name":"Facebook Stories","tier":"pro","freshDefault":false} as const),
-  Object.freeze({"id":"facebook.videos","service":"facebook","name":"Videos and Watch","tier":"pro","freshDefault":false} as const),
+  Object.freeze({"id":"facebook.videos","service":"facebook","name":"Video tab","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"facebook.sponsored","service":"facebook","name":"Desktop sidebar ads","tier":"pro","freshDefault":false} as const),
 ]);
 export type FeatureId = (typeof FEATURE_REGISTRY)[number]["id"];

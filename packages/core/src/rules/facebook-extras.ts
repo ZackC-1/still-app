@@ -15,9 +15,9 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  *
  * Free Reels stay independent and always win. The core's Reels routing (/reels/, /watch/reels/)
  * runs before any entry here, no entry may ever match /reel/, /reels/ or /watch/reels/
- * (facebook-extras.test.ts), and Videos and Watch hides no feed unit at all, so a Reel is only
+ * (facebook-extras.test.ts), and the Video tab extra hides no feed unit at all, so a Reel is only
  * ever hidden by the Reels control. Under D244 a shared Reel playing in the normal
- * player is never re-hidden by Videos and Watch.
+ * player is never re-hidden by the Video tab extra.
  */
 
 /** A block that owns a Reel belongs to the free Reels control, never to a Still Pro extra. */
@@ -58,9 +58,10 @@ const STORIES_TRAY = Object.freeze([
 ]);
 
 /**
- * Videos and Watch (CP-082): the Watch hub route, the Watch live hub route (Q10) and the Watch
- * navigation entries below. It hides nothing in the feed (owner ruling 20 Oct 2026, ISS-0088):
- * a feed unit holding a video player stays with the free Facebook Reels control.
+ * Video tab (CP-082; named "Videos and Watch" until 20 Oct 2026): the Watch hub route, the Watch
+ * live hub route (Q10) and the Watch navigation entries below. It hides nothing in the feed (owner
+ * ruling 20 Oct 2026, ISS-0088): a feed unit holding a video player stays with the free Facebook
+ * Reels control.
  *
  * Why the feed half is gone, verified live on the signed-in desktop feed on 19 and 20 Oct 2026:
  * Facebook publishes every new video as a Reel (Meta, June 2025: "all videos posted to Facebook

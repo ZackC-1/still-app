@@ -14,7 +14,7 @@ import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { DEFAULT_SETTINGS_V2 } from "./format2-fixtures.js";
 import { extrasFixture } from "./extras-fixtures.js";
 
-// P5: Facebook's three Still Pro extras (Stories, Videos and Watch, Desktop sidebar ads) on the
+// P5: Facebook's three Still Pro extras (Stories, Video tab, Desktop sidebar ads) on the
 // REAL packaged rule set. Paid-on cases reach the extras only through the explicit test seams
 // (a purchased access snapshot plus accessCapabilitiesForTest over the shipped per-host table);
 // the shipped paid-off defaults must leave every one of them inert.
@@ -84,7 +84,7 @@ describe("Facebook extras routes (paid on through the test seams)", () => {
     });
 
   it.each(["/watch", "/watch/", "/watch/?ref=bookmarks", "/watch/?v=", "/watch/#top"])(
-    "Videos and Watch: the Watch hub %s goes silently to Home", (path) => {
+    "Video tab: the Watch hub %s goes silently to Home", (path) => {
       expect(evaluate(path)).toEqual(home);
     });
 
@@ -97,7 +97,7 @@ describe("Facebook extras routes (paid on through the test seams)", () => {
     "/videos/900000000107",
     "/videos/900000000107/",
     "/watch/900000000108", // Q10 open: /watch/<number> is left alone
-  ])("Videos and Watch: the direct player %s stays playable", (path) => {
+  ])("Video tab: the direct player %s stays playable", (path) => {
     expect(evaluate(path)).toEqual(stays);
   });
 
@@ -131,7 +131,7 @@ describe("Facebook extras routes (paid on through the test seams)", () => {
   });
 });
 
-describe("Videos and Watch: the live hub (owner question Q10, its own droppable entry)", () => {
+describe("Video tab: the live hub (owner question Q10, its own droppable entry)", () => {
   const evaluate = (path: string, settings: SettingsV2 = ALL_ON) => session().evaluate(settings, new URL(path, FB), ON);
 
   it.each(["/watch/live", "/watch/live/", "/watch/live/?ref=bookmarks"])("%s goes silently to Home", (path) => {
@@ -143,7 +143,7 @@ describe("Videos and Watch: the live hub (owner question Q10, its own droppable 
       expect(evaluate(path)).toEqual({ kind: "apply" });
     });
 
-  it("needs Videos and Watch effective", () => {
+  it("needs Video tab effective", () => {
     expect(evaluate("/watch/live/", settingsWith({ "facebook.reels": true, "facebook.stories": true }))).toEqual({ kind: "apply" });
     expect(session().evaluate(ALL_ON, new URL("/watch/live/", FB))).toEqual({ kind: "apply" });
   });
@@ -166,7 +166,7 @@ describe("free Facebook Reels are never shadowed", () => {
     expect(session().evaluate(ALL_ON, new URL("/reel/900000000103", FB), ON)).toEqual({ kind: "apply" });
   });
 
-  it("the Reel continuation guard follows Reels alone, never Videos and Watch (D244)", () => {
+  it("the Reel continuation guard follows Reels alone, never the Video tab (D244)", () => {
     const from = new URL("/reel/1", FB);
     const to = new URL("/reel/2", FB);
     const reelsOn = session();
@@ -299,7 +299,7 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
   });
 });
 
-describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)", () => {
+describe("Video tab: the four Reels/Videos combinations (fb-videos.html)", () => {
   const combos = [
     { reels: false, videos: false },
     { reels: true, videos: false },
@@ -319,7 +319,7 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       // (the bare /reel/ entry opens the Reels feed, ISS-0035).
       expect(visible("reel-feed-free"), "reel-feed-free").toBe(!reels);
       expect(visible("reels-nav-free"), "reels-nav-free").toBe(!reels);
-      // Every keep-* stays, the pre-2025 /videos/ feed posts included: Videos and Watch hides no
+      // Every keep-* stays, the pre-2025 /videos/ feed posts included: the Video tab hides no
       // feed unit (owner ruling 20 Oct 2026, ISS-0088).
       for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
       // Only the hidden feed Reel is quieted by the engine's media adapter; feed videos Videos

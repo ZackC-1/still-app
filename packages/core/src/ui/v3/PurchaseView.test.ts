@@ -342,7 +342,7 @@ describe("controlled D18 purchase view", () => {
   it("renders only supplied capability controls in their ordered groups", () => {
     render(PurchaseView, {
       props: browser({
-        controls: [{ site: "Facebook", label: "Videos and Watch" }],
+        controls: [{ site: "Facebook", label: "Video tab" }],
       }),
     });
     expect(screen.getByText("Facebook Blocking Options")).toBeTruthy();

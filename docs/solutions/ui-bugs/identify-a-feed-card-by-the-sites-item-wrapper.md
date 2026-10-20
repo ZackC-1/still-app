@@ -69,8 +69,8 @@ card, and anchor on a node none of them deletes. Unknown markup should fail open
 
 ## A feed video is no longer a separate kind of feed unit (ISS-0088, 20 Oct 2026)
 
-The Still Pro "Videos and Watch" extra (`facebook.videos`) used to try to hide non-Reel feed
-videos, bounded by `[role="feed"] [role="article"]` plus a player and a Facebook `/videos/` link.
+The Still Pro "Video tab" extra (`facebook.videos`, named "Videos and Watch" until 20 Oct 2026)
+used to try to hide non-Reel feed videos, bounded by `[role="feed"] [role="article"]` plus a player and a Facebook `/videos/` link.
 Live checks of the signed-in desktop feed on 19 and 20 Oct 2026 found nothing for that rule to
 match. Facebook publishes every new video as a Reel (Meta, June 2025: "all videos posted to
 Facebook are now shared as reels"). Every organic unit holding a player was a Reel: portrait
@@ -80,7 +80,7 @@ were Sponsored video ads (`data-ad-video`), which D039 keeps out of scope. No un
 
 Owner ruling (ISS-0088 option a): the extra now covers the Watch hub route, the Watch live hub
 route (Q10) and the Watch navigation entries only. Feed units with a player stay with the free
-Reels control. D244 still holds, so Videos and Watch never re-hides a Reel in the normal player.
+Reels control. D244 still holds, so the Video tab extra never re-hides a Reel in the normal player.
 Do not bring back a feed-video rule that tells a video by its player alone, because it would hide
 Reels. Rule set 3.0.20 removed the `facebook-videos-feed` surface, and a unit test now pins the
 extra's surfaces to the `nav` entries.

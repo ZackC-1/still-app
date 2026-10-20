@@ -134,7 +134,7 @@ test.describe("Facebook Stories (paid on)", () => {
   });
 });
 
-test.describe("Videos and Watch (paid on)", () => {
+test.describe("Video tab (paid on)", () => {
   for (const reels of [false, true])
     for (const videos of [false, true])
       test(`Reels ${reels ? "On" : "Off"}, Videos ${videos ? "On" : "Off"}`, async ({ page, authority }) => {

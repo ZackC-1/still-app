@@ -87,7 +87,7 @@ describe("phone surfaces hide Still Pro switches that cannot act in a phone layo
 
   const SECTIONS = {
     "YouTube Blocker": { hidden: ["End-of-video suggestions", "Live chat"], shown: ["Related videos", "Autoplay prevention", "Comments"] },
-    "Facebook Blocker": { hidden: ["Desktop sidebar ads"], shown: ["Facebook Stories", "Videos and Watch"] },
+    "Facebook Blocker": { hidden: ["Desktop sidebar ads"], shown: ["Facebook Stories", "Video tab"] },
   } as const;
   /** Opens each service section in turn (one is open at a time) and reports its drawn rows. */
   const rowsIn = async (section: keyof typeof SECTIONS) => {

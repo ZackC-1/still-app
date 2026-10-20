@@ -97,7 +97,7 @@ Offline blocking continues from local settings and trusted rules; syncing needs 
 Shipped 2.x has no Pro tier: everything above is free. The approved V3 direction adds an optional
 Still Pro tier: twelve extras (YouTube Related videos, end-of-video suggestions, autoplay
 prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highlights, suggested
-accounts, Threads links; Facebook Stories, Videos, sidebar ads), all Off on fresh installs, for a
+accounts, Threads links; Facebook Stories, Video tab, sidebar ads), all Off on fresh installs, for a
 $9.99 US-base one-time lifetime payment with a seven-day voluntary web refund window (Apple
 purchases follow Apple's refund process). One qualifying purchase covers supported surfaces
 through the approved Restore flow. Free blocking and sync never require Pro. Full contract:

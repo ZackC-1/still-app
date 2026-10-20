@@ -184,7 +184,7 @@ describe("controlled D04 Apple settings", () => {
       const view = render(AppleSettings, { props });
       const sections = {
         "YouTube Blocker": { desktopOnly: ["End-of-video suggestions", "Live chat"], always: ["Related videos", "Autoplay prevention", "Comments"] },
-        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Videos and Watch"] },
+        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Video tab"] },
       };
       for (const [section, { desktopOnly, always }] of Object.entries(sections)) {
         const button = screen.getByRole("button", { name: section });
