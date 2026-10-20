@@ -525,11 +525,16 @@ export function openExternalLink(url: string, doc: Document = document): void {
 /**
  * Help destinations (owner decision 11): the live setup guide, the shipped support email and the
  * shipped privacy policy, all opened externally. The native navigation policy hands a user-tapped
- * link to exactly `mailto:support@stillapp.fit` to the system mail app.
+ * link to exactly `mailto:support@stillapp.fit` to the system mail app. `safariSetup` (ISS-0075)
+ * shows the app's native "Turn on Still in Safari" sheet; without it the link stays disabled.
  */
-export function appleSettingsHelp(open: (url: string) => void): AppleSettingsProps["help"] {
+export function appleSettingsHelp(
+  open: (url: string) => void,
+  safariSetup?: () => void,
+): AppleSettingsProps["help"] {
   return {
     onGuide: () => open(SETUP_GUIDE_URL),
+    ...(safariSetup ? { onSafariSetup: () => safariSetup() } : {}),
     onSupport: () => open(SUPPORT_MAILTO),
     onPrivacy: () => open(PRIVACY_POLICY_URL),
   };

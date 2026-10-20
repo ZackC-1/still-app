@@ -353,14 +353,21 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
-    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+  <!-- Help (owner, 12 Oct): the links only, no heading, divider or note. Delete account lives
+    here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card.
+    "Safari setup" (ISS-0075, owner 19 Oct) opens the app's own "Turn on Still in Safari" sheet. -->
   <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
       disabled={!help.onGuide}
       onclick={help.onGuide}>Setup guide</button
+    >
+    <button
+      type="button"
+      class="link"
+      disabled={!help.onSafariSetup}
+      onclick={help.onSafariSetup}>Safari setup</button
     >
     <button
       type="button"
