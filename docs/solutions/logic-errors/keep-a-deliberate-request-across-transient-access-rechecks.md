@@ -77,8 +77,13 @@ revision as a replaced account: it cleared the card and the request with it. Fix
 sign-in returns immediately see only one revision and pass.
 
 The fix: while the sign-in that the request opened is still settling (same account id and
-address), fence the early card's taps but keep the request, and offer a fresh confirmation once
-the new revision is confirmed. Related gap: a refused read kept the last answer (so the offer
+address), keep the early card on screen without its buttons (taps and any link in flight are
+fenced), keep the request, and offer a fresh confirmation once the new revision is confirmed.
+Removing the card instead is wrong in three ways: the offer card renders in the gap (the symptom
+itself, and indefinitely if the new revision's confirmation read fails) and its Link reopens
+sign-in; the remembered account is lost, so a sign-out or another account no longer drops the
+request; and the rating hold lifts. The "linked" and "elsewhere" lines are facts about the
+account, so the same account keeps them across revisions too. Related gap: a refused read kept the last answer (so the offer
 card stayed on) but never offered the kept request. It now does, from that same answer.
 
 ## How to reproduce it in a test

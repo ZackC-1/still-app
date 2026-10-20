@@ -1371,12 +1371,25 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     // on the settings mirror: the confirmation can appear here, one revision early.
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
     await confirmation();
+    await waitFor(() => expect(reportRatingHold).toHaveBeenLastCalledWith("purchase"));
+    vi.mocked(reportRatingHold).mockClear();
+    // Watch every node the screen adds between the two revisions: neither the offer line nor the
+    // invitation may render, even for one frame, and the rating prompt stays held throughout.
+    const added: string[] = [];
+    const watcher = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) added.push(node.textContent ?? "");
+    });
+    watcher.observe(document.body, { childList: true, subtree: true, characterData: true });
     const revision = f.controller.accountRevision;
     release();
     await waitFor(() => expect(f.controller.accountRevision).toBe(revision + 1));
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 30));
     const card = await confirmation();
+    watcher.disconnect();
+    expect(added.filter((text) => text.includes(OFFER) || text.includes(INVITE))).toEqual([]);
+    for (const [flow] of vi.mocked(reportRatingHold).mock.calls) expect(flow).toBe("purchase");
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));

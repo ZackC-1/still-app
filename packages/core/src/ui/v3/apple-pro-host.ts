@@ -204,6 +204,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     return heldElsewhere.get(current.id) === eligiblePurchase.ownershipRevision;
   };
   const elsewhereCard = (account: AppleProAccount) => ({ state: "elsewhere" as const, email: account.email });
+  /** ISS-0076 (MAC-85): a confirmation kept on screen, without its buttons, while the sign-in that
+   * the request opened settles at a newer account revision. It holds the place (no offer card, no
+   * second sign-in, the rating hold stays) until a fresh confirmation replaces it. */
+  const fencedConfirm = () => link?.state === "confirm" && !link.onConfirm;
   function clearLink() {
     linkGeneration++;
     link = undefined;
@@ -294,8 +298,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       busy ||
       requestingLink ||
       !linkingRequested ||
-      link ||
-      linkAccount ||
+      (!fencedConfirm() && (link || linkAccount)) ||
       owner() !== "owned" ||
       !eligiblePurchase ||
       !deps.account()?.confirmed
@@ -778,38 +781,36 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       epoch++;
       busy = false;
       if (linkAccount && !sameAccount(linkAccount)) {
-        // ISS-0104: the elsewhere card is a fact about the account, not about one session
-        // revision; the same signed-in account (id and address) keeps it and only re-settles.
         const current = deps.account();
-        if (
-          link?.state === "elsewhere" &&
-          current?.confirmed &&
-          current.id === linkAccount.id &&
-          current.email === linkAccount.email
-        ) {
-          linkAccount = { ...current };
-          link = elsewhereCard(current);
+        const sameHolder =
+          current !== null && current.id === linkAccount.id && current.email === linkAccount.email;
+        if (sameHolder && (link?.state === "elsewhere" || link?.state === "linked")) {
+          // ISS-0104, ISS-0081: where the purchase is linked is a fact about the account, not about
+          // one session revision; the same account (id and address) keeps the card, and re-settles
+          // it once the new revision is confirmed.
+          if (current.confirmed) {
+            linkAccount = { ...current };
+            link = link.state === "linked" ? { state: "linked", email: current.email } : elsewhereCard(current);
+          }
         } else if (
-          link?.state === "confirm" &&
+          sameHolder &&
+          (link?.state === "confirm" || link?.state === "pending") &&
           linkingRequested &&
-          linkViaSignIn &&
-          current &&
-          current.id === linkAccount.id &&
-          current.email === linkAccount.email
+          linkViaSignIn
         ) {
           // ISS-0076 (MAC-85): the sign-in the request opened is still settling. The verified code
           // enters the session (a new revision, then a confirmation at it) before the controller
-          // advances the revision again, so the confirmation can appear one revision early. Fence
-          // that card's taps, keep the request, and offer a fresh confirmation once this revision
-          // is confirmed. Another account or a sign-out still drops it.
+          // advances the revision again, so the confirmation can appear, and even be tapped, one
+          // revision early. Fence its taps and any link in flight, keep the card without buttons
+          // and the request, and offer a fresh confirmation once the new revision is confirmed.
+          // linkAccount stays the fenced account, so a sign-out or another account still drops it.
           linkGeneration++;
-          link = undefined;
-          linkAccount = null;
+          link = { state: "confirm", email: linkAccount.email };
         } else {
           clearLink();
         }
       }
-      if (linkingRequested && !linkAccount && deps.account()?.confirmed)
+      if (linkingRequested && (!linkAccount || fencedConfirm()) && deps.account()?.confirmed)
         void requestLink();
       const current = deps.account();
       if (

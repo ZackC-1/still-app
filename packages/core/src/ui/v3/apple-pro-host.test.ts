@@ -1790,7 +1790,7 @@ describe("the MAC-85 sign-in from the invitation, in every order the Mac can pro
     await h.finishReconciles();
     await h.linksOnConfirm();
   });
-  it("native refuses every read until after the reconcile has finished: the last answer still offers it", async () => {
+  it("native refuses every read until after the reconcile and the controller's revision: the confirmation from the last answer", async () => {
     const h = await holder();
     h.refuse(Number.POSITIVE_INFINITY);
     await h.signIn();
@@ -1798,13 +1798,11 @@ describe("the MAC-85 sign-in from the invitation, in every order the Mac can pro
     await h.finishReconciles();
     await h.controllerRevision();
     await h.finishReconciles();
-    // The affordance kept the last settled answer, so the request it holds must be offered too,
-    // not the offer card. Native answers by the time the person taps Link.
     expect(h.host.canLink).toBe(false);
     h.refuse(0);
     await h.linksOnConfirm();
   });
-  it("a re-check overtakes the request's own read, and native refuses every read after it", async () => {
+  it("a re-check overtakes the request's own read, and native refuses every read after it (one revision, no bump)", async () => {
     const h = await holder();
     let finish!: (value: { ownershipRevision: number; linkedAccount: null }) => void;
     vi.mocked(h.deps.readLinkEligibility!).mockImplementationOnce(
@@ -1821,7 +1819,8 @@ describe("the MAC-85 sign-in from the invitation, in every order the Mac can pro
     h.host.observeAccess(access("purchased"));
     await h.settle();
     await h.finishReconciles();
-    // The last settled answer keeps the affordance, so it must offer the request it holds, not the
+    // Only refused reads follow, and no account change comes to re-offer it: the refused read itself
+    // must offer the request from the last settled answer (which keeps the affordance on), not the
     // offer card. Native answers again by the time the person taps Link.
     expect(h.host.canLink).toBe(false);
     h.refuse(0);
@@ -1836,17 +1835,19 @@ describe("the MAC-85 sign-in from the invitation, in every order the Mac can pro
     await h.finishReconciles();
     await h.linksOnConfirm();
   });
-  it("native names the signed-in account (ISS-0081): nothing offered, nothing linked", async () => {
+  it("native names the signed-in account (ISS-0081): linked, nothing offered, across the controller's revision", async () => {
     const h = await holder();
     h.answer({ ownershipRevision: 0, linkedAccount: user.id });
     await h.signIn();
     expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
-    await h.controllerRevision();
+    h.setAccount(at(3, false));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    h.setAccount(at(3, true));
+    await h.settle();
     await h.republish();
     await h.finishReconciles();
-    // The controller's revision clears the "linked" line; what stays is what a relaunch shows: the
-    // Still Pro tag and no offer. This is the only order that hides everything by design.
-    expect(h.host.settings().link?.state).not.toBe("confirm");
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
     expect(h.host.canLink).toBe(false);
     expect(h.deps.linkPurchase).not.toHaveBeenCalled();
   });
@@ -1900,5 +1901,78 @@ describe("the MAC-85 sign-in from the invitation, in every order the Mac can pro
     await h.finishReconciles();
     expect(h.host.settings().link).toBeUndefined();
     expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("between the two revisions the early card stays without buttons: no offer, no second sign-in", async () => {
+    const h = await holder();
+    await h.signIn();
+    const early = h.host.settings().link;
+    expect(early?.state).toBe("confirm");
+    h.setAccount(at(3, false));
+    await h.settle();
+    // The gap may last (the confirmation read at the new revision can fail): it holds the place.
+    expect(h.host.settings().link).toEqual({ state: "confirm", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    early?.onConfirm?.();
+    early?.onChooseOther?.();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "confirm", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.deps.chooseOtherAccount).not.toHaveBeenCalled();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    h.setAccount(at(3, true));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+  });
+  it("a sign-out between the two revisions drops the request: the next account gets no confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.setAccount(at(3, false));
+    await h.settle();
+    h.setAccount(null);
+    await h.settle();
+    expect(h.host.settings().link).toBeUndefined();
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 5, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("another account while the new revision is unconfirmed drops the request", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.setAccount(at(3, false));
+    await h.settle();
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 4, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Link tapped on the early card, the controller's revision lands while it is in flight: linked or re-offered, never the offer card", async () => {
+    const h = await holder();
+    await h.signIn();
+    let finish!: (value: { status: "linked"; ownershipRevision: number }) => void;
+    vi.mocked(h.deps.linkPurchase).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    h.host.settings().link?.onConfirm?.();
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("pending");
+    await h.controllerRevision();
+    finish({ status: "linked", ownershipRevision: 1 });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.canLink).toBe(false);
+    expect(h.host.settings().link?.state).toBe("confirm");
+    // The server already holds the link; the fresh confirmation's Link hears already_linked.
+    vi.mocked(h.deps.linkPurchase).mockResolvedValueOnce({ status: "already_linked", ownershipRevision: 1 });
+    h.host.settings().link?.onConfirm?.();
+    await h.settle();
+    expect(h.deps.linkPurchase).toHaveBeenCalledTimes(2);
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
   });
 });
