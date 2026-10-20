@@ -123,6 +123,17 @@
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
       {#if checkoutPriced}<p class="caption">The price is shown at checkout.</p>{/if}
+    {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success" && !restoreHeld}
+      <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. -->
+      <div class="status-line" data-tone="info">
+        <div class="status-body">
+          <span>Still can't check right now.</span><span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >Try again when you're online.</span
+          >
+        </div>
+      </div>
     {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>

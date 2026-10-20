@@ -67,7 +67,12 @@ export interface ProOfferCardProps {
    * Unread since 12 Oct 2026: no Still Pro copy states a number of extras (owner rule). */
   phone?: boolean;
   ownership: "none" | "owned" | "checking" | "verify" | "failed";
-  channel: "ready" | "unverified" | "unavailable";
+  /**
+   * "offline": Still could not check because the browser is offline. With ownership "none" the
+   * card says so instead of claiming Still Pro can't be bought here, and instead of "verify again"
+   * for a held known none (ISS-0090). Buy still needs "ready" and a conclusive locked snapshot.
+   */
+  channel: "ready" | "unverified" | "unavailable" | "offline";
   /**
    * Verified caller data; the price is displayed only in the real checkout. A checkout-priced
    * offer (`checkoutPriced: true`, `price: ""`) has no price on this surface at all: the browser

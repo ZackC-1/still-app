@@ -336,7 +336,7 @@ describe("controlled D03 extension settings", () => {
     view.unmount();
   });
 
-  it("requires actual channel, verified offer and confirmed account for checkout, withholding sales on held access or Restore", async () => {
+  it("requires actual channel, verified offer and confirmed account for checkout, withholding sales on held access or a Restore under way", async () => {
     const { props } = await fixture("locked");
     const onBuy = vi.fn();
     const onSignIn = vi.fn();
@@ -383,13 +383,20 @@ describe("controlled D03 extension settings", () => {
       ...props.access,
       states: { ...props.access.states, "youtube.comments": "locked" },
     };
-    for (const state of ["checking", "verify", "failed"] as const) {
+    for (const state of ["checking", "verify"] as const) {
       props.restore = { state, onAction: vi.fn() };
       await view.rerender(props);
       expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
     }
+    // A Restore that could not finish changed nothing, so the offer stays (ISS-0090).
+    props.restore = { state: "failed", onAction: vi.fn() };
+    await view.rerender(props);
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
+    expect(
+      screen.getByText("We couldn't finish checking. Nothing changed."),
+    ).toBeVisible();
     expect(document.body.textContent).not.toContain("test localized offer");
     expect(onBuy).toHaveBeenCalledOnce();
     view.unmount();
@@ -932,7 +939,7 @@ describe("controlled D03 extension settings", () => {
       expect(buy).toHaveBeenCalledTimes(2);
     }
     props.pro.state = "idle";
-    for (const state of ["checking", "verify", "failed"] as const) {
+    for (const state of ["checking", "verify"] as const) {
       props.restore = { state };
       await view.rerender(props);
       await requestBoth();
@@ -957,6 +964,11 @@ describe("controlled D03 extension settings", () => {
     await view.rerender(props);
     await requestBoth();
     expect(buy).toHaveBeenCalledTimes(4);
+    // A Restore that could not finish changed nothing: both ports still offer it (ISS-0090).
+    props.restore = { state: "failed" };
+    await view.rerender(props);
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(6);
     view.unmount();
   });
 });
