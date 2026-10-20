@@ -19,6 +19,7 @@
   import SharingCard from "./SharingCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
+  import { SUPPORT_EMAIL } from "../config.js";
   import "./design/styles.css";
   let {
     settings,
@@ -346,6 +347,7 @@
       disabled={!help.onSupport}
       onclick={help.onSupport}>Contact support</button
     >
+    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
     <button
       type="button"
       class="link"

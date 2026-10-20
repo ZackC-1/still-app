@@ -5,6 +5,7 @@
   } from "./checkout-return-presentation.js";
   import { wordmarkSrc } from "./checkout-return-wordmark.js";
   import Glyph from "./Glyph.svelte";
+  import { SUPPORT_EMAIL } from "../config.js";
   import "./design/styles.css";
   import "./checkout-return-layout.css";
 
@@ -138,12 +139,15 @@
         onclick={settings}>Open Still settings</button
       >{/if}
     <footer class="fr-foot">
-      <button
-        type="button"
-        class="link"
-        disabled={!available(props.support)}
-        onclick={support}>Contact support</button
-      >
+      <span class="fr-support">
+        <button
+          type="button"
+          class="link"
+          disabled={!available(props.support)}
+          onclick={support}>Contact support</button
+        >
+        <span class="muted">{SUPPORT_EMAIL}</span>
+      </span>
       <button
         type="button"
         class="link"

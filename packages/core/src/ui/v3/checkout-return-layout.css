@@ -3,3 +3,4 @@
 .fr-col h1{margin:8px 0 0;font-size:calc(28px * var(--text-scale, 1));line-height:1.2;font-weight:700;letter-spacing:-.02em}
 .fr-col .lede{margin:0;font-size:calc(16px * var(--text-scale, 1));color:var(--ink-secondary)}
 .fr-foot{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:calc(13px * var(--text-scale, 1))}
+.fr-support{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
