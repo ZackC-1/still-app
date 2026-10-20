@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEnginePageSession, type EnginePageSession } from "../engine.js";
-import { FACEBOOK_REELS_RULES } from "../facebook.js";
+import { FACEBOOK_REELS_RULES, FACEBOOK_REELS_LAYOUT } from "../facebook.js";
 import { ruleSet, DEFAULT_SETTINGS_V2, access } from "./format2-fixtures.js";
 
 const bundle = { ...ruleSet, services: { facebook: FACEBOOK_REELS_RULES } };
@@ -119,6 +119,41 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     expect(document.documentElement.classList.contains("site-theme")).toBe(
       true,
     );
+  });
+
+  it("the phone top bar closes up around the hidden Reels tab: invisible and untappable, neighbours slide half a slot (ISS-0102)", () => {
+    render("facebook-mobile.html");
+    const home = document.getElementById("keep-fb-mobile-home-tab")!;
+    const reels = document.getElementById("fb-mobile-reels-tab")!;
+    const after = document.getElementById("keep-fb-mobile-notifications-tab")!;
+    const s = session();
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect(getComputedStyle(reels).visibility).toBe("hidden");
+    expect(getComputedStyle(reels).pointerEvents).toBe("none");
+    expect(getComputedStyle(home).transform).toBe("translateX(50%)");
+    expect(getComputedStyle(after).transform).toBe("translateX(-50%)");
+    const text = document.head.querySelector("style")!.textContent!;
+    for (const rule of FACEBOOK_REELS_LAYOUT) expect(text).toContain(`:is(${rule.selector}){${rule.declarations}}`);
+    // A Page's tab row (inner tabs labelled exactly "Reels") is not the top bar: no layout there.
+    const page = document.createElement("div"); page.setAttribute("role", "tablist");
+    page.innerHTML = '<div role="tab" id="page-tab-all"><div><div role="tab" aria-label="All">All</div></div></div><div role="tab" id="page-tab-reels"><div><div role="tab" aria-label="Reels">Reels</div></div></div>';
+    document.body.append(page);
+    // Another row with a "Reels, N of M" tab but no feed tab (tabs of unequal widths): the hide
+    // alone, no slide, no visibility change.
+    const other = document.createElement("div"); other.setAttribute("role", "tablist");
+    other.innerHTML = '<div role="tab" id="other-tab-posts" aria-label="Posts, 1 of 5">Posts</div><div role="tab" id="other-tab-reels" aria-label="Reels, 3 of 5"><span>Reels</span></div><div role="tab" id="other-tab-people" aria-label="People, 4 of 5">People</div>';
+    document.body.append(other);
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect(getComputedStyle(document.getElementById("page-tab-all")!).transform).not.toBe("translateX(50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-posts")!).transform).not.toBe("translateX(50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-people")!).transform).not.toBe("translateX(-50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-reels")!).visibility).not.toBe("hidden");
+    expect(visible(document.querySelector("#other-tab-reels span")!)).toBe(false);
+    // Off: the tab is back, nothing slides.
+    s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, new URL("https://m.facebook.com/"), document);
+    expect(getComputedStyle(reels).visibility).not.toBe("hidden");
+    expect(getComputedStyle(home).transform).not.toBe("translateX(50%)");
+    expect(getComputedStyle(after).transform).not.toBe("translateX(-50%)");
   });
 
   it("the mobile tab's box stays while its captured label children hide, not lookalike tabs", () => {
