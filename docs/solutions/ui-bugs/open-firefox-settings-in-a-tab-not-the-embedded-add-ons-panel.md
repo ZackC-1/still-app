@@ -33,13 +33,18 @@ page was scrolled further down that time. The centred `.dialog` (Delete account,
 and any bottom-pinned notice land the same way.
 
 Chrome is not affected: its embedded options dialog in chrome://extensions has a bounded, scrolling
-viewport. Firefox for Android has no embedded host and opens the page as a tab either way.
+viewport. Firefox for Android ships the same manifest, so the change reaches it too: Fenix shows an
+`open_in_tab: false` page inside its own add-on settings screen and a `true` one as a browser tab.
 
 ## Fix
 
 Firefox opens Settings in its own tab. `runtime.openOptionsPage` (the popup's Settings button,
 first-run's Open Settings, the Still Pro hand-off in `lib/pro-navigation.ts`) honours the key and
-reuses an open tab, so no caller changed.
+reuses an open tab, so no caller changed. Firefox only reuses a tab whose address matches
+exactly, hash included (`switchToTabHavingURI` without `ignoreFragment`): the Still Pro hand-off
+used to leave `#still-pro` on the Settings address, which turned every later Settings opening into
+a second tab (measured: 1, 2, 3 tabs). `bindProOptionsNavigation` now drops the hash as soon as the
+Pro card has been reached, and when the focus window ends.
 
 WXT writes `options_ui` from the entrypoint *after* merging the `manifest` option, so a value in
 `stillManifest` would be overwritten, and the `<meta name="manifest.open_in_tab">` form applies to
@@ -56,6 +61,9 @@ exported `settingsPageHost(browser, manifest)`, pinned by `lib/__tests__/firefox
   `moz-extension://…/options.html` tab and no about:addons; a second call adds no tab. The embedded
   panel is reachable only through `browser.extension.getViews()` from another extension page (BiDi
   does not list the Add-ons Manager's nested browser), which is how the numbers above were taken.
+- Tab reuse after the hand-off: from an extension page write the `still:pro-navigation` session
+  record and call `openOptionsPage()`, then call `openOptionsPage()` again; the tree must still list
+  one `options.html` tab (before the hash fix it listed two).
 
 ## Pitfalls
 
@@ -63,4 +71,7 @@ exported `settingsPageHost(browser, manifest)`, pinned by `lib/__tests__/firefox
   the Help card at the bottom of the page would then be above the fold instead, and nothing inside
   the panel can scroll the Add-ons Manager.
 - `innerHeight === document.documentElement.scrollHeight` is a symptom of the embedded host, not a
-  test for it; `browser.tabs.getCurrent()` resolving to `undefined` is.
+  test for it, and neither is `browser.tabs.getCurrent()`: inside the embedded panel it resolves
+  to the Add-ons Manager's own tab, not to `undefined` (measured on Firefox 158). Nothing in the
+  product needs to tell the hosts apart; the harness reached the embedded document through
+  `browser.extension.getViews()` from another extension page.

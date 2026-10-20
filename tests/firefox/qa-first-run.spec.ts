@@ -154,8 +154,7 @@ test("J1.FD Open Still settings leads from first run to the settings page", asyn
   await page.evaluate(
     `[...document.querySelectorAll("button, a")].find((b) => b.textContent.trim() === "Open Still settings").click()`,
   );
-  // Still's Settings open in their own tab on Firefox (ISS-0097); older builds embedded them in
-  // about:addons, which this still accepts.
+  // Still's Settings open in their own tab on Firefox (ISS-0097), never inside about:addons.
   const urls = await page.waitFor(
     "a new tab for the settings",
     async () => {
@@ -164,10 +163,10 @@ test("J1.FD Open Still settings leads from first run to the settings page", asyn
         .filter((c) => !known.has(c.context))
         .map((c) => c.url);
     },
-    (found) => found.some((url) => /about:addons|options\.html/.test(url)),
+    (found) => found.some((url) => /\/options\.html$/.test(url)),
   );
   ev.log("opened-from-first-run", urls);
-  expect(urls.join(" ")).toMatch(/about:addons|options\.html/);
+  expect(urls.join(" ")).toMatch(/\/options\.html$/);
 });
 
 test.fixme("J1.FD optional sign-in from first run: sign-in skipped, then signed in with a code from the local mailbox", async () => {
@@ -188,6 +187,8 @@ test("J11.FD the built Firefox manifest asks for exactly storage and alarms, on 
   expect([...manifest.host_permissions].sort()).toEqual([...FOUR_HOSTS].sort());
   expect(manifest.optional_permissions).toBeUndefined();
   expect(manifest.optional_host_permissions).toBeUndefined();
+  // Settings open in their own tab (ISS-0097); the embedded Add-ons Manager panel hid the sheets.
+  expect(manifest.options_ui).toEqual({ open_in_tab: true, page: "options.html" });
   // Firefox's own data-collection declaration: sign-in needs an identity, analytics is optional.
   expect(
     manifest.browser_specific_settings.gecko.data_collection_permissions,

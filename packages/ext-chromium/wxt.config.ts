@@ -173,8 +173,11 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
  * sharing confirmations) then lands at the bottom or the middle of that tall panel, often below the
  * fold, while the dimming scrim covers all of it: a grey page with no sheet. So Firefox opens
  * Settings in its own tab; `runtime.openOptionsPage` (the popup's Settings button, first-run's Open
- * Settings, the Still Pro hand-off) reuses an open one. Chrome keeps its embedded dialog, whose
- * viewport is bounded and scrolls, and Firefox for Android has no embedded host (a tab either way).
+ * Settings, the Still Pro hand-off) reuses an open one, provided its address still matches exactly,
+ * which is why lib/pro-navigation.ts leaves the address plain once the hand-off is over. Chrome keeps
+ * its embedded dialog, whose viewport is bounded and scrolls. Firefox for Android ships this same
+ * manifest, so its Settings open as a browser tab there too (otherwise Fenix shows the page inside
+ * its own add-on settings screen); the Android emulator lane covers it.
  * WXT writes `options_ui` from the entrypoint after merging `manifest`, so this runs on the
  * generated manifest (the `build:manifestGenerated` hook below).
  */

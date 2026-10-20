@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import config, {
   firefoxAndroidSettings,
   firefoxBrowserSpecificSettings,
   runsV3Interface,
@@ -168,5 +168,16 @@ describe("Firefox manifest compatibility", () => {
       });
     // A build without an options entrypoint has nothing to place.
     expect(settingsPageHost("firefox", {})).toEqual({});
+  });
+
+  it("wires that host rule into the generated manifest (the build hook)", async () => {
+    const hooks = config.hooks as Record<string, (wxt: unknown, manifest: unknown) => unknown>;
+    const hook = hooks["build:manifestGenerated"];
+    if (typeof hook !== "function") throw new Error("the build:manifestGenerated hook is not wired");
+    for (const [browser, open] of [["firefox", true], ["chrome", false]] as const) {
+      const manifest = { options_ui: { page: "options.html", open_in_tab: false } };
+      await hook({ config: { browser } }, manifest);
+      expect(manifest.options_ui.open_in_tab).toBe(open);
+    }
   });
 });
