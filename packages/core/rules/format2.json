@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.16",
+  "version": "3.0.17",
   "services": {
     "youtube": {
       "matches": [
@@ -184,6 +184,10 @@
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
@@ -274,6 +278,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "c70d8e78d5fda4eefadf9f0adee8d752cc04b686c62e4fa721d70240c559f355288f6982f8ca13eba2c8f6bafa1f9eb2dde26c735e8061c3a917a33741b0e900"
+    "value": "778078dc5ba71b42281519de1575738410748ffbe0d84a92832210052cf59c8837a28e3a706f55c06962be45ebddc983309afdeea42ca23172523310899e330d"
   }
 }

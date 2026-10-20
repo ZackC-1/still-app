@@ -171,6 +171,44 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     });
   });
 
+  it("ISS-0091: a feed Reel post hides by its own player; every look-alike stays", () => {
+    render("facebook.html");
+    const card = (id: string) => document.getElementById(id)!;
+    const s = session();
+    const url = new URL("https://www.facebook.com/");
+    s.applyDom(DEFAULT_SETTINGS_V2, url, document);
+    // The video sits inside a link to that Reel, relative or absolute.
+    for (const id of ["reel-post-card", "reel-post-absolute-card", "search-reel-article", "direct-inner-reel-card"])
+      expect(visible(card(id)), id).toBe(false);
+    // The unit Facebook measures keeps its own box, and a unit nested straight inside another unit
+    // is never the target itself: only its child hides.
+    for (const id of ["reel-post-unit", "reel-post-absolute-unit", "direct-inner-unit", "direct-outer-unit"])
+      expect(visible(card(id)), id).toBe(true);
+    // Look-alikes: a Reel link in a comment (pasted URL or attached Reel), the caption, the Reels
+    // feed entry, a box beside an ordinary video, a text-only link, a Story ring; and a search
+    // module whose other post is an ordinary video.
+    for (const id of [
+      "keep-video-post", "keep-caption-reel-post", "keep-story-ring-post", "keep-text-reel-link-post",
+      "keep-comment-reel-url-post", "keep-comment-reel-attachment-post", "keep-reels-entry-post",
+      "keep-more-from-page-post", "keep-reel-link-beside-video-post", "keep-search-module-unit", "keep-search-video-article",
+      "keep-rest-reel-post",
+    ]) expect(visible(card(id)), id).toBe(true);
+    // A Home Reel post whose only Reel link is its timestamp beside the player stays, even once the
+    // pointer has written the Reel's address into that link.
+    card("keep-rest-reel-post-timestamp").setAttribute("href", "/reel/900000000403/?s=chrono");
+    expect(visible(card("keep-rest-reel-post"))).toBe(true);
+    // A unit that wraps another unit is never the target, whatever it holds.
+    const outer = document.createElement("div");
+    outer.setAttribute("data-virtualized", "false");
+    outer.innerHTML = '<div id="keep-wrapping-child"><div data-virtualized="false"><div><a href="/reel/900000000410/"><video></video></a></div></div>'
+      + '<p id="keep-wrapped-post">An ordinary post beside a nested unit</p></div>';
+    document.querySelector("main")!.append(outer);
+    expect(visible(card("keep-wrapped-post"))).toBe(true);
+    // Reels Off restores every one of them.
+    s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, url, document);
+    for (const id of ["reel-post-card", "reel-post-absolute-card", "search-reel-article", "direct-inner-reel-card"]) expect(visible(card(id)), id).toBe(true);
+  });
+
   it("caption and external links do not identify an ordinary or sponsored feed card", () => {
     render("facebook.html");
     for (const id of ["keep-article", "keep-sponsored-post"]) {

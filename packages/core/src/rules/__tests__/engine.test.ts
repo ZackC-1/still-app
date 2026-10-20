@@ -597,17 +597,48 @@ describe("applyDom", () => {
         // The measured unit keeps its box; only its child is hidden.
         expect(document.getElementById(`${id}-unit`)!.style.display, id).toBe("");
       }
-      expect(document.querySelectorAll('a[href*="/reel/"]')).toHaveLength(0);
+      // ISS-0091: the seed's remove rules never act inside a feed unit, so the tiles stay in the DOM,
+      // hidden with their card.
+      expect(document.querySelectorAll('a[href*="/reel/"]')).toHaveLength(3);
       for (const id of ["post-unit", "post-card", "people-unit", "people-card", "outer-unit", "outer-card", "outer-post"]) {
         expect(document.getElementById(id)!.style.display, id).toBe("");
       }
     });
 
-    it("still finds the card after the tiles were removed first", () => {
+    it("still finds the card after its tiles are gone", () => {
+      // The removal sweep leaves the tiles alone inside a feed unit (ISS-0091); a card whose tiles
+      // Facebook itself dropped is still anchored by its carousel.
       applyRemovals(ruleSet, allOn, home, document);
-      expect(document.querySelectorAll('[role="gridcell"]')).toHaveLength(1); // People you may know
+      expect(document.querySelectorAll('[role="gridcell"]')).toHaveLength(4);
+      for (const cell of document.querySelectorAll('#shelf-grid [role="gridcell"]')) cell.remove();
       applyDom(ruleSet, allOn, home, document);
       expect(document.getElementById("shelf-card")!.style.display).toBe("none");
+    });
+
+    it("ISS-0091 legacy lane: a feed Reel post keeps its link and player under the removal sweep, in both shapes", () => {
+      // Shape 1: the Reel link (around the player) is the direct child of a box, which fb-watch's
+      // div:has(> a[href*="/reel/"]) used to delete, leaving a gutted post. Shape 2: the Reel link
+      // sits in its own box beside other content, which fb-watch used to delete, dropping the hide's
+      // anchor so the Reel came back playable.
+      document.querySelector("main")!.insertAdjacentHTML("beforeend", `
+        <div data-virtualized="false" id="reel1-unit"><div id="reel1-card"><span><a href="/inventedpage/">Page</a></span>
+          <div id="reel1-box"><a href="/reel/900000000501/" id="reel1-link"><video></video></a></div><span>Like Comment Share</span></div></div>
+        <div data-virtualized="false" id="reel2-unit"><div id="reel2-card"><div><a href="/reel/900000000502/" id="reel2-link"><div><video></video></div></a></div>
+          <div><div data-video-id="900000000502">A second player box</div></div></div></div>`);
+      applyRemovals(ruleSet, allOn, home, document);
+      for (const id of ["reel1-box", "reel1-link", "reel2-link"]) expect(document.getElementById(id), id).not.toBeNull();
+      // The packaged stylesheet's selector (the same one the sweep hides with) still matches both.
+      const reelHides = facebookSelectors("hide").filter((selector) => selector.includes("story_message"));
+      expect(reelHides.length).toBe(4);
+      for (const id of ["reel1-card", "reel2-card"])
+        expect(reelHides.some((selector) => document.getElementById(id)!.matches(selector)), id).toBe(true);
+      applyDom(ruleSet, allOn, home, document);
+      for (const id of ["reel1-card", "reel2-card"]) expect(document.getElementById(id)!.style.display, id).toBe("none");
+      expect(document.getElementById("reel1-link")).not.toBeNull();
+      // Outside a feed unit the removal rules still work as before.
+      document.body.insertAdjacentHTML("beforeend", '<div id="loose-box"><a href="/reel/900000000503/">A loose Reel link</a></div>');
+      applyRemovals(ruleSet, allOn, home, document);
+      expect(document.getElementById("loose-box")).toBeNull();
     });
 
     it("anchors on a carousel no Facebook remove rule can take away", () => {
