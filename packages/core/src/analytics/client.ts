@@ -759,6 +759,19 @@ export class AnalyticsClient {
     return this.confirm(null, { forget: options.forgetAccount });
   }
 
+  /**
+   * Install the host's latest account ask now, if it is still owed, without sending anything. An
+   * ask made while sharing was off cannot be installed then (a sign-out with the switch off), so it
+   * waits for the next flush. A host turning sharing back on calls this before recording the
+   * choice: otherwise the choice would wait unattributed beside the owed sign-out, which then drops
+   * it as possibly the departed account's use (ISS-0113). The same step a flush takes first.
+   */
+  settleAccount(): Promise<void> {
+    return this.run(async () => {
+      if (!this.confirmed) await this.establish(true);
+    });
+  }
+
   /** The account this install reports as, or null (also when the state cannot be read: work that
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {

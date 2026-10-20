@@ -391,6 +391,60 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(next.bodies().join("\n")).toContain('"signed_in":false');
   }, 15_000);
 
+  // ISS-0113: a client made when sharing is turned back on is told the account before it records
+  // the choice; recorded first, the choice waited unattributed and the account answer dropped it.
+  const choiceIds = (t: ReturnType<typeof setup>) =>
+    t.bodies().flatMap((body) =>
+      (JSON.parse(body) as { batch: { event: string; properties: { distinct_id: string } }[] }).batch
+        .filter((e) => e.event === "analytics_choice_made")
+        .map((e) => e.properties.distinct_id),
+    );
+
+  it("ISS-0113: Off then On while signed in records the choice under this device's identity", async () => {
+    const t = setup(undefined, true, async () => ({ state: "active", subject: SUBJECT }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    t.fetch.mockClear();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    expect(choiceIds(t)).toEqual([SUBJECT]);
+    expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+  });
+
+  it("ISS-0113: signed out while sharing was off, then On records the choice under a new anonymous id", async () => {
+    const t = setup(undefined, true, async () => ({ state: "active", subject: SUBJECT }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    const before = new Set(t.bodies().flatMap((b) => [...b.matchAll(/"distinct_id":"([^"]+)"/g)].map((m) => m[1])));
+    t.fetch.mockClear();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    await t.app.ui.reset(); // the sign-out, while no client runs
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    const ids = choiceIds(t);
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toBe(SUBJECT);
+    expect(before.has(ids[0]!)).toBe(false);
+    expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+    expect(t.native.subject).toBeNull();
+  });
+
+  it("ISS-0113: with no identity issued, the choice after Off then On waits under the hold, never sent unattributed", async () => {
+    const t = setup(undefined, true, async () => {
+      throw new Error("503 unavailable");
+    });
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue()).toContain("analytics_choice_made");
+  });
+
   it("a server stop ends sharing on this device", async () => {
     const t = setup(undefined, true, async () => ({ state: "stopped" }));
     await t.app.identifyAccount(ACCOUNT);

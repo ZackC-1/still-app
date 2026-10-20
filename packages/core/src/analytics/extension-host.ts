@@ -711,6 +711,9 @@ export function createExtensionAnalyticsHost(
           if (await deps.erasure.record(ending, index ?? ANON_INDEX_LIMIT)) void deps.erasure.kick();
         }
         if (request.enabled && (await client.canReport())) {
+          // A sign-out asked while sharing was off is still owed: install it first, so the choice
+          // is recorded as signed-out use and not dropped with what waited for the account.
+          await client.settleAccount();
           await client.track("analytics_choice_made", { choice: "share" });
           return true;
         }

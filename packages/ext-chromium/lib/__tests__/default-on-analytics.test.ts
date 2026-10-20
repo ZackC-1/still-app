@@ -4,6 +4,7 @@ import {
   NOTICE_KEY,
   NOTICE_VERSION_KEY,
   QUEUE_KEY,
+  STATE_KEY,
   USAGE_PERMISSION_VERSION,
   readAnalyticsPermission,
   supabaseSubjectIssuer,
@@ -373,6 +374,50 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(t.permission()?.state).toBe("granted"); // never a stop
     expect(t.fetch).not.toHaveBeenCalled();
     expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
+  });
+
+  // ISS-0113 (QA 2.1.1.400): signed in, sharing Off, signed out while it was off, then On. The
+  // sign-out could not be installed while sharing was off, so the choice waited beside it and was
+  // dropped with what waited for the account. ADR 0004: the choice is recorded each time.
+  it.each([
+    ["an issued identity", async () => ({ state: "active", subject: SUBJECT })],
+    ["no identity (test_channel)", async () => { throw new Error("test_channel"); }],
+  ])("ISS-0113: with %s, Off, a sign-out while off, then On sends the choice under a new anonymous id", async (_label, issue) => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issue as BackgroundAnalyticsDeps["issueSubject"] });
+    await install(t);
+    // A first Off then On while signed out: the choice is sent (and the anonymous id rotates).
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.bg.client.flush();
+    const ids = () =>
+      t.fetch.mock.calls.flatMap((call) =>
+        (JSON.parse(String((call[1] as RequestInit).body)) as { batch: { event: string; properties: { distinct_id: string } }[] }).batch,
+      );
+    const firstChoice = ids().filter((e) => e.event === "analytics_choice_made");
+    expect(firstChoice).toHaveLength(1);
+    const earlier = new Set(ids().map((e) => e.properties.distinct_id));
+
+    // Signed in, then Off, then signed out while sharing is off.
+    await t.send({ action: "identify", userId: ACCOUNT });
+    await t.send(OPEN);
+    for (let i = 0; i < 3; i++) await t.settle();
+    await t.bg.client.flush();
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    await t.send({ action: "track", name: "signed_out", props: {} });
+    await t.send({ action: "reset", forgetAccount: false });
+    t.fetch.mockClear();
+
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.bg.client.flush();
+    const choice = ids().filter((e) => e.event === "analytics_choice_made");
+    expect(choice).toHaveLength(1);
+    const id = choice[0]!.properties.distinct_id;
+    expect(earlier.has(id)).toBe(false);
+    expect(id).not.toBe(SUBJECT);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+    expect((t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown }).userId).toBeNull();
+    expect((t.local.data[STATE_KEY] as { heldFor: unknown }).heldFor).toBeNull();
   });
 
   it("a server stop ends sharing on this device", async () => {

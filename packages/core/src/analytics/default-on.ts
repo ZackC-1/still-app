@@ -334,7 +334,8 @@ export function defaultOnAppleAnalytics(
  *   * An off that the App Group did not take is reported as a failure (the controller keeps the
  *     switch on) rather than shown as off while the Safari extension keeps reporting.
  *   * Turning sharing on starts a new client, which sends nothing until it is told who is signed
- *     in; the latest account answer is given again to the new one.
+ *     in; createAppAnalytics gives it the latest account answer again before it records the
+ *     choice (ISS-0113).
  *   * No one-time notice (2026-10-12): `sharing()` always answers `noticeNeeded: false`. An
  *     acknowledgement still writes NOTICE_VERSION_KEY, which nothing asks for any more.
  *   * Signed-in identities: the server-issued subject is also published to the App Group, so the
@@ -417,8 +418,6 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
    * of overlapping permission reads, so a read made beside the launch's reads came back unknown
    * and hid the switch of a device whose sharing is off. */
   const storedState = usage.stored;
-  /** The latest account answer from the host: an account, nobody, or not known yet. */
-  let account: string | null | undefined;
   const thenSync = async (work: Promise<void> | void): Promise<void> => {
     await work;
     await syncPublished();
@@ -428,11 +427,9 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
     start: () => thenSync(app.start()),
     recheckSetup: () => thenSync(app.recheckSetup()),
     identifyAccount(userId) {
-      account = userId;
       return thenSync(app.identifyAccount(userId));
     },
     accountAbsent() {
-      account = null;
       return thenSync(app.accountAbsent());
     },
     ui: {
@@ -442,12 +439,10 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
         syncSoon(); // an ordinary screen may have just confirmed this device's identity
       },
       identify(userId) {
-        account = userId;
         ui.identify(userId);
         syncSoon();
       },
       async reset(options) {
-        account = null;
         await thenSync(ui.reset(options));
       },
       async sharing() {
@@ -474,7 +469,6 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
           await usage.commit(false).catch(() => undefined);
           if ((await storedState()) === "on") throw new Error("Sharing could not be turned off");
         }
-        if (on && account !== undefined) await (account === null ? app.accountAbsent() : app.identifyAccount(account));
         await syncPublished();
         return on;
       },
