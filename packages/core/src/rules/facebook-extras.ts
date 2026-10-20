@@ -8,20 +8,19 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * Still Pro features (rules/__tests__/extras-free-protection.test.ts).
  *
  * The Stories tray and sidebar ads selectors follow the desktop www.facebook.com Home seen signed
- * in, in Chrome, on 2026-10-19 (ISS-0088); the feed Videos selectors could not be checked then
- * (see VIDEOS_FEED). The synthetic fixtures in tests/fixtures/extras/fb-*.html still mark every
+ * in, in Chrome, on 2026-10-19 (ISS-0088). The synthetic fixtures in tests/fixtures/extras/fb-*.html still mark every
  * family as a candidate, and each control's release gate still needs the owner's structural checks
  * (H-012, H-013, H-014). Uncertain content stays visible: every guard below errs towards leaving
  * a block on the page. No selector here depends on English text.
  *
  * Free Reels stay independent and always win. The core's Reels routing (/reels/, /watch/reels/)
  * runs before any entry here, no entry may ever match /reel/, /reels/ or /watch/reels/
- * (facebook-extras.test.ts), and the Videos surfaces skip any unit that carries a Reel link, so a
- * Reel is only ever hidden by the Reels control. Under D244 a shared Reel playing in the normal
+ * (facebook-extras.test.ts), and Videos and Watch hides no feed unit at all, so a Reel is only
+ * ever hidden by the Reels control. Under D244 a shared Reel playing in the normal
  * player is never re-hidden by Videos and Watch.
  */
 
-/** A feed unit that owns a Reel belongs to the free Reels control, never to Videos and Watch. */
+/** A block that owns a Reel belongs to the free Reels control, never to a Still Pro extra. */
 const NOT_A_REEL = ':not(:has(a[href*="/reel/"])):not(:has(a[href*="/reels/"]))';
 
 /**
@@ -59,28 +58,19 @@ const STORIES_TRAY = Object.freeze([
 ]);
 
 /**
- * Videos and Watch (CP-082): non-Reel and live feed-video units inside the feed, positively
- * identified by a video player plus their own direct link to a FACEBOOK video page (/videos/),
- * and the Watch navigation entries. A link to another site's /videos/ page (a GIF, a shared clip)
- * never counts, and a comment (an article inside a post's article) is never a feed unit. Direct
- * players outside the feed (Watch links, a Page's video, a shared Reel) are never matched.
+ * Videos and Watch (CP-082): the Watch hub route, the Watch live hub route (Q10) and the Watch
+ * navigation entries below. It hides nothing in the feed (owner ruling 20 Oct 2026, ISS-0088):
+ * a feed unit holding a video player stays with the free Facebook Reels control.
  *
- * A unit whose only video link is /watch/?v=<id> is NOT a feed video: a Reel shared into the feed
- * can carry just that link (no /reel/ link for the Reel guard to see), and a Reel is only ever
- * hidden by the free Reels control. Uncertain, so it stays.
- *
- * UNVERIFIED and currently inert (ISS-0088, 2026-10-19): the signed-in desktop feed no longer
- * renders [role="feed"] or [role="article"], so these selectors match nothing. Every feed video
- * seen in that check was a Reel playing in the normal player, and its post carried no /videos/ or
- * /reel/ link until the pointer moved over its timestamp (Facebook fills that link in on hover).
- * A replacement must not identify a feed video by its player alone, or it would hide Reels. Kept
- * unchanged until a non-Reel feed video can be observed.
+ * Why the feed half is gone, verified live on the signed-in desktop feed on 19 and 20 Oct 2026:
+ * Facebook publishes every new video as a Reel (Meta, June 2025: "all videos posted to Facebook
+ * are now shared as reels"). Every organic feed unit holding a player was a Reel (portrait
+ * 720x1280, data-video-id, its /reel/ permalink filled in only on hover) and the rest were
+ * Sponsored video ads (data-ad-video, out of scope by D039). No unit carried a /videos/ link, and
+ * the feed rendered no [role="feed"] or [role="article"], so the old feed-unit selectors (a
+ * player plus a Facebook /videos/ link inside [role="feed"]) matched nothing. Telling a feed video
+ * by its player alone would hide Reels, which only the Reels control may do (D244).
  */
-const FEED_UNIT = '[role="feed"] [role="article"]:not([role="article"] [role="article"])';
-const VIDEOS_FEED = Object.freeze([
-  `${FEED_UNIT}:has(> a[href^="/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
-  `${FEED_UNIT}:has(> a[href^="https://www.facebook.com/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
-]);
 
 /**
  * The Watch hub's navigation entries: exactly /watch or /watch/, relative or absolute, with any
@@ -166,7 +156,6 @@ export const FACEBOOK_WATCH_LIVE_HUB_ROUTE: ExtrasRoute = Object.freeze({
 export const FACEBOOK_EXTRAS: ServiceExtras = Object.freeze({
   surfaces: Object.freeze([
     Object.freeze({ id: "facebook-stories-tray", feature: "facebook.stories", action: "hide", selectors: STORIES_TRAY }),
-    Object.freeze({ id: "facebook-videos-feed", feature: "facebook.videos", action: "hide", selectors: VIDEOS_FEED }),
     Object.freeze({ id: "facebook-videos-watch-nav", feature: "facebook.videos", action: "hide", selectors: VIDEOS_WATCH_NAV }),
     Object.freeze({ id: "facebook-sponsored-sidebar", feature: "facebook.sponsored", action: "hide", selectors: SIDEBAR_ADS }),
   ]),

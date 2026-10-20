@@ -312,19 +312,22 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       render("fb-videos.html");
       const engine = session();
       engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": videos }), new URL(`${FB}/`), document, ON);
-      for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item",
+      for (const id of ["target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item",
         "target-nav-watch-absolute", "target-nav-watch-absolute-item", "target-nav-watch-noslash", "target-nav-watch-noslash-item"])
         expect(visible(id), id).toBe(!videos);
       // The feed Reel and the Reels menu entry belong to free Reels only: Videos never hides them
       // (the bare /reel/ entry opens the Reels feed, ISS-0035).
       expect(visible("reel-feed-free"), "reel-feed-free").toBe(!reels);
       expect(visible("reels-nav-free"), "reels-nav-free").toBe(!reels);
+      // Every keep-* stays, the pre-2025 /videos/ feed posts included: Videos and Watch hides no
+      // feed unit (owner ruling 20 Oct 2026, ISS-0088).
       for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
-      // Hidden feed video is quieted by the engine's media adapter; direct players never are.
-      const feedVideo = document.querySelector("#target-feed-video video")!;
+      // Only the hidden feed Reel is quieted by the engine's media adapter; feed videos Videos
+      // leaves and direct players never are.
+      const feedVideo = document.querySelector("#keep-feed-video video")!;
       const reelVideo = document.querySelector("#reel-feed-free video")!;
       const directVideo = document.querySelector("#keep-direct-player video")!;
-      expect(engine.ownsHiddenMedia!(feedVideo)).toBe(videos);
+      expect(engine.ownsHiddenMedia!(feedVideo)).toBe(false);
       expect(engine.ownsHiddenMedia!(reelVideo)).toBe(reels);
       expect(engine.ownsHiddenMedia!(directVideo)).toBe(false);
     });
@@ -356,12 +359,12 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": true }), new URL(`${FB}/`), document, ON);
       expect(visible("keep-feed-watch-only-reel"), `reels ${reels}`).toBe(true);
       expect(engine.ownsHiddenMedia!(document.querySelector("#keep-feed-watch-only-reel video")!)).toBe(false);
-      // The same unit with a Facebook /videos/ link is a feed video again (the guard is not blanket).
+      // The same unit with a Facebook /videos/ link stays too: Videos hides no feed unit (ISS-0088).
       document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
-        '<div role="article" id="target-watch-and-video-page"><a href="/watch/?v=900000000132">Watch</a>'
+        '<div role="article" id="keep-watch-and-video-page"><a href="/watch/?v=900000000132">Watch</a>'
         + '<a href="/inventedpage/videos/900000000132">Invented video page</a><video></video></div>');
       engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": true }), new URL(`${FB}/`), document, ON);
-      expect(visible("target-watch-and-video-page"), `reels ${reels}`).toBe(false);
+      expect(visible("keep-watch-and-video-page"), `reels ${reels}`).toBe(true);
       engine.stop?.();
     }
   });
@@ -392,7 +395,7 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       + '<video autoplay loop muted></video></div>');
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("keep-external-gif")).toBe(true);
-    expect(visible("target-feed-video")).toBe(false);
+    expect(visible("keep-feed-video")).toBe(true);
   });
 
   it("a comment (an article inside a post's article) with a video is never hidden as a feed video", () => {
@@ -403,15 +406,24 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       + '<div role="article" id="keep-watch-comment"><a href="/watch/?v=900000000123">An invented Watch reply</a><video></video></div></div>');
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     for (const id of ["keep-post-with-comment", "keep-video-comment", "keep-watch-comment"]) expect(visible(id), id).toBe(true);
-    expect(visible("target-feed-video")).toBe(false);
+    expect(visible("keep-feed-video")).toBe(true);
   });
 
-  it("a feed video with an absolute Facebook link is still a feed video", () => {
+  it("a feed video with an absolute Facebook link stays too", () => {
     render("fb-videos.html");
     document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
-      '<div role="article" id="target-absolute-video"><a href="https://www.facebook.com/inventedpage/videos/900000000124">Invented</a><video></video></div>');
+      '<div role="article" id="keep-absolute-video"><a href="https://www.facebook.com/inventedpage/videos/900000000124">Invented</a><video></video></div>');
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
-    expect(visible("target-absolute-video")).toBe(false);
+    expect(visible("keep-absolute-video")).toBe(true);
+  });
+
+  it("hides only the Watch navigation entries: no Videos surface reaches into the feed (ISS-0088)", () => {
+    const videos = FACEBOOK_EXTRAS.surfaces.filter((surface) => surface.feature === "facebook.videos");
+    expect(videos.map((surface) => surface.id)).toEqual(["facebook-videos-watch-nav"]);
+    for (const selector of videos.flatMap((surface) => surface.selectors)) {
+      expect(selector, selector).toMatch(/^nav /);
+      expect(selector, selector).not.toMatch(/feed|article|video/);
+    }
   });
 
   it("a text post that only links to a video, without a player, stays", () => {

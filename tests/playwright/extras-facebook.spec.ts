@@ -144,8 +144,9 @@ test.describe("Videos and Watch (paid on)", () => {
         if (reels) await engineRan(page);
         else await expect(page.locator("html")).toHaveClass(/still-feature-\d+-facebook-stories/);
         // Shortcut list items go with their Watch link (relative, no-slash and absolute), so no
-        // empty <li> is left behind.
-        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks",
+        // empty <li> is left behind. Feed video posts are never Videos' (ISS-0088): they are
+        // keep-* units, checked by expectKeptVisible below.
+        for (const id of ["target-nav-watch", "target-nav-watch-bookmarks",
           "target-nav-watch-bookmarks-item", "target-nav-watch-absolute", "target-nav-watch-absolute-item",
           "target-nav-watch-noslash", "target-nav-watch-noslash-item"]) {
           if (videos) await expect(page.locator(`#${id}`), id).toBeHidden();
@@ -211,10 +212,10 @@ test.describe("Videos and Watch (paid on)", () => {
     await commit(authority, ALL_ON);
     const loads = await serveFacebook(page, "fb-videos.html");
     await page.goto(`${FB}/`);
-    await expect(page.locator("#target-feed-video")).toBeHidden();
+    await expect(page.locator("#target-nav-watch-bookmarks-item")).toBeHidden();
     await page.evaluate(() => { (window as unknown as { token: string }).token = "same-document"; });
     await commit(authority, { "facebook.videos": false });
-    await expect(page.locator("#target-feed-video")).toBeVisible();
+    await expect(page.locator("#target-nav-watch-bookmarks-item")).toBeVisible();
     await expect(page.locator("#target-nav-watch")).toBeVisible();
     await expect(page.locator("#reel-feed-free")).toBeHidden();
     expect(await page.evaluate(() => (window as unknown as { token?: string }).token)).toBe("same-document");

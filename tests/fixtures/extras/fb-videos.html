@@ -7,16 +7,16 @@
   <body>
     <!--
       Synthetic structural model for facebook.videos (CP-082), covering the four Reels/Videos
-      combinations. UNVERIFIED CANDIDATE: non-Reel and live feed-video units bounded by
-      [role=feed], excluding Reel ownership, plus the Watch navigation entries. A shared Reel in
-      the normal player is never re-hidden (D244); Reels belong to facebook.reels (free).
-      The left-nav Watch shortcut carries a tracking query (?ref=bookmarks) and is still the hub;
-      a nav link that names a video plays it and stays. A feed unit whose only video link is
-      /watch/?v= may be a shared Reel, so Videos leaves it. On 2026-10-19 (ISS-0088) the signed-in
-      desktop feed rendered neither [role=feed] nor [role=article], and its only feed videos were
-      Reels in the normal player whose posts showed no /videos/ or /reel/ link until hovered
-      (keep-feed-reel-normal-player models one): Videos must never take such a unit for a video.
-      Invented text only.
+      combinations. UNVERIFIED CANDIDATE: the Watch navigation entries. Owner ruling 20 Oct 2026
+      (ISS-0088): Videos and Watch covers the Watch hub route, the Watch live hub route (Q10) and
+      the Watch navigation entries only. It hides no feed unit: Facebook now publishes every new
+      video as a Reel, and on 19 and 20 Oct the signed-in desktop feed's only players were Reels
+      (their /reel/ link filled in on hover) or Sponsored video ads, with no /videos/ link and no
+      [role=feed] or [role=article]. Feed units with a
+      player stay with facebook.reels (free). A shared Reel in the normal player is never
+      re-hidden (D244). The left-nav Watch shortcut carries a tracking query (?ref=bookmarks) and
+      is still the hub; a nav link that names a video plays it and stays.
+      (keep-feed-reel-normal-player models a 2026 feed Reel in the normal player.) Invented text only.
     -->
     <nav id="keep-nav-home"><a href="/">Home</a></nav>
     <nav><a href="/watch/" id="target-nav-watch">Watch</a>
@@ -30,8 +30,9 @@
       </ul>
     </nav>
     <div role="feed" id="keep-feed">
-      <div role="article" id="target-feed-video"><a href="/inventedpage/videos/900000000101">Invented feed video</a><video></video></div>
-      <div role="article" id="target-feed-live"><a href="/inventedpage/videos/900000000102">Invented live video</a><video></video></div>
+      <!-- keep-feed-video and keep-feed-live model the pre-2025 /videos/ feed post, which the extra no longer hides (ISS-0088). -->
+      <div role="article" id="keep-feed-video"><a href="/inventedpage/videos/900000000101">Invented feed video</a><video></video></div>
+      <div role="article" id="keep-feed-live"><a href="/inventedpage/videos/900000000102">Invented live video</a><video></video></div>
       <div role="article" id="reel-feed-free"><a href="/reel/900000000103">Invented feed Reel</a><a href="/inventedpage/videos/900000000103">Invented feed Reel as a video</a><video></video></div>
       <div role="article" id="keep-feed-watch-only-reel"><a href="/watch/?v=900000000131">Invented feed-shared Reel, Watch link only</a><video></video></div>
       <div role="article" id="keep-text-post"><a href="/inventedpage/posts/900000000104">An invented text post</a></div>
