@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: A Facebook Reels surface stays visible on iPhone Safari (or any phone browser) while the same surface is hidden on desktop, or a rule for Facebook's mobile layout needs a boundary
 date: 2026-10-15
-last_updated: 2026-10-16
+last_updated: 2026-10-20
 status: active
 tags: [facebook, mobile, safari-ios, selectors, tabs, capture, feed]
 ---
@@ -48,8 +48,8 @@ Hide the outer tab, unless it is the first in its row:
   `margin-top:-46px`. Hiding a tab on the live signed-out pages caused no attribute or child
   mutation in the row over 3 seconds, so Facebook does not appear to re-measure it, and the
   remaining tabs stayed where they were. (The fixture's zero-mutation check has no Facebook script;
-  it only proves Still writes nothing into the row.) The cost is a blank slot where Reels was. CSS
-  cannot close it because the offsets are inline.
+  it only proves Still writes nothing into the row.) The cost was a blank slot where Reels was; the inline
+  offsets cannot be rewritten, but the neighbours can be slid (see "The top tab bar").
 - **Never the first tab.** Every later tab is pulled up against the one before it, so hiding the
   first tab would slide the whole row out of its clipped box. `~` limits the rule to tabs after
   the first; a row that starts with Reels fails open. Compare the desktop row, which measures its tabs and must have
@@ -101,3 +101,27 @@ carousels (no reel cards) visible; a changed depth or label fails open.
 - For signed-in mobile surfaces, ask the owner for a sanitized Web Inspector capture rather than
   guessing; one paste was enough here.
 - Interface labels are matched in English, as on desktop; other languages fail open.
+
+## The top tab bar (ISS-0102, 20 Oct 2026)
+
+The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labelled `Home, 1 of 6` …
+`Reels, 4 of 6`, each with an inline width (one sixth of the bar) and `margin-left`; no links. The
+Reels tab's contents are hidden (issue #58), so it kept a 65 px empty slot and its share of the line
+under the bar was missing. `display:none` or `width:0` on the tab moves nothing, because the others
+are placed by their own margins. The packaged layout (`FACEBOOK_REELS_LAYOUT`, code, not rule data)
+makes the tab `visibility:hidden; pointer-events:none` and slides the tabs before it
+`translateX(50%)` and the tabs after it `translateX(-50%)`: half a slot each way, so the five
+remaining tabs sit together and centred with a continuous line, and a tap on the old slot lands on a
+neighbour. Measured in Chromium with iPhone emulation on the signed-in profile: tabs at 33, 98, 163,
+228, 293 px; the hidden tab receives no hit. The Page tab row's inner tabs are labelled `Reels`
+without a comma and keep their own rule.
+
+## The Stories tray (ISS-0101, 20 Oct 2026)
+
+On the phone Home feed the tray is one vscroller row: a horizontal scroller
+(`[data-is-h-scrollable]`) four levels down whose cards are `[role="button"]`s labelled
+`Create story` (the person's own, first) and `View <name> story. N new story` (or `stories`). No
+main region, no `[data-virtualized]`, no `/stories/` links, so the desktop rule could not match.
+The Stories extra now also hides that row, told by the scroller at that depth and those labels,
+never a row holding a heading, an article, a Reel link or a `View reel video` button (the Reels
+section is the free control's). Rows stack with margins, so hiding the row closes its gap.
