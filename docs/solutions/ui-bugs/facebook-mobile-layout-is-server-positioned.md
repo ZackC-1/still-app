@@ -110,11 +110,15 @@ Reels tab's contents are hidden (issue #58), so it kept a 65 px empty slot and i
 under the bar was missing. `display:none` or `width:0` on the tab moves nothing, because the others
 are placed by their own margins. The packaged layout (`FACEBOOK_REELS_LAYOUT`, code, not rule data)
 makes the tab `visibility:hidden; pointer-events:none` and slides the tabs before it
-`translateX(50%)` and the tabs after it `translateX(-50%)`: half a slot each way, so the five
-remaining tabs sit together and centred with a continuous line, and a tap on the old slot lands on a
-neighbour. Measured in Chromium with iPhone emulation on the signed-in profile: tabs at 33, 98, 163,
-228, 293 px; the hidden tab receives no hit. The Page tab row's inner tabs are labelled `Reels`
-without a comma and keep their own rule.
+`translateX(50%)` and the tabs after it `translateX(-50%)`: half a tab each way, so the five
+remaining tabs sit together and centred, the line runs under those five, and a tap on the old slot
+lands on a neighbour; about half a slot at each edge of the bar has no line and no tab. Measured in
+Chromium with iPhone emulation on the signed-in profile: tabs at 33, 98, 163, 228, 293 px; the hidden
+tab receives no hit. Half a tab's own width only closes the slot because the top bar's tabs are
+equal, so the rules apply only to the bar that holds the `feed, …` tab; any other row with a
+`Reels, N of M` tab (unequal widths) keeps the hide alone, and the Page tab row's inner tabs are
+labelled `Reels` without a comma and keep their own rule. Not checked: a right-to-left locale that
+keeps the word "Reels" (DOM order would be mirrored and the slide would open the gap instead).
 
 ## The Stories tray (ISS-0101, 20 Oct 2026)
 

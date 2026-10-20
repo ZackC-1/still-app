@@ -138,8 +138,17 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     const page = document.createElement("div"); page.setAttribute("role", "tablist");
     page.innerHTML = '<div role="tab" id="page-tab-all"><div><div role="tab" aria-label="All">All</div></div></div><div role="tab" id="page-tab-reels"><div><div role="tab" aria-label="Reels">Reels</div></div></div>';
     document.body.append(page);
+    // Another row with a "Reels, N of M" tab but no feed tab (tabs of unequal widths): the hide
+    // alone, no slide, no visibility change.
+    const other = document.createElement("div"); other.setAttribute("role", "tablist");
+    other.innerHTML = '<div role="tab" id="other-tab-posts" aria-label="Posts, 1 of 5">Posts</div><div role="tab" id="other-tab-reels" aria-label="Reels, 3 of 5"><span>Reels</span></div><div role="tab" id="other-tab-people" aria-label="People, 4 of 5">People</div>';
+    document.body.append(other);
     s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
     expect(getComputedStyle(document.getElementById("page-tab-all")!).transform).not.toBe("translateX(50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-posts")!).transform).not.toBe("translateX(50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-people")!).transform).not.toBe("translateX(-50%)");
+    expect(getComputedStyle(document.getElementById("other-tab-reels")!).visibility).not.toBe("hidden");
+    expect(visible(document.querySelector("#other-tab-reels span")!)).toBe(false);
     // Off: the tab is back, nothing slides.
     s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, new URL("https://m.facebook.com/"), document);
     expect(getComputedStyle(reels).visibility).not.toBe("hidden");

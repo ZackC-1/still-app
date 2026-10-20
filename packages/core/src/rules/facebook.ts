@@ -98,19 +98,24 @@ const selectors = Object.freeze([
 
 /**
  * The phone layout's top tab bar (m.facebook.com in iPhone Safari, captured 20 Oct 2026): a tab list
- * of six fixed-width tabs that the server positions with inline widths and margins, so hiding or
- * shrinking the Reels tab never moves the others. Its contents are hidden by the rule above (the
- * tab keeps a box, as issue #58 settled), which left an empty slot and a gap in the line under the
- * bar (ISS-0102). This layout makes the tab invisible and untappable and slides the tabs before it
- * right by half a slot and the tabs after it left by half a slot, so the remaining tabs sit
- * together, centred, with a continuous line. Only the top bar's tabs, named "Reels, N of M"; a
- * Page's tab row (labelled "Reels", no comma) has its own rule. Compiled code, never rule data.
+ * of six equal fixed-width tabs ("feed, 1 of 6" … "reels, 4 of 6" … "marketplace, 6 of 6") that the
+ * server positions with inline widths and margins, so hiding or shrinking the Reels tab never moves
+ * the others. Its contents are hidden by the rule above (the tab keeps a box, as issue #58
+ * settled), which left an empty slot and a gap in the line under the bar (ISS-0102). This layout
+ * makes the tab invisible and untappable and slides the tabs before it right by half a tab and the
+ * tabs after it left by half a tab, so the five remaining tabs sit together and centred; the line
+ * runs under those five, and about half a slot at each edge of the bar has no line and no tab.
+ * Half a tab's own width only closes the slot because the top bar's tabs are equal, so the rules
+ * apply only to the bar that holds the feed tab; a Page's tab row (inner tabs labelled "Reels",
+ * no comma) and any other row with a "Reels, N of M" tab are left as the hide alone leaves them.
+ * Compiled code, never rule data.
  */
-const MOBILE_REELS_TAB = '[role="tablist"] > [role="tab"][aria-label^="Reels," i]';
+const TOP_BAR = '[role="tablist"]:has(> [role="tab"][aria-label^="feed," i])';
+const TOP_BAR_REELS_TAB = `${TOP_BAR} > [role="tab"][aria-label^="Reels," i]`;
 export const FACEBOOK_REELS_LAYOUT: readonly LayoutRule[] = Object.freeze([
-  Object.freeze({ selector: MOBILE_REELS_TAB, declarations: "visibility:hidden!important;pointer-events:none!important" }),
-  Object.freeze({ selector: '[role="tablist"] > [role="tab"]:has(~ [role="tab"][aria-label^="Reels," i])', declarations: "transform:translateX(50%)!important" }),
-  Object.freeze({ selector: `${MOBILE_REELS_TAB} ~ [role="tab"]`, declarations: "transform:translateX(-50%)!important" }),
+  Object.freeze({ selector: TOP_BAR_REELS_TAB, declarations: "visibility:hidden!important;pointer-events:none!important" }),
+  Object.freeze({ selector: `${TOP_BAR} > [role="tab"]:has(~ [role="tab"][aria-label^="Reels," i])`, declarations: "transform:translateX(50%)!important" }),
+  Object.freeze({ selector: `${TOP_BAR_REELS_TAB} ~ [role="tab"]`, declarations: "transform:translateX(-50%)!important" }),
 ]);
 
 export const FACEBOOK_REELS_RULES: ServiceRulesV2 = Object.freeze({

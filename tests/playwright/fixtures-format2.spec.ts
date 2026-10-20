@@ -492,12 +492,25 @@ test("format-2 facebook: a shared Reel still opens and plays; its player's feed 
   await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
 });
 
-test("format-2 facebook mobile: Reels hidden and retained, the tab keeps its slot, Off restores", async ({ context, extensionId }) => {
+test("format-2 facebook mobile: Reels hidden and retained, the top bar closes up around the hidden Reels tab, Off restores", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile.html"));
   await page.goto("https://m.facebook.com/");
   await expectFormat2Lane(page);
   await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
+  // ISS-0102: the tab is invisible and untappable, its neighbours slide half a tab towards it.
+  const layout = () => page.evaluate(() => {
+    const reels = document.getElementById("fb-mobile-reels-tab")!;
+    const r = reels.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return {
+      reels: getComputedStyle(reels).visibility,
+      reelsHit: hit === reels || reels.contains(hit),
+      before: getComputedStyle(document.getElementById("keep-fb-mobile-home-tab")!).transform !== "none",
+      after: getComputedStyle(document.getElementById("keep-fb-mobile-notifications-tab")!).transform !== "none",
+    };
+  });
+  await expect.poll(layout).toEqual({ reels: "hidden", reelsHit: false, before: true, after: true });
   await expectHiddenRetainedReversible(
     page, context, extensionId,
     ["#fb-mobile-reel", "#fb-mobile-reels", "#fb-mobile-reels-tab span"],

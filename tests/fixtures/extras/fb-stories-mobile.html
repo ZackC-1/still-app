@@ -10,12 +10,13 @@
       roles, generic labels, data attribute names and nesting. No main region, no virtualised
       wrapper, no Story links. The feed is the vscroller; each row is one direct child. The Stories
       tray row holds a horizontal scroller four levels down whose cards are buttons: the person's own
-      "Create story" card, then "View <name> story. N new story" cards. Names are invented.
+      "Create story" card, then "View <name> story. N new story" cards. Invented text throughout; the
+      selector family is an UNVERIFIED candidate until the live structural check (E0) confirms it.
     -->
     <div data-type="vscroller" id="keep-vscroller">
       <div id="keep-header-row"><div><span>facebook</span></div></div>
       <div role="tablist" id="keep-top-tabs">
-        <div role="tab" id="keep-tab-home" aria-label="Home, 1 of 6">Home</div>
+        <div role="tab" id="keep-tab-home" aria-label="feed, 1 of 6">Home</div>
         <div role="tab" id="keep-tab-notifications" aria-label="Notifications, 5 of 6">Notifications</div>
       </div>
       <div id="keep-composer-row"><div><div role="button" aria-label="What's on your mind?">What's on your mind?</div><div role="button" aria-label="Photo">Photo</div></div></div>
@@ -32,7 +33,7 @@
           <div></div>
         </div></div>
       </div>
-      <div id="keep-divider-row"></div>
+      <div id="divider-row"></div>
 
       <!-- An ordinary post: its author line carries a story ring button, not inside a scroller. -->
       <div id="keep-post-row">
