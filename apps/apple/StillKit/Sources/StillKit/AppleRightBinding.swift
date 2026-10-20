@@ -127,6 +127,23 @@ public struct AppleAccessObservation: Encodable {
     public let expiresAt: Int
     public let localProofIdentity: String
     public let status: String
+    /// The account this right is linked to, read only from a current server-signed account proof
+    /// for the same right, held by the account whose session this record has bound (hosted Auth
+    /// verified it) and at least as new as the local binding. Null when this device holds no such
+    /// proof: signed out, another account, not linked yet, or not reconciled since. A display
+    /// signal only (ISS-0081): it hides the link offer and never grants or links anything.
+    public let linkedAccount: String?
+    private enum CodingKeys: String, CodingKey {
+      case localRight, ownershipRevision, verifiedAt, expiresAt, localProofIdentity, status, linkedAccount
+    }
+    public func encode(to encoder: Encoder) throws {
+      var c = encoder.container(keyedBy: CodingKeys.self)
+      try c.encode(localRight, forKey: .localRight); try c.encode(ownershipRevision, forKey: .ownershipRevision)
+      try c.encode(verifiedAt, forKey: .verifiedAt); try c.encode(expiresAt, forKey: .expiresAt)
+      try c.encode(localProofIdentity, forKey: .localProofIdentity); try c.encode(status, forKey: .status)
+      // Explicit null: the shared closed grammar (bridge.ts readAppleAccess) requires the member.
+      try c.encode(linkedAccount, forKey: .linkedAccount)
+    }
   }
   public let schema = 1
   public let generation: Int
