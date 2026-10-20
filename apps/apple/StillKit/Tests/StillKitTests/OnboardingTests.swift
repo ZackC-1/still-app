@@ -61,6 +61,69 @@ final class OnboardingTests: XCTestCase {
     observer.setActive(false, check: { .unknown })
   }
 
+  // ── "Check again" with an answer (the Safari setup sheet, ISS-0075) ─────────────────────────────
+
+  @MainActor func testCheckAgainHandsBackTheStatusItRead() async {
+    let observer = OnboardingStatusObserver()
+    var next = SafariExtensionStatus.disabled
+    await expectStatus(.disabled, from: observer) { observer.setActive(true, check: { next }) }
+    next = .enabled
+    let answered = expectation(description: "Check again answered")
+    var seen: [SafariExtensionStatus] = []
+    observer.refresh(check: { next }, then: { seen.append($0); answered.fulfill() })
+    await fulfillment(of: [answered], timeout: 1)
+    XCTAssertEqual(seen, [.enabled])
+    XCTAssertEqual(observer.status, .enabled)
+    observer.setActive(false, check: { .unknown })
+  }
+
+  @MainActor func testCheckAgainJoinsTheReadInFlightInsteadOfDroppingTheTap() async throws {
+    let observer = OnboardingStatusObserver()
+    let started = expectation(description: "Poll read started")
+    var pending: CheckedContinuation<SafariExtensionStatus, Never>?
+    var calls = 0
+    observer.setActive(true, check: {
+      calls += 1
+      return await withCheckedContinuation { continuation in
+        pending = continuation
+        started.fulfill()
+      }
+    })
+    await fulfillment(of: [started], timeout: 1)
+    let answered = expectation(description: "Check again answered by the same read")
+    var seen: [SafariExtensionStatus] = []
+    observer.refresh(
+      check: { XCTFail("A read in flight must be joined"); return .unknown },
+      then: { seen.append($0); answered.fulfill() })
+    try XCTUnwrap(pending).resume(returning: .enabled)
+    await fulfillment(of: [answered], timeout: 1)
+    XCTAssertEqual(seen, [.enabled])
+    XCTAssertEqual(calls, 1)
+    observer.setActive(false, check: { .unknown })
+  }
+
+  @MainActor func testAnAbandonedCheckNeverAnswers() async throws {
+    let observer = OnboardingStatusObserver()
+    // Inactive: nothing is read and nothing answers.
+    observer.refresh(check: { XCTFail("Inactive screen must not read"); return .enabled },
+                     then: { _ in XCTFail("Inactive screen must not answer") })
+    let started = expectation(description: "Read started")
+    var pending: CheckedContinuation<SafariExtensionStatus, Never>?
+    observer.setActive(true, check: {
+      await withCheckedContinuation { continuation in
+        pending = continuation
+        started.fulfill()
+      }
+    })
+    await fulfillment(of: [started], timeout: 1)
+    observer.refresh(check: { .enabled }, then: { _ in XCTFail("An abandoned read must not answer") })
+    // The person leaves the app: the read in flight is abandoned with its waiting tap.
+    observer.setActive(false, check: { .unknown })
+    try XCTUnwrap(pending).resume(returning: .enabled)
+    await expectStatus(.disabled, from: observer) { observer.setActive(true, check: { .disabled }) }
+    observer.setActive(false, check: { .unknown })
+  }
+
   func testStatusHeadlinesMatchBrainstormCopy() {
     XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You're all set")
     XCTAssertEqual(SafariExtensionStatus.disabled.headline, "Not on yet")

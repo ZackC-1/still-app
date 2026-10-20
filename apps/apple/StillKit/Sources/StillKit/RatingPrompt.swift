@@ -219,6 +219,38 @@ public final class RatingHold: @unchecked Sendable {
     return await body()
   }
 
+  /// Hold until the returned token ends: for a native screen that stays up across app switches
+  /// (the Safari setup sheet, ISS-0075), which `during` cannot bound. The token counts once
+  /// however often it is ended, and a token released without ending ends itself.
+  public func hold(_ flow: Flow) -> Token {
+    begin(flow)
+    return Token(owner: self, flow: flow)
+  }
+
+  /// One hold from `hold(_:)`.
+  public final class Token: @unchecked Sendable {
+    private let owner: RatingHold
+    private let flow: Flow
+    private let lock = NSLock()
+    private var ended = false
+
+    init(owner: RatingHold, flow: Flow) {
+      self.owner = owner
+      self.flow = flow
+    }
+
+    /// Release the hold. Only the first call counts.
+    public func end() {
+      lock.lock()
+      let first = !ended
+      ended = true
+      lock.unlock()
+      if first { owner.end(flow) }
+    }
+
+    deinit { end() }
+  }
+
   func begin(_ flow: Flow) {
     lock.lock(); defer { lock.unlock() }
     running[flow, default: 0] += 1

@@ -279,6 +279,11 @@ export class NativeModel {
           throw new NativeRejection("still: open refused (unsupported)");
         return json({ ok: true, destination });
       }
+      case "presentSafariSetup":
+        // SafariSetupSheetRequest.refusal: exactly { kind }. (The bundled main frame and an active
+        // app are given here; the shim shows no sheet, so the page gets no closed event.)
+        if (Object.keys(m).join(",") !== "kind") throw new NativeRejection("still: safari setup refused (malformed)");
+        return json({ ok: true });
       case "restore":
         // FreePeriodRestoreCheck.reply while the paid tier is off. "pending" never answers, the way
         // the App Store check looks while it is still running.
