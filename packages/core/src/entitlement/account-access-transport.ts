@@ -80,6 +80,11 @@ export interface AccountAccessReconcilerDeps {
 export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps) {
   let requestGeneration = 0;
   let last: { epoch: number; status: "verified" | "none" | "conflict"; hasProofs: boolean; session: { userId: string; sessionId: string }; observedWall: number } | null = null;
+  // The latest conclusive "none" (the account evidence below). Unlike `last`, a re-check that gets
+  // no answer from the server (offline, timed out, unreadable) leaves it for the rest of its own
+  // sixty seconds: a check that could not reach the server changes nothing (ISS-0090). Any server
+  // answer, a refused session or an auth boundary (the epoch) replaces it.
+  let absence: { epoch: number; session: { userId: string; sessionId: string }; observedWall: number } | null = null;
   return {
     async reconcile(): Promise<"ok" | "auth-required" | "unavailable"> {
       const epoch = deps.epoch();
@@ -97,12 +102,19 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
           unauthorized = deps.authRequired?.(response.error) === true;
           return response;
         }, session.userId, deps.trust, deps.routeProfile);
-        if (unauthorized && current()) return "auth-required";
+        if (unauthorized && current()) {
+          absence = null;
+          return "auth-required";
+        }
         if (!("revocations" in result) || !current()) return "unavailable";
+        // The server answered: only that answer may stand from here on.
+        absence = null;
         const committed = await deps.commit(session, result, current, () => authEpoch() === authBoundary);
         if (committed !== "committed" || !current()) return "unavailable";
         if (result.status === "unavailable") return "unavailable";
-        last = { epoch, status: result.status, hasProofs: result.proofs.length > 0, session, observedWall: deps.now?.() ?? Date.now() };
+        const observedWall = deps.now?.() ?? Date.now();
+        last = { epoch, status: result.status, hasProofs: result.proofs.length > 0, session, observedWall };
+        if (result.status === "none") absence = { epoch, session, observedWall };
         deps.invalidateEvidence?.();
         return "ok";
       } catch { return "unavailable"; }
@@ -113,14 +125,15 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
      * is conclusively absent (ISS-0030) and only independent local rights can grant. That absence
      * has no sixty-second clock; any sign-in is an auth boundary that replaces the context.
      * `undefined` (verification unavailable) stays unknown. A signed-in session is absent only
-     * for a fresh conclusive "none" reconciliation of exactly that session.
+     * for a fresh conclusive "none" reconciliation of exactly that session; a later re-check that
+     * could not reach the server neither renews nor ends it.
      */
     evidenceStatus(session: { userId: string; sessionId: string } | null | undefined): "absent" | "unknown" {
       if (session === null) return "absent";
       const wall = deps.now?.() ?? Date.now();
-      return last && session && last.epoch === deps.epoch() && last.status === "none" &&
-        last.session.userId === session.userId && last.session.sessionId === session.sessionId &&
-        wall >= last.observedWall && wall - last.observedWall < 60_000 ? "absent" : "unknown";
+      return absence && session && absence.epoch === deps.epoch() &&
+        absence.session.userId === session.userId && absence.session.sessionId === session.sessionId &&
+        wall >= absence.observedWall && wall - absence.observedWall < 60_000 ? "absent" : "unknown";
     },
     read(): "entitled" | "not-entitled" | "unknown" {
       return !last || last.epoch !== deps.epoch() ? "unknown"
@@ -128,8 +141,8 @@ export function createAccountAccessReconciler(deps: AccountAccessReconcilerDeps)
     },
     evidenceDeadline(): number | null {
       const wall = deps.now?.() ?? Date.now();
-      return last && last.epoch === deps.epoch() && last.status === "none" && wall >= last.observedWall &&
-        wall < last.observedWall + 60_000 ? last.observedWall + 60_000 : null;
+      return absence && absence.epoch === deps.epoch() && wall >= absence.observedWall &&
+        wall < absence.observedWall + 60_000 ? absence.observedWall + 60_000 : null;
     },
   };
 }
