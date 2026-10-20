@@ -42,7 +42,7 @@ const owned: NativeProResult = {
   receipt: "entitled",
   productId: "still_pro_v3",
 };
-async function harness() {
+async function harness(overrides: Partial<AppleProHostDeps> = {}) {
   let account: AppleProAccount | null = null;
   const deps: AppleProHostDeps = {
     bridge: {
@@ -69,6 +69,7 @@ async function harness() {
     chooseOtherAccount: vi.fn(async () => {}),
     publish: vi.fn(),
     operationId: () => "00000000-0000-4000-8000-000000000001",
+    ...overrides,
   };
   const host = createAppleProHost(deps);
   await host.refresh();
@@ -1401,6 +1402,126 @@ describe("a right linked to a different account is stated, not offered (ISS-0104
     await h.settle();
     expect(h.host.canLink).toBe(false);
     expect(h.host.settings().link?.state).not.toBe("elsewhere");
+  });
+  it("a proof naming this account at the remembered revision wins over the memory: linked, not elsewhere", async () => {
+    const h = await refused();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link?.state).not.toBe("elsewhere");
+    expect(h.host.canLink).toBe(false);
+    await h.host.requestLink();
+    await h.settle();
+    expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(h.host.settings().link?.state).not.toBe("elsewhere");
+  });
+  it("a session revision bump for the same account keeps the card; a different address does not", async () => {
+    const h = await refused();
+    h.setAccount({ ...user, revision: user.revision + 1 });
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    h.setAccount({ ...user, revision: user.revision + 2, email: "renamed@still.test" });
+    expect(h.host.settings().link).not.toEqual({ state: "elsewhere", email: user.email });
+  });
+  describe("the memory outlives the host", () => {
+    const memory = () => {
+      let value: string | null = null;
+      return {
+        read: vi.fn(() => value),
+        write: vi.fn((next: string) => {
+          value = next;
+        }),
+      };
+    };
+    async function refusedWith(store: ReturnType<typeof memory>) {
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link?.state).toBe("elsewhere");
+      return h;
+    }
+    it("a relaunch states the fact for the same account at the same revision, and asks the server nothing", async () => {
+      const store = memory();
+      await refusedWith(store);
+      expect(store.write).toHaveBeenCalledWith(JSON.stringify({ [user.id]: 1 }));
+      const again = await harness({ heldElsewhereMemory: store });
+      vi.mocked(again.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      again.setAccount(user);
+      again.host.observeAccess(access("purchased"));
+      await again.settle();
+      expect(again.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(again.host.canLink).toBe(false);
+      await again.host.requestLink();
+      await again.settle();
+      expect(again.deps.linkPurchase).not.toHaveBeenCalled();
+    });
+    it("remembers each refused account; a later launch offers the holder's move (new revision) again", async () => {
+      const store = memory();
+      const h = await refusedWith(store);
+      h.setAccount(stranger);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: stranger.email });
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({ [user.id]: 1, [stranger.id]: 1 });
+      const again = await harness({ heldElsewhereMemory: store });
+      vi.mocked(again.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: null });
+      again.setAccount(user);
+      again.host.observeAccess(access("purchased"));
+      await again.settle();
+      expect(again.host.settings().link).toBeUndefined();
+      expect(again.host.canLink).toBe(true);
+    });
+    it.each([
+      ["a thrown read", () => { throw new Error("storage refused"); }],
+      ["a null read", () => null],
+      ["non-JSON", () => "{not json"],
+      ["a non-object", () => "[1,2]"],
+      ["non-number revisions", () => JSON.stringify({ [user.id]: "1" })],
+    ])("%s is empty memory: the offer shows as usual and a refusal is still remembered", async (_name, read) => {
+      const store = { read: vi.fn(read), write: vi.fn() };
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.canLink).toBe(true);
+      await h.host.requestLink();
+      expect(h.host.settings().link?.state).toBe("confirm");
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(store.write).toHaveBeenCalledWith(JSON.stringify({ [user.id]: 1 }));
+    });
+    it("a refused write keeps the fact for this launch", async () => {
+      const store = { read: vi.fn(() => null), write: vi.fn(() => { throw new Error("quota"); }) };
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(h.host.canLink).toBe(false);
+    });
   });
 });
 
