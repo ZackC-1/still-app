@@ -143,6 +143,22 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     const holder = eligiblePurchase?.linkedAccount;
     return typeof holder === "string" && holder === deps.account()?.id;
   };
+  /** ISS-0104: the purchase is linked to a different account, so there is nothing to offer this
+   * one and the card says so instead of asking. Native names such an account only when it holds
+   * a proof for it (it never holds another account's proofs), so in practice this is the server's
+   * own "owned_elsewhere" answer to a link from this account at this purchaser revision. A sign-in
+   * as another account, a new revision (the holder moved it) or a proof naming this account ends it.
+   * No transfer screen this release (owner, 20 Oct): the holder's own sign-in is how it moves. */
+  let heldElsewhere: { account: string; revision: number } | null = null;
+  const linkedElsewhere = () => {
+    const current = deps.account();
+    if (!current || !eligiblePurchase) return false;
+    const holder = eligiblePurchase.linkedAccount;
+    if (typeof holder === "string" && holder !== current.id) return true;
+    return heldElsewhere !== null && heldElsewhere.account === current.id &&
+      heldElsewhere.revision === eligiblePurchase.ownershipRevision;
+  };
+  const elsewhereCard = (account: AppleProAccount) => ({ state: "elsewhere" as const, email: account.email });
   function clearLink() {
     linkGeneration++;
     link = undefined;
@@ -201,6 +217,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       linkingRequested = false;
       linkSignInAsked = false;
       link = { state: "linked", email: linkAccount.email };
+    }
+    // ISS-0104: linked to a different account: a pending confirmation is withdrawn and the card
+    // says where the purchase is; nothing is offered until the account or the revision changes.
+    const current = deps.account();
+    if (current?.confirmed && linkedElsewhere() && (!link || link.state === "confirm")) {
+      linkGeneration++;
+      linkingRequested = false;
+      linkAccount = { ...current };
+      link = elsewhereCard(current);
+    } else if (link?.state === "elsewhere" && !linkedElsewhere() && !linkedHere()) {
+      clearLink();
     }
     changed();
     if (offer) offerRequestedLink();
@@ -518,6 +545,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         changed();
         return;
       }
+      if (account?.confirmed && linkedElsewhere()) {
+        // ISS-0104: the purchase is another account's; say so, offer nothing.
+        linkingRequested = false;
+        linkSignInAsked = false;
+        linkAccount = { ...account };
+        link = elsewhereCard(account);
+        changed();
+        return;
+      }
       if (!account?.confirmed) {
         // Asked once per request: every later re-read must not reopen the sheet.
         if (!linkSignInAsked) {
@@ -624,10 +660,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       });
       if (stopped || generation !== linkGeneration || !sameAccount(account))
         return;
-      link =
-        result.status === "linked" || result.status === "already_linked"
-          ? { state: "linked", email: account.email }
-          : { state: "failed", email: account.email, onRetry };
+      if (result.status === "owned_elsewhere") {
+        // ISS-0104: held by another account at this revision; remembered for this account so the
+        // offer does not come back, and shown as a fact rather than a failure with Try again.
+        heldElsewhere = { account: account.id, revision: eligible!.ownershipRevision };
+        link = elsewhereCard(account);
+      } else {
+        link =
+          result.status === "linked" || result.status === "already_linked"
+            ? { state: "linked", email: account.email }
+            : { state: "failed", email: account.email, onRetry };
+      }
       // Link failure does not touch the independent local proof lane.
     } catch {
       if (!stopped && generation === linkGeneration && sameAccount(account))
@@ -811,6 +854,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         owner() === "owned" &&
         eligiblePurchase !== null &&
         !linkedHere() &&
+        !linkedElsewhere() &&
         !link
       );
     },

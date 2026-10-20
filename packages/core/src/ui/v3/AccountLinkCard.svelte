@@ -37,27 +37,36 @@
         ? "failed"
         : state === "pending"
           ? "pending"
-          : "success"}
+          : state === "elsewhere"
+            ? "info"
+            : "success"}
       role={state === "failed" ? "alert" : "status"}
     >
-      <span class="glyph"
-        ><Glyph
-          name={state === "failed"
-            ? "alert"
-            : state === "pending"
-              ? "spinner"
-              : "check"}
-          size={16}
-        /></span
-      >
+      {#if state !== "elsewhere"}<span class="glyph"
+          ><Glyph
+            name={state === "failed"
+              ? "alert"
+              : state === "pending"
+                ? "spinner"
+                : "check"}
+            size={16}
+          /></span
+        >{/if}
       <div class="status-body">
         <span
           >{state === "pending"
             ? `Linking Still Pro to ${email}…`
             : state === "linked"
               ? `Still Pro is linked to ${email}.`
-              : "Linking didn't finish."}</span
+              : state === "elsewhere"
+                ? "Still Pro on this device is linked to another account."
+                : "Linking didn't finish."}</span
         >
+        {#if state === "elsewhere"}<span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >Sign in with that account to use it here.</span
+          >{/if}
         {#if state === "failed"}<span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"

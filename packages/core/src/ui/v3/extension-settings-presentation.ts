@@ -107,7 +107,8 @@ export interface RestoreStatusCardProps {
 }
 
 export interface AccountLinkCardProps {
-  state: "confirm" | "pending" | "linked" | "failed";
+  /** `elsewhere`: the purchase is linked to a different account (ISS-0104); a fact, no action. */
+  state: "confirm" | "pending" | "linked" | "failed" | "elsewhere";
   email: string;
   onConfirm?: () => void;
   onChooseOther?: () => void;

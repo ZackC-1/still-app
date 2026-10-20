@@ -1411,8 +1411,9 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
-  it("linked to another account: today's offer, and Link asks the server", async () => {
-    // Native holds proofs only for the signed-in account, so it names no one; the server refuses.
+  it("linked to another account: the offer shows, Link asks the server once, and the answer is the fact, not a failure (ISS-0104)", async () => {
+    // Native holds proofs only for the signed-in account, so it names no one; the server refuses
+    // with owned_elsewhere, which the card states without Try again, and the offer is gone.
     const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none" });
     f.linkPurchase.mockResolvedValue({ status: "owned_elsewhere" } as never);
     const offer = await screen.findByRole("region", { name: OFFER });
@@ -1420,7 +1421,13 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     const card = await screen.findByRole("region", { name: "Link Still Pro" });
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Linking didn't finish.")).toBeVisible();
+    expect(await screen.findByText("Still Pro on this device is linked to another account.")).toBeVisible();
+    expect(screen.getByText("Sign in with that account to use it here.")).toBeVisible();
+    expect(screen.queryByText("Linking didn't finish.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    await settled();
+    expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
+    expect(f.linkPurchase).toHaveBeenCalledOnce();
   });
   it("an accountless right, signed in: the offer shows", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", linkedAccount: null });
