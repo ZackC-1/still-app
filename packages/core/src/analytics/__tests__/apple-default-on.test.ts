@@ -4,7 +4,7 @@ import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { createAppAnalytics } from "../apple-app.js";
 import { QUEUE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
-import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics } from "../default-on.js";
+import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 
 // A V3 build: the default-on basis is compiled in (build-basis.ts reads the build flags).
@@ -276,6 +276,74 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(t.queue().length).toBeGreaterThan(0);
     expect(t.native.subject).toBeNull();
   });
+
+  // The server answers 503 while the subjects switch is off, and test_channel for a QA build once
+  // it is on; either way no identity is issued.
+  it.each([
+    ["test_channel", { data: { state: "test_channel" }, error: null }],
+    ["503", { data: null, error: Object.assign(new Error("503"), { context: { status: 503 } }) }],
+  ])("ISS-0106: signed in on iPhone, a device with no identity (%s) sends nothing more until it signs out", async (_name, reply) => {
+    // The QA sequence: signed-out use reports, a code sign-in completes, and from then on the
+    // device is held: no identity is issued, so later events stay queued, across a relaunch too.
+    // Signing out lets the account go: what waited is dropped and reporting resumes. Nothing is
+    // published to the App Group, so the Safari extension has no identity to follow (its hold is
+    // pinned in packages/ext-safari/lib/__tests__/default-on-analytics.test.ts, "waits while the
+    // app has no identity for this account under this permission").
+    const issuerFor = () => {
+      const invoke = vi.fn(async () => reply);
+      const issue = supabaseSubjectIssuer(
+        {
+          auth: { getSession: async () => ({ data: { session: { access_token: "t", user: { id: ACCOUNT } } }, error: null }) },
+          functions: { invoke },
+        },
+        "phc_test",
+      );
+      return { invoke, issue };
+    };
+    const first = issuerFor();
+    const t = setup(undefined, true, first.issue);
+    await launch(t);
+    t.app.ui.track("sign_in_opened", {});
+    t.app.ui.track("code_requested", {});
+    await vi.waitFor(() => expect(t.sent()).toEqual(expect.arrayContaining(["sign_in_opened", "code_requested"])), {
+      timeout: 5_000,
+    });
+    const before = t.fetch.mock.calls.length;
+
+    // Awaited in sequence here for determinism; packages/app-webview/src/main.ts fires
+    // identifyAccount without awaiting.
+    await t.app.identifyAccount(ACCOUNT); // the session's onAccountEntered, inside the verified code
+    await t.app.ui.identify(ACCOUNT);
+    t.app.ui.track("signed_in", {});
+    t.app.ui.track("opened", { where: "app" });
+    await vi.waitFor(() => expect(t.queue()).toEqual(expect.arrayContaining(["signed_in", "opened"])));
+    await t.app.recheckSetup(); // a foreground return
+    await new Promise((r) => setTimeout(r, 1_700)); // past the client's send delay
+    expect(first.invoke).toHaveBeenCalledTimes(1); // asked once; the issuer then waits SUBJECT_RETRY_MS
+    expect(t.fetch.mock.calls.length).toBe(before);
+    expect(t.native.subject).toBeNull();
+
+    // A real relaunch: a new client over the same store and App Group, with a new issuer that is
+    // asked once for this launch.
+    const second = issuerFor();
+    const next = setup(undefined, true, second.issue, { host: t, store: t.store });
+    await next.app.identifyAccount(ACCOUNT);
+    await next.app.start();
+    await next.app.recheckSetup();
+    await new Promise((r) => setTimeout(r, 1_700));
+    expect(second.invoke).toHaveBeenCalledTimes(1);
+    expect(next.fetch).not.toHaveBeenCalled();
+    expect(next.native.subject).toBeNull();
+    expect(next.queue()).toContain("signed_in");
+
+    // Signing out lets the account go: what waited for it is dropped, and reporting resumes.
+    await next.app.ui.reset();
+    await next.app.start();
+    expect(next.fetch.mock.calls.length).toBeGreaterThan(0);
+    expect(next.queue()).not.toContain("signed_in");
+    expect(next.sent()).not.toContain("signed_in");
+    expect(next.bodies().join("\n")).toContain('"signed_in":false');
+  }, 15_000);
 
   it("a server stop ends sharing on this device", async () => {
     const t = setup(undefined, true, async () => ({ state: "stopped" }));
