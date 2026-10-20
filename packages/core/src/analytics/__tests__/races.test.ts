@@ -1383,3 +1383,59 @@ it("an unreadable forget survives until storage recovers and another account sig
   await client.flush();
   expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
 });
+
+describe("ISS-0108: the account's own identity arriving while an event it observed is in flight", () => {
+  const sentAs = (events: { event: string; properties: Record<string, unknown> }[]) =>
+    events.map((e) => [e.event, e.properties.distinct_id]);
+
+  it("an event observed under the hold, recorded just after its identity is confirmed, goes to that identity", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null); // signed out, reporting
+    await client.holdForAccount(U1); // a sign-in: the account's identity is being asked for
+    const observation = await client.captureObservation(); // `signed_in`, observed under the hold
+    await client.confirm(testSubjectFor(U1), { accountId: U1 }); // the identity lands one tick first
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(sentAs(rec.events())).toContainEqual(["signed_in", testSubjectFor(U1)]);
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+  });
+
+  it("NEGATIVE CONTROL: an event observed before the hold (signed out) never lands under the account", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    const observation = await client.captureObservation(); // observed while signed out
+    await client.holdForAccount(U1);
+    await client.confirm(testSubjectFor(U1), { accountId: U1 });
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("NEGATIVE CONTROL: a sign-out between the hold and the identity still fences what the hold observed", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    await client.holdForAccount(U1);
+    const observation = await client.captureObservation();
+    await client.reset(); // signed out again before the identity arrived
+    await client.confirm(testSubjectFor(U1), { accountId: U1 }); // a late reply for the old sign-in
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("NEGATIVE CONTROL: what a hold for one account observed never lands under another account's identity", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    await client.holdForAccount(U1);
+    const observation = await client.captureObservation(); // U1's
+    await client.holdForAccount(U2); // another account signs in
+    await client.confirm(testSubjectFor(U2), { accountId: U2 });
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+});

@@ -514,6 +514,18 @@ export class AnalyticsClient {
     this.asks += 1;
     if (options.forget) this.cancel();
     const holds = this.holds;
+    // The held account's own identity, with nothing asked since the hold: the hold already
+    // withdrew every earlier identity and fenced what was observed before it, and what it observed
+    // since belongs to this identity. Fencing again would drop an event observed under the hold
+    // that is recorded just after this lands (ISS-0108), so this confirmation fences nothing.
+    if (
+      !options.forget &&
+      account !== null &&
+      this.lastAsked === undefined &&
+      this.heldAccount !== null &&
+      this.heldAccount === options.accountId?.toLowerCase()
+    )
+      this.lastAsked = account;
     if (account !== this.lastAsked) {
       this.cancel();
       this.generation += 1;
