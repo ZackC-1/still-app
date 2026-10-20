@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { createAppAnalytics } from "../apple-app.js";
-import { QUEUE_KEY } from "../client.js";
+import { AnalyticsClient, QUEUE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
 import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
@@ -277,6 +277,48 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(t.native.subject).toBeNull();
   });
 
+  it("ISS-0108: signed_in, observed under the sign-in's hold, goes to the identity that lands just before it is recorded", async () => {
+    let reply!: (value: unknown) => void;
+    const issue = vi.fn(() => new Promise<unknown>((resolve) => (reply = resolve)));
+    const trackUnchecked = vi.spyOn(AnalyticsClient.prototype, "trackUnchecked");
+    const confirm = vi.spyOn(AnalyticsClient.prototype, "confirm");
+    try {
+      const t = setup(undefined, true, issue);
+      await launch(t); // signed out, reporting
+      const client = trackUnchecked.mock.instances[0] as unknown as AnalyticsClient;
+      const signingIn = t.app.identifyAccount(ACCOUNT); // the session's sign-in
+      await vi.waitFor(() => expect(issue).toHaveBeenCalled()); // held; the identity is being asked for
+      // Keep the client's operation chain busy (one paused queue read) so the order below is exact.
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      const read = t.store.get;
+      let armed = true;
+      t.store.get = async (key) => {
+        if (armed && key === QUEUE_KEY) {
+          armed = false;
+          await gate;
+        }
+        return read(key);
+      };
+      const busy = client.queuedCount();
+      trackUnchecked.mockClear();
+      confirm.mockClear();
+      t.app.ui.track("signed_in", {}); // the controller, right after the verified code
+      await vi.waitFor(() => expect(trackUnchecked).toHaveBeenCalled()); // observed under the hold
+      reply({ state: "active", subject: SUBJECT }); // the identity lands one step before it is recorded
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalled());
+      open();
+      await busy;
+      await signingIn;
+      await t.app.start(); // the next send
+      expect(t.sent()).toEqual(expect.arrayContaining(["signed_in"]));
+      expect(t.bodies().join("\n")).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    } finally {
+      trackUnchecked.mockRestore();
+      confirm.mockRestore();
+    }
+  });
   // The server answers 503 while the subjects switch is off, and test_channel for a QA build once
   // it is on; either way no identity is issued.
   it.each([
