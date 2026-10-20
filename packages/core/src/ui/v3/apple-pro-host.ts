@@ -38,9 +38,12 @@ export interface AppleProHostDeps {
   refreshAccountAccess?(): Promise<BenefitAccessSnapshot>;
   account(): AppleProAccount | null;
   ownershipRevision(): number;
-  /** Current native purchaser-only signed local provenance. Missing port holds linking closed. */
+  /** Current native purchaser-only signed local provenance. Missing port holds linking closed.
+   * `linkedAccount` names the account a current server-signed account proof links the right to
+   * (native's verified, bound account); absent or null, nothing on this device says so. */
   readLinkEligibility?(): Promise<{
     readonly ownershipRevision: number;
+    readonly linkedAccount?: string | null;
   } | null>;
   linkPurchase(
     intent: ApplePurchaseLinkIntent,
@@ -84,7 +87,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let epoch = 0;
   let accessEpoch = 0;
   let eligibilityEpoch = 0;
-  let eligiblePurchase: { readonly ownershipRevision: number } | null = null;
+  let eligiblePurchase: {
+    readonly ownershipRevision: number;
+    readonly linkedAccount: string | null;
+  } | null = null;
   let busy = false;
   let opening = false;
   let offer: NativeLifetimeOffering | null = null;
@@ -129,6 +135,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     );
   };
   const owner = () => (access ? appleProOwnership(access) : "checking");
+  /** ISS-0081: the last settled read says the server's signed account proof already links this
+   * purchase to the account signed in here, so there is nothing to offer. The server stays the
+   * authority (native reads its proof for the account it verified); the shown account only has to
+   * agree, so a mismatch or a sign-out keeps today's offer and the server decides on Link. */
+  const linkedHere = () => {
+    const holder = eligiblePurchase?.linkedAccount;
+    return typeof holder === "string" && holder === deps.account()?.id;
+  };
   function clearLink() {
     linkGeneration++;
     link = undefined;
@@ -154,7 +168,13 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         result &&
         Number.isSafeInteger(result.ownershipRevision) &&
         result.ownershipRevision >= 0
-          ? result
+          ? {
+              ownershipRevision: result.ownershipRevision,
+              linkedAccount:
+                typeof result.linkedAccount === "string"
+                  ? result.linkedAccount
+                  : null,
+            }
           : null;
     } catch {
       // A refused read is no answer: the next snapshot or refresh asks again. Only a settled
@@ -471,6 +491,18 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       // owned, eligible answer offers it. A settled "not eligible" already cleared the request.
       if (owner() !== "owned" || !eligiblePurchase) return;
       const account = deps.account();
+      if (linkedHere()) {
+        // ISS-0081: already linked to this account (signed in as the holder from the invitation):
+        // the request is done. Say so instead of asking to link it again.
+        linkingRequested = false;
+        linkSignInAsked = false;
+        if (account?.confirmed) {
+          linkAccount = { ...account };
+          link = { state: "linked", email: account.email };
+        }
+        changed();
+        return;
+      }
       if (!account?.confirmed) {
         // Asked once per request: every later re-read must not reopen the sheet.
         if (!linkSignInAsked) {
@@ -759,7 +791,13 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       return opening;
     },
     get canLink() {
-      return !busy && owner() === "owned" && eligiblePurchase !== null && !link;
+      return (
+        !busy &&
+        owner() === "owned" &&
+        eligiblePurchase !== null &&
+        !linkedHere() &&
+        !link
+      );
     },
     stop() {
       stopped = true;

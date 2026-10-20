@@ -94,6 +94,9 @@ async function compose(
     /** Native refuses the link-eligibility read this many times (a reconcile in flight), then answers. */
     refuseEligibility?: number;
     eligible?: boolean;
+    /** ISS-0081: the account native's current server-signed account proof links the right to. Native
+     * only holds account proofs for the account it bound, so it names it only while signed in. */
+    linkedAccount?: string | null;
     verificationFails?: boolean;
     verificationHeld?: boolean;
     purchasePending?: boolean;
@@ -272,7 +275,9 @@ async function compose(
             refusedEligibility++;
             throw new Error("still: Apple link eligibility requires verification");
           }
-          return options.eligible === false ? null : { ownershipRevision: 0 };
+          return options.eligible === false
+            ? null
+            : { ownershipRevision: 0, linkedAccount: controller.userId ? (options.linkedAccount ?? null) : null };
         },
         linkPurchase,
       },
@@ -323,6 +328,7 @@ async function compose(
     nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
     verifyLocalPurchase,
     linkPurchase,
+    setLinkedAccount(account: string | null) { options.linkedAccount = account; },
     acknowledgments,
     setRoute: (revision: number, route: "pro" | "sync" = "pro") => {
       pendingRoute = { route, revision };
@@ -1361,6 +1367,65 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
     await confirmation();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+// ISS-0081: on 2.1.1.387 and .392 a Mac that had linked an accountless Apple Still Pro to the
+// signed-in account showed "Link Still Pro to your account." again on the next launch (Link ended in
+// "Still Pro is linked to …" again: the server answered already_linked). The fixture is the real host
+// launching signed in, with the account's reconcile and the native link read naming the account the
+// server's signed proof links the right to.
+describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0081)", () => {
+  const OFFER = "Link Still Pro to your account.";
+  const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
+  const ACCOUNT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const ACCOUNT = "account@still.test";
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
+  const syncCard = () => document.querySelector('[data-still-card="sync"]') as HTMLElement;
+  it("on launch, linked to the signed-in account: the sync card's Still Pro User tag and nothing else", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    await settled();
+    expect(within(syncCard()).getByText("Still Pro User")).toBeVisible();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("linked to another account: today's offer, and Link asks the server", async () => {
+    // Native holds proofs only for the signed-in account, so it names no one; the server refuses.
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none" });
+    f.linkPurchase.mockResolvedValue({ status: "owned_elsewhere" } as never);
+    const offer = await screen.findByRole("region", { name: OFFER });
+    await fireEvent.click(within(offer).getByRole("button", { name: "Link" }));
+    const card = await screen.findByRole("region", { name: "Link Still Pro" });
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Linking didn't finish.")).toBeVisible();
+  });
+  it("an accountless right, signed in: the offer shows", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", linkedAccount: null });
+    expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked", async () => {
+    const f = await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    const invite = (await screen.findByText(INVITE)).closest("section")!;
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+    await fireEvent.input(email, { target: { value: ACCOUNT } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+    const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    await fireEvent.input(code, { target: { value: "123456" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Link Still Pro to this account?" })).toBeNull();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
 });
