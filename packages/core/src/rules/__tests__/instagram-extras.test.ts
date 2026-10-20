@@ -213,6 +213,7 @@ const keeps = (file: string) => fixtureIds(extrasFixture(file), "keep-").filter(
 describe("Instagram extras hide surfaces on the synthetic fixtures", () => {
   const pages: { feature: IgPro; file: string; path: string; hidden: string[]; visible?: string[] }[] = [
     { feature: "instagram.explore", file: "ig-explore-mobile.html", path: "/explore/search/", hidden: ["target-mobile-explore-grid"] },
+    { feature: "instagram.explore", file: "ig-explore.html", path: "/explore/search/", hidden: ["target-explore-grid"], visible: ["target-nav-explore"] },
     // A tag page's own grid and the search panel are deliberate content: nothing on it is hidden.
     { feature: "instagram.explore", file: "ig-explore.html", path: "/explore/tags/inventedtag/", hidden: [], visible: ["target-explore-grid", "target-nav-explore"] },
     // Deliberate keyword and hashtag results share the entry's shape (search form, then a post and
@@ -242,9 +243,41 @@ describe("Instagram extras hide surfaces on the synthetic fixtures", () => {
       // Shipped paid-off defaults: nothing of the extras applies at all.
       render(file, path, ALL_ON, {});
       for (const id of [...hidden, ...visible]) expect(shown(id), `${id} dormant`).toBe(true);
-      expect(document.head.querySelector("style")?.textContent ?? "").not.toMatch(/threads\.|stories\/highlights|explore\/people|type="search"/);
+      expect(document.head.querySelector("style")?.textContent ?? "").not.toMatch(/threads\.|stories\/highlights|explore\/people|search-entry|story_tray/);
     });
   }
+
+  it("Explore: suggestions shown while typing on the search entry stay; only post and Reel tiles hide", () => {
+    render("ig-explore.html", "/explore/search/", onlyPro("instagram.explore"));
+    document.getElementById("keep-entry-search")!.insertAdjacentHTML("afterend",
+      '<div id="keep-typed-suggestions"><a href="/explore/search/keyword/?q=invented">invented</a><a href="/inventeduser/">inventeduser</a></div>');
+    expect(shown("keep-typed-suggestions")).toBe(true);
+    expect(shown("keep-entry-search-input")).toBe(true);
+    expect(shown("target-explore-grid")).toBe(false);
+    // Outside the main column (the left-nav Search panel) nothing is a search-entry sibling.
+    expect(shown("keep-search-panel")).toBe(true);
+  });
+
+  it("Stories: a shared Highlight outside the profile header and a feed post's story ring stay", () => {
+    render("ig-stories.html", "/", onlyPro("instagram.stories"));
+    document.body.insertAdjacentHTML("beforeend",
+      '<ul id="keep-shared-highlight"><li><div><div><a href="/stories/highlights/900000000000003/">An invented shared highlight</a></div></div></li></ul>');
+    expect(shown("keep-shared-highlight")).toBe(true);
+    expect(shown("keep-feed-post-story-ring")).toBe(true);
+    expect(shown("target-highlights")).toBe(false);
+  });
+
+  it("Suggested: a box that also holds a feed post, and a header section with Highlights, stay", () => {
+    render("ig-suggested.html", "/", onlyPro("instagram.suggested"));
+    document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+      '<div id="keep-mixed-feed"><div><a href="/explore/people/">See all</a></div><article><a href="/p/InvH9/">An invented post</a></article></div>');
+    document.getElementById("keep-profile-header")!.insertAdjacentHTML("beforeend",
+      '<section id="keep-headed-highlights"><h4>Invented heading</h4><ul><li><a href="/stories/highlights/900000000000004/">Invented highlight</a></li></ul></section>');
+    expect(shown("keep-mixed-feed")).toBe(true);
+    expect(shown("keep-headed-highlights")).toBe(true);
+    expect(shown("target-sidebar-suggestions")).toBe(false);
+    expect(shown("target-profile-similar")).toBe(false);
+  });
 
   it("each feature alone hides nothing that belongs to another control", () => {
     for (const { feature: owner, file, path, hidden } of pages) for (const feature of IG_PRO) {
