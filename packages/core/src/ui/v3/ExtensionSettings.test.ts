@@ -7,6 +7,7 @@ import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
 import { formatSyncTime } from "./sync-time.js";
+import { SUPPORT_EMAIL } from "../config.js";
 
 /** A lock reveals the existing Pro card; only its explicit Buy requests a purchase. */
 async function requestThroughLock(feature = "Comments") {
@@ -1090,4 +1091,14 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
       view.unmount();
     },
   );
+
+  it("shows the support address as plain text right after Contact support (ISS-0112)", async () => {
+    const { props } = await fixture();
+    render(ExtensionSettings, { props });
+    const help = screen.getByRole("region", { name: "Help" });
+    const button = within(help).getByRole("button", { name: "Contact support" });
+    expect(button.nextElementSibling?.textContent).toBe(SUPPORT_EMAIL);
+    expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
+    expect(within(help).queryByRole("link")).toBeNull();
+  });
 });
