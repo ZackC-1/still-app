@@ -90,10 +90,19 @@ describe("actual opt-in format2 content session", () => {
   });
 
   it("uses the committed cache, denies pre-hydration effects, and applies feature intention/access through the real host", async () => {
+    const observe = vi.spyOn(window.MutationObserver.prototype, "observe");
     const h = harness(); h.script.reapply(); expect(display("target")).not.toBe("none");
+    expect(h.win.MutationObserver).not.toHaveBeenCalled();
     await h.script.start(); expect(display("target")).toBe("none");
     await h.entitlement.refreshAccess(); expect(display("comments")).toBe("none");
-    expect(h.win.MutationObserver).not.toHaveBeenCalled(); expect(h.win.location.replace).not.toHaveBeenCalled();
+    // No document observer: only the root guard (ISS-0084), on <html>'s class and the direct
+    // children of <html> and <head>, never a subtree.
+    expect(h.win.MutationObserver).toHaveBeenCalledTimes(1);
+    expect(observe.mock.calls.map(([target, options]) => [(target as Element).nodeName, options])).toEqual([
+      ["HTML", { attributes: true, attributeFilter: ["class"], childList: true }],
+      ["HEAD", { childList: true }],
+    ]);
+    expect(h.win.location.replace).not.toHaveBeenCalled();
     expect(document.documentElement.classList.contains("still-active")).toBe(false);
     expect(document.getElementById("still-placeholder")).toBeNull();
   });
@@ -111,10 +120,15 @@ describe("actual opt-in format2 content session", () => {
     await h.settings.setGlobalOn(true); expect(display("target")).toBe("none");
   });
   it("settings/access updates after stop never publish; stop removes observers/styles/classes and host hooks", async () => {
+    const disconnect = vi.spyOn(window.MutationObserver.prototype, "disconnect");
     const h = harness(); await h.script.start(); await h.entitlement.refreshAccess(); h.script.stop();
     expect(display("target")).not.toBe("none"); expect(document.head.querySelectorAll("style")).toHaveLength(0); expect(document.documentElement.className).toBe("site-theme");
     h.script.reapply(); await h.entitlement.refreshAccess(); expect(display("target")).not.toBe("none");
-    expect(h.win.removeEventListener).toHaveBeenCalled(); expect(h.win.MutationObserver).not.toHaveBeenCalled();
+    // The root guard is the only observer and stop disconnects it; nothing is created after stop.
+    expect(h.win.removeEventListener).toHaveBeenCalled(); expect(h.win.MutationObserver).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalled();
+    document.documentElement.className = "page-rewrite"; await Promise.resolve();
+    expect(document.documentElement.className).toBe("page-rewrite");
   });
   it("a stop during hydration never creates late effects", async () => {
     const h = harness(); let release!: () => void;

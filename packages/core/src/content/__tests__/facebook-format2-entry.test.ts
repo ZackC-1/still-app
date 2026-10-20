@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContentScriptHandle } from "../index.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
+import { createModernShippingContentEntry } from "../modern-shipping-entry.js";
+import { PACKAGED_RULE_SET_V2 } from "../../rules/packaged.js";
 import { FACEBOOK_REELS_RULES } from "../../rules/facebook.js";
 import { ruleSet } from "../../rules/__tests__/format2-fixtures.js";
 
@@ -228,5 +230,177 @@ describe("captured Facebook Reels through maintained extension entry and atomic 
     expect(h.listeners.size).toBe(0);
     expect(reel.video.isConnected).toBe(true);
     expect(normal.play).not.toHaveBeenCalled();
+  });
+});
+
+// ISS-0084 (iPhone Safari, 19 Oct 2026): a live Off brought a Page's Reels tab back, a live On did
+// not hide it again until a reload. This drives the iPhone path end to end: Safari's V3 shipping
+// entry, the packaged rule set and the captured mobile Page tab row, with each live switch the
+// popup can make.
+describe("mobile Facebook Page Reels tab through Safari's shipping entry (ISS-0084)", () => {
+  const tab = "fb-mobile-page-tab-reels";
+  it.each([
+    ["https://m.facebook.com/stilltestpage/", "services.facebook"],
+    ["https://m.facebook.com/stilltestpage/", "sites.facebook.reels"],
+    ["https://m.facebook.com/stilltestpage/", "globalOn"],
+    ["https://www.facebook.com/stilltestpage/", "services.facebook"],
+    ["https://www.facebook.com/stilltestpage/reels/", "services.facebook"],
+  ] as const)("%s: live Off shows the tab, live On hides it again without a reload (%s)", async (href, path) => {
+    const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, "facebook-mobile-page.html", href, scripts);
+    const storage = (globalThis as unknown as { chrome: { storage: { local: { get(key: string): Promise<Record<string, unknown>> } } } }).chrome.storage.local;
+    await createModernShippingContentEntry({
+      host: "safari",
+      storage,
+      prod: false,
+      earlyRedirect: true,
+      pendingCover: true,
+      win: h.win,
+      doc: document,
+      onScriptCreated: (script) => scripts.push(script),
+    })({ onInvalidated: () => {} });
+    await tick();
+    await tick();
+    const row = document.getElementById("fb-mobile-page-tabs")!.outerHTML;
+    expect(hidden(tab)).toBe(true);
+    for (let round = 0; round < 2; round++) {
+      await h.authority.commitIntent({ path, value: false, updatedAt: Date.now() });
+      await tick();
+      expect(hidden(tab)).toBe(false);
+      await h.authority.commitIntent({ path, value: true, updatedAt: Date.now() });
+      await tick();
+      expect(hidden(tab)).toBe(true);
+    }
+    // Repeated Ons add one owned stylesheet, never a second, and nothing is written into the row.
+    expect(document.querySelectorAll("style")).toHaveLength(1);
+    expect(document.getElementById("fb-mobile-page-tabs")!.outerHTML).toBe(row);
+    for (const id of ["keep-fb-mobile-page-tab-all", "keep-fb-mobile-page-tab-photos", "keep-fb-mobile-page-tab-mentions"])
+      expect(hidden(id)).toBe(false);
+  });
+});
+
+// ISS-0084, continued: what a live On does when the page itself touches Still's two root effects
+// (the feature class on <html> and Still's <style>). Fresh-load-only reapply triggers
+// (DOMContentLoaded, hydration) mask a page that rewrites <html class> or prunes <head> during its
+// own boot; a live On has no such later trigger, so these drive the page's writes at each point
+// of the owner's sequence.
+describe("Still's root class and stylesheet survive the page's own writes (ISS-0084)", () => {
+  const tab = "fb-mobile-page-tab-reels";
+  const path = "services.facebook";
+  const stillClasses = () => [...document.documentElement.classList].filter((name) => name.startsWith("still-"));
+  /** What a page does when it sets its own root classes wholesale (className = "..."). */
+  const rewriteRootClass = () => { document.documentElement.className = "ssr fab sai usf dpr-spacing unselectable"; };
+  const dropStyles = () => { for (const style of document.querySelectorAll("style")) style.remove(); };
+  async function safariPage(href = "https://m.facebook.com/stilltestpage/") {
+    const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, "facebook-mobile-page.html", href, scripts);
+    const storage = (globalThis as unknown as { chrome: { storage: { local: { get(key: string): Promise<Record<string, unknown>> } } } }).chrome.storage.local;
+    await createModernShippingContentEntry({
+      host: "safari", storage, prod: false, earlyRedirect: true, pendingCover: true,
+      win: h.win, doc: document, onScriptCreated: (script) => scripts.push(script),
+    })({ onInvalidated: () => {} });
+    await tick();
+    await tick();
+    expect(hidden(tab)).toBe(true);
+    const set = async (value: boolean) => {
+      await h.authority.commitIntent({ path, value, updatedAt: Date.now() });
+      await tick();
+    };
+    return { h, set };
+  }
+
+  it("the page rewriting <html class> between a live Off and On: On hides the tab again", async () => {
+    const { set } = await safariPage();
+    await set(false);
+    rewriteRootClass();
+    await set(true);
+    expect(hidden(tab)).toBe(true);
+  });
+
+  it("the page pruning <head> between a live Off and On: On hides the tab again", async () => {
+    const { set } = await safariPage();
+    await set(false);
+    dropStyles();
+    await set(true);
+    expect(hidden(tab)).toBe(true);
+  });
+
+  it("the page redrawing its tab row on the Off's resize: On hides the redrawn tab", async () => {
+    const { set } = await safariPage();
+    let redraws = 0;
+    const redraw = () => {
+      const row = document.getElementById("fb-mobile-page-tabs")!;
+      row.replaceWith(row.cloneNode(true));
+      redraws++;
+    };
+    window.addEventListener("resize", redraw);
+    try {
+      await set(false);
+      expect(redraws).toBe(1);
+      expect(hidden(tab)).toBe(false);
+      await set(true);
+      expect(hidden(tab)).toBe(true);
+    } finally {
+      window.removeEventListener("resize", redraw);
+    }
+  });
+
+  it("the page rewriting <html class> after a live On (the popup closing): the tab stays hidden", async () => {
+    const { set } = await safariPage();
+    await set(false);
+    await set(true);
+    expect(hidden(tab)).toBe(true);
+    rewriteRootClass();
+    await tick();
+    expect(hidden(tab)).toBe(true);
+    expect(document.documentElement.classList.contains("dpr-spacing")).toBe(true); // the page's own classes stay
+  });
+
+  it("the page pruning <head> after a live On: the tab stays hidden with one Still stylesheet", async () => {
+    const { set } = await safariPage();
+    await set(false);
+    await set(true);
+    dropStyles();
+    await tick();
+    expect(hidden(tab)).toBe(true);
+    expect(document.querySelectorAll("style")).toHaveLength(1);
+  });
+
+  it("the page rewriting <html class> after the first apply: the tab stays hidden", async () => {
+    await safariPage();
+    rewriteRootClass();
+    await tick();
+    expect(hidden(tab)).toBe(true);
+  });
+
+  it("a live Off still removes everything, and the page's writes while Off never bring it back", async () => {
+    const { set } = await safariPage();
+    await set(false);
+    expect(stillClasses()).toEqual([]);
+    expect(document.querySelectorAll("style")).toHaveLength(0);
+    rewriteRootClass();
+    document.head.append(document.createElement("meta"));
+    await tick();
+    expect(hidden(tab)).toBe(false);
+    expect(stillClasses()).toEqual([]);
+    expect(document.querySelectorAll("style")).toHaveLength(0);
+  });
+
+  it("a page that strips Still's class on every write gets a bounded number of re-asserts", async () => {
+    const { set } = await safariPage();
+    await set(true);
+    let strips = 0;
+    const fighter = new MutationObserver(() => {
+      if (stillClasses().length === 0) return;
+      strips++;
+      for (const name of stillClasses()) document.documentElement.classList.remove(name);
+    });
+    fighter.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    try {
+      rewriteRootClass();
+      for (let i = 0; i < 5; i++) await tick();
+      expect(strips).toBeGreaterThan(0);
+      expect(strips).toBeLessThanOrEqual(20);
+    } finally {
+      fighter.disconnect();
+    }
   });
 });

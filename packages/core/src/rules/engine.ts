@@ -138,6 +138,13 @@ export interface EnginePageSession {
    * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL, viewerShowsReel?: (code: string) => boolean): string | null;
+  /**
+   * Format-2 only: whether the session owns root effects (feature classes on <html>, Still's
+   * <style>) and, if so, whether the page has left them in place. "lost" means the page itself
+   * rewrote <html class>, dropped the stylesheet or replaced <html>; the next applyDom restores
+   * them from the same committed inputs (ISS-0084).
+   */
+  ownedRootEffects?(): "none" | "intact" | "lost";
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
@@ -771,6 +778,12 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
         }
       }
       return false;
+    },
+    ownedRootEffects() {
+      if (stopped || !ownedRoot) return "none";
+      if (!ownedStyle?.isConnected || ownedRoot.ownerDocument.documentElement !== ownedRoot) return "lost";
+      for (const name of ownedClasses) if (!ownedRoot.classList.contains(name)) return "lost";
+      return "intact";
     },
     debugStats: () => ({ serviceResolutions, compiledSelectors, domQueries: 0, retainedSiteNodes: 0, rootWrites }),
     stop() { stopped = true; effective = []; serviceId = null; clearEffects(); },
