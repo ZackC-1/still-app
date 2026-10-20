@@ -166,6 +166,26 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
   };
 }
 
+/**
+ * Where Still's Settings page opens (ISS-0097). With `open_in_tab: false`, desktop Firefox shows the
+ * options page inside the Add-ons Manager, in a panel it grows to the page's full height. Anything
+ * the page positions against its own viewport (the sign-in sheet, the Delete account and Stop
+ * sharing confirmations) then lands at the bottom or the middle of that tall panel, often below the
+ * fold, while the dimming scrim covers all of it: a grey page with no sheet. So Firefox opens
+ * Settings in its own tab; `runtime.openOptionsPage` (the popup's Settings button, first-run's Open
+ * Settings, the Still Pro hand-off) reuses an open one. Chrome keeps its embedded dialog, whose
+ * viewport is bounded and scrolls, and Firefox for Android has no embedded host (a tab either way).
+ * WXT writes `options_ui` from the entrypoint after merging `manifest`, so this runs on the
+ * generated manifest (the `build:manifestGenerated` hook below).
+ */
+export function settingsPageHost<M extends { options_ui?: { open_in_tab?: boolean } }>(
+  browser: string,
+  manifest: M,
+): M {
+  if (browser === "firefox" && manifest.options_ui) manifest.options_ui.open_in_tab = true;
+  return manifest;
+}
+
 export default defineConfig({
   modules: ["@wxt-dev/module-svelte"],
   svelte: {
@@ -187,4 +207,9 @@ export default defineConfig({
   // aligned with the Chromium and Safari (ext-safari) MV3 builds.
   manifestVersion: 3,
   manifest: ({ browser }) => stillManifest(browser),
+  hooks: {
+    "build:manifestGenerated": (wxt, manifest) => {
+      settingsPageHost(wxt.config.browser, manifest);
+    },
+  },
 });

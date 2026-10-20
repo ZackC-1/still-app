@@ -3,6 +3,7 @@ import {
   firefoxAndroidSettings,
   firefoxBrowserSpecificSettings,
   runsV3Interface,
+  settingsPageHost,
   stillManifest,
   type ManifestBuildEnv,
 } from "../../wxt.config";
@@ -151,5 +152,21 @@ describe("Firefox manifest compatibility", () => {
     expect(stillManifest("chrome").description.length).toBeLessThanOrEqual(132);
     for (const env of [UNCONFIGURED, CONFIGURED_2X, CONFIGURED_V3])
       expect(stillManifest("firefox", env).description.length).toBeLessThanOrEqual(250);
+  });
+
+  it("opens Settings in its own tab on Firefox only (ISS-0097)", () => {
+    // What WXT generates from the options entrypoint before the hook runs.
+    const generated = () => ({ options_ui: { page: "options.html", open_in_tab: false } });
+    expect(settingsPageHost("firefox", generated()).options_ui).toEqual({
+      page: "options.html",
+      open_in_tab: true,
+    });
+    for (const browser of ["chrome", "chromium", "edge", "safari"])
+      expect(settingsPageHost(browser, generated()).options_ui).toEqual({
+        page: "options.html",
+        open_in_tab: false,
+      });
+    // A build without an options entrypoint has nothing to place.
+    expect(settingsPageHost("firefox", {})).toEqual({});
   });
 });
