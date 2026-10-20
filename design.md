@@ -26,7 +26,7 @@ Free rows are Shorts/Reels removal. Pro extras default Off on new installs:
 |---|---|
 | YouTube | Related videos, end suggestions, autoplay, comments, live chat |
 | Instagram | Stories/highlights, suggested posts, Explore, Threads |
-| Facebook | Stories, Videos/Watch, sidebar ads |
+| Facebook | Stories, Video tab, sidebar ads |
 
 TikTok blocking covers its website service. Temporary allowance is a separate confirmed current-tab action and never becomes a saved/synced preference.
 
