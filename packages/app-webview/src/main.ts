@@ -20,7 +20,12 @@ import {
   type AuthPersistence,
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
-import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
+import {
+  NativeBridge,
+  openNativeDestination,
+  presentNativeSafariSetup,
+  createApplePurchaseAuthority,
+} from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, supabaseSubjectIssuer, type AnalyticsKeyValue, type SubjectDeps } from "@still/core/analytics";
@@ -433,7 +438,11 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         controller,
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
-        help: appleSettingsHelp((url) => openExternalLink(url)),
+        // "Safari setup" asks native for its "Turn on Still in Safari" sheet, from the tap.
+        help: appleSettingsHelp(
+          (url) => openExternalLink(url),
+          () => void presentNativeSafariSetup(),
+        ),
         restoreBridge: appleRestoreBridge(bridge),
         proServices: appleProServices,
         appRoutes: bridge,
