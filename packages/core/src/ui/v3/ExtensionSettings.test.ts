@@ -6,6 +6,7 @@ import { requireModernSettings } from "../../storage/atomic-settings.js";
 import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
+import { formatSyncTime } from "./sync-time.js";
 
 /** A lock reveals the existing Pro card; only its explicit Buy requests a purchase. */
 async function requestThroughLock(feature = "Comments") {
@@ -203,6 +204,36 @@ describe("controlled D03 extension settings", () => {
     expect(screen.queryByText(invitation)).toBeNull();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    view.unmount();
+  });
+
+  it("puts the last sync time on the synced line under the address, the one place it appears", async () => {
+    const { props } = await fixture();
+    const syncedAt = Date.now();
+    props.sync.account = {
+      address: "fixture@still.test",
+      confirmed: true,
+      status: { tone: "success", text: "Synced" },
+      lastSyncedAt: syncedAt,
+    };
+    const view = render(ExtensionSettings, { props });
+    const card = document.querySelector<HTMLElement>('[data-still-card="sync"]')!;
+    const status = within(card).getByRole("status");
+    expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(
+      `Synced · Last synced ${formatSyncTime(new Date(syncedAt))}`,
+    );
+    expect(formatSyncTime(new Date(syncedAt))).toMatch(/^Today at /);
+    expect(document.querySelectorAll("time")).toHaveLength(1);
+    // The address line comes first, the synced line under it.
+    const address = within(card).getByText("fixture@still.test");
+    expect(
+      address.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    props.sync.account = { ...props.sync.account, lastSyncedAt: null };
+    await view.rerender(props);
+    expect(within(card).getByRole("status").textContent!.trim()).toBe("Synced");
+    expect(document.querySelector("time")).toBeNull();
     view.unmount();
   });
 
