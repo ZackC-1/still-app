@@ -61,8 +61,8 @@
             ".ytp-ce-element",
             ".ytp-ce-hide-button-container",
             ".ytp-endscreen-content",
-            ".ytp-fullscreen-grid",
-            ".ytp-modern-videowall-still"
+            ".ended-mode > .ytp-fullscreen-grid",
+            ".ended-mode .ytp-modern-videowall-still"
           ]
         },
         {
@@ -131,8 +131,8 @@
           "feature": "instagram.suggested",
           "action": "hide",
           "selectors": [
-            "div:has(> div > a[href=\"/explore/people/\"]):not(:has(article))",
-            "header > section:has(h4):has(ul):not(:has(a[href^=\"/stories/highlights/\"]))",
+            "div:has(> div > a[href=\"/explore/people/\"]):not(:has(article, footer, nav, [data-pagelet], a[href^=\"/p/\"], a[href^=\"/reel/\"]))",
+            "header > section:has(h4):has(ul):not(:has(a[href^=\"/stories/highlights/\"], h1, h2, a[href$=\"/followers/\"], a[href$=\"/following/\"], a[href^=\"http\"]))",
             "[role=\"list\"][aria-label=\"Suggested accounts\"]"
           ]
         },
@@ -212,8 +212,8 @@
           "feature": "facebook.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"main\"] [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
-            "[role=\"main\"] [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])"
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])"
           ]
         },
         {
@@ -253,7 +253,7 @@
           "feature": "facebook.sponsored",
           "action": "hide",
           "selectors": [
-            "[role=\"complementary\"] div:has(a[href^=\"https://\"][rel~=\"nofollow\"]):not(:has(:is(a[href^=\"/\"], a[href*=\"//www.facebook.com/\"], a[href*=\"//web.facebook.com/\"], a[href*=\"//m.facebook.com/\"], a[href*=\"//facebook.com/\"]))):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
+            "[role=\"complementary\"] div:has(a[href^=\"https://\"][rel~=\"nofollow\"]):has(h2, h3, [role=\"heading\"]):not(:has(:is(a[href^=\"/\"], a[href*=\"//www.facebook.com/\"], a[href*=\"//web.facebook.com/\"], a[href*=\"//m.facebook.com/\"], a[href*=\"//facebook.com/\"]))):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
           ]
         }
       ]
@@ -274,6 +274,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "2473672f5495330fc1ad4d6d1b9de24192266d9872fc36dac35f86554a1281d1ef0b2b6b3f2691def2e5391f3d0e15dc58ea9ec81a6e9b8814448c9dd1ac6303"
+    "value": "c70d8e78d5fda4eefadf9f0adee8d752cc04b686c62e4fa721d70240c559f355288f6982f8ca13eba2c8f6bafa1f9eb2dde26c735e8061c3a917a33741b0e900"
   }
 }
