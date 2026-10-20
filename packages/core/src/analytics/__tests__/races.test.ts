@@ -1462,9 +1462,8 @@ describe("ISS-0108: the account's own identity arriving while an event it observ
     await client.confirm(testSubjectFor(U1), { accountId: U1 });
     await client.track("signed_in", {}, { observation: observation! });
     await client.flush();
-    expect(rec.events().filter((e) => e.properties.distinct_id === testSubjectFor(U1)).map((e) => e.event)).not.toContain(
-      "signed_in",
-    );
+    // Dropped outright: not sent under U1's identity, nor under anyone else's, nor anonymously.
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
   });
 
   it("NEGATIVE CONTROL: two identities confirmed back to back for the held account fence what the hold observed", async () => {
