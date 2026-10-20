@@ -331,11 +331,14 @@ export class SettingsCache {
         this.notifyAuthority();
         return this.snapshot;
       }
-      // A committed record accepted while this read was out (a watcher's own successful authority
-      // read) supersedes its failure, as it would have superseded its success: the cache already
-      // holds newer saved choices. Rejecting here would stop a Safari content script that watches
-      // before hydrating, leaving the page without its saved choices until a reload (ISS-0107).
-      if (committedGeneration !== this.committedGeneration) return this.snapshot;
+      // Any committed record accepted while this read was out (a watcher's own successful
+      // authority read, or a commit receipt from a toggle made meanwhile) supersedes its failure,
+      // as it would have superseded its success: the cache already holds newer saved choices.
+      // Rejecting here would stop a Safari content script that watches before hydrating, leaving
+      // the page without its saved choices until a reload (ISS-0107). Only a storage recovery is
+      // superseded; a programming error still surfaces.
+      if (error instanceof SettingsStorageRecovery && committedGeneration !== this.committedGeneration)
+        return this.snapshot;
       throw error;
     }
   }
