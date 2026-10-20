@@ -44,9 +44,18 @@ declarativeNetRequest state and the main-frame response chain:
   plays at `/shorts/_wogmiwYknY` (`200`). The ordinary video still reaches `/watch` through
   YouTube's own `303`.
 
-The static ruleset is doubly gated: even on the legacy lane, `isServiceEnabledGlobally` reads
-`sites["youtube.shorts"]` for schema-2 settings. So a saved Shorts Off can keep it on only if the
-settings record cannot be read at all, and that case is the deliberate fail-safe.
+Which gate holds the static ruleset depends on YouTube's lane
+(`packages/ext-chromium/lib/navigation-dnr.ts`):
+
+- On the format-2 lane (an admitted packaged set and schema-2 settings) the static ruleset is
+  always off. The YouTube Shorts session rules and the content script carry the redirect, and
+  both follow the Shorts choice.
+- On the legacy lane with schema-2 settings (no admitted packaged set, or YouTube held from
+  format-2), `isServiceEnabledGlobally` turns the static ruleset on only when Still, YouTube and
+  `sites["youtube.shorts"]` are all on.
+- If the settings record cannot be read, the gate uses the background's cached settings, so the
+  static ruleset stays on only if that cache has Still and YouTube on (and, when the cache holds
+  schema-2 settings, Shorts on too). This is the deliberate fail-safe.
 
 ## Guidance
 
@@ -61,8 +70,12 @@ settings record cannot be read at all, and that case is the deliberate fail-safe
 - Offline fixtures (`tests/playwright/navigation-dnr.spec.ts`) fulfil every request locally, so they
   never see YouTube's own redirect. The spec now drives the Settings page's "Shorts" row (Off leaves
   a direct Shorts link alone at the network layer and in the content script, On redirects again).
-  The format-2 lane runs it and the configured legacy lane skips it. A build that gates the static
-  ruleset on the YouTube master alone fails it.
+  The format-2 lane runs it and the configured legacy lane skips it. On the format-2 lane the
+  static ruleset is off whatever the Shorts choice, so this test pins the session rules and the
+  content script, not the legacy gate. The legacy gate has its own unit cases in
+  `packages/ext-chromium/lib/__tests__/navigation-dnr.test.ts` (no admitted packaged set, or
+  YouTube held from format-2, with schema-2 settings and Shorts Off). A gate on the YouTube
+  master alone fails them.
 
 ## Related
 

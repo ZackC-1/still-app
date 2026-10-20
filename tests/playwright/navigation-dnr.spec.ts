@@ -211,7 +211,9 @@ test.describe("format-2 build", () => {
     await shorts.click();
     await expect(shorts).toHaveAttribute("aria-checked", "false");
     await expect(options.getByRole("switch", { name: "Still on YouTube", exact: true })).toHaveAttribute("aria-checked", "true");
-    // An Off is saved only after its rules are gone, and the static ruleset never comes back.
+    // An Off is saved only after its rules are gone. On this lane the static ruleset is off whatever
+    // the Shorts choice, so this only proves Off does not bring it back; the legacy-lane gate is
+    // covered in packages/ext-chromium/lib/__tests__/navigation-dnr.test.ts.
     expect(await dnrState(context)).toEqual({ domains: ["facebook.com", "instagram.com"], staticOn: false });
 
     const url = "https://www.youtube.com/shorts/abc123?feature=share";
