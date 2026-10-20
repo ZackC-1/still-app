@@ -295,8 +295,15 @@ export interface TrackOptions {
   readonly observation?: AnalyticsObservation;
 }
 
+/** When work was asked: the account generation, the consent epoch and the holds asked so far. */
+export interface AnalyticsStamp {
+  readonly generation: number;
+  readonly epoch: number;
+  readonly holds?: number;
+}
+
 export interface AnalyticsObservation {
-  readonly stamp: { readonly generation: number; readonly epoch: number };
+  readonly stamp: AnalyticsStamp;
   readonly permission: AnalyticsPermission;
 }
 
@@ -357,6 +364,9 @@ export class AnalyticsClient {
   private heldTag: string | null = null;
   /** Counts holds, so a confirmation asked before a hold, but run after it, cannot release it. */
   private holds = 0;
+  /** Set when the held account's own identity continued its hold (`confirm`): stamps asked under
+   * that hold stay current for that one generation, and no later one. */
+  private continued: { readonly generation: number; readonly holds: number } | null = null;
   /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
    * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
   private asks = 0;
@@ -514,6 +524,22 @@ export class AnalyticsClient {
     this.asks += 1;
     if (options.forget) this.cancel();
     const holds = this.holds;
+    // The held account's own identity, with nothing asked since the hold, continues the hold: what
+    // was observed under the hold (since it was asked) belongs to this identity and stays current,
+    // or an event observed under the hold but recorded just after this lands would be dropped
+    // (ISS-0108). Everything else is fenced as for any account change: what was observed before the
+    // hold (a fresh start's included, whose hold fences nothing itself), and every later change.
+    if (
+      !options.forget &&
+      account !== null &&
+      this.lastAsked === undefined &&
+      this.heldAccount !== null &&
+      this.heldAccount === options.accountId?.toLowerCase()
+    ) {
+      this.generation += 1;
+      this.continued = { generation: this.generation, holds: this.holds };
+      this.lastAsked = account;
+    }
     if (account !== this.lastAsked) {
       this.cancel();
       this.generation += 1;
@@ -760,16 +786,23 @@ export class AnalyticsClient {
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
-  stamp(): { readonly generation: number; readonly epoch: number } {
-    return { generation: this.generation, epoch: this.epoch };
+  stamp(): AnalyticsStamp {
+    return { generation: this.generation, epoch: this.epoch, holds: this.holds };
   }
 
-  /** Whether nothing about the account or sharing has changed since `stamp`. */
-  isCurrent(stamp: {
-    readonly generation: number;
-    readonly epoch: number;
-  }): boolean {
-    return stamp.generation === this.generation && stamp.epoch === this.epoch;
+  /** Whether nothing about the account or sharing has changed since `stamp`. The one exception is
+   * the held account's own identity continuing its hold: work asked under that hold stays current. */
+  isCurrent(stamp: AnalyticsStamp): boolean {
+    if (stamp.epoch !== this.epoch) return false;
+    if (stamp.generation === this.generation) return true;
+    const continued = this.continued;
+    return (
+      continued !== null &&
+      continued.generation === this.generation &&
+      stamp.generation === this.generation - 1 &&
+      stamp.holds !== undefined &&
+      stamp.holds >= continued.holds
+    );
   }
 
   /** Optional server work shares the same synchronous revocation/account fence as batching. */

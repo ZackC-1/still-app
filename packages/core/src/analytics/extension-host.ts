@@ -419,10 +419,16 @@ export function createAccountIdentifier(deps: {
     subjectRequests.set(key, attempt);
     return attempt;
   };
-  /** The last account a host asked for, and the client state it was asked under. A later Still
-   * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
-   * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
-  let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
+  /** The last account a host asked for, the client state it was asked under, and its account ask. A
+   * later Still screen retries a subject request that failed, only while nothing has changed since:
+   * a sign-out, a deletion or a permission change makes the stamp stale, and any later account ask
+   * (a confirmation of the identity included, whose turn may not have come yet) supersedes the ask,
+   * so a stale account is never restored and a confirmation in progress is never re-held. */
+  let wanted: {
+    readonly account: string;
+    readonly stamp: ReturnType<AnalyticsClient["stamp"]>;
+    readonly ask: number;
+  } | null = null;
   const identifySubject = async (asked: string, options: TrackOptions, reserved?: number): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
@@ -460,7 +466,7 @@ export function createAccountIdentifier(deps: {
     const fence = confirmedHere ? before.stamp : client.stamp();
     await holding;
     if (!current()) return;
-    wanted = { account, stamp: fence };
+    wanted = { account, stamp: fence, ask };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
     if (!observation || !current()) return;
@@ -529,7 +535,8 @@ export function createAccountIdentifier(deps: {
     attach: deps.subjects
       ? async () => {
           const asked = wanted;
-          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp)) return;
+          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp) || !client.isLatestAsk(asked.ask))
+            return;
           await identifySubject(asked.account, {});
         }
       : attach,

@@ -391,7 +391,9 @@ describe("read-only authority observation", () => {
       set: f.storage.set.bind(f.storage), subscribe: f.storage.subscribe.bind(f.storage), commitIntent: f.writer.commit.bind(f.writer) });
     const seen: unknown[] = []; cache.subscribeAuthority(() => seen.push(structuredClone(cache.currentRecord())));
     const hydration = cache.hydrate();
-    const result = kind === "failure" ? expect(hydration).rejects.toThrow("native-authority-unavailable") : expect(hydration).resolves.toHaveProperty("globalOn", false);
+    // A newer accepted receipt supersedes the late read either way; a superseded failure no longer
+    // rejects the hydration that a content script awaits before it starts (ISS-0107).
+    const result = expect(hydration).resolves.toHaveProperty("globalOn", false);
     await cache.setGlobalOn(false); const healthy = cache.currentRecord();
     if (kind === "failure") reject(new SettingsStorageRecovery("native-authority-unavailable", f.durable)); else resolve(f.durable);
     await result; expect(seen).toHaveLength(1); expect(cache.currentRecord()).toEqual(healthy);
@@ -730,9 +732,9 @@ describe("cache authority recovery supersession", () => {
     let reject!: (error: Error) => void;
     const cache = new SettingsCache({ get: () => new Promise((_r, r) => { reject = r; }), set: storage.set.bind(storage),
       subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer) }, { now: () => 10 });
-    const hydration = cache.hydrate(); const rejected = expect(hydration).rejects.toThrow("native-authority-unavailable");
+    const hydration = cache.hydrate(); const superseded = expect(hydration).resolves.toHaveProperty("globalOn", false);
     await cache.setGlobalOn(false); const healthy = cache.currentRecord();
-    reject(new SettingsStorageRecovery("native-authority-unavailable", retained ? prior : null)); await rejected;
+    reject(new SettingsStorageRecovery("native-authority-unavailable", retained ? prior : null)); await superseded;
     expect(cache.currentRecord()).toEqual(healthy); expect(cache.current().globalOn).toBe(false);
     await expect(cache.whenHydrated()).resolves.toBeUndefined();
   });
