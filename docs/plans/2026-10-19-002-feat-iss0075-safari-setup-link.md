@@ -52,7 +52,8 @@ onboarding, and there is a plain way to close it. First-run onboarding does not 
 - StillKit `swift test`: 503 tests, 0 failures.
 - `xcodebuild build` (Debug, signing off) for "Still (iOS)" (iOS simulator) and "Still (macOS)":
   both succeed, no warnings in the changed files.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`: pass.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` (core 5564 passed), `pnpm build`: pass.
+- `pnpm exec playwright test --project=fixtures` (unconfigured lane): 356 passed, 25 skipped.
 - iOS 26 simulator (QA lane, light): the sheet renders with Close, the iOS 26.2 direct-page steps,
   Open Settings, Check again and "I've turned it on".
 
@@ -61,5 +62,6 @@ onboarding, and there is a plain way to close it. First-run onboarding does not 
 No device run. The owner check: on iPhone and Mac, tap Safari setup in Help, confirm the sheet,
 tap Open Settings (iPhone: Settings › Apps › Safari › Extensions › Still on iOS 26.2+; Mac:
 Safari › Settings › Extensions), return, tap "I've turned it on" or Check again (closes), and
-Close. The Help card link itself was not seen on the simulator: an unsigned simulator build has
-no App Group container, so its settings screen shows "Settings are unavailable".
+Close. The Help card link itself was not seen on the simulator: on a fresh unsigned simulator the
+settings screen shows "Settings are unavailable" with Try again, the same on main without this
+change, so the link is covered by the component and host tests only.
