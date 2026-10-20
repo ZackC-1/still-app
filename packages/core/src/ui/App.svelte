@@ -13,7 +13,11 @@
   import { STRINGS } from "./strings.js";
   import { USAGE_ON_BY_DEFAULT_BUILD } from "../analytics/build-basis.js";
   import { USAGE_SWITCH_COPY } from "./v3/usage-copy.js";
-  import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "./config.js";
+  import {
+    PRIVACY_POLICY_URL,
+    SETUP_GUIDE_URL,
+    SUPPORT_EMAIL,
+  } from "./config.js";
   import type { SurfaceGuidance } from "./surface-guidance.js";
   import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
   import { createPopupViewBinding } from "./v3/popup-view-binding.svelte.js";
@@ -894,6 +898,7 @@
         disabled={!settingsHost.help.onSupport}
         onclick={settingsHost.help.onSupport}>Contact support</button
       >
+      <p class="muted syncrow-sub">{SUPPORT_EMAIL}</p>
       <button
         type="button"
         class="link"
