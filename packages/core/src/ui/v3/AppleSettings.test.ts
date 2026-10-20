@@ -642,6 +642,7 @@ describe("controlled D04 Apple settings", () => {
     expect(other).toHaveBeenCalledOnce();
     await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
     expect(verify).toHaveBeenCalledOnce();
+    expect(screen.getByText("support@stillapp.fit")).toBeVisible();
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );
@@ -1992,6 +1993,7 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
       "Contact support",
       "Privacy policy",
     ]);
+    expect(within(help).getByText("support@stillapp.fit")).toBeVisible();
     expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
   });
 

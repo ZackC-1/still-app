@@ -426,6 +426,8 @@ describe("options loader failure recovery actions", () => {
     await flush();
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     await fireEvent.click(screen.getByRole("button", { name: "Setup guide" }));
+    // ISS-0112: the address is plain selectable text under the button.
+    expect(screen.getByText("support@stillapp.fit").tagName).toBe("P");
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );

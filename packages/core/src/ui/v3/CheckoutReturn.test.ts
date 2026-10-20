@@ -326,6 +326,7 @@ describe("controlled D20 checkout return", () => {
       privacy: { requestId: "old", verified: true, onRequest: vi.fn() },
     });
     render(CheckoutReturn, { props });
+    expect(screen.getByText("support@stillapp.fit")).toBeVisible();
     const support = screen.getByRole("button", { name: "Contact support" }),
       privacy = screen.getByRole("button", { name: "Privacy policy" });
     expect(support).toBeDisabled();
