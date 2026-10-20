@@ -299,6 +299,43 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(t.bodies()).not.toContain(ACCOUNT);
   });
 
+  it("ISS-0108: the page's signed_in, observed under the sign-in's hold, goes to the identity that lands just before it is recorded", async () => {
+    let reply!: (value: unknown) => void;
+    const issueSubject = vi.fn(() => new Promise<unknown>((resolve) => (reply = resolve)));
+    const local = memory();
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject, local });
+    await install(t); // signed out, reporting
+    const identifying = t.send({ action: "identify", userId: ACCOUNT }); // the page's code sign-in
+    await vi.waitFor(() => expect(issueSubject).toHaveBeenCalled()); // held; the identity is being asked for
+    // Keep the client's operation chain busy (one paused queue read) so the order below is exact.
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const read = local.get;
+    let armed = true;
+    local.get = async (key) => {
+      if (armed && key === QUEUE_KEY) {
+        armed = false;
+        await gate;
+      }
+      return read(key);
+    };
+    const busy = t.bg.client.queuedCount();
+    const trackUnchecked = vi.spyOn(t.bg.client, "trackUnchecked");
+    const confirm = vi.spyOn(t.bg.client, "confirm");
+    const tracking = t.send({ action: "track", name: "signed_in", props: {} });
+    await vi.waitFor(() => expect(trackUnchecked).toHaveBeenCalled()); // observed under the hold
+    reply({ state: "active", subject: SUBJECT }); // the identity lands one step before it is recorded
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalled());
+    open();
+    await busy;
+    await tracking;
+    await identifying;
+    await t.bg.client.flush();
+    expect(t.sent()).toEqual(expect.arrayContaining(["signed_in"]));
+    expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+  });
+
   it("while the server's switch is off (503), signed-in use waits on the device", async () => {
     const issueSubject = vi.fn(async () => {
       throw new Error("503 unavailable");
