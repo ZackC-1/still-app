@@ -135,7 +135,8 @@ const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
  * whose own :has() already finds a /p/ link three boxes down, so a column :has() could never
  * reject anything those rules match. It did cost: a :has() on a box above the one being styled
  * made WebKit restyle the whole column each time Instagram mounted or unmounted a row while
- * scrolling (about 13 ms a row against 3 ms without it, measured on a phone-sized page).
+ * scrolling (about 12 to 19 ms a row, against 3 to 6 ms without the column :has() and under
+ * 1 ms with no Still stylesheet at all; approximate, measured on a phone-sized page).
  */
 const EXPLORE_COLUMN = 'div:not([role="dialog"] *)';
 const EXPLORE_REEL_LINK = 'a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"])';

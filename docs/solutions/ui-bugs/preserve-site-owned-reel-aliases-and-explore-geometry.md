@@ -85,7 +85,7 @@ The column also sets what each row mount costs. A `:has()` on a box above the on
 row is mounted or unmounted, and a virtualized list does that all through a scroll. The column's
 `:has()` was redundant: each Explore rule reaches it through a row whose own `:has()` already
 finds a `/p/` link three boxes down. With it removed, the selectors match exactly the same nodes
-(a unit test compares both forms on the fixtures and edge shapes), and on a phone-sized page with
+(a unit test compares both forms on the Explore fixture and on edge shapes), and on a phone-sized page with
 30 mounted rows of Instagram-depth tiles, one row mount cost WebKit about 3 to 6 ms with Still
 instead of 12 to 19 ms (0.4 to 0.7 ms without Still). Firefox gained a little. Chromium did not
 gain: its cost is in the `row:has(...) > div` tile layout rules and in `[style*=...]` conditions

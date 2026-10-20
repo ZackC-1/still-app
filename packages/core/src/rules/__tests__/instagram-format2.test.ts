@@ -423,6 +423,8 @@ describe("captured Instagram through the maintained format2 compiler", () => {
       '[data-still-instagram-explore] div:not([role="dialog"] *) > ',
       '[data-still-instagram-explore] div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"]) > ');
     const same = (selector: string) => {
+      // The rewrite must have taken, or the comparison below compares a selector with itself.
+      expect(withColumnHas(selector), selector).not.toBe(selector);
       const now = [...document.querySelectorAll(selector)];
       expect(now, selector).toEqual([...document.querySelectorAll(withColumnHas(selector))]);
       return now.length;
