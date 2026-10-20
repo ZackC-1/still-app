@@ -53,7 +53,8 @@ const CASES: readonly Case[] = [
   { feature: "youtube.related", file: "yt-m-watch-related.html", url: "https://m.youtube.com/watch?v=inv100000",
     targets: ["target-m-related"] },
   { feature: "youtube.endscreen", file: "yt-watch-end.html", url: "https://www.youtube.com/watch?v=inv200000",
-    targets: ["target-end-card-video", "target-end-card-channel", "target-endscreen-grid"] },
+    targets: ["target-end-card-video", "target-end-card-channel", "target-end-card-hide-toggle", "target-endscreen-grid",
+      "target-fullscreen-grid", "target-modern-tile-1", "target-modern-tile-2"] },
   { feature: "youtube.comments", file: "yt-watch-comments-chat.html", url: "https://www.youtube.com/watch?v=inv400000",
     targets: ["target-comments", "target-comments-panel"] },
   { feature: "youtube.livechat", file: "yt-watch-comments-chat.html", url: "https://www.youtube.com/watch?v=inv400001",
@@ -195,8 +196,9 @@ describe("YouTube Still Pro hide controls, paid on through the test seams", () =
       <ytd-comments id="late-comments"></ytd-comments>
       <ytd-live-chat-frame id="late-chat"></ytd-live-chat-frame>
       <div class="ytp-ce-element" id="late-end-card"></div>
+      <div class="ytp-fullscreen-grid" id="late-end-grid"></div>
       <ytd-playlist-panel-renderer id="late-playlist"></ytd-playlist-panel-renderer>`);
-    for (const id of ["late-related", "late-comments", "late-chat", "late-end-card"]) expect(shown(byId(id)), id).toBe(false);
+    for (const id of ["late-related", "late-comments", "late-chat", "late-end-card", "late-end-grid"]) expect(shown(byId(id)), id).toBe(false);
     expect(shown(byId("late-playlist"))).toBe(true);
     // Recycled: a section renderer reused for the comments entry stops being hidden, and back.
     const section = byId("target-m-related");
