@@ -63,7 +63,7 @@ for (const { control, page: spec, name } of ALL_PAGES)
     expect(residue.classes.filter((c) => EXTRAS_FEATURE_CLASS.test(c)), "no extras feature class on any element").toEqual([]);
     expectOnlyFreeScopedRules(residue.rules);
     expect(residue.ownedElements, "no Still placeholder or notice").toBe(0);
-    expect(residue.sheets.join("\n")).not.toMatch(/ytd-watch-next-secondary-results-renderer|ytp-ce-element|ytp-endscreen-content|ytd-comments|ytd-live-chat-frame|threads\.(com|net)/);
+    expect(residue.sheets.join("\n")).not.toMatch(/ytd-watch-next-secondary-results-renderer|ytp-ce-element|ytp-ce-hide-button-container|ytp-endscreen-content|ytp-fullscreen-grid|ytp-modern-videowall-still|story_tray|explore\/people|ytd-comments|ytd-live-chat-frame|threads\.(com|net)/);
   });
 
 for (const service of ["youtube", "instagram", "facebook"] as const)

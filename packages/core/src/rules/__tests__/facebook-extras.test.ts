@@ -179,7 +179,7 @@ describe("free Facebook Reels are never shadowed", () => {
 });
 
 describe("Facebook Stories tray (fb-stories.html)", () => {
-  it("hides only the story cards, keeping the wrapper, People you may know, posts and messages", () => {
+  it("hides the tray region, keeping its virtualised wrapper, the composer, People you may know, posts and messages", () => {
     render("fb-stories.html");
     const engine = session();
     engine.applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
@@ -193,10 +193,9 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
     expect(document.body.innerHTML).toBe(before);
   });
 
-  it("a virtualised feed post whose own direct link opens a Story is not a tray card", () => {
+  it("feed posts that link to a Story stay: no grid, so they are never the tray", () => {
     render("fb-stories.html");
-    // The feed's own virtualiser shape: [role=feed] > [data-virtualized] > post, the Story link a
-    // direct child of the post, exactly the shape a tray card has outside the feed.
+    // A post whose own direct link opens a Story, relative and absolute, in a virtualised wrapper.
     document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
       '<div data-virtualized="false" id="keep-feed-virtualizer">'
       + '<div id="keep-story-link-post"><a href="/stories/900000000009/">An invented shared Story</a></div>'
@@ -205,8 +204,59 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("keep-story-link-post")).toBe(true);
     expect(visible("keep-story-link-post-absolute")).toBe(true);
+    expect(visible("keep-post-story-ring")).toBe(true);
+    expect(visible("keep-shelf-grid")).toBe(true);
     // The tray itself is still hidden.
-    expect(visible("target-story-card-1")).toBe(false);
+    expect(visible("target-stories-tray")).toBe(false);
+  });
+
+  it("an absolute Story link in the tray grid counts too", () => {
+    render("fb-stories.html");
+    for (const anchor of document.querySelectorAll('#target-stories-tray a[href^="/stories/"]'))
+      anchor.setAttribute("href", `https://www.facebook.com${anchor.getAttribute("href")}`);
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("target-stories-tray")).toBe(false);
+  });
+
+  it("uncertain regions stay: one that wraps other regions, one spanning the column, one that also holds a Reel", () => {
+    render("fb-stories.html");
+    // A region around the whole column (composer, tray and posts): only the inner tray hides.
+    const column = document.querySelector('[role="main"] > div')!;
+    column.setAttribute("role", "region");
+    column.id = "keep-column-region";
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("keep-column-region")).toBe(true);
+    expect(visible("keep-post")).toBe(true);
+    expect(visible("target-stories-tray")).toBe(false);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    // Today's feed has no feed or article roles. A single region spanning the column, holding
+    // both the Stories grid and the posts with no inner region, is not at the tray's depth
+    // ([data-virtualized] > div > region), so the whole column stays.
+    render("fb-stories.html");
+    for (const region of document.querySelectorAll('[role="main"] [role="region"]')) region.removeAttribute("role");
+    const spanning = document.querySelector('[role="main"] > div')!;
+    spanning.setAttribute("role", "region");
+    spanning.id = "keep-spanning-region";
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    for (const id of ["keep-spanning-region", "keep-post", "keep-post-story-ring", "keep-composer"]) expect(visible(id), id).toBe(true);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    // The same spanning region placed inside a virtualised wrapper, but not as its grandchild, stays too.
+    render("fb-stories.html");
+    for (const region of document.querySelectorAll('[role="main"] [role="region"]')) region.removeAttribute("role");
+    const main = document.querySelector('[role="main"]')!;
+    main.innerHTML = `<div data-virtualized="false"><div><div><div role="region" id="keep-deep-spanning">${main.innerHTML}</div></div></div></div>`;
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("keep-deep-spanning")).toBe(true);
+    for (const created of sessions.splice(0)) created.stop?.();
+
+    // A Stories and Reels tray in one region belongs partly to the free Reels control: it stays.
+    render("fb-stories.html");
+    document.querySelector('#target-stories-tray [role="row"]')!.insertAdjacentHTML("beforeend",
+      '<div role="gridcell"><a href="/reel/900000000011/">An invented Reel card</a></div>');
+    session().applyDom(settingsWith({ "facebook.stories": true }), new URL(`${FB}/`), document, ON);
+    expect(visible("target-stories-tray")).toBe(true);
   });
 });
 
@@ -335,11 +385,31 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
 });
 
 describe("Desktop sidebar ads (fb-sidebar.html)", () => {
-  it("hides only the right-column ad block", () => {
+  it("hides only the right-column ad block, its l.facebook.com redirect links included", () => {
     render("fb-sidebar.html");
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("target-sidebar-ad-block")).toBe(false);
     for (const id of ids("keep-")) expect(visible(id), id).toBe(true);
+    // The block's own box is the outermost match: the box that also holds Birthdays stays.
+    const matched = FACEBOOK_EXTRAS.surfaces.find((surface) => surface.feature === "facebook.sponsored")!.selectors
+      .flatMap((selector) => [...document.querySelectorAll(selector)]);
+    expect(matched).toContain(document.getElementById("target-sidebar-ad-block"));
+    expect(matched).not.toContain(document.getElementById("keep-column-stack"));
+    expect(matched.every((node) => node.closest("#target-sidebar-ad-block") !== null)).toBe(true);
+  });
+
+  it("a box holding an outbound link beside a www, web, m or bare Facebook link stays", () => {
+    for (const host of ["https://www.facebook.com", "https://web.facebook.com", "https://m.facebook.com", "https://facebook.com"]) {
+      render("fb-sidebar.html");
+      document.getElementById("keep-column-stack")!.insertAdjacentHTML("beforebegin",
+        `<div id="keep-page-card"><h3>Invented heading</h3><a href="https://ads.invented.example/click?id=ad4" rel="nofollow">Invented outbound</a>`
+        + `<a href="${host}/inventedpage/">Invented page</a></div>`);
+      const engine = session();
+      engine.applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+      expect(visible("keep-page-card"), host).toBe(true);
+      expect(visible("target-sidebar-ad-block"), host).toBe(false);
+      engine.stop?.();
+    }
   });
 
   it("Contacts, birthdays and group chats stay visible in every combination of the Facebook controls", () => {
@@ -361,12 +431,30 @@ describe("Desktop sidebar ads (fb-sidebar.html)", () => {
       '<a href="https://invented.example/" rel="nofollow">Invented outbound link</a>');
     const column = document.getElementById("right-column")!;
     column.insertAdjacentHTML("beforeend",
-      '<div id="keep-mixed"><a href="https://ads.invented.example/click?id=ad3" rel="nofollow">Invented ad three</a>'
+      '<div id="keep-mixed"><h3>Invented heading</h3><a href="https://ads.invented.example/click?id=ad3" rel="nofollow">Invented ad three</a>'
       + '<div role="list" aria-label="Invented list"><a href="https://www.facebook.com/inventedcontact3/">Invented contact three</a></div></div>');
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("keep-contacts")).toBe(true);
     expect(visible("keep-mixed")).toBe(true);
     expect(visible("target-sidebar-ad-block")).toBe(false);
+  });
+
+  it("an outbound link nested inside a kept box never hides on its own (no heading of its own)", () => {
+    render("fb-sidebar.html");
+    const column = document.getElementById("keep-column-stack")!;
+    column.insertAdjacentHTML("afterend",
+      '<div id="keep-group-card"><h3>Invented group</h3><a href="/groups/900000000301/about/">About</a>'
+      + '<div id="keep-group-shared-link"><div><a href="https://l.facebook.com/l.php?u=https%3A%2F%2Finvented.example%2Fshared" rel="nofollow">An invented shared link</a></div></div></div>'
+      + '<div id="keep-chat-row"><a href="/messages/t/900000000302/">Invented chat</a>'
+      + '<div id="keep-chat-link-preview"><div><a href="https://l.facebook.com/l.php?u=https%3A%2F%2Finvented.example%2Fpreview" rel="nofollow">An invented link preview</a></div></div></div>');
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    for (const id of ["keep-group-card", "keep-group-shared-link", "keep-chat-row", "keep-chat-link-preview"]) expect(visible(id), id).toBe(true);
+    expect(visible("target-sidebar-ad-block")).toBe(false);
+    // Only the Sponsored block (and boxes inside it that also hold its heading) ever match.
+    const matched = FACEBOOK_EXTRAS.surfaces.find((surface) => surface.feature === "facebook.sponsored")!.selectors
+      .flatMap((selector) => [...document.querySelectorAll(selector)]);
+    expect(matched.length).toBeGreaterThan(0);
+    expect(matched.every((node) => node.closest("#target-sidebar-ad-block") !== null && node.querySelector("h3") !== null)).toBe(true);
   });
 
   it("acts on a desktop platform only: macOS Safari hides it; iPhone/iPad Safari, Android and unknown leave it", () => {

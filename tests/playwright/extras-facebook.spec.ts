@@ -92,16 +92,17 @@ const gotoRedirected = (page: Page, url: string) => page.goto(url, { waitUntil: 
 const stillElements = (page: Page) => page.locator("[id^='still-'], [class*='still-placeholder']").count();
 
 test.describe("Facebook Stories (paid on)", () => {
-  test("hides only the tray's story cards", async ({ page, authority }) => {
+  test("hides only the Stories tray", async ({ page, authority }) => {
     await commit(authority, ALL_ON);
     await serveFacebook(page, "fb-stories.html");
     await page.goto(`${FB}/`);
     await engineRan(page);
-    for (const id of ["target-story-card-1", "target-story-card-2"]) {
+    for (const id of ["target-stories-tray", "target-story-card-1", "target-story-card-2"]) {
       await expect(page.locator(`#${id}`), id).toBeHidden();
       await expect(page.locator(`#${id}`), id).toHaveCount(1);
     }
-    // The virtualiser wrapper keeps its place: only its story cards are hidden.
+    // The virtualiser wrapper keeps its place (empty once the tray inside it is hidden); feed
+    // posts that link to a Story, the shelf grid, the composer and messages stay.
     await expectKeptVisible(page, ["keep-tray-wrapper"]);
   });
 
