@@ -29,7 +29,7 @@ deliberately finite and enumerated; claims about coverage say "every supported s
 The optional paid tier: a one-time purchase ($9.99 US-base lifetime, approved V3 direction), never a
 subscription, covering twelve extras — YouTube Related videos, end-of-video suggestions, autoplay
 prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highlights, suggested
-accounts, Threads links; Facebook Stories, Videos, sidebar ads. Dormant in shipped 2.x builds.
+accounts, Threads links; Facebook Stories, Video tab, sidebar ads. Dormant in shipped 2.x builds.
 
 Pro is a property of an Entitlement, not of an account: Apple receipt ownership can work without
 an account, while an account carries entitlement between supported surfaces. On Apple (V3), Get

@@ -7,6 +7,7 @@ import { HttpRevenueCatAccessClient, type ProviderAccess } from "./revenuecat-ac
 import type { VerifiedAppleTransaction } from "./apple-access.ts";
 import type { QaSandboxRuntimePorts } from "./qa-sandbox-runtime.ts";
 import type { ProviderRight } from "./access-issuer.ts";
+import postgres from "postgres";
 
 const A = "11111111-1111-1111-1111-111111111111", RIGHT = "22222222-2222-2222-2222-222222222222";
 const OBS = "33333333-3333-3333-3333-333333333333", OP = "44444444-4444-4444-4444-444444444444";
@@ -40,18 +41,34 @@ function request(jwt?: string, body: unknown = { access_schema: 1 }): Request {
 }
 function token(patch: Record<string,unknown> = {}) { return signHs256({ sub: A, ...authenticatedClaims(URL),
   exp: Math.floor(Date.now()/1000) + 600, ...patch }, SECRET); }
+/** The RPCs whose 0021 body runs private.qa_sandbox_subject (raises for a holder with no membership row). */
+const SUBJECT_GATED = new Set(["qa_sandbox_begin_access_observation", "qa_sandbox_commit_access_observation",
+  "qa_sandbox_confirm_access_observation", "qa_sandbox_read_access_removals", "qa_sandbox_read_linked_apple_transactions",
+  "qa_sandbox_commit_apple_link", "qa_sandbox_confirm_apple_account"]);
+/** The driver's error for a plpgsql `raise exception '<text>' using errcode='42501'`. */
+const refusal = (message: string) => new postgres.PostgresError({ message, code: "42501", severity: "ERROR" } as never);
 async function setup() {
   const values = await inputs(); const config = await readQaSandboxAppleConfig(name => values[name]); assert(config);
   const calls: { rpc: string; values: unknown[] }[] = [];
   const state = { enabled: true, confirmed: true, fence: true, negative: false, localRefund: false,
-    providerFails: false, providerThrow: false, linked: false, appleFails: false, productionTx: false, membershipFails: false, ledgerEmpty: false };
+    providerFails: false, providerThrow: false, linked: false, appleFails: false, productionTx: false, membershipFails: false, ledgerEmpty: false,
+    // 0021's subject gate: "missing" = no private.qa_sandbox_subjects row for this Auth id (an account
+    // deleted and signed up again gets a new id; the old id's row went with the FK cascade).
+    subject: "member" as "member" | "missing", limiterFault: null as Error | null };
   const now = Date.now(); const right = { right: RIGHT, holder: A, revision: 1, verified_at: now };
   const revoked = [{ right: RIGHT, revision: 2 }];
   const sql = Object.assign((strings: TemplateStringsArray, ...parameters: unknown[]) => {
     const rpc = /public\.([a-z_]+)\(/.exec(strings.join("?"))?.[1] ?? "unknown";
     calls.push({ rpc, values: parameters });
     if (!rpc.startsWith("qa_sandbox_")) throw new Error("Production SQL invoked");
+    if (rpc === "qa_sandbox_consume_rate_limit" && state.limiterFault) return Promise.reject(state.limiterFault);
+    if (state.subject === "missing" && (rpc === "qa_sandbox_consume_rate_limit" ? String(parameters[0]).includes(":user:") : SUBJECT_GATED.has(rpc))) {
+      return Promise.reject(refusal("QA account unavailable"));
+    }
+    // A positive link for an existing but disabled membership raises in qa_sandbox_subject(..., true).
+    if (rpc === "qa_sandbox_commit_apple_link" && parameters[2] === true && !state.enabled) return Promise.reject(refusal("QA membership disabled"));
     if (rpc === "qa_sandbox_consume_rate_limit") return Promise.resolve([{ wait: 0 }]);
+    if (rpc === "qa_sandbox_account_enabled" && state.subject === "missing") return Promise.resolve([{ enabled: false }]);
     if (rpc === "qa_sandbox_account_enabled") return state.membershipFails ? Promise.reject(new Error("unavailable")) : Promise.resolve([{ enabled: state.enabled }]);
     if (rpc.includes("begin_")) return Promise.resolve([{ token: OBS }]);
     if (rpc === "qa_sandbox_read_linked_apple_transactions") return Promise.resolve([{ result: state.linked ? [{ ...TX, transactionId: TX.originalTransactionId }] : [] }]);
@@ -282,5 +299,33 @@ Deno.test("QA final Auth and SQL latency cannot deliver proofs after JWT expiry"
         assertEquals(result.access.proofs?.length ?? 0, expires ? 0 : 1);
       } finally { Date.now = old; }
     });
+  }
+});
+
+// ISS-0080: an account deleted through the app and signed up again with the same email has a new
+// Auth id with no QA membership row, so every 0021 subject gate raises 42501 for it. Reconcile and
+// link must answer that account with a structured 200, exactly like any other non-member.
+Deno.test("re-created account without QA membership gets a 200 unavailable from reconcile and link, never a 500", async () => {
+  const s = await setup(); s.state.subject = "missing"; const jwt = await token();
+  const reconcile = await handleQaSandboxReconcile(request(jwt), s.runtime.reconcile);
+  assertEquals(reconcile.status, 200);
+  assertEquals(await reconcile.json(), { access: { status: "unavailable" } });
+  const link = await handleLinkAppleAccess(request(jwt, { intendedAccountId: A, expectedOwnershipRevision: 0, operationId: OP, evidence }), s.runtime.apple);
+  assertEquals(link.status, 200);
+  assertEquals(await link.json(), { status: "unavailable" });
+  // No positive authority was attempted for the non-member: nothing past the gate ran.
+  assertEquals(s.calls.some(call => call.rpc.startsWith("qa_sandbox_commit") || call.rpc.startsWith("qa_sandbox_confirm")), false);
+});
+Deno.test("disabled QA member's explicit link answers unavailable instead of a 500", async () => {
+  const s = await setup(); s.state.enabled = false;
+  const link = await handleLinkAppleAccess(request(await token(), { intendedAccountId: A, expectedOwnershipRevision: 0, operationId: OP, evidence }), s.runtime.apple);
+  assertEquals(link.status, 200);
+  assertEquals(await link.json(), { status: "unavailable" });
+});
+Deno.test("a genuine QA limiter fault still fails closed as a 500 on reconcile and link", async () => {
+  for (const fault of [Object.assign(new Error("connection lost"), { code: "08006" }), new postgres.PostgresError({ message: "QA server role required", code: "42501", severity: "ERROR" } as never)]) {
+    const s = await setup(); s.state.limiterFault = fault; const jwt = await token();
+    assertEquals((await handleQaSandboxReconcile(request(jwt), s.runtime.reconcile)).status, 500);
+    assertEquals((await handleLinkAppleAccess(request(jwt, { intendedAccountId: A, expectedOwnershipRevision: 0, operationId: OP, evidence }), s.runtime.apple)).status, 500);
   }
 });

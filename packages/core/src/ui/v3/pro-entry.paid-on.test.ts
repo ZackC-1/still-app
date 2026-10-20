@@ -315,7 +315,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
         "Instagram",
         "Stories and Highlights, Explore recommendations, suggested accounts and Threads links",
       ],
-      ["Facebook", "Stories, Videos and Watch, and desktop sidebar ads"],
+      ["Facebook", "Stories, the Video tab and desktop sidebar ads"],
       [
         "YouTube",
         "Related videos, end-of-video suggestions, autoplay, comments and live chat",
@@ -344,7 +344,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(card).getByRole("button", { name: "Get Still Pro" })).toBeVisible();
     await view.rerender({ ...props, features: undefined, platformKnown: true, pro: ready });
     expect(within(screen.getByRole("region", { name: "Still Pro" })).getAllByRole("listitem")).toHaveLength(3);
-    expect(screen.getByText("Stories, Videos and Watch, and desktop sidebar ads")).toBeVisible();
+    expect(screen.getByText("Stories, the Video tab and desktop sidebar ads")).toBeVisible();
   });
 
   it("locked with Buy not open here: the value list stays, the one-time terms and Get Still Pro do not", async () => {
@@ -381,7 +381,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     const text = [...card.querySelectorAll(".what")].map((node) => node.textContent);
     expect(text).toEqual([
       "Stories and Highlights, Explore recommendations, suggested accounts and Threads links",
-      "Stories, plus Videos and Watch",
+      "Stories and the Video tab",
       "Related videos, autoplay and comments",
     ]);
     expect(card.textContent).not.toMatch(/desktop sidebar ads|live chat|end-of-video/i);

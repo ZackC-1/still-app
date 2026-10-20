@@ -79,7 +79,10 @@ function chromeDnr() {
   };
 }
 
-function harness(initial: AnySettings | null) {
+function harness(
+  initial: AnySettings | null,
+  lane: { packaged?: typeof packaged; shippingServices?: ReadonlySet<ServiceId> } = {},
+) {
   const dnr = chromeDnr();
   const state = { settings: initial, unreadable: false, cached: DEFAULT_SETTINGS as StillSettings };
   const controller = createNavigationDnrSync({
@@ -91,8 +94,8 @@ function harness(initial: AnySettings | null) {
       return state.settings as StillSettings | null;
     },
     cachedSettings: () => state.cached,
-    packaged,
-    shippingServices: SHIPPING,
+    packaged: "packaged" in lane ? lane.packaged! : packaged,
+    shippingServices: lane.shippingServices ?? SHIPPING,
   });
   return { dnr, state, sync: controller.sync, retire: controller.retire };
 }
@@ -226,6 +229,26 @@ describe("navigation DNR sync (format-2 builds)", () => {
     await h.sync();
     expect(h.dnr.staticOn()).toBe(false);
     expect(h.dnr.rules()).toEqual([]);
+  });
+
+  // ISS-0078. With schema-2 settings but YouTube on the legacy lane (no admitted packaged set, or
+  // YouTube held from format-2), the static Shorts ruleset is the only network redirect left, so
+  // its gate must follow the Shorts choice, not the YouTube master alone.
+  it.each([
+    ["no admitted packaged set", { packaged: null }],
+    ["YouTube held from format-2", { shippingServices: new Set<ServiceId>(["instagram", "facebook"]) }],
+  ] as const)("legacy-lane YouTube with schema-2 settings: Shorts Off keeps the static ruleset off (%s)", async (_name, lane) => {
+    const h = harness(withSite(fresh, "youtube.shorts", false), lane);
+    await h.sync();
+    await h.sync();
+    expect(h.dnr.staticOn()).toBe(false);
+    expect(h.dnr.calls).not.toContain("updateEnabledRulesets(enable)");
+    expect(domains(h.dnr.rules())).not.toContain("youtube.com");
+    // Control: the same lane with Shorts On does use the static ruleset.
+    h.state.settings = fresh;
+    await h.sync();
+    expect(h.dnr.staticOn()).toBe(true);
+    expect(domains(h.dnr.rules())).not.toContain("youtube.com");
   });
 
   it("unreadable settings clear the session rules and gate the static ruleset on the cache", async () => {

@@ -130,8 +130,15 @@ const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
  * boxes; each tile box holds a wrapper holding the tile's /p/<code>/ link. A Reel tile's link
  * carries a looping video (the signal that does not depend on the page's language) and an SVG
  * titled "Reel"; photos and carousels carry neither. Nothing inside a dialog is ever the grid.
+ *
+ * The column carries no :has() of its own (ISS-0083). Every rule below reaches it through a row
+ * whose own :has() already finds a /p/ link three boxes down, so a column :has() could never
+ * reject anything those rules match. It did cost: a :has() on a box above the one being styled
+ * made WebKit restyle the whole column each time Instagram mounted or unmounted a row while
+ * scrolling (about 12 to 19 ms a row, against 3 to 6 ms without the column :has() and under
+ * 1 ms with no Still stylesheet at all; approximate, measured on a phone-sized page).
  */
-const EXPLORE_COLUMN = 'div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"])';
+const EXPLORE_COLUMN = 'div:not([role="dialog"] *)';
 const EXPLORE_REEL_LINK = 'a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"])';
 /** An Explore row holding at least one Reel tile: the only rows the Explore layout touches. */
 const EXPLORE_REEL_ROW = `${EXPLORE} ${EXPLORE_COLUMN} > div:has(> div > div > ${EXPLORE_REEL_LINK})`;
