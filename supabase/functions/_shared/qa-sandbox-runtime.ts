@@ -12,6 +12,7 @@ import { createWriterSql } from "./pg-store.ts";
 import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo, type RevenueCatAccessClient } from "./revenuecat-access.ts";
 import { enforceRateLimit, type RateLimiter } from "./rate-limit.ts";
 import { jsonResponse, optionsResponse } from "./store.ts";
+import { hasErrorCode } from "./coded-error.ts";
 import { accessRequest, reconcileScopedAccess, RECONCILE_RATE_LIMIT, type ScopedReconcileAccess } from "../reconcile-entitlement/handler.ts";
 
 export interface QaSandboxReconcileDeps extends AuthDeps {
@@ -64,7 +65,14 @@ export async function readQaSandboxRuntime(read: (name: string) => string | unde
 /** Live Auth remains separate from membership: disabled subjects can process known refunds. */
 export function handleQaSandboxReconcile(req: Request, deps: QaSandboxReconcileDeps): Promise<Response> {
   return withAuthenticatedUser(req, deps, async holder => {
-    const limited = await enforceRateLimit(deps.limiter, "reconcile", holder, req, RECONCILE_RATE_LIMIT);
+    let limited: Response | null;
+    try { limited = await enforceRateLimit(deps.limiter, "reconcile", holder, req, RECONCILE_RATE_LIMIT); }
+    catch (error) {
+      // An account with no QA membership (for example one deleted and signed up again, which has a
+      // new id) gets the same structured answer as any other account without QA access.
+      if (hasErrorCode(error, "qa_subject_unavailable")) return jsonResponse(200, { access: { status: "unavailable" } });
+      throw error;
+    }
     if (limited) return limited;
     if (await accessRequest(req) !== "scoped") return jsonResponse(400, { error: "invalid_access_request" });
     const bearer = req.headers.get("Authorization")!.slice(7);

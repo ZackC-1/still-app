@@ -94,7 +94,7 @@
     {
       "id": "facebook.videos",
       "service": "facebook",
-      "name": "Videos and Watch",
+      "name": "Video tab",
       "tier": "pro",
       "freshDefault": false
     },
