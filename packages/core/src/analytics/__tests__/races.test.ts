@@ -1438,4 +1438,133 @@ describe("ISS-0108: the account's own identity arriving while an event it observ
     await client.flush();
     expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
   });
+
+  // Review of #497: what a continued hold must still fence, and the retry that must not re-hold.
+
+  it("NEGATIVE CONTROL: on a fresh start, an event observed before the first hold never lands under the account", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    const observation = await client.captureObservation(); // a fresh background, nobody known yet
+    await client.holdForAccount(U1); // the start's account read: U1
+    await client.confirm(testSubjectFor(U1), { accountId: U1 });
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("NEGATIVE CONTROL: after a restart with an earlier identity stored, an event observed before the hold never lands under the new account", async () => {
+    const rec = recordingFetch();
+    const first = makeClient({ fetch: rec.fetch });
+    await first.client.confirm(testSubjectFor(U2), { accountId: U2 }); // the earlier process reported as U2
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true, store: first.store }); // the restart
+    const observation = await client.captureObservation(); // maybe U2's use: its session was not read yet
+    await client.holdForAccount(U1);
+    await client.confirm(testSubjectFor(U1), { accountId: U1 });
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().filter((e) => e.properties.distinct_id === testSubjectFor(U1)).map((e) => e.event)).not.toContain(
+      "signed_in",
+    );
+  });
+
+  it("NEGATIVE CONTROL: two identities confirmed back to back for the held account fence what the hold observed", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    await client.holdForAccount(U1);
+    const observation = await client.captureObservation();
+    const OTHER = "5ab5ec7b-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const a = client.confirm(testSubjectFor(U1), { accountId: U1 }); // continues the hold
+    const b = client.confirm(OTHER, { accountId: U1 }); // a different identity: an account change
+    await a;
+    await b;
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("NEGATIVE CONTROL: a deletion between the hold and the identity fences what the hold observed", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    await client.holdForAccount(U1);
+    const observation = await client.captureObservation();
+    const deleting = client.reset({ forgetAccount: true });
+    const late = client.confirm(testSubjectFor(U1), { accountId: U1 }); // the old sign-in's reply
+    await deleting;
+    await late;
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("NEGATIVE CONTROL: a permission change between the hold and the identity fences what the hold observed", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.confirm(null);
+    await client.holdForAccount(U1);
+    const observation = await client.captureObservation();
+    client.permissionChanged();
+    await client.confirm(testSubjectFor(U1), { accountId: U1 }); // continues the hold, fencing nothing more
+    await client.track("signed_in", {}, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).not.toContain("signed_in");
+  });
+
+  it("a Still screen's retry between the identity's confirm() and its turn re-holds nothing, so what was observed then is kept", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    let reply!: (value: unknown) => void;
+    const issue = vi.fn(() => new Promise<unknown>((resolve) => (reply = resolve)));
+    const accounts = createAccountIdentifier({
+      client,
+      local: store,
+      consent: async () => true,
+      subjects: { issue, onStopped: async () => {} },
+    });
+    await client.confirm(null);
+    const identifying = accounts.identify(U1); // a sign-in: held, the identity is being asked for
+    await vi.waitFor(() => expect(issue).toHaveBeenCalled());
+    const reached = store.pauseNextRead(QUEUE_KEY);
+    const busy = client.queuedCount(); // the operation chain is busy until released
+    const open = await reached;
+    const confirm = vi.spyOn(client, "confirm");
+    const hold = vi.spyOn(client, "holdForAccount");
+    reply({ state: "active", subject: testSubjectFor(U1) });
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalled()); // asked; its turn has not come
+    const observation = await client.captureObservation(); // a Still screen's event
+    const attaching = accounts.attach(observation); // the same screen's retry
+    await settle();
+    open();
+    await busy;
+    await attaching;
+    await identifying;
+    expect(hold).not.toHaveBeenCalled();
+    await client.track("opened", { where: "popup" }, { observation: observation! });
+    await client.flush();
+    expect(rec.events().map((e) => [e.event, e.properties.distinct_id])).toContainEqual(["opened", testSubjectFor(U1)]);
+  });
+
+  it("a subject request that failed without confirming is still retried by the next Still screen", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    let fail = true;
+    const issue = vi.fn(async () => {
+      if (fail) throw new Error("offline");
+      return { state: "active", subject: testSubjectFor(U1) };
+    });
+    const accounts = createAccountIdentifier({
+      client,
+      local: store,
+      consent: async () => true,
+      subjects: { issue, onStopped: async () => {} },
+    });
+    await client.confirm(null);
+    await accounts.identify(U1);
+    expect(client.accountConfirmed).toBe(false);
+    fail = false;
+    await accounts.attach(await client.captureObservation());
+    expect(issue).toHaveBeenCalledTimes(2);
+    expect(client.accountConfirmed).toBe(true);
+  });
 });
