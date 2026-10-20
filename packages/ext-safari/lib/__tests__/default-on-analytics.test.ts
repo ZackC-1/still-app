@@ -278,6 +278,24 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     expect(JSON.stringify(next.local.data["still:analytics:subjects"] ?? [])).not.toContain(SUBJECT);
   });
 
+  it("ISS-0108: the first popup event after the app publishes the identity goes to it, not dropped", async () => {
+    v3();
+    const t = setup({ account: ACCOUNT });
+    const permission = (await t.app.permission())!;
+    t.bg.onStart(); // signed in, no identity published yet: held for the account
+    await t.idle();
+    expect(t.fetch).not.toHaveBeenCalled();
+    // The app publishes the identity; the popup's next event is observed under the hold, and the
+    // popup's own account read then confirms the identity before the event is recorded.
+    t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await t.send(OPENED);
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["opened"])));
+    expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+  });
+
   it("a confirmed sign-out forgets the cached identity of the account that ended", async () => {
     v3();
     const t = setup({ account: ACCOUNT });
