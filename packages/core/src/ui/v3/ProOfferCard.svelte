@@ -123,8 +123,9 @@
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
       {#if checkoutPriced}<p class="caption">The price is shown at checkout.</p>{/if}
-    {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success" && !restoreHeld}
-      <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. -->
+    {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success"}
+      <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. It stays
+        through a Restore, which cannot change it. -->
       <div class="status-line" data-tone="info">
         <div class="status-body">
           <span>Still can't check right now.</span><span
@@ -134,7 +135,7 @@
           >
         </div>
       </div>
-    {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
+    {:else if ownership === "verify" || (accessVerify && ownership !== "failed" && !(channel === "offline" && ownership === "none"))}
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">

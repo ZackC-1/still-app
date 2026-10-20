@@ -96,9 +96,14 @@ describe("checkout-priced browser offer (paid tier compiled on)", () => {
       expect(screen.queryByText("Still can't check right now.")).toBeNull();
     });
 
-    it("waits while a Restore is checking", () => {
-      render(ProOfferCard, { props: props({ channel: "offline", restoreHeld: true }) });
-      expect(screen.queryByText("Still can't check right now.")).toBeNull();
+    it("keeps that line through a Restore check, never flashing verify again", () => {
+      render(ProOfferCard, {
+        props: props({ channel: "offline", accessHeld: true, accessVerify: true, restoreHeld: true }),
+      });
+      expect(screen.getByText("Still can't check right now.")).toBeVisible();
+      expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+      expect(screen.queryByText("Still Pro can't be bought here yet.")).toBeNull();
+      expect(screen.getByRole("button", { name: "Restore purchase" })).toBeDisabled();
     });
   });
 
