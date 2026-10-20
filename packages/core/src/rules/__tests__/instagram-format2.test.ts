@@ -405,6 +405,46 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     expect(exploreTiles).toBe(`${INSTAGRAM_EXPLORE_LAYOUT[0]!.selector} > div`);
     expect(INSTAGRAM_REELS_LAYOUT).toEqual(expect.arrayContaining([...INSTAGRAM_EXPLORE_LAYOUT]));
   });
+  it("no Explore rule puts a :has() on the column, so mounting a row never restyles the whole column (ISS-0083)", () => {
+    // The compound right after the mark is the column. A :has() there sits above the box being
+    // styled, and WebKit then restyles every row in the column each time Instagram mounts or
+    // unmounts one while scrolling. The row's and tile's own :has() already imply it.
+    const column = '[data-still-instagram-explore] div:not([role="dialog"] *) > ';
+    const explore = [INSTAGRAM_EXPLORE_MARKER.ruleSelector, ...INSTAGRAM_EXPLORE_LAYOUT.map((rule) => rule.selector)];
+    for (const selector of explore) expect(selector.startsWith(column), selector).toBe(true);
+    const hides = INSTAGRAM_REELS_RULES.surfaces[0]!;
+    if (hides.action !== "hide") throw new Error("Reels data only hides");
+    for (const selector of hides.selectors.filter((s) => s.startsWith("[data-still-instagram-explore]")))
+      expect(selector.startsWith(column), selector).toBe(true);
+  });
+  it("the Explore selectors without a column :has() match exactly what they matched with one", () => {
+    // The former column check, kept here only to prove the change dropped nothing and added nothing.
+    const withColumnHas = (selector: string) => selector.replace(
+      '[data-still-instagram-explore] div:not([role="dialog"] *) > ',
+      '[data-still-instagram-explore] div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"]) > ');
+    const same = (selector: string) => {
+      const now = [...document.querySelectorAll(selector)];
+      expect(now, selector).toEqual([...document.querySelectorAll(withColumnHas(selector))]);
+      return now.length;
+    };
+    const selectors = [INSTAGRAM_EXPLORE_MARKER.ruleSelector, ...INSTAGRAM_EXPLORE_LAYOUT.map((rule) => rule.selector)];
+    render("instagram-explore.html");
+    // Edge shapes: a row whose Reel sits one box too shallow or deep, a non-div row, a row in a
+    // dialog, a column of profile links, and a row stating its column count without a space.
+    document.body.insertAdjacentHTML("beforeend", `
+      <div><div><div><a href="/p/Sh1/"><video></video></a></div></div></div>
+      <div><div><div><div><div><a href="/p/Dp1/"><video></video></a></div></div></div></div></div>
+      <div><section><div><div><a href="/p/Se1/"><video></video></a></div></div></section></div>
+      <div role="dialog"><div><div><div><div><a href="/p/Dl1/"><video></video></a></div></div></div></div></div>
+      <div><div><div><div><a href="/someone/"><svg aria-label="Reel"></svg></a></div></div></div></div>
+      <div><div style="--x-gridTemplateColumns: repeat(3,1fr);"><div><div><a href="/p/Ns1/"><svg aria-label="Clip"></svg></a></div></div><div><div><a href="/p/Ns2/"></a></div></div></div></div>`);
+    let matched = 0;
+    for (const selector of selectors) matched += same(selector);
+    expect(matched).toBeGreaterThan(0);
+    // Without the mark nothing matches either way.
+    document.documentElement.removeAttribute(INSTAGRAM_EXPLORE_MARKER.attribute);
+    for (const selector of selectors) expect(same(selector), selector).toBe(0);
+  });
   it("a post dialog over the profile is never the grid: its comment and Reel links keep their layout", () => {
     render("instagram-profile.html");
     const dialog = document.createElement("div");
