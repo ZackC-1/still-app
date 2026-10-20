@@ -351,7 +351,9 @@ describe("paid-tier browser Still Pro card", () => {
     await screen.findByText("We couldn't finish checking. Nothing changed.");
     expect((within(card).getByRole("button", { name: "Get Still Pro" }) as HTMLButtonElement).disabled).toBe(false);
     expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
-    // That known none's minute then passes while still offline.
+    // That known none's minute then passes while still offline; the re-check that would renew it
+    // cannot reach the server.
+    f.set({ after: "verification_required", outcome: "unknown" });
     const reconciles = f.actions().filter(action => action === "reconcile").length;
     await f.lapse();
     await within(card).findByText("Still can't check right now.");
@@ -362,13 +364,33 @@ describe("paid-tier browser Still Pro card", () => {
     expect(screen.queryByText("Verify Still Pro to use this. Your choice is saved.")).toBeNull();
     expect(document.querySelector('[data-access="verify"]')).toBeNull();
     expect(document.querySelectorAll('[data-access="locked"]').length).toBeGreaterThan(0);
-    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles);
+    await waitFor(() => expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles + 2));
+    // Restore again while held: the card keeps its offline line, never "verify again".
+    await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
+    await waitFor(() => expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles + 3));
+    expect(within(card).getByText("Still can't check right now.")).toBeTruthy();
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
     // Back online: the known none is renewed and Get Still Pro returns without a reload.
     f.set({ after: "locked", outcome: "not-entitled" });
     network(true);
     await within(card).findByRole("button", { name: "Get Still Pro" });
     expect(within(card).queryByText("Still can't check right now.")).toBeNull();
-    expect(f.actions().filter(action => action === "reconcile")).toHaveLength(reconciles + 1);
+    expect(within(card).queryByText("Still Pro needs to be verified again.")).toBeNull();
+  });
+
+  it("offline, Get Still Pro opens nothing and says Still can't check right now (ISS-0090)", async () => {
+    const f = await host();
+    render(OptionsApp);
+    const card = await region();
+    const buy = await within(card).findByRole("button", { name: "Get Still Pro" });
+    network(false);
+    f.set({ checkout: { kind: "unavailable" } });
+    await fireEvent.click(buy);
+    await within(card).findByText("Still can't check right now.");
+    expect(within(card).queryByText("The purchase wasn't confirmed.")).toBeNull();
+    expect(f.tabsCreate).not.toHaveBeenCalled();
+    network(true);
+    await within(card).findByRole("button", { name: "Get Still Pro" });
   });
 
   it("offline, a page that cannot ask about Buy says Still can't check right now, not that it can't be bought here (ISS-0090)", async () => {
