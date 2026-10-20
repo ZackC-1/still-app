@@ -55,9 +55,12 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
   }
 
   /** A UI affordance only: native matches current purchaser ownership to its signed local cache.
-   * Generic account/protected/family benefits cannot supply this provenance. No proof renewal. */
+   * Generic account/protected/family benefits cannot supply this provenance. No proof renewal.
+   * `linkedAccount` is the account a current server-signed account proof says the right is linked
+   * to (native's verified, bound account only); it only hides the offer (ISS-0081). */
   async function readLinkEligibility(): Promise<{
     readonly ownershipRevision: number;
+    readonly linkedAccount: string | null;
   } | null> {
     const epoch = ownershipEpoch;
     const ticket = ++linkEligibilityEpoch;
@@ -75,7 +78,7 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
       !isSafeAccessInteger(right.ownershipRevision)
     )
       return null;
-    return { ownershipRevision: right.ownershipRevision };
+    return { ownershipRevision: right.ownershipRevision, linkedAccount: right.linkedAccount };
   }
 
   async function verifyLocalPurchase(): Promise<BenefitAccessSnapshot> {

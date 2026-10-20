@@ -178,6 +178,89 @@ final class AppleRightBindingTests: XCTestCase {
     _ = try expired.installAppleAccess(request(), nativePurchase: native(), wall: now)
     XCTAssertTrue(try expired.observeAppleLinkAccess(nativePurchase: native(), wall: now + paidAccessWindowMilliseconds).rights.isEmpty)
   }
+  /// ISS-0081: after a link the next launch offered the link again, because the link read carried
+  /// no holder. It now names the bound account, and only from that account's current server proof.
+  func testLinkEligibilityNamesTheBoundAccountOnlyFromItsCurrentServerProof() throws {
+    func linked(_ store: SharedEntitlementStore, wall: Int? = nil) throws -> String? {
+      try XCTUnwrap(store.observeAppleLinkAccess(nativePurchase: native(), wall: wall ?? now).rights.first).linkedAccount
+    }
+    let accountless = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
+    _ = try accountless.installAppleAccess(request(), nativePurchase: native(), wall: now)
+    XCTAssertNil(try linked(accountless))
+    // Signed in to an account that holds nothing: still unlinked, so the offer stays.
+    _ = try accountless.changeAccessSession(accountId: account, sessionId: sessionID)
+    XCTAssertNil(try linked(accountless))
+    let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+    let json = String(decoding: try encoder.encode(accountless.observeAppleLinkAccess(nativePurchase: native(), wall: now)), as: UTF8.self)
+    XCTAssertTrue(json.contains("\"linkedAccount\":null"), "the closed bridge grammar needs an explicit null")
+
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
+    _ = try store.installAppleAccess(request(linked: true), nativePurchase: native(), session: verifiedSession(), expectedGeneration: 0, wall: now)
+    XCTAssertEqual(try linked(store), account)
+    XCTAssertEqual(try store.observeAppleAccess(wall: now).rights.first?.linkedAccount, account)
+    // A local binding newer than the account proof is not known to be linked any more.
+    _ = try store.installAppleAccess(request(revision: 2, at: now + 1), nativePurchase: native(), wall: now + 1)
+    XCTAssertEqual(try store.observeAppleLinkAccess(nativePurchase: native(), wall: now + 1).rights.first?.ownershipRevision, 2)
+    XCTAssertNil(try linked(store, wall: now + 1))
+
+    // Another account, or signed out: the bound account's proofs are gone and nothing is named.
+    let other = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
+    _ = try other.installAppleAccess(request(linked: true), nativePurchase: native(), session: verifiedSession(), expectedGeneration: 0, wall: now)
+    _ = try other.changeAccessSession(accountId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", sessionId: sessionID)
+    XCTAssertNil(try linked(other))
+    _ = try other.changeAccessSession(accountId: nil, sessionId: nil)
+    XCTAssertNil(try linked(other))
+
+    // An expired account proof is no answer: the generic read keeps the right, naming no one.
+    let expired = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)
+    _ = try expired.installAppleAccess(request(linked: true), nativePurchase: native(), session: verifiedSession(), expectedGeneration: 0, wall: now)
+    let late = try XCTUnwrap(expired.observeAppleAccess(wall: now + paidAccessWindowMilliseconds).rights.first)
+    XCTAssertEqual(late.status, "verification_required")
+    XCTAssertNil(late.linkedAccount)
+  }
+  /// The link read names an account only from that account's own proof for this very right, as the
+  /// account reconcile installs it. Each guard is exercised without a session change deleting proofs.
+  func testLinkedAccountComesOnlyFromTheBoundAccountsCurrentProofForTheSameRight() throws {
+    func accountSnapshot(_ proofs: [String], issuer: Int) throws -> NativeAccountAccessSnapshot {
+      let body: [String: Any] = ["access": ["status": "verified", "environment": "sandbox", "proofs": proofs,
+        "revocations": [] as [Any], "issuer_time": issuer]]
+      return try NativeAccountAccessSnapshot.parse(JSONSerialization.data(withJSONObject: body), trust: trust, holder: account)
+    }
+    /// An accountless Apple right, then a signed-in account whose reconcile installs `proofs`.
+    func reconciled(_ proofs: [String], at time: Int) throws -> (SharedEntitlementStore, InMemoryBacking) {
+      let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: trust)
+      _ = try store.installAppleAccess(request(), nativePurchase: native(), wall: now)
+      let session = try verifiedSession()
+      let generation = try store.prepareAccountAccess(session, expectedGeneration: 0)
+      _ = try store.installAccountAccess(accountSnapshot(proofs, issuer: time), session: session, expectedGeneration: generation, wall: time)
+      return (store, backing)
+    }
+    func linked(_ store: SharedEntitlementStore, wall: Int) throws -> String? {
+      try XCTUnwrap(store.observeAppleLinkAccess(nativePurchase: native(), wall: wall).rights.first).linkedAccount
+    }
+    func tamper(_ backing: InMemoryBacking, _ change: (inout [String: Any]) -> Void) throws {
+      var object = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(backing.read())) as? [String: Any])
+      var access = try XCTUnwrap(object["access"] as? [String: Any])
+      change(&access)
+      object["access"] = access; backing.write(try JSONSerialization.data(withJSONObject: object))
+    }
+    let later = now + 60_000
+    // The account holds a web purchase (another right): the unlinked Apple right stays unlinked.
+    let webRight = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    let (web, _) = try reconciled([envelope(claims(at: later, id: webRight, holder: account).canonical())], at: later)
+    XCTAssertEqual(try web.observeAccess(wall: later).0.rights.count, 2)
+    XCTAssertNil(try linked(web, wall: later))
+    // The normal shape after a link: the reconcile's proof for this right, newer than the binding.
+    let (store, backing) = try reconciled([envelope(claims(at: later, holder: account).canonical())], at: later)
+    XCTAssertEqual(try linked(store, wall: later), account)
+    // A revoked proof that is still stored names no one.
+    try tamper(backing) { $0["accountRevocations"] = [["holder": account, "right": right, "revision": 1]] }
+    XCTAssertNil(try linked(store, wall: later + 1))
+    // A proof whose holder is not the bound account names no one.
+    let (other, otherBacking) = try reconciled([envelope(claims(at: later, holder: account).canonical())], at: later)
+    try tamper(otherBacking) { $0["accountId"] = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }
+    XCTAssertNil(try linked(other, wall: later))
+  }
   func testFailedDurableReplacementCannotAcknowledgeAnyScope() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

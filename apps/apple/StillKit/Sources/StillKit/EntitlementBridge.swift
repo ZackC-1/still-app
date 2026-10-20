@@ -492,15 +492,25 @@ public final class SharedEntitlementStore {
     try transactionAccess { record in
       let wall = wall()
       let evidence = observeRecord(&record, wall: wall)
+      let boundAccount = record.accountId
       let rights = verifiedAppleBindings(record).filter { cached, binding, proof in
         cached.revokedAt == nil && !evidence.contains { $0.proof.identity == proof.identity && $0.revoked } &&
           (nativePurchase.map { purchase in binding.matches(purchase) &&
             evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked } } ?? true)
       }.map { cached, binding, proof in
         let valid = evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked }
+        // Linked to whom is the server's answer: a valid, unrevoked account proof for this same
+        // right (and environment) whose holder is the account this record bound from a verified
+        // session. Binding another session or signing out deletes the earlier account proofs.
+        let linked = boundAccount.flatMap { account in
+          evidence.contains { $0.proof.claims.kind == "paid_account" && $0.proof.claims.holder == account &&
+            $0.proof.claims.right == binding.claims.right && $0.proof.claims.environment == binding.claims.environment &&
+            $0.proof.claims.ownership_revision >= binding.claims.ownershipRevision && $0.validPaid && !$0.revoked } ? account : nil
+        }
         return AppleAccessObservation.Right(localRight: binding.claims.right, ownershipRevision: binding.claims.ownershipRevision,
           verifiedAt: binding.claims.verifiedAt, expiresAt: binding.claims.expiresAt,
-          localProofIdentity: cached.localProofIdentity, status: valid ? "purchased" : "verification_required")
+          localProofIdentity: cached.localProofIdentity, status: valid ? "purchased" : "verification_required",
+          linkedAccount: linked)
       }
       return AppleAccessObservation(generation: record.generation, rights: rights)
     }
