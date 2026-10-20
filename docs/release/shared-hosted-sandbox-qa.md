@@ -214,8 +214,18 @@ the last packaged candidate. The admissions are test set 7 (2.1.1.351, decision 
 (notification candidate, still on the Firefox Android emulator), the 17 Oct package 2.1.1.383, the 18 Oct packages 2.1.1.385 and 2.1.1.387, and the 19 Oct packages 2.1.1.392 and 2.1.1.400. The server accepts at most 32 build entries, so superseded packages that no device runs any more (357, 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026. Every QA package card
 records the allowlist revision it was checked against (see `scripts/qa/README.md`). Source merge, migration application, admission and installed acceptance are separate gates.
 
-Active clients refresh canonical settings after a private hint or channel join; the existing
-five-second fallback remains. Validate both authenticated peers, notification transport failure with
-HTTP still available, offline recovery, concurrent edits and account isolation. Record measured
-latencies from the exact package; local WebSocket tests cannot establish hosted latency. Apple
-foreground/background and physical-device acceptance remain explicit owner QA tasks.
+Active clients refresh canonical settings after a private hint or channel join. A fallback read
+also runs on one of two intervals (packages built from ISS-0079 onward; earlier packages used five
+seconds). While the private channel is joined it is at most one read per five minutes
+(`SETTINGS_FALLBACK_REFRESH_MS`), so an idle signed-in app should send no settings calls for
+minutes at a time. Before the first join, and after a channel error, close or timeout until it
+rejoins, it is one read per 20 seconds (`SETTINGS_FALLBACK_WITHOUT_NOTIFICATIONS_MS`).
+
+Validate both authenticated peers, notification transport failure with HTTP still available,
+offline recovery, concurrent edits and account isolation. Expect a peer change within about a
+second while hints arrive, within about 20 seconds plus one request when the receiving peer's
+notification channel is down but HTTP works, and on the next five-minute read only when a single
+hint is lost while the channel still reports joined. Foreground (Apple) and coming back online
+read at once. Record measured latencies from the exact package; local WebSocket tests cannot
+establish hosted latency. Apple foreground/background and physical-device acceptance remain
+explicit owner QA tasks.
