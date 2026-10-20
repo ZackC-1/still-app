@@ -27,15 +27,17 @@ const NOT_A_REEL = ':not(:has(a[href*="/reel/"])):not(:has(a[href*="/reels/"]))'
 /**
  * Facebook Stories (CP-081): the Stories tray above the feed, never "People you may know", posts or
  * messages. On 2026-10-19 the tray was a region holding a grid (rows of grid cells, each a card
- * whose link opens a Story) plus its scroll arrows, inside the main column's virtualised wrapper.
- * The hide takes that region: it is the only region in the main column with a grid of Story links.
- * A feed post that links to a Story (an author's story ring, a shared Story) has no grid, so it
- * stays; the in-feed Reels shelf is a grid with no Story links, so it stays too. The region must
- * hold no other region and no Reel link (a Reel is only ever hidden by the Reels control), and is
- * never inside a feed.
+ * whose link opens a Story) plus its scroll arrows, at a fixed depth: the region is the only child
+ * of the only child of the main column's virtualised wrapper ([data-virtualized] > div > region).
+ * The hide takes that region at that depth only, so a region that spans the whole column (tray and
+ * posts together) can never qualify. A feed post that links to a Story (an author's story ring, a
+ * shared Story) has no grid, so it stays; the in-feed Reels shelf is a grid with no Story links, so
+ * it stays too. The region must also hold no other region and no Reel link (a Reel is only ever
+ * hidden by the Reels control; feed Reels show their link only on hover, which is why the depth
+ * anchor, not this guard, is what keeps posts safe), and is never inside a feed.
  */
 const NOT_IN_FEED = ':not([role="feed"] *)';
-const TRAY_REGION = `[role="main"] [role="region"]:not(:has([role="region"]))${NOT_A_REEL}${NOT_IN_FEED}`;
+const TRAY_REGION = `[role="main"] [data-virtualized] > div > [role="region"]:not(:has([role="region"]))${NOT_A_REEL}${NOT_IN_FEED}`;
 const STORIES_TRAY = Object.freeze([
   `${TRAY_REGION}:has([role="grid"] a[href^="/stories/"])`,
   `${TRAY_REGION}:has([role="grid"] a[href^="https://www.facebook.com/stories/"])`,
@@ -90,14 +92,17 @@ const VIDEOS_WATCH_NAV = Object.freeze([
  *
  * On 2026-10-19 each ad's outbound link (through Facebook's l.facebook.com redirect, rel=nofollow)
  * sat several boxes deep in the right column, and the Sponsored heading, the ads and their divider
- * shared one box beside the Birthdays box. So the match is any box in the column that holds such a
- * link and nothing a guard rejects: the outermost one is the whole Sponsored block, and the box
- * that also holds Birthdays (a relative link) stays. The redirect host is not a guarded Facebook
- * link, because every sidebar ad link goes through it.
+ * shared one box beside the Birthdays box. So the match is a box in the column that holds such a
+ * link AND its own heading (h2, h3 or a heading role), and nothing a guard rejects: that is the
+ * whole Sponsored block, while the box that also holds Birthdays (a relative link) stays. Requiring
+ * the heading keeps the guards meaningful: without it, any inner box of a kept block (a group
+ * card's shared link, a chat row's link preview) that holds only an outbound link would hide on its
+ * own. The redirect host is not a guarded Facebook link, because every sidebar ad link goes
+ * through it.
  */
 const FACEBOOK_LINK = ':is(a[href^="/"], a[href*="//www.facebook.com/"], a[href*="//web.facebook.com/"], a[href*="//m.facebook.com/"], a[href*="//facebook.com/"])';
 const SIDEBAR_ADS = Object.freeze([
-  '[role="complementary"] div:has(a[href^="https://"][rel~="nofollow"])'
+  '[role="complementary"] div:has(a[href^="https://"][rel~="nofollow"]):has(h2, h3, [role="heading"])'
     + `:not(:has(${FACEBOOK_LINK}))`
     + ':not(:has([role="region"])):not(:has([role="list"])):not(:has([role="grid"]))',
 ]);
