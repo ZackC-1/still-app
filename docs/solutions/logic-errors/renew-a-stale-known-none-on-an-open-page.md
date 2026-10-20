@@ -72,15 +72,21 @@ vanished, then the card and every Pro row asked to verify Still Pro again, and a
 
 - The background reconciler dropped its last conclusive "none" at the start of every reconcile, so a
   check that never reached the server erased it. It now keeps that answer for the rest of its own
-  60 seconds; any server answer, a refused session or an auth boundary still replaces it. The
-  Boolean `read()` is unchanged.
+  60 seconds when a check gets no verified reply (offline, a timeout, a server error, a reply that
+  fails verification). A verified reply or a refused session for any request made after the "none"
+  was recorded replaces it, even if a newer request has replaced that one; so does an auth
+  boundary. The Boolean `read()` is unchanged.
 - The settings page treated a *failed* Restore like one still checking and hid Get Still Pro. Only a
   Restore that is checking (or asking to verify) holds the Still Pro card now.
-- The host renewed a stale known none even offline, and a failed renewal dropped it, giving
-  "verify again". Offline (`navigator.onLine` false) it now keeps the known none and the card says
-  "Still can't check right now. Try again when you're online."; the window's `online` event renews
-  it. A sales answer of "no" while offline says the same instead of "can't be bought here yet". A
-  known *owned* answer is not held: an owner whose answer lapses still sees "verify again".
+- The host turned a failed renewal of a stale known none into "verify again", even offline. It still
+  always tries the re-check (the browser's offline signal can be wrong), but a failure while
+  `navigator.onLine` is false, or within 15 s of the window's `online` event (the first requests
+  after reconnecting often fail), keeps the known none and the card says "Still can't check right
+  now. Try again when you're online." Coming back online retries a few times over those 15 s,
+  without restarting the renewal allowance. A "no" to the Buy question, or a checkout that cannot
+  start, in the same conditions says the same instead of "can't be bought here yet" or "The
+  purchase wasn't confirmed"; a question asked while one is in flight is asked again once it lands.
+  A known *owned* answer is not held: an owner whose answer lapses still sees "verify again".
 
 A page loaded fresh while offline, after the minute has passed, has no memory of the earlier "none"
 and still shows "verify again"; the access authority cannot tell a never-bought account from an
@@ -88,6 +94,9 @@ owner without reaching the server.
 
 ## Prevention
 
+- "Offline" is a reason a check failed, not a reason to skip it. Try the request, then classify the
+  failure; treat the seconds right after reconnecting as offline too, and retry rather than settle
+  on the first failure.
 - When an offer or a status depends on evidence with a deadline, positive or negative, test both
   ways it ends: the clock passing **and** an unrelated event replacing it (sync, token refresh,
   record write). Fixing one answer and not its opposite leaves the same fault for the other.
