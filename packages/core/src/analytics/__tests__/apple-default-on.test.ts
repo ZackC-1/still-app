@@ -600,3 +600,33 @@ describe("ISS-0111: a device whose sharing is off keeps its switch at every laun
     expect(c.usageSharing).toBe(false);
   });
 });
+
+describe("ISS-0116: the launch's account answer never costs the launch its events", () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  it("signed out with sharing on: opened and active are recorded wherever the session check lands", async () => {
+    const lost: string[] = [];
+    // Native answers in a later task, so the launch takes several turns; the session check (no
+    // session) lands at each of them in turn, as main.ts can order it (start() is not awaited).
+    for (let delay = 0; delay < 24; delay += 1) {
+      const earlier = setup();
+      earlier.native.async = true;
+      await launch(earlier);
+      for (let i = 0; i < 5; i += 1) await tick();
+      // The relaunch (a later day: nothing marked today yet), sharing on, nobody signed in.
+      const t = setup(undefined, true, undefined, { host: earlier, store: earlier.store });
+      t.store.data[QUEUE_KEY] = [];
+      const state = t.store.data[STATE_KEY] as { daily: Record<string, string> };
+      t.store.data[STATE_KEY] = { ...state, daily: { "once:installed": "done", "once:app_opened": "done" } };
+      void t.app.ui.sharing!(); // the controller's first switch read, beside the launch
+      const launched = t.app.start();
+      for (let i = 0; i < delay; i += 1) await tick();
+      await t.app.accountAbsent();
+      await launched;
+      for (let i = 0; i < 20; i += 1) await tick();
+      const recorded = [...t.sent(), ...t.queue()]; // queued ones go out with the next flush
+      if (!recorded.includes("opened") || !recorded.includes("active"))
+        lost.push(`${delay}: ${recorded.join(", ") || "nothing"}`);
+    }
+    expect(lost).toEqual([]);
+  }, 30_000);
+});
