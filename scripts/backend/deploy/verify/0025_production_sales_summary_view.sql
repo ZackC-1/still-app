@@ -4,6 +4,8 @@
 -- product policy tables, readable by nobody except the narrow still_qa_readonly_checker (plain
 -- SELECT, required whenever that role exists), with no client role reaching it or its schema.
 -- Before the apply it reports migration_version and view_missing (the gate is not vacuous).
+-- With no checker role, any non-owner grant on the view or schema is reported (coalesce: a NULL
+-- comparison must never excuse a grant).
 with v as (
  select c.oid,c.relkind,c.relowner,c.reloptions,c.relacl from pg_catalog.pg_class c
  where c.oid=pg_catalog.to_regclass('still_qa_checks.production_sales_summary')
@@ -36,7 +38,7 @@ with v as (
  ) is distinct from array['private.paid_cutoff','private.product_policy_revisions']::text[]
  union all select 'view_grant' from v,roles cross join lateral pg_catalog.aclexplode(coalesce(v.relacl,pg_catalog.acldefault('r',v.relowner))) acl
   where acl.grantee<>v.relowner
-   and not (acl.grantee=roles.checker and acl.privilege_type='SELECT' and not acl.is_grantable)
+   and not coalesce(acl.grantee=roles.checker and acl.privilege_type='SELECT' and not acl.is_grantable,false)
  union all select 'view_column_grant' from v where exists(select 1 from pg_catalog.pg_attribute a where a.attrelid=v.oid and a.attacl is not null)
  union all select 'checker_select_missing' from v,roles where roles.checker is not null
   and not pg_catalog.has_table_privilege(roles.checker,v.oid,'SELECT')
@@ -47,6 +49,6 @@ with v as (
  union all select 'schema_owner' from ns,roles where ns.nspowner is distinct from roles.owner_oid
  union all select 'schema_grant' from ns,roles cross join lateral pg_catalog.aclexplode(coalesce(ns.nspacl,pg_catalog.acldefault('n',ns.nspowner))) acl
   where acl.grantee<>ns.nspowner
-   and not (acl.grantee=roles.checker and acl.privilege_type='USAGE' and not acl.is_grantable)
+   and not coalesce(acl.grantee=roles.checker and acl.privilege_type='USAGE' and not acl.is_grantable,false)
 )
 select coalesce(pg_catalog.json_agg(distinct code order by code),'[]'::json) as issues from issues;

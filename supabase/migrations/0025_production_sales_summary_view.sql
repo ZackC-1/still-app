@@ -129,7 +129,8 @@ begin
        select 1 from pg_catalog.pg_class c,
          lateral pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
        where c.oid = view_oid and a.grantee <> c.relowner
-         and not (a.grantee = checker and a.privilege_type = 'SELECT' and not a.is_grantable))
+         -- coalesce: with no checker role, every non-owner entry (any role) is a wider grant.
+         and not coalesce(a.grantee = checker and a.privilege_type = 'SELECT' and not a.is_grantable, false))
      or exists (select 1 from pg_catalog.pg_attribute t where t.attrelid = view_oid and t.attacl is not null)
      or (checker is not null and not pg_catalog.has_table_privilege(checker, view_oid, 'SELECT')) then
     raise exception 'production sales summary grants' using errcode = '42501';

@@ -548,6 +548,10 @@ grantee (the checker's plain SELECT, required when the role exists) and that no 
 the view or its schema; before the apply it reports `migration_version` and `view_missing`. Its
 invariant fingerprints the policy tables, which must not change. QA function deploys require hosted
 history to equal main, so apply 0025 before the next `qa-sandbox-functions` run.
+`rehearse-qa-readonly-checks.sh` rehearses it as production meets it: the database at 0024 with the
+candidate installed (checker present), `supabase/tests/production_sales_summary_migration_test.ts`
+before and after the CLI applies 0025 (gate, unchanged rows, and wider grants to `anon` or another
+role caught by the gate and the self-check with the checker present and absent), then a re-apply.
 
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves

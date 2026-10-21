@@ -194,6 +194,10 @@ test("migration 0025 adds one owner-run view of public policy facts and the cuto
   for (const issue of ["migration_version", "view_missing", "view_reads", "view_grant", "client_reach", "checker_select_missing", "schema_grant"])
     assert.ok(gate.includes(`'${issue}'`), issue);
   assert.ok(gate.includes("array['private.paid_cutoff','private.product_policy_revisions']"));
+  // With no checker role, `grantee = checker` is NULL; it must never excuse another grantee.
+  assert.equal(gate.split("and not coalesce(acl.grantee=roles.checker and").length - 1, 2);
+  assert.doesNotMatch(gate, /not \(acl\.grantee=roles\.checker/);
+  assert.match(code, /and not coalesce\(a\.grantee = checker and a\.privilege_type = 'SELECT' and not a\.is_grantable, false\)\)/);
   // The gate pins the same column list the catalogue reads.
   const columns = /is distinct from ('[\s\S]*?')\n union all select 'view_reads'/.exec(gate)[1]
     .replace(/'\s*\|\|\s*'/g, "").replace(/^'|'$/g, "").split(",").map((c) => c.split(":")[0]);

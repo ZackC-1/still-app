@@ -326,10 +326,15 @@ helpers), the 0025 plan test in `scripts/backend/deploy/deploy.test.mjs`, and
 `deno test … scripts/backend/qa-checks/run.test.ts` (session proof including the before-0025 grant
 set, keyed digest, failure text, age encryption round trip). The disposable-database proof,
 `scripts/backend/rehearse-qa-readonly-checks.sh`, runs in the `Supabase security rehearsal`
-workflow: it installs the candidate twice, then as the real role proves alias-only registration,
-every check, QA-only visibility, the keyed production comparison, PROD-01 on an empty and a seeded
-production policy (and its refusal before 0025's grant), the deletion check, refused reads and
-writes, and refusal of every kind of widened role.
+workflow. First it rehearses migration 0025 as production meets it
+(`supabase/tests/production_sales_summary_migration_test.ts`): the database at 0024 with the
+candidate installed, so the checker role exists; the gate before and after the CLI applies 0025;
+unchanged policy rows; wider grants to `anon` or another role caught by the gate and by the
+migration's self-check, with the checker present and absent; and a clean re-apply. Then it installs
+the candidate twice more and, as the real role, proves alias-only registration, every check,
+QA-only visibility, the keyed production comparison, PROD-01 on an empty and a seeded production
+policy (and its refusal before 0025's grant), the deletion check, refused reads and writes, and
+refusal of every kind of widened role.
 
 Not proven until setup: the hosted install, sign-in through the session pooler and its certificate,
 the GitHub environment's protection and a first real `setup` run. Residual risks:
