@@ -28,15 +28,22 @@ import type {
 // timeout surfaces as a FunctionsFetchError (not FunctionsHttpError → status null), so it maps to the
 // same calm outcome the network-error path already produces per method.
 const EDGE_FN_TIMEOUT_MS = 8_000;
+type CheckoutAdmission = { readonly surface: "chrome_desktop" | "firefox_desktop"; readonly build: string };
 
 export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, CheckedReconcilePort {
   readonly modernSettingsEnabled: boolean;
-  readonly managedCheckout: boolean;
+  readonly managedCheckout = true;
+  private readonly sandbox: boolean;
+  private readonly checkoutAdmission: Promise<CheckoutAdmission | null>;
   private readonly routes: BackendRoutes;
-  constructor(private readonly client: SupabaseClient, options: { readonly modernSettings?: boolean; readonly routeProfile?: BackendRouteProfile } = {}) {
+  constructor(private readonly client: SupabaseClient, options: { readonly modernSettings?: boolean; readonly routeProfile?: BackendRouteProfile; readonly checkoutAdmission?: CheckoutAdmission | Promise<CheckoutAdmission | null> } = {}) {
     this.modernSettingsEnabled = options.modernSettings === true;
     this.routes = backendRoutes(options.routeProfile === undefined ? "production" : options.routeProfile);
-    this.managedCheckout = options.routeProfile === "shared-hosted-sandbox";
+    this.sandbox = options.routeProfile === "shared-hosted-sandbox";
+    const admission = options.checkoutAdmission;
+    const validated = (value: CheckoutAdmission | null | undefined) => value && ["chrome_desktop", "firefox_desktop"].includes(value.surface) &&
+      /^[a-z0-9][a-z0-9._-]{0,95}$/.test(value.build) ? Object.freeze({ surface: value.surface, build: value.build }) : null;
+    this.checkoutAdmission = admission instanceof Promise ? admission.then(validated).catch(() => null) : Promise.resolve(validated(admission));
   }
 
   readCanonicalSettings(): Promise<CanonicalSettingsEnvelope> {
@@ -61,7 +68,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   async reconcileEntitlement(): Promise<void> {
     // The session JWT is attached automatically; the function derives the subject from it (KTD5).
     const { error } = await this.client.functions.invoke(this.routes.reconcile, {
-      body: this.managedCheckout ? { access_schema: 1 } : {},
+      body: this.sandbox ? { access_schema: 1 } : {},
       signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (error) throw error;
@@ -72,39 +79,31 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
    * teardown), everything else → unavailable. Mirrors `createWebCheckout`'s mapping below. */
   async reconcileEntitlementChecked(): Promise<ReconcileCallOutcome> {
     const { error } = await this.client.functions.invoke(this.routes.reconcile, {
-      body: this.managedCheckout ? { access_schema: 1 } : {},
+      body: this.sandbox ? { access_schema: 1 } : {},
       signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
     });
     if (!error) return "ok";
     return statusOf(error) === 401 ? "auth-required" : "unavailable";
   }
 
-  /** Start a Web Billing checkout (plan U4/R3/R5). Maps the create-web-checkout contract by HTTP
+  /** Start or recover a Managed Payments checkout. Maps the create-web-checkout contract by HTTP
    * status ONLY — 200 → checkout-url, 409 → already-entitled, 401 → auth-required, everything else
    * (502, network, malformed body) → unavailable. `functions.invoke` buries the status inside
    * `FunctionsHttpError.context` (the raw Response), so the mapping reads it from there; the
    * response's error strings are never matched. */
   async createWebCheckout(operationId?: string): Promise<WebCheckoutOutcome> {
     try {
-      if (operationId !== undefined && (!this.managedCheckout || !isAccessUUID(operationId))) return { kind: "unavailable" };
+      const admission = this.sandbox ? null : await this.checkoutAdmission;
+      if ((!this.sandbox && !admission) || (operationId !== undefined && !isAccessUUID(operationId))) return { kind: "unavailable" };
       const { data, error } = await this.client.functions.invoke(this.routes.createCheckout, {
-        body: this.managedCheckout ? { access_schema: 1, ...(operationId ? { operation_id: operationId } : {}) } : {},
+        body: { access_schema: 1, ...admission, ...(operationId ? { operation_id: operationId } : {}) },
         signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
       });
       if (!error) {
-        if (this.managedCheckout) {
-          const result = readSandboxCheckoutResponse(data, operationId);
-          if (!result) return { kind: "unavailable" };
-          return result.url ? { kind: "checkout-url", url: result.url, operationId: result.operationId }
-            : { kind: "unavailable", operationId: result.operationId };
-        }
-        const url = (data as { checkout_url?: unknown } | null)?.checkout_url;
-        // A 200 without a usable, https URL is a malformed success — fail calm, never open a garbage or
-        // non-https tab. The extension is the last gate before opening a trusted-looking checkout tab,
-        // so it validates the scheme even though the URL comes from our own authenticated backend.
-        return typeof url === "string" && isHttpsUrl(url)
-          ? { kind: "checkout-url", url }
-          : { kind: "unavailable" };
+        const result = readManagedCheckoutResponse(data, this.sandbox, operationId);
+        if (!result) return { kind: "unavailable" };
+        return result.url ? { kind: "checkout-url", url: result.url, operationId: result.operationId }
+          : { kind: "unavailable", operationId: result.operationId };
       }
       const status = statusOf(error);
       if (status === 409) return { kind: "already-entitled" }; // cross-device restore — a success (R5/AE4)
@@ -114,13 +113,14 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   }
 
   async completeWebCheckout(operationId: string): Promise<WebCheckoutCompletion> {
-    if (!this.managedCheckout || !this.routes.completeCheckout || !isAccessUUID(operationId)) return { kind: "unavailable" };
+    const admission = this.sandbox ? null : await this.checkoutAdmission;
+    if ((!this.sandbox && !admission) || !this.routes.completeCheckout || !isAccessUUID(operationId)) return { kind: "unavailable" };
     try {
       const { data, error } = await this.client.functions.invoke(this.routes.completeCheckout, {
-        body: { access_schema: 1, operation_id: operationId }, signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
+        body: { access_schema: 1, ...admission, operation_id: operationId }, signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
       });
       if (error) return { kind: statusOf(error) === 401 ? "auth-required" : "unavailable" };
-      const result = readSandboxCheckoutResponse(data, operationId);
+      const result = readManagedCheckoutResponse(data, this.sandbox, operationId);
       return result ? { kind: "observed", operationId: result.operationId,
         terminal: ["refunded", "closed_unpaid", "access_observed"].includes(result.status) } : { kind: "unavailable" };
     } catch { return { kind: "unavailable" }; }
@@ -129,7 +129,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   async readEntitlement(): Promise<EntitlementRead> {
     // The QA lane consumes scoped proofs through the host's existing fenced reconciler.
     // Reading the shared legacy Boolean here would bypass its environment/registry boundary.
-    if (this.managedCheckout) return "unknown";
+    if (this.sandbox) return "unknown";
     const { data, error } = await this.client
       .from("entitlements")
       .select("still_sync")
@@ -147,7 +147,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
    * here rather than being passed on as an empty account.
    */
   async readProfile(): Promise<SyncedSettingsEnvelope | null> {
-    if (this.managedCheckout) throw new SettingsStorageRecovery("rollout-held");
+    if (this.sandbox) throw new SettingsStorageRecovery("rollout-held");
     const { data, error } = await this.client
       .from("profiles")
       .select("settings,settings_version,settings_server_updated_at,settings_last_write_id")
@@ -162,7 +162,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   }
 
   async writeProfile(settings: StillSettings, writeId: string): Promise<SyncedSettingsEnvelope> {
-    if (this.managedCheckout) throw new SettingsStorageRecovery("rollout-held");
+    if (this.sandbox) throw new SettingsStorageRecovery("rollout-held");
     const { data, error } = await this.client.rpc("write_profile_settings", {
       p_settings: settings,
       p_write_id: writeId,
@@ -179,7 +179,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     onChange: () => void,
     onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
   ): () => void {
-    if (!this.managedCheckout) return this.subscribeToProfile(userId, () => onChange(), onStatus);
+    if (!this.sandbox) return this.subscribeToProfile(userId, () => onChange(), onStatus);
     let active = true;
     const channel = this.client.channel(`qa-settings-v1:${userId}`, { config: { private: true } })
       .on("broadcast", { event: "settings-changed" }, (message) => {
@@ -203,7 +203,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     onEnvelope: (envelope: SyncedSettingsEnvelope) => void,
     onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
   ): () => void {
-    if (this.managedCheckout) return () => {};
+    if (this.sandbox) return () => {};
     const channel = this.client
       .channel(`profile-settings:${userId}`)
       .on(
@@ -247,19 +247,21 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
   }
 }
 
-const SANDBOX_CHECKOUT_STATES = new Set(["prepared", "session_bound", "paid_verified",
+const MANAGED_CHECKOUT_STATES = new Set(["prepared", "session_bound", "paid_verified",
   "import_pending", "imported", "access_observed", "closed_unpaid", "refunded", "recovery_required"]);
 
-function readSandboxCheckoutResponse(value: unknown, requestedOperation?: string): {
+function readManagedCheckoutResponse(value: unknown, sandbox: boolean, requestedOperation?: string): {
   operationId: string; status: string; url?: string;
 } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (Object.keys(row).some(key => !["operation_id", "status", "checkout_url", "access"].includes(key)) ||
     !isAccessUUID(row.operation_id) || requestedOperation !== undefined && row.operation_id !== requestedOperation ||
-    typeof row.status !== "string" || !SANDBOX_CHECKOUT_STATES.has(row.status)) return null;
+    typeof row.status !== "string" || !MANAGED_CHECKOUT_STATES.has(row.status)) return null;
+  const checkoutUrl = sandbox ? /^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_[A-Za-z0-9]{1,200}(?:#[A-Za-z0-9_%=+.-]{1,2048})?$/
+    : /^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_live_[A-Za-z0-9]{1,200}(?:#[A-Za-z0-9_%=+.-]{1,2048})?$/;
   if (Object.hasOwn(row, "checkout_url") && (row.status !== "session_bound" || typeof row.checkout_url !== "string" ||
-    row.checkout_url.length > 4096 || !/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_[A-Za-z0-9]{1,200}(?:#[A-Za-z0-9_%=+.-]{1,2048})?$/.test(row.checkout_url))) return null;
+    row.checkout_url.length > 4096 || !checkoutUrl.test(row.checkout_url))) return null;
   return { operationId: row.operation_id, status: row.status, ...(typeof row.checkout_url === "string" ? { url: row.checkout_url } : {}) };
 }
 
@@ -270,15 +272,6 @@ function statusOf(error: unknown): number | null {
   if (!(error instanceof FunctionsHttpError)) return null;
   const status = (error.context as { status?: unknown } | null)?.status;
   return typeof status === "number" ? status : null;
-}
-
-/** True only for a well-formed https URL — the scheme gate before opening a checkout tab. */
-function isHttpsUrl(value: string): boolean {
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /** Exact fbc62b2 server contract: a public row SELECT never supplies an authenticated anchor. */

@@ -337,3 +337,24 @@ Owner clarified that production must match tested sandbox functionality and the 
 contracts. Final verification must cover settings sync, purchase/restore/recovery, refund and
 account deletion, with isolated provider environments. Route/client composition and protected
 deployment are still pending; do not infer database or deployed parity from these source tests.
+
+## Production app contract, 21 October
+
+The browser client now uses the existing durable managed-operation flow on production create and
+completion routes. It sends its compiled desktop surface and manifest build, accepts only a bound
+live Stripe checkout URL, retains uncertain operations, and never treats import status as access.
+The browser platform lookup completes asynchronously without delaying free settings reads.
+Production and QA settings storage/realtime remain selected by their route profiles independently
+of payment transport. Paid builds ask the matching environment's fresh sales policy before offering
+a new checkout; restore/recovery remains separate from new-sales admission.
+
+Production create/completion and signed Stripe webhook entrypoints are wired in source. Production
+reconciliation now binds Stripe mappings to the configured live price while preserving legacy
+mapping support. These routes are not deployed and the protected deployment allowlist still needs
+its reviewed extension from PR #519. No RevenueCat webhook portal setting was changed.
+
+Verification: Deno lint and all entrypoint checks passed; repository lint/typecheck/build passed.
+The broad core/browser runs found only two obsolete sandbox-only source assertions; both were
+updated and their suites passed. Other results were 5,700 core tests and 843 browser tests passed,
+39 core tests skipped. Targeted production transport, settings, recovery and policy checks passed,
+including a later 24-test checkout rerun. The fixture suite passed: 367 passed, 37 skipped (7.8 minutes).

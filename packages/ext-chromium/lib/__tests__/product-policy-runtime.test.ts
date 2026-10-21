@@ -338,14 +338,14 @@ function sources(dir: string): string[] {
 }
 
 describe("dormant, background-only and never on a free path", () => {
-  it("has only background-owned rating and explicit QA checkout consumers", () => {
+  it("has only background-owned rating and paid-build checkout consumers", () => {
     const users = [...sources(join(root, "entrypoints")), ...sources(join(root, "lib"))]
       .filter(path => !path.endsWith("product-policy-runtime.ts"))
       .filter(path => /product-policy|ProductPolicy|evaluateSalesPolicy|evaluateRatingPolicy/.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
     expect(users).toEqual(["entrypoints/background.ts", "lib/rating-invitation.ts"]);
     const background = readFileSync(join(root, "entrypoints", "background.ts"), "utf8");
-    expect(background).toContain('canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () =>');
+    expect(background).toContain('canCreateCheckout: PAID_TIER_ENABLED ? async () =>');
     expect(background).toContain('policy.freshCheck("sales")');
     const allowance = readFileSync(join(root, "lib", "rating-invitation.ts"), "utf8");
     expect(allowance.match(/\.freshCheck\([^)]*\)/g)).toEqual(['.freshCheck("rating")']);

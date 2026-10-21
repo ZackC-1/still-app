@@ -687,7 +687,13 @@ function createSessionSpine(
         commit: (verified, result, current, authCurrent) => entitlements.commitAccountAccess(verified, result, current, authCurrent),
       })
     : undefined;
-  const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud, routeProfile });
+  const checkoutSurface = PAID_TIER_ENABLED
+    ? import("../lib/rating-invitation.js").then(module => module.ratingPolicySurfaceFor(Boolean(import.meta.env.FIREFOX), browser.runtime)).catch(() => null)
+    : Promise.resolve(null);
+  const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud, routeProfile,
+    checkoutAdmission: checkoutSurface.then(surface => surface === "chrome_desktop" || surface === "firefox_desktop"
+      ? { surface, build: browser.runtime.getManifest().version } : null),
+  });
   if (scoped) {
     backend.reconcileEntitlementChecked = () => scoped.reconcile();
     backend.reconcileEntitlement = async () => {
@@ -720,12 +726,12 @@ function createSessionSpine(
     records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
-    canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () => {
-      const { ratingPolicySurfaceFor } = await import("../lib/rating-invitation.js");
-      const surface = await ratingPolicySurfaceFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
+    canCreateCheckout: PAID_TIER_ENABLED ? async () => {
+      const surface = await checkoutSurface;
       if (!surface) return false;
       const { createChromeProductPolicyRuntime } = await import("../lib/product-policy-runtime.js");
-      const policy = createChromeProductPolicyRuntime({ supabaseUrl: config.url, environment: "sandbox", routeProfile,
+      const policy = createChromeProductPolicyRuntime({ supabaseUrl: config.url,
+        environment: routeProfile === "shared-hosted-sandbox" ? "sandbox" : "production", routeProfile,
         surface, build: browser.runtime.getManifest().version });
       return (await policy.freshCheck("sales")).allowed;
     } : undefined,
