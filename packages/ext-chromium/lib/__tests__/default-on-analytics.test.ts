@@ -373,7 +373,53 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(t.bodies()).not.toContain(SUBJECT);
     expect(t.bodies()).not.toContain(ACCOUNT);
     expect(t.queue()).toEqual([]);
+    const state = t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+    expect(state.userId).toBe(SUBJECT_2);
+    expect(state.heldFor).toBeNull();
   });
+
+  // ISS-0113 re-review: the re-identify on turn-on must never win over a sign-out that arrives
+  // around the tap. Storage reads take a macrotask, as chrome.storage's do.
+  it.each([-1, 0, 1, 2, 3, 5, 8, 13, 21, 34])(
+    "ISS-0113: a sign-out arriving %i ms around the On tap (signed in with an identity) ends signed out",
+    async (offset) => {
+      const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+      const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local: memory({}, 1) });
+      await install(t);
+      await t.send({ action: "identify", userId: ACCOUNT });
+      await t.send(OPEN);
+      await settled(t);
+      expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+      t.fetch.mockClear();
+      const signOut = () => t.send({ action: "reset", forgetAccount: false });
+      let resetting: Promise<unknown> | undefined;
+      if (offset < 0) resetting = signOut();
+      const turningOn = t.send({ action: "setSharing", enabled: true });
+      if (offset >= 0) {
+        await new Promise((r) => setTimeout(r, offset));
+        resetting = signOut();
+      }
+      expect(await turningOn).toBe(true);
+      await resetting;
+      await settled(t);
+      await t.send(OPEN); // signed-out use
+      await settled(t);
+      await t.bg.client.flush();
+      const state = t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+      expect(state.userId).toBeNull();
+      expect(state.heldFor).toBeNull();
+      expect(t.queue()).toEqual([]);
+      const sent = events(t);
+      expect(sent.filter((e) => e.event === "analytics_choice_made")).toHaveLength(1);
+      const opened = sent.filter((e) => e.event === "opened").map((e) => e.properties.distinct_id);
+      expect(opened).toHaveLength(1);
+      expect([SUBJECT, SUBJECT_2]).not.toContain(opened[0]);
+      expect(choices(t)).not.toContain(SUBJECT); // never the stopped period's identity
+      expect(t.bodies()).not.toContain(ACCOUNT);
+    },
+    15_000,
+  );
 
 
   it("a Still screen asks the server with only the origin proof; use is sent under the subject", async () => {

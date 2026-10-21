@@ -781,6 +781,8 @@ export class AnalyticsClient {
    * when sharing is turned back on (a new origin needs its own identity). */
   accountInForce(): Promise<string | null> {
     return this.run(async () => {
+      // A sign-out owed (asked, or not yet installed) means nobody: never re-identify past it.
+      if (this.lastAsked === null || this.pending?.account === null) return null;
       if (this.heldAccount !== null) return this.heldAccount;
       const state = await this.read();
       return state && state.userId !== null ? state.accountRef : null;
