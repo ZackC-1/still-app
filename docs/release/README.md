@@ -44,6 +44,7 @@ once a version ships.
 
 | Track | Reference |
 |---|---|
+| V3 go-live | [V3 go-live runbook](v3-go-live-runbook.md): ordered, owner-verifiable checklist from release candidate to live in all three stores with real payments, including numbered read-backs, the open engineering gaps and the rollback map. |
 | Apple iOS/macOS + Safari | [Apple runbook](01-apple-app-store.md): submitted build provenance, free reviewer flow, legacy IAP presentation and manual release. |
 | Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. Owner-approved, keyless upload and submission: [Chrome release workflow](chrome-publish-workflow.md). |
 | Firefox desktop | [Firefox runbook](03-firefox-amo.md): complete reproducible sources, consent declaration and publication boundary. |
