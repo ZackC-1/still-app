@@ -39,6 +39,21 @@ source "$HERE/release-env-guard.sh"
 release_env_guard "$REPO/packages/app-webview" "$REPO/packages/ext-safari" "$HERE/modern-sync-shipped" \
   || exit 1
 
+# Production access trust (V3 release enablement, G5). The PUBLIC Still Pro verification keys come
+# only from scripts/release/production-access-keys.json: the web bundle gets them as
+# VITE_ACCESS_ENVIRONMENT / VITE_ACCESS_PUBLIC_KEYS, and the four Info.plists get the same rows
+# (StillAccessEnvironment, StillAccessTrustKeys) for this archive only. The plists are restored
+# exactly on exit. The check refuses non-production rows, the TEST-ONLY fixture key, and an empty
+# list once the release declares the paid tier. No private key is involved anywhere here.
+TRUST="$REPO/scripts/release/access-trust.mjs"
+TRUST_BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/still-store-trust.XXXXXX")"
+restore_store_trust() { node "$TRUST" apple-restore --backup "$TRUST_BACKUP" && rm -rf "$TRUST_BACKUP"; }
+trap restore_store_trust EXIT
+node "$TRUST" check
+while IFS='=' read -r key value; do
+  case "$key" in VITE_ACCESS_ENVIRONMENT|VITE_ACCESS_PUBLIC_KEYS) export "$key=$value" ;; *) echo "unexpected trust line" >&2; exit 1 ;; esac
+done < <(node "$TRUST" env)
+
 echo "==> Building the shared web bundle…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
 echo "==> Building the Safari extension bundle…"
@@ -46,6 +61,9 @@ echo "==> Building the Safari extension bundle…"
 # packages/ext-safari/dist/safari-mv3/manifest.json — dist/ is gitignored, so a clean checkout
 # archive dies at that phase unless the extension is built first.
 ( cd "$REPO" && pnpm --filter @still/ext-safari build )
+
+echo "==> Writing production access trust into the Apple plists (restored on exit)…"
+node "$TRUST" apple-apply --backup "$TRUST_BACKUP"
 
 echo "==> Archiving Still (iOS)…"
 cd "$PROJECT_DIR"

@@ -60,12 +60,14 @@ app/extension plist and complete resource checks. These are embedding and packag
 they do not certify a provider response or device acceptance. Compiler output streams to the run log; structured plist and bounded parser output are captured.
 
 Recognizing a supported environment reference does not authorize it as a store-package input.
-[package.mjs](../../../scripts/release/package.mjs) classifies `VITE_ACCESS_ENVIRONMENT` and
-`VITE_ACCESS_PUBLIC_KEYS` as QA-only references while retaining its public store-input allowlist.
-Ordinary store packages strip ambient QA trust values, reject explicitly requested QA trust inputs
-before creating output, and omit them from AMO rebuild instructions. Unknown and private variable
-names remain errors. Adding these names to the public allowlist would bypass that boundary; a
-future production trust configuration needs its own reviewed release change.
+[package.mjs](../../../scripts/release/package.mjs) never accepts `VITE_ACCESS_ENVIRONMENT` or
+`VITE_ACCESS_PUBLIC_KEYS` as a store-package input. Ordinary store packages strip ambient QA trust
+values and reject explicitly requested trust inputs before creating output. They set both values
+only from the committed production trust file (`PINNED_ENV_KEYS`, read through
+[access-trust.mjs](../../../scripts/release/access-trust.mjs)), which refuses any non-production
+row, so the AMO rebuild instructions list the pinned production values and never QA ones. Unknown
+and private variable names remain errors. Adding these names to the public allowlist would bypass
+that boundary.
 
 [release.test.mjs](../../../scripts/release/release.test.mjs) checks reference classification,
 ambient stripping, explicit refusal, empty output on refusal and omitted rebuild instructions.
