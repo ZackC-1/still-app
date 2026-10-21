@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { RestoreStatusCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
-  let { state, onAction, nothingCopy }: RestoreStatusCardProps = $props();
+  // `state` is renamed here: the prop name would shadow the $state rune this card now needs.
+  let {
+    state: shown,
+    onAction,
+    nothingCopy,
+  }: RestoreStatusCardProps = $props();
   const messages = {
     checking: {
       tone: "pending",
@@ -42,15 +47,44 @@
     caution: "clock",
   } as const;
   let message = $derived(
-    state === "nothing" && nothingCopy
+    shown === "nothing" && nothingCopy
       ? { ...messages.nothing, ...nothingCopy }
-      : messages[state],
+      : messages[shown],
   );
+
+  // ISS-0117: when a check concludes, the result may sit below the visible area (the settings page
+  // in its own tab), so "Checking…" seemed to end in nothing. Bring the result into view only if it
+  // is not already fully visible ("nearest" also leaves a visible one alone, and an instant scroll
+  // follows the page's reduced-motion rule), and move focus to it, never out of a text field or an
+  // open dialog. A result shown without a check this visit (a page load) is left alone.
+  let line: HTMLDivElement | undefined = $state();
+  let previous: RestoreStatusCardProps["state"] | undefined;
+  $effect(() => {
+    const concluded = previous === "checking" && shown !== "checking";
+    previous = shown;
+    if (concluded && line) reveal(line);
+  });
+  function reveal(node: HTMLElement) {
+    const box = node.getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight)
+      node.scrollIntoView?.({ block: "nearest" });
+    const active = document.activeElement;
+    if (
+      active instanceof Element &&
+      active.closest(
+        'input, textarea, select, [contenteditable="true"], dialog, [role="dialog"]',
+      )
+    )
+      return;
+    node.focus({ preventScroll: true });
+  }
 </script>
 
 <section class="card card-stack">
   <div
     class="status-line"
+    bind:this={line}
+    tabindex="-1"
     data-tone={message.tone}
     role={message.tone === "failed" ? "alert" : "status"}
   >
@@ -73,3 +107,10 @@
     </div>
   </div>
 </section>
+
+<style>
+  /* Focus lands here only by script (ISS-0117); the card is not a control, so no ring. */
+  .status-line:focus {
+    outline: none;
+  }
+</style>
