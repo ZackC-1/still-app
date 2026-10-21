@@ -6,6 +6,9 @@ import { createModernShippingContentEntry } from "../modern-shipping-entry.js";
 import type { ContentScriptHandle, StillWindow } from "../index.js";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter, type StoredSettingsRecord } from "../../storage/adapter.js";
+import { ChromeStorageAdapter } from "../../storage/chrome-adapter.js";
+import { SettingsCache } from "../../storage/cache.js";
+import { SettingsStorageRecovery } from "../../storage/atomic-settings.js";
 
 const scripts: ContentScriptHandle[] = [];
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -31,12 +34,18 @@ afterEach(() => {
  * "unavailable" every one of them comes back unusable, as a refused, lost or late native reply
  * does, so the page has only the browser-storage copy the popup mirrors after each switch.
  */
-function safariWorld(app: StoredSettingsRecord, reads: "ready" | "unavailable" = "ready") {
+type Reads = "ready" | "unavailable" | "rejects";
+
+function safariWorld(app: StoredSettingsRecord, reads: Reads = "ready") {
   const values: Record<string, unknown> = { "still:settings": structuredClone(app) };
   const listeners = new Set<(changes: Record<string, { oldValue?: unknown; newValue: unknown }>, area: string) => void>();
+  // The background's answer to one settings read; a test may replace it (a slow reply).
+  let answer = (): Promise<unknown> => {
+    if (reads === "rejects") return Promise.reject(new Error("Could not establish connection")); // background asleep
+    return Promise.resolve(reads === "ready" ? { status: "ready", record: structuredClone(app) } : { status: "unavailable" });
+  };
   const sendMessage = vi.fn(async (message: { kind?: string }) => {
-    if (message.kind === "still:settings-read")
-      return reads === "ready" ? { status: "ready", record: structuredClone(app) } : { status: "unavailable" };
+    if (message.kind === "still:settings-read") return answer();
     return undefined;
   });
   vi.stubGlobal("chrome", {
@@ -64,6 +73,10 @@ function safariWorld(app: StoredSettingsRecord, reads: "ready" | "unavailable" =
   const writer = new AtomicSettingsWriter(new InMemoryStorageAdapter(app));
   return {
     sendMessage,
+    setReads: (next: Reads) => { reads = next; },
+    answerWith: (next: () => Promise<unknown>) => { answer = next; },
+    /** Write a record into browser storage directly, as a stale or racing mirror would. */
+    mirror: (record: StoredSettingsRecord) => chrome.storage.local.set({ "still:settings": structuredClone(record) }),
     /** The popup's switch: one native intent, then the committed record mirrored into storage. */
     async popup(path: SettingsField, value: boolean, mirror = true) {
       const { intentCommitted: _c, ...next } = await writer.commit({ path, value, updatedAt: Date.now() });
@@ -99,6 +112,7 @@ describe("Safari page loaded with Facebook Off, then On from the popup (ISS-0084
     ["services.facebook", "unavailable"],
     ["sites.facebook.reels", "unavailable"],
     ["globalOn", "unavailable"],
+    ["services.facebook", "rejects"],
   ] as const)("%s, background reads %s: a live On hides the Page Reels tab without a reload, a live Off shows it", async (path, reads) => {
     const world = safariWorld(await appRecord(path, false), reads);
     const html = readFileSync(resolve("../../tests/fixtures", "facebook-mobile-page.html"), "utf8");
@@ -142,5 +156,86 @@ describe("Safari page loaded with Facebook Off, then On from the popup (ISS-0084
     expect(world.sendMessage.mock.calls.length).toBeGreaterThan(reads);
     expect(writes, "no DOM work while nothing changed").toHaveLength(0);
     expect(hidden(tab)).toBe(true);
+  });
+
+  it("a failed reread never downgrades: an older browser-storage copy is refused and the newer app record stays", async () => {
+    vi.useFakeTimers();
+    // The app holds On (newer); browser storage still holds the older Off copy.
+    const older = await appRecord("services.facebook", false);
+    const { intentCommitted: _c, ...newer } = await new AtomicSettingsWriter(new InMemoryStorageAdapter(older))
+      .commit({ path: "services.facebook", value: true, updatedAt: 10 });
+    const world = safariWorld(newer as StoredSettingsRecord);
+    await world.mirror(older);
+    const html = readFileSync(resolve("../../tests/fixtures", "facebook-mobile-page.html"), "utf8");
+    document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML;
+    await createModernShippingContentEntry({ host: "safari", storage: chrome.storage.local, prod: false,
+      earlyRedirect: true, win: pageWindow("https://m.facebook.com/stilltestpage/"), doc: document,
+      onScriptCreated: (script) => scripts.push(script) })({ onInvalidated: () => {} });
+    const probe = new SettingsCache(new ChromeStorageAdapter());
+    const unwatch = probe.watch();
+    await probe.hydrate();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(hidden(tab), "the app's newer On applied").toBe(true);
+    expect(probe.currentRecord().atomic?.sequence).toBe(newer.atomic!.sequence);
+
+    // The app becomes unreachable and the older copy is written to storage again.
+    world.setReads("unavailable");
+    const writes: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => writes.push(...records));
+    observer.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+    await world.mirror(older);
+    await vi.advanceTimersByTimeAsync(12_000); // the signal's reread and two timed rereads, all failing
+    observer.disconnect();
+    unwatch();
+    expect(writes, "nothing changes on the page").toHaveLength(0);
+    expect(hidden(tab)).toBe(true);
+    expect(probe.currentRecord().atomic?.sequence).toBe(newer.atomic!.sequence);
+    expect(probe.current().services.facebook).toBe(true);
+  });
+
+  it("a retained copy blocks without counting as a successful app read; the next successful read clears that", async () => {
+    vi.useFakeTimers();
+    const world = safariWorld(await appRecord("services.facebook", false), "unavailable");
+    const probe = new SettingsCache(new ChromeStorageAdapter());
+    const unwatch = probe.watch();
+    await probe.hydrate();
+    await world.popup("services.facebook", true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(probe.current().services.facebook).toBe(true);
+    // As after a failed first read: still in recovery, atomic state paused.
+    await expect(probe.whenHydrated()).rejects.toBeInstanceOf(SettingsStorageRecovery);
+    expect(probe.currentRecord().atomic?.paused).toBe("native-authority-unavailable");
+
+    world.setReads("ready");
+    await vi.advanceTimersByTimeAsync(5_000); // the next timed reread succeeds
+    unwatch();
+    await expect(probe.whenHydrated()).resolves.toBeUndefined();
+    expect(probe.currentRecord().atomic?.paused).toBeNull();
+    expect(probe.current().services.facebook).toBe(true);
+  });
+
+  it("a superseded slow reread delivers nothing; only the newer reread does", async () => {
+    vi.useFakeTimers();
+    const first = await appRecord("services.facebook", false);
+    const world = safariWorld(first);
+    const delivered: Array<{ facebook: boolean; retained: boolean }> = [];
+    const unsubscribe = new ChromeStorageAdapter().subscribe((record, recovery) =>
+      delivered.push({ facebook: record.settings.services.facebook, retained: recovery !== undefined }));
+    // The first reread's background reply is slow; it answers later with the old record.
+    let answerSlow!: (value: unknown) => void;
+    world.answerWith(() => new Promise((resolve) => { answerSlow = resolve; }));
+    await world.mirror(first);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(world.sendMessage).toHaveBeenCalledTimes(1);
+
+    // A newer switch arrives while that read is out; its own reread fails, so it carries the copy.
+    world.answerWith(() => Promise.resolve({ status: "unavailable" }));
+    await world.popup("services.facebook", true);
+    await vi.advanceTimersByTimeAsync(10);
+    answerSlow({ status: "ready", record: structuredClone(first) }); // the superseded reply, late
+    await vi.advanceTimersByTimeAsync(10);
+    unsubscribe();
+    expect(world.sendMessage).toHaveBeenCalledTimes(2);
+    expect(delivered).toEqual([{ facebook: true, retained: true }]);
   });
 });

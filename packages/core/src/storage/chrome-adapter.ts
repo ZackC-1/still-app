@@ -237,14 +237,15 @@ export class ChromeStorageAdapter implements StorageAdapter {
       chrome.storage.onChanged.removeListener(handler);
     };
   }
-  subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
+  subscribe(listener: (record: StoredSettingsRecord, recovery?: SettingsStorageRecovery) => void): () => void {
     let active = true;
     const native = this.isSafari() && !this.options.nativeMirror;
     // A Safari content script (not an extension page) reads the app through the background. When
     // that read fails, a page that loads now blocks with the browser-storage copy (the cache's
     // hydrate keeps it), so an open page takes the same copy instead of dropping the change: the
     // popup mirrors every committed switch there, and without this a live On or Off waited for a
-    // reload (ISS-0084). The cache's atomic ordering still refuses a copy older than one it holds.
+    // reload (ISS-0084). The copy goes with its recovery, so the cache treats it as the load path
+    // does (blocking from it, never a successful authority read) and refuses one older than it holds.
     const contentPage = native && globalThis.location?.protocol !== "safari-web-extension:";
     let timer: ReturnType<typeof setTimeout> | undefined;
     let reading: AbortController | null = null;
@@ -268,7 +269,7 @@ export class ChromeStorageAdapter implements StorageAdapter {
         if (active && reading === request && current) listener(current);
       }, error => {
         if (active && reading === request && contentPage && error instanceof SettingsStorageRecovery && error.retained)
-          listener(error.retained);
+          listener(error.retained, error);
       }).catch(() => undefined).then(() => {
         if (reading !== request) return;
         reading = null;

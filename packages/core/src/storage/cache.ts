@@ -364,10 +364,14 @@ export class SettingsCache {
       for (const detach of unsubscribe) detach();
     };
     this.unwatch = stop;
-    const detachRecords = this.adapter.subscribe((record) => {
+    const detachRecords = this.adapter.subscribe((record, recovery) => {
       if (this.watchLifetime !== lifetime) return;
+      // A Safari content script's retained copy after a failed authority read: applied for
+      // blocking exactly as a failed first read applies it, never published as an authority read.
+      if (recovery) { this.applyRetainedRecord(record, recovery); return; }
       const observation = this.legacyReadObservation;
-      // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
+      // Without a recovery, Safari subscriptions supply a successful authority reread, never the
+      // auxiliary signal.
       this.applyStoredRecord(record, "external");
       if (
         this.watchLifetime !== lifetime ||
@@ -637,6 +641,25 @@ export class SettingsCache {
       )
         this.notify("external");
     }
+  }
+
+  /**
+   * The live counterpart of load()'s retained-copy branch (ISS-0084): last-known local choices keep
+   * free blocking current while the native authority is unavailable, under the same ordering as any
+   * stored record (a lower generation, another account or a lower sequence is refused), and the
+   * cache stays in recovery with its atomic state paused, exactly as after a failed first read. A
+   * later successful authority read clears both.
+   */
+  private applyRetainedRecord(record: StoredSettingsRecord, recovery: SettingsStorageRecovery): void {
+    if (record.atomic) {
+      if (this.atomic && record.atomic.scope.generation < this.atomic.scope.generation) return;
+      this.acceptCommitted(record, "external", false);
+      if (this.atomic !== record.atomic) return; // refused: older or another account's
+      this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
+    } else if (this.atomic) return;
+    else this.applyStoredRecord(record, "external");
+    this.hydrationRecovery = recovery;
+    this.notifyAuthority();
   }
 
   private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource, publishAuthority = true): boolean {
