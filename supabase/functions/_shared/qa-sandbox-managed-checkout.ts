@@ -10,8 +10,6 @@ export type QaManagedCheckoutConfig = Omit<ManagedCheckoutConfig, "environment" 
 
 export class QaSandboxManagedCheckout extends ManagedCheckout {
   constructor(config: QaManagedCheckoutConfig, fetcher: typeof fetch = fetch, timeoutMs = 8000) {
-    try {
-      super({ ...config, environment: "sandbox", stripeSecretKey: config.stripeTestKey }, fetcher, timeoutMs);
-    } catch { throw new Error("qa_checkout_unconfigured"); }
+    super({ ...config, environment: "sandbox", stripeSecretKey: config.stripeTestKey }, fetcher, timeoutMs);
   }
 }

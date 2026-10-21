@@ -293,3 +293,26 @@ Sources for the guided portal steps: [Stripe Managed Payments setup](https://doc
 [PostHog project analytics runbook](../release/posthog-analytics.md),
 [PostHog filtering documentation](https://posthog.com/docs/product-analytics/trends/filters),
 and [read-only database checks](../release/qa-readonly-database-checks.md).
+
+## Checkout foundation review, 21 October
+
+A separate production purchase-operation table and five fixed writer RPCs are prepared in migration
+0026. Admission requires a confirmed, non-banned account, the current enabled production web
+policy, an approved desktop build, and the exact approved four-benefit cutoff. One-way creation
+claims retain ambiguous attempts. Known payments remain recoverable after sales stop; account
+deletion detaches the holder while retaining the payment record for canonical refunds.
+
+The shared SQL adapter retains fixed sandbox composition and all QA error contracts. Local
+verification: 127 targeted Deno tests passed, Deno lint/check passed, and repository lint/typecheck
+passed. SQL/PLpgSQL syntax parsed successfully. The new GitHub rehearsal must still prove actual
+PostgreSQL permissions, concurrent claims, stop-sales recovery, deletion and catalog drift.
+
+Review used the ce-code-review lenses sequentially under the repository's main-thread mapping.
+The attempted independent Claude review did not run: its acpx transport package failed to resolve
+before code egress. No independent corroboration is claimed. Review tightened the index gate to
+verify the holder key and exact open-state predicate, and added a wrong-predicate drift probe.
+
+This is a draft foundation unit. Production route composition, Apple device-only review access,
+deployment and analytics verification remain open. Reconcile migration 0025 from PR #518 before
+production deployment. Rollback disables new callers and keeps the ledger for recovery; do not
+drop payment records. No production database or webhook configuration was changed.

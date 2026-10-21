@@ -119,7 +119,7 @@ export class ManagedCheckout {
       !/^[A-Za-z0-9_-]{1,1024}$/.test(config.revenueCatStripePublicKey) ||
       /^(?:appl_|goog_|amzn_|sk_|rk_|pk_)/.test(config.revenueCatStripePublicKey) ||
       !returnUrl(config.successUrl) || !returnUrl(config.cancelUrl) ||
-      !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 8000) throw new Error("checkout_unconfigured");
+      !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 8000) throw new Error(config.environment === "sandbox" ? "qa_checkout_unconfigured" : "checkout_unconfigured");
     this.config = Object.freeze({ ...config });
     this.timeoutMs = timeoutMs;
     this.mode = MODES[this.config.environment];

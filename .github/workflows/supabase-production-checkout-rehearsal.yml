@@ -1,0 +1,56 @@
+name: Production checkout ledger rehearsal
+
+# Synthetic disposable database only. No deployment authority or provider credentials.
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/functions/_shared/*checkout*"
+      - "supabase/functions/_shared/*purchase-operation*"
+      - "supabase/tests/production_purchase_operations_test.ts"
+      - "scripts/backend/deploy/verify/0026*"
+      - ".github/workflows/supabase-production-checkout-rehearsal.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-checkout-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-checkout-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.8.3"
+      - name: Install pinned Supabase CLI
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Rehearse production ledger on a disposable database
+        run: |
+          set -euo pipefail
+          test "$(supabase --version)" = '2.119.0'
+          trap 'supabase stop --project-id still-app --no-backup >/dev/null 2>&1' EXIT
+          supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >/dev/null
+          supabase db reset --local --no-seed --version 0024 >/dev/null
+          prior="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0026_production_purchase_operations.sql)"
+          test "$(printf '%s' "$prior" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
+          supabase migration up --local >/dev/null
+          STILL_PRODUCTION_CHECKOUT_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322 \
+              --allow-read=scripts/backend/deploy/verify/0026_production_purchase_operations.sql \
+              supabase/tests/production_purchase_operations_test.ts
+      - name: Failure or cancellation cleanup
+        if: always()
+        run: supabase stop --project-id still-app --no-backup

@@ -17,7 +17,7 @@ function fixture(options: { paid?: boolean; refund?: boolean; patch?: (kind: str
     payment_intent: "pi_Fixture", created: Math.floor(started / 1000), status: options.paid ? "complete" : "open",
     payment_status: options.paid ? "paid" : "unpaid", url: options.paid ? null : `https://checkout.stripe.com/c/pay/${ID}` };
   const apply = (kind: string, value: Payload): Payload => options.patch?.(kind, value) ?? value;
-  const fetcher = (async (url: string | URL | Request, init: RequestInit = {}) => {
+  const fetcher = ((url: string | URL | Request, init: RequestInit = {}) => {
     const target = String(url);
     calls.push({ url: target, init });
     const product = apply("product", { object: "product", id: CONFIG.productId, livemode: true });
@@ -29,7 +29,7 @@ function fixture(options: { paid?: boolean; refund?: boolean; patch?: (kind: str
         payment_intent: "pi_Fixture", amount_refunded: options.refund ? 1087 : 0, refunded: options.refund ?? false }) :
       target.includes("/sessions?") ? { object: "list", url: "/v1/checkout/sessions", has_more: false, data: [apply("session", session)] } :
       target.includes("revenuecat.com") ? {} : apply("session", session);
-    return new Response(JSON.stringify(payload));
+    return Promise.resolve(new Response(JSON.stringify(payload)));
   }) as typeof fetch;
   return { client: new ManagedCheckout(CONFIG, fetcher), calls, started };
 }
