@@ -5,6 +5,9 @@ Firefox Add-ons, with real payments". Written 21 October 2026. Facts marked "ver
 on 21 October 2026; everything else says how to confirm it. Check each portal live before acting: a
 dated line here is not a claim of current state.
 
+The engineering work behind the gaps below, and the nine owner decisions D1 to D9 it waits on, are in
+the [V3 release enablement plan](../plans/2026-10-21-001-v3-release-enablement.md).
+
 Scope of the first V3 release (owner decision, 20 October 2026): Chrome desktop, Firefox desktop and
 the Apple apps (Safari on iPhone, iPad and Mac). Firefox on Android is deferred to a later update,
 not removed. Still Pro is twelve optional extras for a one-time $9.99 US-base lifetime price (D514),
@@ -62,12 +65,12 @@ before the phases named can finish. Closing them is Phase 0's main work.
 | Gap | What the repository shows | Blocks | State |
 |---|---|---|---|
 | G1. No production sales switch in the protected workflow | `supabase-production-deploy.yml` offers `qa-sandbox-sales-policy` (sandbox body only) and no production sales operation. Production sales are published only through the owner-only `product-policy-admin` route (the page in `apps/owner-admin`), which needs an owner on the server allowlist and an approved-build list that nothing fills yet (its README, "Approved builds (known gap)"). Decide the production path and land it. | 2.6 | Engineering, Owner |
-| G2. Production paid cutoff cannot be written | Migration 0016 refuses any cutoff snapshot, and `supabase/functions/product-policy-admin/cutoff.ts` holds `PAID_CUTOFF_SNAPSHOT = null`, so an activating production sales body answers `cutoff_required`. Owner question 6 (which features count as released free; a protected product id that is not `still-pro-v3`) is open for production. The sandbox used `still-free-v2` with Facebook Reels, Instagram Reels, TikTok and YouTube Shorts. Needs the owner's answer, then a reviewed migration plus the `cutoff.ts` change. | 2.6 | Owner, Engineering |
+| G2. Production paid cutoff content is undecided | On the protected-operation path (plan D1 default), the cutoff needs no migration and no `cutoff.ts` change: the sales operation writes its cutoff row directly inside its own transaction, as `scripts/backend/deploy/operations/qa-sandbox-sales-policy-on.sql` already does for the sandbox. Migration 0016's refusal of a cutoff snapshot and `PAID_CUTOFF_SNAPSHOT = null` in `supabase/functions/product-policy-admin/cutoff.ts` matter only if D1 picks the owner-page path. What remains is the content: owner question 6 (which features count as released free; a protected product id that is not `still-pro-v3`) is open for production (plan D2). The sandbox used `still-free-v2` with Facebook Reels, Instagram Reels, TikTok and YouTube Shorts. The answer is pinned in the production operation (plan PR-G). | 2.6 | Owner, Engineering |
 | G3. No protected path deploys production paid routes or writes their secrets | The workflow refuses arbitrary function lists; it deploys only the three analytics routes and the fixed `qa-sandbox-*` routes, and writes only analytics and `QA_STAGE_*` secrets. Production `product-policy`, `product-policy-admin`, `reconcile-entitlement`, `verify-apple-access`, `link-apple-access`, `create-web-checkout`, `revenuecat-webhook`, `sync-settings` and `export-user-data`, and their secrets (2.4), have no protected path. Add closed, reviewed operations following the QA operations' pattern. Never deploy them with the Supabase CLI from a checkout. | 2.3, 2.4, 4.5 | Engineering |
-| G4. Production web checkout is still the 2.x design | `packages/core/src/sync/backend-route-profile.ts` sends production checkout to `create-web-checkout` (a RevenueCat Web Purchase Link from `REVENUECAT_WEB_BILLING_CHECKOUT_URL`) with no completion route. The Stripe Managed Payments checkout, its Stripe webhook and the RevenueCat import exist only as `qa-sandbox-*` routes, which accept test-mode sessions only. Decide the production web path, then land the production routes and their secret names. | 3.3, 4.4 to 4.6, 8.4 | Owner, Engineering |
+| G4. Production web checkout is still the 2.x design | `packages/core/src/sync/backend-route-profile.ts` sends production checkout to `create-web-checkout` (a RevenueCat Web Purchase Link from `REVENUECAT_WEB_BILLING_CHECKOUT_URL`) with no completion route, and `packages/core/src/sync/profile.ts:39` turns managed checkout on only for the sandbox profile. The Stripe Managed Payments checkout, its Stripe webhook and the RevenueCat import exist only as `qa-sandbox-*` routes, which refuse live mode, and the purchase-operation ledger accepts sandbox rows only (migration 0021, around lines 40 to 46: `environment = 'sandbox'`, test-mode session ids). So the Stripe path needs a new migration (a production ledger), production routes and a client change (plan PR-E). The owner chooses in plan D3: option B, Stripe Managed Payments (the QA-tested design this runbook's Phase 4 assumes, the larger change), or option A, the RevenueCat Web Billing link (smaller, untested in V3, and not a merchant of record, so the owner handles sales tax). | 3.3, 4.4 to 4.6, 8.4 | Owner, Engineering |
 | G5. Store packages cannot carry production access-proof trust | `scripts/release/package.mjs` lists `VITE_ACCESS_ENVIRONMENT` and `VITE_ACCESS_PUBLIC_KEYS` as deliberately unpackaged ("store packages retain production empty-key defaults"). Decide how production public verification keys reach the Chrome, Firefox, Safari and Apple web-view builds, paired with the server's `ACCESS_PROOF_*` secrets. | 1.5, 1.6 | Engineering |
 | G6. The Chrome release workflow refuses a paid build | `scripts/release/chrome-package.mjs` stops with `paid-flag-on` when `PAID_TIER_ENABLED` is true. Change that guard for V3 in a reviewed PR, or upload by hand. | 6.4 | Engineering |
-| G7. V3 screens need modern sync on in configured builds | `runsV3Interface` in `packages/ext-chromium/wxt.config.ts` shows V3 screens on a configured build only with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`; `apps/apple/scripts/modern-sync-shipped` says `not-shipped`. Confirm and set both in the release PR. | 1.3 | Engineering |
+| G7. V3 screens need modern sync on in configured builds | `runsV3Interface` in `packages/ext-chromium/wxt.config.ts` shows V3 screens on a configured build only with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`, so the configured V3 store builds must set it. `apps/apple/scripts/modern-sync-shipped` says `not-shipped`; `release-env-guard.sh` (around line 125) accepts that without refusing, so the marker does not block the V3 archive today. Flipping it to `shipped` is a one-way commitment: every later archive must then keep modern sync on. Decide the flip in plan D7 and make it in the release PR. | 1.3 | Owner, Engineering |
 | G8. App Review buys in the sandbox | Apple reviewers buy with sandbox accounts against the production app. Confirm production `verify-apple-access` accepts an App Review sandbox transaction for `still_pro_v3`, or the review purchase fails. | 5.9 | Engineering |
 | G9. Which RevenueCat entitlement V3 uses | The release brief says attach the new products to `still_sync`. The code says otherwise: `ApplePurchaseCatalog.swift` gives `still_pro_v3` its own entitlement `still_pro_v3` ("so the historical entitlement can never be mistaken for a new purchase"), and `supabase/functions/_shared/revenuecat-access.ts` requires `entitlement_lookup_key` `still_pro_v3` for the new products and `still_sync` only for the historical one. This runbook follows the code. The owner and engineering confirm before Phase 3; changing it means a reviewed code change, not a dashboard choice. | 3.4 | Owner, Engineering |
 | G10. No read-only check shows production sales, cutoff or purchases | The read-only catalogue never prints production: DB-01 turns production rights, policy revisions and cutoff into a keyed digest, and rights are visible only for QA accounts. Add two reviewed checks (privacy-reviewed, closed SQL, same workflow): a production sales and cutoff summary, and a production purchase summary for one owner-registered label (right present, provider, active or revoked, keyed reference only). Working names below: PROD-01 and PROD-02. | V17, V66 to V69 | Engineering, Owner |
@@ -85,9 +88,10 @@ before the phases named can finish. Closing them is Phase 0's main work.
 - Undo: revert the PR before any package is built from it.
 
 **0.3 Owner decisions recorded** · Owner
-- The V3 marketing versions (`extension`, `apple`), the paid cutoff content (G2), the production web
-  path (G4), the entitlement (G9), Family Sharing for the IAP (5.2), store order (8.1) and iOS/macOS
-  phased release (5.8).
+- Plan decisions D1 to D9 (sales path, cutoff content, web path, sandbox purchases in review,
+  entitlement, public keys, modern-sync flip, PROD-02 privacy, exact 3.0 build strings), plus the V3
+  marketing versions, Family Sharing for the IAP (5.2), store order (8.1) and iOS/macOS phased
+  release (5.8).
 - V03: each recorded as a decision in the [V3 release record](history/v3/README.md).
 
 **0.4 Firefox store builds omit Android** · Done
@@ -120,7 +124,9 @@ before the phases named can finish. Closing them is Phase 0's main work.
 - Undo: versions only go up; a wrong number is fixed by a higher one.
 
 **1.3 Release configuration** · Engineering
-- Set `apps/apple/scripts/modern-sync-shipped` to `shipped` if G7 confirms.
+- Set `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` for every configured store build (G7). Set
+  `apps/apple/scripts/modern-sync-shipped` to `shipped` only if the owner approves it in plan D7: the
+  flip is one-way, and every later archive must keep modern sync on.
 - Public build values only, by name: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
   `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST`, `VITE_MODERN_SETTINGS_SYNC_ENABLED`, plus whatever G5 adds.
   Apple also needs `REVENUECAT_PUBLIC_API_KEY` from the production Apple app in RevenueCat (not Test
@@ -219,9 +225,10 @@ listed).
 **2.6 Paid cutoff and production sales on** · Owner, Owner approval (blocked by G1, G2)
 - Order: after Phases 3 and 4 and the cross-system check (V50 to V55), after QA purchase tests are
   finished, and before the Apple submission (reviewers must see Get Still Pro).
-- Where: the production path G1 lands. Body: `salesEnabled: true`; channels `apple` and `web`
-  enabled with offer `still-pro-v3`; approved builds only the 3.0 builds. The first activation writes
-  the one write-once cutoff (G2).
+- Where: the production path G1 lands (plan D1; by default a protected production sales operation,
+  plan PR-G). Body: `salesEnabled: true`; channels `apple` and `web`
+  enabled with offer `still-pro-v3`; approved builds only the 3.0 builds (plan D9). The first
+  activation writes the one write-once cutoff with the content the owner chose (G2, plan D2).
 - V16: engineering posts `{"namespace":"sales","environment":"production"}` to the public
   `product-policy` route (public anon key only; no secret) and reads the new revision, `salesEnabled`
   true, both offers `still-pro-v3`, and only 3.0 builds listed.
@@ -298,7 +305,7 @@ successful deliveries.
 | # | Request | Expect |
 |---|---|---|
 | V21 | `GET /v2/projects/{project_id}/apps` | The App Store app has bundle id `com.chartash.still`; note the Stripe app |
-| V22 | `GET /v2/projects/{project_id}/products` | `still_pro_v3` on each Apple app, one-time non-consumable; the Stripe product's store identifier equals the Stripe price id (V31) |
+| V22 | `GET /v2/projects/{project_id}/products` | `still_pro_v3` on each Apple app, one-time non-consumable; the Stripe product's store identifier equals the Stripe price id (V31). Also check the historical web product: if its store identifier is `still_sync_web` and it would go into `ACCESS_PROVIDER_PRODUCTS_JSON`, `revenuecat-access.ts` (around lines 57 to 60) rejects it, and with it the whole product list, so every purchase check answers unavailable. Leave it out of the list, or resolve it with engineering, before 2.4 |
 | V23 | `GET /v2/projects/{project_id}/entitlements` | `still_pro_v3` exists; `still_sync` still exists |
 | V24 | `GET /v2/projects/{project_id}/entitlements/{still_pro_v3 id}/products` | Exactly the new Apple and Stripe products |
 | V25 | `GET /v2/projects/{project_id}/entitlements/{still_sync id}/products` | The same historical products as before; nothing new |
