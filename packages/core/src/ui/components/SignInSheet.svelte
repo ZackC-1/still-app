@@ -20,6 +20,9 @@
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
+  // Where the current press and release on the dimmed layer landed (see the layer's markup).
+  let pressOnLayer = false;
+  let releaseOnLayer = false;
   // Firefox asks for an affirmative yes, not just an acknowledgement, so the checkbox gates its
   // Continue button. Sheet-local: it means nothing once the step is past.
   let agreedToShareEmail = $state(false);
@@ -102,172 +105,219 @@
   });
 </script>
 
-<button
-  type="button"
-  class="scrim"
-  aria-label={STRINGS.auth.dismissLabel}
-  tabindex="-1"
-  onclick={onDismiss}
-></button>
+<!-- The dimmed layer holds the backdrop button and the panel side by side, so the button covers
+     only the dimmed band above the panel and never sits underneath it (ISS-0114): a pointer, Voice
+     Control or an automated click aimed at the button's middle reaches it. Beside a narrow panel on a
+     wide page the layer itself is the dimming, and a click there closes the sheet as before; the
+     button stays the one named control. Because the panel now sits inside the layer, a drag that
+     starts in the panel and ends on the dimming (or the reverse) is delivered as a click on the
+     layer itself, so the layer closes only when both the press and the release landed on it:
+     selecting a typed address by dragging past the panel's edge must not throw it away. -->
 <div
-  class="sheet"
-  bind:this={sheet}
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="still-signin-title"
-  tabindex="-1"
+  class="layer"
+  role="presentation"
+  onpointerdown={(event) => {
+    pressOnLayer = event.target === event.currentTarget;
+    releaseOnLayer = false;
+  }}
+  onpointerup={(event) => {
+    releaseOnLayer = event.target === event.currentTarget;
+  }}
+  onclick={(event) => {
+    const outside = pressOnLayer && releaseOnLayer && event.target === event.currentTarget;
+    pressOnLayer = false;
+    releaseOnLayer = false;
+    if (outside) onDismiss();
+  }}
 >
-  <div class="grip" aria-hidden="true"></div>
-  <!-- The dialog is named by its own heading rather than by a fixed string, because the heading
-       changes on the consent step. A screen reader must not announce "sign in" on the one screen
-       that is asking a question about an email address. -->
-  <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}</h2>
-  <p class="body">
+  <button
+    type="button"
+    class="scrim"
+    aria-label={STRINGS.auth.dismissLabel}
+    tabindex="-1"
+    onclick={onDismiss}
+  ></button>
+  <div
+    class="sheet"
+    bind:this={sheet}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="still-signin-title"
+    tabindex="-1"
+  >
+    <div class="grip" aria-hidden="true"></div>
+    <!-- The dialog is named by its own heading rather than by a fixed string, because the heading
+         changes on the consent step. A screen reader must not announce "sign in" on the one screen
+         that is asking a question about an email address. -->
+    <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}</h2>
+    <p class="body">
+      {#if c.needsEmailConsent}
+        {STRINGS.emailConsent.body}
+      {:else}
+        {inCodeEntry ? STRINGS.codeAuth.prompt : (prompt ?? STRINGS.auth.prompt)}
+      {/if}
+    </p>
+    {#if note}<p class="body">{note}</p>{/if}
+
     {#if c.needsEmailConsent}
-      {STRINGS.emailConsent.body}
+      <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
+           point: the email field does not exist yet, so no address can be typed, pasted, or sent. -->
+      {#if c.emailConsent === "opt-in"}
+        <label class="agree">
+          <input type="checkbox" bind:checked={agreedToShareEmail} />
+          <span>{STRINGS.emailConsent.agree}</span>
+        </label>
+      {/if}
+      <button
+        class="primary"
+        disabled={!consentSatisfied}
+        onclick={() => c.acceptEmailConsent()}
+      >
+        {STRINGS.emailConsent.proceed}
+      </button>
+    {:else if inCodeEntry}
+      <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
+      <label class="field-label" for="still-code"
+        >{STRINGS.codeAuth.codeLabel}</label
+      >
+      <input
+        id="still-code"
+        class="code"
+        name="code"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        autocomplete="one-time-code"
+        spellcheck="false"
+        maxlength="6"
+        bind:value={code}
+        oninput={onCodeInput}
+        aria-label={STRINGS.codeAuth.codeLabel}
+      />
+      <button
+        class="primary"
+        disabled={code.length !== 6 ||
+          c.authFlow === "verifying" ||
+          c.verifyBlockRemaining > 0}
+        onclick={() => c.verifyCode(code)}
+      >
+        {c.authFlow === "verifying"
+          ? STRINGS.codeAuth.verifying
+          : STRINGS.codeAuth.verify}
+      </button>
+      {#if codeErrorLine}<p class="error" role="status">{codeErrorLine}</p>{/if}
+      <button
+        class="link"
+        disabled={resendWaitSeconds > 0}
+        onclick={() => c.resendCode()}
+      >
+        {resendWaitSeconds > 0
+          ? `${STRINGS.codeAuth.resendWait} ${resendWaitSeconds}s`
+          : STRINGS.codeAuth.resend}
+      </button>
+      <button class="link" onclick={() => c.useDifferentEmail()}>
+        {STRINGS.codeAuth.differentEmail}
+      </button>
+    {:else if c.authFlow === "sent"}
+      <p class="sent">{STRINGS.auth.sent}</p>
+      <button class="link" onclick={() => c.signIn(email)}
+        >{STRINGS.auth.resend}</button
+      >
     {:else}
-      {inCodeEntry ? STRINGS.codeAuth.prompt : (prompt ?? STRINGS.auth.prompt)}
-    {/if}
-  </p>
-  {#if note}<p class="body">{note}</p>{/if}
-
-  {#if c.needsEmailConsent}
-    <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
-         point: the email field does not exist yet, so no address can be typed, pasted, or sent. -->
-    {#if c.emailConsent === "opt-in"}
-      <label class="agree">
-        <input type="checkbox" bind:checked={agreedToShareEmail} />
-        <span>{STRINGS.emailConsent.agree}</span>
-      </label>
-    {/if}
-    <button
-      class="primary"
-      disabled={!consentSatisfied}
-      onclick={() => c.acceptEmailConsent()}
-    >
-      {STRINGS.emailConsent.proceed}
-    </button>
-  {:else if inCodeEntry}
-    <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
-    <label class="field-label" for="still-code"
-      >{STRINGS.codeAuth.codeLabel}</label
-    >
-    <input
-      id="still-code"
-      class="code"
-      name="code"
-      type="text"
-      inputmode="numeric"
-      pattern="[0-9]*"
-      autocomplete="one-time-code"
-      spellcheck="false"
-      maxlength="6"
-      bind:value={code}
-      oninput={onCodeInput}
-      aria-label={STRINGS.codeAuth.codeLabel}
-    />
-    <button
-      class="primary"
-      disabled={code.length !== 6 ||
-        c.authFlow === "verifying" ||
-        c.verifyBlockRemaining > 0}
-      onclick={() => c.verifyCode(code)}
-    >
-      {c.authFlow === "verifying"
-        ? STRINGS.codeAuth.verifying
-        : STRINGS.codeAuth.verify}
-    </button>
-    {#if codeErrorLine}<p class="error" role="status">{codeErrorLine}</p>{/if}
-    <button
-      class="link"
-      disabled={resendWaitSeconds > 0}
-      onclick={() => c.resendCode()}
-    >
-      {resendWaitSeconds > 0
-        ? `${STRINGS.codeAuth.resendWait} ${resendWaitSeconds}s`
-        : STRINGS.codeAuth.resend}
-    </button>
-    <button class="link" onclick={() => c.useDifferentEmail()}>
-      {STRINGS.codeAuth.differentEmail}
-    </button>
-  {:else if c.authFlow === "sent"}
-    <p class="sent">{STRINGS.auth.sent}</p>
-    <button class="link" onclick={() => c.signIn(email)}
-      >{STRINGS.auth.resend}</button
-    >
-  {:else}
-    <label class="field-label" for="still-email"
-      >{STRINGS.auth.emailLabel}</label
-    >
-    <input
-      id="still-email"
-      class="email"
-      type="email"
-      name="email"
-      autocomplete="email"
-      autocapitalize="none"
-      spellcheck="false"
-      bind:value={email}
-      placeholder={STRINGS.auth.emailPlaceholder}
-      aria-invalid={showEmailHint}
-      aria-describedby={showEmailHint ? "still-email-hint" : undefined}
-    />
-    <button
-      class="primary"
-      disabled={!emailValid ||
-        c.authFlow === "sending" ||
-        c.sendBlockRemaining > 0}
-      onclick={() => c.signIn(email)}
-    >
-      {c.authFlow === "sending"
-        ? STRINGS.auth.sending
-        : c.canUseCode
-          ? STRINGS.codeAuth.send
-          : STRINGS.auth.send}
-    </button>
-    {#if showEmailHint}
-      <p id="still-email-hint" class="hint" role="status">
-        {STRINGS.auth.invalidEmail}
-      </p>
-    {/if}
-    {#if c.authFlow === "error"}
-      <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
-           A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
-           because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
-      <p class="error" role="status">
-        {c.sendBlockRemaining > 0
-          ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+      <label class="field-label" for="still-email"
+        >{STRINGS.auth.emailLabel}</label
+      >
+      <input
+        id="still-email"
+        class="email"
+        type="email"
+        name="email"
+        autocomplete="email"
+        autocapitalize="none"
+        spellcheck="false"
+        bind:value={email}
+        placeholder={STRINGS.auth.emailPlaceholder}
+        aria-invalid={showEmailHint}
+        aria-describedby={showEmailHint ? "still-email-hint" : undefined}
+      />
+      <button
+        class="primary"
+        disabled={!emailValid ||
+          c.authFlow === "sending" ||
+          c.sendBlockRemaining > 0}
+        onclick={() => c.signIn(email)}
+      >
+        {c.authFlow === "sending"
+          ? STRINGS.auth.sending
           : c.canUseCode
-            ? STRINGS.codeAuth.sendError
-            : (c.authError ?? STRINGS.auth.error)}
-      </p>
+            ? STRINGS.codeAuth.send
+            : STRINGS.auth.send}
+      </button>
+      {#if showEmailHint}
+        <p id="still-email-hint" class="hint" role="status">
+          {STRINGS.auth.invalidEmail}
+        </p>
+      {/if}
+      {#if c.authFlow === "error"}
+        <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
+             A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
+             because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
+        <p class="error" role="status">
+          {c.sendBlockRemaining > 0
+            ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+            : c.canUseCode
+              ? STRINGS.codeAuth.sendError
+              : (c.authError ?? STRINGS.auth.error)}
+        </p>
+      {/if}
     {/if}
-  {/if}
 
-  {#if skip}
-    <button class="link" onclick={skip.onSkip}>{skip.label}</button>
-  {/if}
+    {#if skip}
+      <button class="link" onclick={skip.onSkip}>{skip.label}</button>
+    {/if}
 
-  <button class="dismiss" onclick={onDismiss}>
-    {c.needsEmailConsent && c.emailConsent === "opt-in"
-      ? STRINGS.emailConsent.notNow
-      : STRINGS.auth.cancel}
-  </button>
+    <button class="dismiss" onclick={onDismiss}>
+      {c.needsEmailConsent && c.emailConsent === "opt-in"
+        ? STRINGS.emailConsent.notNow
+        : STRINGS.auth.cancel}
+    </button>
+  </div>
 </div>
 
 <style>
-  .scrim {
+  .layer {
     position: fixed;
     inset: 0;
+    display: flex;
+    flex-direction: column;
     background: rgba(11, 20, 48, 0.45);
-    border: 0;
-    padding: 0;
     z-index: 100;
   }
+  /* Grows to fill everything above the panel; the panel's own max-block-size leaves it at least
+     --space-3 tall even when the panel is as tall as the page allows. The V3 pages also load the
+     design system's global .scrim and .sheet (fixed to the whole page), so both rules here state
+     their position outright rather than inherit that layout. */
+  .scrim {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    flex: 1 0 var(--space-3);
+    inline-size: 100%;
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  /* Inward: the band touches the page's edges, where an outward ring would be clipped. */
+  .scrim:focus-visible {
+    outline: 2px solid var(--focus-ring, var(--still-blue));
+    outline-offset: -4px;
+  }
   .sheet {
-    position: fixed;
-    inset-block-end: 0;
-    inset-inline: 0;
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    flex: 0 1 auto;
+    min-block-size: 0;
     margin-inline: auto;
     inline-size: min(100%, var(--sheet-max-inline-size, 420px));
     /* vh fallback for older WebKit (iOS 15.0–15.3) that drops the dvh declaration below. */
@@ -282,7 +332,6 @@
     gap: var(--space-3);
     overflow-y: auto;
     overscroll-behavior: contain;
-    z-index: 101;
   }
   .grip {
     align-self: center;
