@@ -252,7 +252,7 @@ export const STRINGS = {
     unreachable:
       "Your settings are saved on this device. Still will sync them when it reconnects.",
     // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`.
-    failed: "Sync didn't finish. Your settings are saved on this device.",
+    failed: "Sync didn't finish. Settings are saved on this device.",
     tryAgain: "Try again",
     firstSync: "Your settings are now the same across your signed-in devices.",
   },

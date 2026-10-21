@@ -185,7 +185,7 @@
           <span class="b"
             >{signedIn
               ? `Signed in as ${sync.account!.address}.`
-              : "Free. Keep your settings the same across every supported device and browser."}</span
+              : "Sync settings across devices and browsers. Free."}</span
           >
           {#if !signedIn}<div class="a">
               <button

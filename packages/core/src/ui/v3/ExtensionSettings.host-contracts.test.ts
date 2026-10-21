@@ -64,7 +64,7 @@ describe("options host leaf contracts", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
     expect(
       screen.queryByText(
-        "Free. Keep your settings the same across every supported device and browser.",
+        "Sync settings across devices and browsers. Free.",
       ),
     ).toBeNull();
     expect(screen.getByText("Sync did not finish.")).toBeVisible();

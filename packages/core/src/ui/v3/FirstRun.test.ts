@@ -184,7 +184,7 @@ describe("controlled extension first-run", () => {
       expect(screen.queryByText(/Signed in as/)).toBeNull();
       expect(
         screen.getByText(
-          "Free. Keep your settings the same across every supported device and browser.",
+          "Sync settings across devices and browsers. Free.",
         ),
       ).toBeVisible();
       view.unmount();

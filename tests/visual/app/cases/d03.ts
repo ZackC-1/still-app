@@ -284,7 +284,7 @@ const CARD_RENDERS: Record<
           status: {
             tone: "failed",
             text: "Sync didn't finish.",
-            detail: "Your settings are saved on this device.",
+            detail: "Settings are saved on this device.",
             actionLabel: "Try again",
             onAction: noop,
           },
