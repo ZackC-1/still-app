@@ -135,9 +135,9 @@ with the code that proves it whenever practical.
   $9.99 one-time lifetime, approved in D514) is the only separately approved purchase, and it
   must never gate the free outcome. Both paid-tier flags remain disabled in shipped 2.x builds;
   preserve RevenueCat identity, historical entitlements, and purchase infrastructure.
-- Mobile support means websites opened in Safari on iPhone and iPad; from the V3 release (V3 builds
-  only), also in Firefox on Android. Still does not block short-form video inside native YouTube,
-  Instagram, Facebook, or TikTok apps.
+- Mobile support means websites opened in Safari on iPhone and iPad. Firefox on Android is deferred
+  to a later update; its code paths stay, but no release copy promises it. Still does not block
+  short-form video inside native YouTube, Instagram, Facebook, or TikTok apps.
 - Say "every supported surface," never "everywhere."
 - Product analytics follows [ADR 0004](docs/adr/0004-first-party-usage-analytics.md): a closed event
   schema with no pages, videos or searches, no fingerprinting, a per-device off switch, never used
