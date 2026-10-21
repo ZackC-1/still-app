@@ -77,6 +77,27 @@ describe("default-on usage permission (Chrome and the Apple app)", () => {
     expect(await usage.permission()).toEqual(a); // stable afterwards: same origin, same ids
   });
 
+  it("reports the stored choice without granting: off for every shape a read never grants (ISS-0111)", async () => {
+    const usage = createDefaultOnUsage({ store: memory() });
+    const granted = (await usage.permission())!;
+    const choice = async (value: unknown) => {
+      const kv = memory(value === undefined ? {} : { [CONSENT_KEY]: value });
+      const answer = await createDefaultOnUsage({ store: kv }).stored();
+      expect(kv.writes).toBe(0);
+      return answer;
+    };
+    expect(await choice(false)).toBe("off");
+    expect(await choice({ ...granted, state: "stopped", generation: 2 })).toBe("off");
+    expect(await choice({ ...granted, state: "stopped", version: "0".repeat(64) })).toBe("off");
+    expect(await choice({ unrecognised: true })).toBe("off");
+    expect(await choice(granted)).toBe("on");
+    // No choice yet is not known either way (the first read grants it); nor is an unreadable store.
+    expect(await choice(undefined)).toBeNull();
+    expect(await choice(true)).toBeNull();
+    const unreadable = { get: async () => Promise.reject(new Error("unreadable")), set: async () => undefined };
+    expect(await createDefaultOnUsage({ store: unreadable }).stored()).toBeNull();
+  });
+
   it("keeps a 2.1 choice: the 2.1 default on stays on, a 2.1 off stays off", async () => {
     const on = memory({ [CONSENT_KEY]: true });
     expect(await createDefaultOnUsage({ store: on }).permission()).toMatchObject({ state: "granted" });

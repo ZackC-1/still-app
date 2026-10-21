@@ -85,6 +85,11 @@ export interface DefaultOnUsage {
   /** The settings switch: on grants (a fresh origin after a stop), off stops. On Firefox, on takes
    * effect only if the page's permission request was accepted, and off also withdraws it. */
   commit(enabled: boolean): Promise<void>;
+  /** The record as stored, read without granting, in turn with every other read and change: "on"
+   * (a grant), "off" (a stop, a 2.1 off, or anything a read never grants), or null when unknown
+   * (unreadable, or no choice yet, which a read turns on). The record alone: Firefox's permission
+   * is not consulted (only the Apple app asks). */
+  stored(): Promise<"on" | "off" | null>;
 }
 
 /** Firefox: Still's own off, kept while Firefox still reports the permission granted (it refused or
@@ -153,9 +158,20 @@ export function createDefaultOnUsage(options: DefaultOnUsageOptions): DefaultOnU
     return null;
   };
 
+  const storedChoice = async (): Promise<"on" | "off" | null> => {
+    const raw = await read(CONSENT_KEY);
+    if (!raw) return null; // unreadable
+    const permission = readAnalyticsPermission(raw.value);
+    if (permission) return permission.state === "granted" ? "on" : "off";
+    // No choice yet: on by default once a read grants it, so not known to be either.
+    if (raw.value === null || raw.value === undefined || raw.value === true) return null;
+    return "off"; // a 2.1 off, or anything unrecognised: settle never grants it
+  };
+
   const permission = () => run(settle).catch(() => null);
   return {
     permission,
+    stored: () => run(storedChoice).catch(() => null),
     consent: async () => (await permission()) !== null,
     commit: (enabled) =>
       run(async () => {
@@ -327,8 +343,7 @@ export function defaultOnAppleAnalytics(
  * main.ts chooses this factory only in V3 builds (a choice that folds away in 2.x builds).
  */
 export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): AppAnalytics {
-  const consentStore = createAppleConsentStore(deps.bridge);
-  const usage = createDefaultOnUsage({ store: consentStore });
+  const usage = createDefaultOnUsage({ store: createAppleConsentStore(deps.bridge) });
   const port = () => (deps.win ?? (globalThis as unknown as StillBridgeWindow)).webkit?.messageHandlers?.still ?? null;
 
   // ── The identity the Safari extension follows ──
@@ -397,17 +412,11 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
       : undefined,
   });
   const ui = app.ui;
-  /** The App Group record as stored, without granting: "on", "off", or null when unknown. */
-  const storedState = async (): Promise<"on" | "off" | null> => {
-    try {
-      const value = await consentStore.get(CONSENT_KEY);
-      if (value === false) return "off";
-      const permission = readAnalyticsPermission(value);
-      return permission?.state === "stopped" ? "off" : permission?.state === "granted" ? "on" : null;
-    } catch {
-      return null;
-    }
-  };
+  /** The App Group record as stored, without granting: "on", "off", or null when unknown. Read in
+   * turn with the shared module's own reads (ISS-0111): the native bridge answers only the latest
+   * of overlapping permission reads, so a read made beside the launch's reads came back unknown
+   * and hid the switch of a device whose sharing is off. */
+  const storedState = usage.stored;
   /** The latest account answer from the host: an account, nobody, or not known yet. */
   let account: string | null | undefined;
   const thenSync = async (work: Promise<void> | void): Promise<void> => {
@@ -445,7 +454,13 @@ export function createDefaultOnAppAnalytics(deps: DefaultOnAppAnalyticsDeps): Ap
         const state = await ui.sharing!.call(ui);
         // No one-time notice in V3 (owner, 2026-10-12; ADR 0004 "One usage-data control"): the
         // switch is the one control, whatever the acknowledgement record says.
-        if (state) return { enabled: state.enabled, noticeNeeded: false };
+        if (state?.enabled) return { enabled: true, noticeNeeded: false };
+        if (state) {
+          // The client reads off, but the App Group still grants (an off native refused): the
+          // Safari extension keeps reporting, so never show off; unknown keeps what is shown.
+          // A stored off, or a read that fails, stays off.
+          return (await storedState()) === "on" ? null : { enabled: false, noticeNeeded: false };
+        }
         if (!analyticsConfigured(deps.config)) return null;
         // Off on this device shows the switch (off); anything else unknown hides it, as before.
         return (await storedState()) === "off" ? { enabled: false, noticeNeeded: false } : null;

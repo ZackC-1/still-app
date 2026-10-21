@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import { SUPPORT_EMAIL } from "../config.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CheckoutReturn from "./CheckoutReturn.svelte";
 import type { CheckoutReturnProps } from "./checkout-return-presentation.js";
@@ -326,8 +327,10 @@ describe("controlled D20 checkout return", () => {
       privacy: { requestId: "old", verified: true, onRequest: vi.fn() },
     });
     render(CheckoutReturn, { props });
+    expect(screen.getByText(SUPPORT_EMAIL)).toBeVisible();
     const support = screen.getByRole("button", { name: "Contact support" }),
       privacy = screen.getByRole("button", { name: "Privacy policy" });
+    expect(support.nextElementSibling?.textContent).toBe(SUPPORT_EMAIL);
     expect(support).toBeDisabled();
     expect(privacy).toBeDisabled();
     await fireEvent.click(privacy);
