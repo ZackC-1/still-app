@@ -14,7 +14,7 @@ import type { MobilePopupProps } from "./mobile-presentation.js";
 // Chrome or Firefox), Still says plainly that it cannot work on its sites and offers Allow, at the
 // top of the popup and the settings page.
 
-const TITLE = "Still can't work on these sites";
+const TITLE = "Still can't block distractions yet.";
 const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";
 
 describe("the site access warning card", () => {
@@ -24,7 +24,8 @@ describe("the site access warning card", () => {
     const card = screen.getByRole("region", { name: TITLE });
     expect(within(card).getByRole("heading", { name: TITLE })).toBeVisible();
     expect(within(card).getByText(BODY)).toBeVisible();
-    expect(card.textContent).not.toMatch(/everywhere|\byet\b/i);
+    // The owner chose "yet" for the heading (canvas review, 21 Oct 2026); "everywhere" stays banned.
+    expect(card.textContent).not.toMatch(/everywhere/i);
     await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
     expect(onAllow).toHaveBeenCalledOnce();
   });
@@ -33,7 +34,7 @@ describe("the site access warning card", () => {
     const view = render(SiteAccessCard, {
       props: { state: "needed", browser: "Firefox", sites: ["YouTube"], onAllow: vi.fn() },
     });
-    expect(screen.getByRole("heading", { name: "Still can't work on this site" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Still can't block distractions yet." })).toBeVisible();
     expect(screen.getByText("Still needs permission to work on YouTube.")).toBeVisible();
     view.unmount();
     render(SiteAccessCard, {

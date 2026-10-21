@@ -45,7 +45,7 @@ const TITLES = {
 } as const;
 /** Anything that would be a purchase, price, paywall or app hand-off on any host. */
 const OFFER =
-  /Purchase Still Pro|Get Still Pro|See Still Pro in the Still app|Hide more on|One-time purchase|Buy|Fixture localized price|Payment is handled|Sign in to buy/;
+  /Purchase Still Pro|Get Still Pro|See Still Pro in the Still app|Even fewer distractions|One-time purchase|Buy|Fixture localized price|Payment is handled|Sign in to buy/;
 
 async function savedCache() {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);

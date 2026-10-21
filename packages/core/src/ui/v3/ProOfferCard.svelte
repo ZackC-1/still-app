@@ -97,7 +97,7 @@
       </p>{/if}
     {#if controls.length}<StaticProControlList {controls} />{/if}
     {#if valueLed}
-      <p class="card-body">Hide more of what distracts you.</p>
+      <p class="card-body">Remove more of what distracts you.</p>
       <ul class="value-list">
         {#each value as row (row.service)}
           <li>
@@ -122,7 +122,6 @@
       >
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
-      {#if checkoutPriced}<p class="caption">The price is shown at checkout.</p>{/if}
     {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success"}
       <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. It stays
         through a Restore, which cannot change it. -->

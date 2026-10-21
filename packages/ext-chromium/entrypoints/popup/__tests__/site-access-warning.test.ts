@@ -21,7 +21,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const TITLE = "Still can't work on these sites";
+const TITLE = "Still can't block distractions yet.";
 const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
 const RELOAD = "Reload open tabs to apply.";
 const FOUR_SITES = [
@@ -141,7 +141,7 @@ describe("naming only the missing sites", () => {
     );
     const { props } = await popupFixture();
     render(InvitedDesktopPopup, { props });
-    const card = await screen.findByRole("region", { name: "Still can't work on this site" });
+    const card = await screen.findByRole("region", { name: "Still can't block distractions yet." });
     expect(await within(card).findByText("Still needs permission to work on YouTube.")).toBeTruthy();
     // Allow still asks for the four declared sites; the browser prompts only for the missing one.
     await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));

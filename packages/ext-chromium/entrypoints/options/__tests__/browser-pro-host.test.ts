@@ -153,7 +153,7 @@ describe("paid-tier browser Still Pro card", () => {
     render(OptionsApp);
     const card = await region();
     await within(card).findByRole("button", { name: "Get Still Pro" });
-    expect(within(card).getByText("The price is shown at checkout.")).toBeTruthy();
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(/\$|9\.99|1\.99/);
     const actions = f.actions();
     // The access read that shows Buy comes after the page-open reconcile, and the Buy question
