@@ -328,6 +328,9 @@ describe("controlled D20 checkout return", () => {
     });
     render(CheckoutReturn, { props });
     expect(screen.getByText(SUPPORT_EMAIL)).toBeVisible();
+    // ISS-0112: one selectable unit (user-select: all), scoped to the address alone.
+    expect(screen.getByText(SUPPORT_EMAIL)).toHaveClass("support-address");
+    expect(document.querySelectorAll(".support-address")).toHaveLength(1);
     const support = screen.getByRole("button", { name: "Contact support" }),
       privacy = screen.getByRole("button", { name: "Privacy policy" });
     expect(support.nextElementSibling?.textContent).toBe(SUPPORT_EMAIL);

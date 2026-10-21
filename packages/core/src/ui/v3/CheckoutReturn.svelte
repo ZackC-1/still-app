@@ -146,7 +146,7 @@
           disabled={!available(props.support)}
           onclick={support}>Contact support</button
         >
-        <span class="muted">{SUPPORT_EMAIL}</span>
+        <span class="muted support-address">{SUPPORT_EMAIL}</span>
       </span>
       <button
         type="button"
