@@ -789,6 +789,23 @@ export class AnalyticsClient {
     });
   }
 
+  /** Whether a sign-out confirmed now would let go of nobody: no one is reported as, no hold is in
+   * force (in memory or the one saved before a restart) and no sign-in is being confirmed. False
+   * when the state cannot be read. A host may then re-observe the event that asked for the
+   * confirmation (Safari, ISS-0115); anything else stays fenced. */
+  lettingGoOfNobody(): Promise<boolean> {
+    return this.run(async () => {
+      const state = await this.read();
+      return (
+        !!state &&
+        state.userId === null &&
+        this.heldNow(state) === null &&
+        this.heldAccount === null &&
+        (this.pending?.account ?? null) === null
+      );
+    });
+  }
+
   /** The account this install reports as, or null (also when the state cannot be read: work that
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {

@@ -2,7 +2,7 @@ import { TEST_PERMISSION, TEST_PRIVACY, TEST_SUBJECTS, testSubjectFor } from "./
 import type { SubjectDeps } from "../extension-host.js";
 import { createStoredConsent, type AnalyticsPermission } from "../consent.js";
 import { describe, it, expect, vi } from "vitest";
-import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
+import { LAUNCH_ACCOUNT_WAIT_MS, createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
 import { QUEUE_KEY, STATE_KEY } from "../client.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 import type { AnalyticsContextReply } from "../../native/bridge.js";
@@ -601,17 +601,104 @@ describe("Apple launch attribution comes first", () => {
       daily: {},
       anonId: null,
     }; // saved by an earlier launch
-    await app.start(); // records the update with no person yet
-    expect(events().filter((e) => e.event === "updated")).toHaveLength(1); // waiting, no person
-    await app.accountAbsent(); // the launch finds no session
+    vi.useFakeTimers();
+    try {
+      const launched = app.start();
+      // The session check has not answered within the launch's wait (ISS-0116): the launch records
+      // the update with no person yet.
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS);
+      await launched;
+      expect(events().filter((e) => e.event === "updated")).toHaveLength(1); // waiting, no person
+      await app.accountAbsent(); // the launch finds no session
+      await vi.advanceTimersByTimeAsync(20);
+      // Someone was signed in here and this launch's use waited with no person: it may be theirs, so
+      // it is dropped with them rather than given a fresh anonymous id (U5-W2).
+      expect(events().filter((e) => e.event === "updated")).toEqual([]);
+      expect(JSON.stringify(events())).not.toContain(U1);
+      app.ui.track("opened", { where: "app" }); // use after the launch knows: signed out
+      await vi.advanceTimersByTimeAsync(10);
+      expect(events().find((e) => e.event === "opened")?.properties.signed_in).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ISS-0116: a signed-in launch whose identity request outlasts the wait is held for that account, then sent as it", async () => {
+    const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    const subjects: SubjectDeps = {
+      issue: async (_body, _signal, account) => {
+        await slow; // the server takes longer than the launch waits
+        return { state: "active", subject: testSubjectFor(account) };
+      },
+      onStopped: async () => {},
+    };
+    const { app, events, store } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true, subjects });
+    store.data[STATE_KEY] = {
+      userId: testSubjectFor(U2),
+      identifiedAs: testSubjectFor(U2),
+      daily: {},
+      anonId: null,
+    }; // an earlier account, saved by an earlier launch
+    const launch = () => events().filter((e) => ["updated", "opened", "active"].includes(e.event));
+    // Timers are fake; the storage and crypto work in between is real, so it is let run.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const settled = async () => {
+      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    try {
+      const launched = app.start();
+      await settled();
+      const identified = app.identifyAccount(U1); // the session check lands mid-launch
+      await settled();
+      expect(launch()).toEqual([]); // the launch is still waiting for the account answer
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS);
+      await settled();
+      await launched;
+      // Observed under the account's hold: waiting for its identity, attributed to no one yet.
+      expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
+      expect(launch().every((e) => (e as { attributeLater?: boolean }).attributeLater === true)).toBe(true);
+      expect(launch().some((e) => "distinct_id" in e.properties)).toBe(false);
+      release();
+      await identified;
+      await settled();
+      // The identity continued the hold (ISS-0108): the launch goes to it, as signed-in use.
+      expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
+      for (const e of launch()) {
+        expect((e as { attributeLater?: boolean }).attributeLater).toBeUndefined();
+        expect(e.properties.distinct_id).toBe(testSubjectFor(U1));
+        expect(e.properties.signed_in).toBe(true);
+      }
+      const all = JSON.stringify(events());
+      expect(all).not.toContain(U1);
+      expect(all).not.toContain(testSubjectFor(U2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ISS-0116: a launch waits for the session check, so its events are recorded as signed-out use, never the earlier account's", async () => {
+    const { app, events, store } = setup(
+      { previousVersion: "2.0.0", created: false },
+      { holdAccount: true },
+    );
+    store.data[STATE_KEY] = {
+      userId: U1,
+      identifiedAs: U1,
+      daily: {},
+      anonId: null,
+    }; // saved by an earlier launch
+    const launched = app.start();
     await new Promise((r) => setTimeout(r, 20));
-    // Someone was signed in here and this launch's use waited with no person: it may be theirs, so
-    // it is dropped with them rather than given a fresh anonymous id (U5-W2).
-    expect(events().filter((e) => e.event === "updated")).toEqual([]);
+    expect(events().filter((e) => e.event === "updated")).toEqual([]); // nothing observed yet
+    await app.accountAbsent(); // the launch finds no session
+    await launched;
+    await new Promise((r) => setTimeout(r, 20));
+    const launch = events().filter((e) => ["updated", "opened", "active"].includes(e.event));
+    expect(launch.map((e) => e.event)).toEqual(["updated", "opened", "active"]);
+    expect(launch.every((e) => e.properties.signed_in === false)).toBe(true);
     expect(JSON.stringify(events())).not.toContain(U1);
-    app.ui.track("opened", { where: "app" }); // use after the launch knows: signed out
-    await new Promise((r) => setTimeout(r, 10));
-    expect(events().find((e) => e.event === "opened")?.properties.signed_in).toBe(false);
   });
 });
 

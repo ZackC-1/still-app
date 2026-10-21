@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { createAppAnalytics } from "../apple-app.js";
+import { LAUNCH_ACCOUNT_WAIT_MS, createAppAnalytics } from "../apple-app.js";
 import { AnalyticsClient, QUEUE_KEY, STATE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
 import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
@@ -598,5 +598,69 @@ describe("ISS-0111: a device whose sharing is off keeps its switch at every laun
     await t.app.start();
     await c.refreshUsageSharing(); // what main.ts does once start() settles
     expect(c.usageSharing).toBe(false);
+  });
+});
+
+describe("ISS-0116: the launch's account answer never costs the launch its events", () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  it("signed out with sharing on: opened and active are recorded wherever the session check lands", async () => {
+    const lost: string[] = [];
+    // Native answers in a later task, so the launch takes several turns; the session check (no
+    // session) lands at each of them in turn, as main.ts can order it (start() is not awaited).
+    for (let delay = 0; delay < 24; delay += 1) {
+      const earlier = setup();
+      earlier.native.async = true;
+      await launch(earlier);
+      for (let i = 0; i < 5; i += 1) await tick();
+      // The relaunch (a later day: nothing marked today yet), sharing on, nobody signed in.
+      const t = setup(undefined, true, undefined, { host: earlier, store: earlier.store });
+      t.store.data[QUEUE_KEY] = [];
+      const state = t.store.data[STATE_KEY] as { daily: Record<string, string> };
+      t.store.data[STATE_KEY] = { ...state, daily: { "once:installed": "done", "once:app_opened": "done" } };
+      void t.app.ui.sharing!(); // the controller's first switch read, beside the launch
+      const launched = t.app.start();
+      for (let i = 0; i < delay; i += 1) await tick();
+      await t.app.accountAbsent();
+      await launched;
+      for (let i = 0; i < 20; i += 1) await tick();
+      const recorded = [...t.sent(), ...t.queue()]; // queued ones go out with the next flush
+      if (!recorded.includes("opened") || !recorded.includes("active"))
+        lost.push(`${delay}: ${recorded.join(", ") || "nothing"}`);
+    }
+    expect(lost).toEqual([]);
+  }, 30_000);
+
+  it("a session read that never answers costs the launch only the wait: opened and active are recorded, and the switch is read again", async () => {
+    // Timers are fake; the native and crypto work in between is real, so it is let run (setImmediate).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const settled = async () => {
+      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    try {
+      const t = setup();
+      const { c } = makeController({ analytics: t.app.ui });
+      let done = false;
+      // main.ts: start().finally(refreshUsageSwitch). The session read failed, so neither
+      // identifyAccount nor accountAbsent is ever called.
+      const launched = t.app
+        .start()
+        .finally(() => c.refreshUsageSharing())
+        .then(() => void (done = true));
+      await settled();
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS - 1);
+      await settled();
+      expect(done).toBe(false);
+      expect(t.queue()).toEqual([]); // still waiting for the account answer
+      await vi.advanceTimersByTimeAsync(1);
+      await settled();
+      await launched;
+      expect(done).toBe(true);
+      // Recorded, waiting for an account answer before anything is sent (as before the wait).
+      expect(t.queue()).toEqual(expect.arrayContaining(["opened", "active"]));
+      expect(t.fetch).not.toHaveBeenCalled();
+      expect(c.usageSharing).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
