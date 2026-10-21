@@ -59,16 +59,19 @@ describe("RestoreStatusCard verify-again wording (owner, ISS-0029 item 6)", () =
 
 // ISS-0117: on the Chrome/Firefox settings page the result of a Restore check rendered below the
 // visible area, so "Checking…" seemed to end in nothing. When a check concludes, the card brings
-// its result into view (only if it is not already fully visible) and takes keyboard focus.
+// its result into view (only if it is not already fully visible) and moves keyboard focus to a
+// silent anchor just before the result line, so the live region announces the result once.
 describe("RestoreStatusCard brings a concluded check into view (ISS-0117)", () => {
   type CardState = "checking" | "restored" | "nothing" | "failed" | "verify";
   const original = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
   let scrolled: Element[] = [];
   let below = true;
+  let extras: HTMLElement[] = [];
 
   beforeEach(() => {
     scrolled = [];
     below = true;
+    extras = [];
     Object.defineProperty(Element.prototype, "scrollIntoView", {
       configurable: true,
       writable: true,
@@ -84,49 +87,77 @@ describe("RestoreStatusCard brings a concluded check into view (ISS-0117)", () =
   });
 
   afterEach(() => {
+    for (const node of extras) node.remove();
     vi.restoreAllMocks();
     if (original) Object.defineProperty(Element.prototype, "scrollIntoView", original);
     else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
+  /** A page element outside the card, removed after each test. */
+  function outside<T extends HTMLElement>(node: T): T {
+    extras.push(node);
+    document.body.append(node);
+    return node;
+  }
+
+  function parts(view: { container: HTMLElement }) {
+    return {
+      line: view.container.querySelector<HTMLElement>(".status-line")!,
+      anchor: view.container.querySelector<HTMLElement>(".restore-focus")!,
+    };
+  }
+
   async function conclude(state: CardState) {
     const view = render(RestoreStatusCard, { props: { state: "checking" as CardState } });
-    const line = view.container.querySelector<HTMLElement>(".status-line")!;
     expect(scrolled).toEqual([]);
     await view.rerender({ state, onAction: () => {} });
     await tick();
-    return { view, line };
+    return { view, ...parts(view) };
   }
 
   it.each(["nothing", "restored", "failed", "verify"] as const)(
-    "a result below the fold (%s) is scrolled into view and focused",
+    "a result below the fold (%s) is scrolled into view and focus moves to the card",
     async (state) => {
-      const { line } = await conclude(state);
+      const { line, anchor } = await conclude(state);
       expect(scrolled).toEqual([line]);
-      expect(document.activeElement).toBe(line);
-      expect(line).toHaveAttribute("tabindex", "-1");
-      // The live region stays as it was, so the result is still announced.
+      // Focus lands on the empty anchor before the result, not on the live region itself, so the
+      // result is announced once; the live region keeps its role.
+      expect(document.activeElement).toBe(anchor);
+      expect(anchor).toHaveAttribute("tabindex", "-1");
+      expect(anchor.textContent).toBe("");
+      expect(anchor.nextElementSibling).toBe(line);
+      expect(line).not.toHaveAttribute("tabindex");
       expect(line).toHaveAttribute("role", state === "failed" ? "alert" : "status");
     },
   );
 
-  it("a result already fully visible is not scrolled, but still takes focus", async () => {
+  it("a result already fully visible is not scrolled, but focus still moves to the card", async () => {
     below = false;
-    const { line } = await conclude("nothing");
+    const { anchor } = await conclude("nothing");
     expect(scrolled).toEqual([]);
-    expect(document.activeElement).toBe(line);
+    expect(document.activeElement).toBe(anchor);
   });
 
   it("a result shown without a check this visit (page load) neither scrolls nor takes focus", async () => {
     const view = render(RestoreStatusCard, { props: { state: "verify" as CardState, onAction: () => {} } });
     await tick();
     expect(scrolled).toEqual([]);
-    expect(document.activeElement).not.toBe(view.container.querySelector(".status-line"));
+    expect(document.activeElement).not.toBe(parts(view).anchor);
+  });
+
+  it("a re-render with a new props object holding the same result moves nothing again", async () => {
+    const { view, anchor } = await conclude("failed");
+    anchor.blur();
+    scrolled = [];
+    await view.rerender({ state: "failed", onAction: () => {} });
+    await tick();
+    expect(scrolled).toEqual([]);
+    expect(document.activeElement).not.toBe(anchor);
   });
 
   it("Try again brings the next result into view again", async () => {
-    const { view, line } = await conclude("failed");
-    line.blur();
+    const { view, anchor, line } = await conclude("failed");
+    anchor.blur();
     scrolled = [];
     await view.rerender({ state: "checking" });
     await tick();
@@ -134,18 +165,40 @@ describe("RestoreStatusCard brings a concluded check into view (ISS-0117)", () =
     await view.rerender({ state: "restored" });
     await tick();
     expect(scrolled).toEqual([line]);
-    expect(document.activeElement).toBe(line);
+    expect(document.activeElement).toBe(anchor);
   });
 
-  it("never takes focus from a text field the person is typing in", async () => {
-    const field = document.createElement("input");
-    document.body.append(field);
+  it("never scrolls or takes focus while a text field the person is typing in has focus", async () => {
+    const field = outside(document.createElement("input"));
     const view = render(RestoreStatusCard, { props: { state: "checking" as CardState } });
     field.focus();
     await view.rerender({ state: "nothing" });
     await tick();
-    expect(scrolled).toHaveLength(1);
+    expect(scrolled).toEqual([]);
     expect(document.activeElement).toBe(field);
-    field.remove();
+  });
+
+  it("never scrolls or takes focus while a dialog is open", async () => {
+    const dialog = outside(document.createElement("div"));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const button = dialog.appendChild(document.createElement("button"));
+    const view = render(RestoreStatusCard, { props: { state: "checking" as CardState } });
+    button.focus();
+    await view.rerender({ state: "nothing" });
+    await tick();
+    expect(scrolled).toEqual([]);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("an open modal blocks the move even when focus sits outside it", async () => {
+    const dialog = outside(document.createElement("div"));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const view = render(RestoreStatusCard, { props: { state: "checking" as CardState } });
+    await view.rerender({ state: "restored" });
+    await tick();
+    expect(scrolled).toEqual([]);
+    expect(document.activeElement).not.toBe(parts(view).anchor);
   });
 });

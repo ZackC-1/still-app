@@ -142,11 +142,14 @@ async function clickRestoreAtWindowBottom(page: Page, signedIn: boolean): Promis
   await link.click();
 }
 
-/** ISS-0117: the concluded result is on screen and holds keyboard focus, with no scrolling by hand. */
+/**
+ * ISS-0117: the concluded result is on screen with no scrolling by hand, and keyboard focus is on
+ * the card's silent anchor just before it (not the live region, which announces the result itself).
+ */
 async function expectResultInView(page: Page, text: string): Promise<void> {
   const result = page.locator(".status-line", { hasText: text });
   await expect(result).toBeInViewport({ ratio: 1 });
-  await expect(result).toBeFocused();
+  await expect(page.locator("section", { has: result }).locator(".restore-focus")).toBeFocused();
 }
 
 function expectNoCheckout(backend: Backend): void {

@@ -55,36 +55,44 @@
   // ISS-0117: when a check concludes, the result may sit below the visible area (the settings page
   // in its own tab), so "Checking…" seemed to end in nothing. Bring the result into view only if it
   // is not already fully visible ("nearest" also leaves a visible one alone, and an instant scroll
-  // follows the page's reduced-motion rule), and move focus to it, never out of a text field or an
-  // open dialog. A result shown without a check this visit (a page load) is left alone.
+  // follows the page's reduced-motion rule) and move keyboard focus to the card. Focus goes to an
+  // empty anchor just before the result line, not to the line itself: the line is a live region
+  // that already announces the result, so focusing it could announce it twice, and Tab moves on
+  // from the anchor through the card. Nothing moves while a text field has focus or a dialog is
+  // open; the result simply stays where it is. A result shown without a check this visit (a page
+  // load) is left alone.
   let line: HTMLDivElement | undefined = $state();
+  let anchor: HTMLSpanElement | undefined = $state();
   let previous: RestoreStatusCardProps["state"] | undefined;
   $effect(() => {
     const concluded = previous === "checking" && shown !== "checking";
     previous = shown;
-    if (concluded && line) reveal(line);
+    if (concluded && line && anchor) reveal(line, anchor);
   });
-  function reveal(node: HTMLElement) {
-    const box = node.getBoundingClientRect();
-    if (box.top < 0 || box.bottom > window.innerHeight)
-      node.scrollIntoView?.({ block: "nearest" });
+  function busyElsewhere(): boolean {
     const active = document.activeElement;
-    if (
-      active instanceof Element &&
-      active.closest(
-        'input, textarea, select, [contenteditable="true"], dialog, [role="dialog"]',
-      )
-    )
-      return;
-    node.focus({ preventScroll: true });
+    return (
+      (active instanceof Element &&
+        active.closest(
+          'input, textarea, select, [contenteditable="true"], dialog, [role="dialog"]',
+        ) !== null) ||
+      document.querySelector('dialog[open], [aria-modal="true"]') !== null
+    );
+  }
+  function reveal(result: HTMLElement, focusTarget: HTMLElement) {
+    if (busyElsewhere()) return;
+    const box = result.getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight)
+      result.scrollIntoView?.({ block: "nearest" });
+    focusTarget.focus({ preventScroll: true });
   }
 </script>
 
 <section class="card card-stack">
+  <span class="restore-focus" tabindex="-1" bind:this={anchor}></span>
   <div
     class="status-line"
     bind:this={line}
-    tabindex="-1"
     data-tone={message.tone}
     role={message.tone === "failed" ? "alert" : "status"}
   >
@@ -109,8 +117,13 @@
 </section>
 
 <style>
-  /* Focus lands here only by script (ISS-0117); the card is not a control, so no ring. */
-  .status-line:focus {
+  /* ISS-0117: an empty, script-only focus target with no ring. Out of flow, so the card's flex gap
+     and layout are unchanged; it keeps its place in the Tab order. */
+  .restore-focus {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
     outline: none;
   }
 </style>
