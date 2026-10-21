@@ -142,6 +142,14 @@ const instagram = [
   ["instagram current desktop menu and profile", "instagram-profile.html", "https://www.instagram.com/someuser/",
     ["#menu-reels", "#profile-reels-tab-slot", "#grid-reel-1", "#grid-reel-2", "#grid-reel-3", "#grid-reel-4",
       "#grid-reel-5", "#grid-reel-6"], null],
+  // A standalone post page is the profile's post viewer, so its "More posts from" grids are laid out
+  // like the profile grid; a section of only Reels goes whole, heading included (ISS-0099).
+  ["instagram post page related posts", "instagram-post.html", "https://www.instagram.com/someuser/p/Post0001/",
+    ["#related-reels-only", "#related-mixed-reel-1", "#related-mixed-reel-2", "#related-mixed-reel-3", "#related-mixed-reel-4",
+      "#saved-reel-1", "#saved-reel-2", "#saved-reel-3"],
+    ["#keep-post", "#keep-post-actions", "#keep-post-time", "#keep-post-comment-link", "#keep-related-mixed",
+      "#keep-related-mixed-account", "#keep-related-mixed-post-1", "#keep-related-mixed-post-2",
+      "#keep-reel-item", "#keep-reel-item-actions", "#keep-reel-item-comment-form", "#keep-saved-collection", "#keep-saved-back"]],
 ] as const;
 
 for (const [name, file, url, targets, keep] of instagram)
@@ -484,16 +492,96 @@ test("format-2 facebook: a shared Reel still opens and plays; its player's feed 
   await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
 });
 
-test("format-2 facebook mobile: Reels hidden and retained, the tab keeps its slot, Off restores", async ({ context, extensionId }) => {
+test("format-2 facebook mobile: Reels hidden and retained, the top bar fills its width around the hidden Reels tab, Off restores", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile.html"));
   await page.goto("https://m.facebook.com/");
   await expectFormat2Lane(page);
   await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
+  // ISS-0102: the tab is invisible and untappable, and the five other tabs are widened to a fifth
+  // of the bar each, contents unscaled. With the captured geometry (a 390 px bar of six 65 px tabs,
+  // Reels fourth), the five sit edge to edge at 0, 78, 156, 234 and 312 px, 78 px wide, so no grey
+  // page shows at either end; each icon keeps its size and sits centred, the line under the bar
+  // fills each tab, and a badge keeps its place beside its icon. Every edge is measured against
+  // the bar's own left edge.
+  const kept = ["home", "friends", "messages", "notifications", "marketplace"].map((name) => `keep-fb-mobile-${name}-tab`);
+  const layout = () => page.evaluate((ids) => {
+    const bar = document.getElementById("fb-mobile-tablist")!.getBoundingClientRect();
+    const reels = document.getElementById("fb-mobile-reels-tab")!;
+    const r = reels.getBoundingClientRect();
+    const tabAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest("[role=tab]")?.id ?? null;
+    const mid = bar.top + bar.height / 2;
+    const rel = (box: DOMRect) => ({ left: box.left - bar.left, right: box.right - bar.left, top: box.top - bar.top, width: box.width, height: box.height });
+    return {
+      reels: getComputedStyle(reels).visibility,
+      reelsBox: Math.round(r.width) > 0 && Math.round(r.height) > 0,
+      hit: tabAt(r.x + r.width / 2, r.y + r.height / 2),
+      leftEnd: tabAt(bar.left + 0.5, mid),
+      rightEnd: tabAt(bar.right - 0.5, mid),
+      width: bar.width,
+      tabs: ids.map((id) => {
+        const tab = document.getElementById(id)!;
+        const badge = tab.querySelector(".badge");
+        const dot = tab.querySelector<HTMLElement>(".dot");
+        return {
+          ...rel(tab.getBoundingClientRect()),
+          glyph: rel(tab.querySelector(".glyph")!.getBoundingClientRect()),
+          line: rel(tab.querySelector(".line")!.getBoundingClientRect()),
+          badge: badge ? rel(badge.getBoundingClientRect()) : null,
+          dot: dot && getComputedStyle(dot).visibility === "visible" ? rel(dot.getBoundingClientRect()) : null,
+          transform: getComputedStyle(tab).transform,
+        };
+      }),
+    };
+  }, kept);
+  const seen = await (async () => { for (let i = 0; i < 40; i++) { const v = await layout(); if (v.reels === "hidden" && v.leftEnd === kept[0]) return v; await page.waitForTimeout(100); } return layout(); })();
+  expect(seen.reels).toBe("hidden");
+  expect(seen.reelsBox).toBe(true);
+  // A tap on the old Reels slot's centre (227.5 px) lands on the widened Messages tab (156-234).
+  expect(seen.hit).toBe("keep-fb-mobile-messages-tab");
+  // Both ends of the bar are covered by a tab: no bare band.
+  expect(seen.leftEnd).toBe(kept[0]);
+  expect(seen.rightEnd).toBe(kept[4]);
+  expect(Math.abs(seen.tabs[0]!.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(seen.tabs[4]!.right - seen.width)).toBeLessThanOrEqual(1);
+  seen.tabs.forEach((tab, i) => {
+    expect(Math.abs(tab.left - 78 * i), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.width - 78), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.top), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.height - 50), kept[i]).toBeLessThanOrEqual(1);
+    // Edge to edge: no overlap with the tab before, and no gap.
+    if (i > 0) expect(Math.abs(tab.left - seen.tabs[i - 1]!.right), kept[i]).toBeLessThanOrEqual(1);
+    // The icon keeps its size (round) and is centred in the wider tab.
+    expect(tab.glyph.width, kept[i]).toBeCloseTo(28, 1);
+    expect(tab.glyph.height, kept[i]).toBeCloseTo(28, 1);
+    expect(Math.abs((tab.glyph.left + tab.glyph.right) / 2 - (tab.left + tab.right) / 2), kept[i]).toBeLessThanOrEqual(1);
+    // The line under the bar fills the tab.
+    expect(Math.abs(tab.line.left - tab.left), kept[i]).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(tab.line.right - tab.right), kept[i]).toBeLessThanOrEqual(0.5);
+    // A badge keeps its size and its captured offset from its icon (pill 32 px into the layer,
+    // icon 18.5 px in), as on an unwidened tab.
+    if (tab.badge) {
+      expect(tab.badge.width, kept[i]).toBeCloseTo(26, 1);
+      expect(Math.abs(tab.badge.left - tab.glyph.left - 13.5), kept[i]).toBeLessThanOrEqual(0.5);
+    }
+    // Marketplace's dot (captured: 24 px boxes 31 px into the dot layer) keeps its offset too.
+    if (tab.dot) {
+      expect(tab.dot.width, kept[i]).toBeCloseTo(24, 1);
+      expect(Math.abs(tab.dot.left - tab.glyph.left - 12.5), kept[i]).toBeLessThanOrEqual(0.5);
+    }
+  });
+  expect(seen.tabs[4]!.dot, "Marketplace shows its dot").not.toBeNull();
+  // An inline transform on a tab (Facebook animating it) does not move it off its fifth.
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = "translateX(7px)"; });
+  const moved = await layout();
+  expect(moved.tabs[1]!.transform).toBe("none");
+  expect(Math.abs(moved.tabs[1]!.left - 78)).toBeLessThanOrEqual(1);
+  expect(Math.abs(moved.tabs[1]!.right - 156)).toBeLessThanOrEqual(1);
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = ""; });
   await expectHiddenRetainedReversible(
     page, context, extensionId,
     ["#fb-mobile-reel", "#fb-mobile-reels", "#fb-mobile-reels-tab span"],
-    ["#fb-mobile-post", "#keep-fb-mobile-lookalike", "#keep-fb-mobile-home-tab"],
+    ["#fb-mobile-post", "#keep-fb-mobile-lookalike", ...kept.map((id) => `#${id}`)],
   );
 });
 
@@ -534,6 +622,15 @@ test("format-2 facebook mobile Page (ISS-0035): the whole Reels tab hides, the o
     ["#fb-mobile-page-tab-reels"],
     await keepAll(page),
   );
+  // ISS-0084: after that live On, the page sets its own <html class> wholesale and prunes every
+  // <style>; Still puts its class and stylesheet back and the tab stays hidden.
+  await page.evaluate(() => {
+    document.documentElement.className = "ssr fab sai usf dpr-spacing unselectable";
+    for (const style of document.querySelectorAll("style")) style.remove();
+  });
+  await expect(page.locator("#fb-mobile-page-tab-reels")).toBeHidden();
+  await expect(page.locator("html")).toHaveClass(/dpr-spacing/);
+  await expect(page.locator("html")).toHaveClass(/still-feature-/);
 });
 
 test("format-2 facebook mobile Home feed (ISS-0035): the Reels section row hides and the feed closes up, Off restores", async ({ context, extensionId }) => {

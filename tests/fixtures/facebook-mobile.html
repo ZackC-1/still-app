@@ -3,6 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <title>Facebook mobile fixture</title>
+    <!-- A small stylesheet reproducing the captured computed styles (Facebook's own class names
+         and stylesheet are not copied): every box is a relative flex column at z-index 0 and
+         paints its background with a ::before that fills it (z-index -1). The light colours are
+         the captured computed values; html.dark swaps in modelled dark colours (not captured),
+         used only for screenshots. -->
+    <style>
+      :root { --page: rgb(188, 192, 196); --card: rgb(255, 255, 255); --line: rgb(201, 204, 209); --icon: rgb(101, 103, 107); --active: rgb(24, 119, 242); --badge: rgb(221, 35, 52); }
+      html.dark { --page: rgb(24, 25, 26); --card: rgb(36, 37, 38); --line: rgb(62, 64, 66); --icon: rgb(176, 179, 184); --active: rgb(45, 136, 255); }
+      .m { display: flex; flex-direction: column; position: relative; box-sizing: border-box; }
+      .bg::before { content: ""; position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
+      .page::before { background: var(--page); } .card::before { background: var(--card); }
+      .line::before { background: var(--line); } .badge::before { background: var(--badge); border-radius: 50px; }
+      .dot-ring::before { left: 1px; right: 1px; width: auto; background: var(--card); border-radius: 50%; }
+      .dot::before { left: 2.5px; right: 2.5px; width: auto; background: var(--badge); border-radius: 50%; }
+      .row { display: flex; flex-direction: row; justify-content: center; align-items: center; width: 100%; height: 100%; }
+      .glyph { display: inline-block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid currentColor; box-sizing: border-box; }
+      .count { display: block; text-align: center; color: #fff; font: 600 12px/16px sans-serif; }
+    </style>
   </head>
   <body>
     <nav>
@@ -11,10 +29,111 @@
     </nav>
 
     <!-- The mobile tab bar keeps a fixed number of slots, so the Reels tab's contents are hidden
-         rather than the tab itself, which would otherwise leave a grey gap (issue #58). -->
-    <div role="tablist" id="fb-mobile-tablist">
-      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="Home, 1 of 6">Home</div>
-      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6"><span>Reels</span></div>
+         rather than the tab itself, which would otherwise leave a grey gap (issue #58). The packaged
+         layout then makes the tab invisible and untappable and widens the other five to a fifth of
+         the bar each, so it shows no empty slot and no bare ends (ISS-0102). -->
+    <!-- The top bar, captured read-only on 21 Oct 2026 (m.facebook.com signed in, Chromium with an
+         iPhone user agent at 390 px; roles, data-* attribute names, nesting, inline geometry and
+         computed light-theme colours only, no text or ids).
+         Captured: the tab list is a transparent relative flex column 390 px wide and the grey
+         beside the tabs is the page's own background (an ancestor's ::before, rgb(188, 192, 196)).
+         Each tab is a sixth of the bar, placed by inline width and margin-left and pulled up into
+         one row by margin-top:-50px, and paints its white box with a ::before. Inside, three or four
+         layers (the count-pill layer only on the tabs that captured one), each as wide as the tab and marked
+         data-mcomponent, are stacked the same way: the icon layer (a 29 px icon box 18 px in, its
+         glyph centred by flex), the 2 px line under the bar (painted by that layer's ::before,
+         rgb(201, 204, 209)), the dot layer (24 px boxes 31 px in: a 22 px white ring and a 19 px red
+         dot drawn by ::befores inset 1 px and 2.5 px, and a count; hidden except where shown, as on
+         Marketplace) and, on Home, Reels and Notifications, the pill layer (a 26 px pill 31-32 px
+         in). The selected tab only colours its icon; there is no separate active underline.
+         Modelled: the glyph (Facebook draws an icon-font character about 28.8 x 28 px; here a
+         28 px ring, so roundness shows), the counts (invented) and the dark colours. The owner's
+         screenshot of 2.1.1.420 (21 Oct) is the visual reference for the grey bands at the ends. -->
+    <div class="m bg page" style="width: 390px; z-index: 0;">
+    <div role="tablist" id="fb-mobile-tablist" class="m" data-type="container" style="height: 50px; z-index: 0; width: 390px;">
+      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="feed, 1 of 6" aria-selected="true" tabindex="0" data-focusable="true" data-action-id="1" class="m bg card" style="height: 50px; z-index: 0; width: 65px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--active);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"><div dir="auto" class="count" style="width: 24px;"></div></div>
+        </div>
+        <div class="m" data-mcomponent="" style="margin-top: -28px; height: 34px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="margin-top: 6px; height: 21px; z-index: 0; width: 26px; margin-left: 31px; border-radius: 50px;"></div>
+          <div class="m bg badge" data-mcomponent="" style="margin-top: -20px; height: 19px; z-index: 0; width: 26px; margin-left: 32px;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -17px; height: 16px; z-index: 0; width: 29px; margin-left: 31px;"><div dir="auto" class="count" style="width: 29px;">9+</div></div>
+        </div>
+      </div>
+      <div role="tab" id="keep-fb-mobile-friends-tab" aria-label="friends, 2 of 6" aria-selected="false" tabindex="0" data-focusable="true" data-action-id="2" class="m bg card" style="margin-top: -50px; height: 50px; z-index: 0; width: 65px; margin-left: 65px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--icon);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"><div dir="auto" class="count" style="width: 24px;"></div></div>
+        </div>
+      </div>
+      <div role="tab" id="keep-fb-mobile-messages-tab" aria-label="messages, 3 of 6" aria-selected="false" tabindex="0" data-focusable="true" data-action-id="3" class="m bg card" style="margin-top: -50px; height: 50px; z-index: 0; width: 65px; margin-left: 130px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--icon);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"><div dir="auto" class="count" style="width: 24px;"></div></div>
+        </div>
+      </div>
+      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6" aria-selected="false" tabindex="0" data-focusable="true" data-action-id="4" class="m bg card" style="margin-top: -50px; height: 50px; z-index: 0; width: 65px; margin-left: 195px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--icon);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"><div dir="auto" class="count" style="width: 24px;"></div></div>
+        </div>
+        <div class="m" data-mcomponent="" style="margin-top: -28px; height: 34px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="margin-top: 6px; height: 21px; z-index: 0; width: 26px; margin-left: 31px; border-radius: 50px;"></div>
+          <div class="m bg badge" data-mcomponent="" style="margin-top: -20px; height: 19px; z-index: 0; width: 26px; margin-left: 32px;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -17px; height: 16px; z-index: 0; width: 29px; margin-left: 31px;"><div dir="auto" class="count" style="width: 29px;">3</div></div>
+        </div>
+      </div>
+      <div role="tab" id="keep-fb-mobile-notifications-tab" aria-label="notifications, 5 of 6" aria-selected="false" tabindex="0" data-focusable="true" data-action-id="5" class="m bg card" style="margin-top: -50px; height: 50px; z-index: 0; width: 65px; margin-left: 260px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--icon);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px; visibility: hidden;"><div dir="auto" class="count" style="width: 24px;"></div></div>
+        </div>
+        <div class="m" data-mcomponent="" style="margin-top: -28px; height: 34px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="margin-top: 6px; height: 21px; z-index: 0; width: 26px; margin-left: 31px; border-radius: 50px;"></div>
+          <div class="m bg badge" data-mcomponent="" style="margin-top: -20px; height: 19px; z-index: 0; width: 26px; margin-left: 32px;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -17px; height: 16px; z-index: 0; width: 29px; margin-left: 31px;"><div dir="auto" class="count" style="width: 29px;">11</div></div>
+        </div>
+      </div>
+      <div role="tab" id="keep-fb-mobile-marketplace-tab" aria-label="marketplace, 6 of 6" aria-selected="false" tabindex="0" data-focusable="true" data-action-id="6" class="m bg card" style="margin-top: -50px; height: 50px; z-index: 0; width: 65px; margin-left: 325px;">
+        <div class="m" data-mcomponent="" style="height: 48px; z-index: 0; width: 65px;">
+          <div class="m bg card" data-mcomponent="" style="height: 48px; z-index: 0; width: 29px; margin-left: 18px;"><div class="row"><div dir="auto" style="width: 29px; color: var(--icon);"><span class="glyph"></span></div></div></div>
+        </div>
+        <div class="m bg line" data-mcomponent="" style="height: 2px; z-index: 0; width: 65px;"></div>
+        <div class="m" data-mcomponent="" style="margin-top: -50px; height: 28px; z-index: 0; width: 65px;">
+          <div class="m bg dot-ring" data-mcomponent="" style="margin-top: 6px; height: 22px; z-index: 0; width: 24px; margin-left: 31px;"></div>
+          <div class="m bg dot" data-mcomponent="" style="margin-top: -21px; height: 19px; z-index: 0; width: 24px; margin-left: 31px;"></div>
+          <div class="m" data-mcomponent="" style="margin-top: -18px; height: 16px; z-index: 0; width: 24px; margin-left: 31px;"><div dir="auto" class="count" style="width: 24px;">2</div></div>
+        </div>
+      </div>
+    </div>
+    </div>
     </div>
 
     <main role="feed">

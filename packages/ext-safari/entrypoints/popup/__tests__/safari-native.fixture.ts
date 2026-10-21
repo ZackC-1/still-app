@@ -34,6 +34,8 @@ export async function installSafari(options: {
   saved: SavedShape;
   platform?: string;
   signedIn?: boolean;
+  /** The app's reported last successful sync (ms) while signed in; 5 when not given. */
+  lastSyncedAt?: number;
   /** Seed browser.storage.local with the app's current record (the background's projection). */
   projection?: boolean;
   /** What the app's App Group answers to a `getEntitlement` pull (absent: no stamp, an empty reply). */
@@ -91,7 +93,7 @@ export async function installSafari(options: {
       case "getAccountSyncStatus":
         return {
           accountSyncStatus: options.signedIn || options.account === "signed-in"
-            ? { accountId: ACCOUNT_ID, email: "person@example.invalid", lastSyncedAt: 5, pendingUpload: false, cloudReachable: true, updatedAt: 5 }
+            ? { accountId: ACCOUNT_ID, email: "person@example.invalid", lastSyncedAt: options.lastSyncedAt ?? 5, pendingUpload: false, cloudReachable: true, updatedAt: 5 }
             : null,
         };
       case "getEntitlement":

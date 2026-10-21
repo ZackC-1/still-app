@@ -7,6 +7,7 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import { proPurchased } from "./presentation.js";
+  import { SUPPORT_EMAIL } from "../config.js";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
@@ -353,8 +354,9 @@
   {#if sharing}<SharingCard
       {...sharing}
     />{:else if privacyActions}{@render privacyActions()}{/if}
-  <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
-    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+  <!-- Help (owner, 12 Oct): the links only, no heading, divider or note. Delete account lives
+    here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card.
+    "Safari setup" (ISS-0075, owner 19 Oct) opens the app's own "Turn on Still in Safari" sheet. -->
   <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
@@ -365,9 +367,16 @@
     <button
       type="button"
       class="link"
+      disabled={!help.onSafariSetup}
+      onclick={help.onSafariSetup}>Safari setup</button
+    >
+    <button
+      type="button"
+      class="link"
       disabled={!help.onSupport}
       onclick={help.onSupport}>Contact support</button
     >
+    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
     <button
       type="button"
       class="link"
@@ -394,7 +403,6 @@
   /* Mac app only: reduce vertical whitespace by 12.5%; keep text and targets their full size. */
   .mac-settings {
     --app-gap: calc(var(--space-3) * 0.875);
-    --services-gap: calc(var(--space-2) * 0.875);
     --service-card-padding-block: calc(var(--space-3) * 0.875);
     --sync-gap: calc(var(--space-3) * 0.875);
     --sync-padding: calc(var(--space-4) * 0.875) var(--space-4);

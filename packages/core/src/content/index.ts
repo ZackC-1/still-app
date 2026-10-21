@@ -167,23 +167,28 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     }
   };
 
-  const setRootActive = (active: boolean): void => {
-    doc.documentElement?.classList.toggle(ROOT_ACTIVE_CLASS, active);
+  // The legacy lane's root classes Still last set, so the root guard below can tell a class the
+  // page removed from one Still removed.
+  const legacyRootClasses = new Set<string>();
+  const setLegacyRootClass = (name: string, on: boolean): void => {
+    doc.documentElement?.classList.toggle(name, on);
+    if (on) legacyRootClasses.add(name);
+    else legacyRootClasses.delete(name);
   };
-  const setRootProActive = (active: boolean): void => {
-    doc.documentElement?.classList.toggle(ROOT_PRO_ACTIVE_CLASS, active);
-  };
+  const setRootActive = (active: boolean): void => setLegacyRootClass(ROOT_ACTIVE_CLASS, active);
+  const setRootProActive = (active: boolean): void => setLegacyRootClass(ROOT_PRO_ACTIVE_CLASS, active);
   // Names the service whose packaged CSS may apply here. The stylesheets are declared once in the
   // manifest, so all four services' selectors reach every page; without this class Instagram's
   // Reels rules hide YouTube results whose title happens to contain "reels".
   let rootServiceApplied: string | null = null;
   const setRootService = (serviceId: ServiceId | null): void => {
     const next = serviceId === null ? null : rootServiceClass(serviceId);
-    if (next === rootServiceApplied) return;
     const classes = doc.documentElement?.classList;
     if (!classes) return;
-    if (rootServiceApplied !== null) classes.remove(rootServiceApplied);
-    if (next !== null) classes.add(next);
+    // Unchanged and still on the page: nothing to write. A class the page removed is put back.
+    if (next === rootServiceApplied && (next === null || classes.contains(next))) return;
+    if (rootServiceApplied !== null) setLegacyRootClass(rootServiceApplied, false);
+    if (next !== null) setLegacyRootClass(next, true);
     rootServiceApplied = next;
   };
 
@@ -394,7 +399,105 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     queueMicrotask(() => { if (!stopped) view.dispatchEvent(new view.Event("resize")); });
   };
 
+  // ISS-0084: every hide hangs on Still's classes on <html> and, in the format-2 lane, one Still
+  // <style>. A page that sets its own root classes wholesale (className = "...") or prunes <head>
+  // after Still applied would otherwise show everything again until the next navigation or a
+  // reload; a fresh load hides that behind its later DOMContentLoaded pass, a live On does not.
+  // While Still owns root effects, one observer on <html>'s class attribute and on the direct
+  // children of the document, <html> and <head> (never a subtree) restores them from the
+  // committed settings, including onto a replaced <html>. It is attached only while something is
+  // applied, so a live Off detaches it and nothing comes back while Off.
+  // Bounds: at most ten restores a second. A page that strips them again as fast as Still restores
+  // them gets three such seconds; then restoring stops until the next navigation, settings change
+  // or access change (any other reapply), so a fight costs at most thirty restores in the format-2
+  // lane. The legacy lane re-applies on every frame that adds an element, which re-arms the cap, so
+  // there a fight is bounded by the ten-a-second window instead. A restore that leaves them lost
+  // (the legacy lane's redirect decision keeps its old classes) also stops until that next reapply,
+  // rather than re-running on every later class or <head> change.
+  const rootEffects = (): "none" | "intact" | "lost" => {
+    if (modern) return pageSession.ownedRootEffects?.() ?? "none";
+    if (legacyRootClasses.size === 0) return "none";
+    const classes = doc.documentElement?.classList;
+    for (const name of legacyRootClasses) if (!classes?.contains(name)) return "lost";
+    return "intact";
+  };
+  const ROOT_RESTORES_PER_WINDOW = 10;
+  const ROOT_RESTORE_WINDOW_MS = 1_000;
+  const ROOT_RESTORE_FULL_WINDOWS = 3;
+  let restoreWindowStart = -Infinity;
+  let restoresInWindow = 0;
+  let fullRestoreWindows = 0;
+  let restoresHeld = false;
+  let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+  let rootGuard: MutationObserver | null = null;
+  let guardedRoot: Element | null = null;
+  let guardedHead: Element | null = null;
+  const cancelRestoreTimer = (): void => {
+    if (restoreTimer !== null) clearTimeout(restoreTimer);
+    restoreTimer = null;
+  };
+  const stopRootGuard = (): void => {
+    rootGuard?.disconnect();
+    rootGuard = null;
+    guardedRoot = guardedHead = null;
+    cancelRestoreTimer();
+  };
+  teardowns.push(stopRootGuard);
+  const holdRestores = (): void => {
+    restoresHeld = true;
+    cancelRestoreTimer();
+  };
+  const restoreRootEffects = (): void => {
+    if (stopped || !hydrated || restoresHeld || rootEffects() !== "lost") return;
+    // Monotonic: a wall-clock jump backwards must not keep the window from ever closing.
+    const now = performance.now();
+    if (now - restoreWindowStart >= ROOT_RESTORE_WINDOW_MS) {
+      if (restoresInWindow < ROOT_RESTORES_PER_WINDOW) fullRestoreWindows = 0;
+      restoreWindowStart = now;
+      restoresInWindow = 0;
+    }
+    if (restoresInWindow < ROOT_RESTORES_PER_WINDOW) {
+      restoresInWindow++;
+      applyCommitted();
+      syncRootGuard();
+      if (rootEffects() === "lost") holdRestores();
+      return;
+    }
+    if (restoreTimer !== null) return;
+    if (++fullRestoreWindows >= ROOT_RESTORE_FULL_WINDOWS) { holdRestores(); return; }
+    restoreTimer = setTimeout(() => {
+      restoreTimer = null;
+      // This window is over even if the timer fired a fraction early.
+      restoreWindowStart = -Infinity;
+      restoreRootEffects();
+    }, restoreWindowStart + ROOT_RESTORE_WINDOW_MS - now);
+  };
+  const syncRootGuard = (): void => {
+    const root = doc.documentElement;
+    if (stopped || !hydrated || !root || rootEffects() === "none") { stopRootGuard(); return; }
+    if (rootGuard && guardedRoot === root && guardedHead === doc.head) return;
+    rootGuard?.disconnect();
+    rootGuard ??= new win.MutationObserver(() => {
+      restoreRootEffects();
+      // A <head> parsed, or an <html> or <head> replaced, after the guard attached is watched from now on.
+      if (doc.documentElement !== guardedRoot || doc.head !== guardedHead) syncRootGuard();
+    });
+    rootGuard.observe(doc, { childList: true });
+    rootGuard.observe(root, { attributes: true, attributeFilter: ["class"], childList: true });
+    if (doc.head) rootGuard.observe(doc.head, { childList: true });
+    guardedRoot = root;
+    guardedHead = doc.head;
+  };
+
+  // Every reapply trigger (navigation, settings or access change, the page's own load events)
+  // re-arms the root guard's restores; the guard's own restores do not.
   const reapply = (): void => {
+    restoresHeld = false;
+    fullRestoreWindows = 0;
+    applyCommitted();
+    syncRootGuard();
+  };
+  const applyCommitted = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;

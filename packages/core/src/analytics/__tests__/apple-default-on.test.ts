@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { createAppAnalytics } from "../apple-app.js";
-import { QUEUE_KEY } from "../client.js";
+import { LAUNCH_ACCOUNT_WAIT_MS, createAppAnalytics } from "../apple-app.js";
+import { AnalyticsClient, QUEUE_KEY, STATE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
-import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics } from "../default-on.js";
+import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
 import type { AnalyticsKeyValue } from "../identity.js";
+import { makeController } from "../../ui/__tests__/support/controller-fixtures.js";
 
 // A V3 build: the default-on basis is compiled in (build-basis.ts reads the build flags).
 vi.mock("../build-basis.js", () => ({ USAGE_ON_BY_DEFAULT_BUILD: true }));
@@ -25,12 +26,15 @@ function fakeNative(initial?: boolean | AnalyticsPermission) {
     refuseSubject: false,
     /** Reads start failing once the next permission write has been taken. */
     unreadableAfterCommit: false,
+    /** Native answers in a later task, as WKWebView does, so reads can overlap. */
+    async: false,
   };
   const record = () => (typeof native.slot === "object" ? native.slot : null);
   const permissionReply = () => ({ ok: true, permission: record() ?? (native.slot === false ? false : null) });
   const consent = () => (record() ? record()!.state === "granted" : native.slot !== false);
   const port = {
     postMessage: vi.fn(async (message: Record<string, unknown>): Promise<unknown> => {
+      if (native.async) await new Promise((resolve) => setTimeout(resolve, 0));
       switch (message.kind) {
         case "analyticsPermission":
           if (native.unreadable) throw new Error("unreadable");
@@ -277,6 +281,171 @@ describe("V3 Apple app: signed-in devices report under their own identity (owner
     expect(t.native.subject).toBeNull();
   });
 
+  it("ISS-0108: signed_in, observed under the sign-in's hold, goes to the identity that lands just before it is recorded", async () => {
+    let reply!: (value: unknown) => void;
+    const issue = vi.fn(() => new Promise<unknown>((resolve) => (reply = resolve)));
+    const trackUnchecked = vi.spyOn(AnalyticsClient.prototype, "trackUnchecked");
+    const confirm = vi.spyOn(AnalyticsClient.prototype, "confirm");
+    try {
+      const t = setup(undefined, true, issue);
+      await launch(t); // signed out, reporting
+      const client = trackUnchecked.mock.instances[0] as unknown as AnalyticsClient;
+      const signingIn = t.app.identifyAccount(ACCOUNT); // the session's sign-in
+      await vi.waitFor(() => expect(issue).toHaveBeenCalled()); // held; the identity is being asked for
+      // Keep the client's operation chain busy (one paused queue read) so the order below is exact.
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      const read = t.store.get;
+      let armed = true;
+      t.store.get = async (key) => {
+        if (armed && key === QUEUE_KEY) {
+          armed = false;
+          await gate;
+        }
+        return read(key);
+      };
+      const busy = client.queuedCount();
+      trackUnchecked.mockClear();
+      confirm.mockClear();
+      t.app.ui.track("signed_in", {}); // the controller, right after the verified code
+      await vi.waitFor(() => expect(trackUnchecked).toHaveBeenCalled()); // observed under the hold
+      reply({ state: "active", subject: SUBJECT }); // the identity lands one step before it is recorded
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalled());
+      open();
+      await busy;
+      await signingIn;
+      await t.app.start(); // the next send
+      expect(t.sent()).toEqual(expect.arrayContaining(["signed_in"]));
+      expect(t.bodies().join("\n")).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    } finally {
+      trackUnchecked.mockRestore();
+      confirm.mockRestore();
+    }
+  });
+  // The server answers 503 while the subjects switch is off, and test_channel for a QA build once
+  // it is on; either way no identity is issued.
+  it.each([
+    ["test_channel", { data: { state: "test_channel" }, error: null }],
+    ["503", { data: null, error: Object.assign(new Error("503"), { context: { status: 503 } }) }],
+  ])("ISS-0106: signed in on iPhone, a device with no identity (%s) sends nothing more until it signs out", async (_name, reply) => {
+    // The QA sequence: signed-out use reports, a code sign-in completes, and from then on the
+    // device is held: no identity is issued, so later events stay queued, across a relaunch too.
+    // Signing out lets the account go: what waited is dropped and reporting resumes. Nothing is
+    // published to the App Group, so the Safari extension has no identity to follow (its hold is
+    // pinned in packages/ext-safari/lib/__tests__/default-on-analytics.test.ts, "waits while the
+    // app has no identity for this account under this permission").
+    const issuerFor = () => {
+      const invoke = vi.fn(async () => reply);
+      const issue = supabaseSubjectIssuer(
+        {
+          auth: { getSession: async () => ({ data: { session: { access_token: "t", user: { id: ACCOUNT } } }, error: null }) },
+          functions: { invoke },
+        },
+        "phc_test",
+      );
+      return { invoke, issue };
+    };
+    const first = issuerFor();
+    const t = setup(undefined, true, first.issue);
+    await launch(t);
+    t.app.ui.track("sign_in_opened", {});
+    t.app.ui.track("code_requested", {});
+    await vi.waitFor(() => expect(t.sent()).toEqual(expect.arrayContaining(["sign_in_opened", "code_requested"])), {
+      timeout: 5_000,
+    });
+    const before = t.fetch.mock.calls.length;
+
+    // Awaited in sequence here for determinism; packages/app-webview/src/main.ts fires
+    // identifyAccount without awaiting.
+    await t.app.identifyAccount(ACCOUNT); // the session's onAccountEntered, inside the verified code
+    await t.app.ui.identify(ACCOUNT);
+    t.app.ui.track("signed_in", {});
+    t.app.ui.track("opened", { where: "app" });
+    await vi.waitFor(() => expect(t.queue()).toEqual(expect.arrayContaining(["signed_in", "opened"])));
+    await t.app.recheckSetup(); // a foreground return
+    await new Promise((r) => setTimeout(r, 1_700)); // past the client's send delay
+    expect(first.invoke).toHaveBeenCalledTimes(1); // asked once; the issuer then waits SUBJECT_RETRY_MS
+    expect(t.fetch.mock.calls.length).toBe(before);
+    expect(t.native.subject).toBeNull();
+
+    // A real relaunch: a new client over the same store and App Group, with a new issuer that is
+    // asked once for this launch.
+    const second = issuerFor();
+    const next = setup(undefined, true, second.issue, { host: t, store: t.store });
+    await next.app.identifyAccount(ACCOUNT);
+    await next.app.start();
+    await next.app.recheckSetup();
+    await new Promise((r) => setTimeout(r, 1_700));
+    expect(second.invoke).toHaveBeenCalledTimes(1);
+    expect(next.fetch).not.toHaveBeenCalled();
+    expect(next.native.subject).toBeNull();
+    expect(next.queue()).toContain("signed_in");
+
+    // Signing out lets the account go: what waited for it is dropped, and reporting resumes.
+    await next.app.ui.reset();
+    await next.app.start();
+    expect(next.fetch.mock.calls.length).toBeGreaterThan(0);
+    expect(next.queue()).not.toContain("signed_in");
+    expect(next.sent()).not.toContain("signed_in");
+    expect(next.bodies().join("\n")).toContain('"signed_in":false');
+  }, 15_000);
+
+  // ISS-0113: a client made when sharing is turned back on is told the account before it records
+  // the choice; recorded first, the choice waited unattributed and the account answer dropped it.
+  const choiceIds = (t: ReturnType<typeof setup>) =>
+    t.bodies().flatMap((body) =>
+      (JSON.parse(body) as { batch: { event: string; properties: { distinct_id: string } }[] }).batch
+        .filter((e) => e.event === "analytics_choice_made")
+        .map((e) => e.properties.distinct_id),
+    );
+
+  it("ISS-0113: Off then On while signed in records the choice under this device's identity", async () => {
+    const t = setup(undefined, true, async () => ({ state: "active", subject: SUBJECT }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    t.fetch.mockClear();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    expect(choiceIds(t)).toEqual([SUBJECT]);
+    expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+  });
+
+  it("ISS-0113: signed out while sharing was off, then On records the choice under a new anonymous id", async () => {
+    const t = setup(undefined, true, async () => ({ state: "active", subject: SUBJECT }));
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    const before = new Set(t.bodies().flatMap((b) => [...b.matchAll(/"distinct_id":"([^"]+)"/g)].map((m) => m[1])));
+    t.fetch.mockClear();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    await t.app.ui.reset(); // the sign-out, while no client runs
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    const ids = choiceIds(t);
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toBe(SUBJECT);
+    expect(before.has(ids[0]!)).toBe(false);
+    expect(t.bodies().join("\n")).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+    expect(t.native.subject).toBeNull();
+  });
+
+  it("ISS-0113: with no identity issued, the choice after Off then On waits under the hold, never sent unattributed", async () => {
+    const t = setup(undefined, true, async () => {
+      throw new Error("503 unavailable");
+    });
+    await t.app.identifyAccount(ACCOUNT);
+    await t.app.start();
+    expect(await t.app.ui.setSharing!(false)).toBe(false);
+    expect(await t.app.ui.setSharing!(true)).toBe(true);
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue().filter((e) => e === "analytics_choice_made")).toHaveLength(1);
+    expect((t.store.data[STATE_KEY] as { heldFor: unknown }).heldFor).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it("a server stop ends sharing on this device", async () => {
     const t = setup(undefined, true, async () => ({ state: "stopped" }));
     await t.app.identifyAccount(ACCOUNT);
@@ -345,5 +514,153 @@ describe("V3 Apple app: the identity the Safari extension follows (review ADV-2,
     t.native.unreadableAfterCommit = true; // the off is taken, then the App Group cannot be read
     await expect(t.app.ui.setSharing!(false)).resolves.toBe(false);
     expect(t.record()?.state).toBe("stopped");
+  });
+});
+
+describe("ISS-0111: a device whose sharing is off keeps its switch at every launch", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const active = async () => ({ state: "active", subject: SUBJECT });
+  /** Let every native reply (each a later task) and what follows it land. */
+  const settle = async () => {
+    for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  /** A launch as main.ts runs it: the controller (and its first switch read) before the account
+   * check and the launch events, none of them awaited, with native answering in later tasks. */
+  async function relaunch(t: ReturnType<typeof setup>) {
+    t.native.async = true;
+    const { c } = makeController({ analytics: t.app.ui });
+    void t.app.accountAbsent();
+    void t.app.start();
+    await settle();
+    return c;
+  }
+
+  it("sharing turned off while signed in, then signed out: the relaunched app shows the switch, off", async () => {
+    const before = setup(undefined, true, active);
+    await before.app.identifyAccount(ACCOUNT);
+    await before.app.start();
+    expect(await before.app.ui.setSharing!(false)).toBe(false); // Off, while signed in
+    await before.app.ui.reset(); // then the sign-out
+    await before.app.accountAbsent();
+    expect(before.record()).toMatchObject({ state: "stopped" });
+
+    const t = setup(undefined, true, active, { host: before, store: before.store });
+    const c = await relaunch(t);
+    expect(c.usageSharing).toBe(false); // was null: no "Share usage data" card at all
+    expect(t.record()).toMatchObject({ state: "stopped" }); // Off stays Off
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
+  it("answers off for every stored shape that means off, whatever else the launch is reading", async () => {
+    const granted = setup();
+    await launch(granted);
+    const record = granted.record()!;
+    const shapes: (boolean | AnalyticsPermission)[] = [
+      false, // a 2.1 off
+      { ...record, state: "stopped", generation: record.generation + 1 },
+      { ...record, state: "stopped", version: "0".repeat(64) }, // a stop under an earlier disclosure
+    ];
+    for (const shape of shapes) {
+      const t = setup(shape);
+      const c = await relaunch(t);
+      expect(c.usageSharing).toBe(false);
+      expect(await t.app.ui.sharing!()).toEqual({ enabled: false, noticeNeeded: false });
+      expect(t.fetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it("an off the App Group refused still shows on after a foreground re-read (PR #500 review)", async () => {
+    const t = setup();
+    await launch(t);
+    const { c } = makeController({ analytics: t.app.ui });
+    await settle();
+    expect(c.usageSharing).toBe(true);
+    t.native.refuseCommit = true; // native refuses (or times out) the App Group write
+    c.toggleUsageSharing(); // Off: the wrapper retries once, then reports the failure
+    await settle();
+    expect(c.usageSharing).toBe(true);
+    expect(t.record()?.state).toBe("granted");
+    await t.app.recheckSetup(); // the next return to the foreground, as main.ts runs it
+    await c.refreshUsageSharing();
+    expect(c.usageSharing).toBe(true); // the Safari extension still reports: never shown as off
+    expect(t.record()?.state).toBe("granted");
+  });
+
+  it("an unknown first read does not hide the switch for the session: main.ts reads it again after start", async () => {
+    const t = setup(undefined, true);
+    t.native.slot = false;
+    t.native.unreadable = true; // the controller's first read finds nothing it can trust
+    const { c } = makeController({ analytics: t.app.ui });
+    await settle();
+    expect(c.usageSharing).toBeNull();
+    t.native.unreadable = false;
+    await t.app.start();
+    await c.refreshUsageSharing(); // what main.ts does once start() settles
+    expect(c.usageSharing).toBe(false);
+  });
+});
+
+describe("ISS-0116: the launch's account answer never costs the launch its events", () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  it("signed out with sharing on: opened and active are recorded wherever the session check lands", async () => {
+    const lost: string[] = [];
+    // Native answers in a later task, so the launch takes several turns; the session check (no
+    // session) lands at each of them in turn, as main.ts can order it (start() is not awaited).
+    for (let delay = 0; delay < 24; delay += 1) {
+      const earlier = setup();
+      earlier.native.async = true;
+      await launch(earlier);
+      for (let i = 0; i < 5; i += 1) await tick();
+      // The relaunch (a later day: nothing marked today yet), sharing on, nobody signed in.
+      const t = setup(undefined, true, undefined, { host: earlier, store: earlier.store });
+      t.store.data[QUEUE_KEY] = [];
+      const state = t.store.data[STATE_KEY] as { daily: Record<string, string> };
+      t.store.data[STATE_KEY] = { ...state, daily: { "once:installed": "done", "once:app_opened": "done" } };
+      void t.app.ui.sharing!(); // the controller's first switch read, beside the launch
+      const launched = t.app.start();
+      for (let i = 0; i < delay; i += 1) await tick();
+      await t.app.accountAbsent();
+      await launched;
+      for (let i = 0; i < 20; i += 1) await tick();
+      const recorded = [...t.sent(), ...t.queue()]; // queued ones go out with the next flush
+      if (!recorded.includes("opened") || !recorded.includes("active"))
+        lost.push(`${delay}: ${recorded.join(", ") || "nothing"}`);
+    }
+    expect(lost).toEqual([]);
+  }, 30_000);
+
+  it("a session read that never answers costs the launch only the wait: opened and active are recorded, and the switch is read again", async () => {
+    // Timers are fake; the native and crypto work in between is real, so it is let run (setImmediate).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const settled = async () => {
+      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    try {
+      const t = setup();
+      const { c } = makeController({ analytics: t.app.ui });
+      let done = false;
+      // main.ts: start().finally(refreshUsageSwitch). The session read failed, so neither
+      // identifyAccount nor accountAbsent is ever called.
+      const launched = t.app
+        .start()
+        .finally(() => c.refreshUsageSharing())
+        .then(() => void (done = true));
+      await settled();
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS - 1);
+      await settled();
+      expect(done).toBe(false);
+      expect(t.queue()).toEqual([]); // still waiting for the account answer
+      await vi.advanceTimersByTimeAsync(1);
+      await settled();
+      await launched;
+      expect(done).toBe(true);
+      // Recorded, waiting for an account answer before anything is sent (as before the wait).
+      expect(t.queue()).toEqual(expect.arrayContaining(["opened", "active"]));
+      expect(t.fetch).not.toHaveBeenCalled();
+      expect(c.usageSharing).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

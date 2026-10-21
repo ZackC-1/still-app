@@ -84,6 +84,11 @@ interface Observed extends Ready {
   readonly observation: AnalyticsObservation;
 }
 
+/** How long the launch events wait for the launch's account answer (ISS-0116): a session read that
+ * never answers (offline, an unreadable store) must not hold them, or the switch re-read after
+ * them, for long. */
+export const LAUNCH_ACCOUNT_WAIT_MS = 5_000;
+
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let consent = false;
   /** A Don't share tapped this session (adoptCommittedConsent(false)) holds web reporting off even
@@ -96,6 +101,15 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let readyPromise: Promise<Ready | null> | null = null;
   let currentReady: Ready | null = null;
   let epoch = 0;
+  /** The latest account answer from the host: an account, nobody, or not known yet. A client made
+   * when sharing is turned back on is told it before it records anything (ISS-0113). */
+  let account: string | null | undefined;
+  /** Settles once the client has been given its first account answer (or there is no client to
+   * give it to). The launch events wait for it: a first confirmation fences every observation made
+   * before it, so a launch observed just before the session check answered was dropped whole
+   * (ISS-0116: no "opened" from the app). */
+  let launchAnswered!: () => void;
+  const accountAnswered = new Promise<void>((resolve) => (launchAnswered = resolve));
 
   const ready = (): Promise<Ready | null> =>
     (readyPromise ??= (async () => {
@@ -265,24 +279,28 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         ); // any use counts toward the day
         void r.attach(r.observation); // a failed launch attach is retried by ordinary app use
       }),
-    identify: (userId) =>
+    identify: (userId) => {
+      account = userId;
       withReady(async (r) => {
         await r.identify(userId); // a completed sign-in confirms the account
         // With per-device subjects the identify was the server request; a failure is retried at
         // the next ordinary use, not again in the same turn.
         if (!deps.subjects) void r.attach();
-      }),
+      });
+    },
     // Resolves once the account is let go of (deletion waits for it). A deletion also forgets this
     // device's cached per-device subject for the account.
-    reset: (options) =>
-      ready()
+    reset: (options) => {
+      account = null;
+      return ready()
         .then(async (r) => {
           if (!r) return;
           const reportingAs = options?.forgetAccount && deps.subjects ? r.client.signedInAs() : null;
           await r.client.reset(options);
           if (options?.forgetAccount && deps.subjects) await r.forgetSubjects(await reportingAs, options.account);
         })
-        .catch(() => undefined),
+        .catch(() => undefined);
+    },
     async sharing() {
       const r = await ready();
       return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
@@ -319,6 +337,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         consent = context.consent;
         const allowed = await previous.client.canReport();
         if (!allowed || asked !== epoch) return false;
+        await previous.client.settleAccount(); // an account change owed while sharing was off
         await previous.client.track("analytics_choice_made", {
           choice: "share",
         });
@@ -328,8 +347,18 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       currentReady = null;
       const r = await ready();
       consent = !!r && (await r.client.canReport());
-      if (consent) await r!.client.track("analytics_choice_made", { choice: "share" });
-      return consent;
+      if (!consent) return false;
+      // The new client sends nothing until it is told who is signed in. Tell it before the choice is
+      // recorded: a choice waiting unattributed would be dropped when the account answer then lands
+      // (a sign-out while sharing was off, or the stored identity of the stopped period).
+      if (account === null) await r!.client.confirm(null, { forget: true });
+      else if (account !== undefined) {
+        await r!.identify(account);
+        if (!deps.subjects) void r!.attach();
+      }
+      if (asked !== epoch) return false;
+      await r!.client.track("analytics_choice_made", { choice: "share" });
+      return true;
     },
     acknowledgeNotice() {
       noticeSeen = true;
@@ -340,6 +369,15 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   return {
     ui,
     async start() {
+      if (!(await ready())) return; // no client reports: nothing to wait for
+      // The launch's account answer first (bounded): observed before it, the launch would be fenced
+      // by it and dropped (ISS-0116).
+      let waited: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        accountAnswered,
+        new Promise<void>((resolve) => (waited = setTimeout(resolve, LAUNCH_ACCOUNT_WAIT_MS))),
+      ]);
+      clearTimeout(waited);
       const r = await observed();
       if (!r) return;
       const { client, context } = r;
@@ -388,17 +426,33 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       void r.attach(observation);
     },
     async identifyAccount(userId) {
-      const r = await ready();
+      account = userId;
+      const r = await (async () => {
+        try {
+          const answered = await ready();
+          if (answered) await answered.identify(userId); // a live session confirms the account
+          return answered;
+        } finally {
+          launchAnswered(); // what the launch observes now belongs to this account
+        }
+      })();
       if (!r) return;
-      await r.identify(userId); // a live session confirms the account
       // The server attach is separate from the account check: its network time never delays it.
       // With per-device subjects the identify was the server request (see ui.identify).
       if (!deps.subjects) void r.attach();
     },
     async accountAbsent() {
-      const r = await ready();
-      if (!r) return;
-      await r.client.confirm(null, { forget: true }); // known: nobody is signed in
+      account = null;
+      try {
+        const r = await ready();
+        if (!r) return;
+        // The confirmation fences at once, as it is asked: the launch observes after that.
+        const confirmed = r.client.confirm(null, { forget: true }); // known: nobody is signed in
+        launchAnswered();
+        await confirmed;
+      } finally {
+        launchAnswered();
+      }
     },
     adoptCommittedConsent(enabled) {
       if (!enabled) {

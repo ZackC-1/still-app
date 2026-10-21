@@ -419,10 +419,16 @@ export function createAccountIdentifier(deps: {
     subjectRequests.set(key, attempt);
     return attempt;
   };
-  /** The last account a host asked for, and the client state it was asked under. A later Still
-   * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
-   * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
-  let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
+  /** The last account a host asked for, the client state it was asked under, and its account ask. A
+   * later Still screen retries a subject request that failed, only while nothing has changed since:
+   * a sign-out, a deletion or a permission change makes the stamp stale, and any later account ask
+   * (a confirmation of the identity included, whose turn may not have come yet) supersedes the ask,
+   * so a stale account is never restored and a confirmation in progress is never re-held. */
+  let wanted: {
+    readonly account: string;
+    readonly stamp: ReturnType<AnalyticsClient["stamp"]>;
+    readonly ask: number;
+  } | null = null;
   const identifySubject = async (asked: string, options: TrackOptions, reserved?: number): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
@@ -460,7 +466,7 @@ export function createAccountIdentifier(deps: {
     const fence = confirmedHere ? before.stamp : client.stamp();
     await holding;
     if (!current()) return;
-    wanted = { account, stamp: fence };
+    wanted = { account, stamp: fence, ask };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
     if (!observation || !current()) return;
@@ -529,7 +535,8 @@ export function createAccountIdentifier(deps: {
     attach: deps.subjects
       ? async () => {
           const asked = wanted;
-          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp)) return;
+          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp) || !client.isLatestAsk(asked.ask))
+            return;
           await identifySubject(asked.account, {});
         }
       : attach,
@@ -703,7 +710,26 @@ export function createExtensionAnalyticsHost(
           const index = await client.erasureIndex(ending.origin);
           if (await deps.erasure.record(ending, index ?? ANON_INDEX_LIMIT)) void deps.erasure.kick();
         }
-        if (request.enabled && (await client.canReport())) {
+        // An account change landing during the read (a sign-out around the tap) makes it answer
+        // false although the grant stands: such a read is stale, so ask once more.
+        if (request.enabled && ((await client.canReport()) || (await client.canReport()))) {
+          // A worker this tap woke has its start's account read in flight: let it land first (as a
+          // page's track does), so a session that ended while it slept is let go, never re-held.
+          await waitForStart();
+          // A sign-out asked while sharing was off is still owed: install it first, so the choice
+          // is recorded as signed-out use and not dropped with what waited for the account. A hold
+          // made under the earlier permission is re-tagged under this one.
+          await client.settleAccount();
+          // Still signed in: the new origin needs its own identity (the earlier one is being
+          // erased), so ask for it before the choice is recorded. Until it is issued, the choice
+          // waits under this account's hold and is never sent unattributed.
+          // The ask is reserved before the account is read: a sign-out that arrives meanwhile is a
+          // later ask and wins (this identify then holds and confirms nothing).
+          if (deps.subjects) {
+            const ask = client.reserveAccountAsk();
+            const account = await client.accountInForce();
+            if (account !== null && client.isLatestAsk(ask)) await identify(account, {}, ask);
+          }
           await client.track("analytics_choice_made", { choice: "share" });
           return true;
         }

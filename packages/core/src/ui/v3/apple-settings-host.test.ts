@@ -38,7 +38,11 @@ import {
   WKWebViewStorageAdapter,
   type StillBridgeWindow,
 } from "../../storage/wkwebview-adapter.js";
-import { NativeBridge, openNativeDestination } from "../../native/bridge.js";
+import {
+  NativeBridge,
+  openNativeDestination,
+  presentNativeSafariSetup,
+} from "../../native/bridge.js";
 import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import {
@@ -60,6 +64,7 @@ import {
   appleSettingsRestore,
   appleSettingsSetup,
   IOS_EXTENSION_PAGE_ENABLE_STEPS,
+  SAFARI_SETUP_CLOSED_EVENT,
   createAppleSettingsRestore,
   SUPPORT_MAILTO,
   createAppleSettingsSync,
@@ -485,9 +490,10 @@ describe("Apple settings mode rule", () => {
     );
     expect(main).toContain("else void cache.hydrate();");
     expect(main).toContain("void cache.hydrate().catch(() => {});");
-    // D04 help opens through the anchor route; the free-period Restore uses the one native bridge.
-    expect(main).toContain(
-      "help: appleSettingsHelp((url) => openExternalLink(url)),",
+    // D04 help opens through the anchor route, and Safari setup asks native for its sheet from
+    // the tap; the free-period Restore uses the one native bridge.
+    expect(main).toMatch(
+      /help: appleSettingsHelp\(\s*\(url\) => openExternalLink\(url\),\s*\(\) => void presentNativeSafariSetup\(\),\s*\),/,
     );
     expect(main).toContain("restoreBridge: appleRestoreBridge(bridge),");
     // Account confirmation reads the configured auth authority, independently of display email.
@@ -936,6 +942,37 @@ describe("D04 host", () => {
       [PRIVACY_POLICY_URL],
     ]);
     expect(SETUP_GUIDE_URL).toBe("https://stillapp.fit/setup/");
+    // Without the native sheet opener the Safari setup link is present but cannot act.
+    expect(screen.getByRole("button", { name: "Safari setup" })).toBeDisabled();
+    f.authority.stop();
+  });
+
+  it("Safari setup (ISS-0075) posts exactly one presentSafariSetup message from a tap, opens no web page, and nothing without user activation", async () => {
+    const f = await composeAtomic(tsBackend, {
+      replies: { presentSafariSetup: async () => JSON.stringify({ ok: true }) },
+    });
+    await f.hydrated;
+    let active = true;
+    const { open } = await renderHost(f, {
+      // The entry's opener (main.ts), with this test's port and activation in place of the page's.
+      help: appleSettingsHelp(vi.fn(), () =>
+        void presentNativeSafariSetup({
+          win: f.native.win,
+          userActivation: { isActive: active },
+        }),
+      ),
+    });
+    const link = await screen.findByRole("button", { name: "Safari setup" });
+    expect(link).toBeEnabled();
+    const before = f.native.messages.length;
+    await fireEvent.click(link);
+    expect(f.native.messages.slice(before)).toEqual([
+      { kind: "presentSafariSetup" },
+    ]);
+    active = false;
+    await fireEvent.click(link);
+    expect(f.native.messages.slice(before)).toHaveLength(1);
+    expect(open).not.toHaveBeenCalled();
     f.authority.stop();
   });
 
@@ -1246,6 +1283,10 @@ const ONBOARDING_SWIFT = resolve(
   import.meta.dirname,
   "../../../../../apps/apple/StillKit/Sources/StillKit/Onboarding.swift",
 );
+const SAFARI_SETUP_SHEET_SWIFT = resolve(
+  import.meta.dirname,
+  "../../../../../apps/apple/StillKit/Sources/StillKit/SafariSetupSheet.swift",
+);
 
 describe("Safari setup card", () => {
   it("macOS disabled -> the approved card with exact steps and no invented action", () => {
@@ -1429,6 +1470,46 @@ describe("Safari setup card", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(read).toHaveBeenCalledTimes(4);
     expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads when the Safari setup sheet closes or the window regains focus, and not after stopping", async () => {
+    const read = vi.fn(async (): Promise<SafariSetupObservation | null> => null);
+    const stop = watchAppleSetup(read, vi.fn(), document, 60_000);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event(SAFARI_SETUP_CLOSED_EVENT));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    stop();
+    window.dispatchEvent(new Event(SAFARI_SETUP_CLOSED_EVENT));
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
+  it("the closed event is the one the app dispatches (SafariSetupSheet.swift)", () => {
+    expect(SAFARI_SETUP_CLOSED_EVENT).toBe("still:safari-setup-closed");
+    expect(readFileSync(SAFARI_SETUP_SHEET_SWIFT, "utf8")).toContain(
+      `public static let closedEvent = "${SAFARI_SETUP_CLOSED_EVENT}"`,
+    );
+  });
+
+  it("Mac: the setup card goes once the Safari setup sheet closes with Still on, with no visibility change", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    let next: SafariSetupObservation | null = { ...MAC, extensionStatus: "disabled" };
+    await renderHost(f, { observeSetup: async () => next });
+    expect(
+      await screen.findByRole("heading", { name: "Turn on Still in Safari" }),
+    ).toBeInTheDocument();
+    next = { ...MAC, extensionStatus: "enabled" };
+    window.dispatchEvent(new Event(SAFARI_SETUP_CLOSED_EVENT));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Turn on Still in Safari" }),
+      ).toBeNull(),
+    );
+    f.authority.stop();
   });
 
   it("shows the approved Mac setup card only while native observes the extension off", async () => {
@@ -1904,11 +1985,21 @@ describe("account, restore, help and telemetry mapping", () => {
     openExternalLink("javascript:alert(1)");
     openExternalLink("http://example.com/");
     expect(clicked).toHaveLength(1);
-    expect(appleSettingsHelp(vi.fn())).toEqual({
+    expect(appleSettingsHelp(vi.fn())).toStrictEqual({
       onGuide: expect.any(Function),
       onSupport: expect.any(Function),
       onPrivacy: expect.any(Function),
     });
+  });
+
+  it("Safari setup calls only the native sheet opener, never a web destination", () => {
+    const open = vi.fn();
+    const safariSetup = vi.fn();
+    const help = appleSettingsHelp(open, safariSetup);
+    expect(Object.keys(help)).toEqual(["onGuide", "onSafariSetup", "onSupport", "onPrivacy"]);
+    help.onSafariSetup!();
+    expect(safariSetup).toHaveBeenCalledExactlyOnceWith();
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("opens exactly mailto:support@stillapp.fit and no other mailto", () => {

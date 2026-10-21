@@ -399,6 +399,10 @@ export class UiController {
   checkoutFlow = $state<CheckoutFlow>("none");
   /** "Share usage data" on this device; null hides the switch (no analytics in this build). */
   usageSharing = $state<boolean | null>(null);
+  /** Bumped when the switch changes, so a sharing read that straddles the change is not shown. */
+  private usageSharingRevision = 0;
+  /** Switch changes not yet settled: a read made while one is pending is not shown either. */
+  private usageTogglesInFlight = 0;
   /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
   usageNoticeVisible = $state(false);
   /** Account-wide "Delete shared data on all devices"; null hides it (not offered, or signed out). */
@@ -458,7 +462,7 @@ export class UiController {
     deps.cache.subscribe((s) => {
       this.settings = s;
     });
-    void this.loadUsageSharing();
+    void this.refreshUsageSharing();
   }
 
   /** Registers a watcher that must stop when the UI owning this controller is destroyed. */
@@ -474,15 +478,27 @@ export class UiController {
 
   // ── "Share usage data" ───────────────────────────────────────────────────────────────────────
 
-  private async loadUsageSharing(): Promise<void> {
+  /**
+   * Ask the host for this device's sharing state again and show what it now knows. The first read
+   * runs in the constructor, often before the host has finished starting (the Apple app builds
+   * this controller before `analytics.start()`), so an unknown first answer must not hide the
+   * switch for the whole session (ISS-0111): hosts call this once their analytics has started or
+   * returned to the foreground, and the controller calls it after a sign-out or account deletion.
+   * An unknown answer never replaces a known state, and an answer read across a switch change, or
+   * while one is pending, is dropped (the change's own result stands).
+   */
+  async refreshUsageSharing(): Promise<void> {
+    const revision = this.usageSharingRevision;
+    const pendingAtStart = this.usageTogglesInFlight > 0;
+    let state: UsageSharingState | null | undefined;
     try {
-      const state = await this.analytics?.sharing?.();
-      if (!state) return;
-      this.usageSharing = state.enabled;
-      this.usageNoticeVisible = state.enabled && state.noticeNeeded;
+      state = await this.analytics?.sharing?.();
     } catch {
-      /* no switch rather than a wrong one */
+      return; /* no switch rather than a wrong one */
     }
+    if (!state || pendingAtStart || this.usageTogglesInFlight > 0 || revision !== this.usageSharingRevision) return;
+    this.usageSharing = state.enabled;
+    this.usageNoticeVisible = state.enabled && state.noticeNeeded;
   }
 
   toggleUsageSharing(): void {
@@ -497,11 +513,17 @@ export class UiController {
     } catch {
       return;
     }
+    this.usageSharingRevision += 1;
+    this.usageTogglesInFlight += 1;
     void request.then(
       (enabled) => {
+        this.usageTogglesInFlight -= 1;
+        this.usageSharingRevision += 1;
         this.usageSharing = enabled;
       },
       () => {
+        this.usageTogglesInFlight -= 1;
+        this.usageSharingRevision += 1;
         /* the previous state stands */
       },
     );
@@ -1476,7 +1498,10 @@ export class UiController {
     }
     if (this.userId !== null && this.accountRevision !== revision) return;
     this.track("signed_out", {});
-    this.analyticsCall((a) => a.reset());
+    // Then read the switch again: what the host knows may have changed while the account let go.
+    this.analyticsCall(
+      (a) => void Promise.resolve(a.reset()).catch(() => undefined).then(() => this.refreshUsageSharing()),
+    );
     this.resetToSignedOut();
   }
 
@@ -1519,6 +1544,7 @@ export class UiController {
       // Account gone → mirror the signed-out reset. The deletion is counted anonymously.
       this.track("account_deleted", {});
       this.resetToSignedOut();
+      void this.refreshUsageSharing();
       // Legacy hosts also confirm successful account deletion, but report no analytics status.
       this.accountDeletion = result ?? readAccountDeletionResult({ deleted: true });
     } catch (e) {
@@ -1585,7 +1611,7 @@ export class UiController {
     // Signed out or another account meanwhile: this outcome is no longer this page's to show.
     if (this.userId !== account || this.accountRevision !== revision) return;
     // Sharing on this device has changed: show the switch as it now is.
-    if (stopsSharing) void this.loadUsageSharing();
+    if (stopsSharing) void this.refreshUsageSharing();
     // Null: nothing was sent (sharing could not be confirmed off here). Show what the host holds,
     // never a line it did not report.
     if (view === null) {

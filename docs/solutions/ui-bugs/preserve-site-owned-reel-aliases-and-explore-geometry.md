@@ -6,9 +6,9 @@ problem_type: integration_error
 module: packages/core
 applies_when: Blocking rewrites a single-item viewer address or changes the geometry of a measured discovery grid
 date: 2026-10-14
-updated: 2026-10-15
+updated: 2026-10-20
 status: active
-tags: [instagram, navigation, aliases, virtualization, explore, resizeobserver]
+tags: [instagram, navigation, aliases, virtualization, explore, resizeobserver, has-selector, performance]
 ---
 
 ## Recognize the boundary
@@ -77,6 +77,23 @@ packaged rules and update the free-surface pin with any selector change.
   hide does not match and Reels stay (no holes).
 - Reel tiles are recognized by a looping video or an English Reel/Clip badge. A tile whose video
   is added late in another language is hidden only once the video appears.
+
+## Keep :has() off the column (ISS-0083)
+
+The column also sets what each row mount costs. A `:has()` on a box above the one being styled
+(here the Explore column, above every row and tile) makes WebKit restyle the whole column whenever a
+row is mounted or unmounted, and a virtualized list does that all through a scroll. The column's
+`:has()` was redundant: each Explore rule reaches it through a row whose own `:has()` already
+finds a `/p/` link three boxes down. With it removed, the selectors match exactly the same nodes
+(a unit test compares both forms on the Explore fixture and on edge shapes), and on a phone-sized page with
+30 mounted rows of Instagram-depth tiles, one row mount cost WebKit about 3 to 6 ms with Still
+instead of 12 to 19 ms (0.4 to 0.7 ms without Still). Firefox gained a little. Chromium did not
+gain: its cost is in the `row:has(...) > div` tile layout rules and in `[style*=...]` conditions
+above the styled box.
+These are milliseconds, so they cannot explain a wait of seconds for the next batch on their own.
+
+When writing a selector for a virtualized feed, put `:has()` only on the styled box or its row,
+and drop any `:has()` that a lower compound already implies.
 
 ## Prevention
 

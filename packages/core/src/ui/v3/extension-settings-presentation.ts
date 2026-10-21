@@ -19,8 +19,9 @@ export interface SyncCardProps {
     /** Actual caller-confirmed session; an address alone is not checkout authority. */
     confirmed: boolean;
     status?: OperationStatus;
-    /** Last successful cloud exchange, shown beside the status as on the Chrome popup. Only the
-     * Apple app supplies it; absent, the status line is unchanged. */
+    /** Last successful cloud exchange, shown beside the status as on the popups ("Synced · Today
+     * at 2:10 PM"). The Apple app and the browser Settings page supply it; absent, the status line
+     * is unchanged. */
     lastSyncedAt?: number | null;
     onSignOut?: () => void;
     onDeleteAccount?: () => void;
@@ -106,7 +107,8 @@ export interface RestoreStatusCardProps {
 }
 
 export interface AccountLinkCardProps {
-  state: "confirm" | "pending" | "linked" | "failed";
+  /** `elsewhere`: the purchase is linked to a different account (ISS-0104); a fact, no action. */
+  state: "confirm" | "pending" | "linked" | "failed" | "elsewhere";
   email: string;
   onConfirm?: () => void;
   onChooseOther?: () => void;

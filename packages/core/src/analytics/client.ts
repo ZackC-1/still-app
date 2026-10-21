@@ -295,8 +295,15 @@ export interface TrackOptions {
   readonly observation?: AnalyticsObservation;
 }
 
+/** When work was asked: the account generation, the consent epoch and the holds asked so far. */
+export interface AnalyticsStamp {
+  readonly generation: number;
+  readonly epoch: number;
+  readonly holds?: number;
+}
+
 export interface AnalyticsObservation {
-  readonly stamp: { readonly generation: number; readonly epoch: number };
+  readonly stamp: AnalyticsStamp;
   readonly permission: AnalyticsPermission;
 }
 
@@ -357,6 +364,9 @@ export class AnalyticsClient {
   private heldTag: string | null = null;
   /** Counts holds, so a confirmation asked before a hold, but run after it, cannot release it. */
   private holds = 0;
+  /** Set when the held account's own identity continued its hold (`confirm`): stamps asked under
+   * that hold stay current for that one generation, and no later one. */
+  private continued: { readonly generation: number; readonly holds: number } | null = null;
   /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
    * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
   private asks = 0;
@@ -514,6 +524,22 @@ export class AnalyticsClient {
     this.asks += 1;
     if (options.forget) this.cancel();
     const holds = this.holds;
+    // The held account's own identity, with nothing asked since the hold, continues the hold: what
+    // was observed under the hold (since it was asked) belongs to this identity and stays current,
+    // or an event observed under the hold but recorded just after this lands would be dropped
+    // (ISS-0108). Everything else is fenced as for any account change: what was observed before the
+    // hold (a fresh start's included, whose hold fences nothing itself), and every later change.
+    if (
+      !options.forget &&
+      account !== null &&
+      this.lastAsked === undefined &&
+      this.heldAccount !== null &&
+      this.heldAccount === options.accountId?.toLowerCase()
+    ) {
+      this.generation += 1;
+      this.continued = { generation: this.generation, holds: this.holds };
+      this.lastAsked = account;
+    }
     if (account !== this.lastAsked) {
       this.cancel();
       this.generation += 1;
@@ -733,6 +759,53 @@ export class AnalyticsClient {
     return this.confirm(null, { forget: options.forgetAccount });
   }
 
+  /**
+   * Install the host's latest account ask now, if it is still owed, without sending anything. An
+   * ask made while sharing was off cannot be installed then (a sign-out with the switch off), so it
+   * waits for the next flush. A host turning sharing back on calls this before recording the
+   * choice: otherwise the choice would wait unattributed beside the owed sign-out, which then drops
+   * it as possibly the departed account's use (ISS-0113). The same step a flush takes first.
+   */
+  settleAccount(): Promise<void> {
+    return this.run(async () => {
+      if (!this.confirmed) await this.establish(true);
+      // A sign-in hold that spans a permission change (made while sharing was off, or still waiting
+      // for its identity when sharing went off) is tagged under the earlier origin. Tag it under the
+      // permission now in force, or the identity confirmed later would not own what waits under it.
+      if (this.heldAccount !== null) await this.recordHold(this.heldAccount, null);
+    });
+  }
+
+  /** The account this device is signed in as for analytics, or null: the account it is held for,
+   * else the account whose identity it reports under. Never sent; a host re-identifies with it
+   * when sharing is turned back on (a new origin needs its own identity). */
+  accountInForce(): Promise<string | null> {
+    return this.run(async () => {
+      // A sign-out owed (asked, or not yet installed) means nobody: never re-identify past it.
+      if (this.lastAsked === null || this.pending?.account === null) return null;
+      if (this.heldAccount !== null) return this.heldAccount;
+      const state = await this.read();
+      return state && state.userId !== null ? state.accountRef : null;
+    });
+  }
+
+  /** Whether a sign-out confirmed now would let go of nobody: no one is reported as, no hold is in
+   * force (in memory or the one saved before a restart) and no sign-in is being confirmed. False
+   * when the state cannot be read. A host may then re-observe the event that asked for the
+   * confirmation (Safari, ISS-0115); anything else stays fenced. */
+  lettingGoOfNobody(): Promise<boolean> {
+    return this.run(async () => {
+      const state = await this.read();
+      return (
+        !!state &&
+        state.userId === null &&
+        this.heldNow(state) === null &&
+        this.heldAccount === null &&
+        (this.pending?.account ?? null) === null
+      );
+    });
+  }
+
   /** The account this install reports as, or null (also when the state cannot be read: work that
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {
@@ -760,16 +833,23 @@ export class AnalyticsClient {
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
-  stamp(): { readonly generation: number; readonly epoch: number } {
-    return { generation: this.generation, epoch: this.epoch };
+  stamp(): AnalyticsStamp {
+    return { generation: this.generation, epoch: this.epoch, holds: this.holds };
   }
 
-  /** Whether nothing about the account or sharing has changed since `stamp`. */
-  isCurrent(stamp: {
-    readonly generation: number;
-    readonly epoch: number;
-  }): boolean {
-    return stamp.generation === this.generation && stamp.epoch === this.epoch;
+  /** Whether nothing about the account or sharing has changed since `stamp`. The one exception is
+   * the held account's own identity continuing its hold: work asked under that hold stays current. */
+  isCurrent(stamp: AnalyticsStamp): boolean {
+    if (stamp.epoch !== this.epoch) return false;
+    if (stamp.generation === this.generation) return true;
+    const continued = this.continued;
+    return (
+      continued !== null &&
+      continued.generation === this.generation &&
+      stamp.generation === this.generation - 1 &&
+      stamp.holds !== undefined &&
+      stamp.holds >= continued.holds
+    );
   }
 
   /** Optional server work shares the same synchronous revocation/account fence as batching. */

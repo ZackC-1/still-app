@@ -106,6 +106,13 @@ for (const [state, text] of [
   });
 }
 
+test("DIAGNOSTIC a tap on Help's Safari setup asks native for its sheet exactly once (ISS-0075)", async () => {
+  const { lane, page } = await open("app-iphone", "emitted-chunk");
+  await page.getByRole("button", { name: "Safari setup", exact: true }).click();
+  await expect.poll(() => kinds(lane).filter((k) => k === "presentSafariSetup").length).toBe(1);
+  expect(lane.model.messages("app")).toContainEqual({ kind: "presentSafariSetup" });
+});
+
 test("DIAGNOSTIC J4.SI a settings switch commits one native settings intent", async () => {
   const { lane, page } = await open("app-iphone", "emitted-chunk");
   const tiktok = page.getByRole("switch", { name: "TikTok website" });
@@ -151,6 +158,8 @@ test("the shim refuses what WebBridgeRouter refuses and answers in its JSON-stri
   expect((await post({ kind: "openDestination", destination: "settingsAppStillPage", url: "https://x.invalid" })).rejected).toContain("open refused (malformed)");
   expect((await post({ kind: "openDestination", destination: "safari" })).rejected).toContain("open refused (unsupported)");
   expect(await post({ kind: "openDestination", destination: "settingsAppStillPage" })).toEqual({ reply: JSON.stringify({ ok: true, destination: "settingsAppStillPage" }) });
+  expect((await post({ kind: "presentSafariSetup", url: "https://x.invalid" })).rejected).toContain("safari setup refused (malformed)");
+  expect(await post({ kind: "presentSafariSetup" })).toEqual({ reply: JSON.stringify({ ok: true }) });
   const entitlement = await post({ kind: "getEntitlement" });
   expect(typeof entitlement.reply).toBe("string");
   expect(Object.keys(JSON.parse(entitlement.reply as string)).sort()).toEqual(["entitled", "installId", "source", "updatedAt"]);

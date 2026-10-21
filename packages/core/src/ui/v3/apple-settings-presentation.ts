@@ -106,6 +106,8 @@ export interface AppleSettingsProps extends Pick<
   /** TODO: approved guide/support/privacy destinations belong to host integration. */
   help: {
     onGuide?: () => void;
+    /** "Safari setup" (ISS-0075): the app's native "Turn on Still in Safari" sheet. */
+    onSafariSetup?: () => void;
     onSupport?: () => void;
     onPrivacy?: () => void;
   };

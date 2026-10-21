@@ -45,7 +45,7 @@ Curated from the local-only commercial package and decision summary; see
   only after consented eligible inputs and deletion/expiry are proven.
 - Rating: owner-controlled, initially Off; no rating analytics.
 - Deferred/removed: counting/history/summary, Edge, native Android/Play,
-  trials, desktop sponsored-feed detection, non-TikTok placeholders.
+  Firefox on Android (deferred to a later update on 20 Oct 2026; code paths kept), trials, desktop sponsored-feed detection, non-TikTok placeholders.
 
 ## Apple sign-in before buying (D543, 16 October 2026)
 
@@ -68,6 +68,9 @@ See [the bounded implementation plan](../../../plans/2026-10-08-feat-mobile-pro-
 Source status (9 October, not device-accepted): macOS Safari offers all twelve; iPhone/iPad Safari
 and Firefox for Android offer nine (end-of-video suggestions and live chat have no phone-layout
 surface; the phone-feed sponsored behavior is blocked on the owner's Facebook session).
+
+Owner decision, 20 Oct 2026: the first V3 release ships Chrome, Firefox desktop and the Apple apps.
+Firefox on Android is deferred to a later update; its Pro parity work stays in the code.
 
 ## Design
 

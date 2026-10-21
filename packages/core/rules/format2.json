@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.17",
+  "version": "3.0.21",
   "services": {
     "youtube": {
       "matches": [
@@ -105,7 +105,8 @@
             "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
             "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])",
-            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))"
+            "[data-still-instagram-explore] div:not([role=\"dialog\"] *) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))",
+            "[data-still-instagram-profile] div:not([role=\"dialog\"], [role=\"dialog\"] *, article *):has(> div > div > a[href^=\"/\"][href$=\"/\"]:not([href*=\"/p/\"], [href*=\"/reel/\"], [href*=\"/saved/\"], [href*=\"/tagged/\"], [href*=\"/explore/\"], [href*=\"/stories/\"])):has(> div + div > div > div > div > div > a[href^=\"/\"][href*=\"/reel/\"]):not(:has(a[href^=\"/\"][href*=\"/p/\"], [role=\"tablist\"], header, section, form, textarea, time, video))"
           ]
         },
         {
@@ -217,16 +218,9 @@
           "action": "hide",
           "selectors": [
             "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
-            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])"
-          ]
-        },
-        {
-          "id": "facebook-videos-feed",
-          "feature": "facebook.videos",
-          "action": "hide",
-          "selectors": [
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"Create story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"View \" i][aria-label*=\" story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))"
           ]
         },
         {
@@ -278,6 +272,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "778078dc5ba71b42281519de1575738410748ffbe0d84a92832210052cf59c8837a28e3a706f55c06962be45ebddc983309afdeea42ca23172523310899e330d"
+    "value": "6ac55c5f6f1fb8ab19ac95f6912385837f72b546ccb99d4a30f822d1c8fc1caa892390132ff8263d52d693da6a0078d537550ed70cab91d755f82d43b873fe0b"
   }
 }

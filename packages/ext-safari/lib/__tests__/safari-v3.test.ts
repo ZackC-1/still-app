@@ -167,9 +167,9 @@ describe("the Apple app owns the account on Safari", () => {
 
   it("signed in: account is shown read-only, with no account action of any kind", () => {
     const popup = appManagedPopupAccount(signedIn, TEXT);
-    expect(popup).toEqual({ address: "person@example.invalid", status: { tone: "success", text: "y" } });
+    expect(popup).toEqual({ address: "person@example.invalid", lastSyncedAt: 1, status: { tone: "success", text: "y" } });
     const settings = appManagedSettingsSync(signedIn, TEXT);
-    expect(settings.account).toMatchObject({ address: "person@example.invalid", identity: signedIn.userId, revision: 3, confirmed: false });
+    expect(settings.account).toMatchObject({ address: "person@example.invalid", identity: signedIn.userId, revision: 3, confirmed: false, lastSyncedAt: 1 });
     for (const value of [popup, settings]) {
       expect(Object.values(value ?? {}).some((v) => typeof v === "function")).toBe(false);
       expect(actionKeys(value)).toEqual([]);
@@ -180,6 +180,20 @@ describe("the Apple app owns the account on Safari", () => {
     expect(appManagedPopupAccount({ ...signedIn, cloudReachable: false }, TEXT)?.status).toEqual({ tone: "failed", text: "u" });
     expect(appManagedPopupAccount({ ...signedIn, pendingUpload: true }, TEXT)?.status).toEqual({ tone: "pending", text: "s" });
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: null }, TEXT)?.status).toEqual({ tone: "pending", text: "c" });
+  });
+
+  it("carries the app's last sync time to the synced line, never one of its own", () => {
+    // Owner, 19 Oct: "Synced · Today at 2:10 PM" in the Safari popup too. The time is the one the
+    // Still app reported through the App Group; the extension never invents or advances it.
+    const at = 1_760_900_000_000;
+    expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at }, TEXT)?.lastSyncedAt).toBe(at);
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: at }, TEXT).account.lastSyncedAt).toBe(at);
+    // Kept through a failed or pending sync, so the line reads "… · Last synced <time>".
+    expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, cloudReachable: false }, TEXT)?.lastSyncedAt).toBe(at);
+    expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, pendingUpload: true }, TEXT)?.lastSyncedAt).toBe(at);
+    // Never synced: no time at all.
+    expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: null }, TEXT)?.lastSyncedAt).toBeNull();
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: null }, TEXT).account.lastSyncedAt).toBeNull();
   });
 
   it("signed out: no account display and, in particular, no sign-in", () => {

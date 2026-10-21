@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>someuser on Instagram: a post</title>
+    <style>
+      .grid { display: flex; flex-direction: column; }
+      .tile { width: 100px; height: 100px; background: #ccc; }
+    </style>
+  </head>
+  <body>
+    <!--
+      A standalone post page, /someuser/p/Post0001/ (captured 20 Oct 2026). Its address is the
+      profile's post viewer, so the content script sets the profile mark. There is no <article>: the
+      post is a box of header, media, actions (with the timestamp link to its own address) and
+      comments, then "More posts from someuser" sections whose tile rows have the profile grid's
+      shape (wrapper > box > column > rows > tile boxes > links).
+    -->
+    <main role="main">
+      <div>
+        <div id="keep-post">
+          <div><div><a href="/someuser/" id="keep-post-author">someuser</a></div></div>
+          <div id="keep-post-media"><div class="tile"></div></div>
+          <div><div><div>
+            <section id="keep-post-actions"><span>Like</span><span>Comment</span><span>Share</span><span>Save</span></section>
+            <div><div><a href="/someuser/p/Post0001/" id="keep-post-time"><time datetime="2026-10-20T16:00:00.000Z">1 hour ago</time></a></div></div>
+          </div></div></div>
+          <div id="keep-post-comments"><div><a href="/someuser/p/Post0001/c/900001/" id="keep-post-comment-link">1w</a></div></div>
+          <form id="keep-post-comment-form"><textarea aria-label="Add a comment…"></textarea></form>
+        </div>
+        <hr />
+
+        <!--
+          The same box for a Reel opened on its own page (/someuser/reel/Reel0001/): every link in it is
+          a /reel/ link, its author line sits at the related heading's depth and its comment permalink at
+          the related column's depth, so only the item's own parts (actions section, timestamp, comment
+          form) tell it from a related-posts section.
+          (Its timestamp box and its comment permalink box are one-tile rows to the profile tile rule
+          and go on their own: known, not this change's subject.)
+        -->
+        <div id="keep-reel-item">
+          <div><div><a href="/someuser/" id="keep-reel-item-author">someuser</a></div></div>
+          <div id="keep-reel-item-media"><div class="tile"></div></div>
+          <div><div><div><div>
+            <section id="keep-reel-item-actions"><span>Like</span><span>Comment</span><span>Share</span><span>Save</span></section>
+            <div><div><a href="/someuser/reel/Reel0001/" id="reel-item-time"><time datetime="2026-10-20T16:00:00.000Z">2 hours ago</time></a></div></div>
+          </div></div></div></div>
+          <div id="keep-reel-item-comments"><div><div><div><div><a href="/someuser/reel/Reel0001/c/900002/" id="reel-item-comment-link">3d</a></div></div></div></div></div>
+          <form id="keep-reel-item-comment-form"><textarea aria-label="Add a comment…"></textarea></form>
+        </div>
+        <hr />
+
+        <!--
+          A Saved collection's view (/someuser/saved/<name>/<id>/): a title row with the back link to
+          /someuser/saved/ above a grid Instagram keeps loading, here with only Reels rendered. Never
+          hidden: its title row is not the account's own link.
+        -->
+        <div id="keep-saved-collection">
+          <div><div><a href="/someuser/saved/" id="keep-saved-back">Back</a><span>All posts</span></div></div>
+          <div><div><div class="grid" id="keep-saved-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+            <div>
+              <div id="saved-reel-1"><a role="link" href="/otheruser/reel/Reel0301/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="saved-reel-2"><a role="link" href="/otheruser/reel/Reel0302/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="saved-reel-3"><a role="link" href="/otheruser/reel/Reel0303/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+            </div>
+          </div></div></div>
+        </div>
+        <hr />
+
+        <!-- Only Reels: the section goes whole, its heading with it (ISS-0099). -->
+        <div id="related-reels-only">
+          <div><div><span>More posts from </span><a href="/someuser/" id="related-reels-only-account">someuser</a></div></div>
+          <div><div><div class="grid" id="related-reels-only-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+            <div>
+              <div id="related-reel-1"><a role="link" href="/someuser/reel/Reel0101/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="related-reel-2"><a role="link" href="/someuser/reel/Reel0102/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="related-reel-3"><a role="link" href="/someuser/reel/Reel0103/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+            </div>
+            <div>
+              <div id="related-reel-4"><a role="link" href="/someuser/reel/Reel0104/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="related-reel-5"><a role="link" href="/someuser/reel/Reel0105/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <!-- A Reel tile whose badge has not rendered yet: its address alone identifies it. -->
+              <div id="related-reel-6"><a role="link" href="/someuser/reel/Reel0106/"><div class="tile"></div></a></div>
+            </div>
+          </div></div></div>
+        </div>
+
+        <!-- Reels and posts: the section stays with its heading; its Reel tiles go and the posts close up. -->
+        <div id="keep-related-mixed">
+          <div><div><span>More posts from </span><a href="/someuser/" id="keep-related-mixed-account">someuser</a></div></div>
+          <div><div><div class="grid" id="keep-related-mixed-grid" style="display: flex; flex-direction: column; padding-bottom: 0px; padding-top: 0px; position: relative;">
+            <div>
+              <div id="related-mixed-reel-1"><a role="link" href="/someuser/reel/Reel0201/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="keep-related-mixed-post-1"><a role="link" href="/someuser/p/Post0202/"><div class="tile"></div></a></div>
+              <div id="related-mixed-reel-2"><a role="link" href="/someuser/reel/Reel0203/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+            </div>
+            <div>
+              <div id="related-mixed-reel-3"><a role="link" href="/someuser/reel/Reel0204/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+              <div id="keep-related-mixed-post-2"><a role="link" href="/someuser/p/Post0205/"><div class="tile"></div></a></div>
+              <div id="related-mixed-reel-4"><a role="link" href="/someuser/reel/Reel0206/"><div class="tile"></div><div><svg aria-label="Clip" role="img"><title>Clip</title></svg></div></a></div>
+            </div>
+          </div></div></div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
