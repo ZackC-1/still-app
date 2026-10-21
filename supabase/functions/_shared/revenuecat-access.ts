@@ -104,12 +104,13 @@ async function customerNotFound(response: Response): Promise<boolean> {
  * https://www.revenuecat.com/docs/api-v2/purchase */
 export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
   constructor(private readonly secret: string, private readonly project: string,
-    private readonly mappings: readonly AccessProductMapping[]) {}
+    private readonly mappings: readonly AccessProductMapping[],
+    private readonly stripeEnvironment: AccessEnvironment = "sandbox") {}
 
   async getRights(holder: string, environment: AccessEnvironment): Promise<ProviderAccess> {
     const unavailable = { status: "unavailable" } as const;
     if (!this.secret || !ID.test(this.project) || !this.mappings.length ||
-        environment !== "sandbox" && this.mappings.some(mapping => mapping.store === "stripe")) return unavailable;
+        environment !== this.stripeEnvironment && this.mappings.some(mapping => mapping.store === "stripe")) return unavailable;
     const path = `/v2/projects/${this.project}/customers/${encodeURIComponent(holder)}/purchases`;
     let next = `${path}?environment=${environment}&limit=100`;
     const rights: ProviderRight[] = [];

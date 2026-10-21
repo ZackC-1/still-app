@@ -308,6 +308,23 @@ Deno.test("QA Stripe mapping cannot classify production purchases or refunds", a
     }
   } finally { globalThis.fetch = real; }
 });
+Deno.test("explicit production Stripe binding cannot read sandbox and keeps canonical paid/refund identity", async () => {
+  const client = new HttpRevenueCatAccessClient("synthetic-secret", "proj-still", [STRIPE_MAPPING], "production");
+  let requests = 0;
+  await withFetch(() => { requests++; throw new Error("must not request sandbox"); }, async () => {
+    assertEquals(await client.getRights(HOLDER,"sandbox"),{ status:"unavailable" });
+  });
+  assertEquals(requests,0);
+  const list = (item: unknown) => ({ object:"list",next_page:null,items:[item] });
+  const active = { ...stripePurchase(),environment:"production" };
+  const positive = await withFetch(fakeRevenueCat(list(active),served(catalog())), () => client.getRights(HOLDER,"production"));
+  assertEquals(positive.status,"verified");
+  assert(positive.status === "verified" && positive.rights.length === 1);
+  const negative = await withFetch(fakeRevenueCat(list({ ...active,status:"refunded",revenue_in_usd:null }),served(catalog())),
+    () => client.getRights(HOLDER,"production"));
+  assertEquals(negative,{ status:"verified",rights:[{ ...positive.rights[0]!,state:"revoked" }],complete:true });
+  assertEquals(await withFetch(fakeRevenueCat(list(stripePurchase()),served(catalog())), () => client.getRights(HOLDER,"production")),{ status:"unavailable" });
+});
 Deno.test("Stripe mapping rejects wrong product/app/store/entitlement and unknown or zero payment", async () => {
   const mappings = parseAccessProductMappings(JSON.stringify([STRIPE_MAPPING]));
   if (!mappings) throw new Error("Stripe grammar rejected");

@@ -304,8 +304,8 @@ deletion detaches the holder while retaining the payment record for canonical re
 
 The shared SQL adapter retains fixed sandbox composition and all QA error contracts. Local
 verification: 127 targeted Deno tests passed, Deno lint/check passed, and repository lint/typecheck
-passed. SQL/PLpgSQL syntax parsed successfully. The new GitHub rehearsal must still prove actual
-PostgreSQL permissions, concurrent claims, stop-sales recovery, deletion and catalog drift.
+passed. SQL/PLpgSQL syntax parsed successfully. The [real PostgreSQL rehearsal](https://github.com/ZackC-1/still-app/actions/runs/39686385368)
+passed actual role permissions, concurrent claims, stop-sales recovery, deletion and catalog drift.
 
 Review used the ce-code-review lenses sequentially under the repository's main-thread mapping.
 The attempted independent Claude review did not run: its acpx transport package failed to resolve
@@ -316,3 +316,24 @@ This is a draft foundation unit. Production route composition, Apple device-only
 deployment and analytics verification remain open. Reconcile migration 0025 from PR #518 before
 production deployment. Rollback disables new callers and keeps the ledger for recovery; do not
 drop payment records. No production database or webhook configuration was changed.
+
+## Shared production runtime, 21 October
+
+Checkout request processing, canonical payment recovery and raw-signature Stripe notification
+handling now share the tested QA implementation through fixed environment wrappers. Production
+configuration requires live credentials, a production signer and the narrow writer role; it
+cannot borrow QA secrets. New checkout admission carries the desktop surface/build to the SQL
+policy gates. Existing paid attempts remain recoverable after new sales are disabled.
+
+A composition test exposed the previous deliberate sandbox-only Stripe restriction in the
+RevenueCat reader. An explicit server-side production binding now supports live purchase and
+refund observations without relaxing default QA isolation. The production composition test uses
+real adapters, synthetic provider responses and a real signed production access proof; it verifies
+that only production RPCs are called and import acknowledgement alone never grants access.
+All 96 targeted checkout, webhook and RevenueCat tests passed, including unchanged QA tests.
+These tests do not contact production providers or deploy routes.
+
+Owner clarified that production must match tested sandbox functionality and the app's database
+contracts. Final verification must cover settings sync, purchase/restore/recovery, refund and
+account deletion, with isolated provider environments. Route/client composition and protected
+deployment are still pending; do not infer database or deployed parity from these source tests.
