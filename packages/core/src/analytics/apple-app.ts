@@ -84,6 +84,11 @@ interface Observed extends Ready {
   readonly observation: AnalyticsObservation;
 }
 
+/** How long the launch events wait for the launch's account answer (ISS-0116): a session read that
+ * never answers (offline, an unreadable store) must not hold them, or the switch re-read after
+ * them, for long. */
+export const LAUNCH_ACCOUNT_WAIT_MS = 5_000;
+
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let consent = false;
   /** A Don't share tapped this session (adoptCommittedConsent(false)) holds web reporting off even
@@ -99,6 +104,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   /** The latest account answer from the host: an account, nobody, or not known yet. A client made
    * when sharing is turned back on is told it before it records anything (ISS-0113). */
   let account: string | null | undefined;
+  /** Settles once the client has been given its first account answer (or there is no client to
+   * give it to). The launch events wait for it: a first confirmation fences every observation made
+   * before it, so a launch observed just before the session check answered was dropped whole
+   * (ISS-0116: no "opened" from the app). */
+  let launchAnswered!: () => void;
+  const accountAnswered = new Promise<void>((resolve) => (launchAnswered = resolve));
 
   const ready = (): Promise<Ready | null> =>
     (readyPromise ??= (async () => {
@@ -358,6 +369,15 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   return {
     ui,
     async start() {
+      if (!(await ready())) return; // no client reports: nothing to wait for
+      // The launch's account answer first (bounded): observed before it, the launch would be fenced
+      // by it and dropped (ISS-0116).
+      let waited: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        accountAnswered,
+        new Promise<void>((resolve) => (waited = setTimeout(resolve, LAUNCH_ACCOUNT_WAIT_MS))),
+      ]);
+      clearTimeout(waited);
       const r = await observed();
       if (!r) return;
       const { client, context } = r;
@@ -407,18 +427,32 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     },
     async identifyAccount(userId) {
       account = userId;
-      const r = await ready();
+      const r = await (async () => {
+        try {
+          const answered = await ready();
+          if (answered) await answered.identify(userId); // a live session confirms the account
+          return answered;
+        } finally {
+          launchAnswered(); // what the launch observes now belongs to this account
+        }
+      })();
       if (!r) return;
-      await r.identify(userId); // a live session confirms the account
       // The server attach is separate from the account check: its network time never delays it.
       // With per-device subjects the identify was the server request (see ui.identify).
       if (!deps.subjects) void r.attach();
     },
     async accountAbsent() {
       account = null;
-      const r = await ready();
-      if (!r) return;
-      await r.client.confirm(null, { forget: true }); // known: nobody is signed in
+      try {
+        const r = await ready();
+        if (!r) return;
+        // The confirmation fences at once, as it is asked: the launch observes after that.
+        const confirmed = r.client.confirm(null, { forget: true }); // known: nobody is signed in
+        launchAnswered();
+        await confirmed;
+      } finally {
+        launchAnswered();
+      }
     },
     adoptCommittedConsent(enabled) {
       if (!enabled) {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DEFAULT_SETTINGS } from "../../packages/shared-types/src/index.js";
+import { SUPPORT_EMAIL } from "../../packages/core/src/ui/config.js";
 import { AtomicSettingsWriter } from "../../packages/core/src/storage/atomic-settings.js";
 import type { StorageAdapter, StoredSettingsRecord } from "../../packages/core/src/storage/adapter.js";
 
@@ -201,6 +202,27 @@ test.describe("the V3 bundle in WebKit over file://", () => {
       expect(list.rows).toEqual([row, row, row, row]);
       expect(list.steps).toEqual([row + 1, row + 1, row + 1]);
       expect(list.card).toBe(card);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+  }
+
+
+  // ISS-0112 (owner, 20 Oct): the support address under "Contact support" is a plain line people
+  // can select and copy, with no Copy button. It is one unit: a click, a double-click on the Mac or
+  // a long-press on the iPhone takes the whole address, never only "stillapp.fit" (WebKit's word
+  // rule stops at "@" and "."). Measured in WebKit, the engine of the app's web view.
+  for (const platform of ["ios", "macos"] as const) {
+    test(`D04 settings on ${platform}: one click selects the whole support address`, async () => {
+      const { page, errors } = await open(false, platform);
+      const help = page.getByRole("region", { name: "Help" });
+      const address = help.getByText(SUPPORT_EMAIL, { exact: true });
+      await address.scrollIntoViewIfNeeded();
+      expect(await address.evaluate((el) => getComputedStyle(el).webkitUserSelect)).toBe("all");
+      await address.click();
+      expect(await page.evaluate(() => String(getSelection()).trim())).toBe(SUPPORT_EMAIL);
+      // The rest of the card keeps its ordinary behavior: the address is the only unit.
+      expect(await help.evaluate((el) => getComputedStyle(el).webkitUserSelect)).not.toBe("all");
       expect(errors).toEqual([]);
       await page.context().close();
     });
