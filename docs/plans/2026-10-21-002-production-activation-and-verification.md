@@ -63,8 +63,10 @@ its recovery step. Provider configuration and code must agree before sales are a
 
 1. **Confirm the live payment route.** Check Managed Payments in the real Stripe business account,
    outside the QA sandbox. The tested Managed Payments route is the proposed production path.
-   Confirm live eligibility before implementing its final integration; do not silently substitute
-   RevenueCat Web Billing or ordinary Stripe Checkout. Pending owner status read.
+   Owner chose this path explicitly on 21 October: production must match the working sandbox
+   architecture (D3 option B). Do not substitute RevenueCat Web Billing or ordinary Stripe
+   Checkout. After the guided setup, the owner screenshot shows Ready to use; Stripe says Active follows
+   the first Managed Payments transaction. Per-session enablement remains required.
 2. **Inventory Apple and RevenueCat.** Read Apple agreements/product status and RevenueCat's
    production apps, products, entitlement, offering and webhook. Compare `still_pro_v3` mappings
    with the release code; preserve historical `still_sync` purchases. Generate any mapping JSON
@@ -110,7 +112,60 @@ its recovery step. Provider configuration and code must agree before sales are a
 | Consent | Sharing off suppresses later product activity; Firefox sends only with its optional permission; Safari follows its host permission. Observe after normal delivery windows, not immediately after a click. |
 | Deletion | Disposable designated account/device is used; worker successfully removes the expected person and queues event erasure; follow-up verifies provider completion. Do not equate a queued deletion with completed erasure. |
 | Reporting | Actual launch dashboards exclude test builds and designated internal/QA activity; absence of a marker on older releases is not silently treated as proof of release-channel correctness. |
+| Paywall conversion | Production dashboard shows offer views, purchase starts, verified purchases, abandonment and purchase outcomes by supported surface, app version and available entry point. Validate actual delivery and deduplication; schema definitions alone are not proof. |
 | Monitoring/recovery | Named checks for webhook failures, entitlement failures, sync errors and overdue erasure; stop-sales operation prepared and verified without revoking existing rights. |
+
+## Paywall measurement requirement
+
+The owner explicitly requires visibility into who opens/clicks the paywall and how effectively it
+converts. Reuse the approved closed event contract: `locked_switch_tapped`, `paywall_viewed`,
+`paywall_dismissed`, `purchase_started`, purchase outcome events and `checkout_returned`. Audit
+the producers on each supported surface before treating an event as wired. Distinguish opening
+the offer from pressing its purchase action and from completing a verified payment.
+
+Use the canonical server `purchase_recorded` event for verified sale reporting, and
+`purchase_refunded` for reversals, with functional idempotency and the approved attribution rules.
+Report offer-to-purchase-start and offer-to-verified-sale conversion with explicit denominators,
+time windows and identity scope. Trace supported cross-surface handoffs before joining them into
+a funnel; do not fabricate missing attribution or count retries/restores as new sales.
+
+Identity follows ADR 0004: signed-out activity is anonymous; permitted signed-in activity can
+be associated with the account, but device subjects remain separate PostHog persons. Do not
+promise account-deduplicated funnels without implementing and verifying that reporting. Respect
+original and current consent, ownership lifecycle and withdrawal for purchase attribution.
+Financial fulfilment must succeed independently of optional analytics. Provider totals and
+consented analytics totals can differ; display this limitation rather than presenting analytics
+as complete financial accounting. No browsing history or unapproved event properties are needed.
+
+## Production database verification requirement
+
+The owner clarified that the existing storage split must be verified: payments and entitlements
+in production Supabase, usage/paywall analytics in production PostHog. Verify database evidence
+independently of provider dashboard success:
+
+- A verified purchase records the correct provider, product, transaction reference, environment
+  and ownership in the intended V3 payment/rights records, with idempotent delivery and retry.
+- The app's effective paid access derives from the intended authoritative records; an older
+  entitlement projection alone is not sufficient evidence of V3 fulfilment.
+- Refund/revocation changes the relevant right while preserving legitimate other rights and the
+  necessary audit record. Restores, account links and replayed webhooks do not create new sales.
+- Sandbox events cannot create production payment rights or appear as live revenue. App Review
+  sandbox support must follow its explicit separate policy rather than silently broadening access.
+- Verify user/account relationships, client access restrictions, and deletion/export handling
+  through proportional checks without printing production customer data.
+
+Keep the approved ADR 0004 storage model: consented activity events go to PostHog and Supabase
+coordinates identity/lifecycle. The owner explicitly confirmed this split; do not add a duplicate
+raw-usage event store in Supabase.
+
+The 14:56 PT RevenueCat webhook screen shows an authorization header configured, HMAC disabled,
+Both Production and Sandbox, All apps, All events, paywall UI events enabled, and recent Sent
+deliveries. Keep settings unchanged pending the backend audit. The inspected local
+`revenuecat-webhook` handler claims minimized audit events and refreshes the legacy entitlement
+projection from RevenueCat subscriber state; it does not itself reject sandbox environments.
+This is local-source evidence, not deployed-source proof. Inspect deployed source and V3
+reconciliation before making readiness claims. RevenueCat paywall forwarding does not establish
+instrumentation of Still's custom paywall or compliance with its approved usage-data contract.
 
 ## Corrections to carry into the shared runbook
 
@@ -128,10 +183,95 @@ its recovery step. Provider configuration and code must agree before sales are a
 
 ## Current checkpoint
 
-Initial read-only inventory completed. No production configuration or customer records changed.
+Initial read-only inventory completed. The owner subsequently completed the Stripe portal changes
+recorded below; this session has made no production backend writes or customer-record changes.
 The DB-01 workflow used the existing `standing-v1` authorization; production write approvals remain
-in force. First owner step: report the live Stripe Managed Payments status. Payment-account
-readiness and new live charges have not been verified. No release go/no-go has been issued.
+in force. Owner selected Stripe Managed Payments matching the sandbox (D3 option B) and completed its
+onboarding. Screenshot at 14:09 PT shows Ready to use; Stripe says Active follows the first
+Managed Payments transaction. Managed Payments remains disabled by default and must be enabled
+per checkout. At that checkpoint one eligible product existed and no Managed Payments transactions
+were recorded.
+Email me for approval is the selected refund setting. The owner clarified that the existing
+$4.99 Still Pro product is legacy: V3 is a new version of Still Pro with a separate product,
+entitlement and pricing. Do not add a V3 price to or repurpose that legacy product. Create a
+separate live counterpart to the sandbox V3 product, keeping the customer-facing name Still Pro
+and using distinct live provider IDs. Sandbox product and default-price screenshots confirm:
+Still Pro; description "Lifetime access to Still Pro’s additional blocking features across
+supported surfaces"; Downloadable Software – non-recreational – personal use, tax code
+`txcd_10202001`; Managed Payments eligible; active default USD $9.99 one-time flat-rate price.
+The other price is archived and must not be copied. The 14:16 PT edit view shows Include tax in
+price = Use default (no), with blank price description and lookup key. No other currency options
+or metadata appeared in the supplied price detail. The live price must preserve the intended
+tax-exclusive behavior; do not assume the live account default matches the sandbox default.
+The owner created the separate live V3 product. The 14:22 PT live catalog screenshot confirms
+Still Pro at USD $9.99, Active, `txcd_10202001`, and Managed Payments Eligible, alongside the
+unchanged separate legacy $4.99 listing. The submitted form showed One-off and Include tax in
+price = No. The 14:23 PT product and price detail screenshots confirm the full matching product
+category/description and the saved USD $9.99 One-time price, Tax behavior Exclusive, Default price
+Yes, no other currencies and no metadata. The screenshots expose the new live identifiers;
+validate their exact strings against provider data before applying production configuration.
+Stripe catalog creation is complete. Next: inventory the Still RevenueCat project, its V3
+entitlement, attached Apple products and offering, then reconcile production configuration.
+Catalog creation does not prove checkout wiring or fulfilment.
+RevenueCat entitlement screenshots at 14:25–14:26 PT show historical `still_sync` separate from
+`still_pro_v3`. At that checkpoint the latter had two associated products: Apple `still_pro_v3` under
+Still App (App Store), and the sandbox USD $9.99 one-time Stripe price under Still Payments QA.
+The newly created live Stripe price was not yet attached. The Web page showed only RevenueCat Billing
+and Still Payments QA. The owner created Still Payments Production; its saved 14:30 PT page shows
+the live Still App Stripe account selected and Use Managed Payments checked. Existing providers
+were retained. The owner imported the new live USD $9.99 one-time price. The 14:35 PT entitlement
+detail verifies its attachment to `still_pro_v3` alongside the existing Apple and QA products.
+The offering edit showed a separate production-provider slot in `still_pro_v3` / `$rc_lifetime`.
+The owner selected the matching live USD $9.99 price and reported saving, preserving the existing
+Apple, QA, Test Store and RevenueCat Billing selections. Saved offering readback remains to be
+included in final configuration verification. Purchase tracking inspection shows automatic new
+purchase tracking disabled, no Stripe webhook notifications received, paid-invoice recognition,
+and rejection of incomplete/delinquent/paused subscriptions. Default currency uses each price's
+base currency. Keep automatic import disabled: the verified QA implementation explicitly posts
+verified paid Checkout Sessions to RevenueCat `/v1/receipts` with the bound account holder ID.
+Its production counterpart and production webhook delivery still require implementation and
+verification. The Checkout tab shows promotion codes and automatic tax disabled; its controls
+apply to RevenueCat-created sessions, not the chosen backend-created checkout. Production code
+must explicitly require and verify Managed Payments rather than infer it from portal toggles.
+The Products page reports Missing Metadata for Apple `still_pro_v3`; verify and
+resolve its actual App Store Connect status before release.
+The 14:42 PT Appearance screen shows customer-facing name Still Pro and no visible warning.
+Support email save was not directly verified. Generic appearance previews do not verify real
+checkout behavior. Direct App Store Connect inspection at 14:44 PT shows `still_pro_v3` in
+Prepare for Submission, with English name/description, all-region availability selected and a US
+base price schedule covering 175 countries/regions. The 14:46 PT Current Price dialog confirms
+the United States price is USD $9.99, with localized prices elsewhere. Family
+Sharing is off. Review Information screenshot is empty; the separate promotional image and
+review notes are optional and blank. Tax category matches the parent app, whose category has not
+yet been inspected. Record the actual V3 purchase-screen review screenshot as a build/visual
+release dependency. No Add for Review action has been taken. Next: verify Current Price and
+continue Apple agreement/credential checks; do not assume the screenshot is the only remaining
+submission requirement or the confirmed cause of RevenueCat's earlier Missing Metadata label.
+US price verification is complete. The 14:46 PT Apple Business overview shows Paid Apps Agreement,
+banking, tax form and Digital Services Act status all Active. The banner says the updated Apple
+Developer Program License Agreement must be reviewed and accepted by the Account Holder before
+updating or submitting apps. The owner subsequently reports accepting the updated terms and
+confirming the warning disappeared. This clears that agreement blocker; it does not constitute
+approval of the V3 In-App Purchase. The 14:49 PT RevenueCat Apple settings show bundle
+`com.chartash.still`, Valid credentials for both the In-App Purchase key and App Store Connect
+API key, and No notifications received beside the Apple Server Notification URL. This does not
+prove that Apple has no configured URL or that delivery has failed. Next: inspect App Store
+Connect production and sandbox notification destinations before using the Apply button, to avoid
+overwriting an existing endpoint. The 14:51 PT Apple screenshot confirms both destinations are
+unset. After the owner used RevenueCat's Apply in App Store Connect, the 14:52 PT refreshed Apple
+page confirms both destinations point to the same RevenueCat endpoint. The 14:53 PT production
+Edit dialog exposes only the URL and no version selector. Do not mark Version 2 verified from
+this UI; confirm via supported configuration readback or notification payload evidence later.
+URL configuration and actual notification delivery remain separate gates. Next: inspect the
+RevenueCat-to-production-backend webhook in Integrations.
+[RevenueCat setup instructions](https://www.revenuecat.com/docs/platform-resources/server-notifications/apple-server-notifications)
+confirm the Apply action sets both environments and recommend V2 for one-time refund detection.
+Store only validation/completion status, no credentials,
+financial account identifiers or tax documents.
+This evidence proves provider configuration/catalog association only,
+not Apple approval, valid credentials, webhook identity mapping or production fulfilment.
+Live customer fulfilment remains unverified.
+No release go/no-go has been issued.
 
 Sources for the guided portal steps: [Stripe Managed Payments setup](https://docs.stripe.com/payments/managed-payments/set-up),
 [eligibility](https://docs.stripe.com/payments/managed-payments/eligibility),
