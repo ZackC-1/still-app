@@ -35,6 +35,8 @@ export function parseVersions(text) {
   for (const key of ["extension", "apple"])
     if (typeof v[key] !== "string" || !SEMVER.test(v[key])) throw new Error(`version.json: "${key}" must be x.y.z, got ${JSON.stringify(v[key])}`);
   if (!Number.isInteger(v.appleBuild) || v.appleBuild < 1) throw new Error(`version.json: "appleBuild" must be a positive integer, got ${JSON.stringify(v.appleBuild)}`);
+  // A commit from before paidTier existed declares nothing, which means false (the old "must be off" rule).
+  if (v.paidTier === undefined) v.paidTier = false;
   if (typeof v.paidTier !== "boolean") throw new Error(`version.json: "paidTier" must be true or false, got ${JSON.stringify(v.paidTier)}`);
   return v;
 }

@@ -42,7 +42,7 @@ test("version.json is well formed", () => {
   assert.throws(() => parseVersions('{"extension":"2.1","apple":"2.1.0","appleBuild":9}'), /extension/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":0}'), /appleBuild/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":"9"}'), /appleBuild/);
-  assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}'), /paidTier/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}').paidTier, false, "a missing paidTier means false");
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":"false"}'), /paidTier/);
   assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":true}').paidTier, true);
 });
@@ -300,6 +300,13 @@ test("the shared package build (Chrome and Firefox) refuses a paid flag that dif
     writeFileSync(versionPath, readFileSync(versionPath, "utf8").replace('"paidTier": false', '"paidTier": true'));
     commit("declare on");
     refused(/declares paidTier true/);
+    // Both on: the guard passes and the build moves on to install (the fake pnpm fails it there).
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    commit("both on");
+    withFakePnpm("process.exit(1);", (calls) => {
+      assert.throws(() => buildPackages({ out, root: clone }), /pnpm install --frozen-lockfile failed/);
+      assert.notEqual(calls(), "", "matching true/true reaches the install step");
+    });
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

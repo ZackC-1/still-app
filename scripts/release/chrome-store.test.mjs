@@ -595,7 +595,7 @@ test("the built package must carry the requested version and, outside package-on
 test("the build job builds only a commit on main, with the declared paid-tier setting, and hands over exactly two files", () => {
   const publicEnv = { VITE_SUPABASE_URL: "u", VITE_SUPABASE_ANON_KEY: "k", VITE_POSTHOG_KEY: "p", VITE_POSTHOG_HOST: "h" };
   const env = { ...RUN_ENV, ...publicEnv, RELEASE_MODE: "package-only", RELEASE_COMMIT: COMMIT, RELEASE_VERSION: "2.2.0", RELEASE_ZIP_SHA256: "", RELEASE_CONFIRM_SUBMIT: "" };
-  const fakeGit = ({ onMain = true, paid = false, declared = false } = {}) => (args) => {
+  const fakeGit = ({ onMain = true, paid = false, declared = false, flagText } = {}) => (args) => {
     if (args[0] === "merge-base") {
       if (!onMain) throw new Error("not an ancestor");
       return "";
@@ -603,8 +603,8 @@ test("the build job builds only a commit on main, with the declared paid-tier se
     if (args[0] === "worktree" && args[1] === "add") {
       const dir = args[3];
       mkdirSync(join(dir, "packages/shared-types/src"), { recursive: true });
-      writeFileSync(join(dir, "packages/shared-types/src/entitlement.ts"), `export const PAID_TIER_ENABLED = ${paid};\n`);
-      writeFileSync(join(dir, "version.json"), JSON.stringify({ extension: "2.2.0", apple: "2.1.0", appleBuild: 10, paidTier: declared }));
+      writeFileSync(join(dir, "packages/shared-types/src/entitlement.ts"), flagText ?? `export const PAID_TIER_ENABLED = ${paid};\n`);
+      writeFileSync(join(dir, "version.json"), JSON.stringify({ extension: "2.2.0", apple: "2.1.0", appleBuild: 10, ...(declared === "missing" ? {} : { paidTier: declared }) }));
       return "";
     }
     return "";
@@ -628,10 +628,15 @@ test("the build job builds only a commit on main, with the declared paid-tier se
   assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ onMain: false }) }), (e) => e.code === "commit-not-on-main");
   assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true }) }), (e) => e.code === "paid-flag-mismatch");
   assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ declared: true }) }), (e) => e.code === "paid-flag-mismatch");
+  // An older commit with no paidTier declares false: flag off passes, flag on is refused.
+  assert.equal(runPackage({ env, out, build: fakeBuild, git: fakeGit({ declared: "missing" }) }).name, zipName("2.2.0"));
+  assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true, declared: "missing" }) }), (e) => e.code === "paid-flag-mismatch");
+  const twice = "export const PAID_TIER_ENABLED = false;\nexport const PAID_TIER_ENABLED = false;\n";
+  assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ flagText: twice }) }), (e) => e.code === "paid-flag-unknown");
   assert.equal(runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true, declared: true }) }).name, zipName("2.2.0"), "a line that declares the paid tier may ship it");
   assert.throws(() => runPackage({ env: { ...env, RELEASE_MODE: "upload", RELEASE_ZIP_SHA256: "2".repeat(64) }, out, build: fakeBuild, git: fakeGit() }), (e) => e.code === "package-mismatch");
   assert.throws(() => runPackage({ env: { ...env, GITHUB_REF: "refs/heads/x" }, out, build: fakeBuild, git: fakeGit() }), (e) => e.code === "run-context");
-  assert.equal(builds.length, 3, "refusals before the build never start one");
+  assert.equal(builds.length, 4, "refusals before the build never start one");
 });
 
 

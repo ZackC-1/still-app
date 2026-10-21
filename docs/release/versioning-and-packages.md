@@ -16,7 +16,7 @@ Firefox 2.1.1 with Apple 2.1.0). Set them equal when a release ships everywhere 
 `paidTier` guards against an accidental flip. The shared package build (both stores) and the Chrome
 release workflow refuse, with `paid-flag-mismatch`, any commit whose `PAID_TIER_ENABLED` in
 `packages/shared-types/src/entitlement.ts` differs from it, in either direction. Turning the paid tier
-on for a release line means changing both, in the same reviewed commit.
+on for a release line means changing both, in the same reviewed commit. A commit from before `paidTier` existed has no value, and a missing value counts as `false`, so older commits keep the old "must be off" rule.
 
 ## Changing a version
 
