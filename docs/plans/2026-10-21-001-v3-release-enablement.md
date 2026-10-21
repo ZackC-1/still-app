@@ -494,3 +494,4 @@ portal and QA time, and they will move once D3 and D4 are answered.
 | Date | Decision | Reason |
 |---|---|---|
 | 2026-10-21 | Plan drafted; recommends the protected-operation path for sales and cutoff | The sandbox pair already proves the pattern, and it removes the need for a cutoff migration and the owner allowlist |
+| 2026-10-21 | D2 precondition verified: no Still Pro extra existed in any released tree (tag v2.0.0, the 2.1.0 and 2.1.1 extension releases, Apple 2.1.0 build 9); with the paid tier off every packaged surface applied, and every surface was a YouTube Shorts, Instagram Reels, Facebook Reels or TikTok surface, so the four free ids are exactly what shipped free | Git read of the release commits and the packaged rule sets (seed 1.1.9 to 1.1.11); the hosted rule sets could not be read from Git but carried the same surface ids |
