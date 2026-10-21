@@ -203,7 +203,7 @@ them all from your Mac. Your iPhone follows." 3–6 as above.
 | Small promo tile (440×280) | "Shorts & Reels, gone." with the Still logo | |
 | YouTube video | Leave empty until a preview video exists | |
 
-**Description** (2035/16000). Firefox on Android is deferred to a later update, so the phones
+**Description** (2019/16000). Firefox on Android is deferred to a later update, so the phones
 sentence ends at "Safari on iPhone and iPad":
 
 ```
