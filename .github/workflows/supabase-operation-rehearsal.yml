@@ -11,6 +11,10 @@ name: Supabase operation rehearsal
 # Management API and GitHub reads stubbed in memory: synthetic values, no token, no network.
 # Each analytics-subjects plan rehearses the whole analytics lifecycle the same way (secrets,
 # functions, schedule, switch, and back); the switch row also builds the three real bundles.
+# Each purchase plan rehearses all three purchase operations the same way (routes, sync-settings,
+# secrets apply and rotate, with their refusals); the two function rows also build the real
+# purchase and sync-settings bundles through the compiler boundary, and the secrets rows use
+# synthetic staged values only.
 # No environment, secret or production access; it never deploys anything.
 on:
   pull_request:
@@ -71,6 +75,15 @@ jobs:
           - operation: analytics-subjects-switch
             policy_mode: enable
             mode: apply
+          - operation: purchase-functions
+            policy_mode: none
+            mode: apply
+          - operation: purchase-functions-sync-settings
+            policy_mode: none
+            mode: apply
+          - operation: purchase-secrets
+            policy_mode: none
+            mode: apply
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,7 +92,7 @@ jobs:
         with:
           node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        if: startsWith(matrix.operation, 'analytics-')
+        if: startsWith(matrix.operation, 'analytics-') || startsWith(matrix.operation, 'purchase-functions')
         with:
           deno-version: "2.8.3"
       - name: Install pinned Supabase CLI (checksum verified)
