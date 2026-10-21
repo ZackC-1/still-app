@@ -127,10 +127,13 @@ names, nesting, inline geometry and computed colours only):
 - The tab list is transparent. The grey beside the tabs is the page's own background (an
   ancestor's `::before`, rgb(188,192,196)), so making the bar transparent changes nothing and
   painting it needs a colour that depends on the theme.
-- Each tab paints its white box with a `::before` that fills it and holds four layers, each as wide
-  as the tab (inline `width:65px`) and stacked with negative `margin-top`: the icon layer (a 29 px
-  icon box at `margin-left:18px`, the icon-font glyph centred in it by flex), the 2 px line under
-  the bar (a layer whose `::before` paints rgb(201,204,209)), and two badge layers (a 26 px pill at
+- Each tab paints its white box with a `::before` that fills it and holds three or four layers
+  (the count-pill layer only on Home, Reels and Notifications), each marked `data-mcomponent`, as
+  wide as the tab (inline `width:65px`) and stacked with negative `margin-top`: the icon layer (a
+  29 px icon box at `margin-left:18px`, the icon-font glyph centred in it by flex), the 2 px line
+  under the bar (a layer whose `::before` paints rgb(201,204,209)), the dot layer (24 px boxes at
+  `margin-left:31px`: a white ring and a red dot drawn by `::before`s inset 1 px and 2.5 px, plus a
+  count; hidden unless used, shown on Marketplace) and the pill layer (a 26 px pill at
   `margin-left:31px`/`32px`). The selected tab only colours its icon; there is no separate active
   underline.
 
@@ -145,7 +148,7 @@ names, nesting, inline geometry and computed colours only):
 - **That list with a Reels tab and exactly six children, all tabs:** each remaining tab gets
   `transform:none; width:20%; margin-left:<place × 20>%` (percentages of the bar; the place is the
   slot number minus one before Reels, minus two after it, so it works whichever slot Reels holds),
-  and each of its layers gets `width:100%; padding-left:calc(100% / 12)`. The padding is half the
+  and each of its `[data-mcomponent]` layers gets `width:100%; padding-left:calc(100% / 12)`. The padding is half the
   difference between the new and old tab (1/5 − 1/6 of the bar, halved, is a twelfth of the new
   tab), so the fixed-offset icon and badges keep their size and land centred, while the layers'
   `::before` backgrounds and the line fill the whole tab. These selectors are more specific than
@@ -160,7 +163,10 @@ point 2 px inside either end of the bar hits a tab. On the fixture at 390, 393, 
 Rejected fallback: keep the slide and draw a full-width 1 px line on the bar (an inset shadow).
 The bands stay (they are the page's grey), and the slid tabs show faint seams. Depends on Facebook
 keeping its layers as wide as the tab with contents placed from their left edge; if it changes,
-the icons drift off centre by about 6.5 px rather than disappearing. Not checked: a right-to-left
+the icons drift off centre by about 6.5 px rather than disappearing. Only children marked
+`data-mcomponent` are widened: an unknown direct child (an SVG, a flex-centred wrapper) keeps its
+65 px width at the tab's left edge instead of being padded out of place, so it would sit 6.5 px
+left of centre. An inline `transform` on a tab is overridden by the rule's `transform:none!important`. Not checked: a right-to-left
 locale that keeps the word "Reels" (DOM order would be mirrored, so tabs would land in the wrong
 fifths).
 

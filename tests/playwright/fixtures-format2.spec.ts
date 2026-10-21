@@ -522,11 +522,14 @@ test("format-2 facebook mobile: Reels hidden and retained, the top bar fills its
       tabs: ids.map((id) => {
         const tab = document.getElementById(id)!;
         const badge = tab.querySelector(".badge");
+        const dot = tab.querySelector<HTMLElement>(".dot");
         return {
           ...rel(tab.getBoundingClientRect()),
           glyph: rel(tab.querySelector(".glyph")!.getBoundingClientRect()),
           line: rel(tab.querySelector(".line")!.getBoundingClientRect()),
           badge: badge ? rel(badge.getBoundingClientRect()) : null,
+          dot: dot && getComputedStyle(dot).visibility === "visible" ? rel(dot.getBoundingClientRect()) : null,
+          transform: getComputedStyle(tab).transform,
         };
       }),
     };
@@ -561,7 +564,20 @@ test("format-2 facebook mobile: Reels hidden and retained, the top bar fills its
       expect(tab.badge.width, kept[i]).toBeCloseTo(26, 1);
       expect(Math.abs(tab.badge.left - tab.glyph.left - 13.5), kept[i]).toBeLessThanOrEqual(0.5);
     }
+    // Marketplace's dot (captured: 24 px boxes 31 px into the dot layer) keeps its offset too.
+    if (tab.dot) {
+      expect(tab.dot.width, kept[i]).toBeCloseTo(24, 1);
+      expect(Math.abs(tab.dot.left - tab.glyph.left - 12.5), kept[i]).toBeLessThanOrEqual(0.5);
+    }
   });
+  expect(seen.tabs[4]!.dot, "Marketplace shows its dot").not.toBeNull();
+  // An inline transform on a tab (Facebook animating it) does not move it off its fifth.
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = "translateX(7px)"; });
+  const moved = await layout();
+  expect(moved.tabs[1]!.transform).toBe("none");
+  expect(Math.abs(moved.tabs[1]!.left - 78)).toBeLessThanOrEqual(1);
+  expect(Math.abs(moved.tabs[1]!.right - 156)).toBeLessThanOrEqual(1);
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = ""; });
   await expectHiddenRetainedReversible(
     page, context, extensionId,
     ["#fb-mobile-reel", "#fb-mobile-reels", "#fb-mobile-reels-tab span"],

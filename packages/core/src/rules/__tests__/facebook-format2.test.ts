@@ -145,6 +145,13 @@ describe("captured Facebook through the maintained format2 compiler", () => {
         expect(getComputedStyle(layer).width).toBe("100%");
         expect(layer.matches(padding.selector)).toBe(true);
       }
+    // An unknown child (no data-mcomponent) is not widened or padded.
+    const unknown = document.createElement("div"); unknown.style.width = "65px";
+    kept[1]!.append(unknown);
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect(getComputedStyle(unknown).width).toBe("65px");
+    expect(unknown.matches(padding.selector)).toBe(false);
+    unknown.remove();
     const edges = kept.map((tab) => {
       const left = parseFloat(getComputedStyle(tab).marginLeft) / 100 * 390;
       return [left, left + parseFloat(getComputedStyle(tab).width) / 100 * 390];

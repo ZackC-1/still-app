@@ -106,8 +106,9 @@ const selectors = Object.freeze([
  * This layout makes the Reels tab invisible and untappable and redraws the other five as five equal
  * tabs across the whole bar: each tab box is a fifth of the bar wide and placed at its new fifth by
  * its own margin-left (percentages of the bar, so no transform and nothing scaled). Inside, every
- * tab is a stack of layers each as wide as the old tab (a sixth of the bar): the icon layer, the
- * 2 px line under the bar, two badge layers. Their contents sit at fixed pixel offsets from the
+ * tab is a stack of three or four layers (data-mcomponent), each as wide as the old tab (a sixth of
+ * the bar): the icon layer, the 2 px line under the bar, the dot layer and, on tabs that can show
+ * a count, the pill layer. Their contents sit at fixed pixel offsets from the
  * layer's left edge (the icon 18 px in, the badge 31 px), and each layer's background and the line
  * are painted by a ::before that fills the layer. So each layer is widened to the whole tab and
  * padded on the left by half the difference (a twelfth of the new tab, 1/5 - 1/6 = 1/30 of the bar
@@ -148,7 +149,9 @@ export const FACEBOOK_REELS_LAYOUT: readonly LayoutRule[] = Object.freeze([
     declarations: fifth(n - 2),
   })),
   Object.freeze({
-    selector: `${SIX_TAB_BAR} > [role="tab"]:not(${REELS_TAB}) > *`,
+    // Only Facebook's own layers (data-mcomponent): an unknown child keeps its width rather than
+    // being widened and padded out of place.
+    selector: `${SIX_TAB_BAR} > [role="tab"]:not(${REELS_TAB}) > [data-mcomponent]`,
     declarations: "width:100%!important;padding-left:calc(100% / 12)!important;box-sizing:border-box!important",
   }),
 ]);
