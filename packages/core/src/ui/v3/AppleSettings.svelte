@@ -245,7 +245,8 @@
   <!-- The setup card leads the screen when the extension is off (owner, 19 Oct). -->
   {#if setup}
     <section class="card card-stack">
-      <h2 class="section-label">{setup.title}</h2>
+      <!-- The same heading as the sync and Still Pro cards (owner, 21 Oct). -->
+      <h2 class="card-title">{setup.title}</h2>
       <p class="muted" style="font-size:calc(14px * var(--text-scale, 1));">
         {setup.detail}
       </p>
@@ -351,44 +352,58 @@
         ? requestRestoreAction
         : undefined}
     />{/if}
-  {#if sharing}<SharingCard
-      {...sharing}
-    />{:else if privacyActions}{@render privacyActions()}{/if}
   <!-- Help (owner, 12 Oct): the links only, no heading, divider or note. Delete account lives
     here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card.
-    "Safari setup" (ISS-0075, owner 19 Oct) opens the app's own "Turn on Still in Safari" sheet. -->
+    "Safari setup" (ISS-0075, owner 19 Oct) opens the app's own "Turn on Still in Safari" sheet.
+    Two columns since 21 Oct (owner): Setup guide, Safari setup and Delete account on the left;
+    Privacy policy, then Contact support with its address, on the right. Delete account comes last
+    in the markup so it stays last in Tab order; the data attributes place each cell. -->
   <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
+      data-help-column="left"
+      data-help-row="1"
       disabled={!help.onGuide}
       onclick={help.onGuide}>Setup guide</button
     >
     <button
       type="button"
       class="link"
+      data-help-column="left"
+      data-help-row="2"
       disabled={!help.onSafariSetup}
       onclick={help.onSafariSetup}>Safari setup</button
     >
     <button
       type="button"
       class="link"
-      disabled={!help.onSupport}
-      onclick={help.onSupport}>Contact support</button
-    >
-    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
-    <button
-      type="button"
-      class="link"
+      data-help-column="right"
+      data-help-row="1"
       disabled={!help.onPrivacy}
       onclick={help.onPrivacy}>Privacy policy</button
     >
+    <div class="help-contact" data-help-column="right" data-help-row="2">
+      <button
+        type="button"
+        class="link"
+        disabled={!help.onSupport}
+        onclick={help.onSupport}>Contact support</button
+      >
+      <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
+    </div>
     {#if validDeleteAccount(sync.account)}<button
         type="button"
         class="link"
+        data-help-column="left"
+        data-help-row="3"
         onclick={openDelete}>Delete account</button
       >{/if}
   </section>
+  <!-- Share usage data sits below Help (owner, 21 Oct), the same order as Chrome and Firefox. -->
+  {#if sharing}<SharingCard
+      {...sharing}
+    />{:else if privacyActions}{@render privacyActions()}{/if}
   <ConfirmationDialog
     open={confirming}
     title="Delete your account?"

@@ -81,7 +81,8 @@
       </div>
     {/if}
     {#if account.onSignOut || account.onDeleteAccount}
-      <div class="account">
+      <!-- No divider or extra space above Sign out (owner, 21 Oct); the popup's row keeps its own. -->
+      <div class="sync-account">
         {#if account.onSignOut}
           <button
             type="button"

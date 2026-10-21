@@ -329,37 +329,49 @@
   {/if}
   {#if restore}<RestoreStatusCard {...restore} />{/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if sharing}<SharingCard
-      {...sharing}
-    />{:else if privacyActions}{@render privacyActions()}{/if}
   <!-- Help (owner, 12 Oct): the three links only, no heading, divider or note. Delete account
-    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card. -->
+    lives here as a plain link since 19 Oct (owner: no need to highlight it), not in the sync card.
+    Two columns since 21 Oct (owner): Setup guide and Delete account on the left; Privacy policy,
+    then Contact support with its address, on the right. Delete account comes last in the markup so
+    it stays last in Tab order; the data attributes place each cell. -->
   <section class="card card-stack help" aria-label="Help">
     <button
       type="button"
       class="link"
+      data-help-column="left"
+      data-help-row="1"
       disabled={!help.onGuide}
       onclick={help.onGuide}>Setup guide</button
     >
     <button
       type="button"
       class="link"
-      disabled={!help.onSupport}
-      onclick={help.onSupport}>Contact support</button
-    >
-    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
-    <button
-      type="button"
-      class="link"
+      data-help-column="right"
+      data-help-row="1"
       disabled={!help.onPrivacy}
       onclick={help.onPrivacy}>Privacy policy</button
     >
+    <div class="help-contact" data-help-column="right" data-help-row="2">
+      <button
+        type="button"
+        class="link"
+        disabled={!help.onSupport}
+        onclick={help.onSupport}>Contact support</button
+      >
+      <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
+    </div>
     {#if sync.account?.onDeleteAccount}<button
         type="button"
         class="link"
+        data-help-column="left"
+        data-help-row="2"
         onclick={openDelete}>Delete account</button
       >{/if}
   </section>
+  <!-- Share usage data sits below Help (owner, 21 Oct); the first-run page keeps its own order. -->
+  {#if sharing}<SharingCard
+      {...sharing}
+    />{:else if privacyActions}{@render privacyActions()}{/if}
   <ConfirmationDialog
     open={deleteTargetCurrent}
     title="Delete your account?"
