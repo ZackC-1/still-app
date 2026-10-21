@@ -492,39 +492,96 @@ test("format-2 facebook: a shared Reel still opens and plays; its player's feed 
   await expect(page).toHaveURL("https://www.facebook.com/reel/1234567890123456/");
 });
 
-test("format-2 facebook mobile: Reels hidden and retained, the top bar closes up around the hidden Reels tab, Off restores", async ({ context, extensionId }) => {
+test("format-2 facebook mobile: Reels hidden and retained, the top bar fills its width around the hidden Reels tab, Off restores", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile.html"));
   await page.goto("https://m.facebook.com/");
   await expectFormat2Lane(page);
   await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
-  // ISS-0102: the tab is invisible and untappable, its neighbours slide half a tab towards it.
-  // With the captured geometry (65 px tabs at 0, 65 and 130 px), the tab before slides to about
-  // 33 px, the tab after to about 98 px, and a tap at the old Reels slot's centre lands on the latter.
-  const layout = () => page.evaluate(() => {
+  // ISS-0102: the tab is invisible and untappable, and the five other tabs are widened to a fifth
+  // of the bar each, contents unscaled. With the captured geometry (a 390 px bar of six 65 px tabs,
+  // Reels fourth), the five sit edge to edge at 0, 78, 156, 234 and 312 px, 78 px wide, so no grey
+  // page shows at either end; each icon keeps its size and sits centred, the line under the bar
+  // fills each tab, and a badge keeps its place beside its icon. Every edge is measured against
+  // the bar's own left edge.
+  const kept = ["home", "friends", "messages", "notifications", "marketplace"].map((name) => `keep-fb-mobile-${name}-tab`);
+  const layout = () => page.evaluate((ids) => {
+    const bar = document.getElementById("fb-mobile-tablist")!.getBoundingClientRect();
     const reels = document.getElementById("fb-mobile-reels-tab")!;
     const r = reels.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) as HTMLElement | null;
-    const origin = document.getElementById("fb-mobile-tablist")!.getBoundingClientRect().left;
-    const left = (id: string) => Math.round(document.getElementById(id)!.getBoundingClientRect().left - origin);
+    const tabAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest("[role=tab]")?.id ?? null;
+    const mid = bar.top + bar.height / 2;
+    const rel = (box: DOMRect) => ({ left: box.left - bar.left, right: box.right - bar.left, top: box.top - bar.top, width: box.width, height: box.height });
     return {
       reels: getComputedStyle(reels).visibility,
       reelsBox: Math.round(r.width) > 0 && Math.round(r.height) > 0,
-      hit: hit?.closest("[role=tab]")?.id ?? null,
-      before: left("keep-fb-mobile-home-tab"),
-      after: left("keep-fb-mobile-notifications-tab"),
+      hit: tabAt(r.x + r.width / 2, r.y + r.height / 2),
+      leftEnd: tabAt(bar.left + 0.5, mid),
+      rightEnd: tabAt(bar.right - 0.5, mid),
+      width: bar.width,
+      tabs: ids.map((id) => {
+        const tab = document.getElementById(id)!;
+        const badge = tab.querySelector(".badge");
+        const dot = tab.querySelector<HTMLElement>(".dot");
+        return {
+          ...rel(tab.getBoundingClientRect()),
+          glyph: rel(tab.querySelector(".glyph")!.getBoundingClientRect()),
+          line: rel(tab.querySelector(".line")!.getBoundingClientRect()),
+          badge: badge ? rel(badge.getBoundingClientRect()) : null,
+          dot: dot && getComputedStyle(dot).visibility === "visible" ? rel(dot.getBoundingClientRect()) : null,
+          transform: getComputedStyle(tab).transform,
+        };
+      }),
     };
-  });
-  const seen = await (async () => { for (let i = 0; i < 40; i++) { const v = await layout(); if (v.reels === "hidden" && v.hit === "keep-fb-mobile-notifications-tab") return v; await page.waitForTimeout(100); } return layout(); })();
+  }, kept);
+  const seen = await (async () => { for (let i = 0; i < 40; i++) { const v = await layout(); if (v.reels === "hidden" && v.leftEnd === kept[0]) return v; await page.waitForTimeout(100); } return layout(); })();
   expect(seen.reels).toBe("hidden");
   expect(seen.reelsBox).toBe(true);
-  expect(seen.hit).toBe("keep-fb-mobile-notifications-tab");
-  expect(Math.abs(seen.before - 32.5)).toBeLessThanOrEqual(2);
-  expect(Math.abs(seen.after - 97.5)).toBeLessThanOrEqual(2);
+  // A tap on the old Reels slot's centre (227.5 px) lands on the widened Messages tab (156-234).
+  expect(seen.hit).toBe("keep-fb-mobile-messages-tab");
+  // Both ends of the bar are covered by a tab: no bare band.
+  expect(seen.leftEnd).toBe(kept[0]);
+  expect(seen.rightEnd).toBe(kept[4]);
+  expect(Math.abs(seen.tabs[0]!.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(seen.tabs[4]!.right - seen.width)).toBeLessThanOrEqual(1);
+  seen.tabs.forEach((tab, i) => {
+    expect(Math.abs(tab.left - 78 * i), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.width - 78), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.top), kept[i]).toBeLessThanOrEqual(1);
+    expect(Math.abs(tab.height - 50), kept[i]).toBeLessThanOrEqual(1);
+    // Edge to edge: no overlap with the tab before, and no gap.
+    if (i > 0) expect(Math.abs(tab.left - seen.tabs[i - 1]!.right), kept[i]).toBeLessThanOrEqual(1);
+    // The icon keeps its size (round) and is centred in the wider tab.
+    expect(tab.glyph.width, kept[i]).toBeCloseTo(28, 1);
+    expect(tab.glyph.height, kept[i]).toBeCloseTo(28, 1);
+    expect(Math.abs((tab.glyph.left + tab.glyph.right) / 2 - (tab.left + tab.right) / 2), kept[i]).toBeLessThanOrEqual(1);
+    // The line under the bar fills the tab.
+    expect(Math.abs(tab.line.left - tab.left), kept[i]).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(tab.line.right - tab.right), kept[i]).toBeLessThanOrEqual(0.5);
+    // A badge keeps its size and its captured offset from its icon (pill 32 px into the layer,
+    // icon 18.5 px in), as on an unwidened tab.
+    if (tab.badge) {
+      expect(tab.badge.width, kept[i]).toBeCloseTo(26, 1);
+      expect(Math.abs(tab.badge.left - tab.glyph.left - 13.5), kept[i]).toBeLessThanOrEqual(0.5);
+    }
+    // Marketplace's dot (captured: 24 px boxes 31 px into the dot layer) keeps its offset too.
+    if (tab.dot) {
+      expect(tab.dot.width, kept[i]).toBeCloseTo(24, 1);
+      expect(Math.abs(tab.dot.left - tab.glyph.left - 12.5), kept[i]).toBeLessThanOrEqual(0.5);
+    }
+  });
+  expect(seen.tabs[4]!.dot, "Marketplace shows its dot").not.toBeNull();
+  // An inline transform on a tab (Facebook animating it) does not move it off its fifth.
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = "translateX(7px)"; });
+  const moved = await layout();
+  expect(moved.tabs[1]!.transform).toBe("none");
+  expect(Math.abs(moved.tabs[1]!.left - 78)).toBeLessThanOrEqual(1);
+  expect(Math.abs(moved.tabs[1]!.right - 156)).toBeLessThanOrEqual(1);
+  await page.evaluate(() => { document.getElementById("keep-fb-mobile-friends-tab")!.style.transform = ""; });
   await expectHiddenRetainedReversible(
     page, context, extensionId,
     ["#fb-mobile-reel", "#fb-mobile-reels", "#fb-mobile-reels-tab span"],
-    ["#fb-mobile-post", "#keep-fb-mobile-lookalike", "#keep-fb-mobile-home-tab"],
+    ["#fb-mobile-post", "#keep-fb-mobile-lookalike", ...kept.map((id) => `#${id}`)],
   );
 });
 

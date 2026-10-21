@@ -7,6 +7,7 @@ import {
   isDeviceClass,
   privacyPolicyReady,
   readAnalyticsPermission,
+  samePermission,
   type AnalyticsDevice,
   type AnalyticsConfig,
   type AnalyticsKeyValue,
@@ -218,20 +219,39 @@ export function createSafariBackgroundAnalytics(
       ? captured
       : null;
   };
+  type Captured = NonNullable<Awaited<Observation>>;
+  // The observation to carry on with after this host's own sign-out confirmation (ISS-0115). The
+  // background reads the account only under a granted permission, so one that started while the
+  // app's sharing was off confirms nobody until the first page event after sharing is turned on.
+  // That confirmation fences every earlier observation, including the event's own, which was then
+  // lost (the popup's `opened`), while the toggle a moment later was kept. Where the confirmation
+  // lets go of nobody (no one reported as, no hold in memory or saved before a restart, no sign-in
+  // being confirmed; client.lettingGoOfNobody), the event is observed again just after it and kept
+  // only under the very permission it arrived under: a stop since then sends nothing, and a turn-on
+  // is never recorded under an earlier origin's ids. A sign-out of anyone who was reported as or
+  // held for still fences what arrived before it, as before.
+  const reobserve = async (before: Captured): Promise<Captured | null> => {
+    if (await current(Promise.resolve(before))) return before;
+    const after = await current(host.client.captureObservation());
+    return after && samePermission(after.permission, before.permission) ? after : null;
+  };
   let accountSequence = 0;
-  const syncAccount = async (observation: Observation): Promise<boolean> => {
-    if (!(await current(observation))) return false;
+  /** Confirms the app's account for `observation`; answers the observation to record under, or
+   * null when the work is to be dropped. */
+  const syncAccount = async (observation: Observation): Promise<Captured | null> => {
+    let captured = await current(observation);
+    if (!captured) return null;
     const sequence = ++accountSequence;
     const reply = await bounded(() =>
       deps.sendNative({ kind: "getAccountSyncStatus" }),
     );
     if (sequence !== accountSequence || !(await current(observation)))
-      return false;
+      return null;
     const status = (reply as { accountSyncStatus?: unknown } | null)
       ?.accountSyncStatus;
     const userId =
       status === null ? null : parseAccountSyncStatus(status)?.accountId;
-    if (userId === undefined) return false; // unreadable is never confirmed signed-out
+    if (userId === undefined) return null; // unreadable is never confirmed signed-out
     // A repeated confirmed null answer must not retire the observation on every popup.
     if (userId === null) {
       if (
@@ -245,14 +265,17 @@ export function createSafariBackgroundAnalytics(
           import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true"
         ) {
           const reportingAs = await host.client.signedInAs();
+          const nobody = await host.client.lettingGoOfNobody();
           await host.client.confirm(null, { forget: true, quiet: true });
           await host.forgetSubjects?.(reportingAs);
+          if (nobody) captured = await reobserve(captured);
+          if (!captured) return null;
         } else await host.client.confirm(null, { forget: true, quiet: true });
       }
     } else await host.identify(userId, { quiet: true });
-    if (stopped || sequence !== accountSequence) return false;
+    if (stopped || sequence !== accountSequence) return null;
     host.onStart(undefined); // settle the maintained startup gate after the actual confirmation
-    return true;
+    return captured;
   };
   const run = (operation: () => Promise<unknown>) => {
     void operation().catch(() => {});
@@ -277,7 +300,8 @@ export function createSafariBackgroundAnalytics(
       if (stopped) return;
       const observation = host.client.captureObservation();
       run(async () => {
-        if ((await syncAccount(observation)) && (await current(observation)))
+        const confirmed = await syncAccount(observation);
+        if (confirmed && (await current(Promise.resolve(confirmed))))
           await host.flushWhenReady();
       });
     },
@@ -296,15 +320,21 @@ export function createSafariBackgroundAnalytics(
         return false;
       const observation = host.client.captureObservation();
       run(async () => {
-        if (
-          !(await current(observation)) ||
-          !(await syncAccount(observation)) ||
-          !(await current(observation))
-        ) {
+        const confirmed = (await current(observation))
+          ? await syncAccount(observation)
+          : null;
+        if (!confirmed || !(await current(Promise.resolve(confirmed)))) {
           sendResponse(undefined);
           return;
         }
-        if (!host.listener(message, sender, sendResponse, observation))
+        if (
+          !host.listener(
+            message,
+            sender,
+            sendResponse,
+            Promise.resolve(confirmed),
+          )
+        )
           sendResponse(undefined);
       });
       return true;
