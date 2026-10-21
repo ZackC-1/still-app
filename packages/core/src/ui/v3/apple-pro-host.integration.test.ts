@@ -141,6 +141,10 @@ async function compose(
   let reconcileGate: Promise<void> | null = null;
   if (options.accountAccess) options.codeAuth = true;
   let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
+  // ISS-0076 (MAC-85): the app's verified code awaits the session entry (AppleSession.enterSession)
+  // before the controller sees it. The entry advances the account revision and publishes the account
+  // (the settings mirror's sync state); the controller then advances the revision once more.
+  let sessionEntryGate: Promise<void> | null = null;
   const accountRequests: unknown[] = [];
   const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -241,7 +245,15 @@ async function compose(
     ...(options.codeAuth ? {auth: {
       signOut: async () => {},
       requestCode: async () => ({ kind: "sent" as const }),
-      verifyCode: async () => ({ kind: "verified" as const, userId: nextAccount.id, email: nextAccount.email }),
+      verifyCode: async () => {
+        if (sessionEntryGate) {
+          controller.accountRevision++;
+          controller.userId = nextAccount.id;
+          controller.accountEmail = nextAccount.email;
+          await sessionEntryGate;
+        }
+        return { kind: "verified" as const, userId: nextAccount.id, email: nextAccount.email };
+      },
       currentVerifiedAccount: async () => controller.userId
         ? {id: controller.userId, email: controller.accountEmail ?? "", emailConfirmed: true} : null,
     }} : {}),
@@ -338,6 +350,12 @@ async function compose(
       };
     },
     nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
+    /** Holds the verified code inside the session entry (account published, one revision ahead). */
+    holdSessionEntry() {
+      let release!: () => void;
+      sessionEntryGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { sessionEntryGate = null; release(); };
+    },
     verifyLocalPurchase,
     linkPurchase,
     /** Holds the account reconcile (and so the proof it installs) until released. */
@@ -1340,6 +1358,45 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     expect(f.linkPurchase).not.toHaveBeenCalled();
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+  });
+  it("the session entry's account revision, then the controller's own: the confirmation stays (MAC-85)", async () => {
+    const f = await holder();
+    const invite = await inviteCard();
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    const release = f.holdSessionEntry();
+    await enterCode();
+    // The account is published and confirmed at the session entry's revision while the code waits
+    // on the settings mirror: the confirmation can appear here, one revision early.
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await confirmation();
+    await waitFor(() => expect(reportRatingHold).toHaveBeenLastCalledWith("purchase"));
+    vi.mocked(reportRatingHold).mockClear();
+    // Watch every node the screen adds between the two revisions: neither the offer line nor the
+    // invitation may render, even for one frame, and the rating prompt stays held throughout.
+    const added: string[] = [];
+    const watcher = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) added.push(node.textContent ?? "");
+    });
+    watcher.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const revision = f.controller.accountRevision;
+    release();
+    await waitFor(() => expect(f.controller.accountRevision).toBe(revision + 1));
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const card = await confirmation();
+    watcher.disconnect();
+    expect(added.filter((text) => text.includes(OFFER) || text.includes(INVITE))).toEqual([]);
+    for (const [flow] of vi.mocked(reportRatingHold).mock.calls) expect(flow).toBe("purchase");
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(f.linkPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ intendedAccountId: f.controller.userId, expectedOwnershipRevision: 0 }),
+    );
     expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
   });
   it("after Not now, a plain sign-in from the sync card links nothing and offers nothing this visit", async () => {
