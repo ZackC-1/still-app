@@ -429,6 +429,7 @@ describe("options loader failure recovery actions", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Setup guide" }));
     // ISS-0112: the address is plain selectable text under the button.
     expect(screen.getByText(SUPPORT_EMAIL).tagName).toBe("P");
+    expect(screen.getByText(SUPPORT_EMAIL)).toHaveClass("support-address");
     expect(
       screen.getByRole("button", { name: "Contact support" })
         .nextElementSibling?.textContent,
