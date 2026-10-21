@@ -565,6 +565,15 @@ test("format-2 facebook mobile Page (ISS-0035): the whole Reels tab hides, the o
     ["#fb-mobile-page-tab-reels"],
     await keepAll(page),
   );
+  // ISS-0084: after that live On, the page sets its own <html class> wholesale and prunes every
+  // <style>; Still puts its class and stylesheet back and the tab stays hidden.
+  await page.evaluate(() => {
+    document.documentElement.className = "ssr fab sai usf dpr-spacing unselectable";
+    for (const style of document.querySelectorAll("style")) style.remove();
+  });
+  await expect(page.locator("#fb-mobile-page-tab-reels")).toBeHidden();
+  await expect(page.locator("html")).toHaveClass(/dpr-spacing/);
+  await expect(page.locator("html")).toHaveClass(/still-feature-/);
 });
 
 test("format-2 facebook mobile Home feed (ISS-0035): the Reels section row hides and the feed closes up, Off restores", async ({ context, extensionId }) => {
