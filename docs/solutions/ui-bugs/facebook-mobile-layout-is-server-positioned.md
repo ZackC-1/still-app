@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: A Facebook Reels surface stays visible on iPhone Safari (or any phone browser) while the same surface is hidden on desktop, or a rule for Facebook's mobile layout needs a boundary
 date: 2026-10-15
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 status: active
 tags: [facebook, mobile, safari-ios, selectors, tabs, capture, feed]
 ---
@@ -110,17 +110,37 @@ The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labe
 `margin-left`, stacked in a column and pulled up with `margin-top:-50px`; no links. The
 Reels tab's contents are hidden (issue #58), so it kept a 65 px empty slot and its share of the line
 under the bar was missing. `display:none` or `width:0` on the tab moves nothing, because the others
-are placed by their own margins. The packaged layout (`FACEBOOK_REELS_LAYOUT`, code, not rule data)
-makes the tab `visibility:hidden; pointer-events:none` and slides the tabs before it
-`translateX(50%)` and the tabs after it `translateX(-50%)`: half a tab each way, so the five
-remaining tabs sit together and centred, the line runs under those five, and a tap on the old slot
-lands on a neighbour; about half a slot at each edge of the bar has no line and no tab. Measured in
-Chromium with iPhone emulation on the signed-in profile: tabs at 33, 98, 163, 228, 293 px; the hidden
-tab receives no hit. Half a tab's own width only closes the slot because the top bar's tabs are
-equal, so the rules apply only to the bar that holds the `feed, …` tab; any other row with a
-`Reels, N of M` tab (unequal widths) keeps the hide alone, and the Page tab row's inner tabs are
-labelled `Reels` without a comma and keep their own rule. Not checked: a right-to-left locale that
-keeps the word "Reels" (DOM order would be mirrored and the slide would open the gap instead).
+are placed by their own margins.
+
+The first packaged layout (2.1.1.420) made the tab `visibility:hidden; pointer-events:none` and slid
+the tabs before it `translateX(50%)` and the tabs after it `translateX(-50%)`. That closed the slot,
+but the owner's retest (21 Oct) showed a grey band about half a tab wide at each end of the bar:
+the five tabs keep a sixth of the width each, so they span five sixths of the bar and its grey
+background shows at both ends. A transform never moves the layout, so the remaining tabs have to
+be redrawn to cover the whole bar.
+
+`FACEBOOK_REELS_LAYOUT` (code, not rule data) now keeps the Reels tab hidden and gives each of the
+other five `transform: translateX(s) scaleX(1.2)` about its own centre. With six slots of width
+w = W/6, the tab in slot n (1-based) is centred at (n − 0.5)w and must be centred at
+(m − 0.5)(1.2w), where m is its place among the five (n before the Reels tab, n − 1 after it), so
+the slide in its own width is 0.2n − 0.1 before Reels (10, 30, 50, 70, 90 %) and 0.2n − 1.3 after
+it (−90, −70, −50, −30, −10 %). The formula does not depend on which slot Reels holds (live: the
+fourth, so 10, 30, 50, −30, −10 %), and `:nth-child(n)` with `:has(~ Reels)` or `Reels ~` picks the
+side. On the 390 px fixture the five tabs measure 0–78, 78–156, 156–234, 234–312 and 312–390 px
+with no gap or overlap, a point half a pixel inside either end of the bar hits a tab, and a tap on
+the old Reels slot's centre (227.5 px) lands on the stretched Messages tab.
+
+Trade-offs, chosen over painting the bar white: the tab's white box and its share of the line under
+the bar stretch with it, so the line runs edge to edge (a white bar background alone would leave
+the line missing at both ends and the five tabs bunched in the middle); the cost is that each icon
+and badge is drawn 20 % wider than Facebook draws it. Counter-scaling the tab's children would undo
+that, but the live tab's inner structure (which element carries the line) is not captured, so it
+could break the line; check on a device before trying it. The arithmetic needs six equal tabs, so
+every rule requires a tab list holding the `feed, …` tab and a `Reels, …` tab with exactly six
+children, all tabs; a bar with another count, any other row with a `Reels, N of M` tab (unequal
+widths) and the Page tab row (inner tabs labelled `Reels`, no comma) keep the hide alone. Not
+checked: a right-to-left locale that keeps the word "Reels" (DOM order would be mirrored and the
+tabs would be drawn in the wrong slots).
 
 ## The Stories tray (ISS-0101, 20 Oct 2026)
 

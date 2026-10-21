@@ -12,14 +12,19 @@
 
     <!-- The mobile tab bar keeps a fixed number of slots, so the Reels tab's contents are hidden
          rather than the tab itself, which would otherwise leave a grey gap (issue #58). The packaged
-         layout then makes the tab invisible and untappable and slides its neighbours half a slot
-         towards it, so the bar shows no empty slot (ISS-0102). -->
-    <!-- The captured geometry (20 Oct 2026): a column whose tabs are pulled up into one row by
-         margin-top and placed by inline width and margin-left; three of the six tabs here. -->
-    <div role="tablist" id="fb-mobile-tablist" style="display: flex; flex-direction: column; width: 390px; height: 50px;">
-      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="feed, 1 of 6" style="height: 50px; width: 65px;">Home</div>
-      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 65px;"><span>Reels</span></div>
-      <div role="tab" id="keep-fb-mobile-notifications-tab" aria-label="Notifications, 5 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 130px;">Notifications</div>
+         layout then makes the tab invisible and untappable and stretches the other five across the
+         whole bar, so it shows no empty slot and no bare ends (ISS-0102). -->
+    <!-- The captured geometry (20 Oct 2026): a column whose six tabs are pulled up into one row by
+         margin-top and placed by inline width (a sixth of the bar) and margin-left. The bar's own
+         background is grey and each tab paints a white box with its share of the line under the
+         bar, as on the live page, so any bare stretch of the bar shows as a grey band. -->
+    <div role="tablist" id="fb-mobile-tablist" style="display: flex; flex-direction: column; width: 390px; height: 50px; background: #c9ccd1;">
+      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="feed, 1 of 6" style="height: 50px; width: 65px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;">Home</div>
+      <div role="tab" id="keep-fb-mobile-friends-tab" aria-label="friends, 2 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 65px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;">Friends</div>
+      <div role="tab" id="keep-fb-mobile-messages-tab" aria-label="messages, 3 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 130px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;">Messages</div>
+      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 195px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;"><span>Reels</span></div>
+      <div role="tab" id="keep-fb-mobile-notifications-tab" aria-label="Notifications, 5 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 260px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;">Notifications</div>
+      <div role="tab" id="keep-fb-mobile-marketplace-tab" aria-label="marketplace, 6 of 6" style="margin-top: -50px; height: 50px; width: 65px; margin-left: 325px; background: #fff; border-bottom: 2px solid #ccc; box-sizing: border-box;">Marketplace</div>
     </div>
 
     <main role="feed">

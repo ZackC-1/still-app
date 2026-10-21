@@ -121,39 +121,72 @@ describe("captured Facebook through the maintained format2 compiler", () => {
     );
   });
 
-  it("the phone top bar closes up around the hidden Reels tab: invisible and untappable, neighbours slide half a slot (ISS-0102)", () => {
+  it("the phone top bar fills its whole width around the hidden Reels tab: five tabs stretched edge to edge (ISS-0102)", () => {
     render("facebook-mobile.html");
-    const home = document.getElementById("keep-fb-mobile-home-tab")!;
+    const bar = document.getElementById("fb-mobile-tablist")!;
     const reels = document.getElementById("fb-mobile-reels-tab")!;
-    const after = document.getElementById("keep-fb-mobile-notifications-tab")!;
+    const kept = [...bar.children].filter((tab) => tab !== reels) as HTMLElement[];
     const s = session();
     s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
     expect(getComputedStyle(reels).visibility).toBe("hidden");
     expect(getComputedStyle(reels).pointerEvents).toBe("none");
-    expect(getComputedStyle(home).transform).toBe("translateX(50%)");
-    expect(getComputedStyle(after).transform).toBe("translateX(-50%)");
+    // Slots 1-3 sit before the Reels tab (slot 4), slots 5-6 after it.
+    expect(kept.map((tab) => getComputedStyle(tab).transform)).toEqual(
+      [10, 30, 50, -30, -10].map((shift) => `translateX(${shift}%) scaleX(1.2)`));
+    for (const tab of kept) expect(getComputedStyle(tab).transformOrigin).toBe("50% 50%");
+    // The arithmetic on the captured geometry (390 px bar, 65 px tabs at their inline margin-left):
+    // each stretched tab is 78 px wide and the five sit edge to edge from 0 to 390.
+    const edges = kept.map((tab) => {
+      const width = parseFloat(tab.style.width), left = parseFloat(tab.style.marginLeft || "0");
+      const shift = parseFloat(/translateX\((-?[\d.]+)%\)/.exec(getComputedStyle(tab).transform)![1]!) / 100;
+      const centre = left + width / 2 + shift * width;
+      return [centre - 0.6 * width, centre + 0.6 * width].map((x) => Math.round(x * 1000) / 1000);
+    });
+    expect(edges).toEqual([[0, 78], [78, 156], [156, 234], [234, 312], [312, 390]]);
     const text = document.head.querySelector("style")!.textContent!;
     for (const rule of FACEBOOK_REELS_LAYOUT) expect(text).toContain(`:is(${rule.selector}){${rule.declarations}}`);
+    // Whichever slot the Reels tab holds, the five others land on the same five places.
+    reels.before(kept[3]!, kept[4]!); // Reels now sixth: slots 1-5 are all before it
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect([...bar.children].filter((tab) => tab !== reels).map((tab) => getComputedStyle(tab).transform)).toEqual(
+      [10, 30, 50, 70, 90].map((shift) => `translateX(${shift}%) scaleX(1.2)`));
+    bar.prepend(reels); // Reels first: slots 2-6 are all after it
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect([...bar.children].filter((tab) => tab !== reels).map((tab) => getComputedStyle(tab).transform)).toEqual(
+      [-90, -70, -50, -30, -10].map((shift) => `translateX(${shift}%) scaleX(1.2)`));
+    // The arithmetic needs exactly six children, all tabs: a seventh tab, a non-tab child or a
+    // missing tab leaves the bar as the hide alone leaves it.
+    const untouched = () => {
+      s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+      expect(getComputedStyle(reels).visibility).not.toBe("hidden");
+      for (const tab of bar.querySelectorAll<HTMLElement>(":scope > [role=tab]")) expect(getComputedStyle(tab).transform).not.toContain("scaleX");
+    };
+    const extra = document.createElement("div"); extra.setAttribute("role", "tab"); extra.setAttribute("aria-label", "video, 7 of 7");
+    bar.append(extra); untouched();
+    extra.removeAttribute("role"); untouched();
+    extra.remove(); kept[4]!.remove(); untouched();
+    bar.append(kept[4]!);
+    s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
+    expect(getComputedStyle(reels).visibility).toBe("hidden");
     // A Page's tab row (inner tabs labelled exactly "Reels") is not the top bar: no layout there.
     const page = document.createElement("div"); page.setAttribute("role", "tablist");
     page.innerHTML = '<div role="tab" id="page-tab-all"><div><div role="tab" aria-label="All">All</div></div></div><div role="tab" id="page-tab-reels"><div><div role="tab" aria-label="Reels">Reels</div></div></div>';
     document.body.append(page);
     // Another row with a "Reels, N of M" tab but no feed tab (tabs of unequal widths): the hide
-    // alone, no slide, no visibility change.
+    // alone, no stretch, no visibility change.
     const other = document.createElement("div"); other.setAttribute("role", "tablist");
     other.innerHTML = '<div role="tab" id="other-tab-posts" aria-label="Posts, 1 of 5">Posts</div><div role="tab" id="other-tab-reels" aria-label="Reels, 3 of 5"><span>Reels</span></div><div role="tab" id="other-tab-people" aria-label="People, 4 of 5">People</div>';
     document.body.append(other);
     s.applyDom(DEFAULT_SETTINGS_V2, new URL("https://m.facebook.com/"), document);
-    expect(getComputedStyle(document.getElementById("page-tab-all")!).transform).not.toBe("translateX(50%)");
-    expect(getComputedStyle(document.getElementById("other-tab-posts")!).transform).not.toBe("translateX(50%)");
-    expect(getComputedStyle(document.getElementById("other-tab-people")!).transform).not.toBe("translateX(-50%)");
+    expect(getComputedStyle(document.getElementById("page-tab-all")!).transform).not.toContain("scaleX");
+    expect(getComputedStyle(document.getElementById("other-tab-posts")!).transform).not.toContain("scaleX");
+    expect(getComputedStyle(document.getElementById("other-tab-people")!).transform).not.toContain("scaleX");
     expect(getComputedStyle(document.getElementById("other-tab-reels")!).visibility).not.toBe("hidden");
     expect(visible(document.querySelector("#other-tab-reels span")!)).toBe(false);
-    // Off: the tab is back, nothing slides.
+    // Off: the tab is back, nothing stretches.
     s.applyDom({ ...DEFAULT_SETTINGS_V2, sites: { ...DEFAULT_SETTINGS_V2.sites, "facebook.reels": false } }, new URL("https://m.facebook.com/"), document);
     expect(getComputedStyle(reels).visibility).not.toBe("hidden");
-    expect(getComputedStyle(home).transform).not.toBe("translateX(50%)");
-    expect(getComputedStyle(after).transform).not.toBe("translateX(-50%)");
+    for (const tab of kept) expect(getComputedStyle(tab).transform).not.toContain("scaleX");
   });
 
   it("the mobile tab's box stays while its captured label children hide, not lookalike tabs", () => {
