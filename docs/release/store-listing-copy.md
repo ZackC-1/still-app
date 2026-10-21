@@ -13,8 +13,9 @@ portal are intentional; merge them rather than overwrite them. Use
 screenshots, privacy declarations and pricing checks. Never put review credentials in this file.
 
 Accuracy rules: Still removes Shorts and Reels and never claims to hide feeds, Stories, Explore or
-comments; the whole TikTok website is blocked; on phones Still works in Safari on iPhone and iPad, and
-in Firefox on Android (never mobile Chrome or native apps); sync needs a free
+comments; the whole TikTok website is blocked; on phones Still works in Safari on iPhone and iPad
+(never mobile Chrome, mobile Firefox or native apps; Firefox on Android is deferred to a later
+update); sync needs a free
 sign-in on each device; say "free", never "free forever"; never "everywhere"; never "no tracking"
 (say "no timers, no screen-time stats").
 
@@ -202,8 +203,8 @@ them all from your Mac. Your iPhone follows." 3–6 as above.
 | Small promo tile (440×280) | "Shorts & Reels, gone." with the Still logo | |
 | YouTube video | Leave empty until a preview video exists | |
 
-**Description** (2035/16000). The Firefox on Android wording ships with the V3 Firefox release;
-until that release is live on AMO, the phones sentence ends at "Safari on iPhone and iPad":
+**Description** (2035/16000). Firefox on Android is deferred to a later update, so the phones
+sentence ends at "Safari on iPhone and iPad":
 
 ```
 Still removes Shorts and Reels from the websites you use, so a quick visit stays a quick visit. Change your settings on any device, and the latest version follows you across your browsers.
@@ -230,7 +231,7 @@ FREE
 Blocking needs no account and no purchase. Sign-in is optional and only adds sync.
 
 WHERE IT WORKS
-This extension works in Chrome on desktop. Still is also available for Firefox, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad, and in Firefox on Android; it doesn't work in mobile Chrome, or inside the YouTube, Instagram, Facebook or TikTok apps.
+This extension works in Chrome on desktop. Still is also available for Firefox, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad. It doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
 
 PRIVATE BY DESIGN
 Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Still shares usage data to help improve the extension; you can turn it off in settings.
@@ -258,13 +259,13 @@ Privacy: https://stillapp.fit/privacy/
 
 ## 7. Firefox Add-ons (AMO)
 
-The Firefox on Android wording below ships with the V3 Firefox release, the first build listed for
-Firefox for Android. A 2.x build keeps its desktop-only manifest summary.
+The first V3 Firefox release is desktop only; Firefox on Android is deferred to a later update. Keep
+the desktop-only summary until then.
 
 | Box | Value | Length |
 |---|---|---|
 | Name (from the manifest) | Still: Remove Shorts & Reels, Stop Scrolling | 44/45 |
-| Summary | Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android. | 247/250 |
+| Summary | Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox. | 219/250 |
 | Categories | Social & Communication; Photos, Music & Videos | |
 | Support email | support@stillapp.fit | |
 | Support website | https://stillapp.fit/support/ | |
@@ -301,7 +302,7 @@ FREE
 Blocking needs no account and no purchase. Sign-in is optional and only adds sync.
 
 WHERE IT WORKS
-This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android. It doesn't work in mobile Chrome, or inside the YouTube, Instagram, Facebook or TikTok apps.
+This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad. It doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
 
 PRIVATE BY DESIGN
 Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. You can choose to share usage data to help improve Still; it stays off unless you allow it.
@@ -313,7 +314,7 @@ Privacy: https://stillapp.fit/privacy/
 **Notes to reviewer:**
 
 ```
-All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release works in desktop Firefox. Works in Safari on iPhone and iPad, and in Firefox on Android (Firefox for Android 142 or newer).
+All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release works in desktop Firefox only; it is not listed for Firefox for Android.
 
 New in 2.1: optional usage analytics declared as the optional "technicalAndInteraction" data collection permission. Nothing is sent unless the user grants it (at install or later from Still's settings). It records product events only, never page addresses, videos, searches or page content.
 
