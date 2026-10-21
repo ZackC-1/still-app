@@ -587,4 +587,113 @@ describe("verified auth captured outside writer", () => {
     expect(h.r.read()).toBe("unknown");
     expect(h.commit).toHaveBeenCalledOnce();
   });
+  // ISS-0090: Restore pressed offline on an account that never bought Still Pro turned its known
+  // "none" into "verify again". A check that could not reach the server must change nothing.
+  describe("a known none through a re-check that cannot reach the server (ISS-0090)", () => {
+    function known() {
+      let wall = 100;
+      const invoke = vi.fn(async (): Promise<{ data: unknown; error: unknown }> => ({
+        data: response([], [], "none"),
+        error: null,
+      }));
+      const commit = vi.fn(async () => "committed" as const);
+      const r = createAccountAccessReconciler({
+        trust,
+        routeProfile: "shared-hosted-sandbox",
+        invoke,
+        readSession: async () => session,
+        commit,
+        epoch: () => 0,
+        now: () => wall,
+        authRequired: (error) => (error as { status?: number })?.status === 401,
+      });
+      return { r, invoke, commit, at: (ms: number) => { wall = ms; } };
+    }
+
+    it("keeps it, unrenewed, for the rest of its own minute", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      h.at(30_100);
+      h.invoke.mockResolvedValue({ data: null, error: new Error("offline") });
+      expect(await h.r.reconcile()).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+      expect(h.r.evidenceDeadline()).toBe(60_100);
+      // The Boolean read still reports only the latest reconcile.
+      expect(h.r.read()).toBe("unknown");
+      h.at(60_100);
+      expect(h.r.evidenceStatus(session)).toBe("unknown");
+      expect(h.r.evidenceDeadline()).toBeNull();
+    });
+
+    it("keeps it while that re-check is still waiting for the server", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      let release!: (value: { data: unknown; error: unknown }) => void;
+      h.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      const pending = h.r.reconcile();
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+      release({ data: null, error: new Error("timed out") });
+      expect(await pending).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+    });
+
+    it("keeps it through a server error or a reply that fails verification", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      for (const reply of [
+        { data: null, error: { status: 503 } },
+        { data: { access: { status: "none" } }, error: null },
+      ]) {
+        h.invoke.mockResolvedValueOnce(reply);
+        expect(await h.r.reconcile()).toBe("unavailable");
+        expect(h.r.evidenceStatus(session)).toBe("absent");
+      }
+    });
+
+    it("a verified reply to a request a newer one replaced still ends it", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      let release!: (value: { data: unknown; error: unknown }) => void;
+      h.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      const older = h.r.reconcile();
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+      h.invoke.mockResolvedValueOnce({ data: null, error: new Error("offline") });
+      expect(await h.r.reconcile()).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+      release({ data: response(), error: null });
+      expect(await older).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("unknown");
+    });
+
+    it("a late reply to an older request does not end a newer known none", async () => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      let release!: (value: { data: unknown; error: unknown }) => void;
+      h.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      const older = h.r.reconcile();
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+      expect(await h.r.reconcile()).toBe("ok"); // a newer conclusive none
+      release({ data: response(), error: null });
+      expect(await older).toBe("unavailable");
+      expect(h.r.evidenceStatus(session)).toBe("absent");
+    });
+
+    it.each([
+      ["a refused session", { data: null, error: { status: 401 } }, "auth-required"],
+      ["an answer that only carries refunds", {
+        data: response([], [{ right: "11111111-1111-4111-8111-111111111111", revision: 2 }], "unavailable"),
+        error: null,
+      }, "unavailable"],
+      ["an answer that it is owned", { data: response(), error: null }, "ok"],
+      ["a conflicting answer", { data: response([], [], "conflict"), error: null }, "ok"],
+    ] as const)("ends it at once on %s", async (_name, reply, outcome) => {
+      const h = known();
+      expect(await h.r.reconcile()).toBe("ok");
+      h.invoke.mockResolvedValue(reply);
+      expect(await h.r.reconcile()).toBe(outcome);
+      expect(h.r.evidenceStatus(session)).toBe("unknown");
+      expect(h.r.evidenceDeadline()).toBeNull();
+    });
+  });
 });

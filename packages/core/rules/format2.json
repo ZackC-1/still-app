@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.15",
+  "version": "3.0.21",
   "services": {
     "youtube": {
       "matches": [
@@ -59,7 +59,10 @@
           "action": "hide",
           "selectors": [
             ".ytp-ce-element",
-            ".ytp-endscreen-content"
+            ".ytp-ce-hide-button-container",
+            ".ytp-endscreen-content",
+            ".ended-mode > .ytp-fullscreen-grid",
+            ".ended-mode .ytp-modern-videowall-still"
           ]
         },
         {
@@ -102,7 +105,8 @@
             "[role=\"tablist\"] > div:has(> a[href$=\"/reels/\"]):not(:has(> a:not([href$=\"/reels/\"])))",
             "[role=\"tablist\"] a[href$=\"/reels/\"]",
             "[data-still-instagram-profile] div:not([role=\"dialog\"] *):not([style*=\"padding-top: \"]:not([style*=\"padding-top: 0px\"])):not([style*=\"padding-bottom: \"]:not([style*=\"padding-bottom: 0px\"])):has(> div > div > a[href^=\"/\"][href*=\"/p/\"], > div > div > a[href^=\"/\"][href*=\"/reel/\"]) > div:has(> div > a[href^=\"/\"]) > div:has(> a[href^=\"/\"][href*=\"/reel/\"])",
-            "[data-still-instagram-explore] div:not([role=\"dialog\"] *):has(> div > div > div > a[href^=\"/p/\"]) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))"
+            "[data-still-instagram-explore] div:not([role=\"dialog\"] *) > div:has(> div > div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"])) > div:has(> div > a[href^=\"/p/\"] :is(video, svg[aria-label=\"Reel\"], svg[aria-label=\"Clip\"]))",
+            "[data-still-instagram-profile] div:not([role=\"dialog\"], [role=\"dialog\"] *, article *):has(> div > div > a[href^=\"/\"][href$=\"/\"]:not([href*=\"/p/\"], [href*=\"/reel/\"], [href*=\"/saved/\"], [href*=\"/tagged/\"], [href*=\"/explore/\"], [href*=\"/stories/\"])):has(> div + div > div > div > div > div > a[href^=\"/\"][href*=\"/reel/\"]):not(:has(a[href^=\"/\"][href*=\"/p/\"], [role=\"tablist\"], header, section, form, textarea, time, video))"
           ]
         },
         {
@@ -110,7 +114,7 @@
           "feature": "instagram.explore",
           "action": "hide",
           "selectors": [
-            "[data-still-instagram-search-entry] form:has(input[type=\"search\"]) ~ div:has(> a[href^=\"/p/\"], > a[href^=\"/reel/\"])"
+            "[data-still-instagram-search-entry] main :has(input) ~ div:has(a[href^=\"/p/\"], a[href^=\"/reel/\"])"
           ]
         },
         {
@@ -118,8 +122,9 @@
           "feature": "instagram.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"menu\"][aria-label=\"Stories\"]",
-            ":is(ul, [role=\"list\"]):has(> a[href^=\"/stories/highlights/\"], > li > a[href^=\"/stories/highlights/\"])"
+            "[data-pagelet=\"story_tray\"]",
+            "[role=\"menu\"]:has(a[href^=\"/stories/highlights/\"])",
+            "header :is(ul, [role=\"list\"]):has(> li a[href^=\"/stories/highlights/\"])"
           ]
         },
         {
@@ -127,9 +132,9 @@
           "feature": "instagram.suggested",
           "action": "hide",
           "selectors": [
-            "aside:has(> a[href=\"/explore/people/\"])",
-            "[role=\"list\"][aria-label=\"Suggested accounts\"]",
-            "[role=\"region\"][aria-label=\"Similar accounts\"]"
+            "div:has(> div > a[href=\"/explore/people/\"]):not(:has(article, footer, nav, [data-pagelet], a[href^=\"/p/\"], a[href^=\"/reel/\"]))",
+            "header > section:has(h4):has(ul):not(:has(a[href^=\"/stories/highlights/\"], h1, h2, a[href$=\"/followers/\"], a[href$=\"/following/\"], a[href^=\"http\"]))",
+            "[role=\"list\"][aria-label=\"Suggested accounts\"]"
           ]
         },
         {
@@ -180,6 +185,10 @@
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
             "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
             "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href^=\"/reel/\"]:not([href=\"/reel/\"],[href^=\"/reel/?\"],[href=\"/reel/following/\"],[href^=\"/reel/following/?\"],[href=\"/reel/profile/\"],[href^=\"/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
+            "div[data-virtualized] > div:not([data-virtualized]):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video):not(:has([data-virtualized],[role=\"article\"]:not([aria-label])))",
+            "div[data-virtualized] [role=\"article\"]:not([aria-label]):not([role=\"article\"] *):has(a[href*=\"facebook.com/reel/\"]:not([href$=\"facebook.com/reel/\"],[href*=\"facebook.com/reel/?\"],[href$=\"facebook.com/reel/following/\"],[href*=\"facebook.com/reel/following/?\"],[href$=\"facebook.com/reel/profile/\"],[href*=\"facebook.com/reel/profile/?\"],[data-ad-rendering-role=\"story_message\"] *,[role=\"article\"][aria-label] *) video)",
             "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *",
@@ -208,17 +217,10 @@
           "feature": "facebook.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"/stories/\"]):not([role=\"feed\"] *)",
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"https://www.facebook.com/stories/\"]):not([role=\"feed\"] *)"
-          ]
-        },
-        {
-          "id": "facebook-videos-feed",
-          "feature": "facebook.videos",
-          "action": "hide",
-          "selectors": [
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"/stories/\"])",
+            "[role=\"main\"] [data-virtualized] > div > [role=\"region\"]:not(:has([role=\"region\"])):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"])):not([role=\"feed\"] *):has([role=\"grid\"] a[href^=\"https://www.facebook.com/stories/\"])",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"Create story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))",
+            "[data-type=\"vscroller\"] > :has(> * > * > * > [data-is-h-scrollable] [role=\"button\"][aria-label^=\"View \" i][aria-label*=\" story\" i]):not(:has(h2, [role=\"article\"], a[href*=\"/reel/\"], a[href*=\"/reels/\"], [aria-label^=\"View reel\" i]))"
           ]
         },
         {
@@ -249,7 +251,7 @@
           "feature": "facebook.sponsored",
           "action": "hide",
           "selectors": [
-            "[role=\"complementary\"] > div:has(> a[href^=\"https://\"][rel~=\"nofollow\"]):not(:has(a[href^=\"/\"])):not(:has(a[href*=\"facebook.com/\"])):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
+            "[role=\"complementary\"] div:has(a[href^=\"https://\"][rel~=\"nofollow\"]):has(h2, h3, [role=\"heading\"]):not(:has(:is(a[href^=\"/\"], a[href*=\"//www.facebook.com/\"], a[href*=\"//web.facebook.com/\"], a[href*=\"//m.facebook.com/\"], a[href*=\"//facebook.com/\"]))):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
           ]
         }
       ]
@@ -270,6 +272,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "455a2947ed8d17e285c12d5387ce5a16b28e106c02a5ff1fe222950f3ee5db275f15d1beb4729d34765b9aa5db29d6c673a47294d630fa8fdabedaa62b167e0e"
+    "value": "6ac55c5f6f1fb8ab19ac95f6912385837f72b546ccb99d4a30f822d1c8fc1caa892390132ff8263d52d693da6a0078d537550ed70cab91d755f82d43b873fe0b"
   }
 }

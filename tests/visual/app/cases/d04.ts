@@ -110,7 +110,7 @@ function settingsPage(options: {
             onAction: noop,
           }
         : undefined,
-      help: { onGuide: noop, onSupport: noop, onPrivacy: noop },
+      help: { onGuide: noop, onSafariSetup: noop, onSupport: noop, onPrivacy: noop },
     } satisfies AppleSettingsProps,
   });
 }

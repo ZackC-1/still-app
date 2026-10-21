@@ -94,6 +94,10 @@ async function compose(
     /** Native refuses the link-eligibility read this many times (a reconcile in flight), then answers. */
     refuseEligibility?: number;
     eligible?: boolean;
+    /** ISS-0081: the account native's current server-signed account proof links the right to. Native
+     * holds that proof only once the signed-in account's reconcile has installed it (a new session
+     * starts with none), so it names the account only after that. */
+    linkedAccount?: string | null;
     verificationFails?: boolean;
     verificationHeld?: boolean;
     purchasePending?: boolean;
@@ -132,8 +136,15 @@ async function compose(
   let eligibilityHeld = false;
   const eligibilityWaiters: Array<() => void> = [];
   let refusedEligibility = 0;
+  // ISS-0081: the account proof exists on the device only after a reconcile installed it.
+  let proofInstalled = false;
+  let reconcileGate: Promise<void> | null = null;
   if (options.accountAccess) options.codeAuth = true;
   let nextAccount = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "account@still.test" };
+  // ISS-0076 (MAC-85): the app's verified code awaits the session entry (AppleSession.enterSession)
+  // before the controller sees it. The entry advances the account revision and publishes the account
+  // (the settings mirror's sync state); the controller then advances the revision once more.
+  let sessionEntryGate: Promise<void> | null = null;
   const accountRequests: unknown[] = [];
   const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -154,6 +165,14 @@ async function compose(
                 return writer.initialize("unknown");
               case "reconcileAccountAccess":
                 accountRequests.push(message);
+                if (reconcileGate) await reconcileGate;
+                if (options.linkedAccount) {
+                  proofInstalled = true;
+                  // Installing the proof advances native's record, so the cache publishes again.
+                  rights = { ...snapshot(options.accountState === "none" || !options.accountState ? "purchased" : options.accountState), generation: rights.generation + 1 };
+                  return {schema: 1, status: "committed", accountStatus: "verified", generation: 2, accountId, sessionId,
+                    issuerTime: 1800000000000, proofIdentities: ["synthetic-access:" + "ab".repeat(64)]};
+                }
                 // "none" leaves the device's own rights alone: the account adds nothing. Binding the
                 // session still advances native's record generation, so the next read is a new snapshot.
                 if (!options.accountUncertain && options.accountState !== "none") rights = snapshot(options.accountState ?? "purchased");
@@ -226,7 +245,15 @@ async function compose(
     ...(options.codeAuth ? {auth: {
       signOut: async () => {},
       requestCode: async () => ({ kind: "sent" as const }),
-      verifyCode: async () => ({ kind: "verified" as const, userId: nextAccount.id, email: nextAccount.email }),
+      verifyCode: async () => {
+        if (sessionEntryGate) {
+          controller.accountRevision++;
+          controller.userId = nextAccount.id;
+          controller.accountEmail = nextAccount.email;
+          await sessionEntryGate;
+        }
+        return { kind: "verified" as const, userId: nextAccount.id, email: nextAccount.email };
+      },
       currentVerifiedAccount: async () => controller.userId
         ? {id: controller.userId, email: controller.accountEmail ?? "", emailConfirmed: true} : null,
     }} : {}),
@@ -272,7 +299,9 @@ async function compose(
             refusedEligibility++;
             throw new Error("still: Apple link eligibility requires verification");
           }
-          return options.eligible === false ? null : { ownershipRevision: 0 };
+          return options.eligible === false
+            ? null
+            : { ownershipRevision: 0, linkedAccount: controller.userId && proofInstalled ? (options.linkedAccount ?? null) : null };
         },
         linkPurchase,
       },
@@ -321,8 +350,20 @@ async function compose(
       };
     },
     nextSignIn(id: string, email: string) { nextAccount = { id, email }; },
+    /** Holds the verified code inside the session entry (account published, one revision ahead). */
+    holdSessionEntry() {
+      let release!: () => void;
+      sessionEntryGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { sessionEntryGate = null; release(); };
+    },
     verifyLocalPurchase,
     linkPurchase,
+    /** Holds the account reconcile (and so the proof it installs) until released. */
+    holdReconcile() {
+      let release!: () => void;
+      reconcileGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { reconcileGate = null; release(); };
+    },
     acknowledgments,
     setRoute: (revision: number, route: "pro" | "sync" = "pro") => {
       pendingRoute = { route, revision };
@@ -1319,6 +1360,45 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
     expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
   });
+  it("the session entry's account revision, then the controller's own: the confirmation stays (MAC-85)", async () => {
+    const f = await holder();
+    const invite = await inviteCard();
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    const release = f.holdSessionEntry();
+    await enterCode();
+    // The account is published and confirmed at the session entry's revision while the code waits
+    // on the settings mirror: the confirmation can appear here, one revision early.
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await confirmation();
+    await waitFor(() => expect(reportRatingHold).toHaveBeenLastCalledWith("purchase"));
+    vi.mocked(reportRatingHold).mockClear();
+    // Watch every node the screen adds between the two revisions: neither the offer line nor the
+    // invitation may render, even for one frame, and the rating prompt stays held throughout.
+    const added: string[] = [];
+    const watcher = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) added.push(node.textContent ?? "");
+    });
+    watcher.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const revision = f.controller.accountRevision;
+    release();
+    await waitFor(() => expect(f.controller.accountRevision).toBe(revision + 1));
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const card = await confirmation();
+    watcher.disconnect();
+    expect(added.filter((text) => text.includes(OFFER) || text.includes(INVITE))).toEqual([]);
+    for (const [flow] of vi.mocked(reportRatingHold).mock.calls) expect(flow).toBe("purchase");
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(f.linkPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ intendedAccountId: f.controller.userId, expectedOwnershipRevision: 0 }),
+    );
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+  });
   it("after Not now, a plain sign-in from the sync card links nothing and offers nothing this visit", async () => {
     // The sync card's Sign in is the invitation's while the line shows (owner, 19 Oct); a plain
     // sign-in exists only after Not now, which also holds the signed-in offer for this visit.
@@ -1361,6 +1441,77 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
     await confirmation();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+// ISS-0081: on 2.1.1.387 and .392 a Mac that had linked an accountless Apple Still Pro to the
+// signed-in account showed "Link Still Pro to your account." again on the next launch (Link ended in
+// "Still Pro is linked to …" again: the server answered already_linked). The fixture is the real host
+// launching signed in, with the account's reconcile and the native link read naming the account the
+// server's signed proof links the right to.
+describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0081)", () => {
+  const OFFER = "Link Still Pro to your account.";
+  const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
+  const ACCOUNT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const ACCOUNT = "account@still.test";
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
+  const syncCard = () => document.querySelector('[data-still-card="sync"]') as HTMLElement;
+  it("on launch, linked to the signed-in account: the sync card's Still Pro User tag and nothing else", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    await settled();
+    expect(within(syncCard()).getByText("Still Pro User")).toBeVisible();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("linked to another account: the offer shows, Link asks the server once, and the answer is the fact, not a failure (ISS-0104)", async () => {
+    // Native holds proofs only for the signed-in account, so it names no one; the server refuses
+    // with owned_elsewhere, which the card states without Try again, and the offer is gone.
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none" });
+    f.linkPurchase.mockResolvedValue({ status: "owned_elsewhere" } as never);
+    const offer = await screen.findByRole("region", { name: OFFER });
+    await fireEvent.click(within(offer).getByRole("button", { name: "Link" }));
+    const card = await screen.findByRole("region", { name: "Link Still Pro" });
+    await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
+    await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Still Pro works on this device. It's linked to another account.")).toBeVisible();
+    expect(screen.queryByText(/sign in with that account/i)).toBeNull();
+    expect(screen.queryByText("Linking didn't finish.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    await settled();
+    expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
+    expect(f.linkPurchase).toHaveBeenCalledOnce();
+  });
+  it("an accountless right, signed in: the offer shows", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", linkedAccount: null });
+    expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
+    expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked once the proof arrives", async () => {
+    const f = await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    const invite = (await screen.findByText(INVITE)).closest("section")!;
+    await fireEvent.click(within(invite).getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("dialog");
+    // A brand-new session has no account proof until its reconcile installs it: hold that, so the
+    // read that follows sign-in finds none and the confirmation appears first.
+    const release = f.holdReconcile();
+    const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
+    await fireEvent.input(email, { target: { value: ACCOUNT } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.send }));
+    const code = await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    await fireEvent.input(code, { target: { value: "123456" } });
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.codeAuth.verify }));
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    expect(await screen.findByRole("heading", { name: "Link Still Pro to this account?" })).toBeVisible();
+    release();
+    expect(await screen.findByText(`Still Pro is linked to ${ACCOUNT}.`)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Link Still Pro to this account?" })).toBeNull();
+    expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
+    expect(screen.queryByText(INVITE)).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
 });

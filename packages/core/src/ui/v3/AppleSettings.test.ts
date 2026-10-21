@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
+import { SUPPORT_EMAIL } from "../config.js";
 import {
   DEFAULT_SETTINGS,
   FEATURE_REGISTRY,
@@ -88,7 +89,12 @@ async function fixture(state: AccessState = "purchased") {
     sync: { onSignIn: vi.fn() },
     pro: { ownership: "none", channel: "unverified" },
     sharing: { state: "off", onChange: vi.fn() },
-    help: { onGuide: vi.fn(), onSupport: vi.fn(), onPrivacy: vi.fn() },
+    help: {
+      onGuide: vi.fn(),
+      onSafariSetup: vi.fn(),
+      onSupport: vi.fn(),
+      onPrivacy: vi.fn(),
+    },
   };
   return { storage, cache, props, settled: () => pending };
 }
@@ -179,7 +185,7 @@ describe("controlled D04 Apple settings", () => {
       const view = render(AppleSettings, { props });
       const sections = {
         "YouTube Blocker": { desktopOnly: ["End-of-video suggestions", "Live chat"], always: ["Related videos", "Autoplay prevention", "Comments"] },
-        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Videos and Watch"] },
+        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Video tab"] },
       };
       for (const [section, { desktopOnly, always }] of Object.entries(sections)) {
         const button = screen.getByRole("button", { name: section });
@@ -637,6 +643,7 @@ describe("controlled D04 Apple settings", () => {
     expect(other).toHaveBeenCalledOnce();
     await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
     expect(verify).toHaveBeenCalledOnce();
+    expect(screen.getByText(SUPPORT_EMAIL)).toBeVisible();
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );
@@ -1975,7 +1982,7 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     ).toBeVisible();
   });
 
-  it("draws Help as the three links only: no heading, divider or note", async () => {
+  it("draws Help as the links only: no heading, divider or note", async () => {
     const { props } = await fixture();
     render(AppleSettings, { props });
     expect(screen.queryByRole("heading", { name: "Help" })).toBeNull();
@@ -1983,9 +1990,47 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     const help = screen.getByRole("region", { name: "Help" });
     expect(within(help).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual([
       "Setup guide",
+      "Safari setup",
       "Contact support",
       "Privacy policy",
     ]);
+    expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
+    expect(
+      within(help).getByRole("button", { name: "Contact support" })
+        .nextElementSibling?.textContent,
+    ).toBe(SUPPORT_EMAIL);
+    expect(
+      Array.from(help.children).map((c) => c.textContent?.trim()).slice(0, 5),
+    ).toEqual(["Setup guide", "Safari setup", "Contact support", SUPPORT_EMAIL, "Privacy policy"]);
+    expect(within(help).queryByRole("link")).toBeNull();
     expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
+  });
+
+  it.each(["ios", "mac"] as const)(
+    "%s: Safari setup (ISS-0075) sits after Setup guide and asks only for the native sheet",
+    async (platform) => {
+      const { props } = await fixture();
+      render(AppleSettings, { props: { ...props, platform } });
+      const help = screen.getByRole("region", { name: "Help" });
+      const link = within(help).getByRole("button", { name: "Safari setup" });
+      expect(link.previousElementSibling).toBe(
+        within(help).getByRole("button", { name: "Setup guide" }),
+      );
+      expect(link).toHaveClass("link");
+      await fireEvent.click(link);
+      expect(props.help.onSafariSetup).toHaveBeenCalledOnce();
+      expect(props.help.onGuide).not.toHaveBeenCalled();
+      expect(props.help.onSupport).not.toHaveBeenCalled();
+      expect(props.help.onPrivacy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps Safari setup visible but disabled when the host has no native sheet", async () => {
+    const { props } = await fixture();
+    render(AppleSettings, {
+      props: { ...props, help: { ...props.help, onSafariSetup: undefined } },
+    });
+    expect(screen.getByRole("button", { name: "Safari setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Setup guide" })).toBeEnabled();
   });
 });

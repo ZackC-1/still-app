@@ -6,6 +6,8 @@ import { requireModernSettings } from "../../storage/atomic-settings.js";
 import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
+import { formatSyncTime } from "./sync-time.js";
+import { SUPPORT_EMAIL } from "../config.js";
 
 /** A lock reveals the existing Pro card; only its explicit Buy requests a purchase. */
 async function requestThroughLock(feature = "Comments") {
@@ -206,6 +208,36 @@ describe("controlled D03 extension settings", () => {
     view.unmount();
   });
 
+  it("puts the last sync time on the synced line under the address, the one place it appears", async () => {
+    const { props } = await fixture();
+    const syncedAt = Date.now();
+    props.sync.account = {
+      address: "fixture@still.test",
+      confirmed: true,
+      status: { tone: "success", text: "Synced" },
+      lastSyncedAt: syncedAt,
+    };
+    const view = render(ExtensionSettings, { props });
+    const card = document.querySelector<HTMLElement>('[data-still-card="sync"]')!;
+    const status = within(card).getByRole("status");
+    expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(
+      `Synced · Last synced ${formatSyncTime(new Date(syncedAt))}`,
+    );
+    expect(formatSyncTime(new Date(syncedAt))).toMatch(/^Today at /);
+    expect(document.querySelectorAll("time")).toHaveLength(1);
+    // The address line comes first, the synced line under it.
+    const address = within(card).getByText("fixture@still.test");
+    expect(
+      address.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    props.sync.account = { ...props.sync.account, lastSyncedAt: null };
+    await view.rerender(props);
+    expect(within(card).getByRole("status").textContent!.trim()).toBe("Synced");
+    expect(document.querySelector("time")).toBeNull();
+    view.unmount();
+  });
+
   it("uses actual free writer requests without a sign-in gate, preserves saved choices and guards Off writes", async () => {
     const { storage, cache, props, settled } = await fixture();
     const view = render(ExtensionSettings, { props });
@@ -336,7 +368,7 @@ describe("controlled D03 extension settings", () => {
     view.unmount();
   });
 
-  it("requires actual channel, verified offer and confirmed account for checkout, withholding sales on held access or Restore", async () => {
+  it("requires actual channel, verified offer and confirmed account for checkout, withholding sales on held access or a Restore under way", async () => {
     const { props } = await fixture("locked");
     const onBuy = vi.fn();
     const onSignIn = vi.fn();
@@ -383,13 +415,20 @@ describe("controlled D03 extension settings", () => {
       ...props.access,
       states: { ...props.access.states, "youtube.comments": "locked" },
     };
-    for (const state of ["checking", "verify", "failed"] as const) {
+    for (const state of ["checking", "verify"] as const) {
       props.restore = { state, onAction: vi.fn() };
       await view.rerender(props);
       expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
     }
+    // A Restore that could not finish changed nothing, so the offer stays (ISS-0090).
+    props.restore = { state: "failed", onAction: vi.fn() };
+    await view.rerender(props);
+    expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
+    expect(
+      screen.getByText("We couldn't finish checking. Nothing changed."),
+    ).toBeVisible();
     expect(document.body.textContent).not.toContain("test localized offer");
     expect(onBuy).toHaveBeenCalledOnce();
     view.unmount();
@@ -932,7 +971,7 @@ describe("controlled D03 extension settings", () => {
       expect(buy).toHaveBeenCalledTimes(2);
     }
     props.pro.state = "idle";
-    for (const state of ["checking", "verify", "failed"] as const) {
+    for (const state of ["checking", "verify"] as const) {
       props.restore = { state };
       await view.rerender(props);
       await requestBoth();
@@ -957,6 +996,11 @@ describe("controlled D03 extension settings", () => {
     await view.rerender(props);
     await requestBoth();
     expect(buy).toHaveBeenCalledTimes(4);
+    // A Restore that could not finish changed nothing: both ports still offer it (ISS-0090).
+    props.restore = { state: "failed" };
+    await view.rerender(props);
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(6);
     view.unmount();
   });
 });
@@ -1047,4 +1091,14 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
       view.unmount();
     },
   );
+
+  it("shows the support address as plain text right after Contact support (ISS-0112)", async () => {
+    const { props } = await fixture();
+    render(ExtensionSettings, { props });
+    const help = screen.getByRole("region", { name: "Help" });
+    const button = within(help).getByRole("button", { name: "Contact support" });
+    expect(button.nextElementSibling?.textContent).toBe(SUPPORT_EMAIL);
+    expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
+    expect(within(help).queryByRole("link")).toBeNull();
+  });
 });

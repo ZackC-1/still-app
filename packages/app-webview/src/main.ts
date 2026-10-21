@@ -20,7 +20,12 @@ import {
   type AuthPersistence,
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
-import { NativeBridge, openNativeDestination, createApplePurchaseAuthority } from "@still/core/native";
+import {
+  NativeBridge,
+  openNativeDestination,
+  presentNativeSafariSetup,
+  createApplePurchaseAuthority,
+} from "@still/core/native";
 import { isAccessUUID, packagedAccessTrust } from "@still/core/entitlement";
 import { bindTextScale } from "@still/core/ui/v3/text-scale";
 import { buildChannelEnvelope, createAppAnalytics, createDefaultOnAppAnalytics, supabaseSubjectIssuer, type AnalyticsKeyValue, type SubjectDeps } from "@still/core/analytics";
@@ -93,6 +98,8 @@ const backendRouteProfile = readAppleBackendProfile(
 );
 
 let controller: UiController;
+/** Read the "Share usage data" switch again once analytics knows more (ISS-0111). */
+const refreshUsageSwitch = (): void => void controller.refreshUsageSharing();
 let identifyOnServer: (() => Promise<void>) | undefined;
 /** V3 only: requests this device's analytics identity for the signed-in account (set below). */
 let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
@@ -133,7 +140,10 @@ let applePurchaseAuthority: {
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"> | undefined;
+  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  | "heldElsewhereMemory"> | undefined;
+/** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
+const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
 
 if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
@@ -299,11 +309,16 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       if (error || !data.user) return { error: error?.message ?? "Sign in failed" };
       return { userId: data.user.id };
     },
-    onAccountEntered: (userId) => void analytics.identifyAccount(userId),
-    onAccountAbsent: () => void analytics.accountAbsent(),
+    // Each also reads the usage switch again (ISS-0111): the launch's account answer comes once
+    // the native analytics context is in, well before start()'s first send.
+    onAccountEntered: (userId) => void analytics.identifyAccount(userId).finally(refreshUsageSwitch),
+    onAccountAbsent: () => void analytics.accountAbsent().finally(refreshUsageSwitch),
   });
 
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && applePurchaseAuthority) {
+    // ISS-0104: the server's "linked to another account" answers outlive the launch, so a
+    // relaunch states the fact instead of offering Link again. Same backing as the session.
+    const heldElsewhereStore = safeStorage();
     appleProServices = {
       bridge,
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
@@ -311,6 +326,14 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,
       linkPurchase: intent => session.linkPurchase(intent),
+      heldElsewhereMemory: {
+        read: () => {
+          // SupportedStorage.getItem is async-capable in its type; both real backings are sync.
+          const value = heldElsewhereStore.getItem(HELD_ELSEWHERE_KEY);
+          return typeof value === "string" ? value : null;
+        },
+        write: (value) => void heldElsewhereStore.setItem(HELD_ELSEWHERE_KEY, value),
+      },
     };
   }
   controller.retrySync = () => sync.retryNow();
@@ -368,13 +391,15 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
 } else {
   controller = new UiController({ cache, host: { canPurchase: true }, analytics: analytics.ui });
   // No account can exist in a build without sync; let go of any recorded earlier.
-  void analytics.accountAbsent();
+  void analytics.accountAbsent().finally(refreshUsageSwitch);
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
 
-void analytics.start();
+// The controller's first "Share usage data" read ran before this start; read it again once the
+// launch's analytics has settled, and at each return to the foreground (ISS-0111).
+void analytics.start().finally(refreshUsageSwitch);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") void analytics.recheckSetup();
+  if (document.visibilityState === "visible") void analytics.recheckSetup().finally(refreshUsageSwitch);
 });
 
 if (appleSettingsAdapter) void mountAppleScreens(appleSettingsAdapter);
@@ -433,7 +458,11 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         controller,
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
-        help: appleSettingsHelp((url) => openExternalLink(url)),
+        // "Safari setup" asks native for its "Turn on Still in Safari" sheet, from the tap.
+        help: appleSettingsHelp(
+          (url) => openExternalLink(url),
+          () => void presentNativeSafariSetup(),
+        ),
         restoreBridge: appleRestoreBridge(bridge),
         proServices: appleProServices,
         appRoutes: bridge,

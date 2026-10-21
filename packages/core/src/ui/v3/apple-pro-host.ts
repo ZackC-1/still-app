@@ -38,9 +38,12 @@ export interface AppleProHostDeps {
   refreshAccountAccess?(): Promise<BenefitAccessSnapshot>;
   account(): AppleProAccount | null;
   ownershipRevision(): number;
-  /** Current native purchaser-only signed local provenance. Missing port holds linking closed. */
+  /** Current native purchaser-only signed local provenance. Missing port holds linking closed.
+   * `linkedAccount` names the account a current server-signed account proof links the right to
+   * (native's verified, bound account); absent or null, nothing on this device says so. */
   readLinkEligibility?(): Promise<{
     readonly ownershipRevision: number;
+    readonly linkedAccount?: string | null;
   } | null>;
   linkPurchase(
     intent: ApplePurchaseLinkIntent,
@@ -54,6 +57,13 @@ export interface AppleProHostDeps {
   chooseOtherAccount(): Promise<void>;
   publish(): void;
   operationId?(): string;
+  /** ISS-0104: keeps the server's "owned_elsewhere" answers (account id to purchaser revision)
+   * across launches, so a relaunch states the fact instead of offering Link again. Absent, the
+   * memory lasts the process. A read that throws or returns junk counts as empty. */
+  heldElsewhereMemory?: {
+    read(): string | null | undefined;
+    write(value: string): void;
+  };
 }
 /** The two lines the sign-in sheet adds when Get Still Pro opened it (ISS-0071, option B). */
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
@@ -79,12 +89,33 @@ export function appleProOwnership(
 }
 
 /** Thin host state for the shared D18/D24/D25 screens. Store feedback never establishes rights. */
+/** ISS-0104: the remembered "owned_elsewhere" answers, account id to purchaser revision. Anything
+ * unreadable (a thrown read, non-JSON, a non-object, a non-number) is treated as empty. */
+function readHeldElsewhere(
+  memory: AppleProHostDeps["heldElsewhereMemory"],
+): Map<string, number> {
+  const held = new Map<string, number>();
+  try {
+    const raw = memory?.read();
+    if (typeof raw !== "string") return held;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return held;
+    for (const [account, revision] of Object.entries(parsed))
+      if (typeof revision === "number" && Number.isFinite(revision)) held.set(account, revision);
+  } catch {
+    // Unreadable memory is empty memory.
+  }
+  return held;
+}
 export function createAppleProHost(deps: AppleProHostDeps) {
   let stopped = false;
   let epoch = 0;
   let accessEpoch = 0;
   let eligibilityEpoch = 0;
-  let eligiblePurchase: { readonly ownershipRevision: number } | null = null;
+  let eligiblePurchase: {
+    readonly ownershipRevision: number;
+    readonly linkedAccount: string | null;
+  } | null = null;
   let busy = false;
   let opening = false;
   let offer: NativeLifetimeOffering | null = null;
@@ -100,6 +131,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   // account) drops it; a settled eligible answer re-offers the confirmation.
   let linkingRequested = false;
   let linkSignInAsked = false;
+  // ISS-0076 (MAC-85): the request opened sign-in. That sign-in settles over more than one account
+  // revision (the session entry's, then the controller's own), each re-reading the confirmation.
+  let linkViaSignIn = false;
   let requestingLink = false;
   let linkGeneration = 0;
   let pendingKind: "buy" | "restore" | undefined;
@@ -129,12 +163,58 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     );
   };
   const owner = () => (access ? appleProOwnership(access) : "checking");
+  /** ISS-0081: the last settled read says the server's signed account proof already links this
+   * purchase to the account signed in here, so there is nothing to offer. The server stays the
+   * authority (native reads its proof for the account it verified); the shown account only has to
+   * agree, so a mismatch or a sign-out keeps today's offer and the server decides on Link. */
+  const linkedHere = () => {
+    const holder = eligiblePurchase?.linkedAccount;
+    return typeof holder === "string" && holder === deps.account()?.id;
+  };
+  /** ISS-0104: the purchase is linked to a different account, so there is nothing to offer this
+   * one and the card says so instead of asking. Native names such an account only when it holds
+   * a proof for it (it never holds another account's proofs), so in practice this is the server's
+   * own "owned_elsewhere" answer to a link from this account at this purchaser revision. A sign-in
+   * as another account, a new revision (the holder moved it) or a proof naming this account ends it.
+   * No transfer screen this release (owner, 20 Oct): the holder's own sign-in is how it moves. */
+  const heldElsewhere = readHeldElsewhere(deps.heldElsewhereMemory);
+  const writeHeldElsewhere = () => {
+    try {
+      deps.heldElsewhereMemory?.write(JSON.stringify(Object.fromEntries(heldElsewhere)));
+    } catch {
+      // A refused write keeps the process memory only.
+    }
+  };
+  const rememberHeldElsewhere = (account: string, revision: number) => {
+    heldElsewhere.set(account, revision);
+    writeHeldElsewhere();
+  };
+  /** An answer that disproves the memory for this account (native's proof names it, or a link
+   * went through) drops its entry, so the memory holds only accounts still refused. */
+  const forgetHeldElsewhere = (account: string) => {
+    if (heldElsewhere.delete(account)) writeHeldElsewhere();
+  };
+  const linkedElsewhere = () => {
+    const current = deps.account();
+    if (!current || !eligiblePurchase) return false;
+    const holder = eligiblePurchase.linkedAccount;
+    // Native's own proof decides first, either way: it names this account, so nothing is held
+    // elsewhere whatever the memory says; it names another, so it is.
+    if (typeof holder === "string") return holder !== current.id;
+    return heldElsewhere.get(current.id) === eligiblePurchase.ownershipRevision;
+  };
+  const elsewhereCard = (account: AppleProAccount) => ({ state: "elsewhere" as const, email: account.email });
+  /** ISS-0076 (MAC-85): a confirmation kept on screen, without its buttons, while the sign-in that
+   * the request opened settles at a newer account revision. It holds the place (no offer card, no
+   * second sign-in, the rating hold stays) until a fresh confirmation replaces it. */
+  const fencedConfirm = () => link?.state === "confirm" && !link.onConfirm;
   function clearLink() {
     linkGeneration++;
     link = undefined;
     linkAccount = null;
     linkingRequested = false;
     linkSignInAsked = false;
+    linkViaSignIn = false;
   }
   /** Re-read the native purchaser provenance behind the link affordance. The last settled answer
    * stays in place while a read is in flight, while access is being re-checked, or when native
@@ -154,11 +234,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         result &&
         Number.isSafeInteger(result.ownershipRevision) &&
         result.ownershipRevision >= 0
-          ? result
+          ? {
+              ownershipRevision: result.ownershipRevision,
+              linkedAccount:
+                typeof result.linkedAccount === "string"
+                  ? result.linkedAccount
+                  : null,
+            }
           : null;
     } catch {
       // A refused read is no answer: the next snapshot or refresh asks again. Only a settled
-      // "no purchaser" below withdraws the affordance and a requested link.
+      // "no purchaser" below withdraws the affordance and a requested link. The last settled answer
+      // still stands, and it keeps the affordance on, so it also offers a requested link (MAC-85:
+      // otherwise the offer card shows instead of the confirmation when every later read is refused).
+      if (offer && !stopped && ticket === eligibilityEpoch && observed === accessEpoch)
+        offerRequestedLink();
       return;
     }
     if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
@@ -167,6 +257,36 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // A link already in flight rereads eligibility itself and ends in linked or failed (with
     // Try again); an overlapping refresh must not cancel it silently.
     if (!eligiblePurchase && link?.state !== "pending") clearLink();
+    // ISS-0081: a new session starts with no account proofs, so the read right after sign-in can
+    // offer the confirmation before the reconcile installs the proof. Once it says this account
+    // already holds the purchase, the confirmation becomes the linked status (and its old Link
+    // tap is fenced) instead of asking to link it again.
+    if (
+      linkedHere() &&
+      link?.state === "confirm" &&
+      linkAccount &&
+      sameAccount(linkAccount)
+    ) {
+      linkGeneration++;
+      linkingRequested = false;
+      linkSignInAsked = false;
+      link = { state: "linked", email: linkAccount.email };
+    }
+    // ISS-0104: linked to a different account: a pending confirmation is withdrawn and the card
+    // says where the purchase is; nothing is offered until the account or the revision changes.
+    // Once it is no longer held elsewhere (the holder moved it, or native's proof now names this
+    // account) the card leaves; linked here offers nothing, anything else offers as usual.
+    const current = deps.account();
+    if (current && linkedHere()) forgetHeldElsewhere(current.id);
+    if (current?.confirmed && linkedElsewhere() && (!link || link.state === "confirm")) {
+      linkGeneration++;
+      linkingRequested = false;
+      linkSignInAsked = false;
+      linkAccount = { ...current };
+      link = elsewhereCard(current);
+    } else if (link?.state === "elsewhere" && !linkedElsewhere()) {
+      clearLink();
+    }
     changed();
     if (offer) offerRequestedLink();
   }
@@ -178,8 +298,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       busy ||
       requestingLink ||
       !linkingRequested ||
-      link ||
-      linkAccount ||
+      (!fencedConfirm() && (link || linkAccount)) ||
       owner() !== "owned" ||
       !eligiblePurchase ||
       !deps.account()?.confirmed
@@ -471,10 +590,32 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       // owned, eligible answer offers it. A settled "not eligible" already cleared the request.
       if (owner() !== "owned" || !eligiblePurchase) return;
       const account = deps.account();
+      if (linkedHere()) {
+        // ISS-0081: already linked to this account (signed in as the holder from the invitation):
+        // the request is done. Say so instead of asking to link it again.
+        linkingRequested = false;
+        linkSignInAsked = false;
+        if (account?.confirmed) {
+          linkAccount = { ...account };
+          link = { state: "linked", email: account.email };
+        }
+        changed();
+        return;
+      }
+      if (account?.confirmed && linkedElsewhere()) {
+        // ISS-0104: the purchase is another account's; say so, offer nothing.
+        linkingRequested = false;
+        linkSignInAsked = false;
+        linkAccount = { ...account };
+        link = elsewhereCard(account);
+        changed();
+        return;
+      }
       if (!account?.confirmed) {
         // Asked once per request: every later re-read must not reopen the sheet.
         if (!linkSignInAsked) {
           linkSignInAsked = true;
+          linkViaSignIn = true;
           deps.signIn();
         }
         return;
@@ -577,10 +718,19 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       });
       if (stopped || generation !== linkGeneration || !sameAccount(account))
         return;
-      link =
-        result.status === "linked" || result.status === "already_linked"
-          ? { state: "linked", email: account.email }
-          : { state: "failed", email: account.email, onRetry };
+      if (result.status === "owned_elsewhere") {
+        // ISS-0104: held by another account at this revision; remembered for this account so the
+        // offer does not come back, and shown as a fact rather than a failure with Try again.
+        rememberHeldElsewhere(account.id, eligible!.ownershipRevision);
+        link = elsewhereCard(account);
+      } else {
+        if (result.status === "linked" || result.status === "already_linked")
+          forgetHeldElsewhere(account.id);
+        link =
+          result.status === "linked" || result.status === "already_linked"
+            ? { state: "linked", email: account.email }
+            : { state: "failed", email: account.email, onRetry };
+      }
       // Link failure does not touch the independent local proof lane.
     } catch {
       if (!stopped && generation === linkGeneration && sameAccount(account))
@@ -630,8 +780,37 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       epoch++;
       busy = false;
-      if (linkAccount && !sameAccount(linkAccount)) clearLink();
-      if (linkingRequested && !linkAccount && deps.account()?.confirmed)
+      if (linkAccount && !sameAccount(linkAccount)) {
+        const current = deps.account();
+        const sameHolder =
+          current !== null && current.id === linkAccount.id && current.email === linkAccount.email;
+        if (sameHolder && (link?.state === "elsewhere" || link?.state === "linked")) {
+          // ISS-0104, ISS-0081: where the purchase is linked is a fact about the account, not about
+          // one session revision; the same account (id and address) keeps the card, and re-settles
+          // it once the new revision is confirmed.
+          if (current.confirmed) {
+            linkAccount = { ...current };
+            link = link.state === "linked" ? { state: "linked", email: current.email } : elsewhereCard(current);
+          }
+        } else if (
+          sameHolder &&
+          (link?.state === "confirm" || link?.state === "pending") &&
+          linkingRequested &&
+          linkViaSignIn
+        ) {
+          // ISS-0076 (MAC-85): the sign-in the request opened is still settling. The verified code
+          // enters the session (a new revision, then a confirmation at it) before the controller
+          // advances the revision again, so the confirmation can appear, and even be tapped, one
+          // revision early. Fence its taps and any link in flight, keep the card without buttons
+          // and the request, and offer a fresh confirmation once the new revision is confirmed.
+          // linkAccount stays the fenced account, so a sign-out or another account still drops it.
+          linkGeneration++;
+          link = { state: "confirm", email: linkAccount.email };
+        } else {
+          clearLink();
+        }
+      }
+      if (linkingRequested && (!linkAccount || fencedConfirm()) && deps.account()?.confirmed)
         void requestLink();
       const current = deps.account();
       if (
@@ -740,6 +919,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (linkSignInAsked && !deps.account()?.confirmed) {
         linkingRequested = false;
         linkSignInAsked = false;
+        linkViaSignIn = false;
         dropped = true;
       }
       if (dropped) changed();
@@ -759,7 +939,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       return opening;
     },
     get canLink() {
-      return !busy && owner() === "owned" && eligiblePurchase !== null && !link;
+      return (
+        !busy &&
+        owner() === "owned" &&
+        eligiblePurchase !== null &&
+        !linkedHere() &&
+        !linkedElsewhere() &&
+        !link
+      );
     },
     stop() {
       stopped = true;

@@ -8,6 +8,7 @@ import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
 import { INSTAGRAM_APP_HOST, INSTAGRAM_REELS_LAYOUT, instagramPostViewerCode, type LayoutRule } from "./instagram.js";
+import { FACEBOOK_REELS_LAYOUT } from "./facebook.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -137,6 +138,14 @@ export interface EnginePageSession {
    * only to page-driven moves, never to a deliberate link activation or Back/forward.
    */
   reelContinuation?(from: URL, to: URL, viewerShowsReel?: (code: string) => boolean): string | null;
+  /**
+   * Format-2 only: whether the session owns root effects (feature classes on <html>, Still's
+   * <style>) and, if so, whether the page has left them in place. "lost" means the page itself
+   * rewrote <html class>, dropped the stylesheet or replaced <html>; the next applyDom restores
+   * them from the same committed inputs, onto the current <html> (ISS-0084). The content script's
+   * root guard watches the document's, <html>'s and <head>'s direct children for those cases.
+   */
+  ownedRootEffects?(): "none" | "intact" | "lost";
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
@@ -535,6 +544,7 @@ const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
  */
 const PACKAGED_LAYOUT: Readonly<Partial<Record<ServiceId, Readonly<Partial<Record<BenefitId, readonly LayoutRule[]>>>>>> = Object.freeze({
   instagram: Object.freeze({ "instagram.reels": INSTAGRAM_REELS_LAYOUT }),
+  facebook: Object.freeze({ "facebook.reels": FACEBOOK_REELS_LAYOUT }),
 });
 
 /** Still Pro features a packaged content handler implements, per service (never rule data). */
@@ -769,6 +779,12 @@ function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable
         }
       }
       return false;
+    },
+    ownedRootEffects() {
+      if (stopped || !ownedRoot) return "none";
+      if (!ownedStyle?.isConnected || ownedRoot.ownerDocument.documentElement !== ownedRoot) return "lost";
+      for (const name of ownedClasses) if (!ownedRoot.classList.contains(name)) return "lost";
+      return "intact";
     },
     debugStats: () => ({ serviceResolutions, compiledSelectors, domQueries: 0, retainedSiteNodes: 0, rootWrites }),
     stop() { stopped = true; effective = []; serviceId = null; clearEffects(); },

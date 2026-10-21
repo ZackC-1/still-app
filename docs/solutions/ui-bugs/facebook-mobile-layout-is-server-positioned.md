@@ -6,7 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: A Facebook Reels surface stays visible on iPhone Safari (or any phone browser) while the same surface is hidden on desktop, or a rule for Facebook's mobile layout needs a boundary
 date: 2026-10-15
-last_updated: 2026-10-16
+last_updated: 2026-10-21
 status: active
 tags: [facebook, mobile, safari-ios, selectors, tabs, capture, feed]
 ---
@@ -48,8 +48,8 @@ Hide the outer tab, unless it is the first in its row:
   `margin-top:-46px`. Hiding a tab on the live signed-out pages caused no attribute or child
   mutation in the row over 3 seconds, so Facebook does not appear to re-measure it, and the
   remaining tabs stayed where they were. (The fixture's zero-mutation check has no Facebook script;
-  it only proves Still writes nothing into the row.) The cost is a blank slot where Reels was. CSS
-  cannot close it because the offsets are inline.
+  it only proves Still writes nothing into the row.) The cost was a blank slot where Reels was; the inline
+  offsets cannot be rewritten, but the neighbours can be slid (see "The top tab bar").
 - **Never the first tab.** Every later tab is pulled up against the one before it, so hiding the
   first tab would slide the whole row out of its clipped box. `~` limits the rule to tabs after
   the first; a row that starts with Reels fails open. Compare the desktop row, which measures its tabs and must have
@@ -101,3 +101,81 @@ carousels (no reel cards) visible; a changed depth or label fails open.
 - For signed-in mobile surfaces, ask the owner for a sanitized Web Inspector capture rather than
   guessing; one paste was enough here.
 - Interface labels are matched in English, as on desktop; other languages fail open.
+
+## The top tab bar (ISS-0102, 20-21 Oct 2026)
+
+The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labelled `feed, 1 of 6`
+(live: `feed, 1,755 new, 1 of 6`), `friends, 2 of 6`, `messages, 3 of 6`, `reels, 100 new, 4 of 6`,
+`notifications, 5 of 6`, `marketplace, 6 of 6`, each with an inline width (one sixth of the bar) and
+`margin-left`, stacked in a column and pulled up with `margin-top:-50px`; no links. The
+Reels tab's contents are hidden (issue #58), so it kept a 65 px empty slot and its share of the line
+under the bar was missing. `display:none` or `width:0` on the tab moves nothing, because the others
+are placed by their own margins.
+
+The first packaged layout (2.1.1.420) made the tab `visibility:hidden; pointer-events:none` and slid
+the tabs before it `translateX(50%)` and the tabs after it `translateX(-50%)`. That closed the slot,
+but the owner's retest (21 Oct) showed a grey band about half a tab wide at each end of the bar:
+the five tabs keep a sixth of the width each, so they span five sixths of the bar. A transform
+never moves the layout, and scaling the tabs (`scaleX(1.2)`, tried and dropped) draws every icon
+20 % wide and leaves hairline seams between fractional-width neighbours.
+
+### What the tab is made of (live capture, 21 Oct)
+
+Captured read-only on the signed-in phone Home (Chromium, iPhone user agent, 390 px; roles, `data-*`
+names, nesting, inline geometry and computed colours only):
+
+- The tab list is transparent. The grey beside the tabs is the page's own background (an
+  ancestor's `::before`, rgb(188,192,196)), so making the bar transparent changes nothing and
+  painting it needs a colour that depends on the theme.
+- Each tab paints its white box with a `::before` that fills it and holds three or four layers
+  (the count-pill layer only on Home, Reels and Notifications), each marked `data-mcomponent`, as
+  wide as the tab (inline `width:65px`) and stacked with negative `margin-top`: the icon layer (a
+  29 px icon box at `margin-left:18px`, the icon-font glyph centred in it by flex), the 2 px line
+  under the bar (a layer whose `::before` paints rgb(201,204,209)), the dot layer (24 px boxes at
+  `margin-left:31px`: a white ring and a red dot drawn by `::before`s inset 1 px and 2.5 px, plus a
+  count; hidden unless used, shown on Marketplace) and the pill layer (a 26 px pill at
+  `margin-left:31px`/`32px`). The selected tab only colours its icon; there is no separate active
+  underline.
+
+### The fix: widen the boxes, not the contents
+
+`FACEBOOK_REELS_LAYOUT` (code, not rule data) has two scopes:
+
+- **Any tab list holding the `feed, …` tab:** the Reels tab is `visibility:hidden;
+  pointer-events:none` (a tappable blank slot opens Reels, ISS-0035), and its neighbours slide half
+  a tab towards it. This needs only equal neighbours, so a bar with an extra entry (five or seven
+  tabs) still has no empty or tappable slot, only the bands.
+- **That list with a Reels tab and exactly six children, all tabs:** each remaining tab gets
+  `transform:none; width:20%; margin-left:<place × 20>%` (percentages of the bar; the place is the
+  slot number minus one before Reels, minus two after it, so it works whichever slot Reels holds),
+  and each of its `[data-mcomponent]` layers gets `width:100%; padding-left:calc(100% / 12)`. The padding is half the
+  difference between the new and old tab (1/5 − 1/6 of the bar, halved, is a twelfth of the new
+  tab), so the fixed-offset icon and badges keep their size and land centred, while the layers'
+  `::before` backgrounds and the line fill the whole tab. These selectors are more specific than
+  the slide's and come later, so they replace it.
+
+Measured with this CSS injected on the live page (no extension): tabs at 0–78, 78–156, 156–234,
+234–312 and 312–390 px; every glyph still 28.81 × 28 px with its centre 0.56 px from the tab's
+centre, as before; badge-to-icon offset unchanged (13.34 px); each line layer spans its tab; a
+point 2 px inside either end of the bar hits a tab. On the fixture at 390, 393, 402 and 430 px
+(device pixel ratio 3), the white row above the icons and the line row have no off-colour pixel.
+
+Rejected fallback: keep the slide and draw a full-width 1 px line on the bar (an inset shadow).
+The bands stay (they are the page's grey), and the slid tabs show faint seams. Depends on Facebook
+keeping its layers as wide as the tab with contents placed from their left edge; if it changes,
+the icons drift off centre by about 6.5 px rather than disappearing. Only children marked
+`data-mcomponent` are widened: an unknown direct child (an SVG, a flex-centred wrapper) keeps its
+65 px width at the tab's left edge instead of being padded out of place, so it would sit 6.5 px
+left of centre. An inline `transform` on a tab is overridden by the rule's `transform:none!important`. Not checked: a right-to-left
+locale that keeps the word "Reels" (DOM order would be mirrored, so tabs would land in the wrong
+fifths).
+
+## The Stories tray (ISS-0101, 20 Oct 2026)
+
+On the phone Home feed the tray is one vscroller row: a horizontal scroller
+(`[data-is-h-scrollable]`) four levels down whose cards are `[role="button"]`s labelled
+`Create story` (the person's own, first) and `View <name> story. N new story` (or `stories`). No
+main region, no `[data-virtualized]`, no `/stories/` links, so the desktop rule could not match.
+The Stories extra now also hides that row, told by the scroller at that depth and those labels,
+never a row holding a heading, an article, a Reel link or a `View reel video` button (the Reels
+section is the free control's). Rows stack with margins, so hiding the row closes its gap.

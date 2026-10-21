@@ -106,7 +106,7 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
   let resize: ResizeObserver | null = null;
   let focusedCard: HTMLElement | null = null;
   let focusDeadline = 0;
-  function cancelFocus() {
+  function stopWatching() {
     focusDeadline = 0;
     observer?.disconnect();
     observer = null;
@@ -115,13 +115,23 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
     if (timer !== null) clearTimeout(timer);
     timer = null;
   }
+  /** Firefox's runtime.openOptionsPage reuses an open Settings tab only when its address matches
+   * exactly, hash included (ISS-0097), so the hand-off hash must not outlive the hand-off: it goes
+   * once the card has been reached, and when the focus window ends. */
+  function clearHash() {
+    if (window.location.hash === PRO_OPTIONS_HASH)
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  function cancelFocus() {
+    stopWatching();
+    clearHash();
+  }
   function reveal() {
     if (Date.now() >= focusDeadline) {
       cancelFocus();
       return false;
     }
-    if (stopped || !root.isConnected || window.location.hash !== PRO_OPTIONS_HASH)
-      return false;
+    if (stopped || !root.isConnected) return false;
     if (root.querySelector('[role="dialog"][aria-modal="true"]')) return false;
     const card = root.querySelector<HTMLElement>('section[aria-label="Still Pro"]');
     if (!card) return false;
@@ -131,10 +141,12 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
       card.focus({ preventScroll: true });
       focusedCard = card;
     }
+    // Reached: the address is plain again while the deadline keeps following late content.
+    clearHash();
     return true;
   }
   function requestFocus(expiresAt = Date.now() + REQUEST_LIFETIME_MS) {
-    cancelFocus();
+    stopWatching();
     focusDeadline = expiresAt;
     focusedCard = null;
     reveal();

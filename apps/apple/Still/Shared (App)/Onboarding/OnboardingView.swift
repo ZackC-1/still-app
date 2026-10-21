@@ -33,8 +33,16 @@ struct OnboardingView: View {
   /// Called when the user finishes — the presenter marks the gate complete and dismisses.
   var onComplete: () -> Void = {}
   /// Starting screen — 0 in production; the presenter overrides it only under a DEBUG launch arg so
-  /// each screen can be screenshotted during verification.
+  /// each screen can be screenshotted during verification, and for the Safari setup sheet below.
   var initialStep = 0
+  /// Set only when this view is the settings Help card's "Safari setup" sheet (ISS-0075) rather than
+  /// first-run onboarding: it starts on screen 3 with no progress dots and a Close button, and
+  /// "I've turned it on" (or a "Check again" that confirms Still is on) closes the sheet instead of
+  /// advancing. First-run onboarding never sets it, so nothing about that flow changes.
+  var onClose: (() -> Void)? = nil
+
+  /// Screen 3, "Turn on Still in Safari": the screen the Safari setup sheet shows.
+  static let enableExtensionStep = 2
 
   @State private var step = 0
   @StateObject private var statusObserver = OnboardingStatusObserver()
@@ -50,8 +58,12 @@ struct OnboardingView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      progressDots
-        .padding(.top, 24)
+      if let onClose {
+        closeBar(onClose)
+      } else {
+        progressDots
+          .padding(.top, 24)
+      }
 
       // Centered while the screen fits, scrolling when it does not. Screen 3 is what makes this
       // necessary: it carries the guided steps, the button that opens Safari's settings, and two
@@ -277,7 +289,7 @@ struct OnboardingView: View {
       // "Check again" sits above the primary button so that button lands where "Continue" and
       // "Get started" do on the other screens (owner, 19 Oct).
       if step == 2 {
-        Button("Check again") { statusObserver.refresh(check: checkStatus) }
+        Button("Check again", action: checkAgain)
           .buttonStyle(.plain)
           .font(.still(size: 13, relativeTo: .footnote))
           .foregroundColor(.secondary)
@@ -300,12 +312,31 @@ struct OnboardingView: View {
   private var primaryTitle: String {
     switch step {
     case 0, 1: return "Continue"
-    case 2: return status.isConfirmedEnabled ? "Continue" : "I've turned it on"
+    case 2:
+      // The Safari setup sheet has no next screen, so its confirmed state reads "Done".
+      if status.isConfirmedEnabled { return onClose == nil ? "Continue" : "Done" }
+      return "I've turned it on"
     default: return "Get started"
     }
   }
 
+  private func checkAgain() {
+    guard let onClose else {
+      statusObserver.refresh(check: checkStatus)
+      return
+    }
+    // The Safari setup sheet: a check that finds Still on closes it (ISS-0075).
+    statusObserver.refresh(check: checkStatus) { status in
+      if status.isConfirmedEnabled { onClose() }
+    }
+  }
+
   private func advance() {
+    // The Safari setup sheet has no next screen: its primary button closes it.
+    if let onClose {
+      onClose()
+      return
+    }
     if step >= lastStep {
       onComplete()
     } else {
@@ -314,6 +345,20 @@ struct OnboardingView: View {
   }
 
   // MARK: Bits
+
+  /// The Safari setup sheet's plain way out (Escape on the Mac), where onboarding has its dots.
+  private func closeBar(_ close: @escaping () -> Void) -> some View {
+    HStack {
+      Spacer(minLength: 0)
+      Button("Close", action: close)
+        .buttonStyle(.plain)
+        .font(.still(size: 16, relativeTo: .body))
+        .foregroundColor(Self.stillBlue)
+        .keyboardShortcut(.cancelAction)
+    }
+    .padding(.top, 16)
+    .padding(.horizontal, 20)
+  }
 
   private var progressDots: some View {
     HStack(spacing: 8) {

@@ -100,6 +100,12 @@ export interface AccountStatusText {
 
 export interface PopupAccountDisplay {
   readonly address?: string;
+  /**
+   * The app's last successful cloud exchange (ms), read from the account status the Still app
+   * writes to the shared App Group (getAccountSyncStatus). The shared popup shows it on the
+   * synced line, "Synced · Today at 2:10 PM", as the app itself does (owner, 19 Oct).
+   */
+  readonly lastSyncedAt: number | null;
   readonly status: { readonly tone: "pending" | "success" | "failed"; readonly text: string };
 }
 
@@ -121,7 +127,11 @@ export function appManagedPopupAccount(
   text: AccountStatusText,
 ): PopupAccountDisplay | undefined {
   if (!source.userId) return undefined;
-  return { address: source.accountEmail ?? undefined, status: statusFor(source, text) };
+  return {
+    address: source.accountEmail ?? undefined,
+    lastSyncedAt: source.lastSyncedAt,
+    status: statusFor(source, text),
+  };
 }
 
 export interface SettingsSyncDisplay {
@@ -130,6 +140,7 @@ export interface SettingsSyncDisplay {
     readonly identity?: string;
     readonly revision?: number;
     readonly confirmed: false;
+    readonly lastSyncedAt?: number | null;
     readonly status?: PopupAccountDisplay["status"];
   };
 }
@@ -157,6 +168,8 @@ export function appManagedSettingsSync(
       identity: source.userId,
       revision: source.accountRevision,
       confirmed: false,
+      // The same synced line as the popup and the Chrome and Firefox Settings page.
+      lastSyncedAt: source.lastSyncedAt,
       status: statusFor(source, text),
     },
   };

@@ -508,6 +508,33 @@ describe("options route lifecycle", () => {
     expect(focus).toHaveBeenCalledOnce();
   });
 
+  it("leaves the address plain once the Pro card is reached, and when a hand-off ends unreached (ISS-0097)", async () => {
+    // Firefox reuses an open Settings tab only on an exact address match, hash included.
+    await browser(); session(); const target = root();
+    stops.push(bindProOptionsNavigation(target));
+    await openBrowserPro();
+    await flush();
+    expect(window.location.hash).toBe(PRO_OPTIONS_HASH);
+    const destination = await options(target);
+    await waitFor(() => expect(document.activeElement).toBe(destination.card()));
+    expect(window.location.hash).toBe("");
+    expect(window.location.pathname).toBe("/");
+    const scroll = vi.fn();
+    Object.defineProperty(destination.card(), "scrollIntoView", { value: scroll, configurable: true });
+    destination.card().append(document.createElement("p"));
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: "start" }));
+    expect(window.location.hash).toBe("");
+
+    // No card ever mounts: the first interaction ends the window and clears the address too.
+    const bare = root();
+    stops.push(bindProOptionsNavigation(bare));
+    await openBrowserPro();
+    await flush();
+    expect(window.location.hash).toBe(PRO_OPTIONS_HASH);
+    await fireEvent.wheel(bare);
+    expect(window.location.hash).toBe("");
+  });
+
   it("a request that expires while the Pro card is loading cannot steal focus later", async () => {
     await browser(); const f = session(); const target = root();
     const now = Date.now();

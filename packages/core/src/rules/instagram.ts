@@ -57,6 +57,26 @@ const ROW = `${GRID} > div:has(> div > a[href^="/"])`;
 const PROFILE_REEL_TILE = `${PROFILE} ${ROW} > div:has(> a[href^="/"][href*="/reel/"])`;
 
 /**
+ * A standalone post page's "More posts from <user>" section (captured 20 Oct 2026). The page's
+ * address is the profile's post viewer (/<user>/p/<code>/ or /<user>/reel/<code>/), so the profile
+ * mark is on, and the section's tile rows have the profile grid's shape, so its Reel tiles go with
+ * PROFILE_REEL_TILE and the remaining posts close up. The section is a box of two children: a
+ * heading box whose line holds the account's own link ("More posts from <user>"), then a wrapper
+ * holding the column. When every tile is a Reel the heading would stand over nothing (ISS-0099),
+ * so the whole section goes. It is told by both of those children (the account link at the
+ * heading's depth, a Reel tile at the column's depth) and by what it never holds: a post link, and
+ * anything of an open item (its actions section, a timestamp, the comment form, a player), a tab
+ * row or a profile header. So the item's own box on a Reel's page, whose links are all /reel/,
+ * never matches, and a Saved collection's title row (a /<user>/saved/ link) or a Tagged page (a
+ * tab row) never stands in for the heading. A profile's own grid must never be hidden: Instagram
+ * keeps loading it as the page scrolls, and a hidden column cannot be measured (ISS-0053).
+ */
+const RELATED_POSTS_REELS_ONLY = `${PROFILE} div:not([role="dialog"], [role="dialog"] *, article *)`
+  + ':has(> div > div > a[href^="/"][href$="/"]:not([href*="/p/"], [href*="/reel/"], [href*="/saved/"], [href*="/tagged/"], [href*="/explore/"], [href*="/stories/"]))'
+  + ':has(> div + div > div > div > div > div > a[href^="/"][href*="/reel/"])'
+  + ':not(:has(a[href^="/"][href*="/p/"], [role="tablist"], header, section, form, textarea, time, video))';
+
+/**
  * Sets the profile mark on the document root while the address is a profile page. Not
  * address-scoped (no per-change address re-read on browsers without the Navigation API): a mark
  * that outlives the profile by one URL poll is harmless, because only a profile grid's structure
@@ -110,8 +130,15 @@ const EXPLORE = `[${EXPLORE_MARKER_ATTRIBUTE}]`;
  * boxes; each tile box holds a wrapper holding the tile's /p/<code>/ link. A Reel tile's link
  * carries a looping video (the signal that does not depend on the page's language) and an SVG
  * titled "Reel"; photos and carousels carry neither. Nothing inside a dialog is ever the grid.
+ *
+ * The column carries no :has() of its own (ISS-0083). Every rule below reaches it through a row
+ * whose own :has() already finds a /p/ link three boxes down, so a column :has() could never
+ * reject anything those rules match. It did cost: a :has() on a box above the one being styled
+ * made WebKit restyle the whole column each time Instagram mounted or unmounted a row while
+ * scrolling (about 12 to 19 ms a row, against 3 to 6 ms without the column :has() and under
+ * 1 ms with no Still stylesheet at all; approximate, measured on a phone-sized page).
  */
-const EXPLORE_COLUMN = 'div:not([role="dialog"] *):has(> div > div > div > a[href^="/p/"])';
+const EXPLORE_COLUMN = 'div:not([role="dialog"] *)';
 const EXPLORE_REEL_LINK = 'a[href^="/p/"] :is(video, svg[aria-label="Reel"], svg[aria-label="Clip"])';
 /** An Explore row holding at least one Reel tile: the only rows the Explore layout touches. */
 const EXPLORE_REEL_ROW = `${EXPLORE} ${EXPLORE_COLUMN} > div:has(> div > div > ${EXPLORE_REEL_LINK})`;
@@ -184,6 +211,8 @@ const selectors = Object.freeze([
   PROFILE_REEL_TILE,
   // Explore's Reel tiles: the whole tile box. Explore stays; its Reels do not (ISS-0064).
   EXPLORE_REEL_TILE,
+  // A post page's related-posts section holding only Reels: heading and tiles together (ISS-0099).
+  RELATED_POSTS_REELS_ONLY,
 ]);
 
 export const INSTAGRAM_REELS_RULES: ServiceRulesV2 = Object.freeze({

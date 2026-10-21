@@ -7,6 +7,7 @@ import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { createMarkerHook } from "../../content/markers.js";
 import { DEFAULT_SETTINGS_V2 } from "./format2-fixtures.js";
 import { INSTAGRAM_REELS_LAYOUT } from "../instagram.js";
+import { FACEBOOK_REELS_LAYOUT } from "../facebook.js";
 import pins from "./free-surface-pins.json";
 
 // A4 dormancy at unit level for all 12 Still Pro controls, with SYNTHETIC extras: a hide surface,
@@ -64,11 +65,11 @@ const ownedStyles = () => [...document.head.querySelectorAll("style")];
 const featureClasses = () => [...document.documentElement.classList].filter((name) => name.startsWith("still-feature-"));
 /**
  * "Today's" free-only owned text: one rule per pinned free selector under the core's class, then
- * the core's packaged layout repairs (Instagram's profile grid) under the same class.
+ * the core's packaged layout repairs (Instagram's profile grid, Facebook's phone tab bar) under the same class.
  */
 function freeOnlyText(service: (typeof SERVICES)[number], scope: string): string {
   const pin = Object.values(pins.surfaces).find((surface) => surface.service === service)!;
-  const layout = service === "instagram" ? INSTAGRAM_REELS_LAYOUT : [];
+  const layout = service === "instagram" ? INSTAGRAM_REELS_LAYOUT : service === "facebook" ? FACEBOOK_REELS_LAYOUT : [];
   return [
     ...pin.selectors.map((selector) => `.${scope}-${slug(pin.feature)} :is(${selector}){display:none!important}`),
     ...layout.map((rule) => `.${scope}-${slug(pin.feature)} :is(${rule.selector}){${rule.declarations}}`),

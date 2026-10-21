@@ -19,6 +19,7 @@
   import SharingCard from "./SharingCard.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
+  import { SUPPORT_EMAIL } from "../config.js";
   import "./design/styles.css";
   let {
     settings,
@@ -103,11 +104,16 @@
       restore?.state === "verify" ||
       restore?.state === "failed",
   );
+  // The Still Pro card waits only while a Restore is checking or asks to verify. A failed Restore
+  // changed nothing, so the card keeps what it showed, Get Still Pro included (ISS-0090).
+  let proRestoreHeld = $derived(
+    restore?.state === "checking" || restore?.state === "verify",
+  );
   let proActionReady = $derived(
     pro !== undefined &&
       knownMissing &&
       pro.ownership === "none" &&
-      !restoreHeld &&
+      !proRestoreHeld &&
       pro.state !== "pending" &&
       pro.state !== "failed" &&
       pro.state !== "success",
@@ -297,7 +303,7 @@
         {accessHeld}
         {accessChecking}
         {accessVerify}
-        {restoreHeld}
+        restoreHeld={proRestoreHeld}
       />
       {#if proReturnGuidance}
         <p class="caption muted">{proReturnGuidance}</p>
@@ -341,6 +347,7 @@
       disabled={!help.onSupport}
       onclick={help.onSupport}>Contact support</button
     >
+    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
     <button
       type="button"
       class="link"

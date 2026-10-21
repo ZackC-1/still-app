@@ -25,6 +25,7 @@ import { isAccessUUID, isSafeAccessInteger } from "../entitlement/access-proof.j
 //   completeOnboarding → { ok: true } | rejected when the web view is not the onboarding presenter
 //   openDestination    → { ok: true, destination } | rejected (see openNativeDestination; not a
 //                        NativeBridge method, so builds that never open anything stay unchanged)
+//   presentSafariSetup → { ok: true } | rejected (see presentNativeSafariSetup; also standalone)
 //   setAnalyticsConsent → { ok: true, enabled, answered }
 //   analyticsContext   → { …, consent, consentAnswered, … } (see AnalyticsContextReply)
 
@@ -119,6 +120,10 @@ export interface NativeAppleAccessRight {
   readonly expiresAt: number;
   readonly localProofIdentity: string;
   readonly status: "purchased" | "verification_required";
+  /** The account this right is linked to, as a current server-signed account proof held by the
+   * account native bound from a verified session says; null when native holds no such proof.
+   * Display only (ISS-0081): it hides the link offer and never grants or links anything. */
+  readonly linkedAccount: string | null;
 }
 export interface NativeAppleAccessObservation {
   readonly schema: 1;
@@ -261,14 +266,7 @@ export function openNativeDestination(
   options: OpenNativeDestinationOptions = {},
 ): Promise<boolean> {
   if (!NATIVE_OPEN_DESTINATIONS.includes(destination)) return Promise.resolve(false);
-  const activation =
-    options.userActivation !== undefined
-      ? options.userActivation
-      : (globalThis.navigator as { userActivation?: { isActive?: boolean } } | undefined)
-          ?.userActivation;
-  if (activation && activation.isActive !== true) return Promise.resolve(false);
-  const win = options.win ?? (globalThis as unknown as StillBridgeWindow);
-  const port = win.webkit?.messageHandlers?.still ?? null;
+  const port = tappedNativePort(options);
   if (!port) return Promise.resolve(false);
   const message: NativeMessage = { kind: "openDestination", destination };
   return boundedNativeRead(
@@ -283,8 +281,49 @@ export function openNativeDestination(
   );
 }
 
+/**
+ * Ask native to show the Safari setup sheet, from the settings Help card's "Safari setup" link
+ * (ISS-0075): onboarding's "Turn on Still in Safari" screen again, closable, with the same steps
+ * and the same Open Settings destination. Posts exactly `{ kind: "presentSafariSetup" }` and
+ * nothing else. Resolves true only for `{ ok: true }` within the deadline; no host, a page without
+ * user activation (where WebKit reports it), a refusal, a malformed reply or a late one are all
+ * false, and nothing is posted for the first two.
+ *
+ * Native re-checks the bundled main frame and that the app is active (SafariSetupSheet.swift).
+ * Standalone like `openNativeDestination`, so only the settings screen's wiring reaches it.
+ */
+export function presentNativeSafariSetup(
+  options: OpenNativeDestinationOptions = {},
+): Promise<boolean> {
+  const port = tappedNativePort(options);
+  if (!port) return Promise.resolve(false);
+  const message: NativeMessage = { kind: "presentSafariSetup" };
+  return boundedNativeRead(
+    async () => {
+      const obj = asObject(await port.postMessage(message));
+      return !!obj && !Array.isArray(obj) && obj.ok === true;
+    },
+    false,
+    options.deadlineMs ?? NATIVE_READ_DEADLINE_MS,
+  );
+}
+
+/** The native port for a tap-only action, or null when there is no host or, where WebKit reports
+ * it, the page has no user activation. */
+function tappedNativePort(options: OpenNativeDestinationOptions): StillMessagePort | null {
+  const activation =
+    options.userActivation !== undefined
+      ? options.userActivation
+      : (globalThis.navigator as { userActivation?: { isActive?: boolean } } | undefined)
+          ?.userActivation;
+  if (activation && activation.isActive !== true) return null;
+  const win = options.win ?? (globalThis as unknown as StillBridgeWindow);
+  return win.webkit?.messageHandlers?.still ?? null;
+}
+
 export type NativeMessage =
   | { readonly kind: "safariSetupState" }
+  | { readonly kind: "presentSafariSetup" }
   | { readonly kind: "openDestination"; readonly destination: NativeOpenDestination }
   | { readonly kind: "onboardingState" }
   | { readonly kind: "completeOnboarding" }
@@ -780,11 +819,13 @@ export class NativeBridge {
     }
     const rights = r.rights.map(value => {
       const right = asObject(value);
-      if (!right || Object.keys(right).sort().join(",") !== "expiresAt,localProofIdentity,localRight,ownershipRevision,status,verifiedAt" ||
-        !["purchased", "verification_required"].includes(right.status as string)) {
+      if (!right || Object.keys(right).sort().join(",") !== "expiresAt,linkedAccount,localProofIdentity,localRight,ownershipRevision,status,verifiedAt" ||
+        !["purchased", "verification_required"].includes(right.status as string) ||
+        !(right.linkedAccount === null || isAccessUUID(right.linkedAccount))) {
         throw new Error("Invalid native Apple right observation");
       }
-      parseNativeAppleAccessCommit({ ...right, schema: 1, status: "committed", generation: r.generation, accountProofIdentity: null });
+      const { linkedAccount: _linkedAccount, ...signed } = right;
+      parseNativeAppleAccessCommit({ ...signed, schema: 1, status: "committed", generation: r.generation, accountProofIdentity: null });
       return right as unknown as NativeAppleAccessRight;
     });
     if (new Set(rights.map(r => r.localRight)).size !== rights.length) throw new Error("Duplicate native Apple right");

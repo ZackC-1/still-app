@@ -30,19 +30,19 @@ schedules, counters or hard locks. Users can disable Still or revoke its website
 | Installation | Scope |
 |---|---|
 | Chrome/Chromium extension | Desktop websites; Chrome Web Store package. |
-| Firefox extension | Desktop websites; separate Firefox build from the same WXT project. From the V3 release (V3 builds only), also Firefox for Android websites. |
+| Firefox extension | Desktop websites; separate Firefox build from the same WXT project. Firefox for Android is deferred to a later update. |
 | Still for Mac | Native container app and Safari Web Extension. |
 | Still for iPhone/iPad | Native container app and Safari Web Extension; websites opened in Safari only. |
 
 Install Still separately on every browser/device. The Apple app does not install the Chrome or
-Firefox extensions. In 2.x, mobile support means websites in Safari on iPhone and iPad. From the
-V3 release (V3 builds only): works in Safari on iPhone and iPad, and in Firefox on Android. There
+Firefox extensions. Mobile support means websites in Safari on iPhone and iPad. Firefox on
+Android is deferred to a later update. There
 is no Android app or Google Play artifact; mobile Chrome and native YouTube, Instagram, Facebook
 and TikTok apps are outside the support scope.
 
 Source deployment targets are iOS/iPadOS 15.0 and macOS 12.0. The Firefox manifest sets desktop
-`strict_min_version: 140.0`. A 2.x build omits `gecko_android`; from the V3 release (V3 builds
-only) it also sets `gecko_android.strict_min_version: 142.0` (the first Firefox for Android release
+`strict_min_version: 140.0`. Store builds omit `gecko_android` until Firefox on Android ships in a later
+update; QA sandbox packages keep `gecko_android.strict_min_version: 142.0` (the first Firefox for Android release
 with the built-in data-consent screen). A deployment target or supported-platform
 claim is not proof that each OS/device combination was physically tested; Firefox for Android has
 no physical-device verification yet. Physical iPad coverage
@@ -97,7 +97,7 @@ Offline blocking continues from local settings and trusted rules; syncing needs 
 Shipped 2.x has no Pro tier: everything above is free. The approved V3 direction adds an optional
 Still Pro tier: twelve extras (YouTube Related videos, end-of-video suggestions, autoplay
 prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highlights, suggested
-accounts, Threads links; Facebook Stories, Videos, sidebar ads), all Off on fresh installs, for a
+accounts, Threads links; Facebook Stories, Video tab, sidebar ads), all Off on fresh installs, for a
 $9.99 US-base one-time lifetime payment with a seven-day voluntary web refund window (Apple
 purchases follow Apple's refund process). One qualifying purchase covers supported surfaces
 through the approved Restore flow. Free blocking and sync never require Pro. Full contract:

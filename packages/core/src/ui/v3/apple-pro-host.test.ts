@@ -42,7 +42,7 @@ const owned: NativeProResult = {
   receipt: "entitled",
   productId: "still_pro_v3",
 };
-async function harness() {
+async function harness(overrides: Partial<AppleProHostDeps> = {}) {
   let account: AppleProAccount | null = null;
   const deps: AppleProHostDeps = {
     bridge: {
@@ -69,6 +69,7 @@ async function harness() {
     chooseOtherAccount: vi.fn(async () => {}),
     publish: vi.fn(),
     operationId: () => "00000000-0000-4000-8000-000000000001",
+    ...overrides,
   };
   const host = createAppleProHost(deps);
   await host.refresh();
@@ -257,7 +258,7 @@ describe("real Apple Pro host composition", () => {
     await settle();
     setAccount(user);
     vi.mocked(deps.linkPurchase).mockResolvedValue({
-      status: "owned_elsewhere",
+      status: "unavailable",
     });
     await host.requestLink();
     host.settings().link?.onConfirm?.();
@@ -1335,5 +1336,643 @@ describe("a requested link survives the re-checks that sign-in starts (ISS-0076)
     host.settings().link?.onRetry?.();
     await settle();
     expect(host.settings().link?.state).toBe("confirm");
+  });
+});
+// ISS-0104: on 2.1.1.400 an iPhone whose Apple Still Pro was linked to one account, signed in as
+// another, offered Link and then showed "Linking didn't finish" with Try again for the server's
+// deliberate refusal (owned_elsewhere: a right moves only with its holder's own sign-in). Native
+// never holds another account's proof, so the refusal is the signal; it is remembered for that
+// account at that purchaser revision, the card states the fact, and nothing is offered.
+describe("a right linked to a different account is stated, not offered (ISS-0104)", () => {
+  const stranger = { ...user, id: "00000000-0000-4000-8000-000000000004", email: "stranger@still.test" };
+  async function refused() {
+    const h = await harness();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+    h.setAccount(user);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.canLink).toBe(true);
+    await h.host.requestLink();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    h.host.settings().link?.onConfirm?.();
+    await h.settle();
+    return h;
+  }
+  it("the server's owned_elsewhere becomes the fact, without Try again, and the offer is withdrawn", async () => {
+    const { host, deps, settle } = await refused();
+    expect(deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(host.settings().link).not.toHaveProperty("onRetry");
+    expect(host.canLink).toBe(false);
+    expect(host.props([]).access.state).toBe("owned");
+    // A stray request asks the server nothing more.
+    await host.requestLink();
+    await settle();
+    expect(deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(host.settings().link?.state).toBe("elsewhere");
+  });
+  it("remembered per account: signing out clears the card, the same account gets it back, another account gets the offer", async () => {
+    const { host, deps, settle, setAccount } = await refused();
+    setAccount(null);
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.settings().link).toBeUndefined();
+    setAccount(user);
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(host.canLink).toBe(false);
+    setAccount(stranger);
+    host.observeAccess(access("purchased"));
+    await settle();
+    expect(host.settings().link?.state).not.toBe("elsewhere");
+    expect(host.canLink).toBe(true);
+    expect(deps.linkPurchase).toHaveBeenCalledOnce();
+  });
+  it("a new purchaser revision (the holder moved it) ends the memory, and a proof naming this account says linked", async () => {
+    const h = await refused();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.host.canLink).toBe(true);
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: user.id });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.canLink).toBe(false);
+    expect(h.host.settings().link?.state).not.toBe("elsewhere");
+  });
+  it("a proof naming this account at the remembered revision wins over the memory: linked, not elsewhere", async () => {
+    const h = await refused();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link?.state).not.toBe("elsewhere");
+    expect(h.host.canLink).toBe(false);
+    await h.host.requestLink();
+    await h.settle();
+    expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(h.host.settings().link?.state).not.toBe("elsewhere");
+  });
+  it("a session revision bump for the same account keeps the card; a different address does not", async () => {
+    const h = await refused();
+    h.setAccount({ ...user, revision: user.revision + 1 });
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    h.setAccount({ ...user, revision: user.revision + 2, email: "renamed@still.test" });
+    expect(h.host.settings().link).not.toEqual({ state: "elsewhere", email: user.email });
+  });
+  describe("the memory outlives the host", () => {
+    const memory = () => {
+      let value: string | null = null;
+      return {
+        read: vi.fn(() => value),
+        write: vi.fn((next: string) => {
+          value = next;
+        }),
+      };
+    };
+    async function refusedWith(store: ReturnType<typeof memory>) {
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link?.state).toBe("elsewhere");
+      return h;
+    }
+    it("a relaunch states the fact for the same account at the same revision, and asks the server nothing", async () => {
+      const store = memory();
+      await refusedWith(store);
+      expect(store.write).toHaveBeenCalledWith(JSON.stringify({ [user.id]: 1 }));
+      const again = await harness({ heldElsewhereMemory: store });
+      vi.mocked(again.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      again.setAccount(user);
+      again.host.observeAccess(access("purchased"));
+      await again.settle();
+      expect(again.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(again.host.canLink).toBe(false);
+      await again.host.requestLink();
+      await again.settle();
+      expect(again.deps.linkPurchase).not.toHaveBeenCalled();
+    });
+    it("remembers each refused account; a later launch offers the holder's move (new revision) again", async () => {
+      const store = memory();
+      const h = await refusedWith(store);
+      h.setAccount(stranger);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: stranger.email });
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({ [user.id]: 1, [stranger.id]: 1 });
+      const again = await harness({ heldElsewhereMemory: store });
+      vi.mocked(again.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: null });
+      again.setAccount(user);
+      again.host.observeAccess(access("purchased"));
+      await again.settle();
+      expect(again.host.settings().link).toBeUndefined();
+      expect(again.host.canLink).toBe(true);
+    });
+    it.each([
+      ["a thrown read", () => { throw new Error("storage refused"); }],
+      ["a null read", () => null],
+      ["non-JSON", () => "{not json"],
+      ["a non-object", () => "[1,2]"],
+      ["non-number revisions", () => JSON.stringify({ [user.id]: "1" })],
+    ])("%s is empty memory: the offer shows as usual and a refusal is still remembered", async (_name, read) => {
+      const store = { read: vi.fn(read), write: vi.fn() };
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.canLink).toBe(true);
+      await h.host.requestLink();
+      expect(h.host.settings().link?.state).toBe("confirm");
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(store.write).toHaveBeenCalledWith(JSON.stringify({ [user.id]: 1 }));
+    });
+    it("an answer that disproves the memory drops that account's entry: a proof naming it, or a link that went through", async () => {
+      const store = memory();
+      const h = await refusedWith(store);
+      // Native's proof now names this account (the holder moved it to them): the entry goes.
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.settings().link?.state).not.toBe("elsewhere");
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({});
+      // Another account refused, then linked on a later revision: only the refused one stays.
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 2, linkedAccount: null });
+      h.setAccount(stranger);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({ [stranger.id]: 2 });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 3, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "linked", ownershipRevision: 4 });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "linked", email: stranger.email });
+      expect(JSON.parse(store.write.mock.calls.at(-1)![0])).toEqual({});
+    });
+    it("a refused write keeps the fact for this launch", async () => {
+      const store = { read: vi.fn(() => null), write: vi.fn(() => { throw new Error("quota"); }) };
+      const h = await harness({ heldElsewhereMemory: store });
+      vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+      vi.mocked(h.deps.linkPurchase).mockResolvedValue({ status: "owned_elsewhere" });
+      h.setAccount(user);
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      await h.host.requestLink();
+      h.host.settings().link?.onConfirm?.();
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      h.host.observeAccess(access("purchased"));
+      await h.settle();
+      expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+      expect(h.host.canLink).toBe(false);
+    });
+  });
+});
+
+// ISS-0081: on 2.1.1.387 and .392 a Mac that had linked an accountless Apple Still Pro to the
+// signed-in account offered "Link Still Pro to your account." again on every launch: the link read
+// said "can link" for a right the server had already linked. Native now names the account its
+// current server-signed account proof links the right to, and the host offers nothing for it.
+describe("a right already linked to the signed-in account is not offered again (ISS-0081)", () => {
+  const other = "00000000-0000-4000-8000-000000000003";
+  async function launch(linkedAccount: string | null, signedIn: AppleProAccount | null = user) {
+    const h = await harness();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount });
+    h.setAccount(signedIn);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.props([]).access.state).toBe("owned");
+    return h;
+  }
+  it("linked to the signed-in account: no offer, no card, and a stray request links nothing", async () => {
+    const { host, deps, settle } = await launch(user.id);
+    expect(host.canLink).toBe(false);
+    expect(host.settings().link).toBeUndefined();
+    await host.requestLink();
+    await settle();
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+    expect(deps.signIn).not.toHaveBeenCalled();
+    expect(host.settings().link?.state).not.toBe("confirm");
+  });
+  it("linked to another account (native names it): no offer, the card says so, a stray request asks no server (ISS-0104)", async () => {
+    const { host, deps, settle } = await launch(other);
+    expect(host.canLink).toBe(false);
+    expect(host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    await host.requestLink();
+    await settle();
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
+    expect(host.settings().link?.state).toBe("elsewhere");
+  });
+  it("accountless right, signed in: the offer shows", async () => {
+    const { host } = await launch(null);
+    expect(host.canLink).toBe(true);
+  });
+  it("signed out: the invitation stays, whatever native names", async () => {
+    const { host } = await launch(user.id, null);
+    expect(host.canLink).toBe(true);
+  });
+  it("a proof that arrives only after the first read following sign-in turns the confirmation into linked", async () => {
+    const h = await harness();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.host.requestLink();
+    // A brand-new session: native holds no account proof yet when the request re-reads.
+    h.setAccount(user);
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    const staleConfirm = h.host.settings().link?.onConfirm;
+    // The sign-in's reconcile installs the proof and republishes access.
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    staleConfirm?.();
+    await h.settle();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.host.settings().link?.state).toBe("linked");
+  });
+  it("a confirmation for a right the read then says is linked elsewhere becomes the fact, and its stale tap links nothing (ISS-0104)", async () => {
+    const h = await harness();
+    h.setAccount(user);
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.host.requestLink();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    const staleConfirm = h.host.settings().link?.onConfirm;
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: "00000000-0000-4000-8000-000000000003" });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    staleConfirm?.();
+    await h.settle();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.host.settings().link?.state).toBe("elsewhere");
+  });
+  it("signing in from the invitation as the account it is linked to says it is linked, without asking again", async () => {
+    const h = await harness();
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: null });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.host.requestLink();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    // The sign-in's reconcile installs the account's proofs: native now names that account.
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 1, linkedAccount: user.id });
+    h.setAccount(user);
+    await h.settle();
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    // Signing out drops the card; the invitation comes back for the signed-out holder.
+    h.setAccount(null);
+    await h.settle();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.host.canLink).toBe(true);
+  });
+});
+// ISS-0076, MAC-85 (Mac .383 to .387): an accountless holder taps Sign in on the invitation, enters
+// the code, and lands signed in with the offer card instead of "Link Still Pro to this account?".
+// These replay the sign-in the app really runs. The verified code first enters the session
+// (AppleSession.enterSession: a new account revision, the address, and the settings mirror the code
+// waits for) and only then returns to the controller, which advances the revision once more. Each
+// revision re-reads the account's confirmation, so the account is confirmed at one revision,
+// unconfirmed at the next, then confirmed again. Meanwhile the account reconcile republishes access
+// (a re-check, then owned) and native may refuse the eligibility read while it runs.
+describe("the MAC-85 sign-in from the invitation, in every order the Mac can produce (ISS-0076)", () => {
+  const other = "00000000-0000-4000-8000-000000000009";
+  const at = (revision: number, confirmed: boolean) => ({ ...user, revision, confirmed });
+  async function holder(options: { heldElsewhere?: string } = {}) {
+    let answer: { ownershipRevision: number; linkedAccount: string | null } | null = {
+      ownershipRevision: 0,
+      linkedAccount: null,
+    };
+    let refusing = 0;
+    const readLinkEligibility = vi.fn(async () => {
+      if (refusing > 0) {
+        refusing--;
+        throw new Error("still: Apple link eligibility requires verification");
+      }
+      return answer;
+    });
+    const reconciles: Array<(snapshot: BenefitAccessSnapshot) => void> = [];
+    const refreshAccountAccess = vi.fn(
+      () => new Promise<BenefitAccessSnapshot>((resolve) => reconciles.push(resolve)),
+    );
+    let memory = options.heldElsewhere ?? null;
+    const h = await harness({
+      readAccess: vi.fn(async () => access("purchased")),
+      readLinkEligibility,
+      refreshAccountAccess,
+      canSignIn: () => true,
+      heldElsewhereMemory: { read: () => memory, write: (value) => { memory = value; } },
+    });
+    expect(h.host.canLink).toBe(true);
+    // The invitation's Sign in: the host records the request and opens sign-in.
+    await h.host.requestLink();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    expect(h.host.settings().link).toBeUndefined();
+    return {
+      ...h,
+      refuse(n: number) { refusing = n; },
+      answer(next: typeof answer) { answer = next; },
+      /** The reconcile publishes a re-check and then owned access, and finishes. */
+      async republish() {
+        h.host.observeAccess(access("checking"));
+        await h.settle();
+        h.host.observeAccess(access("purchased"));
+        await h.settle();
+      },
+      async finishReconciles() {
+        while (reconciles.length) reconciles.shift()!(access("purchased"));
+        await h.settle();
+      },
+      /** enterSession's revision, confirmed, then the controller's own revision, confirmed. */
+      async signIn() {
+        h.setAccount(at(2, false));
+        await h.settle();
+        h.setAccount(at(2, true));
+        await h.settle();
+      },
+      async controllerRevision() {
+        h.setAccount(at(3, false));
+        await h.settle();
+        h.setAccount(at(3, true));
+        await h.settle();
+      },
+      async linksOnConfirm() {
+        expect(h.host.settings().link?.state).toBe("confirm");
+        expect(h.host.settings().link?.email).toBe(user.email);
+        expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+        h.host.settings().link?.onConfirm?.();
+        await h.settle();
+        expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+        expect(h.deps.linkPurchase).toHaveBeenCalledWith(
+          expect.objectContaining({ intendedAccountId: user.id, expectedOwnershipRevision: 0 }),
+        );
+        expect(h.host.settings().link?.state).toBe("linked");
+      },
+    };
+  }
+  it("the code's two account revisions: confirmed at the session's, then the controller's own", async () => {
+    const h = await holder();
+    await h.signIn();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("the controller's revision lands while the reconcile is still republishing access", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.host.observeAccess(access("checking"));
+    await h.settle();
+    await h.controllerRevision();
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("one account revision only (the address already known): the confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses the request's read when the account confirms (before the owned snapshot)", async () => {
+    const h = await holder();
+    h.refuse(1);
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses every read while the reconcile runs, then answers", async () => {
+    const h = await holder();
+    h.refuse(Number.POSITIVE_INFINITY);
+    await h.signIn();
+    await h.republish();
+    h.refuse(0);
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native refuses every read until after the reconcile and the controller's revision: the confirmation from the last answer", async () => {
+    const h = await holder();
+    h.refuse(Number.POSITIVE_INFINITY);
+    await h.signIn();
+    await h.republish();
+    await h.finishReconciles();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    expect(h.host.canLink).toBe(false);
+    h.refuse(0);
+    await h.linksOnConfirm();
+  });
+  it("a re-check overtakes the request's own read, and native refuses every read after it (one revision, no bump)", async () => {
+    const h = await holder();
+    let finish!: (value: { ownershipRevision: number; linkedAccount: null }) => void;
+    vi.mocked(h.deps.readLinkEligibility!).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    h.setAccount(at(2, true));
+    await h.settle();
+    // The request's read is still out when the reconcile republishes a re-check: it is overtaken.
+    h.host.observeAccess(access("checking"));
+    await h.settle();
+    finish({ ownershipRevision: 0, linkedAccount: null });
+    await h.settle();
+    h.refuse(Number.POSITIVE_INFINITY);
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    await h.finishReconciles();
+    // Only refused reads follow, and no account change comes to re-offer it: the refused read itself
+    // must offer the request from the last settled answer (which keeps the affordance on), not the
+    // offer card. Native answers again by the time the person taps Link.
+    expect(h.host.canLink).toBe(false);
+    h.refuse(0);
+    await h.linksOnConfirm();
+  });
+  it("the access republish lands before the account does", async () => {
+    const h = await holder();
+    await h.republish();
+    h.refuse(2);
+    await h.signIn();
+    await h.controllerRevision();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("native names the signed-in account (ISS-0081): linked, nothing offered, across the controller's revision", async () => {
+    const h = await holder();
+    h.answer({ ownershipRevision: 0, linkedAccount: user.id });
+    await h.signIn();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    h.setAccount(at(3, false));
+    await h.settle();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    h.setAccount(at(3, true));
+    await h.settle();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("native names another account (ISS-0104): the elsewhere card, nothing offered", async () => {
+    const h = await holder();
+    h.answer({ ownershipRevision: 0, linkedAccount: other });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a remembered owned_elsewhere for this account at an older revision does not hide the confirmation", async () => {
+    const h = await holder({ heldElsewhere: JSON.stringify({ [user.id]: 7 }) });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("a remembered owned_elsewhere for this account at this revision states the fact instead (by design)", async () => {
+    const h = await holder({ heldElsewhere: JSON.stringify({ [user.id]: 0 }) });
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "elsewhere", email: user.email });
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a session revision bump much later for the same account still ends in the confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    await h.controllerRevision();
+    await h.republish();
+    await h.finishReconciles();
+    h.setAccount(at(4, false));
+    await h.settle();
+    h.setAccount(at(4, true));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+  });
+  it("signing in as someone else in between still drops the request", async () => {
+    const h = await holder();
+    await h.signIn();
+    expect(h.host.settings().link?.state).toBe("confirm");
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 3, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("between the two revisions the early card stays without buttons: no offer, no second sign-in", async () => {
+    const h = await holder();
+    await h.signIn();
+    const early = h.host.settings().link;
+    expect(early?.state).toBe("confirm");
+    h.setAccount(at(3, false));
+    await h.settle();
+    // The gap may last (the confirmation read at the new revision can fail): it holds the place.
+    expect(h.host.settings().link).toEqual({ state: "confirm", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    early?.onConfirm?.();
+    early?.onChooseOther?.();
+    await h.republish();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toEqual({ state: "confirm", email: user.email });
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    expect(h.deps.chooseOtherAccount).not.toHaveBeenCalled();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+    h.setAccount(at(3, true));
+    await h.settle();
+    await h.finishReconciles();
+    await h.linksOnConfirm();
+    expect(h.deps.signIn).toHaveBeenCalledOnce();
+  });
+  it("a sign-out between the two revisions drops the request: the next account gets no confirmation", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.setAccount(at(3, false));
+    await h.settle();
+    h.setAccount(null);
+    await h.settle();
+    expect(h.host.settings().link).toBeUndefined();
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 5, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("another account while the new revision is unconfirmed drops the request", async () => {
+    const h = await holder();
+    await h.signIn();
+    h.setAccount(at(3, false));
+    await h.settle();
+    h.setAccount({ ...user, id: other, email: "other@still.test", revision: 4, confirmed: true });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("Link tapped on the early card, the controller's revision lands while it is in flight: linked or re-offered, never the offer card", async () => {
+    const h = await holder();
+    await h.signIn();
+    let finish!: (value: { status: "linked"; ownershipRevision: number }) => void;
+    vi.mocked(h.deps.linkPurchase).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    h.host.settings().link?.onConfirm?.();
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("pending");
+    await h.controllerRevision();
+    finish({ status: "linked", ownershipRevision: 1 });
+    await h.settle();
+    await h.finishReconciles();
+    expect(h.host.canLink).toBe(false);
+    expect(h.host.settings().link?.state).toBe("confirm");
+    // The server already holds the link; the fresh confirmation's Link hears already_linked.
+    vi.mocked(h.deps.linkPurchase).mockResolvedValueOnce({ status: "already_linked", ownershipRevision: 1 });
+    h.host.settings().link?.onConfirm?.();
+    await h.settle();
+    expect(h.deps.linkPurchase).toHaveBeenCalledTimes(2);
+    expect(h.host.settings().link).toEqual({ state: "linked", email: user.email });
   });
 });

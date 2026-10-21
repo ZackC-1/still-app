@@ -439,9 +439,10 @@ export default defineBackground(() => {
   // signOut/deleteAccount/reconcile/restore/createCheckout + the persistence setters dispatch ONLY
   // for extension-page senders — same extension id AND an extension-origin URL. The origin check is
   // strictly stronger than a `sender.tab === undefined` test: content scripts carry the page's URL
-  // (never the extension origin) so they're still walled off to the nudge, while the EMBEDDED
-  // options page (options_ui.open_in_tab:false) — which carries a sender.tab and would be wrongly
-  // rejected by a tab check — is correctly allowed (F9). Anything else falls through unanswered (the
+  // (never the extension origin) so they're still walled off to the nudge, while the options page
+  // (embedded in Chrome's extensions page, its own tab on Firefox since ISS-0097; it carries a
+  // sender.tab either way and a tab check would wrongly reject it) is correctly allowed (F9).
+  // Anything else falls through unanswered (the
   // sender's closures settle to their structured fail-safe). Async responses use the sendResponse +
   // `return true` shape — the one contract both Chrome MV3 and Firefox's chrome-namespace listeners
   // honor; a promise-returning listener would break on Chrome, where the return value is only the

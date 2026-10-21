@@ -18,7 +18,9 @@ import { tick, mount, unmount, flushSync } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { STRINGS } from "../strings.js";
+import { formatSyncTime } from "../v3/sync-time.js";
 import App from "../App.svelte";
+import { SUPPORT_EMAIL } from "../config.js";
 import {
   requireModernSettings,
   type StoredSettingsRecord,
@@ -425,6 +427,12 @@ describe("options loader failure recovery actions", () => {
     await flush();
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     await fireEvent.click(screen.getByRole("button", { name: "Setup guide" }));
+    // ISS-0112: the address is plain selectable text under the button.
+    expect(screen.getByText(SUPPORT_EMAIL).tagName).toBe("P");
+    expect(
+      screen.getByRole("button", { name: "Contact support" })
+        .nextElementSibling?.textContent,
+    ).toBe(SUPPORT_EMAIL);
     await fireEvent.click(
       screen.getByRole("button", { name: "Contact support" }),
     );
@@ -584,13 +592,30 @@ describe("actual options sync and auth operations", () => {
     await tick();
     expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
     state.controller.pendingUpload = false;
-    state.controller.lastSyncedAt = 1000;
+    const syncedAt = Date.now();
+    state.controller.lastSyncedAt = syncedAt;
     await tick();
     expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
-    expect(document.querySelector("time")).toHaveAttribute(
-      "datetime",
-      new Date(1000).toISOString(),
+    // The time sits on the synced line under the address, as on the Apple app and the popup
+    // ("Synced · Today at 2:10 PM", owner, 19 Oct). The "Last synced" label is for screen readers
+    // only while the status says Synced.
+    const card = document.querySelector('[data-still-card="sync"]')!;
+    const status = within(card as HTMLElement).getByRole("status");
+    expect(status.textContent!.replace(/\s+/g, " ").trim()).toBe(
+      `${STRINGS.sync.synced} · ${STRINGS.sync.lastSynced} ${formatSyncTime(new Date(syncedAt))}`,
     );
+    expect(formatSyncTime(new Date(syncedAt))).toMatch(/^Today at /);
+    expect(
+      within(status).getByText(STRINGS.sync.lastSynced, { exact: false })
+        .classList.contains("sr-only"),
+    ).toBe(true);
+    // The old grey "Last synced Oct 19, 2:10 PM" line below Sign out is gone: one time, one place.
+    expect(document.querySelectorAll("time")).toHaveLength(1);
+    expect(status.querySelector("time")).toHaveAttribute(
+      "datetime",
+      new Date(syncedAt).toISOString(),
+    );
+    expect(document.querySelector(".sync-time")).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(p.auth.signOut).toHaveBeenCalledOnce());

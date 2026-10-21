@@ -19,8 +19,9 @@ export interface SyncCardProps {
     /** Actual caller-confirmed session; an address alone is not checkout authority. */
     confirmed: boolean;
     status?: OperationStatus;
-    /** Last successful cloud exchange, shown beside the status as on the Chrome popup. Only the
-     * Apple app supplies it; absent, the status line is unchanged. */
+    /** Last successful cloud exchange, shown beside the status as on the popups ("Synced · Today
+     * at 2:10 PM"). The Apple app and the browser Settings page supply it; absent, the status line
+     * is unchanged. */
     lastSyncedAt?: number | null;
     onSignOut?: () => void;
     onDeleteAccount?: () => void;
@@ -67,7 +68,12 @@ export interface ProOfferCardProps {
    * Unread since 12 Oct 2026: no Still Pro copy states a number of extras (owner rule). */
   phone?: boolean;
   ownership: "none" | "owned" | "checking" | "verify" | "failed";
-  channel: "ready" | "unverified" | "unavailable";
+  /**
+   * "offline": Still could not check because the browser is offline. With ownership "none" the
+   * card says so instead of claiming Still Pro can't be bought here, and instead of "verify again"
+   * for a held known none (ISS-0090). Buy still needs "ready" and a conclusive locked snapshot.
+   */
+  channel: "ready" | "unverified" | "unavailable" | "offline";
   /**
    * Verified caller data; the price is displayed only in the real checkout. A checkout-priced
    * offer (`checkoutPriced: true`, `price: ""`) has no price on this surface at all: the browser
@@ -101,7 +107,8 @@ export interface RestoreStatusCardProps {
 }
 
 export interface AccountLinkCardProps {
-  state: "confirm" | "pending" | "linked" | "failed";
+  /** `elsewhere`: the purchase is linked to a different account (ISS-0104); a fact, no action. */
+  state: "confirm" | "pending" | "linked" | "failed" | "elsewhere";
   email: string;
   onConfirm?: () => void;
   onChooseOther?: () => void;

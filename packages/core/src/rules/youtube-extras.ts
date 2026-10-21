@@ -9,8 +9,9 @@ import type { ExtrasRoute, MarkerAdapter, ServiceExtras } from "./extras.js";
  *
  * SELECTOR STATUS: the mobile related-items section, individual comments teaser and dedicated
  * comments panel were observed on public m.youtube.com with a phone viewport on 2026-10-08.
- * Their preservation fixtures remain synthetic. Desktop/end-screen/chat selectors remain
- * UNVERIFIED CANDIDATES. Phone viewport evidence is not physical Safari or Firefox Android
+ * Their preservation fixtures remain synthetic. The desktop end-of-video selectors were observed
+ * on public www.youtube.com in desktop Chrome on 2026-10-19 (ISS-0086). Other desktop and chat
+ * selectors remain UNVERIFIED CANDIDATES. Phone viewport evidence is not physical Safari or Firefox Android
  * acceptance; each control's device release gate still needs its behavioral evidence.
  * End-of-video suggestions and Live chat have NO phone-layout selectors on purpose: on 2026-10-09
  * public m.youtube.com in phone emulation showed no end cards or end-screen grid (its only end
@@ -33,10 +34,27 @@ const RELATED = Object.freeze([
   'ytm-item-section-renderer[section-identifier="related-items"]',
 ]);
 
-/** youtube.endscreen (End-of-video suggestions): in-player end cards and the end-screen grid. */
+/**
+ * youtube.endscreen (End-of-video suggestions): in-player end cards and the end-of-video grid.
+ * Observed on desktop Chrome on 2026-10-19: end cards (.ytp-ce-element) show in the last seconds
+ * of a video beside their own "Hide" toggle; when the video ends the player draws its grid of
+ * suggestion tiles as .ytp-fullscreen-grid (a direct child of the player that holds only the tiles
+ * and their show/hide button). The older .ytp-endscreen-content grid is still in the DOM but no
+ * longer drawn. None of these holds Replay, the seek bar, settings or the autonav countdown.
+ *
+ * The same .ytp-fullscreen-grid is also the fullscreen "More videos" panel a viewer can open
+ * mid-video, which belongs to Related videos, not to this control. So the grid and its tiles are
+ * hidden only while the player carries its ended-state class (.ended-mode, set on the player when
+ * the video ends and cleared when it plays again).
+ */
 const ENDSCREEN = Object.freeze([
   ".ytp-ce-element",
+  // The end cards' own "Hide" toggle, which would otherwise float alone over the video.
+  ".ytp-ce-hide-button-container",
   ".ytp-endscreen-content",
+  ".ended-mode > .ytp-fullscreen-grid",
+  // The grid's tiles, in case the grid wrapper is renamed.
+  ".ended-mode .ytp-modern-videowall-still",
 ]);
 
 const COMMENTS_PANEL = "ytm-engagement-panel:has(> ytm-engagement-panel-section-list-renderer.engagement-panel-comments-section):not(:has(> * + *))";

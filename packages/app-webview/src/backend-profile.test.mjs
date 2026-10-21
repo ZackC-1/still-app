@@ -41,7 +41,9 @@ function launch(env = {}, responseError = null) {
   let analyticsDeps;
   let subjectIssuerClient;
   let subjectIssuerKey;
-  const analyticsStub = () => ({ ui: {}, start: async () => {}, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => {} });
+  const usageOrder = [];
+  const listeners = {};
+  const analyticsStub = () => ({ ui: {}, start: async () => { usageOrder.push("start"); }, accountAbsent: async () => {}, identifyAccount: async () => {}, recheckSetup: async () => { usageOrder.push("recheckSetup"); } });
   const client = {
     functions: { invoke: async (name, options) => { calls.push({ name, options }); return { data: { synthetic: true }, error: responseError }; } },
     auth: { onAuthStateChange(callback) { authEvent = callback; }, getSession: async () => ({ data: { session: null } }) },
@@ -71,9 +73,9 @@ function launch(env = {}, responseError = null) {
     createApplePurchaseAuthority(deps) { authority = deps; return { invalidateAccount: () => {invalidations++;}, refreshAccountAccess: async () => {accountRefreshes++;}, verifyLocalPurchase: async () => ({}), refreshOwnership: async () => {}, ownershipRevision: () => 0, purchaseLink: {}, readLinkEligibility: async () => null }; },
     SupabaseBackendPort: class { constructor(_client, options) { backendOptions = options; } },
     SyncService: class {},
-    UiController: class { rehydrateCodeEntry() {} },
+    UiController: class { constructor() { usageOrder.push("controller"); } rehydrateCodeEntry() {} refreshUsageSharing() { usageOrder.push("refreshUsageSharing"); } },
     createAppleSession: deps => {sessionDeps = deps; return { resumeAccount: async () => {}, refreshReceipt: async () => {} };},
-    document: { addEventListener() {}, getElementById: () => ({}), visibilityState: "visible" },
+    document: { addEventListener(type, listener) { listeners[type] = listener; }, getElementById: () => ({}), visibilityState: "visible" },
     window: { addEventListener() {}, dispatchEvent(event) {events.push(event.type);} },
     bindTextScale() {},
     SAFARI_SURFACE_GUIDANCE: {},
@@ -81,7 +83,7 @@ function launch(env = {}, responseError = null) {
     isAccessUUID: value => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value),
   };
   vm.runInNewContext(compiled, context, { filename: "main.ts", importModuleDynamically: async () => { throw new Error("Controlled dynamic screen import"); } });
-  return { analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, subjectIssuerKey: () => subjectIssuerKey, calls, clientCount, clientOptions: () => clientOptions, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
+  return { usageOrder, listeners, analyticsFactory, analyticsDeps, subjectIssuerClient: () => subjectIssuerClient, subjectIssuerKey: () => subjectIssuerKey, calls, clientCount, clientOptions: () => clientOptions, backendOptions, authority, sessionDeps, events, authEvent: event => authEvent(event), invalidations: () => invalidations, accountRefreshes: () => accountRefreshes };
 }
 
 test("the WebView Supabase client keeps Auth error codes readable cross-origin (ISS-0060)", () => {
@@ -93,6 +95,26 @@ test("the WebView Supabase client keeps Auth error codes readable cross-origin (
 test("usage analytics is on by default exactly where the V3 screens are", () => {
   assert.equal(launch().analyticsFactory, "default-on");
   assert.equal(launch({ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }).analyticsFactory, "2.x");
+});
+
+test("the usage-sharing switch is read again once analytics has started, and at each return (ISS-0111)", async () => {
+  for (const [env, accountReads] of [[{}, 0], [{ VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }, 0], [{ VITE_SUPABASE_URL: "" }, 1]]) {
+    const host = launch(env);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The build without sync knows at once that no account exists, and reads again after that too.
+    const launchReads = Array(1 + accountReads).fill("refreshUsageSharing");
+    assert.deepEqual(host.usageOrder, ["controller", "start", ...launchReads]);
+    host.listeners.visibilitychange();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(host.usageOrder.slice(2 + launchReads.length), ["recheckSetup", "refreshUsageSharing"]);
+  }
+  // With sync, the launch's account answer reads it again as soon as it is known.
+  const synced = launch();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  synced.sessionDeps.onAccountAbsent();
+  synced.sessionDeps.onAccountEntered("synthetic");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(synced.usageOrder.slice(3), ["refreshUsageSharing", "refreshUsageSharing"]);
 });
 
 test("V3 signed-in devices ask for their own identity through the configured client; 2.x never does", async () => {

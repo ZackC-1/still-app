@@ -59,11 +59,18 @@
     // A known none going stale is renewed quietly (ISS-0072): "verify again" only if that fails.
     if (ownership === "verify" && flowState.renewing)
       return { ownership: "checking", channel: "unverified", onRestore };
+    // Gone stale while offline, the known none is kept (ISS-0090): Still can't check right now.
+    if (ownership === "verify" && flowState.offlineNone)
+      return { ownership: "none", channel: "offline", onRestore };
     if (ownership === "verify") return { ownership: "verify", channel: "unverified", onRestore };
     if (ownership === "checking" || flowState.channel === "checking")
       return { ownership: "checking", channel: "unverified", onRestore };
     if (!flow || flowState.channel !== "ready")
-      return { ownership: "none", channel: "unverified", onRestore };
+      return {
+        ownership: "none",
+        channel: flowState.channel === "offline" ? "offline" : "unverified",
+        onRestore,
+      };
     // Known none, and the background says this build may sell here: Buy with no price on this
     // surface (the checkout page shows it).
     return {

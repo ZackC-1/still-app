@@ -92,17 +92,33 @@ const gotoRedirected = (page: Page, url: string) => page.goto(url, { waitUntil: 
 const stillElements = (page: Page) => page.locator("[id^='still-'], [class*='still-placeholder']").count();
 
 test.describe("Facebook Stories (paid on)", () => {
-  test("hides only the tray's story cards", async ({ page, authority }) => {
+  test("hides only the Stories tray", async ({ page, authority }) => {
     await commit(authority, ALL_ON);
     await serveFacebook(page, "fb-stories.html");
     await page.goto(`${FB}/`);
     await engineRan(page);
-    for (const id of ["target-story-card-1", "target-story-card-2"]) {
+    for (const id of ["target-stories-tray", "target-story-card-1", "target-story-card-2"]) {
       await expect(page.locator(`#${id}`), id).toBeHidden();
       await expect(page.locator(`#${id}`), id).toHaveCount(1);
     }
-    // The virtualiser wrapper keeps its place: only its story cards are hidden.
+    // The virtualiser wrapper keeps its place (empty once the tray inside it is hidden); feed
+    // posts that link to a Story, the shelf grid, the composer and messages stay.
     await expectKeptVisible(page, ["keep-tray-wrapper"]);
+  });
+
+  test("hides the phone Home feed's Stories tray row (ISS-0101)", async ({ page, authority }) => {
+    await commit(authority, ALL_ON);
+    await serveFacebook(page, "fb-stories-mobile.html");
+    await page.goto("https://m.facebook.com/");
+    await engineRan(page);
+    for (const id of ["target-stories-row", "target-story-create", "target-story-card-1"]) {
+      await expect(page.locator(`#${id}`), id).toBeHidden();
+      await expect(page.locator(`#${id}`), id).toHaveCount(1);
+    }
+    // Reels On too: the free control hides the Reels section row; the rest of the feed stays.
+    await expect(page.locator("#free-reels-row")).toBeHidden();
+    for (const id of ["keep-post-row", "keep-post-story-ring", "keep-pymk-row", "keep-composer-row", "keep-top-tabs"])
+      await expect(page.locator(`#${id}`), id).toBeVisible();
   });
 
   test("a Story link goes silently to Home, once", async ({ page, authority }) => {
@@ -118,7 +134,7 @@ test.describe("Facebook Stories (paid on)", () => {
   });
 });
 
-test.describe("Videos and Watch (paid on)", () => {
+test.describe("Video tab (paid on)", () => {
   for (const reels of [false, true])
     for (const videos of [false, true])
       test(`Reels ${reels ? "On" : "Off"}, Videos ${videos ? "On" : "Off"}`, async ({ page, authority }) => {
@@ -128,8 +144,9 @@ test.describe("Videos and Watch (paid on)", () => {
         if (reels) await engineRan(page);
         else await expect(page.locator("html")).toHaveClass(/still-feature-\d+-facebook-stories/);
         // Shortcut list items go with their Watch link (relative, no-slash and absolute), so no
-        // empty <li> is left behind.
-        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks",
+        // empty <li> is left behind. Feed video posts are never Videos' (ISS-0088): they are
+        // keep-* units, checked by expectKeptVisible below.
+        for (const id of ["target-nav-watch", "target-nav-watch-bookmarks",
           "target-nav-watch-bookmarks-item", "target-nav-watch-absolute", "target-nav-watch-absolute-item",
           "target-nav-watch-noslash", "target-nav-watch-noslash-item"]) {
           if (videos) await expect(page.locator(`#${id}`), id).toBeHidden();
@@ -195,10 +212,10 @@ test.describe("Videos and Watch (paid on)", () => {
     await commit(authority, ALL_ON);
     const loads = await serveFacebook(page, "fb-videos.html");
     await page.goto(`${FB}/`);
-    await expect(page.locator("#target-feed-video")).toBeHidden();
+    await expect(page.locator("#target-nav-watch-bookmarks-item")).toBeHidden();
     await page.evaluate(() => { (window as unknown as { token: string }).token = "same-document"; });
     await commit(authority, { "facebook.videos": false });
-    await expect(page.locator("#target-feed-video")).toBeVisible();
+    await expect(page.locator("#target-nav-watch-bookmarks-item")).toBeVisible();
     await expect(page.locator("#target-nav-watch")).toBeVisible();
     await expect(page.locator("#reel-feed-free")).toBeHidden();
     expect(await page.evaluate(() => (window as unknown as { token?: string }).token)).toBe("same-document");

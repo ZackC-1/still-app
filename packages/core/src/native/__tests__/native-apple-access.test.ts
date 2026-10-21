@@ -52,7 +52,7 @@ describe("native Apple signed access install/readback contract", () => {
     } finally { vi.useRealTimers(); }
   });
   it("observes signed native mappings and preserves the verification-required state", async () => {
-    const right = { localRight: ack.localRight, ownershipRevision: 1, verifiedAt: now, expiresAt: ack.expiresAt, localProofIdentity: identity, status: "verification_required" };
+    const right = { localRight: ack.localRight, ownershipRevision: 1, verifiedAt: now, expiresAt: ack.expiresAt, localProofIdentity: identity, status: "verification_required", linkedAccount: null };
     const h = host(async () => ({ schema: 1, generation: 3, rights: [right] }));
     expect(await h.bridge.observeAppleAccess()).toEqual({ schema: 1, generation: 3, rights: [right] });
     expect(h.post).toHaveBeenCalledExactlyOnceWith({ kind: "observeAppleAccess" });
@@ -105,6 +105,7 @@ it("reads purchaser-only local provenance through its dedicated closed observati
     expiresAt: ack.expiresAt,
     localProofIdentity: identity,
     status: "purchased",
+    linkedAccount: null,
   };
   const h = host(async () => ({ schema: 1, generation: 3, rights: [right] }));
   expect(await h.bridge.observeAppleLinkAccess()).toEqual({
@@ -122,6 +123,10 @@ it("reads purchaser-only local provenance through its dedicated closed observati
       rights: [],
     })).bridge.observeAppleLinkAccess(),
   ).toEqual({ schema: 1, generation: 3, rights: [] });
+  const linked = { ...right, linkedAccount: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" };
+  expect(
+    await host(async () => ({ schema: 1, generation: 3, rights: [linked] })).bridge.observeAppleLinkAccess(),
+  ).toEqual({ schema: 1, generation: 3, rights: [linked] });
   for (const reply of [
     { schema: 1, generation: 3, rights: [right], ownership: "purchased" },
     {
@@ -131,6 +136,14 @@ it("reads purchaser-only local provenance through its dedicated closed observati
     },
     { schema: 1, generation: 3, rights: [{ ...right, status: "protected" }] },
     { schema: 1, generation: 3, rights: [right, right] },
+    // ISS-0081: the linked account is an explicit member, null or an account UUID only.
+    { schema: 1, generation: 3, rights: [(({ linkedAccount: _omitted, ...rest }) => rest)(right)] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "account@still.test" }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: true }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "" }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: 1 }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } }] },
+    { schema: 1, generation: 3, rights: [{ ...right, linkedAccount: "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB" }] },
   ])
     await expect(
       host(async () => reply).bridge.observeAppleLinkAccess(),

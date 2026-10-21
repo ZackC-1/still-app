@@ -28,9 +28,9 @@ async function setup() {
     applePurchaseEvidence: vi.fn(async () => null),
     appleLocalPurchaseEvidence: vi.fn(async () => ({productId: "still_pro_v3" as const, bundleId: "org.example.Still", signedTransaction: "header.payload.signature"})),
     installAppleAccess: vi.fn(async () => ({...ack})),
-    observeAppleAccess: vi.fn(async () => ({schema: 1 as const, generation: 2, rights: [{...ack, status: "purchased" as const}]})),
+    observeAppleAccess: vi.fn(async () => ({schema: 1 as const, generation: 2, rights: [{...ack, status: "purchased" as const, linkedAccount: null}]})),
     observeAppleLinkAccess: vi.fn(async (): Promise<NativeAppleAccessObservation> => ({
-      schema: 1, generation: 2, rights: [{ ...ack, status: "purchased" }],
+      schema: 1, generation: 2, rights: [{ ...ack, status: "purchased", linkedAccount: null }],
     })),
     reconcileAccountAccess: vi.fn(async (): Promise<NativeAccountAccessCommit> => ({schema: 1, status: "committed", accountStatus: "verified", generation: 3, accountId: vectors.account as string, sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", issuerTime: claims.verified_at, proofIdentities: [account.proof.identity]})),
     observeBenefits: vi.fn(async () => snapshot),
@@ -127,7 +127,7 @@ describe("actual Apple signed purchase authority composition", () => {
   });
   it("does not silently pick one of multiple historical local rights", async () => {
     const h = await setup();
-    h.bridge.observeAppleAccess.mockResolvedValue({schema: 1, generation: 2, rights: [{...h.ack, status: "purchased"}, {...h.ack, localRight: vectors.account, status: "purchased"}]});
+    h.bridge.observeAppleAccess.mockResolvedValue({schema: 1, generation: 2, rights: [{...h.ack, status: "purchased", linkedAccount: null}, {...h.ack, localRight: vectors.account, status: "purchased", linkedAccount: null}]});
     await expect(h.authority.refreshOwnership()).rejects.toThrow("requires verification");
   });
   it("does not overwrite an acknowledged ownership revision with a delayed older native read", async () => {
@@ -136,7 +136,7 @@ describe("actual Apple signed purchase authority composition", () => {
     h.bridge.observeAppleAccess.mockImplementation(() => new Promise(resolve => {resolveRead = resolve;}));
     const reading = h.authority.refreshOwnership();
     await h.authority.verifyLocalPurchase();
-    resolveRead({schema: 1, generation: 2, rights: [{...h.ack, ownershipRevision: 0, status: "purchased"}]});
+    resolveRead({schema: 1, generation: 2, rights: [{...h.ack, ownershipRevision: 0, status: "purchased", linkedAccount: null}]});
     await reading;
     expect(h.authority.ownershipRevision()).toBe(claims.ownership_revision);
   });
@@ -147,6 +147,7 @@ describe("native purchaser-only local link eligibility", () => {
     const h = await setup();
     expect(await h.authority.readLinkEligibility()).toEqual({
       ownershipRevision: claims.ownership_revision,
+      linkedAccount: null,
     });
     expect(h.bridge.observeAppleLinkAccess).toHaveBeenCalledOnce();
     expect(h.bridge.observeAppleAccess).not.toHaveBeenCalled();
@@ -157,6 +158,21 @@ describe("native purchaser-only local link eligibility", () => {
     expect(h.deps.readVerifiedAccount).not.toHaveBeenCalled();
     expect(h.deps.readAccessToken).not.toHaveBeenCalled();
   });
+  it("passes on the account native's current server proof names, without reading the session (ISS-0081)", async () => {
+    const h = await setup();
+    h.bridge.observeAppleLinkAccess.mockResolvedValue({
+      schema: 1,
+      generation: 2,
+      rights: [{ ...h.ack, status: "purchased", linkedAccount: vectors.account }],
+    });
+    expect(await h.authority.readLinkEligibility()).toEqual({
+      ownershipRevision: claims.ownership_revision,
+      linkedAccount: vectors.account,
+    });
+    expect(h.deps.readVerifiedAccount).not.toHaveBeenCalled();
+    expect(h.deps.readAccessToken).not.toHaveBeenCalled();
+    expect(h.deps.fulfillLink).not.toHaveBeenCalled();
+  });
   it.each([
     "no-local-right",
     "family",
@@ -166,7 +182,7 @@ describe("native purchaser-only local link eligibility", () => {
     "multiple",
   ])("does not link %s provenance", async (kind) => {
     const h = await setup();
-    const right = { ...h.ack, status: "purchased" as const };
+    const right = { ...h.ack, status: "purchased" as const, linkedAccount: null };
     const rights =
       kind === "expired"
         ? [{ ...right, status: "verification_required" as const }]
@@ -202,7 +218,7 @@ describe("native purchaser-only local link eligibility", () => {
     finish({
       schema: 1,
       generation: 2,
-      rights: [{ ...h.ack, status: "purchased" }],
+      rights: [{ ...h.ack, status: "purchased", linkedAccount: null }],
     });
     expect(await old).toBeNull();
   });
@@ -222,7 +238,7 @@ describe("native purchaser-only local link eligibility", () => {
     finish({
       schema: 1,
       generation: 2,
-      rights: [{ ...h.ack, status: "purchased" }],
+      rights: [{ ...h.ack, status: "purchased", linkedAccount: null }],
     });
     expect(await old).toBeNull();
   });

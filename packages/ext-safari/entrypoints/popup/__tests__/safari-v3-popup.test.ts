@@ -6,6 +6,7 @@ import { requireModernSettings } from "@still/core/storage";
 import { SettingsCache } from "@still/core/storage";
 import { EntitlementCache } from "@still/core/entitlement";
 import { startSafariV3Popup } from "../v3.js";
+import { formatSyncTime } from "../../../../core/src/ui/v3/sync-time.js";
 import { installSafari, UNPROMPTED_WRITES, type SavedShape } from "./safari-native.fixture.js";
 
 const mounted = vi.hoisted(() => ({ instances: [] as Record<string, unknown>[] }));
@@ -48,7 +49,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function open(saved: SavedShape, options: { platform?: string; signedIn?: boolean; projection?: boolean; down?: boolean; env?: SafariV3BuildInput } = {}) {
+async function open(saved: SavedShape, options: { platform?: string; signedIn?: boolean; lastSyncedAt?: number; projection?: boolean; down?: boolean; env?: SafariV3BuildInput } = {}) {
   const f = await installSafari({ saved, ...options });
   if (options.down) f.setNativeDown(true);
   document.body.innerHTML = '<div id="app"></div>';
@@ -191,6 +192,22 @@ describe("Safari V3 popup: what is never offered", () => {
     await waitFor(() => expect(screen.getByText("person@example.invalid")).toBeTruthy());
     for (const name of ["Sign out", "Delete account", "Sign in", "Try again"])
       expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
+  it.each(["ios", "mac"])("%s signed in: the synced line carries the time the Still app reported", async (platform) => {
+    // Owner, 19 Oct: "Synced · Today at 2:10 PM" on the iPhone sheet and the Mac popover, as in the
+    // app. The time is the app's own, read from the App Group account status.
+    const syncedAt = Date.now() - 60_000;
+    await open("atomic", { platform, signedIn: true, lastSyncedAt: syncedAt });
+    const time = await waitFor(() => {
+      const found = document.querySelector<HTMLTimeElement>(".status-line time");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(time.getAttribute("datetime")).toBe(new Date(syncedAt).toISOString());
+    expect(time.textContent).toBe(formatSyncTime(new Date(syncedAt)));
+    expect(time.textContent).toMatch(/^Today at /);
+    expect(time.closest(".status-line")!.textContent!.replace(/\s+/g, " ")).toContain(` · `);
   });
 
   it.each(["ios", "mac"])("%s configured build with modern sync: V3 over the atomic record, the account read-only (the app owns it)", async (platform) => {

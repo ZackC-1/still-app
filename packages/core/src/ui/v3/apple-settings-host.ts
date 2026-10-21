@@ -219,6 +219,13 @@ export function appleSettingsSetup(
   };
 }
 
+/**
+ * The fixed event the app dispatches on the page once its Safari setup sheet is gone (ISS-0075):
+ * `SafariSetupSheetRequest.closedEvent` in StillKit, pinned by a test. A sheet never hides the
+ * page, so without it the settings screen would keep its last setup read.
+ */
+export const SAFARI_SETUP_CLOSED_EVENT = "still:safari-setup-closed";
+
 export interface AppleSetupView {
   readonly setup: AppleSettingsProps["setup"];
   /** Null when this read observed nothing; the caller keeps the platform it already has. */
@@ -226,10 +233,11 @@ export interface AppleSetupView {
 }
 
 /**
- * Observe setup now and again whenever the app returns to the foreground, so turning Still on in
- * Safari removes the card and a later successful read corrects the platform. The listener is
- * attached before the first read. Latest read wins; stopping removes the listener and ignores
- * late replies.
+ * Observe setup now and again whenever the app returns to the foreground, its window regains focus
+ * (on the Mac, coming back from Safari's settings changes no visibility) or the app's Safari setup
+ * sheet closes, so turning Still on in Safari removes the card and a later successful read
+ * corrects the platform. The listeners are attached before the first read. Latest read wins;
+ * stopping removes the listeners and ignores late replies.
  */
 export function watchAppleSetup(
   read: () => Promise<SafariSetupObservation | null>,
@@ -253,11 +261,16 @@ export function watchAppleSetup(
   const onVisibility = () => {
     if (doc.visibilityState === "visible") observe();
   };
+  const win = doc.defaultView;
   doc.addEventListener("visibilitychange", onVisibility);
+  win?.addEventListener("focus", observe);
+  win?.addEventListener(SAFARI_SETUP_CLOSED_EVENT, observe);
   observe();
   return () => {
     stopped = true;
     doc.removeEventListener("visibilitychange", onVisibility);
+    win?.removeEventListener("focus", observe);
+    win?.removeEventListener(SAFARI_SETUP_CLOSED_EVENT, observe);
   };
 }
 
@@ -525,11 +538,16 @@ export function openExternalLink(url: string, doc: Document = document): void {
 /**
  * Help destinations (owner decision 11): the live setup guide, the shipped support email and the
  * shipped privacy policy, all opened externally. The native navigation policy hands a user-tapped
- * link to exactly `mailto:support@stillapp.fit` to the system mail app.
+ * link to exactly `mailto:support@stillapp.fit` to the system mail app. `safariSetup` (ISS-0075)
+ * shows the app's native "Turn on Still in Safari" sheet; without it the link stays disabled.
  */
-export function appleSettingsHelp(open: (url: string) => void): AppleSettingsProps["help"] {
+export function appleSettingsHelp(
+  open: (url: string) => void,
+  safariSetup?: () => void,
+): AppleSettingsProps["help"] {
   return {
     onGuide: () => open(SETUP_GUIDE_URL),
+    ...(safariSetup ? { onSafariSetup: () => safariSetup() } : {}),
     onSupport: () => open(SUPPORT_MAILTO),
     onPrivacy: () => open(PRIVACY_POLICY_URL),
   };
