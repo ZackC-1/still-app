@@ -358,7 +358,7 @@
         disabled={!help.onSupport}
         onclick={help.onSupport}>Contact support</button
       >
-      <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
+      <p class="muted sync-row-sub support-address">{SUPPORT_EMAIL}</p>
     </div>
     {#if sync.account?.onDeleteAccount}<button
         type="button"

@@ -198,6 +198,11 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .sync-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-inline-size: 0; }
 .sync-row-title { margin: 0; font-size: calc(15px * var(--text-scale, 1)); font-weight: 600; }
 .sync-row-sub { font-size: calc(13px * var(--text-scale, 1)); line-height: 1.35; }
+/* ISS-0112: the support address under "Contact support" is one selectable unit. A click, a Mac
+   double-click or an iPhone long-press takes the whole address; WebKit's and Chrome's word rule
+   would otherwise stop at "@" and ".", and a click beside the text took only a line break. Scoped
+   to this one element; the rest of the UI keeps ordinary selection. */
+.support-address { -webkit-user-select: all; user-select: all; }
 .primary.inline { white-space: nowrap; min-inline-size: max-content; flex: none; min-block-size: 36px; padding: var(--space-2) var(--space-3); font-size: calc(14px * var(--text-scale, 1)); }
 /* Footer links sit well inside the popup's edges so a sheet's rounded corners (iPhone Safari) never
    clip them (owner, 12 Oct): 16px on each side, plus the popup's own 12px. */

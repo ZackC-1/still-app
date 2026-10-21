@@ -2000,6 +2000,9 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
       "Contact support",
     ]);
     expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
+    // One selectable unit (user-select: all), scoped to the address alone.
+    expect(within(help).getByText(SUPPORT_EMAIL)).toHaveClass("support-address");
+    expect(help.querySelectorAll(".support-address")).toHaveLength(1);
     expect(
       within(help).getByRole("button", { name: "Contact support" })
         .nextElementSibling?.textContent,
