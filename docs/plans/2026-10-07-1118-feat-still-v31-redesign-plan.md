@@ -10,6 +10,8 @@ product_contract_source: owner-latest-design-archive-and-session
 
 ## Goal Capsule
 
+20 Oct 2026: Firefox on Android is deferred from the first V3 release; Android QA builds and code paths continue.
+
 Deliver integrated QA builds that implement the latest owner-supplied screens and their actual behavior on Chromium browsers, Firefox desktop/Android, Safari iOS/iPadOS/macOS, and the Apple companion apps. Replace earlier V3 visual references with `Still Design System latest.zip` (internal design version 3.0.1). Preserve provenance under `docs/design/Still v3.1 redesign/` and publish the implementation contract in `design.md`.
 
 The owner authorizes autonomous implementation, parallel isolated workers, Apple sandbox and web provider test modes, independent Claude PR reviews, fixes, and protected merges to main. The owner subsequently authorized Muse Spark reviews when Claude reviews are unsuccessful; that fallback is limited to approved implementation source and synthetic fixtures, excluding credentials, private QA data and the design/plan/research documents from external export. Apple device distribution uses TestFlight. No staging backend currently exists; the owner selected the existing hosted backend with dedicated test accounts. TestFlight does not supply a backend. Delivery remains incomplete until real journeys and packaged candidates are verified.

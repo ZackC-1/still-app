@@ -1,7 +1,7 @@
 # Track 6 — Safari mobile validation
 
 Current reference for Still 2.0.0; reviewed September 14, 2026. Mobile support means websites in
-Safari on iPhone/iPad, and in Firefox on Android (from the release that adds `gecko_android`).
+Safari on iPhone/iPad. Firefox on Android is deferred to a later update.
 Native social apps and mobile Chrome are outside the supported scope.
 
 ## Evidence already recorded
@@ -54,8 +54,8 @@ than assuming every historical build had remote updates enabled.
 
 ## Future surfaces and historical evidence
 
-Firefox for Android is approved from Firefox 142 through the same AMO listing
-(`gecko_android`; see [`03-firefox-amo.md`](03-firefox-amo.md)). Its current evidence is the
+Firefox for Android (Firefox 142 or newer, through the same AMO listing) is deferred to a later
+update; see [`03-firefox-amo.md`](03-firefox-amo.md). Its current evidence is the
 optional Firefox for Android emulator workflow; a real-device check is still pending. There is no
 Google Play artifact; see [future Android scope](05-future-google-play.md).
 

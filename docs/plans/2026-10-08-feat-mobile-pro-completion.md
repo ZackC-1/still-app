@@ -2,6 +2,8 @@
 
 Status: Related videos and Comments source merged; remaining mobile extras and installed acceptance unfinished. No physical-device or provider acceptance is claimed.
 
+Firefox Android acceptance is not a gate for the first V3 release (deferred 20 Oct 2026).
+
 Base: `a1e880067b5c1a0e6fc066c47f759de36816a023`.
 Branch: `feat/v31-mobile-pro-completion-20261008`.
 

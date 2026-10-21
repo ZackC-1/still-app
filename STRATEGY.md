@@ -50,7 +50,7 @@ Still is not:
    into repository knowledge so each iteration starts smarter.
 
 Raw install volume must never be optimized by hiding the mobile boundary (websites in Safari on
-iPhone and iPad, and in Firefox on Android) or implying native-app blocking. A smaller group of
+iPhone and iPad) or implying native-app blocking. A smaller group of
 correctly informed users is more valuable than mismatched downloads that generate refunds and
 negative reviews.
 
@@ -80,7 +80,7 @@ to frozen Pro and zero/free-era use maps to frozen released-free protection.
 | Firefox on desktop | Free WebExtension blocking and optional free settings sync. |
 | Safari on iPhone and iPad | Safari Web Extension inside the Still container app. |
 | Safari on Mac | Safari Web Extension inside the Still macOS app. |
-| Firefox on Android (V3, evidence-gated) | Free WebExtension blocking on websites, from V3 builds only. |
+| Firefox on Android (deferred) | Not in the first V3 release. Planned for a later update once it is verified on a device; the Android code paths stay. |
 | Native social-video apps | Not supported. Still cannot remove video inside the native YouTube, Instagram, Facebook, or TikTok apps. |
 
 Any new surface must earn its way into this table through implementation, verification, privacy
