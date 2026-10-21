@@ -3,6 +3,8 @@
 //   extension   Chrome and Firefox manifest version (packages/ext-chromium/package.json; WXT reads it)
 //   apple       Apple app MARKETING_VERSION and the Safari extension version (packages/ext-safari/package.json)
 //   appleBuild  Apple CURRENT_PROJECT_VERSION. Only ever increases; never reset when `apple` changes.
+//   paidTier    true|false: whether the Chrome and Firefox release line ships with the paid tier on.
+//               The store packagers refuse a build whose PAID_TIER_ENABLED differs from it.
 //
 //   node scripts/release/version.mjs check              exit 1 if any consumer disagrees with version.json
 //   node scripts/release/version.mjs sync               write version.json's values into every consumer
@@ -33,6 +35,7 @@ export function parseVersions(text) {
   for (const key of ["extension", "apple"])
     if (typeof v[key] !== "string" || !SEMVER.test(v[key])) throw new Error(`version.json: "${key}" must be x.y.z, got ${JSON.stringify(v[key])}`);
   if (!Number.isInteger(v.appleBuild) || v.appleBuild < 1) throw new Error(`version.json: "appleBuild" must be a positive integer, got ${JSON.stringify(v.appleBuild)}`);
+  if (typeof v.paidTier !== "boolean") throw new Error(`version.json: "paidTier" must be true or false, got ${JSON.stringify(v.paidTier)}`);
   return v;
 }
 

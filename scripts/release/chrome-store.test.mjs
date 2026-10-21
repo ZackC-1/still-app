@@ -9,7 +9,8 @@ import { after, before, test } from "node:test";
 import { API_ORIGIN, compareChromeVersions, createStoreClient, decidePreflight, PUBLISH_BODY, READ_SCOPE, redact, StoreRefusal, summarizeStatus, WRITE_SCOPE } from "./chrome-store.mjs";
 import * as storeModule from "./chrome-store.mjs";
 import { buildReceipt, checkEnvironmentProtection, checkInputs, checkRunContext, checkSubjectCustomization, EXPECTED, main, runUpload, sha256, verifyArtifact, zipName } from "./chrome-release.mjs";
-import { assertPaidTierOff, collectPublicEnv, runPackage, verifyBuilt } from "./chrome-package.mjs";
+import { collectPublicEnv, runPackage, verifyBuilt } from "./chrome-package.mjs";
+import { assertPaidTierDeclared } from "./package.mjs";
 
 const HERE = new URL(".", import.meta.url);
 const TOKEN = "ya29.a0TESTTOKEN-not-real_0123456789";
@@ -559,11 +560,18 @@ test("the downloaded package must match its own sums, the build job and the owne
   assert.throws(() => verifyArtifact({ dir: join(other.dir, "package"), inputs: { version: "2.2.0", zipSha256: other.digest }, packageSha256: other.digest }), /is for 2\.1\.0/);
 });
 
-test("a store package must have the paid tier off", () => {
-  assertPaidTierOff("export const PAID_TIER_ENABLED = false;\n");
-  assert.throws(() => assertPaidTierOff("export const PAID_TIER_ENABLED = true;\n"), (e) => e.code === "paid-flag-on");
-  assert.throws(() => assertPaidTierOff("export const SOMETHING = false;\n"), (e) => e.code === "paid-flag-unknown");
-  assertPaidTierOff(readFileSync(new URL("../../packages/shared-types/src/entitlement.ts", HERE), "utf8"));
+test("a store package must have the paid tier exactly as its release line declares", () => {
+  const off = "export const PAID_TIER_ENABLED = false;\n";
+  const on = "export const PAID_TIER_ENABLED = true;\n";
+  assertPaidTierDeclared(off, false);
+  assertPaidTierDeclared(on, true);
+  assert.throws(() => assertPaidTierDeclared(on, false), (e) => e.code === "paid-flag-mismatch" && /declares paidTier false/.test(e.message));
+  assert.throws(() => assertPaidTierDeclared(off, true), (e) => e.code === "paid-flag-mismatch" && /declares paidTier true/.test(e.message));
+  assert.throws(() => assertPaidTierDeclared("export const SOMETHING = false;\n", false), (e) => e.code === "paid-flag-unknown");
+  // Every current 2.x line declares false, and the committed flag agrees.
+  const declared = JSON.parse(readFileSync(new URL("../../version.json", HERE), "utf8")).paidTier;
+  assert.equal(declared, false);
+  assertPaidTierDeclared(readFileSync(new URL("../../packages/shared-types/src/entitlement.ts", HERE), "utf8"), declared);
 });
 
 test("public build values: the four required ones must be present; the sync switch is optional", () => {
@@ -584,10 +592,10 @@ test("the built package must carry the requested version and, outside package-on
   assert.throws(() => verifyBuilt({ manifest, zipBytes: Buffer.from("other"), inputs: { version: "2.2.0", zipSha256: "" } }), /own fingerprint/);
 });
 
-test("the build job builds only a commit on main, with the paid tier off, and hands over exactly two files", () => {
+test("the build job builds only a commit on main, with the declared paid-tier setting, and hands over exactly two files", () => {
   const publicEnv = { VITE_SUPABASE_URL: "u", VITE_SUPABASE_ANON_KEY: "k", VITE_POSTHOG_KEY: "p", VITE_POSTHOG_HOST: "h" };
   const env = { ...RUN_ENV, ...publicEnv, RELEASE_MODE: "package-only", RELEASE_COMMIT: COMMIT, RELEASE_VERSION: "2.2.0", RELEASE_ZIP_SHA256: "", RELEASE_CONFIRM_SUBMIT: "" };
-  const fakeGit = ({ onMain = true, paid = false } = {}) => (args) => {
+  const fakeGit = ({ onMain = true, paid = false, declared = false } = {}) => (args) => {
     if (args[0] === "merge-base") {
       if (!onMain) throw new Error("not an ancestor");
       return "";
@@ -596,6 +604,7 @@ test("the build job builds only a commit on main, with the paid tier off, and ha
       const dir = args[3];
       mkdirSync(join(dir, "packages/shared-types/src"), { recursive: true });
       writeFileSync(join(dir, "packages/shared-types/src/entitlement.ts"), `export const PAID_TIER_ENABLED = ${paid};\n`);
+      writeFileSync(join(dir, "version.json"), JSON.stringify({ extension: "2.2.0", apple: "2.1.0", appleBuild: 10, paidTier: declared }));
       return "";
     }
     return "";
@@ -617,10 +626,12 @@ test("the build job builds only a commit on main, with the paid tier off, and ha
   assert.deepEqual(readdirSync(out).sort(), ["SHA256SUMS.json", zipName("2.2.0")]);
   assert.deepEqual(builds[0].values, publicEnv);
   assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ onMain: false }) }), (e) => e.code === "commit-not-on-main");
-  assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true }) }), (e) => e.code === "paid-flag-on");
+  assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true }) }), (e) => e.code === "paid-flag-mismatch");
+  assert.throws(() => runPackage({ env, out, build: fakeBuild, git: fakeGit({ declared: true }) }), (e) => e.code === "paid-flag-mismatch");
+  assert.equal(runPackage({ env, out, build: fakeBuild, git: fakeGit({ paid: true, declared: true }) }).name, zipName("2.2.0"), "a line that declares the paid tier may ship it");
   assert.throws(() => runPackage({ env: { ...env, RELEASE_MODE: "upload", RELEASE_ZIP_SHA256: "2".repeat(64) }, out, build: fakeBuild, git: fakeGit() }), (e) => e.code === "package-mismatch");
   assert.throws(() => runPackage({ env: { ...env, GITHUB_REF: "refs/heads/x" }, out, build: fakeBuild, git: fakeGit() }), (e) => e.code === "run-context");
-  assert.equal(builds.length, 2, "refusals before the build never start one");
+  assert.equal(builds.length, 3, "refusals before the build never start one");
 });
 
 

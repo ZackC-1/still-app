@@ -42,6 +42,9 @@ test("version.json is well formed", () => {
   assert.throws(() => parseVersions('{"extension":"2.1","apple":"2.1.0","appleBuild":9}'), /extension/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":0}'), /appleBuild/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":"9"}'), /appleBuild/);
+  assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}'), /paidTier/);
+  assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":"false"}'), /paidTier/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":true}').paidTier, true);
 });
 
 test("a disagreeing consumer is reported, and sync repairs it", () => {
@@ -267,6 +270,36 @@ test("a tracked symlink is refused before anything is installed or built, and --
       assert.equal(calls(), "", "pnpm must not run before the symlink refusal");
     });
     assert.equal(existsSync(out) ? readdirSync(out).length : 0, 0, "--out must contain nothing");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("the shared package build (Chrome and Firefox) refuses a paid flag that differs from the declared paidTier, before installing", () => {
+  const base = mkdtempSync(join(tmpdir(), "still-paidflag-"));
+  try {
+    const clone = cloneRepo(base);
+    const commit = (message) => {
+      execFileSync("git", ["add", "-A"], { cwd: clone });
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", message], { cwd: clone });
+    };
+    const flagPath = join(clone, "packages/shared-types/src/entitlement.ts");
+    const versionPath = join(clone, "version.json");
+    const out = join(base, "out");
+    const refused = (expected) =>
+      withFakePnpm("process.exit(1);", (calls) => {
+        assert.throws(() => buildPackages({ out, root: clone }), (e) => e.code === "paid-flag-mismatch" && expected.test(e.message));
+        assert.equal(calls(), "", "pnpm must not run when the flag and the declaration disagree");
+      });
+    // Flag on, line declares off.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    commit("flag on");
+    refused(/declares paidTier false/);
+    // Flag off, line declares on.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = true", "PAID_TIER_ENABLED = false"));
+    writeFileSync(versionPath, readFileSync(versionPath, "utf8").replace('"paidTier": false', '"paidTier": true'));
+    commit("declare on");
+    refused(/declares paidTier true/);
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

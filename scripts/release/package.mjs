@@ -33,6 +33,25 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readVersions, findMismatches, ROOT } from "./version.mjs";
 import { createZip } from "./zip.mjs";
+import { StoreRefusal } from "./chrome-store.mjs";
+
+export const PAID_FLAG_FILE = "packages/shared-types/src/entitlement.ts";
+
+/**
+ * A store package must ship with the paid tier exactly as its release line declares (paidTier in
+ * version.json). Refuses a mismatch in either direction, so neither a leaked paid-test flag nor a
+ * forgotten flip reaches Chrome or Firefox.
+ */
+export function assertPaidTierDeclared(sourceText, declared) {
+  const matches = [...String(sourceText).matchAll(/export const PAID_TIER_ENABLED\s*=\s*(true|false)\s*;/g)];
+  if (matches.length !== 1) throw new StoreRefusal("paid-flag-unknown", `Could not find exactly one PAID_TIER_ENABLED in ${PAID_FLAG_FILE}`);
+  const actual = matches[0][1] === "true";
+  if (actual !== declared)
+    throw new StoreRefusal(
+      "paid-flag-mismatch",
+      `PAID_TIER_ENABLED is ${actual} at this commit, but this release line declares paidTier ${declared} in version.json. Make them match on purpose before building a store package.`,
+    );
+}
 
 export const PUBLIC_ENV_KEYS = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_POSTHOG_KEY", "VITE_POSTHOG_HOST", "VITE_MODERN_SETTINGS_SYNC_ENABLED"];
 
@@ -208,6 +227,7 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     const problems = findMismatches(work, { skipApple: true });
     if (problems.length) throw new Error(`version.json and its consumers disagree:\n${problems.join("\n")}`);
     const versions = readVersions(work);
+    assertPaidTierDeclared(readFileSync(join(work, PAID_FLAG_FILE), "utf8"), versions.paidTier);
     installAndBuild(work, env);
 
     // Staged in memory: nothing reaches --out until every check has passed.
