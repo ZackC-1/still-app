@@ -20,7 +20,8 @@ import {
   queryParams,
   resolveRequest,
 } from "./catalogue.mjs";
-import { CHECK_VIEWS, GuardError, assertSingleSelect } from "./sql-guard.mjs";
+import { CHECK_VIEWS, GuardError, MIGRATION_VIEWS, assertSingleSelect } from "./sql-guard.mjs";
+import { lintVerificationSql } from "../deploy/deploy.mjs";
 import { WITHHELD, formatValue, ref, renderReport } from "./report.mjs";
 import { READONLY_ENVIRONMENT, main as protectionMain } from "./protection.mjs";
 
@@ -28,6 +29,10 @@ const ROOT = new URL("../../../", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const PROGRAMME_IDS = Array.from({ length: 38 }, (_, i) => `DB-${String(i + 1).padStart(2, "0")}`);
+/** Release checks outside the QA programme's DB steps. */
+const RELEASE_IDS = ["PROD-01"];
+const MIGRATION_0025 = "supabase/migrations/0025_production_sales_summary_view.sql";
+const CANDIDATE_VIEW_COUNT = CHECK_VIEWS.length - Object.keys(MIGRATION_VIEWS).length;
 
 test("every catalogue query is one allow-listed SELECT with contiguous declared parameters", () => {
   for (const check of CHECKS) {
@@ -49,6 +54,9 @@ test("production queries are allow-listed SELECTs and never part of a printed re
   for (const check of CHECKS)
     for (const query of check.queries) {
       assert.doesNotMatch(query.sql, /production_rights_fingerprint|environment = 'production'/, `${check.id}: ${query.name}`);
+      // Only PROD-01 prints production, and only through the one public-facts view.
+      const views = assertSingleSelect(query.sql, 2);
+      if (views.has("production_sales_summary")) assert.deepEqual([check.id, [...views]], ["production-sales", ["production_sales_summary"]]);
     }
   assert.deepEqual(
     CHECKS.filter((c) => c.production).map((c) => [c.programIds[0], c.production]),
@@ -59,7 +67,8 @@ test("production queries are allow-listed SELECTs and never part of a printed re
 test("every programme DB step is either answered once or marked not read-only", () => {
   const answered = CHECKS.flatMap((c) => c.programIds);
   assert.equal(new Set(answered).size, answered.length, "a step is answered twice");
-  assert.deepEqual([...answered, ...Object.keys(NOT_READ_ONLY)].sort(), PROGRAMME_IDS);
+  assert.deepEqual([...answered.filter((id) => id.startsWith("DB-")), ...Object.keys(NOT_READ_ONLY)].sort(), PROGRAMME_IDS);
+  assert.deepEqual(answered.filter((id) => !id.startsWith("DB-")), RELEASE_IDS);
   assert.deepEqual(Object.keys(NOT_READ_ONLY), ["DB-36"]);
   assert.deepEqual(CHECK_INPUTS, ["setup", ...answered.sort()]);
 });
@@ -104,14 +113,25 @@ test("the guard refuses writes, second statements, hidden text, base tables and 
   assertSingleSelect("select $1::uuid", 1);
 });
 
-test("the views the catalogue reads are exactly the views the candidate SQL creates and grants", async () => {
+test("the views the catalogue reads are exactly the views the candidate SQL and migration 0025 create and grant", async () => {
   const sql = await read("scripts/backend/sql/qa-readonly-checks-candidate.sql");
+  const migration = await read(MIGRATION_0025);
+  const fromCandidate = CHECK_VIEWS.filter((v) => !Object.hasOwn(MIGRATION_VIEWS, v));
+  assert.equal(fromCandidate.length, CANDIDATE_VIEW_COUNT);
+  assert.deepEqual(MIGRATION_VIEWS, { production_sales_summary: "0025" });
   const created = [...sql.matchAll(/create or replace view still_qa_checks\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual([...created].sort(), [...CHECK_VIEWS, "qa_rights_scope", "qa_scope"].sort());
+  assert.deepEqual([...created].sort(), [...fromCandidate, "qa_rights_scope", "qa_scope"].sort());
+  const fromMigration = [...migration.matchAll(/create or replace view still_qa_checks\.(\w+)/g)].map((m) => m[1]);
+  assert.deepEqual(fromMigration, Object.keys(MIGRATION_VIEWS));
   const grant = /grant select on ([\s\S]*?)\s+to still_qa_readonly_checker;/.exec(sql);
   const granted = grant[1].split(",").map((s) => s.trim().replace(/^still_qa_checks\./, ""));
-  assert.deepEqual([...granted].sort(), [...CHECK_VIEWS].sort());
-  assert.match(sql, new RegExp(`where a\\.grantee = checker\\) <> ${CHECK_VIEWS.length}\\b`));
+  assert.deepEqual([...granted].sort(), [...fromCandidate].sort());
+  assert.match(sql, new RegExp(`where a\\.grantee = checker\\) <> ${CANDIDATE_VIEW_COUNT} \\+ migration_views\\b`));
+  // Re-running the candidate keeps each migration view's grant whenever that view exists.
+  for (const view of Object.keys(MIGRATION_VIEWS)) {
+    assert.match(sql, new RegExp(`to_regclass\\('still_qa_checks\\.${view}'\\) is not null then\\s+execute 'grant select on still_qa_checks\\.${view} to still_qa_readonly_checker'`));
+    assert.match(sql, new RegExp(`when pg_catalog\\.to_regclass\\('still_qa_checks\\.${view}'\\) is null then 0 else 1 end`));
+  }
   // Least privilege: every granted view is used by at least one check.
   const queries = [...CHECKS.flatMap((c) => c.queries), ...PRODUCTION_QUERIES];
   const used = new Set(queries.flatMap((q) => [...assertSingleSelect(q.sql, 2)]));
@@ -143,6 +163,46 @@ test("one owner-QA-alias rule guards registration, scope, members and the owner 
   assert.match(sql, /from private\.access_rights r where r\.environment = 'sandbox'\s+group by/);
 });
 
+test("migration 0025 adds one owner-run view of public policy facts and the cutoff, readable only by the checker", async () => {
+  const sql = await read(MIGRATION_0025);
+  const code = sql.replace(/--[^\n]*/g, "");
+  // Ordinary postgres migration role, forward-only, wrapped in one transaction.
+  assert.match(code, /^\s*begin;/);
+  assert.match(code, /commit;\s*$/);
+  assert.match(code, /current_user <> 'postgres' or session_user <> 'postgres'/);
+  assert.doesNotMatch(code, /\b(drop|delete|update|insert|truncate|alter)\b/i, "no destructive or data-changing statement");
+  assert.doesNotMatch(code, /security definer|security_invoker/i);
+  assert.match(code, /create or replace view still_qa_checks\.production_sales_summary with \(security_barrier = true\) as/);
+  // It reads only the two product policy tables, and only their production sales rows.
+  const relations = [...code.matchAll(/\b(?:from|join)\s+([a-z_]+\.[a-z_]+)/g)].map((m) => m[1])
+    .filter((r) => !r.startsWith("pg_catalog."));
+  assert.deepEqual([...new Set(relations)].sort(), ["private.paid_cutoff", "private.product_policy_revisions"]);
+  assert.match(code, /where r\.namespace = 'sales' and r\.environment = 'production'/);
+  assert.match(code, /on c\.environment = 'production'/);
+  for (const forbidden of ["access_rights", "auth.users", "profiles", "operation_id", "owner_subject", "preview_hash", "product_policy_owners", "email"])
+    assert.ok(!code.includes(forbidden), `the view must not read ${forbidden}`);
+  // Grants: clients revoked; SELECT only, only to the narrow checker, only when that role exists.
+  assert.match(code, /revoke all on still_qa_checks\.production_sales_summary from public, anon, authenticated, service_role;/);
+  const grants = [...code.matchAll(/grant ([a-z ]+?) on ([\w. ]+?) to (\w+)/g)].map((m) => m.slice(1).join(" | "));
+  assert.deepEqual(grants, ["select | still_qa_checks.production_sales_summary | still_qa_readonly_checker"]);
+  assert.match(code, /if exists \(select 1 from pg_catalog\.pg_roles where rolname = 'still_qa_readonly_checker'\) then\s+execute 'grant select/);
+  // The deploy gate and the row invariant exist and pass the deploy runner's read-only lint.
+  const gate = await read("scripts/backend/deploy/verify/0025_production_sales_summary_view.sql");
+  const invariant = await read("scripts/backend/deploy/verify/0025_production_sales_summary_view.invariant.sql");
+  assert.equal(lintVerificationSql(gate), true);
+  assert.equal(lintVerificationSql(invariant), true);
+  for (const issue of ["migration_version", "view_missing", "view_reads", "view_grant", "client_reach", "checker_select_missing", "schema_grant"])
+    assert.ok(gate.includes(`'${issue}'`), issue);
+  assert.ok(gate.includes("array['private.paid_cutoff','private.product_policy_revisions']"));
+  // The gate pins the same column list the catalogue reads.
+  const columns = /is distinct from ('[\s\S]*?')\n union all select 'view_reads'/.exec(gate)[1]
+    .replace(/'\s*\|\|\s*'/g, "").replace(/^'|'$/g, "").split(",").map((c) => c.split(":")[0]);
+  const read0025 = CHECKS.find((c) => c.id === "production-sales").queries
+    .flatMap((q) => [...q.sql.matchAll(/\bs\.(\w+)/g)].map((m) => m[1]));
+  for (const column of read0025) assert.ok(columns.includes(column), column);
+  assert.ok(columns.every((c) => code.includes(` as ${c}`)), "every pinned column is defined by the migration");
+});
+
 test("the candidate stays out of supabase/migrations (main ahead of hosted history blocks QA deploys)", async () => {
   const migrations = await readdir(new URL("supabase/migrations/", ROOT));
   assert.ok(!migrations.some((m) => /qa_readonly|readonly_check/.test(m)));
@@ -152,7 +212,12 @@ test("inputs are a closed check id and QA labels only", () => {
   assert.equal(resolveRequest({ check: "DB-07", account: "web-chrome" }).check.id, "checkout-started");
   assert.deepEqual(resolveRequest({ check: "DB-06", account: "qa-a", accountB: "qa-b" }).labels, ["qa-a", "qa-b"]);
   assert.deepEqual(resolveRequest({ check: "DB-31" }).labels, []);
+  assert.equal(resolveRequest({ check: "PROD-01" }).check.id, "production-sales");
+  assert.deepEqual(resolveRequest({ check: "PROD-01" }).labels, []);
   const refused = [
+    { check: "PROD-01", account: "qa-a" },
+    { check: "PROD-02" },
+    { check: "production-sales" },
     { check: "DB-36" },
     { check: "DB-99" },
     { check: "account-deleted", account: "delete" },
@@ -195,6 +260,16 @@ test("output prints only declared shapes and withholds anything else", () => {
     ["2026-13-45", "timestamp"],
     ["abc", "fingerprint"],
     ["root", "label"],
+    ["2.1.1.420; drop", "id"],
+    ["Still-Free", "id"],
+    [id, "id"],
+    ["a0123456789abcdef0123", "id"],
+    ["someone@example.com", "id"],
+    [["youtube.shorts", "someone@example.com"], "ids"],
+    [["youtube.shorts", id], "ids"],
+    ["youtube.shorts", "ids"],
+    [Array.from({ length: 33 }, (_, i) => `b${i}`), "ids"],
+    ["still-pro-v4", { type: "state", values: ["still-pro-v3"] }],
   ])
     assert.equal(formatValue(value, type), WITHHELD, JSON.stringify([value, type]));
   assert.equal(formatValue({ "youtube.shorts": true, instagram: false }, "switches"), "instagram=off, youtube.shorts=on");
@@ -203,6 +278,53 @@ test("output prints only declared shapes and withholds anything else", () => {
   assert.equal(formatValue(new Date("2026-10-10T12:00:00.123Z"), "timestamp"), "2026-10-10T12:00:00Z");
   assert.equal(formatValue(7n, "count"), "7");
   assert.equal(formatValue("qa-a", "label"), "QA A (qa-a)");
+  assert.equal(formatValue("2.1.1.420", "id"), "2.1.1.420");
+  assert.equal(formatValue("still-free-v2", "id"), "still-free-v2");
+  assert.equal(formatValue(["facebook.reels", "youtube.shorts"], "ids"), "facebook.reels, youtube.shorts");
+  assert.equal(formatValue([], "ids"), "(empty)");
+  assert.equal(formatValue("9", "number"), "9");
+});
+
+test("PROD-01 renders production sales facts and the cutoff, and withholds anything else", () => {
+  const request = resolveRequest({ check: "PROD-01" });
+  const [policy, builds, cutoff] = request.check.queries;
+  const at = new Date("2026-10-21T12:00:00Z");
+  const render = (rows) =>
+    renderReport({ ...request, holders: [], refKey: "7e".repeat(32), verdict: "needs-review",
+      results: request.check.queries.map((query, i) => ({ query, rows: rows[i] })) });
+  // Before go-live: no revision (Off), expected revision 0, no cutoff.
+  const off = render([
+    [{ sales_revision: null, expected_revision: "0", sales_published_at: null, sales_enabled: null, apple_enabled: null, apple_offer: null, web_enabled: null, web_offer: null }],
+    [],
+    [{ cutoff_present: false, cutoff_product: null, cutoff_benefits: null, cutoff_sales_revision: null, cutoff_activated_at: null }],
+  ]);
+  assert.match(off, /\| none \| 0 \| none \| none \| none \| none \| none \| none \|/);
+  assert.match(off, /### production approved builds\n\n\(no rows\)/);
+  assert.match(off, /\| no \| none \| none \| none \| none \|/);
+  assert.doesNotMatch(off, /withheld/);
+  // After go-live: the revision, both offers, the 3.0 builds and the write-once cutoff.
+  const on = render([
+    [{ sales_revision: "3", expected_revision: "3", sales_published_at: at, sales_enabled: true, apple_enabled: true, apple_offer: "still-pro-v3", web_enabled: true, web_offer: "still-pro-v3" }],
+    [{ surface: "apple_mobile_host", build: "3.0.0" }, { surface: "chrome_desktop", build: "3.0.0.1" }],
+    [{ cutoff_present: true, cutoff_product: "still-free-v2", cutoff_benefits: ["facebook.reels", "youtube.shorts"], cutoff_sales_revision: "3", cutoff_activated_at: at }],
+  ]);
+  assert.match(on, /\| 3 \| 3 \| 2026-10-21T12:00:00Z \| yes \| yes \| still-pro-v3 \| yes \| still-pro-v3 \|/);
+  assert.match(on, /\| apple_mobile_host \| 3\.0\.0 \|/);
+  assert.match(on, /\| yes \| still-free-v2 \| facebook\.reels, youtube\.shorts \| 3 \| 2026-10-21T12:00:00Z \|/);
+  assert.doesNotMatch(on, /withheld/);
+  // A hostile row never prints an id, an email or free text.
+  const holder = "c0c0c0c0-0000-4000-8000-000000000002";
+  const hostile = render([
+    [{ sales_revision: holder, expected_revision: "a@b.c", sales_published_at: "x", sales_enabled: "yes", apple_enabled: true, apple_offer: "free text", web_enabled: true, web_offer: holder }],
+    [{ surface: "https://example.com", build: holder }],
+    [{ cutoff_present: true, cutoff_product: "a@b.c", cutoff_benefits: [holder], cutoff_sales_revision: 1, cutoff_activated_at: at }],
+  ]);
+  assert.doesNotMatch(hostile, UUID);
+  assert.ok(!hostile.includes("a@b.c") && !hostile.includes("free text") && !hostile.includes("example.com"));
+  assert.match(hostile, /10 value\(s\) withheld/);
+  assert.deepEqual(Object.values(policy.fields).map((t) => (typeof t === "string" ? t : t.type)), ["number", "number", "timestamp", "bool", "bool", "state", "bool", "state"]);
+  assert.deepEqual(builds.fields.build, "id");
+  assert.deepEqual(cutoff.fields.cutoff_benefits, "ids");
 });
 
 test("a rendered report never contains a raw id or email, even from a hostile row", () => {
@@ -248,6 +370,10 @@ test("machine verdicts are only pass or fail where the expectation is exact; oth
   assert.equal(check("DB-02").verdict([registry(eight, { ...identity, confirmed: false })]), "fail");
   assert.deepEqual(check("DB-02").notes([registry(eight, identity)]).length, 1);
   assert.equal(check("DB-07").verdict, undefined);
+  // PROD-01 states facts for the operator to read: only a missing summary row is a machine failure.
+  assert.equal(check("PROD-01").verdict([[{}], [], [{}]]), undefined);
+  assert.equal(check("PROD-01").verdict([[], [], []]), "fail");
+  assert.equal(check("PROD-01").verdict([[{}, {}], [], [{}]]), "fail");
 });
 
 const WORKFLOW = ".github/workflows/supabase-readonly-checks.yml";

@@ -14,14 +14,16 @@ name: Supabase read-only QA check
 # get one line (check id and pass / fail / needs-review). The full report is encrypted with age to
 # the repository variable STILL_QA_READONLY_REPORT_PUBKEY and uploaded as an artifact only Claude's
 # private key can read. DB-01 also uploads a keyed production digest (meaningless without the key)
-# that DB-31 and DB-35 compare against. No Supabase CLI, no write credential, no deploy.
+# that DB-31 and DB-35 compare against. PROD-01 reads the production sales policy facts (already
+# public through the product-policy route) and the paid cutoff configuration through the one view
+# migration 0025 adds; no account data. No Supabase CLI, no write credential, no deploy.
 # Runbook: docs/release/qa-readonly-database-checks.md
 run-name: "Read-only QA check ${{ inputs.check }} ${{ inputs.account }} ${{ inputs.account_b }}"
 on:
   workflow_dispatch:
     inputs:
       check:
-        description: "Programme step to check (setup proves the route itself)"
+        description: "Programme step to check (setup proves the route itself; PROD-01 is the production sales and cutoff summary)"
         required: true
         default: setup
         type: choice
@@ -64,6 +66,7 @@ on:
           - DB-35
           - DB-37
           - DB-38
+          - PROD-01
       account:
         description: "QA account label, for checks about one account (the first account for two-account checks); preserved is not a QA alias and answers unavailable"
         required: true

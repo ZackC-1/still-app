@@ -526,6 +526,29 @@ loops already running stopped; the post-deploy checks and the owner-approved ter
 looping `authenticator` backends are in
 `docs/plans/2026-10-17-001-fix-legacy-settings-infinite-retry.md`.
 
+### Production sales summary view for PROD-01 (0025)
+
+`0025_production_sales_summary_view.sql` adds one view, `still_qa_checks.production_sales_summary`,
+for the read-only check PROD-01 (`docs/release/qa-readonly-database-checks.md`). It always returns
+one row: the newest production sales revision (`expected_revision` is that revision, or 0 before the
+first), salesEnabled, both channel offers, the build list, and whether the write-once production
+paid cutoff exists with its product id and benefits. It reads only
+`private.product_policy_revisions` and `private.paid_cutoff`; no account, operation, owner or
+preview data. The view is owned by `postgres` with `security_barrier`; PUBLIC and the client roles
+are revoked, and SELECT goes only to `still_qa_readonly_checker`, and only when that role exists
+(it comes from the unnumbered QA read-only candidate, which hosted production already holds; the
+candidate re-grants the view whenever it exists, so either install order ends in the same state).
+On a database without the role, the migration creates the `still_qa_checks` schema (owned by
+`postgres`) and the view with no grant.
+
+Deploy 0025 alone through the protected migration operation, after 0024. Its gate
+`deploy/verify/0025_production_sales_summary_view.sql` pins the version, the owner, the
+`security_barrier` option, the exact column list, the two tables the view depends on, the only
+grantee (the checker's plain SELECT, required when the role exists) and that no client role reaches
+the view or its schema; before the apply it reports `migration_version` and `view_missing`. Its
+invariant fingerprints the policy tables, which must not change. QA function deploys require hosted
+history to equal main, so apply 0025 before the next `qa-sandbox-functions` run.
+
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
 nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column
