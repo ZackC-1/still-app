@@ -213,7 +213,8 @@ test("only the approved apply job is bound to the environment and sees only the 
     GH_TOKEN: "${{ github.token }}",
   });
   assert.equal(SECRETS_ONLY.length, 20);
-  assert.equal(PURCHASE_ONLY.length, 21);
+  assert.equal(PURCHASE_ONLY.length, 22);
+  assert.ok(PURCHASE_ONLY.includes("PROD_APPLE_SANDBOX_REVIEW_ENABLED"));
   for (const name of PURCHASE_ONLY) assert.match(name, /^PROD_[A-Z0-9_]+$/);
   assert.equal(ANALYTICS_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);
   assert.equal(PURCHASE_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);

@@ -390,9 +390,17 @@ installation/link eligibility, isolated migration 0027 and writer adapter, defau
 composition, protected optional switch staging, and disposable SQL rehearsal. Verification:
 510 StillKit tests passed; 358 shared-backend Deno tests/115 steps passed (1 ignored); 17 protected
 purchase-operation tests passed; changed Deno sources lint and entry points typecheck.
-The new PostgreSQL rehearsal, production deployment, review-build device journey and analytics
-exclusion remain pending. D4 is not enabled in production.
+The [PostgreSQL rehearsal](https://github.com/ZackC-1/still-app/actions/runs/39692621515)
+passed production checkout and isolated Apple review ledger checks. Production deployment,
+review-build device journey and analytics exclusion remain pending. D4 is not enabled in production.
 
 Analytics audit checkpoint: approved event names exist for paywall views and purchase stages, but
 literal producer searches in current core/webview/native sources found schema/validation references
 only. Treat funnel instrumentation and delivery as unverified; do not infer them from event schemas.
+
+Read-only PostHog inspection on 21 October confirmed project 624923 (Still App) receives `opened`
+events. Typed trends over the prior 30 days, including test activity, returned no `paywall_viewed`,
+`purchase_started`, `purchase_completed`, `purchase_recorded`, `purchase_refunded` or
+`checkout_returned` events. The instrumentation gap is confirmed; no production conversion claim
+or dashboard is ready. Add client action/outcome producers through the existing consent-aware
+analytics port; retain canonical server sales and review-transaction exclusions as separate gates.
