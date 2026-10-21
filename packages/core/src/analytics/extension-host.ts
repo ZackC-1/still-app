@@ -710,7 +710,26 @@ export function createExtensionAnalyticsHost(
           const index = await client.erasureIndex(ending.origin);
           if (await deps.erasure.record(ending, index ?? ANON_INDEX_LIMIT)) void deps.erasure.kick();
         }
-        if (request.enabled && (await client.canReport())) {
+        // An account change landing during the read (a sign-out around the tap) makes it answer
+        // false although the grant stands: such a read is stale, so ask once more.
+        if (request.enabled && ((await client.canReport()) || (await client.canReport()))) {
+          // A worker this tap woke has its start's account read in flight: let it land first (as a
+          // page's track does), so a session that ended while it slept is let go, never re-held.
+          await waitForStart();
+          // A sign-out asked while sharing was off is still owed: install it first, so the choice
+          // is recorded as signed-out use and not dropped with what waited for the account. A hold
+          // made under the earlier permission is re-tagged under this one.
+          await client.settleAccount();
+          // Still signed in: the new origin needs its own identity (the earlier one is being
+          // erased), so ask for it before the choice is recorded. Until it is issued, the choice
+          // waits under this account's hold and is never sent unattributed.
+          // The ask is reserved before the account is read: a sign-out that arrives meanwhile is a
+          // later ask and wins (this identify then holds and confirms nothing).
+          if (deps.subjects) {
+            const ask = client.reserveAccountAsk();
+            const account = await client.accountInForce();
+            if (account !== null && client.isLatestAsk(ask)) await identify(account, {}, ask);
+          }
           await client.track("analytics_choice_made", { choice: "share" });
           return true;
         }

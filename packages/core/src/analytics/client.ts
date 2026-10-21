@@ -759,6 +759,36 @@ export class AnalyticsClient {
     return this.confirm(null, { forget: options.forgetAccount });
   }
 
+  /**
+   * Install the host's latest account ask now, if it is still owed, without sending anything. An
+   * ask made while sharing was off cannot be installed then (a sign-out with the switch off), so it
+   * waits for the next flush. A host turning sharing back on calls this before recording the
+   * choice: otherwise the choice would wait unattributed beside the owed sign-out, which then drops
+   * it as possibly the departed account's use (ISS-0113). The same step a flush takes first.
+   */
+  settleAccount(): Promise<void> {
+    return this.run(async () => {
+      if (!this.confirmed) await this.establish(true);
+      // A sign-in hold that spans a permission change (made while sharing was off, or still waiting
+      // for its identity when sharing went off) is tagged under the earlier origin. Tag it under the
+      // permission now in force, or the identity confirmed later would not own what waits under it.
+      if (this.heldAccount !== null) await this.recordHold(this.heldAccount, null);
+    });
+  }
+
+  /** The account this device is signed in as for analytics, or null: the account it is held for,
+   * else the account whose identity it reports under. Never sent; a host re-identifies with it
+   * when sharing is turned back on (a new origin needs its own identity). */
+  accountInForce(): Promise<string | null> {
+    return this.run(async () => {
+      // A sign-out owed (asked, or not yet installed) means nobody: never re-identify past it.
+      if (this.lastAsked === null || this.pending?.account === null) return null;
+      if (this.heldAccount !== null) return this.heldAccount;
+      const state = await this.read();
+      return state && state.userId !== null ? state.accountRef : null;
+    });
+  }
+
   /** The account this install reports as, or null (also when the state cannot be read: work that
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {

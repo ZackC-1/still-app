@@ -96,6 +96,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let readyPromise: Promise<Ready | null> | null = null;
   let currentReady: Ready | null = null;
   let epoch = 0;
+  /** The latest account answer from the host: an account, nobody, or not known yet. A client made
+   * when sharing is turned back on is told it before it records anything (ISS-0113). */
+  let account: string | null | undefined;
 
   const ready = (): Promise<Ready | null> =>
     (readyPromise ??= (async () => {
@@ -265,24 +268,28 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         ); // any use counts toward the day
         void r.attach(r.observation); // a failed launch attach is retried by ordinary app use
       }),
-    identify: (userId) =>
+    identify: (userId) => {
+      account = userId;
       withReady(async (r) => {
         await r.identify(userId); // a completed sign-in confirms the account
         // With per-device subjects the identify was the server request; a failure is retried at
         // the next ordinary use, not again in the same turn.
         if (!deps.subjects) void r.attach();
-      }),
+      });
+    },
     // Resolves once the account is let go of (deletion waits for it). A deletion also forgets this
     // device's cached per-device subject for the account.
-    reset: (options) =>
-      ready()
+    reset: (options) => {
+      account = null;
+      return ready()
         .then(async (r) => {
           if (!r) return;
           const reportingAs = options?.forgetAccount && deps.subjects ? r.client.signedInAs() : null;
           await r.client.reset(options);
           if (options?.forgetAccount && deps.subjects) await r.forgetSubjects(await reportingAs, options.account);
         })
-        .catch(() => undefined),
+        .catch(() => undefined);
+    },
     async sharing() {
       const r = await ready();
       return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
@@ -319,6 +326,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         consent = context.consent;
         const allowed = await previous.client.canReport();
         if (!allowed || asked !== epoch) return false;
+        await previous.client.settleAccount(); // an account change owed while sharing was off
         await previous.client.track("analytics_choice_made", {
           choice: "share",
         });
@@ -328,8 +336,18 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       currentReady = null;
       const r = await ready();
       consent = !!r && (await r.client.canReport());
-      if (consent) await r!.client.track("analytics_choice_made", { choice: "share" });
-      return consent;
+      if (!consent) return false;
+      // The new client sends nothing until it is told who is signed in. Tell it before the choice is
+      // recorded: a choice waiting unattributed would be dropped when the account answer then lands
+      // (a sign-out while sharing was off, or the stored identity of the stopped period).
+      if (account === null) await r!.client.confirm(null, { forget: true });
+      else if (account !== undefined) {
+        await r!.identify(account);
+        if (!deps.subjects) void r!.attach();
+      }
+      if (asked !== epoch) return false;
+      await r!.client.track("analytics_choice_made", { choice: "share" });
+      return true;
     },
     acknowledgeNotice() {
       noticeSeen = true;
@@ -388,6 +406,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       void r.attach(observation);
     },
     async identifyAccount(userId) {
+      account = userId;
       const r = await ready();
       if (!r) return;
       await r.identify(userId); // a live session confirms the account
@@ -396,6 +415,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       if (!deps.subjects) void r.attach();
     },
     async accountAbsent() {
+      account = null;
       const r = await ready();
       if (!r) return;
       await r.client.confirm(null, { forget: true }); // known: nobody is signed in

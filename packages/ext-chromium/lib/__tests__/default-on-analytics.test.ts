@@ -4,6 +4,7 @@ import {
   NOTICE_KEY,
   NOTICE_VERSION_KEY,
   QUEUE_KEY,
+  STATE_KEY,
   USAGE_PERMISSION_VERSION,
   readAnalyticsPermission,
   supabaseSubjectIssuer,
@@ -278,6 +279,185 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
   const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const OPEN = { action: "track", name: "opened", props: { where: "options" } };
 
+  /** The production issuer answered `test_channel` by the server (a QA build), as in the QA lane. */
+  const testChannelIssuer = () =>
+    supabaseSubjectIssuer(
+      {
+        auth: { getSession: async () => ({ data: { session: { access_token: "t", user: { id: ACCOUNT } } }, error: null }) },
+        functions: { invoke: async () => ({ data: { state: "test_channel" }, error: null }) },
+      },
+      "phc_qa_project_key",
+    );
+  /** The server issues one identity per device origin: a new origin (sharing turned back on) gets a
+   * new one. `available` false answers 503 as the server's switch does while it is off. */
+  const perOriginIssuer = (subjects: readonly string[]) => {
+    const issued = new Map<string, string>();
+    const issuer = {
+      available: true,
+      issue: vi.fn(async (body: { originProof: string }) => {
+        if (!issuer.available) throw new Error("503 unavailable");
+        if (!issued.has(body.originProof)) issued.set(body.originProof, subjects[issued.size]!);
+        return { state: "active", subject: issued.get(body.originProof)! };
+      }),
+    };
+    return issuer;
+  };
+  const SUBJECT_2 = "5ab5ec7a-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const events = (t: ReturnType<typeof setup>) =>
+    t.fetch.mock.calls.flatMap((call) =>
+      (JSON.parse(String((call[1] as RequestInit).body)) as { batch: { event: string; properties: { distinct_id: string } }[] }).batch,
+    );
+  const choices = (t: ReturnType<typeof setup>) =>
+    events(t).filter((e) => e.event === "analytics_choice_made").map((e) => e.properties.distinct_id);
+  const settled = async (t: ReturnType<typeof setup>) => {
+    for (let i = 0; i < 5; i++) await t.settle();
+    await t.bg.client.flush();
+  };
+
+  // ISS-0113 review: a sign-in hold that spans Off then On was tagged under the stopped origin, so
+  // the identity confirmed under the new one did not own the choice waiting under it.
+  it("ISS-0113: signed in while sharing was off, then On: one choice, under the identity issued for the new origin", async () => {
+    const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue });
+    await install(t);
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    await t.send({ action: "identify", userId: ACCOUNT }); // signed in while sharing is off
+    await settled(t);
+    t.fetch.mockClear();
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.send(OPEN);
+    await settled(t);
+    expect(choices(t)).toEqual([SUBJECT]); // the first identity this account was ever issued here
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+  });
+
+  it("ISS-0113: signed in with no identity issued yet (503), Off then On: one choice, sent once the identity arrives", async () => {
+    const issuer = perOriginIssuer([SUBJECT]);
+    issuer.available = false;
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue });
+    await install(t);
+    await t.send({ action: "identify", userId: ACCOUNT });
+    await t.send(OPEN);
+    await settled(t);
+    t.fetch.mockClear();
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await settled(t);
+    expect(t.fetch).not.toHaveBeenCalled(); // held: never sent unattributed
+    expect(t.queue()).toEqual(["analytics_choice_made"]);
+    issuer.available = true;
+    await t.send({ action: "identify", userId: ACCOUNT }); // the page reports the session again
+    await settled(t);
+    expect(choices(t)).toEqual([SUBJECT]);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+  });
+
+  // ISS-0113 review: signed in with a confirmed identity, Off then On while still signed in. The
+  // earlier identity belongs to the stopped origin (being erased); the choice goes to the new one.
+  it("ISS-0113: signed in with an identity, Off then On: the choice goes to the identity for the new origin", async () => {
+    const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue });
+    await install(t);
+    await t.send({ action: "identify", userId: ACCOUNT });
+    await t.send(OPEN);
+    await settled(t);
+    expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+    t.fetch.mockClear();
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.send(OPEN);
+    await settled(t);
+    expect(choices(t)).toEqual([SUBJECT_2]);
+    expect(t.bodies()).not.toContain(SUBJECT);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+    const state = t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+    expect(state.userId).toBe(SUBJECT_2);
+    expect(state.heldFor).toBeNull();
+  });
+
+  // ISS-0113 final check: the session ended while the worker slept, and the On tap wakes it. The
+  // start's account read (nobody) must land before the re-identify, which would otherwise supersede
+  // it and hold the device for the departed account for the worker's life.
+  it.each([12, 25, 40])(
+    "ISS-0113: a worker woken by the On tap after the session ended (start read %i ms) ends signed out",
+    async (delay) => {
+      const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+      const local = memory({}, 1);
+      const before = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local });
+      await install(before);
+      await before.send({ action: "identify", userId: ACCOUNT });
+      await before.send(OPEN);
+      await settled(before);
+      expect(before.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(await before.send({ action: "setSharing", enabled: false })).toBe(false);
+      before.bg.stop(); // the worker sleeps; the session ends meanwhile
+
+      const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local });
+      t.bg.onStart(new Promise<string | null>((resolve) => setTimeout(() => resolve(null), delay)));
+      expect(await t.send({ action: "setSharing", enabled: true })).toBe(true); // the tap that woke it
+      await settled(t);
+      await t.send(OPEN);
+      await settled(t);
+      const state = local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+      expect(state.userId).toBeNull();
+      expect(state.heldFor).toBeNull();
+      expect(t.queue()).toEqual([]);
+      const ids = choices(t);
+      expect(ids).toHaveLength(1);
+      expect([SUBJECT, SUBJECT_2]).not.toContain(ids[0]);
+      expect(t.bodies()).not.toContain(ACCOUNT);
+      expect(issuer.issue).toHaveBeenCalledTimes(1); // only the first worker's sign-in asked
+    },
+    15_000,
+  );
+
+  // ISS-0113 re-review: the re-identify on turn-on must never win over a sign-out that arrives
+  // around the tap. Storage reads take a macrotask, as chrome.storage's do.
+  it.each([-1, 0, 1, 2, 3, 5, 8, 13, 21, 34])(
+    "ISS-0113: a sign-out arriving %i ms around the On tap (signed in with an identity) ends signed out",
+    async (offset) => {
+      const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+      const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local: memory({}, 1) });
+      await install(t);
+      await t.send({ action: "identify", userId: ACCOUNT });
+      await t.send(OPEN);
+      await settled(t);
+      expect(t.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+      t.fetch.mockClear();
+      const signOut = () => t.send({ action: "reset", forgetAccount: false });
+      let resetting: Promise<unknown> | undefined;
+      if (offset < 0) resetting = signOut();
+      const turningOn = t.send({ action: "setSharing", enabled: true });
+      if (offset >= 0) {
+        await new Promise((r) => setTimeout(r, offset));
+        resetting = signOut();
+      }
+      expect(await turningOn).toBe(true);
+      await resetting;
+      await settled(t);
+      await t.send(OPEN); // signed-out use
+      await settled(t);
+      await t.bg.client.flush();
+      const state = t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+      expect(state.userId).toBeNull();
+      expect(state.heldFor).toBeNull();
+      expect(t.queue()).toEqual([]);
+      const sent = events(t);
+      expect(sent.filter((e) => e.event === "analytics_choice_made")).toHaveLength(1);
+      const opened = sent.filter((e) => e.event === "opened").map((e) => e.properties.distinct_id);
+      expect(opened).toHaveLength(1);
+      expect([SUBJECT, SUBJECT_2]).not.toContain(opened[0]);
+      expect(choices(t)).not.toContain(SUBJECT); // never the stopped period's identity
+      expect(t.bodies()).not.toContain(ACCOUNT);
+    },
+    15_000,
+  );
+
+
   it("a Still screen asks the server with only the origin proof; use is sent under the subject", async () => {
     const issueSubject = vi.fn(async (_body: { originProof: string }, _signal: AbortSignal, _account: string) => ({
       state: "active",
@@ -373,6 +553,50 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(t.permission()?.state).toBe("granted"); // never a stop
     expect(t.fetch).not.toHaveBeenCalled();
     expect(t.queue()).toEqual(expect.arrayContaining(["opened"]));
+  });
+
+  // ISS-0113 (QA 2.1.1.400): signed in, sharing Off, signed out while it was off, then On. The
+  // sign-out could not be installed while sharing was off, so the choice waited beside it and was
+  // dropped with what waited for the account. ADR 0004: the choice is recorded each time.
+  it.each([
+    ["an issued identity", (): BackgroundAnalyticsDeps["issueSubject"] => async () => ({ state: "active", subject: SUBJECT })],
+    ["no identity (test_channel)", testChannelIssuer],
+  ])("ISS-0113: with %s, Off, a sign-out while off, then On sends the choice under a new anonymous id", async (_label, issuer) => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer() });
+    await install(t);
+    // A first Off then On while signed out: the choice is sent (and the anonymous id rotates).
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.bg.client.flush();
+    const ids = () =>
+      t.fetch.mock.calls.flatMap((call) =>
+        (JSON.parse(String((call[1] as RequestInit).body)) as { batch: { event: string; properties: { distinct_id: string } }[] }).batch,
+      );
+    const firstChoice = ids().filter((e) => e.event === "analytics_choice_made");
+    expect(firstChoice).toHaveLength(1);
+    const earlier = new Set(ids().map((e) => e.properties.distinct_id));
+
+    // Signed in, then Off, then signed out while sharing is off.
+    await t.send({ action: "identify", userId: ACCOUNT });
+    await t.send(OPEN);
+    for (let i = 0; i < 3; i++) await t.settle();
+    await t.bg.client.flush();
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    await t.send({ action: "track", name: "signed_out", props: {} });
+    await t.send({ action: "reset", forgetAccount: false });
+    t.fetch.mockClear();
+
+    expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+    await t.bg.client.flush();
+    const choice = ids().filter((e) => e.event === "analytics_choice_made");
+    expect(choice).toHaveLength(1);
+    const id = choice[0]!.properties.distinct_id;
+    expect(earlier.has(id)).toBe(false);
+    expect(id).not.toBe(SUBJECT);
+    expect(t.bodies()).not.toContain(ACCOUNT);
+    expect(t.queue()).toEqual([]);
+    expect((t.local.data[STATE_KEY] as { userId: unknown; heldFor: unknown }).userId).toBeNull();
+    expect((t.local.data[STATE_KEY] as { heldFor: unknown }).heldFor).toBeNull();
   });
 
   it("a server stop ends sharing on this device", async () => {
