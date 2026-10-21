@@ -20,6 +20,9 @@
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
+  // Where the current press and release on the dimmed layer landed (see the layer's markup).
+  let pressOnLayer = false;
+  let releaseOnLayer = false;
   // Firefox asks for an affirmative yes, not just an acknowledgement, so the checkbox gates its
   // Continue button. Sheet-local: it means nothing once the step is past.
   let agreedToShareEmail = $state(false);
@@ -106,12 +109,25 @@
      only the dimmed band above the panel and never sits underneath it (ISS-0114): a pointer, Voice
      Control or an automated click aimed at the button's middle reaches it. Beside a narrow panel on a
      wide page the layer itself is the dimming, and a click there closes the sheet as before; the
-     button stays the one named control. -->
+     button stays the one named control. Because the panel now sits inside the layer, a drag that
+     starts in the panel and ends on the dimming (or the reverse) is delivered as a click on the
+     layer itself, so the layer closes only when both the press and the release landed on it:
+     selecting a typed address by dragging past the panel's edge must not throw it away. -->
 <div
   class="layer"
   role="presentation"
+  onpointerdown={(event) => {
+    pressOnLayer = event.target === event.currentTarget;
+    releaseOnLayer = false;
+  }}
+  onpointerup={(event) => {
+    releaseOnLayer = event.target === event.currentTarget;
+  }}
   onclick={(event) => {
-    if (event.target === event.currentTarget) onDismiss();
+    const outside = pressOnLayer && releaseOnLayer && event.target === event.currentTarget;
+    pressOnLayer = false;
+    releaseOnLayer = false;
+    if (outside) onDismiss();
   }}
 >
   <button

@@ -17,6 +17,8 @@ const SURFACES = [
   // Chrome's embedded Settings dialog can be short, which makes the panel nearly fill the page.
   { name: "short Settings page", path: "options.html", viewport: { width: 700, height: 420 } },
   { name: "popup", path: "popup.html", viewport: { width: 380, height: 600 } },
+  // So short that the panel reaches its height limit and the strip above it is at its 12px minimum.
+  { name: "very short popup", path: "popup.html", viewport: { width: 380, height: 260 } },
 ] as const;
 
 async function openSheet(
@@ -47,8 +49,11 @@ test.describe("sign-in sheet backdrop", () => {
       // The backdrop button sits beside the panel, never underneath it.
       const button = (await backdrop.boundingBox())!;
       const panel = (await page.getByRole("dialog").boundingBox())!;
-      expect(button.height).toBeGreaterThan(0);
-      expect(button.width).toBe(surface.viewport.width);
+      // At least the 12px minimum, and the full page width (a scrollbar, when one shows, is not page).
+      expect(button.height).toBeGreaterThanOrEqual(12);
+      const pageWidth = await page.evaluate(() => document.documentElement.clientWidth);
+      expect(button.width).toBeGreaterThanOrEqual(pageWidth - 0.5);
+      if (surface.name === "very short popup") expect(button.height).toBeLessThan(13);
       expect(button.y + button.height).toBeLessThanOrEqual(panel.y + 0.5);
       // A click inside the panel keeps it open.
       await page.getByRole("dialog").getByRole("heading").click();
@@ -78,5 +83,53 @@ test.describe("sign-in sheet backdrop", () => {
     expect(panel.x).toBeGreaterThan(40);
     await page.mouse.click(20, panel.y + panel.height / 2);
     await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  // A drag that starts on one side of the panel's edge and ends on the other is delivered as a
+  // click on the dimmed layer; it must not close the sheet (and lose a typed address).
+  for (const surface of [SURFACES[0], SURFACES[2]]) {
+    test(`${surface.name}: a drag across the panel's edge keeps the sheet open`, async ({ context, extensionId }) => {
+      const page = await openSheet(context, extensionId, surface);
+      const dialog = page.getByRole("dialog");
+      const consent = dialog.getByRole("button", { name: "Continue" });
+      if (await consent.count()) await consent.click();
+      const field = page.getByLabel("Email address");
+      await field.fill("drag-check@still.test");
+      const box = (await field.boundingBox())!;
+
+      // Press in the field (as when selecting the address), release on the dimming at the top.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(10, 4, { steps: 5 });
+      await page.mouse.up();
+      await expect(dialog).toBeVisible();
+      await expect(field).toHaveValue("drag-check@still.test");
+
+      // The reverse: press on the dimming strip, release inside the panel.
+      await page.mouse.move(10, 4);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await expect(dialog).toBeVisible();
+      await expect(field).toHaveValue("drag-check@still.test");
+
+      // An ordinary click on the dimming still closes it.
+      await page.mouse.click(10, 4);
+      await expect(dialog).toHaveCount(0);
+    });
+  }
+
+  test("wide Settings page: a drag on the dimming beside the panel that ends inside it keeps the sheet open", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await openSheet(context, extensionId, SURFACES[0]);
+    const dialog = page.getByRole("dialog");
+    const panel = (await dialog.boundingBox())!;
+    await page.mouse.move(20, panel.y + panel.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(dialog).toBeVisible();
   });
 });
