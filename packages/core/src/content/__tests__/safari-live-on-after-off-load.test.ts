@@ -39,6 +39,8 @@ type Reads = "ready" | "unavailable" | "rejects";
 function safariWorld(app: StoredSettingsRecord, reads: Reads = "ready") {
   const values: Record<string, unknown> = { "still:settings": structuredClone(app) };
   const listeners = new Set<(changes: Record<string, { oldValue?: unknown; newValue: unknown }>, area: string) => void>();
+  // The next browser-storage read answers with what storage held when it was made, once released.
+  let holdNext: Promise<void> | null = null;
   // The background's answer to one settings read; a test may replace it (a slow reply).
   let answer = (): Promise<unknown> => {
     if (reads === "rejects") return Promise.reject(new Error("Could not establish connection")); // background asleep
@@ -54,7 +56,11 @@ function safariWorld(app: StoredSettingsRecord, reads: Reads = "ready") {
       local: {
         async get(key: string | string[]) {
           const keys = Array.isArray(key) ? key : [key];
-          return Object.fromEntries(keys.filter((k) => k in values).map((k) => [k, structuredClone(values[k])]));
+          const read = Object.fromEntries(keys.filter((k) => k in values).map((k) => [k, structuredClone(values[k])]));
+          const held = holdNext;
+          holdNext = null;
+          if (held) await held;
+          return read;
         },
         async set(items: Record<string, unknown>) {
           for (const [key, newValue] of Object.entries(items)) {
@@ -75,6 +81,12 @@ function safariWorld(app: StoredSettingsRecord, reads: Reads = "ready") {
     sendMessage,
     setReads: (next: Reads) => { reads = next; },
     answerWith: (next: () => Promise<unknown>) => { answer = next; },
+    /** Hold the next storage read; it resolves (with the values it read) on the returned release. */
+    holdNextStorageRead: () => {
+      let release!: () => void;
+      holdNext = new Promise<void>((resolve) => { release = resolve; });
+      return release;
+    },
     /** Write a record into browser storage directly, as a stale or racing mirror would. */
     mirror: (record: StoredSettingsRecord) => chrome.storage.local.set({ "still:settings": structuredClone(record) }),
     /** The popup's switch: one native intent, then the committed record mirrored into storage. */
@@ -191,6 +203,9 @@ describe("Safari page loaded with Facebook Off, then On from the popup (ISS-0084
     expect(hidden(tab)).toBe(true);
     expect(probe.currentRecord().atomic?.sequence).toBe(newer.atomic!.sequence);
     expect(probe.current().services.facebook).toBe(true);
+    // A refused copy neither pauses the newer record nor puts the cache into recovery.
+    await expect(probe.whenHydrated()).resolves.toBeUndefined();
+    expect(probe.currentRecord().atomic?.paused).toBeNull();
   });
 
   it("a retained copy blocks without counting as a successful app read; the next successful read clears that", async () => {
@@ -214,28 +229,51 @@ describe("Safari page loaded with Facebook Off, then On from the popup (ISS-0084
     expect(probe.current().services.facebook).toBe(true);
   });
 
-  it("a superseded slow reread delivers nothing; only the newer reread does", async () => {
+  it("a superseded reread delivers nothing, even after it failed and fetched its copy; only the newer reread does", async () => {
     vi.useFakeTimers();
     const first = await appRecord("services.facebook", false);
-    const world = safariWorld(first);
+    const world = safariWorld(first, "unavailable");
     const delivered: Array<{ facebook: boolean; retained: boolean }> = [];
     const unsubscribe = new ChromeStorageAdapter().subscribe((record, recovery) =>
       delivered.push({ facebook: record.settings.services.facebook, retained: recovery !== undefined }));
-    // The first reread's background reply is slow; it answers later with the old record.
-    let answerSlow!: (value: unknown) => void;
-    world.answerWith(() => new Promise((resolve) => { answerSlow = resolve; }));
+    // The first reread fails at once, then fetches its retained copy (Off) slowly.
+    const release = world.holdNextStorageRead();
     await world.mirror(first);
     await vi.advanceTimersByTimeAsync(10);
     expect(world.sendMessage).toHaveBeenCalledTimes(1);
+    expect(delivered).toEqual([]);
 
-    // A newer switch arrives while that read is out; its own reread fails, so it carries the copy.
-    world.answerWith(() => Promise.resolve({ status: "unavailable" }));
+    // A newer switch arrives while that copy is being fetched; its own reread fails and carries On.
     await world.popup("services.facebook", true);
     await vi.advanceTimersByTimeAsync(10);
-    answerSlow({ status: "ready", record: structuredClone(first) }); // the superseded reply, late
+    expect(world.sendMessage).toHaveBeenCalledTimes(2);
+    release(); // the superseded request's stale Off copy arrives last
     await vi.advanceTimersByTimeAsync(10);
     unsubscribe();
-    expect(world.sendMessage).toHaveBeenCalledTimes(2);
     expect(delivered).toEqual([{ facebook: true, retained: true }]);
+  });
+
+  it("a legacy copy is in recovery only when last-write-wins accepts it", async () => {
+    vi.useFakeTimers();
+    const legacy = (updatedAt: number, facebook: boolean): StoredSettingsRecord => ({
+      settings: { ...DEFAULT_SETTINGS, updatedAt, services: { ...DEFAULT_SETTINGS.services, facebook } }, syncMetadata: null,
+    });
+    const world = safariWorld(legacy(5, true));
+    const probe = new SettingsCache(new ChromeStorageAdapter());
+    const unwatch = probe.watch();
+    await probe.hydrate();
+    await expect(probe.whenHydrated()).resolves.toBeUndefined();
+    world.setReads("unavailable");
+
+    await world.mirror(legacy(3, false)); // older than the app's record: refused
+    await vi.advanceTimersByTimeAsync(10);
+    expect(probe.current().services.facebook).toBe(true);
+    await expect(probe.whenHydrated()).resolves.toBeUndefined();
+
+    await world.mirror(legacy(9, false)); // newer: accepted, and the cache is in recovery
+    await vi.advanceTimersByTimeAsync(10);
+    unwatch();
+    expect(probe.current().services.facebook).toBe(false);
+    await expect(probe.whenHydrated()).rejects.toBeInstanceOf(SettingsStorageRecovery);
   });
 });

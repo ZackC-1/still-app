@@ -656,9 +656,21 @@ export class SettingsCache {
       this.acceptCommitted(record, "external", false);
       if (this.atomic !== record.atomic) return; // refused: older or another account's
       this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
-    } else if (this.atomic) return;
-    else this.applyStoredRecord(record, "external");
+      this.hydrationRecovery = recovery;
+      this.notifyAuthority();
+      return;
+    }
+    if (this.atomic) return;
+    // A legacy copy goes through the usual last-write-wins arbitration, which notifies as it
+    // accepts; the recovery is in place before any observer runs and stays only if it was accepted.
+    const previous = this.hydrationRecovery;
     this.hydrationRecovery = recovery;
+    if (!this.applyStoredRecord(record, "external")) {
+      this.hydrationRecovery = previous;
+      return;
+    }
+    // As load() reports a failed read that retained a copy.
+    this.publishLegacyFailure(recovery.reason, record);
     this.notifyAuthority();
   }
 
