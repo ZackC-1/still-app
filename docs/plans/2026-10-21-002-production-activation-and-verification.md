@@ -183,6 +183,21 @@ instrumentation of Still's custom paywall or compliance with its approved usage-
 
 ## Current checkpoint
 
+Implementation authorization: the owner authorized autonomous work on the remaining production
+backend/payments and analytics tasks. The owner explicitly approved isolated device-only Apple
+App Review/TestFlight sandbox access behind a separate server switch (D4), and the four-benefit
+`still-free-v2` cutoff (D2): `youtube.shorts`, `instagram.reels`, `facebook.reels`, `tiktok.all`.
+Neither decision activates sales or permits sandbox account rights in production.
+
+The first implementation unit extracts the tested Stripe provider transport into a shared,
+explicit sandbox/production implementation. QA composition remains fixed to sandbox; production
+checks live credentials and live Session/Price/Product/PaymentIntent/Charge objects. Its initial
+dispatch uses a separate idempotency namespace; recovery stays GET-only. Red evidence: the new
+production test failed on the absent module before implementation. Green evidence: 6 production
+transport tests, all 47 unchanged QA transport tests, and all 53 QA checkout-runtime/webhook
+regression tests passed locally. No deployment, production purchase ledger or production route
+activation is implied by this leaf implementation.
+
 Initial read-only inventory completed. The owner subsequently completed the Stripe portal changes
 recorded below; this session has made no production backend writes or customer-record changes.
 The DB-01 workflow used the existing `standing-v1` authorization; production write approvals remain
