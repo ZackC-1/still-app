@@ -270,7 +270,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   const ui: UiAnalytics = {
     track: (name, props) =>
       withReady(async (r) => {
-        await r.client.track(name, props, { observation: r.observation });
+        // Purchase UI is shared by iPhone and Mac. Resolve its unspecified origin from the same
+        // native context that supplies the surface, without waiting in or delaying the purchase.
+        const located = "purchase_origin" in props && props.purchase_origin === "unknown"
+          ? { ...props, purchase_origin: r.context.platform === "macos" ? "mac_app_store" as const : "app_store" as const }
+          : props;
+        await r.client.track(name, located, { observation: r.observation });
         await r.client.trackDaily(
           "active",
           "active",

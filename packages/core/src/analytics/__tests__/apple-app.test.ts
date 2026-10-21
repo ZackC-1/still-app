@@ -91,6 +91,21 @@ function setup(
 }
 
 describe("Apple app analytics", () => {
+  it.each([['macos', 'mac_app_store'], ['ios', 'app_store']] as const)(
+    "attributes purchase actions to the native %s store and respects withdrawal",
+    async (platform, origin) => {
+      const { app, events } = setup({ platform });
+      await app.start();
+      app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+      await vi.waitFor(() => expect(events().filter(event => event.event === "purchase_started")).toHaveLength(1));
+      expect(events().find(event => event.event === "purchase_started")?.properties.purchase_origin).toBe(origin);
+      await app.ui.setSharing!(false);
+      app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+      await app.recheckSetup();
+      expect(events().some(event => event.event === "purchase_started")).toBe(false);
+    },
+  );
+
   it("a new Mac install reports installed, the app opening and one active day", async () => {
     const { app, events } = setup();
     await app.start();

@@ -404,3 +404,39 @@ events. Typed trends over the prior 30 days, including test activity, returned n
 `checkout_returned` events. The instrumentation gap is confirmed; no production conversion claim
 or dashboard is ready. Add client action/outcome producers through the existing consent-aware
 analytics port; retain canonical server sales and review-transaction exclusions as separate gates.
+
+### Purchase interaction instrumentation and privacy review
+
+Browser checkout attempts/failures and restore outcomes now use the existing page analytics port.
+An already-open checkout tab does not create another start. Apple settings offer openings,
+deliberate dismissals, StoreKit dispatch, cancellation and unresolved/failure outcomes use the
+existing app analytics client. Native context supplies iOS/Mac origin; no receipt or identifier
+is included in these event properties. Generic accepted access never emits a new-sale event:
+it can represent an existing right, restore, cross-device purchase or isolated review right.
+
+The inline browser offer needs a truthful view denominator even when Settings opened directly.
+Privacy review: extend only `paywall_viewed.trigger` with the fixed value `settings_card`.
+This describes Still's own UI, uses the existing consent/identity/envelope and Product Interaction
+declaration, and introduces no browsing, free-text, provider or customer data. Report once per page
+only when the sellable card intersects a visible viewport. Do not invent `locked_switch` or
+`upgrade_button` attribution for an unknown navigation path. No new event name or data category.
+
+Browser visibility return after a pending checkout emits `checkout_returned` with `unknown`:
+navigation and even a changed access snapshot cannot prove a new payment or a cancellation.
+
+Still pending: canonical sale/refund attribution with durable deduplication and withdrawal checks,
+remaining entry-point attribution, actual production event delivery,
+review exclusions in reporting, and the final conversion dashboard. Interaction events are not
+financial records and must not be presented as verified sales.
+
+Source verification: lint, typecheck and build passed. Browser action/host/consent suites passed
+139 tests, with the final checkout-return test bringing the action suite to 83. Apple host/app
+suites passed 240 tests, privacy validation 109, and the actual default-on factories passed 37
+browser and 29 Apple tests. Full browser fixtures passed 367 tests, with 37 intentional skips.
+These checks use mocked analytics sinks and do not prove hosted PostHog delivery.
+
+The served access rehearsal exposed its old sandbox issuer setting against the now production-only
+reconciliation route. Its disposable fixture now uses production composition with generated keys,
+synthetic provider ports and local PostgreSQL. Production source is unchanged by this correction;
+QA routes retain their separate sandbox rehearsal. All 17 runtime-closure tests and four proof/
+readiness tests passed locally; the actual CLI/database rerun remains required in hosted CI.

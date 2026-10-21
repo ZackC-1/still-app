@@ -167,6 +167,22 @@ describe("background analytics (Chrome)", () => {
 });
 
 describe("background analytics (Firefox)", () => {
+  it("purchase actions obey permission and never accept server sale events from a page", async () => {
+    const denied = setup({ isFirefox: true, granted: false });
+    const allowed = setup({ isFirefox: true, granted: true });
+    const action = { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "purchase_started",
+      props: { purchase_origin: "web", product: "still-pro-v3" } };
+    await denied.send(action, PAGE);
+    expect(denied.queue()).toEqual([]);
+    await allowed.send(action, PAGE);
+    expect(allowed.queue().filter(event => event.event === "purchase_started")).toHaveLength(1);
+    await allowed.send({ ...action, name: "purchase_recorded" }, PAGE);
+    expect(allowed.queue().some(event => event.event === "purchase_recorded")).toBe(false);
+    await allowed.send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false }, PAGE);
+    await allowed.send(action, PAGE);
+    expect(allowed.queue()).toEqual([]);
+  });
+
   it("sends and queues nothing until the data-collection permission is granted", async () => {
     const { bg, send, queue, fetch } = setup({ isFirefox: true, granted: false });
     bg.onInstalled({ reason: "install" });

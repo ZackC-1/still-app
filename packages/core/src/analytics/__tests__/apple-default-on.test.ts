@@ -137,6 +137,23 @@ describe("root cause: without the default-on wiring the Apple app reports nothin
 });
 
 describe("V3 Apple app: on by default, with the switch as the one control", () => {
+  it("delivers offer and purchase actions with native store attribution, then honors the off switch", async () => {
+    const t = setup();
+    await launch(t);
+    t.app.ui.track("paywall_viewed", { trigger: "upgrade_button", where: "app" });
+    t.app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+    await vi.waitFor(async () => {
+      await t.app.start();
+      expect(t.sent()).toEqual(expect.arrayContaining(["paywall_viewed", "purchase_started"]));
+    });
+    expect(t.bodies().join("\n")).toContain('"purchase_origin":"app_store"');
+    await t.app.ui.setSharing!(false);
+    t.fetch.mockClear();
+    t.app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
   it("grants in the App Group at the first launch, reports it, and asks for no notice (2026-10-12)", async () => {
     const t = setup();
     await launch(t);

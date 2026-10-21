@@ -103,12 +103,13 @@ function harness(options: {
   });
   const available = vi.fn(async () => options.available ?? true);
   const states: BrowserProState[] = [];
-  const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, page: visible as unknown as BrowserProDeps["page"],
+  const analytics = { track: vi.fn() };
+  const deps: BrowserProDeps = { controller, checkout, available, pending, tabs, analytics, page: visible as unknown as BrowserProDeps["page"],
     focus: visible.window as unknown as BrowserProDeps["focus"], now: () => clock,
     online: () => isOnline, network: network as unknown as BrowserProDeps["network"] };
   const flow = createBrowserPro(deps, state => states.push(state));
   return {
-    flow, controller, checkout, available, page: visible, states, pending, tabs, record, open,
+    flow, controller, checkout, available, page: visible, states, pending, tabs, record, open, analytics,
     get state() { return flow.state; },
     advance(ms: number) { clock += ms; },
     networkListeners,
@@ -123,6 +124,89 @@ function harness(options: {
 }
 
 const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+
+describe("browser purchase measurement", () => {
+  it("reports a real checkout-tab return once with an unknown outcome, never inferred success", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.page.show("hidden");
+    h.observe("owned"); // the background can deliver access before the person returns
+    h.page.show("visible"); h.page.focus(); await settle();
+    expect(h.analytics.track.mock.calls.filter(([name]) => name === "checkout_returned")).toEqual([
+      ["checkout_returned", { outcome: "unknown" }],
+    ]);
+    h.page.focus(); await settle();
+    expect(h.analytics.track.mock.calls.filter(([name]) => name === "checkout_returned")).toHaveLength(1);
+    expect(h.analytics.track.mock.calls.some(([name]) => name === "purchase_completed")).toBe(false);
+    h.flow.stop();
+  });
+
+  it("counts a new checkout attempt once; focusing its existing tab is not another start or sale", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); h.flow.buy(); await settle();
+    expect(h.analytics.track.mock.calls).toEqual([
+      ["purchase_started", { purchase_origin: "web", product: "still-pro-v3" }],
+    ]);
+    h.page.focus(); await settle();
+    h.flow.buy(); await settle();
+    expect(h.checkout.createCheckout).toHaveBeenCalledOnce();
+    expect(h.analytics.track).toHaveBeenCalledOnce();
+    h.observe("owned"); await settle();
+    // Access can come from an existing or cross-device right: it cannot certify a new sale.
+    expect(h.analytics.track).toHaveBeenCalledOnce();
+    h.flow.stop();
+  });
+
+  it("does not report starts for signed-out or unavailable checkout", async () => {
+    const h = harness({ available: false });
+    h.observe("none", null); await settle();
+    h.flow.buy(); await settle();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    expect(h.analytics.track).not.toHaveBeenCalled();
+    h.flow.stop();
+  });
+
+  it("reports a bounded failure reason and remains usable when analytics throws", async () => {
+    const h = harness({ checkout: { kind: "unavailable" } });
+    h.observe("none"); await settle();
+    h.analytics.track.mockImplementation(() => { throw new Error("measurement unavailable"); });
+    h.flow.buy(); await settle();
+    expect(h.state.purchase).toBe("failed");
+    expect(h.analytics.track.mock.calls).toEqual([
+      ["purchase_started", { purchase_origin: "web", product: "still-pro-v3" }],
+      ["purchase_failed", { purchase_origin: "web", product: "still-pro-v3", reason: "unknown" }],
+    ]);
+    h.flow.stop();
+  });
+
+  it("reports Restore independently of a purchase, using its fresh access answer", async () => {
+    const h = harness({ recheck: "purchased", outcome: "entitled" });
+    h.observe("owned"); await settle();
+    h.flow.restore(); h.flow.restore(); await settle();
+    expect(h.analytics.track.mock.calls).toEqual([
+      ["restore_started", { purchase_origin: "web" }],
+      ["restore_completed", { purchase_origin: "web", outcome: "restored" }],
+    ]);
+    h.flow.stop();
+  });
+
+  it("drops an old account's asynchronous failure after an account switch", async () => {
+    const h = harness();
+    let resolve!: (value: WebCheckoutOutcome) => void;
+    h.checkout.createCheckout.mockImplementation(() => new Promise(r => { resolve = r; }));
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.observe("none", OTHER); await settle();
+    resolve({ kind: "unavailable" }); await settle();
+    expect(h.analytics.track.mock.calls).toEqual([
+      ["purchase_started", { purchase_origin: "web", product: "still-pro-v3" }],
+    ]);
+    h.flow.stop();
+  });
+});
 
 describe("proOwnership reads only the access observation", () => {
   it.each([
