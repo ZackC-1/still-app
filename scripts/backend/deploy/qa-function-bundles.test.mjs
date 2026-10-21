@@ -515,7 +515,9 @@ test("the purchase routes are a closed, ordered set: read-only routes first, the
       ["link-apple-access", true],
       ["reconcile-entitlement", true],
       ["create-web-checkout", true],
+      ["complete-web-checkout", true],
       ["revenuecat-webhook", false],
+      ["stripe-webhook", false],
     ],
   );
   assert.deepEqual(
@@ -533,8 +535,8 @@ test("the purchase routes are a closed, ordered set: read-only routes first, the
     assert.ok(!QA_FUNCTIONS.some((route) => route.name === name), name);
     assert.ok(!ANALYTICS_FUNCTIONS.some((route) => route.name === name), name);
   }
-  // The owner page and the Stripe routes are extension points, not silently included.
-  for (const name of ["product-policy-admin", "complete-web-checkout", "stripe-webhook"]) {
+  // The owner page remains outside this deployment.
+  for (const name of ["product-policy-admin"]) {
     assert.ok(!all.includes(name), name);
   }
   for (const set of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET]) {
@@ -665,8 +667,11 @@ test(
       } else if (route.name === 'verify-apple-access') {
         assert.equal(response.status, 200);
         assert.deepEqual(JSON.parse(body), {status:'unavailable'});
+      } else if (route.name === 'stripe-webhook') {
+        assert.equal(response.status, 503, route.name);
+        assert.deepEqual(JSON.parse(body), {error:'webhook_unavailable'});
       } else {
-        // Every JWT route, and the webhook without its token.
+        // Every JWT route, and the RevenueCat webhook without its token.
         assert.equal(response.status, 401, route.name);
         assert.deepEqual(JSON.parse(body), {error:'unauthorized'});
       }
@@ -687,6 +692,6 @@ test(
       probe,
     ], { cwd: root });
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /8 isolated handlers passed/);
+    assert.match(result.stdout, /10 isolated handlers passed/);
   },
 );

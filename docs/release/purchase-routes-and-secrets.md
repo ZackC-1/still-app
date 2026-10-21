@@ -12,7 +12,7 @@ The code is `scripts/backend/deploy/purchase-operations.mjs`. The closed route l
 
 | Operation | What it does | Modes |
 |---|---|---|
-| `purchase-functions` | Deploys exactly these routes, in this order, as sealed single-file bundles built from the planned commit, each read back byte for byte: `product-policy` (verify_jwt false), `export-user-data` (true), `verify-apple-access` (false), `link-apple-access` (true), `reconcile-entitlement` (true), `create-web-checkout` (true), `revenuecat-webhook` (false). Read-only routes first, the webhook last. A route already at the planned source is left alone. | `plan-only`, `apply` |
+| `purchase-functions` | Deploys exactly these routes, in this order, as sealed single-file bundles built from the planned commit, each read back byte for byte: `product-policy` (verify_jwt false), `export-user-data` (true), `verify-apple-access` (false), `link-apple-access` (true), `reconcile-entitlement` (true), `create-web-checkout` (true), `complete-web-checkout` (true), `revenuecat-webhook` (false), `stripe-webhook` (false). Read-only routes first, provider webhooks last. A route already at the planned source is left alone. | `plan-only`, `apply` |
 | `purchase-functions-sync-settings` | Deploys `sync-settings` (verify_jwt true) alone. It serves the released 2.x apps' free sync, so it is a separate run with its own approval. | `plan-only`, `apply` |
 | `purchase-secrets` | Copies each GitHub environment secret `PROD_<NAME>` to the function secret `<NAME>`, and sets `ACCESS_PROOF_ENVIRONMENT` to `production` itself. `apply` installs absent names and refuses if a name already holds a different value. `rotate` replaces only names that already hold a value. | `plan-only`, `apply`, `rotate` |
 
@@ -23,12 +23,14 @@ Each function step refuses before any write unless:
 
 - the hosted migration history holds every migration in `supabase/migrations` at the planned commit
   (no pending migration; for `sync-settings` this includes `0024`, the released-app settings guard);
-- the secrets its already-live routes read exist (names only): `ENTITLEMENT_WRITER_DB_URL`,
-  `PRODUCT_POLICY_READER_DB_URL`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_WEBHOOK_TOKEN` for
-  `purchase-functions`, and `SETTINGS_WRITER_DB_URL` for `sync-settings`.
+- the purchase configuration names in `ROUTE_SECRETS[purchase-functions]` all exist, including
+  the live Stripe bindings, production access signer, Apple verification and RevenueCat mappings,
+  plus `ENTITLEMENT_WRITER_DB_URL` and `PRODUCT_POLICY_READER_DB_URL`;
+- `SETTINGS_WRITER_DB_URL` exists for the separate `sync-settings` deployment.
 
-The new purchase secrets are not required for the function steps. Without them the routes answer
-`unavailable`, which is the safe default, so the routes can go first (2.3) and the secrets after (2.4).
+Apply the reviewed production purchase secrets before deploying purchase functions. The gate checks
+presence; a complete offline runtime-configuration check and provider read-back remain required
+before enabling sales. Runtime handlers refuse incomplete or invalid configuration as a second check.
 
 `purchase-secrets` refuses before any write if the Secrets-only token can read the project's
 functions, a `PROD_*` name is unknown, a value has stray whitespace, a key group is incomplete, the
@@ -54,7 +56,15 @@ come from the providers and never enter Git, a chat or a document.
 | `PROD_REVENUECAT_ACCESS_SECRET_API_KEY` | `REVENUECAT_ACCESS_SECRET_API_KEY` | Required |
 | `PROD_REVENUECAT_SECRET_API_KEY` | `REVENUECAT_SECRET_API_KEY` | Required, but already set since July: stage it only to replace it |
 | `PROD_REVENUECAT_WEBHOOK_TOKEN` | `REVENUECAT_WEBHOOK_TOKEN` | Required, but already set since July: stage it only to replace it |
-| `PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL` | `REVENUECAT_WEB_BILLING_CHECKOUT_URL` | Optional (only for the RevenueCat Web Billing link, owner decision D3 option A) |
+| `PROD_STRIPE_SECRET_API_KEY` | `STRIPE_SECRET_API_KEY` | Required |
+| `PROD_STRIPE_ACCOUNT_ID` | `STRIPE_ACCOUNT_ID` | Required |
+| `PROD_STRIPE_WEBHOOK_SECRET` | `STRIPE_WEBHOOK_SECRET` | Required |
+| `PROD_STRIPE_API_VERSION` | `STRIPE_API_VERSION` | Required |
+| `PROD_STRIPE_PRICE_ID` | `STRIPE_PRICE_ID` | Required |
+| `PROD_STRIPE_PRODUCT_ID` | `STRIPE_PRODUCT_ID` | Required |
+| `PROD_REVENUECAT_STRIPE_PUBLIC_API_KEY` | `REVENUECAT_STRIPE_PUBLIC_API_KEY` | Required |
+| `PROD_WEB_RETURN_ORIGIN` | `WEB_RETURN_ORIGIN` | Required |
+| `PROD_WEB_RETURN_PATHS_JSON` | `WEB_RETURN_PATHS_JSON` | Required |
 
 "Required" means the name must hold a value after an `apply`: either staged now or already present.
 A group's names are staged together or not at all. `ACCESS_PROOF_ENVIRONMENT` is not staged; the
@@ -67,11 +77,16 @@ operation installs the other two with their logins. `purchase-secrets` only repo
 present. `PRODUCT_POLICY_ADMIN_DB_URL` (and the `product-policy-admin` route) is needed only if
 decision D1 picks the owner page.
 
-**Extension point for Stripe (PR-E, decision D3).** The production Stripe routes
-(`complete-web-checkout`, `stripe-webhook`) and their secret names (the QA lane's equivalents: secret
-key, account id, webhook signing secret, API version, price id, product id, the RevenueCat Stripe
-public key, return origin and return paths) are added to `PURCHASE_FUNCTIONS`, `STAGED_SECRETS` and
-the workflow's apply step by that change. Until then this operation never writes a Stripe name.
+**Production Managed Payments.** The closed route set includes `complete-web-checkout` with
+JWT verification and `stripe-webhook` without gateway JWT verification (the handler verifies the raw
+Stripe signature). Stripe configuration accepts live server keys only, pins the API version, and
+checks provider identifiers and HTTPS return locations before staging. The runtime additionally
+checks the complete mapping, signer and Apple configuration. All required configuration must exist
+before the first purchase route upload. QA-prefixed values remain outside this operation.
+
+The unused RevenueCat Web Billing checkout URL is no longer staged. Existing hosted values are
+preserved; this operation never deletes an unrelated secret. The existing RevenueCat webhook
+portal settings remain unchanged.
 
 ## Before the first run
 
@@ -82,7 +97,8 @@ the workflow's apply step by that change. Until then this operation never writes
    later migration on the release commit. If not, apply the pending migrations first (runbook 2.2,
    `operation=migrations`). The function steps check this again for themselves and refuse with
    `history_missing:<version>`.
-3. Confirm the `SUPABASE_QA_SECRETS_ACCESS_TOKEN` environment secret still exists and is a Supabase
+3. Stage and apply the reviewed production purchase secrets before deploying purchase functions.
+   Confirm the `SUPABASE_QA_SECRETS_ACCESS_TOKEN` environment secret still exists and is a Supabase
    token limited to project secrets. `purchase-secrets` uses only this token and refuses
    (`secrets_token_too_broad`) if it can read functions.
 

@@ -234,7 +234,15 @@ test("the operations, secret names and groups are closed lists with no QA or pla
       ["REVENUECAT_ACCESS_SECRET_API_KEY", true],
       ["REVENUECAT_SECRET_API_KEY", true],
       ["REVENUECAT_WEBHOOK_TOKEN", true],
-      ["REVENUECAT_WEB_BILLING_CHECKOUT_URL", false],
+      ["STRIPE_SECRET_API_KEY", true],
+      ["STRIPE_ACCOUNT_ID", true],
+      ["STRIPE_WEBHOOK_SECRET", true],
+      ["STRIPE_API_VERSION", true],
+      ["STRIPE_PRICE_ID", true],
+      ["STRIPE_PRODUCT_ID", true],
+      ["REVENUECAT_STRIPE_PUBLIC_API_KEY", true],
+      ["WEB_RETURN_ORIGIN", true],
+      ["WEB_RETURN_PATHS_JSON", true],
     ],
   );
   for (const { name, from } of STAGED_SECRETS) assert.equal(from, `${STAGE_PREFIX}${name}`);
@@ -252,8 +260,8 @@ test("the operations, secret names and groups are closed lists with no QA or pla
   for (const names of Object.values(ROUTE_SECRETS)) {
     for (const name of names) assert.ok(WRITABLE_SECRETS.includes(name) || SHARED_SECRETS.includes(name), name);
   }
-  // Stripe names are an extension point for PR-E; none is writable yet.
-  assert.ok(!WRITABLE_SECRETS.some((name) => /STRIPE|WEB_RETURN/.test(name)));
+  assert.ok(WRITABLE_SECRETS.includes("STRIPE_SECRET_API_KEY"));
+  assert.ok(ROUTE_SECRETS[FUNCTIONS_OP].includes("STRIPE_WEBHOOK_SECRET"));
   for (const name of ["SUPABASE_SERVICE_ROLE_KEY", "STILL_QA_SANDBOX_ACCESS_PROOF_KEY_ID", "PRODUCT_POLICY_READER_DB_URL", "ANALYTICS_SUBJECTS_ENABLED"]) {
     refusesSync(() => assertWritableSecret(name), "purchase-secret-name-refused");
   }
@@ -262,6 +270,9 @@ test("the operations, secret names and groups are closed lists with no QA or pla
 test("every staged name is one the production routes actually read", async () => {
   const sources = (await Promise.all([
     "supabase/functions/_shared/apple-access-runtime.ts",
+    "supabase/functions/_shared/production-checkout-runtime.ts",
+    "supabase/functions/_shared/production-stripe-webhook.ts",
+    "supabase/functions/_shared/managed-checkout-config.ts",
     "supabase/functions/reconcile-entitlement/index.ts",
     "supabase/functions/create-web-checkout/index.ts",
     "supabase/functions/revenuecat-webhook/index.ts",
@@ -359,6 +370,7 @@ test("freshness: an unrelated change or a new migration on main is fine; a chang
 
 test("purchase-functions deploys exactly its routes in order with their verify_jwt; a repeat changes nothing", async (t) => {
   const h = await harness(t);
+  for (const name of ROUTE_SECRETS[FUNCTIONS_OP]) h.api.secrets.set(name, `rehearsal-${name}`);
   const deployed = await h.run(FUNCTIONS_OP);
   assert.equal(deployed.status, "verified", deployed.issues.join(" "));
   assert.deepEqual(deployed.steps.map((s) => [s.name, s.outcome]), [
@@ -368,7 +380,9 @@ test("purchase-functions deploys exactly its routes in order with their verify_j
     ["link-apple-access", "created"],
     ["reconcile-entitlement", "deployed"],
     ["create-web-checkout", "deployed"],
+    ["complete-web-checkout", "created"],
     ["revenuecat-webhook", "deployed"],
+    ["stripe-webhook", "created"],
   ]);
   for (const { name, verifyJwt } of PURCHASE_FUNCTIONS) {
     assert.equal(h.api.functions.get(name).verify_jwt, verifyJwt, name);
@@ -431,6 +445,7 @@ test("every function step refuses before any write without its migrations, live 
 
 test("a bad readback stops the run; later routes are never attempted and the record says outcome-unknown", async (t) => {
   const h = await harness(t);
+  for (const name of ROUTE_SECRETS[FUNCTIONS_OP]) h.api.secrets.set(name, `rehearsal-${name}`);
   const original = h.api.fetchImpl;
   const broken = async (url, init) => {
     if (/\/functions\/verify-apple-access\/body$/.test(url)) {
@@ -444,7 +459,7 @@ test("a bad readback stops the run; later routes are never attempted and the rec
   const receipt = await h.run(FUNCTIONS_OP, {}, { fetchImpl: broken });
   assert.equal(receipt.status, "outcome-unknown");
   assert.deepEqual(receipt.steps.map((s) => s.outcome), [
-    "created", "deployed", "outcome-unknown", "not-attempted", "not-attempted", "not-attempted", "not-attempted",
+    "created", "deployed", "outcome-unknown", ...Array(6).fill("not-attempted"),
   ]);
   assert.equal(h.api.functions.get("revenuecat-webhook").version, 3);
   assert.match(receipt.recovery, /never blindly retry/);
@@ -467,8 +482,29 @@ test("staged values: unknown PROD_ names, stray whitespace, incomplete groups an
   refusesSync(() => validateStaged(map({ ...values, PROD_ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64: "bm90LWEta2V5" })), "purchase-stage-value-invalid", ["PROD_ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64"]);
   refusesSync(() => validateStaged(map({ ...values, PROD_ACCESS_APPLE_PRODUCTS_JSON: "{" })), "purchase-stage-value-invalid", ["PROD_ACCESS_APPLE_PRODUCTS_JSON"]);
   refusesSync(() => validateStaged(map({ ...values, PROD_ACCESS_PROVIDER_PRODUCTS_JSON: "[]" })), "purchase-stage-value-invalid", ["PROD_ACCESS_PROVIDER_PRODUCTS_JSON"]);
-  refusesSync(() => validateStaged(map({ ...values, PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL: "http://example.invalid" })), "purchase-stage-value-invalid", ["PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL"]);
+  refusesSync(() => validateStaged(map({ ...values, PROD_WEB_RETURN_ORIGIN: "http://example.invalid" })), "purchase-stage-value-invalid", ["PROD_WEB_RETURN_ORIGIN"]);
   assert.equal(validateStaged(map(values)), undefined);
+});
+
+test("production staging rejects test keys, wrong provider keys, unsafe return locations and unpinned versions", () => {
+  const values = syntheticStaged();
+  for (const [name, value] of [
+    ["STRIPE_SECRET_API_KEY", "sk_test_wrongenvironment"],
+    ["STRIPE_SECRET_API_KEY", "pk_live_publickeyonly"],
+    ["STRIPE_API_VERSION", "2026-01-01"],
+    ["STRIPE_WEBHOOK_SECRET", "not-a-webhook-secret"],
+    ["REVENUECAT_STRIPE_PUBLIC_API_KEY", "appl_wrongstore"],
+    ["WEB_RETURN_ORIGIN", "https://user@example.invalid"],
+    ["WEB_RETURN_ORIGIN", "https://example.invalid/path"],
+    ["WEB_RETURN_ORIGIN", "https://example.invalid:8443"],
+    ["WEB_RETURN_PATHS_JSON", JSON.stringify({ success: "//other.invalid", cancel: "/cancel" })],
+    ["WEB_RETURN_PATHS_JSON", JSON.stringify({ success: "/same", cancel: "/same" })],
+    ["WEB_RETURN_PATHS_JSON", JSON.stringify({ success: "/ok", cancel: "/cancel", extra: "/bad" })],
+  ]) {
+    refusesSync(() => validateStaged(readStaged({ ...values, [`PROD_${name}`]: value })),
+      "purchase-stage-value-invalid", [`PROD_${name}`]);
+  }
+  assert.equal(validateStaged(readStaged({ ...values, PROD_STRIPE_SECRET_API_KEY: "sk_live_syntheticvalidkey" })), undefined);
 });
 
 test("apply installs absent names and never replaces a different value; rotate needs a current value", () => {
@@ -482,7 +518,6 @@ test("apply installs absent names and never replaces a different value; rotate n
   assert.deepEqual(applied.find((i) => i.name === "REVENUECAT_PROJECT_ID").action, "install");
   assert.deepEqual(applied.find((i) => i.name === "REVENUECAT_SECRET_API_KEY").action, "none");
   assert.deepEqual(applied.find((i) => i.name === "ACCESS_PROOF_KEY_ID").action, "keep");
-  assert.deepEqual(applied.find((i) => i.name === "REVENUECAT_WEB_BILLING_CHECKOUT_URL").action, "absent");
   refusesSync(() => decideSecrets("apply", every, values), "purchase-secret-exists", ["REVENUECAT_PROJECT_ID"]);
   refusesSync(() => decideSecrets("apply", new Map(), new Map()), "purchase-stage-value-missing",
     STAGED_SECRETS.filter((s) => s.required).map((s) => s.from));
@@ -515,7 +550,6 @@ test("purchase-secrets apply writes once, verifies digests, and no value or dige
   const outcome = Object.fromEntries(installed.steps.map((s) => [s.name, s.outcome]));
   assert.equal(outcome.ACCESS_PROOF_KEY_ID, "installed");
   assert.equal(outcome.REVENUECAT_WEBHOOK_TOKEN, "kept");
-  assert.equal(outcome.REVENUECAT_WEB_BILLING_CHECKOUT_URL, "absent");
   assert.equal(outcome.PRODUCT_POLICY_READER_DB_URL, "present-not-managed");
   assert.equal(outcome.ENTITLEMENT_WRITER_DB_URL, "present-not-managed");
   const again = await h.run(SECRETS_OP, values);
@@ -523,11 +557,13 @@ test("purchase-secrets apply writes once, verifies digests, and no value or dige
   assert.equal(h.api.calls.secretPosts, 1);
   const conflict = await h.run(SECRETS_OP, { ...values, PROD_REVENUECAT_PROJECT_ID: "different" });
   assert.deepEqual(conflict.issues, ["purchase-secret-exists", "REVENUECAT_PROJECT_ID"]);
-  // Rotate: only the staged group changes; a never-installed optional name refuses.
+  // Rotate: only the staged group changes; a missing current name refuses.
   const fresh = syntheticStaged();
   const blank = Object.fromEntries(Object.keys(values).map((key) => [key, ""]));
-  const absent = await h.run("rotate", { ...blank, PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL: "https://example.invalid/pay" });
-  assert.deepEqual(absent.issues, ["purchase-rotate-needs-current-value", "REVENUECAT_WEB_BILLING_CHECKOUT_URL"]);
+  h.api.secrets.delete("STRIPE_PRICE_ID");
+  const absent = await h.run("rotate", { ...blank, PROD_STRIPE_PRICE_ID: values.PROD_STRIPE_PRICE_ID });
+  assert.deepEqual(absent.issues, ["purchase-rotate-needs-current-value", "STRIPE_PRICE_ID"]);
+  h.api.secrets.set("STRIPE_PRICE_ID", values.PROD_STRIPE_PRICE_ID);
   const before = new Map(h.api.secrets);
   const rotated = await h.run("rotate", {
     ...blank,
@@ -581,7 +617,7 @@ test("plan and closing records name routes, secret names and fixed codes only", 
   assert.match(functions, /sync-settings needs `0024`/);
   const secrets = renderPurchasePlan((await plan(t, root, head, { operation: SECRETS_OP, mode: "rotate" })).plan);
   assert.match(secrets, /ACCESS_PROOF_ENVIRONMENT=production/);
-  assert.match(secrets, /REVENUECAT_WEB_BILLING_CHECKOUT_URL` \(optional\)/);
+  assert.match(secrets, /STRIPE_SECRET_API_KEY/);
   assert.match(secrets, /Only names that already hold a value/);
   assert.match(renderPurchaseFinal(null, { applyOutcome: "skipped" }), /stopped-before-write/);
   assert.match(renderPurchaseFinal(null, { operation: SECRETS_OP }), /no durable receipt for `purchase-secrets`/);

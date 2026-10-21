@@ -53,10 +53,7 @@ export const ANALYTICS_BUNDLE_SET = routeSet(
  * first (the public policy read, the account export), then the routes that verify a purchase and
  * issue access, then checkout, and the provider webhook last. `verify_jwt` equals config.toml.
  *
- * Extension point (PR-E, owner decision D3): the production Stripe routes are added here, in this
- * order, once they exist: `complete-web-checkout` (true) before `revenuecat-webhook`, and
- * `stripe-webhook` (false) last. `product-policy-admin` (true) joins only if decision D1 picks the
- * owner page. Each addition needs its config.toml section and a reviewed update of the tests.
+ * Managed Payments completion precedes the provider webhooks; raw signed Stripe events are last.
  */
 export const PURCHASE_FUNCTIONS = Object.freeze([
   ["product-policy", false],
@@ -65,7 +62,9 @@ export const PURCHASE_FUNCTIONS = Object.freeze([
   ["link-apple-access", true],
   ["reconcile-entitlement", true],
   ["create-web-checkout", true],
+  ["complete-web-checkout", true],
   ["revenuecat-webhook", false],
+  ["stripe-webhook", false],
 ].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
 export const PURCHASE_BUNDLE_SET = routeSet(
   "still-purchase-function-bundles",

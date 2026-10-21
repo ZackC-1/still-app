@@ -358,3 +358,16 @@ The broad core/browser runs found only two obsolete sandbox-only source assertio
 updated and their suites passed. Other results were 5,700 core tests and 843 browser tests passed,
 39 core tests skipped. Targeted production transport, settings, recovery and policy checks passed,
 including a later 24-test checkout rerun. The fixture suite passed: 367 passed, 37 skipped (7.8 minutes).
+
+## Protected purchase deployment extension, 21 October
+
+Integrated PR #519's existing protected operations into this branch, preserving its commits.
+The closed production function set now includes completion and the raw-signed Stripe webhook.
+Staging accepts the live Stripe/RevenueCat/return bindings, rejects test/public keys and unsafe
+return locations, and requires the complete configuration inventory before the first route upload.
+The unused Web Billing URL is no longer staged; existing hosted secrets remain preserved.
+Secrets now precede function deployment in the executable rehearsal and runbook.
+
+Verification: 42 deployment/bundle/workflow tests passed, 2 unrelated QA bundle integration tests
+skipped. This includes compilation, sealing and isolated startup of all ten purchase/sync handlers
+with no credentials or network access. These are local rehearsals, not production deployment.

@@ -303,7 +303,15 @@ jobs:
           PROD_REVENUECAT_ACCESS_SECRET_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_ACCESS_SECRET_API_KEY || '' }}
           PROD_REVENUECAT_SECRET_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_SECRET_API_KEY || '' }}
           PROD_REVENUECAT_WEBHOOK_TOKEN: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_WEBHOOK_TOKEN || '' }}
-          PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL || '' }}
+          PROD_STRIPE_SECRET_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_SECRET_API_KEY || '' }}
+          PROD_STRIPE_ACCOUNT_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_ACCOUNT_ID || '' }}
+          PROD_STRIPE_WEBHOOK_SECRET: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_WEBHOOK_SECRET || '' }}
+          PROD_STRIPE_API_VERSION: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_API_VERSION || '' }}
+          PROD_STRIPE_PRICE_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_PRICE_ID || '' }}
+          PROD_STRIPE_PRODUCT_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_STRIPE_PRODUCT_ID || '' }}
+          PROD_REVENUECAT_STRIPE_PUBLIC_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_STRIPE_PUBLIC_API_KEY || '' }}
+          PROD_WEB_RETURN_ORIGIN: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_WEB_RETURN_ORIGIN || '' }}
+          PROD_WEB_RETURN_PATHS_JSON: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_WEB_RETURN_PATHS_JSON || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" \

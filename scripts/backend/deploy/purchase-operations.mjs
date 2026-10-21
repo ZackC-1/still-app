@@ -76,7 +76,7 @@ export const FUNCTIONS_OP = "purchase-functions";
 export const SYNC_OP = "purchase-functions-sync-settings";
 export const SECRETS_OP = "purchase-secrets";
 
-/** The closed operations, in the order the owner runs them (secrets may come before or after). */
+/** The closed operations; apply purchase secrets before deploying purchase functions. */
 export const PURCHASE_OPERATIONS = Object.freeze({
   [FUNCTIONS_OP]: Object.freeze({
     modes: Object.freeze(["plan-only", "apply"]),
@@ -98,8 +98,8 @@ export const isPurchaseOperation = (name) =>
 export const SYNC_GUARD_MIGRATION = "0024";
 
 /**
- * Secrets each function step's routes already read on production today (set for 2.x, or by the
- * qa-sandbox-secrets operation for the shared database sign-ins). Checked by name only.
+ * Required secrets must exist before any route is deployed. Checked by name only; the runtime
+ * validates values. Shared database sign-ins are provisioned by their own protected operations.
  */
 export const ROUTE_SECRETS = Object.freeze({
   [FUNCTIONS_OP]: Object.freeze([
@@ -107,6 +107,26 @@ export const ROUTE_SECRETS = Object.freeze({
     "PRODUCT_POLICY_READER_DB_URL",
     "REVENUECAT_SECRET_API_KEY",
     "REVENUECAT_WEBHOOK_TOKEN",
+    "ACCESS_PROOF_ENVIRONMENT",
+    "ACCESS_PROOF_KEY_ID",
+    "ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64",
+    "ACCESS_PROOF_PUBLIC_KEY_HEX",
+    "ACCESS_APPLE_PRODUCTS_JSON",
+    "ACCESS_PROVIDER_PRODUCTS_JSON",
+    "APP_STORE_SERVER_ISSUER_ID",
+    "APP_STORE_SERVER_KEY_ID",
+    "APP_STORE_SERVER_PRIVATE_KEY",
+    "REVENUECAT_PROJECT_ID",
+    "REVENUECAT_ACCESS_SECRET_API_KEY",
+    "STRIPE_SECRET_API_KEY",
+    "STRIPE_ACCOUNT_ID",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_API_VERSION",
+    "STRIPE_PRICE_ID",
+    "STRIPE_PRODUCT_ID",
+    "REVENUECAT_STRIPE_PUBLIC_API_KEY",
+    "WEB_RETURN_ORIGIN",
+    "WEB_RETURN_PATHS_JSON",
   ]),
   [SYNC_OP]: Object.freeze(["SETTINGS_WRITER_DB_URL"]),
 });
@@ -119,10 +139,7 @@ const staged = (name, required) =>
  * `required`: the name must hold a value after an apply (staged now, or already present).
  * Optional names are written only when staged.
  *
- * Extension point (PR-E, owner decision D3): the production Stripe names are added here once the
- * production Stripe routes exist (the QA lane's equivalents: secret API key, account id, webhook
- * signing secret, API version, price id, product id, the RevenueCat Stripe public key, return
- * origin and return paths), each with its PROD_ variable in the workflow's apply step.
+ * Live Managed Payments bindings are staged separately from every QA-prefixed value.
  * PRODUCT_POLICY_ADMIN_DB_URL is not here: it is a database sign-in (see SHARED_SECRETS) and is
  * needed only if decision D1 picks the owner page.
  */
@@ -139,7 +156,15 @@ export const STAGED_SECRETS = Object.freeze([
   staged("REVENUECAT_ACCESS_SECRET_API_KEY", true),
   staged("REVENUECAT_SECRET_API_KEY", true),
   staged("REVENUECAT_WEBHOOK_TOKEN", true),
-  staged("REVENUECAT_WEB_BILLING_CHECKOUT_URL", false),
+  staged("STRIPE_SECRET_API_KEY", true),
+  staged("STRIPE_ACCOUNT_ID", true),
+  staged("STRIPE_WEBHOOK_SECRET", true),
+  staged("STRIPE_API_VERSION", true),
+  staged("STRIPE_PRICE_ID", true),
+  staged("STRIPE_PRODUCT_ID", true),
+  staged("REVENUECAT_STRIPE_PUBLIC_API_KEY", true),
+  staged("WEB_RETURN_ORIGIN", true),
+  staged("WEB_RETURN_PATHS_JSON", true),
 ]);
 /** Written by the operation itself with a fixed, nonsecret value; never staged. */
 export const FIXED_SECRETS = Object.freeze([
@@ -430,15 +455,32 @@ export function validateStaged(values) {
     }
     if (!Array.isArray(parsed) || !parsed.length) invalid.push(from(name));
   }
-  const checkout = values.get("REVENUECAT_WEB_BILLING_CHECKOUT_URL");
-  if (checkout !== undefined) {
-    let url;
+  const shapes = {
+    STRIPE_SECRET_API_KEY: /^(?:sk|rk)_live_[A-Za-z0-9]{8,240}$/,
+    STRIPE_ACCOUNT_ID: /^acct_[A-Za-z0-9]{1,200}$/,
+    STRIPE_WEBHOOK_SECRET: /^whsec_[A-Za-z0-9]{1,240}$/,
+    STRIPE_API_VERSION: /^2026-09-30\.endive$/,
+    STRIPE_PRICE_ID: /^price_[A-Za-z0-9]{1,200}$/,
+    STRIPE_PRODUCT_ID: /^prod_[A-Za-z0-9]{1,200}$/,
+    REVENUECAT_STRIPE_PUBLIC_API_KEY: /^(?!(?:appl_|goog_|amzn_|sk_|rk_|pk_))[A-Za-z0-9_-]{1,1024}$/,
+  };
+  for (const [name, shape] of Object.entries(shapes)) {
+    if (values.has(name) && !shape.test(values.get(name))) invalid.push(from(name));
+  }
+  if (values.has("WEB_RETURN_ORIGIN")) {
     try {
-      url = new URL(checkout);
-    } catch {
-      url = null;
-    }
-    if (!url || url.protocol !== "https:") invalid.push(from("REVENUECAT_WEB_BILLING_CHECKOUT_URL"));
+      const origin = new URL(values.get("WEB_RETURN_ORIGIN"));
+      if (origin.protocol !== "https:" || origin.origin !== values.get("WEB_RETURN_ORIGIN") ||
+        origin.username || origin.password || origin.port || !origin.hostname.includes(".")) throw new Error();
+    } catch { invalid.push(from("WEB_RETURN_ORIGIN")); }
+  }
+  if (values.has("WEB_RETURN_PATHS_JSON")) {
+    try {
+      const paths = JSON.parse(values.get("WEB_RETURN_PATHS_JSON"));
+      if (!paths || Array.isArray(paths) || Object.keys(paths).length !== 2 ||
+        typeof paths.success !== "string" || typeof paths.cancel !== "string" || paths.success === paths.cancel ||
+        [paths.success, paths.cancel].some((path) => path.length > 512 || !/^\/[A-Za-z0-9/_-]*$/.test(path) || path.includes("//"))) throw new Error();
+    } catch { invalid.push(from("WEB_RETURN_PATHS_JSON")); }
   }
   if (invalid.length) refuse("purchase-stage-value-invalid", invalid);
   // Names only: the private key's public half differs from the staged public key.
@@ -981,6 +1023,15 @@ export function syntheticStaged() {
     PROD_APP_STORE_SERVER_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----\nrehearsal${tag()}\n-----END PRIVATE KEY-----\n`,
     PROD_REVENUECAT_PROJECT_ID: `rehearsal-project-${tag()}`,
     PROD_REVENUECAT_ACCESS_SECRET_API_KEY: `rehearsal-access-${tag()}`,
+    PROD_STRIPE_SECRET_API_KEY: `rk_live_rehearsal${tag()}`,
+    PROD_STRIPE_ACCOUNT_ID: `acct_rehearsal${tag()}`,
+    PROD_STRIPE_WEBHOOK_SECRET: `whsec_rehearsal${tag()}`,
+    PROD_STRIPE_API_VERSION: "2026-09-30.endive",
+    PROD_STRIPE_PRICE_ID: `price_rehearsal${tag()}`,
+    PROD_STRIPE_PRODUCT_ID: `prod_rehearsal${tag()}`,
+    PROD_REVENUECAT_STRIPE_PUBLIC_API_KEY: `strp_rehearsal${tag()}`,
+    PROD_WEB_RETURN_ORIGIN: "https://rehearsal.invalid",
+    PROD_WEB_RETURN_PATHS_JSON: JSON.stringify({ success: "/purchase/success", cancel: "/purchase/cancel" }),
   };
 }
 
@@ -1065,46 +1116,6 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
   const version = (slug) => api.functions.get(slug)?.version ?? 0;
   const issues = (r) => [r.status, ...r.issues].join(" ");
 
-  // Functions: negative controls first, refused before any write.
-  const functionsPlan = planFor(FUNCTIONS_OP, "apply");
-  const unapproved = await operate(functionsPlan, { EXPECTED_PLAN_DIGEST: "f".repeat(64) });
-  const noReader = await operate(functionsPlan);
-  api.secrets.set("PRODUCT_POLICY_READER_DB_URL", `rehearsal-reader-${randomBytes(4).toString("hex")}`);
-  const pending = await operate(planFor(FUNCTIONS_OP, "apply", { migrations: [...history, "9999"] }));
-  const pendingSync = await operate(planFor(SYNC_OP, "apply", { migrations: [...history, "9999"] }));
-  prove(
-    "negative controls: an unapproved plan, a missing live database sign-in, and a pending migration (functions and sync-settings) are refused before any write",
-    [unapproved, noReader, pending, pendingSync].every((r) => r.status === "stopped-before-write" && !r.writeAttempted) &&
-      unapproved.issues.includes("plan-differs") &&
-      noReader.issues.includes("missing_secret:PRODUCT_POLICY_READER_DB_URL") &&
-      pending.issues.includes("history_missing:9999") && pendingSync.issues.includes("history_missing:9999") &&
-      api.calls.deploys === 0,
-    `${unapproved.issues[0]}; ${noReader.issues.at(-1)}; ${pending.issues.at(-1)}`,
-  );
-
-  const deployed = await operate(functionsPlan);
-  const order = PURCHASE_BUNDLE_SET.routes.map((route) => route.name);
-  prove(
-    "purchase-functions: exactly the purchase routes deploy in order with their verify_jwt and read back; sync-settings is untouched; a repeat changes nothing",
-    deployed.status === "verified" && deployed.steps.map((s) => s.name).join(",") === order.join(",") &&
-      api.calls.deploys === order.length && version("sync-settings") === 7 &&
-      version("reconcile-entitlement") === 6 && version("product-policy") === 1 &&
-      PURCHASE_BUNDLE_SET.routes.every((route) => api.functions.get(route.name)?.verify_jwt === route.verifyJwt) &&
-      (await operate(functionsPlan)).status === "no-change",
-    issues(deployed),
-  );
-
-  const syncPlan = planFor(SYNC_OP, "apply");
-  const synced = await operate(syncPlan);
-  const syncedAgain = await operate(syncPlan);
-  prove(
-    "purchase-functions-sync-settings: only sync-settings deploys (verify_jwt true); a repeat changes nothing",
-    synced.status === "verified" && synced.steps.length === 1 && version("sync-settings") === 8 &&
-      api.functions.get("sync-settings").verify_jwt === true && syncedAgain.status === "no-change" &&
-      api.calls.deploys === order.length + 1,
-    issues(synced),
-  );
-
   // Secrets.
   const secretsPlan = planFor(SECRETS_OP, "apply");
   const broad = await operate(secretsPlan, { [SECRETS_TOKEN_ENV]: `rehearsal-broad-${randomBytes(8).toString("hex")}` });
@@ -1149,10 +1160,10 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
 
   const rotatePlan = planFor(SECRETS_OP, "rotate");
   const onlyKeys = Object.fromEntries(Object.keys(stagedValues).map((key) => [key, ""]));
-  const absent = await operate(rotatePlan, {
-    ...onlyKeys,
-    PROD_REVENUECAT_WEB_BILLING_CHECKOUT_URL: "https://rehearsal.invalid/checkout",
-  });
+  const priorPrice = api.secrets.get("STRIPE_PRICE_ID");
+  api.secrets.delete("STRIPE_PRICE_ID");
+  const absent = await operate(rotatePlan, { ...onlyKeys, PROD_STRIPE_PRICE_ID: stagedValues.PROD_STRIPE_PRICE_ID });
+  api.secrets.set("STRIPE_PRICE_ID", priorPrice);
   const before = new Map(api.secrets);
   const fresh = syntheticStaged();
   const rotated = await operate(rotatePlan, {
@@ -1168,6 +1179,46 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
       rotated.status === "verified" &&
       canonical(changed) === canonical(SECRET_GROUPS[0].slice().sort()),
     `${absent.issues.join(" ")}; ${issues(rotated)}`,
+  );
+
+  // Functions: negative controls first, refused before any write.
+  const functionsPlan = planFor(FUNCTIONS_OP, "apply");
+  const unapproved = await operate(functionsPlan, { EXPECTED_PLAN_DIGEST: "f".repeat(64) });
+  const noReader = await operate(functionsPlan);
+  api.secrets.set("PRODUCT_POLICY_READER_DB_URL", `rehearsal-reader-${randomBytes(4).toString("hex")}`);
+  const pending = await operate(planFor(FUNCTIONS_OP, "apply", { migrations: [...history, "9999"] }));
+  const pendingSync = await operate(planFor(SYNC_OP, "apply", { migrations: [...history, "9999"] }));
+  prove(
+    "negative controls: an unapproved plan, a missing live database sign-in, and a pending migration (functions and sync-settings) are refused before any write",
+    [unapproved, noReader, pending, pendingSync].every((r) => r.status === "stopped-before-write" && !r.writeAttempted) &&
+      unapproved.issues.includes("plan-differs") &&
+      noReader.issues.includes("missing_secret:PRODUCT_POLICY_READER_DB_URL") &&
+      pending.issues.includes("history_missing:9999") && pendingSync.issues.includes("history_missing:9999") &&
+      api.calls.deploys === 0,
+    `${unapproved.issues[0]}; ${noReader.issues.at(-1)}; ${pending.issues.at(-1)}`,
+  );
+
+  const deployed = await operate(functionsPlan);
+  const order = PURCHASE_BUNDLE_SET.routes.map((route) => route.name);
+  prove(
+    "purchase-functions: exactly the purchase routes deploy in order with their verify_jwt and read back; sync-settings is untouched; a repeat changes nothing",
+    deployed.status === "verified" && deployed.steps.map((s) => s.name).join(",") === order.join(",") &&
+      api.calls.deploys === order.length && version("sync-settings") === 7 &&
+      version("reconcile-entitlement") === 6 && version("product-policy") === 1 &&
+      PURCHASE_BUNDLE_SET.routes.every((route) => api.functions.get(route.name)?.verify_jwt === route.verifyJwt) &&
+      (await operate(functionsPlan)).status === "no-change",
+    issues(deployed),
+  );
+
+  const syncPlan = planFor(SYNC_OP, "apply");
+  const synced = await operate(syncPlan);
+  const syncedAgain = await operate(syncPlan);
+  prove(
+    "purchase-functions-sync-settings: only sync-settings deploys (verify_jwt true); a repeat changes nothing",
+    synced.status === "verified" && synced.steps.length === 1 && version("sync-settings") === 8 &&
+      api.functions.get("sync-settings").verify_jwt === true && syncedAgain.status === "no-change" &&
+      api.calls.deploys === order.length + 1,
+    issues(synced),
   );
 
   const printed = JSON.stringify(receipts);
