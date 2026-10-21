@@ -5,6 +5,7 @@ import {
   CONSENT_KEY,
   QUEUE_KEY,
   createDefaultOnUsage,
+  readAnalyticsPermission,
   type AnalyticsKeyValue,
 } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics } from "../analytics.js";
@@ -24,6 +25,7 @@ afterEach(() => {
 
 const PAGE = { id: "ext", url: "safari-web-extension://ext/popup.html" };
 const OPENED = { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } };
+const TOGGLED = { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "global_toggled", props: { enabled: false, where: "popup" } };
 
 function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   const data: Record<string, unknown> = {};
@@ -308,5 +310,109 @@ describe("V3 Safari extension, signed in, with no Still page opened", () => {
     await t.eventually(() =>
       expect(JSON.stringify(t.local.data["still:analytics:subjects"] ?? [])).not.toContain(SUBJECT),
     );
+  });
+});
+
+describe("ISS-0115: the popup opened right after the app turns sharing on", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const v3 = () => vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+  /** Each sent event with the id it went out under. */
+  const sentAs = (t: ReturnType<typeof setup>) =>
+    t.fetch.mock.calls.flatMap((call) =>
+      (
+        JSON.parse(String((call[1] as RequestInit).body)) as {
+          batch: { event: string; properties: { distinct_id?: unknown } }[];
+        }
+      ).batch.map((e) => [e.event, e.properties.distinct_id]),
+    );
+  const anonymousId = (t: ReturnType<typeof setup>) =>
+    readAnalyticsPermission(t.appGroup.data[CONSENT_KEY])!.provider.anonymousId;
+
+  it("keeps the popup's opened, under the new anonymous id, when the background started while sharing was off", async () => {
+    v3();
+    // Sharing was on once (the app's default) and this device reported under that origin.
+    const before = setup();
+    await before.app.permission();
+    await before.use();
+    await before.eventually(() => expect(before.sent()).toContain("opened"));
+    const oldId = anonymousId(before);
+    before.bg.stop();
+    // Turned off in the app. The extension's background starts again while it is off: nothing is
+    // read about the account and nothing is confirmed.
+    await before.app.commit(false);
+    const t = setup({ device: before.device });
+    t.bg.onStart();
+    await t.idle();
+    expect(t.sendNative.mock.calls.map(([m]) => m.kind)).not.toContain("getAccountSyncStatus");
+    // Turned on in the app (a new origin and anonymous id), then the popup opens at once and the
+    // person flips the YouTube Blocker a moment later.
+    await t.app.commit(true);
+    const newId = anonymousId(t);
+    expect(newId).not.toBe(oldId);
+    await t.send(OPENED);
+    await t.send(TOGGLED);
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() =>
+      expect(sentAs(t)).toEqual(expect.arrayContaining([["opened", newId], ["global_toggled", newId]])),
+    );
+    expect(t.bodies()).not.toContain(oldId);
+  });
+
+  it("the same on a background that has been running since before sharing was turned on", async () => {
+    v3();
+    const t = setup();
+    await t.app.commit(false); // off before the background ever started
+    t.bg.onStart();
+    await t.idle();
+    await t.app.commit(true);
+    await t.send(OPENED);
+    await t.send(TOGGLED);
+    t.bg.flush();
+    await t.idle();
+    const newId = anonymousId(t);
+    await t.eventually(() =>
+      expect(sentAs(t)).toEqual(expect.arrayContaining([["opened", newId], ["global_toggled", newId]])),
+    );
+  });
+
+  it("NEGATIVE CONTROL: what the popup sent while sharing was off is never sent after it is turned on", async () => {
+    v3();
+    const t = setup();
+    await t.app.commit(false);
+    t.bg.onStart();
+    await t.idle();
+    await t.send(OPENED); // observed while off: discarded, no marker written
+    await t.app.commit(true);
+    await t.send(TOGGLED);
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
+    await t.idle();
+    expect(t.sent()).not.toContain("opened");
+  });
+
+  it("NEGATIVE CONTROL: an event that arrives as the app's sign-out is confirmed is still dropped, never sent anonymously", async () => {
+    v3();
+    const first = setup({ account: ACCOUNT });
+    const permission = (await first.app.permission())!;
+    first.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await first.use();
+    await first.eventually(() => expect(first.bodies()).toContain(SUBJECT));
+    first.bg.stop();
+    // Signed out in the app while the background was gone; the popup's event wakes it.
+    first.device.account.value = null;
+    first.appGroupSubject.value = null;
+    const t = setup({ device: first.device });
+    await t.send(OPENED); // possibly the departed account's use: its sign-out was not confirmed yet
+    t.bg.flush();
+    await t.idle();
+    await t.send(TOGGLED); // after the sign-out is confirmed: anonymous
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
+    expect(t.sent()).not.toContain("opened");
+    expect(t.bodies()).not.toContain(SUBJECT);
   });
 });
