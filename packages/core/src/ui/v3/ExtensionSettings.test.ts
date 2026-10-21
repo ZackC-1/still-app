@@ -1100,5 +1100,8 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
     expect(button.nextElementSibling?.textContent).toBe(SUPPORT_EMAIL);
     expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
     expect(within(help).queryByRole("link")).toBeNull();
+    // One selectable unit (user-select: all), and only the address (Playwright measures it).
+    expect(within(help).getByText(SUPPORT_EMAIL)).toHaveClass("support-address");
+    expect(help.querySelectorAll(".support-address")).toHaveLength(1);
   });
 });

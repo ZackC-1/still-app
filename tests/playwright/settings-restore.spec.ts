@@ -24,8 +24,17 @@ const USER_ID = "00000000-0000-4000-8000-0000000000a1";
 const SESSION_ID = "00000000-0000-4000-8000-0000000000b2";
 const EMAIL = "restore-check@still.test";
 
-async function openSettings(context: BrowserContext, extensionId: string): Promise<Page> {
+// ISS-0117: a window short enough that the Restore result renders below the visible area, under
+// the Still Pro card, as it did for the owner on Firefox at a normal window height.
+const SHORT_WINDOW = { width: 900, height: 480 };
+
+async function openSettings(
+  context: BrowserContext,
+  extensionId: string,
+  viewport?: { width: number; height: number },
+): Promise<Page> {
   const page = await context.newPage();
+  if (viewport) await page.setViewportSize(viewport);
   await page.goto(`chrome-extension://${extensionId}/options.html`);
   await expect(page.locator("body")).toContainText("Still is");
   return page;
@@ -118,6 +127,31 @@ function reconciles(backend: Backend): number {
   return backend.requests.filter((r) => r === "POST /functions/v1/reconcile-entitlement").length;
 }
 
+/**
+ * ISS-0117: click "Restore purchase" with the link resting on the window's bottom edge, as the
+ * owner saw it, so the result card below it starts out of view (Playwright does not scroll an
+ * element that is already visible before clicking it).
+ */
+async function clickRestoreAtWindowBottom(page: Page, signedIn: boolean): Promise<void> {
+  const link = page.getByRole("button", { name: "Restore purchase" });
+  // Signed in, let the sync card settle first: its concluded line (the stub refuses sync) moves
+  // the page down, which would otherwise shift the link and the result after they are placed.
+  if (signedIn) await expect(page.getByText(/Sync didn.t finish/)).toBeVisible();
+  await link.evaluate((node) => node.scrollIntoView({ block: "end" }));
+  await expect(link).toBeInViewport({ ratio: 1 });
+  await link.click();
+}
+
+/**
+ * ISS-0117: the concluded result is on screen with no scrolling by hand, and keyboard focus is on
+ * the card's silent anchor just before it (not the live region, which announces the result itself).
+ */
+async function expectResultInView(page: Page, text: string): Promise<void> {
+  const result = page.locator(".status-line", { hasText: text });
+  await expect(result).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("section", { has: result }).locator(".restore-focus")).toBeFocused();
+}
+
 function expectNoCheckout(backend: Backend): void {
   expect(backend.requests.filter((r) => /create-web-checkout|checkout/i.test(r))).toEqual([]);
 }
@@ -133,13 +167,14 @@ test.describe("V3 build with sign-in: Restore purchase", () => {
 
   test("signed out: the normal sign-in first, then one check; a past buyer is restored and nothing unlocks", async ({ context, extensionId }) => {
     const backend = await stubBackend(context, true);
-    const page = await openSettings(context, extensionId);
+    const page = await openSettings(context, extensionId, SHORT_WINDOW);
     const link = page.getByRole("button", { name: "Restore purchase" });
     await expect(link).toBeVisible();
-    await link.click();
+    await clickRestoreAtWindowBottom(page, false);
     expect(reconciles(backend)).toBe(0);
     await signIn(page);
     await expect(page.getByText(RESTORED)).toBeVisible();
+    await expectResultInView(page, RESTORED);
     await expect(page.getByText(EMAIL)).toBeVisible();
     // Sign-in's own existing reconcile, then exactly one for the check.
     await page.waitForTimeout(300);
@@ -164,14 +199,15 @@ test.describe("V3 build with sign-in: Restore purchase", () => {
 
   test("signed in, no purchase: the existing nothing-found wording", async ({ context, extensionId }) => {
     const backend = await stubBackend(context, false);
-    const page = await openSettings(context, extensionId);
+    const page = await openSettings(context, extensionId, SHORT_WINDOW);
     await page.getByRole("button", { name: /^Sign in/ }).first().click();
     await signIn(page);
     await expect(page.getByText(EMAIL)).toBeVisible();
     // Signing in runs its own existing reconcile; let it land before counting the check's.
     await expect.poll(() => reconciles(backend)).toBe(1);
-    await page.getByRole("button", { name: "Restore purchase" }).click();
+    await clickRestoreAtWindowBottom(page, true);
     await expect(page.getByText(NOTHING)).toBeVisible();
+    await expectResultInView(page, NOTHING);
     expect(reconciles(backend)).toBe(2);
     await page.waitForTimeout(300);
     expect(reconciles(backend)).toBe(2);
@@ -181,17 +217,20 @@ test.describe("V3 build with sign-in: Restore purchase", () => {
 
   test("server unavailable: the existing failed wording with Try again", async ({ context, extensionId }) => {
     const backend = await stubBackend(context, false);
-    const page = await openSettings(context, extensionId);
+    const page = await openSettings(context, extensionId, SHORT_WINDOW);
     await page.getByRole("button", { name: /^Sign in/ }).first().click();
     await signIn(page);
     await expect(page.getByText(EMAIL)).toBeVisible();
     backend.entitled = "down";
-    await page.getByRole("button", { name: "Restore purchase" }).click();
+    await clickRestoreAtWindowBottom(page, true);
     await expect(page.getByText(FAILED)).toBeVisible();
+    await expectResultInView(page, FAILED);
     await expect(page.getByRole("button", { name: "Restore purchase" })).toBeDisabled();
     backend.entitled = true;
-    await page.getByRole("button", { name: "Try again" }).click();
+    // The restore result's own Try again (the settled sync card has one too).
+    await page.locator(".status-line", { hasText: FAILED }).getByRole("button", { name: "Try again" }).click();
     await expect(page.getByText(RESTORED)).toBeVisible();
+    await expectResultInView(page, RESTORED);
     expectNoCheckout(backend);
     await expectNothingOffered(page);
   });
