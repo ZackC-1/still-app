@@ -378,6 +378,42 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(state.heldFor).toBeNull();
   });
 
+  // ISS-0113 final check: the session ended while the worker slept, and the On tap wakes it. The
+  // start's account read (nobody) must land before the re-identify, which would otherwise supersede
+  // it and hold the device for the departed account for the worker's life.
+  it.each([12, 25, 40])(
+    "ISS-0113: a worker woken by the On tap after the session ended (start read %i ms) ends signed out",
+    async (delay) => {
+      const issuer = perOriginIssuer([SUBJECT, SUBJECT_2]);
+      const local = memory({}, 1);
+      const before = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local });
+      await install(before);
+      await before.send({ action: "identify", userId: ACCOUNT });
+      await before.send(OPEN);
+      await settled(before);
+      expect(before.bodies()).toContain(`"distinct_id":"${SUBJECT}"`);
+      expect(await before.send({ action: "setSharing", enabled: false })).toBe(false);
+      before.bg.stop(); // the worker sleeps; the session ends meanwhile
+
+      const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject: issuer.issue, local });
+      t.bg.onStart(new Promise<string | null>((resolve) => setTimeout(() => resolve(null), delay)));
+      expect(await t.send({ action: "setSharing", enabled: true })).toBe(true); // the tap that woke it
+      await settled(t);
+      await t.send(OPEN);
+      await settled(t);
+      const state = local.data[STATE_KEY] as { userId: unknown; heldFor: unknown };
+      expect(state.userId).toBeNull();
+      expect(state.heldFor).toBeNull();
+      expect(t.queue()).toEqual([]);
+      const ids = choices(t);
+      expect(ids).toHaveLength(1);
+      expect([SUBJECT, SUBJECT_2]).not.toContain(ids[0]);
+      expect(t.bodies()).not.toContain(ACCOUNT);
+      expect(issuer.issue).toHaveBeenCalledTimes(1); // only the first worker's sign-in asked
+    },
+    15_000,
+  );
+
   // ISS-0113 re-review: the re-identify on turn-on must never win over a sign-out that arrives
   // around the tap. Storage reads take a macrotask, as chrome.storage's do.
   it.each([-1, 0, 1, 2, 3, 5, 8, 13, 21, 34])(
