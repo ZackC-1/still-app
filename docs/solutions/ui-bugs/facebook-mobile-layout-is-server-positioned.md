@@ -102,7 +102,7 @@ carousels (no reel cards) visible; a changed depth or label fails open.
   guessing; one paste was enough here.
 - Interface labels are matched in English, as on desktop; other languages fail open.
 
-## The top tab bar (ISS-0102, 20 Oct 2026)
+## The top tab bar (ISS-0102, 20-21 Oct 2026)
 
 The phone Home's top bar is a `[role="tablist"]` of six `[role="tab"]` divs labelled `feed, 1 of 6`
 (live: `feed, 1,755 new, 1 of 6`), `friends, 2 of 6`, `messages, 3 of 6`, `reels, 100 new, 4 of 6`,
@@ -115,32 +115,54 @@ are placed by their own margins.
 The first packaged layout (2.1.1.420) made the tab `visibility:hidden; pointer-events:none` and slid
 the tabs before it `translateX(50%)` and the tabs after it `translateX(-50%)`. That closed the slot,
 but the owner's retest (21 Oct) showed a grey band about half a tab wide at each end of the bar:
-the five tabs keep a sixth of the width each, so they span five sixths of the bar and its grey
-background shows at both ends. A transform never moves the layout, so the remaining tabs have to
-be redrawn to cover the whole bar.
+the five tabs keep a sixth of the width each, so they span five sixths of the bar. A transform
+never moves the layout, and scaling the tabs (`scaleX(1.2)`, tried and dropped) draws every icon
+20 % wide and leaves hairline seams between fractional-width neighbours.
 
-`FACEBOOK_REELS_LAYOUT` (code, not rule data) now keeps the Reels tab hidden and gives each of the
-other five `transform: translateX(s) scaleX(1.2)` about its own centre. With six slots of width
-w = W/6, the tab in slot n (1-based) is centred at (n − 0.5)w and must be centred at
-(m − 0.5)(1.2w), where m is its place among the five (n before the Reels tab, n − 1 after it), so
-the slide in its own width is 0.2n − 0.1 before Reels (10, 30, 50, 70, 90 %) and 0.2n − 1.3 after
-it (−90, −70, −50, −30, −10 %). The formula does not depend on which slot Reels holds (live: the
-fourth, so 10, 30, 50, −30, −10 %), and `:nth-child(n)` with `:has(~ Reels)` or `Reels ~` picks the
-side. On the 390 px fixture the five tabs measure 0–78, 78–156, 156–234, 234–312 and 312–390 px
-with no gap or overlap, a point half a pixel inside either end of the bar hits a tab, and a tap on
-the old Reels slot's centre (227.5 px) lands on the stretched Messages tab.
+### What the tab is made of (live capture, 21 Oct)
 
-Trade-offs, chosen over painting the bar white: the tab's white box and its share of the line under
-the bar stretch with it, so the line runs edge to edge (a white bar background alone would leave
-the line missing at both ends and the five tabs bunched in the middle); the cost is that each icon
-and badge is drawn 20 % wider than Facebook draws it. Counter-scaling the tab's children would undo
-that, but the live tab's inner structure (which element carries the line) is not captured, so it
-could break the line; check on a device before trying it. The arithmetic needs six equal tabs, so
-every rule requires a tab list holding the `feed, …` tab and a `Reels, …` tab with exactly six
-children, all tabs; a bar with another count, any other row with a `Reels, N of M` tab (unequal
-widths) and the Page tab row (inner tabs labelled `Reels`, no comma) keep the hide alone. Not
-checked: a right-to-left locale that keeps the word "Reels" (DOM order would be mirrored and the
-tabs would be drawn in the wrong slots).
+Captured read-only on the signed-in phone Home (Chromium, iPhone user agent, 390 px; roles, `data-*`
+names, nesting, inline geometry and computed colours only):
+
+- The tab list is transparent. The grey beside the tabs is the page's own background (an
+  ancestor's `::before`, rgb(188,192,196)), so making the bar transparent changes nothing and
+  painting it needs a colour that depends on the theme.
+- Each tab paints its white box with a `::before` that fills it and holds four layers, each as wide
+  as the tab (inline `width:65px`) and stacked with negative `margin-top`: the icon layer (a 29 px
+  icon box at `margin-left:18px`, the icon-font glyph centred in it by flex), the 2 px line under
+  the bar (a layer whose `::before` paints rgb(201,204,209)), and two badge layers (a 26 px pill at
+  `margin-left:31px`/`32px`). The selected tab only colours its icon; there is no separate active
+  underline.
+
+### The fix: widen the boxes, not the contents
+
+`FACEBOOK_REELS_LAYOUT` (code, not rule data) has two scopes:
+
+- **Any tab list holding the `feed, …` tab:** the Reels tab is `visibility:hidden;
+  pointer-events:none` (a tappable blank slot opens Reels, ISS-0035), and its neighbours slide half
+  a tab towards it. This needs only equal neighbours, so a bar with an extra entry (five or seven
+  tabs) still has no empty or tappable slot, only the bands.
+- **That list with a Reels tab and exactly six children, all tabs:** each remaining tab gets
+  `transform:none; width:20%; margin-left:<place × 20>%` (percentages of the bar; the place is the
+  slot number minus one before Reels, minus two after it, so it works whichever slot Reels holds),
+  and each of its layers gets `width:100%; padding-left:calc(100% / 12)`. The padding is half the
+  difference between the new and old tab (1/5 − 1/6 of the bar, halved, is a twelfth of the new
+  tab), so the fixed-offset icon and badges keep their size and land centred, while the layers'
+  `::before` backgrounds and the line fill the whole tab. These selectors are more specific than
+  the slide's and come later, so they replace it.
+
+Measured with this CSS injected on the live page (no extension): tabs at 0–78, 78–156, 156–234,
+234–312 and 312–390 px; every glyph still 28.81 × 28 px with its centre 0.56 px from the tab's
+centre, as before; badge-to-icon offset unchanged (13.34 px); each line layer spans its tab; a
+point 2 px inside either end of the bar hits a tab. On the fixture at 390, 393, 402 and 430 px
+(device pixel ratio 3), the white row above the icons and the line row have no off-colour pixel.
+
+Rejected fallback: keep the slide and draw a full-width 1 px line on the bar (an inset shadow).
+The bands stay (they are the page's grey), and the slid tabs show faint seams. Depends on Facebook
+keeping its layers as wide as the tab with contents placed from their left edge; if it changes,
+the icons drift off centre by about 6.5 px rather than disappearing. Not checked: a right-to-left
+locale that keeps the word "Reels" (DOM order would be mirrored, so tabs would land in the wrong
+fifths).
 
 ## The Stories tray (ISS-0101, 20 Oct 2026)
 

@@ -97,45 +97,60 @@ const selectors = Object.freeze([
 ]);
 
 /**
- * The phone layout's top tab bar (m.facebook.com in iPhone Safari, captured 20 Oct 2026): a tab list
- * of six equal fixed-width tabs ("feed, 1 of 6" … "reels, 4 of 6" … "marketplace, 6 of 6") that the
- * server positions with inline widths and margins, so hiding or shrinking the Reels tab never moves
- * the others. Its contents are hidden by the rule above (the tab keeps a box, as issue #58
- * settled), which left an empty slot and a gap in the line under the bar (ISS-0102). This layout
- * makes the tab invisible and untappable and redraws the five remaining tabs across the whole bar:
- * each is stretched to 1.2 times its width (six slots shared by five tabs) about its own centre and
- * slid so the five sit edge to edge from the bar's left edge to its right edge. Sliding by half a
- * slot alone closed the gap but left half a slot of the bar's grey background bare at each end
- * (owner retest on 2.1.1.420). The tab's own white background and its share of the line under the
- * bar stretch with it; so do its icon and badge, 20 per cent wider than drawn.
+ * The phone layout's top tab bar (m.facebook.com in iPhone Safari, captured 20 and 21 Oct 2026): a
+ * tab list of six equal fixed-width tabs ("feed, 1 of 6" … "reels, 4 of 6" … "marketplace, 6 of 6")
+ * that the server positions with inline widths and margins, so hiding or shrinking the Reels tab
+ * never moves the others. Its contents are hidden by the rule above (the tab keeps a box, as issue
+ * #58 settled), which left an empty slot and a gap in the line under the bar (ISS-0102).
  *
- * A transform does not move the layout, so a tab is placed by its slot alone: the tab in slot n
- * (1-based, of six, each a sixth of the bar wide, w) is centred at (n - 0.5)w and must be centred at
- * (m - 0.5)(1.2w), where m is its place among the five (n before the Reels tab, n - 1 after it). The
- * slide in its own width is therefore 0.2n - 0.1 before the Reels tab (10, 30, 50, 70, 90 per cent)
- * and 0.2n - 1.3 after it (-90, -70, -50, -30, -10 per cent), whichever slot the Reels tab holds
- * (the live bar has it fourth). The arithmetic holds only for six equal tabs, so the rules apply
- * only to a tab list holding the feed tab and a Reels tab with exactly six children, all tabs; any
- * other bar, a Page's tab row (inner tabs labelled "Reels", no comma) and any other row with a
- * "Reels, N of M" tab are left as the hide alone leaves them. Compiled code, never rule data.
+ * This layout makes the Reels tab invisible and untappable and redraws the other five as five equal
+ * tabs across the whole bar: each tab box is a fifth of the bar wide and placed at its new fifth by
+ * its own margin-left (percentages of the bar, so no transform and nothing scaled). Inside, every
+ * tab is a stack of layers each as wide as the old tab (a sixth of the bar): the icon layer, the
+ * 2 px line under the bar, two badge layers. Their contents sit at fixed pixel offsets from the
+ * layer's left edge (the icon 18 px in, the badge 31 px), and each layer's background and the line
+ * are painted by a ::before that fills the layer. So each layer is widened to the whole tab and
+ * padded on the left by half the difference (a twelfth of the new tab, 1/5 - 1/6 = 1/30 of the bar
+ * shared both sides): the icon and badge keep their size and land centred in the wider tab, and the
+ * line and backgrounds fill it, edge to edge across the bar.
+ *
+ * Sliding half a slot (2.1.1.420) closed the gap but left half a slot of grey page background bare
+ * at each end, and stretching the tabs with scaleX drew the icons 20 per cent wide; this does
+ * neither. Two scopes. The hide (invisible and untappable: a tappable blank slot opens Reels, see
+ * ISS-0035) applies to any tab list holding the feed tab, whatever its tab count. The widening
+ * arithmetic holds only for six equal tabs, so it applies only to such a list with a Reels tab and
+ * exactly six children, all tabs. Any other count (an account with an extra entry) keeps the
+ * half-tab slide, which needs only equal neighbours: no empty slot, a band at each end. A Page's
+ * tab row (inner tabs labelled "Reels", no comma) and any other row with a "Reels, N of M" tab are
+ * left as the hide alone leaves them. Compiled code, never rule data.
  */
 const REELS_TAB = '[role="tab"][aria-label^="Reels," i]';
-const TOP_BAR = '[role="tablist"]:has(> [role="tab"][aria-label^="feed," i])'
-  + `:has(> ${REELS_TAB}):has(> :nth-child(6))`
-  + ':not(:has(> :nth-child(7))):not(:has(> :not([role="tab"])))';
+const TOP_BAR = '[role="tablist"]:has(> [role="tab"][aria-label^="feed," i])';
 const TOP_BAR_REELS_TAB = `${TOP_BAR} > ${REELS_TAB}`;
-const stretch = (shift: number) => `transform:translateX(${shift}%) scaleX(1.2)!important;transform-origin:50% 50%!important`;
+const SIX_TAB_BAR = `${TOP_BAR}:has(> ${REELS_TAB}):has(> :nth-child(6))`
+  + ':not(:has(> :nth-child(7))):not(:has(> :not([role="tab"])))';
+/** A remaining tab's box on the six-tab bar: a fifth of the bar, at the fifth it now holds (0-based). */
+const fifth = (place: number) => `transform:none!important;width:20%!important;margin-left:${20 * place}%!important`;
 const SLOTS = [1, 2, 3, 4, 5, 6] as const;
 export const FACEBOOK_REELS_LAYOUT: readonly LayoutRule[] = Object.freeze([
   Object.freeze({ selector: TOP_BAR_REELS_TAB, declarations: "visibility:hidden!important;pointer-events:none!important" }),
+  // Any other tab count: the half-tab slide towards the hidden tab.
+  Object.freeze({ selector: `${TOP_BAR} > [role="tab"]:has(~ ${REELS_TAB})`, declarations: "transform:translateX(50%)!important" }),
+  Object.freeze({ selector: `${TOP_BAR_REELS_TAB} ~ [role="tab"]`, declarations: "transform:translateX(-50%)!important" }),
+  // Six tabs: slot n (1-based) before the Reels tab holds place n - 1; after it, place n - 2. These
+  // selectors are more specific than the slide's and come after it, so they replace it.
   ...SLOTS.slice(0, 5).map((n) => Object.freeze({
-    selector: `${TOP_BAR} > [role="tab"]:nth-child(${n}):has(~ ${REELS_TAB})`,
-    declarations: stretch(20 * n - 10),
+    selector: `${SIX_TAB_BAR} > [role="tab"]:nth-child(${n}):has(~ ${REELS_TAB})`,
+    declarations: fifth(n - 1),
   })),
   ...SLOTS.slice(1).map((n) => Object.freeze({
-    selector: `${TOP_BAR_REELS_TAB} ~ [role="tab"]:nth-child(${n})`,
-    declarations: stretch(20 * n - 130),
+    selector: `${SIX_TAB_BAR} > ${REELS_TAB} ~ [role="tab"]:nth-child(${n})`,
+    declarations: fifth(n - 2),
   })),
+  Object.freeze({
+    selector: `${SIX_TAB_BAR} > [role="tab"]:not(${REELS_TAB}) > *`,
+    declarations: "width:100%!important;padding-left:calc(100% / 12)!important;box-sizing:border-box!important",
+  }),
 ]);
 
 export const FACEBOOK_REELS_RULES: ServiceRulesV2 = Object.freeze({
