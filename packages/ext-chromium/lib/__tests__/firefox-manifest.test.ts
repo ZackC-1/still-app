@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import config, {
+  declaresFirefoxAndroid,
+  FIREFOX_2X_DESCRIPTION,
+  FIREFOX_ANDROID_RELEASE_DEFERRED,
+  FIREFOX_V3_DESCRIPTION,
   firefoxAndroidSettings,
   firefoxBrowserSpecificSettings,
   runsV3Interface,
@@ -17,6 +21,20 @@ const CONFIGURED_2X: ManifestBuildEnv = {
   VITE_SUPABASE_ANON_KEY: "public-audit-placeholder",
 };
 const CONFIGURED_V3: ManifestBuildEnv = { ...CONFIGURED_2X, VITE_MODERN_SETTINGS_SYNC_ENABLED: "true" };
+// The V3 store package: scripts/release/package.mjs forwards only these public values.
+const RELEASE_V3: ManifestBuildEnv = {
+  ...CONFIGURED_V3,
+  VITE_POSTHOG_KEY: "phc_publicAuditPlaceholder000000",
+  VITE_POSTHOG_HOST: "https://us.i.posthog.com",
+};
+// The paid-sandbox QA profile (scripts/qa/v3-profile.mjs), which signs the unlisted QA package.
+const SANDBOX_QA: ManifestBuildEnv = {
+  ...CONFIGURED_V3,
+  VITE_PACKAGE_IDENTITY: "paid-sandbox-qa",
+  VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox",
+  VITE_ACCESS_ENVIRONMENT: "sandbox",
+  VITE_QA_BUILD_SEQUENCE: "400",
+};
 
 const FOUR_HOSTS = [
   "*://*.youtube.com/*",
@@ -33,7 +51,7 @@ function major(version: string): number {
 }
 
 describe("Firefox manifest compatibility", () => {
-  it("publishes V3 Firefox builds for desktop Firefox and Firefox for Android", () => {
+  it("publishes V3 store builds for desktop Firefox only while Firefox for Android is deferred", () => {
     const gecko = {
       id: "still@chartash.com",
       strict_min_version: "140.0",
@@ -43,32 +61,42 @@ describe("Firefox manifest compatibility", () => {
       },
     };
     expect(firefoxBrowserSpecificSettings).toEqual({ gecko });
-    for (const env of [UNCONFIGURED, CONFIGURED_V3])
-      expect(stillManifest("firefox", env)).toHaveProperty("browser_specific_settings", {
-        gecko,
-        gecko_android: { strict_min_version: "142.0" },
-      });
+    // Owner decision, 20 Oct 2026. Flipping this is the deliberate step that lists Android on AMO.
+    expect(FIREFOX_ANDROID_RELEASE_DEFERRED).toBe(true);
+    for (const env of [UNCONFIGURED, CONFIGURED_V3, RELEASE_V3]) {
+      expect(stillManifest("firefox", env)).toHaveProperty("browser_specific_settings", { gecko });
+      expect(JSON.stringify(stillManifest("firefox", env))).not.toContain("gecko_android");
+      expect(declaresFirefoxAndroid(env)).toBe(false);
+    }
+  });
+
+  it("keeps the unlisted sandbox QA package installable on Firefox for Android for the emulator lane", () => {
+    expect(declaresFirefoxAndroid(SANDBOX_QA)).toBe(true);
+    expect(stillManifest("firefox", SANDBOX_QA)).toHaveProperty("browser_specific_settings", {
+      gecko: { ...firefoxBrowserSpecificSettings.gecko, id: "still-qa-sandbox@chartash.com" },
+      gecko_android: { strict_min_version: "142.0" },
+    });
   });
 
   it("never lists a configured 2.x build (the pre-V3 interface) for Android", () => {
     expect(stillManifest("firefox", CONFIGURED_2X)).toHaveProperty("browser_specific_settings", firefoxBrowserSpecificSettings);
     expect(JSON.stringify(stillManifest("firefox", CONFIGURED_2X))).not.toContain("gecko_android");
-    // A blank or whitespace-only key is unconfigured, exactly as the runtime treats it.
-    expect(stillManifest("firefox", { VITE_SUPABASE_URL: " ", VITE_SUPABASE_ANON_KEY: "" })).toHaveProperty(
-      "browser_specific_settings.gecko_android",
-    );
+    expect(declaresFirefoxAndroid(CONFIGURED_2X)).toBe(false);
   });
 
   it("names Firefox on Android in the summary only for builds listed for Android", () => {
-    // The 2.x store summary, byte-for-byte as it shipped before Firefox for Android.
+    // The 2.x store summary, byte-for-byte as it shipped before Firefox for Android. While Android
+    // is deferred, V3 store builds keep it too (owner decision, 20 Oct 2026).
     const shipped2x =
       "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
-    expect(stillManifest("firefox", CONFIGURED_2X).description).toBe(shipped2x);
-    expect(stillManifest("firefox", CONFIGURED_2X).description).not.toContain("Android");
-    for (const env of [UNCONFIGURED, CONFIGURED_V3])
-      expect(stillManifest("firefox", env).description).toBe(
-        "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.",
-      );
+    for (const env of [CONFIGURED_2X, UNCONFIGURED, CONFIGURED_V3, RELEASE_V3]) {
+      expect(stillManifest("firefox", env).description, JSON.stringify(env)).toBe(shipped2x);
+      expect(stillManifest("firefox", env).description).not.toContain("Android");
+    }
+    // The sandbox QA package, listed for Android, keeps the V3 wording unchanged.
+    expect(stillManifest("firefox", SANDBOX_QA).description).toBe(
+      "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.",
+    );
   });
 
   it("decides V3 exactly as the runtime and the TikTok blocked-page gate do", () => {
@@ -168,6 +196,45 @@ describe("Firefox manifest compatibility", () => {
       });
     // A build without an options entrypoint has nothing to place.
     expect(settingsPageHost("firefox", {})).toEqual({});
+  });
+
+  describe("the manifest the build generates (config.manifest, then build:manifestGenerated)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    /** What WXT writes for Firefox: the config's manifest callback under `env`, then the hook. */
+    async function generatedFirefoxManifest(env: ManifestBuildEnv) {
+      vi.stubEnv("VITE_SUPABASE_URL", "");
+      vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+      vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "");
+      vi.stubEnv("VITE_PACKAGE_IDENTITY", "");
+      for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value ?? "");
+      const build = config.manifest as (env: { browser: string }) => Record<string, unknown>;
+      const manifest: Record<string, unknown> = {
+        ...build({ browser: "firefox" }),
+        options_ui: { page: "options.html", open_in_tab: false },
+      };
+      const hook = (config.hooks as Record<string, (wxt: unknown, manifest: unknown) => unknown>)["build:manifestGenerated"];
+      if (typeof hook !== "function") throw new Error("the build:manifestGenerated hook is not wired");
+      await hook({ config: { browser: "firefox" } }, manifest);
+      return manifest;
+    }
+
+    it("has no gecko_android in the release Firefox manifest", async () => {
+      for (const env of [RELEASE_V3, UNCONFIGURED, CONFIGURED_2X]) {
+        const manifest = await generatedFirefoxManifest(env);
+        expect(manifest.browser_specific_settings).toEqual(firefoxBrowserSpecificSettings);
+        expect(manifest).not.toHaveProperty("browser_specific_settings.gecko_android");
+        expect(manifest.options_ui).toEqual({ page: "options.html", open_in_tab: true });
+        expect(manifest.description).toBe(FIREFOX_2X_DESCRIPTION);
+      }
+    });
+
+    it("keeps gecko_android in the sandbox QA Firefox manifest", async () => {
+      const manifest = await generatedFirefoxManifest(SANDBOX_QA);
+      expect(manifest).toHaveProperty("browser_specific_settings.gecko.id", "still-qa-sandbox@chartash.com");
+      expect(manifest).toHaveProperty("browser_specific_settings.gecko_android", { strict_min_version: "142.0" });
+      expect(manifest.description).toBe(FIREFOX_V3_DESCRIPTION);
+    });
   });
 
   it("wires that host rule into the generated manifest (the build hook)", async () => {

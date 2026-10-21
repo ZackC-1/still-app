@@ -35,8 +35,8 @@ export type ManifestBuildEnv = Readonly<Record<string, string | undefined>>;
  * Whether this build runs the V3 interface: unconfigured builds, or configured builds that opted
  * into modern sync. The same release rule as lib/modern-settings-runtime.ts `atomicLocal` and
  * entrypoints/tiktok-blocked/gate.ts (lib/__tests__/firefox-manifest.test.ts pins all three).
- * Firefox for Android ships only with V3 (its phone popup and Android first-run are V3 screens),
- * so a configured 2.x store build is never listed for Android.
+ * Firefox for Android needs the V3 screens (phone popup, Android first-run) and is deferred to a
+ * later update, so store builds are not listed for Android yet; QA sandbox packages are.
  */
 export function runsV3Interface(env: ManifestBuildEnv): boolean {
   const configured =
@@ -44,12 +44,33 @@ export function runsV3Interface(env: ManifestBuildEnv): boolean {
   return !configured || env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true";
 }
 
-/** `gecko` always; `gecko_android` only for a V3 build. */
+/**
+ * Firefox for Android is deferred from the first V3 release (owner decision, 20 Oct 2026): Chrome,
+ * desktop Firefox and the Apple apps ship first, Android follows in a later update once it has been
+ * tested there. While this is true, only the never-listed sandbox QA package declares
+ * `gecko_android`; a store build does not, so addons.mozilla.org treats the listed version as
+ * desktop-only and does not offer it to Firefox for Android users. Every Android code path stays.
+ * To ship Android, set this to false (and review the AMO version's Android compatibility).
+ *
+ * What this does and does not do: AMO decides Android availability from `gecko_android`
+ * (https://extensionworkshop.com/documentation/publish/version-compatibility/#android-compatibility).
+ * Its absence does NOT stop Firefox for Android itself from installing a signed file, so someone who
+ * unlocks Firefox's hidden "Install extension from file" menu can still side-load the add-on.
+ */
+export const FIREFOX_ANDROID_RELEASE_DEFERRED = true;
+
+/** Whether this Firefox build declares `gecko_android`: V3 only, and while deferred, the QA package only. */
+export function declaresFirefoxAndroid(env: ManifestBuildEnv): boolean {
+  if (!runsV3Interface(env)) return false;
+  return qaSandboxPackage(env) || !FIREFOX_ANDROID_RELEASE_DEFERRED;
+}
+
+/** `gecko` always; `gecko_android` only where `declaresFirefoxAndroid` allows it. */
 export function firefoxSettingsFor(env: ManifestBuildEnv) {
   const settings = qaSandboxPackage(env)
     ? { gecko: { ...firefoxBrowserSpecificSettings.gecko, id: QA_SANDBOX_PACKAGE.firefoxId } }
     : firefoxBrowserSpecificSettings;
-  return runsV3Interface(env) ? { ...settings, gecko_android: firefoxAndroidSettings } : settings;
+  return declaresFirefoxAndroid(env) ? { ...settings, gecko_android: firefoxAndroidSettings } : settings;
 }
 
 /**
@@ -91,16 +112,20 @@ export function qaPackageVersion(env: ManifestBuildEnv, storeVersion: string): s
 const storeVersion = (): string =>
   JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 
-/** The 2.x Firefox summary, unchanged: a 2.x build has no `gecko_android`, so it stays desktop. */
+/** The shipped desktop Firefox summary: every build without `gecko_android` (2.x, and V3 store builds while Android is deferred). */
 export const FIREFOX_2X_DESCRIPTION =
   "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox.";
-/** The V3 Firefox summary, with the owner-approved Firefox on Android wording. */
+/** The V3 Firefox summary, with the owner-approved Firefox on Android wording: builds listed for Android only. */
 export const FIREFOX_V3_DESCRIPTION =
   "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android.";
 
-/** The Firefox summary follows the same rule as `gecko_android`: Android is named only where listed. */
+/**
+ * The Firefox summary follows the same rule as `gecko_android`: Android is named only where listed.
+ * While Firefox for Android is deferred, V3 store builds keep the shipped desktop summary; the V3
+ * wording waits for the Android update (owner decision, 20 Oct 2026).
+ */
 export function firefoxDescriptionFor(env: ManifestBuildEnv): string {
-  return runsV3Interface(env) ? FIREFOX_V3_DESCRIPTION : FIREFOX_2X_DESCRIPTION;
+  return declaresFirefoxAndroid(env) ? FIREFOX_V3_DESCRIPTION : FIREFOX_2X_DESCRIPTION;
 }
 
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
@@ -149,7 +174,7 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
     // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
     ...(isFirefox
       ? {
-          // `gecko` for desktop Firefox; `gecko_android` for Firefox for Android on V3 builds only.
+          // `gecko` for desktop Firefox; `gecko_android` for Firefox for Android (declaresFirefoxAndroid).
           browser_specific_settings: firefoxSettingsFor(env),
         }
       : {
