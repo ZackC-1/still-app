@@ -299,6 +299,7 @@ jobs:
           PROD_APP_STORE_SERVER_ISSUER_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_APP_STORE_SERVER_ISSUER_ID || '' }}
           PROD_APP_STORE_SERVER_KEY_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_APP_STORE_SERVER_KEY_ID || '' }}
           PROD_APP_STORE_SERVER_PRIVATE_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_APP_STORE_SERVER_PRIVATE_KEY || '' }}
+          PROD_APPLE_SANDBOX_REVIEW_ENABLED: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_APPLE_SANDBOX_REVIEW_ENABLED || '' }}
           PROD_REVENUECAT_PROJECT_ID: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_PROJECT_ID || '' }}
           PROD_REVENUECAT_ACCESS_SECRET_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_ACCESS_SECRET_API_KEY || '' }}
           PROD_REVENUECAT_SECRET_API_KEY: ${{ inputs.operation == 'purchase-secrets' && secrets.PROD_REVENUECAT_SECRET_API_KEY || '' }}

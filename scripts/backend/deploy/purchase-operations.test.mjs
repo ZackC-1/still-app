@@ -230,6 +230,7 @@ test("the operations, secret names and groups are closed lists with no QA or pla
       ["APP_STORE_SERVER_ISSUER_ID", true],
       ["APP_STORE_SERVER_KEY_ID", true],
       ["APP_STORE_SERVER_PRIVATE_KEY", true],
+      ["APPLE_SANDBOX_REVIEW_ENABLED", false],
       ["REVENUECAT_PROJECT_ID", true],
       ["REVENUECAT_ACCESS_SECRET_API_KEY", true],
       ["REVENUECAT_SECRET_API_KEY", true],
@@ -489,6 +490,8 @@ test("staged values: unknown PROD_ names, stray whitespace, incomplete groups an
 test("production staging rejects test keys, wrong provider keys, unsafe return locations and unpinned versions", () => {
   const values = syntheticStaged();
   for (const [name, value] of [
+    ["APPLE_SANDBOX_REVIEW_ENABLED", "TRUE"],
+    ["APPLE_SANDBOX_REVIEW_ENABLED", "1"],
     ["STRIPE_SECRET_API_KEY", "sk_test_wrongenvironment"],
     ["STRIPE_SECRET_API_KEY", "pk_live_publickeyonly"],
     ["STRIPE_API_VERSION", "2026-01-01"],

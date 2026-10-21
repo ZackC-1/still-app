@@ -52,6 +52,7 @@ come from the providers and never enter Git, a chat or a document.
 | `PROD_APP_STORE_SERVER_ISSUER_ID` | `APP_STORE_SERVER_ISSUER_ID` | Required |
 | `PROD_APP_STORE_SERVER_KEY_ID` | `APP_STORE_SERVER_KEY_ID` | Required (group: App Store key) |
 | `PROD_APP_STORE_SERVER_PRIVATE_KEY` | `APP_STORE_SERVER_PRIVATE_KEY` | Required (group: App Store key) |
+| `PROD_APPLE_SANDBOX_REVIEW_ENABLED` | `APPLE_SANDBOX_REVIEW_ENABLED` | Optional; exact `true` or `false`, absent means off |
 | `PROD_REVENUECAT_PROJECT_ID` | `REVENUECAT_PROJECT_ID` | Required |
 | `PROD_REVENUECAT_ACCESS_SECRET_API_KEY` | `REVENUECAT_ACCESS_SECRET_API_KEY` | Required |
 | `PROD_REVENUECAT_SECRET_API_KEY` | `REVENUECAT_SECRET_API_KEY` | Required, but already set since July: stage it only to replace it |
@@ -69,6 +70,13 @@ come from the providers and never enter Git, a chat or a document.
 "Required" means the name must hold a value after an `apply`: either staged now or already present.
 A group's names are staged together or not at all. `ACCESS_PROOF_ENVIRONMENT` is not staged; the
 operation writes `production`.
+
+Apple review access requires migration 0027 and the matching native binding verifier. Enable the
+separate review switch only after those gates pass. Apple sandbox transactions then issue local
+device access from an isolated review ledger; they cannot link to an account or enter the live
+payment ledger. Keep review purchases out of production conversion reporting. The RevenueCat
+webhook configuration is unchanged. To turn review issuance off, stage `false` through the
+protected secret rotation operation; already issued local proofs retain their existing deadlines.
 
 **Not handled here, on purpose.** `ENTITLEMENT_WRITER_DB_URL`, `PRODUCT_POLICY_READER_DB_URL` and
 `SETTINGS_WRITER_DB_URL` are database sign-ins: each URL's password must match its role's stored

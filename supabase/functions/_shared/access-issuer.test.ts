@@ -10,6 +10,26 @@ const privateKeyPkcs8Base64 = btoa(Array.from(hex("302e020100300506032b657004220
 const CONFIG = { environment: "sandbox", kid: "synthetic-access", privateKeyPkcs8Base64, publicKeyHex: PUBLIC };
 const RIGHT = { right: "33333333-3333-3333-3333-333333333333", holder: "11111111-1111-1111-1111-111111111111", revision: 2, verified_at: 1791374400000 };
 
+Deno.test("Apple review binding requires production issuer and preserves sandbox transaction provenance", async () => {
+  const signer = (await createAccessSigner({ ...CONFIG, environment: "production" }))!;
+  const binding = { schema: 2 as const, environment: "production" as const, transactionEnvironment: "sandbox" as const,
+    appBundleId: "com.example.still", productId: "still_pro_v3" as const, originalTransactionId: "12345",
+    right: RIGHT.right, ownershipRevision: RIGHT.revision, verifiedAt: RIGHT.verified_at,
+    expiresAt: RIGHT.verified_at + PAID_ACCESS_WINDOW_MS };
+  const envelope = JSON.parse(await signer.signAppleBinding!(binding));
+  const decode = (value: string) => Uint8Array.from(atob(value.replaceAll("-", "+").replaceAll("_", "/")), c => c.charCodeAt(0));
+  const payload = new TextDecoder().decode(decode(envelope.payload));
+  assertEquals(JSON.parse(payload), binding);
+  const key = await crypto.subtle.importKey("raw", hex(PUBLIC), "Ed25519", false, ["verify"]);
+  for (const version of [1, 2]) {
+    assertEquals(await crypto.subtle.verify("Ed25519", key, decode(envelope.signature),
+      new TextEncoder().encode(`still-apple-right-binding-v${version}\n${payload}`)), version === 2);
+  }
+  const sandbox = (await createAccessSigner(CONFIG))!;
+  await assertRejects(() => sandbox.signAppleBinding!(binding), Error, "Invalid Apple binding");
+  await assertRejects(() => signer.signAppleBinding!({ ...binding, environment: "sandbox" }), Error, "Invalid Apple binding");
+});
+
 Deno.test("real Ed25519 issuer emits the frozen account scope and canonical thirty-day deadline", async () => {
   const signer = (await createAccessSigner(CONFIG))!;
   const text = await signer.sign(RIGHT);

@@ -152,6 +152,7 @@ export const STAGED_SECRETS = Object.freeze([
   staged("APP_STORE_SERVER_ISSUER_ID", true),
   staged("APP_STORE_SERVER_KEY_ID", true),
   staged("APP_STORE_SERVER_PRIVATE_KEY", true),
+  staged("APPLE_SANDBOX_REVIEW_ENABLED", false),
   staged("REVENUECAT_PROJECT_ID", true),
   staged("REVENUECAT_ACCESS_SECRET_API_KEY", true),
   staged("REVENUECAT_SECRET_API_KEY", true),
@@ -456,6 +457,7 @@ export function validateStaged(values) {
     if (!Array.isArray(parsed) || !parsed.length) invalid.push(from(name));
   }
   const shapes = {
+    APPLE_SANDBOX_REVIEW_ENABLED: /^(?:true|false)$/,
     STRIPE_SECRET_API_KEY: /^(?:sk|rk)_live_[A-Za-z0-9]{8,240}$/,
     STRIPE_ACCOUNT_ID: /^acct_[A-Za-z0-9]{1,200}$/,
     STRIPE_WEBHOOK_SECRET: /^whsec_[A-Za-z0-9]{1,240}$/,

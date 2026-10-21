@@ -371,3 +371,28 @@ Secrets now precede function deployment in the executable rehearsal and runbook.
 Verification: 42 deployment/bundle/workflow tests passed, 2 unrelated QA bundle integration tests
 skipped. This includes compilation, sealing and isolated startup of all ten purchase/sync handlers
 with no credentials or network access. These are local rehearsals, not production deployment.
+
+## Apple review implementation boundary
+
+D4 requires a distinct signed native binding that records sandbox transaction provenance while the
+issuer remains the production backend. Retain the ordinary production local-proof trust boundary;
+never reinterpret a sandbox receipt as a live purchase. The review verifier uses Apple's sandbox
+verification/API explicitly, and a separate private review ledger holds only device-local rights.
+It has no account holder/link/transfer or revenue records and cannot enter account reconciliation.
+A server switch defaults Off. Link requests never invoke the review fallback.
+
+Native installation must independently match the current StoreKit sandbox transaction, refuse an
+account proof alongside a review binding, and hide the link-to-account affordance. Existing binding
+schema 1 remains unchanged; review binding schema 2 uses a separate signing domain. Final analytics
+verification must exclude this review path from production purchase conversion/revenue reporting.
+Implemented in source: versioned binding/signing purpose, native sandbox match and no-account
+installation/link eligibility, isolated migration 0027 and writer adapter, default-off runtime
+composition, protected optional switch staging, and disposable SQL rehearsal. Verification:
+510 StillKit tests passed; 358 shared-backend Deno tests/115 steps passed (1 ignored); 17 protected
+purchase-operation tests passed; changed Deno sources lint and entry points typecheck.
+The new PostgreSQL rehearsal, production deployment, review-build device journey and analytics
+exclusion remain pending. D4 is not enabled in production.
+
+Analytics audit checkpoint: approved event names exist for paywall views and purchase stages, but
+literal producer searches in current core/webview/native sources found schema/validation references
+only. Treat funnel instrumentation and delivery as unverified; do not infer them from event schemas.

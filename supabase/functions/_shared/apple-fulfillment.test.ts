@@ -49,6 +49,34 @@ Deno.test("accountless verification signs stable scoped local proof and transact
   assertEquals(s.link(), undefined);
   assertEquals(s.calls, ["limit", "authenticate", "begin", "refresh", "commit", "sign", "binding", "confirm"]);
 });
+Deno.test("production sandbox review uses isolated local store and never the account-link path", async () => {
+  const live = setup({ ...tx, environment: "production" });
+  const review = setup();
+  const reviewEvidence = { ...evidence, signedTransaction: `e30.${btoa('{"environment":"Sandbox"}').replaceAll("=", "")}.signature` };
+  const production = { ...live.deps.access!, signer: { ...live.deps.access!.signer, environment: "production" as const } };
+  const isolated = { ...review.deps.access!, signer: production.signer };
+  const deps = { ...live.deps, access: production, reviewAccess: isolated };
+  const response = await (await handleVerifyAppleAccess(request({ schema: 1, transaction: reviewEvidence }), deps)).json();
+  assertEquals(response.status, "verified");
+  assertEquals(response.proofs.length, 1);
+  assertEquals(JSON.parse(response.nativeBinding).schema, 2);
+  assertEquals(JSON.parse(response.nativeBinding).environment, "production");
+  assertEquals(JSON.parse(response.nativeBinding).transactionEnvironment, "sandbox");
+  assertEquals(review.link(), undefined);
+  assertEquals(live.calls.includes("begin"), false);
+  const before = review.calls.length;
+  live.controls.authentic = false; // Real production verifier rejects a sandbox transaction.
+  await handleLinkAppleAccess(request({ ...body(), evidence: reviewEvidence }, await token()), deps);
+  assertEquals(review.calls.length, before);
+  assertEquals(live.calls.includes("commit"), false);
+  const disabled = await (await handleVerifyAppleAccess(request({ schema: 1, transaction: reviewEvidence }), { ...deps, reviewAccess: undefined })).json();
+  assertEquals(disabled.status, "unavailable");
+  assertEquals(review.calls.length, before);
+  review.controls.authentic = false;
+  const forged = await (await handleVerifyAppleAccess(request({ schema: 1, transaction: reviewEvidence }), deps)).json();
+  assertEquals(forged.status, "unavailable");
+  assertEquals(review.calls.slice(before), ["authenticate"]);
+});
 Deno.test("first explicit link returns exact native session contract and derives holder solely from JWT", async () => {
   const s = setup(); const response = await handleLinkAppleAccess(request(body(), await token()), s.deps);
   const result = await response.json();
