@@ -225,10 +225,11 @@ export function createSafariBackgroundAnalytics(
   // app's sharing was off confirms nobody until the first page event after sharing is turned on.
   // That confirmation fences every earlier observation, including the event's own, which was then
   // lost (the popup's `opened`), while the toggle a moment later was kept. Where the confirmation
-  // changed nobody (nobody was reported as or held for), the event is observed again just after
-  // it, and kept only under the very permission it arrived under: a stop since then sends nothing,
-  // and a turn-on is never recorded under an earlier origin's ids. A sign-out of someone who was
-  // reported as (or held for) still fences what arrived before it, as before.
+  // lets go of nobody (no one reported as, no hold in memory or saved before a restart, no sign-in
+  // being confirmed; client.lettingGoOfNobody), the event is observed again just after it and kept
+  // only under the very permission it arrived under: a stop since then sends nothing, and a turn-on
+  // is never recorded under an earlier origin's ids. A sign-out of anyone who was reported as or
+  // held for still fences what arrived before it, as before.
   const reobserve = async (before: Captured): Promise<Captured | null> => {
     if (await current(Promise.resolve(before))) return before;
     const after = await current(host.client.captureObservation());
@@ -264,9 +265,7 @@ export function createSafariBackgroundAnalytics(
           import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true"
         ) {
           const reportingAs = await host.client.signedInAs();
-          const nobody =
-            reportingAs === null &&
-            (await host.client.accountInForce()) === null;
+          const nobody = await host.client.lettingGoOfNobody();
           await host.client.confirm(null, { forget: true, quiet: true });
           await host.forgetSubjects?.(reportingAs);
           if (nobody) captured = await reobserve(captured);

@@ -363,6 +363,8 @@ describe("ISS-0115: the popup opened right after the app turns sharing on", () =
   it("the same on a background that has been running since before sharing was turned on", async () => {
     v3();
     const t = setup();
+    await t.app.permission(); // the app's default, never used by this background
+    const oldId = anonymousId(t);
     await t.app.commit(false); // off before the background ever started
     t.bg.onStart();
     await t.idle();
@@ -372,14 +374,18 @@ describe("ISS-0115: the popup opened right after the app turns sharing on", () =
     t.bg.flush();
     await t.idle();
     const newId = anonymousId(t);
+    expect(newId).not.toBe(oldId);
     await t.eventually(() =>
       expect(sentAs(t)).toEqual(expect.arrayContaining([["opened", newId], ["global_toggled", newId]])),
     );
+    expect(t.bodies()).not.toContain(oldId);
   });
 
   it("NEGATIVE CONTROL: what the popup sent while sharing was off is never sent after it is turned on", async () => {
     v3();
     const t = setup();
+    await t.app.permission();
+    const oldId = anonymousId(t);
     await t.app.commit(false);
     t.bg.onStart();
     await t.idle();
@@ -391,6 +397,7 @@ describe("ISS-0115: the popup opened right after the app turns sharing on", () =
     await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
     await t.idle();
     expect(t.sent()).not.toContain("opened");
+    expect(t.bodies()).not.toContain(oldId);
   });
 
   it("NEGATIVE CONTROL: an event that arrives as the app's sign-out is confirmed is still dropped, never sent anonymously", async () => {
@@ -414,5 +421,72 @@ describe("ISS-0115: the popup opened right after the app turns sharing on", () =
     await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
     expect(t.sent()).not.toContain("opened");
     expect(t.bodies()).not.toContain(SUBJECT);
+  });
+
+  it("NEGATIVE CONTROL: a sign-in held before a restart is let go of by the sign-out; what arrives then is never sent", async () => {
+    v3();
+    // Signed in to an account the app has issued no identity for yet: the background holds for it
+    // (saved), and what the popup records waits, bound to the account.
+    const first = setup({ account: ACCOUNT });
+    await first.app.permission();
+    first.bg.onStart();
+    await first.idle();
+    await first.send(TOGGLED);
+    first.bg.flush();
+    await first.idle();
+    expect(first.fetch).not.toHaveBeenCalled();
+    expect(first.queue()).toEqual(expect.arrayContaining(["global_toggled"]));
+    first.bg.stop();
+    // Signed out in the app while Safari had unloaded the background; the popup's event wakes a new one.
+    first.device.account.value = null;
+    const t = setup({ device: first.device });
+    await t.send(OPENED); // possibly the held account's use: the sign-out releases its hold
+    t.bg.flush();
+    await t.idle();
+    expect(t.fetch).not.toHaveBeenCalled(); // under no id: not the account's, not anonymous
+    await t.send(TOGGLED); // after the sign-out is confirmed: anonymous, and only this one
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
+    await t.idle();
+    expect(t.sent()).toEqual(expect.not.arrayContaining(["opened"]));
+    expect(t.sent().filter((e) => e === "global_toggled")).toHaveLength(1);
+  });
+
+  it("NEGATIVE CONTROL: sharing turned off and on again while the sign-out is confirmed: the event goes out under neither id", async () => {
+    v3();
+    const t = setup();
+    await t.app.permission();
+    await t.app.commit(false);
+    t.bg.onStart(); // started while off: the account is not confirmed
+    await t.idle();
+    await t.app.commit(true);
+    const arrivedUnder = anonymousId(t);
+    // Off and on again in the app while this event's own sign-out confirmation is being saved (after
+    // the account was read and the event was checked against the permission it arrived under).
+    let read = false;
+    let flipped = false;
+    const original = t.sendNative.getMockImplementation()!;
+    t.sendNative.mockImplementation(async (message) => {
+      if (message.kind === "getAccountSyncStatus") read = true;
+      return original(message);
+    });
+    const set = t.local.set.bind(t.local);
+    t.local.set = async (key, value) => {
+      if (read && !flipped && key === "still:analytics:state") {
+        flipped = true;
+        await t.app.commit(false);
+        await t.app.commit(true);
+      }
+      return set(key, value);
+    };
+    await t.send(OPENED);
+    expect(flipped).toBe(true);
+    const newId = anonymousId(t);
+    expect(newId).not.toBe(arrivedUnder);
+    t.bg.flush();
+    await t.idle();
+    expect(t.sent()).not.toContain("opened");
+    expect(t.bodies()).not.toContain(arrivedUnder);
   });
 });
