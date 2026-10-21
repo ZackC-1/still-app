@@ -1,16 +1,38 @@
 import type { Deviation } from "../types.js";
 
 /**
- * Owner decision 2026-10-12 (ISS-0029): the sync line reads "Free. Keep your block settings
- * consistent across every supported device and browser." on every screen. Reference frames still
- * carry the earlier "every device and browser" wording. The region is the implementation element
- * holding the new wording, so a failing frame reports how many differing pixels sit on that line
- * and how many remain elsewhere.
+ * Owner decision 2026-10-12 (ISS-0029), reworded in the owner's canvas review of 21 Oct 2026: the
+ * sync line reads "Sync settings across devices and browsers. Free." on every screen.
+ * Reference frames still carry the earlier "every device and browser" wording. The region is the
+ * implementation element holding the new wording, so a failing frame reports how many differing
+ * pixels sit on that line and how many remain elsewhere.
  */
 export const OWNER_SYNC_COPY: Deviation = {
   reason:
-    'owner-approved copy (sync line "every supported device and browser"; reference says "every device and browser")',
-  text: "every supported device and browser",
+    'owner-approved copy (sync line "Sync settings across devices and browsers. Free."; reference says "every device and browser")',
+  text: "Sync settings across devices and browsers.",
+};
+
+/**
+ * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can't block
+ * distractions yet." where the references say "Still can't block on these websites yet." (setup)
+ * or "Still can't work on these sites" (site access).
+ */
+export const OWNER_SETUP_HEADER_COPY: Deviation = {
+  reason:
+    'owner-approved copy (setup header "Still can\'t block distractions yet."; reference says "Still can\'t block on these websites yet.")',
+  text: "Still can't block distractions yet.",
+};
+
+/**
+ * Owner's canvas review, 21 Oct 2026: the Safari popup's setup instructions quote the two labels
+ * (choose “Still”, then “Always Allow on Every Website”), so the body line differs from the
+ * reference and may wrap differently.
+ */
+export const OWNER_SAFARI_SETUP_BODY: Deviation = {
+  reason:
+    "owner-approved copy (Safari setup instructions quote “Still” and “Always Allow on Every Website”; reference has no quotes)",
+  text: "In Safari, tap the extensions button",
 };
 
 /** The latest reference restores demo banners; their omission also moves subsequent cards. */
@@ -21,8 +43,8 @@ export const REFERENCE_DEMO_ACCOUNT: Deviation = {
 };
 
 /**
- * ISS-0032 (owner-approved design, 12 Oct 2026): a compact Still Pro card ("Hide more on
- * Instagram, Facebook and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
+ * ISS-0032 (owner-approved design, 12 Oct 2026): a compact Still Pro card ("Even fewer distractions on
+ * Instagram, Facebook, and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
  * plain "Purchase Still Pro" button under the site list, and the cards below it move down.
  */
 export const POPUP_PRO_CARD: Deviation = {

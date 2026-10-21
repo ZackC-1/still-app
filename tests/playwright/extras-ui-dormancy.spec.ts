@@ -115,7 +115,7 @@ for (const surface of ["options", "popup"] as const)
     const all = (await page.locator("body").evaluate((body) => body.textContent ?? "")).replace(/\s+/g, " ");
     for (const copy of [
       "Get Still Pro",
-      "Hide more on Instagram, Facebook and YouTube",
+      "Even fewer distractions on Instagram, Facebook, and YouTube",
       "Opens the Still app",
       "One-time purchase",
       "Lifetime access",

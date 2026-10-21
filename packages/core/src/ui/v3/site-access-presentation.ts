@@ -53,10 +53,9 @@ function missingSites(sites: readonly SiteAccessSite[] | undefined): readonly Si
   return named.length > 0 ? named : SITE_ACCESS_SITES;
 }
 
-export function siteAccessTitle(sites?: readonly SiteAccessSite[]): string {
-  return missingSites(sites).length === 1
-    ? "Still can't work on this site"
-    : "Still can't work on these sites";
+/** One heading for one missing site or several (owner's canvas review, 21 Oct 2026). */
+export function siteAccessTitle(_sites?: readonly SiteAccessSite[]): string {
+  return "Still can't block distractions yet.";
 }
 
 export function siteAccessBody(sites?: readonly SiteAccessSite[]): string {

@@ -236,7 +236,7 @@
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">
-          <span>Still can't block on these websites yet.</span><span
+          <span>Still can't block distractions yet.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >{setup.detail}</span
@@ -347,7 +347,7 @@
       disabled={!help.onSupport}
       onclick={help.onSupport}>Contact support</button
     >
-    <p class="muted sync-row-sub">{SUPPORT_EMAIL}</p>
+    <p class="muted sync-row-sub support-address">{SUPPORT_EMAIL}</p>
     <button
       type="button"
       class="link"
