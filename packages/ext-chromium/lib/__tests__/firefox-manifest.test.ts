@@ -84,6 +84,21 @@ describe("Firefox manifest compatibility", () => {
     expect(declaresFirefoxAndroid(CONFIGURED_2X)).toBe(false);
   });
 
+  it("never lists a sandbox QA package built on the 2.x interface for Android", () => {
+    const qa2x: ManifestBuildEnv = {
+      ...CONFIGURED_2X,
+      VITE_PACKAGE_IDENTITY: "paid-sandbox-qa",
+      VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox",
+      VITE_ACCESS_ENVIRONMENT: "sandbox",
+      VITE_QA_BUILD_SEQUENCE: "1",
+    };
+    expect(declaresFirefoxAndroid(qa2x)).toBe(false);
+    const manifest = stillManifest("firefox", qa2x);
+    expect(manifest).toHaveProperty("browser_specific_settings.gecko.id", "still-qa-sandbox@chartash.com");
+    expect(manifest).not.toHaveProperty("browser_specific_settings.gecko_android");
+    expect(manifest.description).toBe(FIREFOX_2X_DESCRIPTION);
+  });
+
   it("names Firefox on Android in the summary only for builds listed for Android", () => {
     // The 2.x store summary, byte-for-byte as it shipped before Firefox for Android. While Android
     // is deferred, V3 store builds keep it too (owner decision, 20 Oct 2026).
@@ -106,6 +121,8 @@ describe("Firefox manifest compatibility", () => {
       CONFIGURED_V3,
       { ...CONFIGURED_2X, VITE_MODERN_SETTINGS_SYNC_ENABLED: "false" },
       { VITE_SUPABASE_URL: "https://still-audit.invalid" },
+      // A blank or whitespace-only key is unconfigured, exactly as the runtime treats it.
+      { VITE_SUPABASE_URL: " ", VITE_SUPABASE_ANON_KEY: "" },
     ]) {
       const runtime = modernSettingsRuntime(
         env.VITE_SUPABASE_URL,

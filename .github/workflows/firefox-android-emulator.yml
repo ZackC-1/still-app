@@ -39,7 +39,10 @@ jobs:
       fail-fast: false
       matrix:
         fenix:
-          # 142.0 is the manifest's Android floor (no Navigation API; the URL-poll fallback runs).
+          # 142.0 is the QA package's Android floor (gecko_android); store and unconfigured builds,
+          # including the one built here, currently omit gecko_android while Android is deferred, so
+          # Firefox for Android applies the desktop floor (140.0) to them. On 142 there is no
+          # Navigation API, so the URL-poll fallback runs.
           # 157.0 is the current release at the time of writing.
           # sha256: computed from Mozilla's archive download over HTTPS; its MD5 also matches the
           # archive's own x-goog-hash header. The signer check below is independent of both.

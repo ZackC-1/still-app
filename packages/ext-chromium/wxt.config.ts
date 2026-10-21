@@ -56,6 +56,9 @@ export function runsV3Interface(env: ManifestBuildEnv): boolean {
  * (https://extensionworkshop.com/documentation/publish/version-compatibility/#android-compatibility).
  * Its absence does NOT stop Firefox for Android itself from installing a signed file, so someone who
  * unlocks Firefox's hidden "Install extension from file" menu can still side-load the add-on.
+ * Trade-off: without `gecko_android`, Firefox for Android falls back to the desktop floor in `gecko`
+ * (140.0), so a side-loaded store package installs on Firefox for Android 140 and 141, which lack the
+ * built-in data-collection consent screen. That screen is why `gecko_android` pins 142.0.
  */
 export const FIREFOX_ANDROID_RELEASE_DEFERRED = true;
 
@@ -200,9 +203,10 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
  * Settings in its own tab; `runtime.openOptionsPage` (the popup's Settings button, first-run's Open
  * Settings, the Still Pro hand-off) reuses an open one, provided its address still matches exactly,
  * which is why lib/pro-navigation.ts leaves the address plain once the hand-off is over. Chrome keeps
- * its embedded dialog, whose viewport is bounded and scrolls. Firefox for Android ships this same
- * manifest, so its Settings open as a browser tab there too (otherwise Fenix shows the page inside
- * its own add-on settings screen); the Android emulator lane covers it.
+ * its embedded dialog, whose viewport is bounded and scrolls. Firefox for Android installs this same
+ * manifest (the sandbox QA package while Android is deferred, or a side-loaded store package), so its
+ * Settings open as a browser tab there too (otherwise Fenix shows the page inside its own add-on
+ * settings screen); the Android emulator lane covers it.
  * WXT writes `options_ui` from the entrypoint after merging `manifest`, so this runs on the
  * generated manifest (the `build:manifestGenerated` hook below).
  */
