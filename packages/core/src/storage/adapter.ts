@@ -1,4 +1,4 @@
-import type { AtomicSettingsState, CanonicalSettingsEnvelope, SettingsIntent, SettingsScope } from "./atomic-settings.js";
+import type { AtomicSettingsState, CanonicalSettingsEnvelope, SettingsIntent, SettingsScope, SettingsStorageRecovery } from "./atomic-settings.js";
 import type { StillSettings } from "@still/shared-types";
 
 // The storage-adapter interface (KTD4): one shared UI/engine persists through an injected adapter,
@@ -53,8 +53,12 @@ export interface StorageAdapter {
   get(): Promise<StoredSettingsRecord | null>;
   /** Persist settings and any cloud metadata together. */
   set(record: StoredSettingsRecord): Promise<void>;
-  /** Observe changes from any context (other tabs, the options page, the cloud mirror). */
-  subscribe(listener: (record: StoredSettingsRecord) => void): () => void;
+  /**
+   * Observe changes from any context (other tabs, the options page, the cloud mirror). With
+   * `recovery`, the record is the retained browser-storage copy after a failed authority read (a
+   * Safari content script only), never an authority read itself.
+   */
+  subscribe(listener: (record: StoredSettingsRecord, recovery?: SettingsStorageRecovery) => void): () => void;
   /** Observe an invalid raw settings slot; reread get() to distinguish absence from unreadable data. */
   subscribeInvalidation?(listener: () => void): () => void;
 }
