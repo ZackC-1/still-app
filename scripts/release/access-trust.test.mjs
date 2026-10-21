@@ -8,6 +8,11 @@ import { test } from "node:test";
 import {
   APPLE_PLISTS,
   applyApplePlists,
+  assertServerGate,
+  PAID_FLAGS,
+  paidFlagValue,
+  parseServerDigests,
+  TEST_ONLY_FIXTURE_PUBLIC_KEYS,
   applyStoreTrustToPlist,
   compareServerDigests,
   MAX_TRUST_KEYS,
@@ -89,6 +94,9 @@ test("the TEST-ONLY fixture is production-shaped but every store build refuses i
   // Renaming the kid does not get a fixture key past the guard.
   assert.throws(() => parseStoreTrust(file([{ ...keys[0], kid: "still-access" }])), /TEST-ONLY fixture key/);
   assert.throws(() => parseStoreTrust(file([row("test-only-anything")])), /TEST-ONLY fixture key/);
+  // The fixture values are hardcoded too, so an unreadable fixture file cannot let them through.
+  assert.deepEqual([...TEST_ONLY_FIXTURE_PUBLIC_KEYS], keys.map((k) => k.publicKeyHex));
+  assert.throws(() => parseStoreTrust(file([{ ...keys[1], kid: "still-access" }]), { testOnlyKeys: [] }), /TEST-ONLY fixture key/);
 });
 
 test("once the release declares the paid tier, an empty key list is refused", () => {
@@ -111,6 +119,77 @@ test("paid is declared by either paid constant in the source (PR-B adds the rele
     assert.equal(paidDeclared(root), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a reworded, missing or repeated paid declaration refuses instead of reading as free", () => {
+  const [js, swift] = PAID_FLAGS;
+  assert.equal(paidFlagValue(js, "export const PAID_TIER_ENABLED: boolean = true;"), true);
+  assert.equal(paidFlagValue(js, "export const PAID_TIER_ENABLED : boolean=false ;"), false);
+  assert.equal(paidFlagValue(swift, "  public static let paidTierEnabled: Bool = true\n"), true);
+  assert.equal(paidFlagValue(swift, "public static let paidTierEnabled = false // note"), false);
+  for (const [flag, text] of [
+    [js, "export const PAID_TIER_ENABLED = isPaid();"],
+    [js, "export let PAID_TIER_ENABLED = true;"],
+    [js, ""],
+    [js, "export const PAID_TIER_ENABLED = false;\nexport const PAID_TIER_ENABLED = true;"],
+    [swift, "public static let paidTierEnabled = trueish"],
+    [swift, "public static var paidTierEnabled = true"],
+    [swift, "public static let paidTierEnabled: Bool = Bool(\"true\")!"],
+  ])
+    assert.throws(() => paidFlagValue(flag, text), /exactly one paid-tier declaration/, text);
+  const root = scratchRoot([]);
+  try {
+    rmSync(join(root, swift.path));
+    assert.throws(() => paidDeclared(root), /cannot read/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the release gate: a paid release needs server digests that match a pinned key", () => {
+  const rows = parseStoreTrust(file([row("still-access-a"), row("still-access-b")]));
+  const digests = (publicKeyHex, kid, environment = "production") => [
+    { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256(environment) },
+    { name: "ACCESS_PROOF_KEY_ID", value: sha256(kid) },
+    { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(publicKeyHex) },
+  ];
+  const paid = { rows, paid: true };
+  assert.equal(assertServerGate({ rows: [], paid: false }, undefined), null);
+  assert.throws(() => assertServerGate(paid, undefined), /needs the server's secret digests/);
+  assert.equal(assertServerGate(paid, digests(rows[0].publicKeyHex, rows[0].kid)).signingRow, "current");
+  assert.equal(assertServerGate(paid, digests(rows[1].publicKeyHex, rows[1].kid)).signingRow, "standby");
+  // A private seed pinned in place of the public key is also 32 bytes of hex; the server's real public
+  // key never matches it, so the gate refuses.
+  const pinnedSeed = { rows: parseStoreTrust(file([row("still-access-a")])), paid: true };
+  assert.throws(() => assertServerGate(pinnedSeed, digests(rows[0].publicKeyHex, "still-access-a")), /PUBLIC half/);
+  assert.throws(() => assertServerGate(paid, digests(rows[0].publicKeyHex, rows[0].kid, "sandbox")), /server-environment-is-production/);
+  assert.throws(() => assertServerGate({ rows, paid: false }, digests(freshPublicKeyHex(), "x")), /does not match/);
+});
+
+test("server digests: only the three public-side entries are kept, and a non-JSON file is never echoed", () => {
+  const list = parseServerDigests(JSON.stringify([
+    { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: "aa" },
+    { name: "ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64", value: "bb" },
+    { name: "OTHER", digest: "cc" },
+    { name: "ACCESS_PROOF_KEY_ID", digest: "dd" },
+  ]));
+  assert.deepEqual(list, [{ name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: "aa" }, { name: "ACCESS_PROOF_KEY_ID", value: "dd" }]);
+  const marker = ["LEAK", "CANARY"].join("_");
+  for (const text of [`API_KEY=${marker}\n`, `{"a": "${marker}"`, JSON.stringify({ marker })])
+    assert.throws(() => parseServerDigests(text), (error) => /is not the JSON list/.test(error.message) && !error.message.includes(marker));
+  const dir = mkdtempSync(join(tmpdir(), "still-digests-"));
+  try {
+    writeFileSync(join(dir, ".env"), `ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64=${marker}\n`);
+    const run = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "compare-server", "--secrets-json", join(dir, ".env")], { encoding: "utf8" });
+    assert.equal(run.status, 1);
+    assert.ok(!run.stderr.includes(marker) && !run.stdout.includes(marker), "no file content in the output");
+    assert.match(run.stderr, /is not the JSON list/);
+    const missing = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "check", "--server-secrets-json", join(dir, "nope.json")], { encoding: "utf8" });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /cannot read the server digest file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

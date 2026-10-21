@@ -49,8 +49,8 @@ real Vite and WXT loaders and never prints a value; it covers the extension buil
 and the prebuilt web bundle is checked through `packages/app-webview/dist/.env-state`, a token-only stamp (never a value) that `pnpm --filter @still/app-webview build` writes. A missing or differing stamp refuses; rebuild the web bundle. Node must be on PATH.
 
 These raw commands do not apply the pinned production access trust. For a store archive, apply it first
-(`node scripts/release/access-trust.mjs apple-apply --backup <empty dir>`, restore with `apple-restore`
-afterwards) and build the web bundle with the output of `node scripts/release/access-trust.mjs env`, as
+(`node scripts/release/access-trust.mjs apple-apply --backup <empty dir>`, plus `--server-secrets-json <file>`
+once the release is paid; restore with `apple-restore` afterwards) and build the web bundle with the output of `node scripts/release/access-trust.mjs env`, as
 `archive.sh` does.
 
 These commands do not request provisioning updates or upload. Use unique archive/DerivedData

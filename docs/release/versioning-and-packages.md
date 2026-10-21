@@ -109,16 +109,25 @@ A store build refuses:
 - the TEST-ONLY fixture key (`tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json`, or any
   kid starting with `test-only`). That fixture is for tests only. Its private halves were discarded when
   it was generated, so nothing can sign for it. It is not the real key;
-- an empty list once the release declares the paid tier. Today that means either paid constant is true;
-  the per-release-line `paidTier` that PR-B adds to `scripts/release/version.mjs` plugs into the same hook
-  (`paidDeclared` in `scripts/release/access-trust.mjs`, marked `TODO(PR-B)`).
+- an empty list once the release declares the paid tier. Today that means either paid constant is true
+  (`PAID_TIER_ENABLED` in `packages/shared-types/src/entitlement.ts` or `paidTierEnabled` in StillKit's
+  `MonetizationConfig.swift`, both read from the commit being built). Each declaration must appear exactly
+  once, with or without a type annotation; a reworded or missing one stops the build rather than reading as
+  free. The per-release-line `paidTier` that PR-B adds to `scripts/release/version.mjs` plugs into the same
+  hook (`paidDeclared` in `scripts/release/access-trust.mjs`, marked `TODO(PR-B)`);
+- a paid release built without the server check below passing (the release gate).
 
-`node scripts/release/access-trust.mjs check` runs the same checks and prints the kids and the rows' hash.
+`node scripts/release/access-trust.mjs check [--server-secrets-json <file>]` runs the same checks and prints the
+kids and the rows' hash.
 
 ### Putting the real key in (the release PR)
 
 The swap is a one-file change: replace the empty `keys` list in `scripts/release/production-access-keys.json`
 with the current row and the standby row. Nothing else changes.
+
+`publicKeyHex` must be the **public** half. An Ed25519 private seed is also 32 bytes (64 hex characters), so
+the file's shape check cannot tell them apart; the release gate below can, because only the real public
+key matches the server's.
 
 The owner generates each key pair **offline, on their own machine, in their own terminal** (never through an
 agent, never in a file inside the repository). It needs OpenSSL 3 (`openssl version`); older LibreSSL builds
@@ -149,6 +158,19 @@ node scripts/release/access-trust.mjs compare-server --secrets-json <file>
 
 It prints PASS or FAIL for three checks: the server's public key is a pinned row, the kid matches that row,
 and the environment is `production`. It also says whether the server signs with the current or the standby
-key. It prints no value or digest and exits 1 on any FAIL. Run it after setting the secrets and before
-building a paid release. A protected workflow step can run the same command with a read-only Supabase token;
-that wiring belongs to the release PR.
+key. It prints no value or digest and exits 1 on any FAIL. A file that is not that JSON list (a `.env` passed
+by mistake, say) gets a fixed message; none of its contents is printed.
+
+**Release gate.** Once a release declares the paid tier, every store build requires the same digests and
+refuses unless the comparison passes. Only the three entries `ACCESS_PROOF_ENVIRONMENT`, `ACCESS_PROOF_KEY_ID`
+and `ACCESS_PROOF_PUBLIC_KEY_HEX` are read; keep only those three when you save the list (they are digests
+of public values).
+
+- `package.mjs`: `--server-secrets-json <file>`.
+- Chrome release workflow: the `chrome-release` environment variable `ACCESS_PROOF_SERVER_DIGESTS_JSON`
+  holds those three entries as JSON. Set it in the release PR's runbook step after setting the server
+  secrets.
+- `archive.sh`: `ACCESS_SERVER_DIGESTS_FILE=<file>`; for a raw archive pass `--server-secrets-json <file>`
+  to `access-trust.mjs check` and `apple-apply`.
+
+For a free release the digests are optional; when given, they must still match.

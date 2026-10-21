@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reproducible release packages and their hashes. Local only: this never contacts a store.
 //
-//   node scripts/release/package.mjs --out <dir> [--env VITE_X=value]... [--allow-dirty]
+//   node scripts/release/package.mjs --out <dir> [--env VITE_X=value]... [--server-secrets-json <file>] [--allow-dirty]
 //
 // Writes into <dir>:
 //   still-chrome-<extension version>.zip       Chrome Web Store package
@@ -12,6 +12,9 @@
 // Production access trust (VITE_ACCESS_ENVIRONMENT, VITE_ACCESS_PUBLIC_KEYS) is never an --env value: it
 // always comes from the committed scripts/release/production-access-keys.json (see access-trust.mjs),
 // so a store package can carry only production public keys and only the ones reviewed in git.
+// --server-secrets-json  the output of `supabase secrets list -o json` (only digests; only the three
+//           ACCESS_PROOF_ public-side entries are read). Required once the release declares the paid
+//           tier: the build refuses unless the server's public key, kid and environment match a pinned row.
 //
 // --env     a public build value (see PUBLIC_ENV_KEYS). Every other VITE_* variable in your shell is
 //           removed first, and the values given are recorded in the AMO build instructions so a
@@ -35,7 +38,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readStoreTrust, paidDeclared, TRUST_ENV_KEYS, TRUST_FILE } from "./access-trust.mjs";
+import { assertServerGate, paidDeclared, readServerDigests, readStoreTrust, TRUST_ENV_KEYS, TRUST_FILE } from "./access-trust.mjs";
 import { readVersions, findMismatches, ROOT } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -196,7 +199,7 @@ function installAndBuild(dir, env) {
   }
 }
 
-export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }) {
+export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false, serverDigests }) {
   for (const key of Object.keys(env)) {
     if (PINNED_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value: store packages take access trust only from ${TRUST_FILE}`);
     if (!PUBLIC_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value (${PUBLIC_ENV_KEYS.join(", ")})`);
@@ -220,8 +223,11 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     if (problems.length) throw new Error(`version.json and its consumers disagree:\n${problems.join("\n")}`);
     const versions = readVersions(work);
     // Production trust from the committed tree: production rows only, none of the TEST-ONLY fixture,
-    // and at least one key once the release declares the paid tier.
-    const trust = readStoreTrust(work, { paid: paidDeclared(work) });
+    // and, once the release declares the paid tier, at least one key that matches the server. Both paid
+    // constants are read from the commit being built in the full repository: the export above has
+    // only the web packages, not the StillKit flag.
+    const trust = readStoreTrust(work, { paid: paidDeclared(root, { rev: "HEAD" }) });
+    assertServerGate(trust, serverDigests);
     installAndBuild(work, { ...env, ...trust.env });
 
     // Staged in memory: nothing reaches --out until every check has passed.
@@ -258,10 +264,12 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
 function main(argv) {
   let out;
   let allowDirty = false;
+  let serverDigests;
   const env = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") out = resolve(argv[++i] ?? "");
     else if (argv[i] === "--allow-dirty") allowDirty = true;
+    else if (argv[i] === "--server-secrets-json") serverDigests = readServerDigests(resolve(argv[++i] ?? ""));
     else if (argv[i] === "--env") {
       const pair = argv[++i] ?? "";
       const eq = pair.indexOf("=");
@@ -270,11 +278,11 @@ function main(argv) {
     } else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!out) {
-    process.stderr.write("usage: package.mjs --out <dir> [--env VITE_X=v]... [--allow-dirty]\n");
+    process.stderr.write("usage: package.mjs --out <dir> [--env VITE_X=v]... [--server-secrets-json <file>] [--allow-dirty]\n");
     process.exitCode = 2;
     return;
   }
-  const manifest = buildPackages({ out, env, allowDirty });
+  const manifest = buildPackages({ out, env, allowDirty, serverDigests });
   for (const [name, f] of Object.entries(manifest.files)) process.stdout.write(`${f.sha256}  ${name}\n`);
 }
 

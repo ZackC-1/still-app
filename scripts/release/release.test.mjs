@@ -291,7 +291,7 @@ function committedClone(base, edit, message) {
 const freshPublicKeyHex = () => generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
 const pinKeys = (clone, keys) => writeFileSync(join(clone, TRUST_FILE), JSON.stringify({ about: "release test keys", keys }, null, 2) + "\n");
 
-test("a committed non-production trust row, or no key on a paid release, stops the build before anything is installed", () => {
+test("a committed non-production trust row, a paid release without a matching key, or an unreadable paid switch stops the build before anything is installed", () => {
   const cases = [
     ["sandbox row", (clone) => pinKeys(clone, [{ kid: "still-qa", publicKeyHex: freshPublicKeyHex(), environment: "sandbox", purpose: "access" }]), /accepts only production keys/],
     ["fixture row", (clone) => pinKeys(clone, JSON.parse(readFileSync(join(clone, "tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json"), "utf8")).keys), /TEST-ONLY fixture key/],
@@ -299,6 +299,19 @@ test("a committed non-production trust row, or no key on a paid release, stops t
       const path = join(clone, "packages/shared-types/src/entitlement.ts");
       writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
     }, /declares the paid tier/],
+    ["Swift-only paid switch, no keys", (clone) => {
+      const path = join(clone, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
+      writeFileSync(path, readFileSync(path, "utf8").replace("public static let paidTierEnabled = false", "public static let paidTierEnabled = true"));
+    }, /declares the paid tier/],
+    ["paid with a key but no server digests", (clone) => {
+      pinKeys(clone, [{ kid: "still-access-test", publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access" }]);
+      const path = join(clone, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
+      writeFileSync(path, readFileSync(path, "utf8").replace("public static let paidTierEnabled = false", "public static let paidTierEnabled: Bool = true"));
+    }, /needs the server's secret digests/],
+    ["reworded paid declaration", (clone) => {
+      const path = join(clone, "packages/shared-types/src/entitlement.ts");
+      writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = Boolean(0);"));
+    }, /exactly one paid-tier declaration/],
   ];
   for (const [name, edit, refusal] of cases) {
     const base = mkdtempSync(join(tmpdir(), "still-trust-refusal-"));

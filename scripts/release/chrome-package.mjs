@@ -11,6 +11,9 @@
 // and GitHub's own GITHUB_* values. Production access trust (the public Still Pro verification keys)
 // is not an input: buildPackages reads it from scripts/release/production-access-keys.json at the
 // candidate commit, so the package carries exactly the keys reviewed in git.
+// ACCESS_PROOF_SERVER_DIGESTS_JSON (optional; required once the release declares the paid tier) is the
+// three ACCESS_PROOF_ public-side entries of `supabase secrets list -o json`: digests only. The build
+// refuses a paid release unless they match a pinned key.
 //
 // Writes <dir>/still-chrome-<version>.zip and <dir>/SHA256SUMS.json (the build's own manifest), and
 // the step output zip-sha256. In every mode except package-only the fingerprint must equal the
@@ -21,6 +24,7 @@ import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseServerDigests } from "./access-trust.mjs";
 import { buildPackages, PUBLIC_ENV_KEYS, sha256 } from "./package.mjs";
 import { ROOT } from "./version.mjs";
 import { checkInputs, checkRunContext, zipName } from "./chrome-release.mjs";
@@ -77,6 +81,8 @@ export function runPackage({ env, out, root = ROOT, build = buildPackages, git =
     throw new StoreRefusal("commit-not-on-main", "That commit is not on main");
   }
   const publicEnv = collectPublicEnv(env);
+  const digestsText = env.ACCESS_PROOF_SERVER_DIGESTS_JSON ?? "";
+  const serverDigests = digestsText === "" ? undefined : parseServerDigests(digestsText);
   const work = mkdtempSync(join(tmpdir(), "still-chrome-candidate-"));
   const stage = join(work, "out");
   const candidate = join(work, "tree");
@@ -84,7 +90,7 @@ export function runPackage({ env, out, root = ROOT, build = buildPackages, git =
     git(["worktree", "add", "--detach", candidate, inputs.commit]);
     assertPaidTierOff(readFileSync(join(candidate, PAID_FLAG_FILE), "utf8"));
     log(`Building ${inputs.version} from ${inputs.commit}`);
-    const manifest = build({ out: stage, root: candidate, env: publicEnv });
+    const manifest = build({ out: stage, root: candidate, env: publicEnv, ...(serverDigests ? { serverDigests } : {}) });
     const name = zipName(inputs.version);
     const digest = verifyBuilt({ manifest, zipBytes: readFileSync(join(stage, name)), inputs });
     mkdirSync(out, { recursive: true });

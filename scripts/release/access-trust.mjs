@@ -11,16 +11,23 @@
 //     (StillAccessEnvironment, StillAccessTrustKeys) for the archive only, then restores them.
 // Swapping in the real keys is a change to that one file.
 //
-//   node scripts/release/access-trust.mjs check                     validate the pinned file as a store build would
+//   node scripts/release/access-trust.mjs check [--server-secrets-json <file>]   validate the pinned file as a store build would
 //   node scripts/release/access-trust.mjs env                       print the two public web build values
-//   node scripts/release/access-trust.mjs apple-apply   --backup <dir>   write the rows into the Apple plists
+//   node scripts/release/access-trust.mjs apple-apply   --backup <dir> [--server-secrets-json <file>]
+//        write the rows into the Apple plists
 //   node scripts/release/access-trust.mjs apple-restore --backup <dir>   put the plists back exactly
 //   node scripts/release/access-trust.mjs compare-server --secrets-json <file>
 //        compare the pinned keys with the digests `supabase secrets list -o json` prints
 //
+// Release gate: once a release declares the paid tier, every store build (package.mjs, the Chrome
+// workflow, check and apple-apply) refuses unless it is given the server's secret digests and they
+// match a pinned row (compareServerDigests). That also catches a private seed pinned by mistake in
+// place of the public key: both are 32 bytes of hex, but only the real public key matches the server.
+//
 // Node built-ins only.
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,16 +37,25 @@ const HERE_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 export const TRUST_FILE = "scripts/release/production-access-keys.json";
 /** Test fixture. Its keys are refused by every store build (see parseStoreTrust). */
 export const TEST_ONLY_TRUST_FIXTURE = "tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json";
+/** The fixture's two public keys, refused even when the fixture file cannot be read. */
+export const TEST_ONLY_FIXTURE_PUBLIC_KEYS = Object.freeze([
+  "559d148be57cf825d2f369e8097a3d0a7fa5ee622cbc00a398bf2758bd716b06",
+  "1139824a6423f5bd5b7382bb66fc086902b6d9da8fd6a2c34dfdf5e8a796a519",
+]);
+/** The only `supabase secrets list` entries the server comparison reads. */
+export const SERVER_DIGEST_NAMES = Object.freeze(["ACCESS_PROOF_ENVIRONMENT", "ACCESS_PROOF_KEY_ID", "ACCESS_PROOF_PUBLIC_KEY_HEX"]);
 /** A current key and one standby, so the server can rotate without a new store version. */
 export const MAX_TRUST_KEYS = 2;
 export const TRUST_ENV_KEYS = Object.freeze(["VITE_ACCESS_ENVIRONMENT", "VITE_ACCESS_PUBLIC_KEYS"]);
 export const APPLE_PLISTS = Object.freeze(["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"].map((part) => `apps/apple/Still/${part}/Info.plist`));
 /** Native configuration a store plist must not already carry (the QA overlay owns the sandbox ones). */
 const NATIVE_TRUST_FIELDS = ["StillAccessEnvironment", "StillAccessTrustKeys", "StillBackendRouteProfile", "StillAccessSupabaseURL", "StillAccessSupabasePublishableKey"];
-const PAID_FLAGS = [
-  { path: "packages/shared-types/src/entitlement.ts", pattern: /export const PAID_TIER_ENABLED\s*=\s*(true|false)\s*;/g },
-  { path: "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", pattern: /public static let paidTierEnabled\s*=\s*(true|false)\b/g },
-];
+// Each declaration must appear exactly once (an optional type annotation is fine); anything else
+// refuses, so a reworded declaration can never read as "not paid".
+export const PAID_FLAGS = Object.freeze([
+  { path: "packages/shared-types/src/entitlement.ts", pattern: /export const PAID_TIER_ENABLED\s*(?::\s*boolean\s*)?=\s*(true|false)\s*;/g },
+  { path: "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", pattern: /public static let paidTierEnabled\s*(?::\s*Bool\s*)?=\s*(true|false)(?![\w])/g },
+]);
 
 export const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -49,11 +65,13 @@ const refuse = (message) => {
 };
 
 function fixtureKeys(root = HERE_ROOT) {
+  let fromFile = [];
   try {
-    return JSON.parse(readFileSync(join(root, TEST_ONLY_TRUST_FIXTURE), "utf8")).keys.map((row) => row.publicKeyHex);
+    fromFile = JSON.parse(readFileSync(join(root, TEST_ONLY_TRUST_FIXTURE), "utf8")).keys.map((row) => row.publicKeyHex);
   } catch {
-    return [];
+    // The hardcoded values below still apply.
   }
+  return [...new Set([...TEST_ONLY_FIXTURE_PUBLIC_KEYS, ...fromFile])];
 }
 
 /**
@@ -83,7 +101,7 @@ export function parseStoreTrust(text, { paid = false, testOnlyKeys = fixtureKeys
     if (row.purpose !== "access") refuse(`${where} must have purpose "access"`);
     if (typeof row.kid !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}$/.test(row.kid)) refuse(`${where} has an invalid kid`);
     if (typeof row.publicKeyHex !== "string" || !/^[0-9a-f]{64}$/.test(row.publicKeyHex)) refuse(`${where} publicKeyHex must be 64 lowercase hex characters (a 32-byte Ed25519 public key)`);
-    if (row.kid.startsWith("test-only") || testOnlyKeys.includes(row.publicKeyHex)) refuse(`${where} is the TEST-ONLY fixture key, never a store key`);
+    if (row.kid.startsWith("test-only") || TEST_ONLY_FIXTURE_PUBLIC_KEYS.includes(row.publicKeyHex) || testOnlyKeys.includes(row.publicKeyHex)) refuse(`${where} is the TEST-ONLY fixture key, never a store key`);
     if (kids.has(row.kid) || hexes.has(row.publicKeyHex)) refuse(`${where} repeats a kid or public key`);
     kids.add(row.kid);
     hexes.add(row.publicKeyHex);
@@ -93,19 +111,31 @@ export function parseStoreTrust(text, { paid = false, testOnlyKeys = fixtureKeys
   return Object.freeze(rows);
 }
 
+/** One paid constant's value; refuses unless its declaration appears exactly once. */
+export function paidFlagValue(flag, text) {
+  const matches = [...String(text).matchAll(flag.pattern)];
+  if (matches.length !== 1) refuse(`expected exactly one paid-tier declaration in ${flag.path}, found ${matches.length}; update PAID_FLAGS in scripts/release/access-trust.mjs if it was reworded`);
+  return matches[0][1] === "true";
+}
+
 /**
  * Whether the release being built declares the paid tier. Today that is the paid constants in the
- * source (either one true).
+ * source (either one true). With `rev`, both are read from that commit of the full repository (the
+ * web packaging exports only part of the tree, which lacks the StillKit flag); without it, from the
+ * files under `root`. A missing file or unrecognized declaration refuses.
  * TODO(PR-B, V3 release enablement G-plan): also return true when scripts/release/version.mjs declares
  * `paidTier` for this release line. That is the hook: once PR-B lands, OR its per-line value in here,
  * and every store build of a paid line refuses an empty key list.
  */
-export function paidDeclared(root = HERE_ROOT) {
-  return PAID_FLAGS.some(({ path, pattern }) => {
-    const file = join(root, path);
-    if (!existsSync(file)) return false;
-    return [...readFileSync(file, "utf8").matchAll(pattern)].some((m) => m[1] === "true");
-  });
+export function paidDeclared(root = HERE_ROOT, { rev } = {}) {
+  const read = (path) => {
+    try {
+      return rev ? execFileSync("git", ["show", `${rev}:${path}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }) : readFileSync(join(root, path), "utf8");
+    } catch {
+      refuse(`cannot read ${path}${rev ? ` at ${rev}` : ""} to tell whether the release is paid`);
+    }
+  };
+  return PAID_FLAGS.map((flag) => paidFlagValue(flag, read(flag.path))).some(Boolean);
 }
 
 /** The pinned trust for a store build from `root`. */
@@ -187,6 +217,7 @@ export function restoreApplePlists(root, backup) {
  */
 export function compareServerDigests(rows, secretsList) {
   if (!Array.isArray(secretsList)) refuse("expected the JSON list printed by `supabase secrets list -o json`");
+  secretsList = secretsList.filter((item) => item && SERVER_DIGEST_NAMES.includes(item.name));
   const digest = (name) => {
     const entry = secretsList.find((item) => item && item.name === name);
     const value = entry?.digest ?? entry?.value;
@@ -204,34 +235,89 @@ export function compareServerDigests(rows, secretsList) {
   return { ok: checks.every((c) => c.pass), checks, signingRow: signing >= 0 ? (signing === 0 ? "current" : "standby") : null };
 }
 
-function main(argv, root = HERE_ROOT) {
-  const [command, flag, value] = argv;
-  const out = (line) => process.stdout.write(`${line}\n`);
-  if (command === "check" && argv.length === 1) {
-    const trust = readStoreTrust(root);
-    out(`production access trust: ${trust.rows.length} key(s)${trust.rows.length ? ` (${trust.rows.map((r) => r.kid).join(", ")})` : ""}, paid ${trust.paid ? "declared" : "not declared"}, sha256 ${trust.sha256}`);
-    return 0;
+/**
+ * Parse the output of `supabase secrets list -o json` (or just its three ACCESS_PROOF_ entries) and keep
+ * only the three public-side digests. A file that is not that JSON list gets a fixed message: no part
+ * of its contents (a .env passed by mistake, say) is ever echoed.
+ */
+export function parseServerDigests(text) {
+  let list;
+  try {
+    list = JSON.parse(text);
+  } catch {
+    refuse("the server digest file is not the JSON list `supabase secrets list -o json` prints");
   }
+  if (!Array.isArray(list)) refuse("the server digest file is not the JSON list `supabase secrets list -o json` prints");
+  return list
+    .filter((item) => item && typeof item === "object" && SERVER_DIGEST_NAMES.includes(item.name))
+    .map((item) => ({ name: item.name, value: String(item.digest ?? item.value ?? "") }));
+}
+
+export function readServerDigests(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    refuse("cannot read the server digest file");
+  }
+  return parseServerDigests(text);
+}
+
+/**
+ * The release gate. A paid release must be built with the server's digests, and they must match a
+ * pinned row. Digests given for a free release are still checked. Returns the comparison or null.
+ */
+export function assertServerGate(trust, serverDigests) {
+  if (serverDigests === undefined) {
+    if (trust.paid) refuse("this release declares the paid tier, so the build needs the server's secret digests (--server-secrets-json, or ACCESS_PROOF_SERVER_DIGESTS_JSON in the Chrome workflow) and they must match a pinned key");
+    return null;
+  }
+  const result = compareServerDigests(trust.rows, serverDigests);
+  if (!result.ok) refuse(`the server's access-proof key does not match the pinned file (${result.checks.filter((c) => !c.pass).map((c) => c.name).join(", ")}); check that the pinned hex is the PUBLIC half`);
+  return result;
+}
+
+/** `--server-secrets-json <file>` from the end of argv, if present. */
+function serverOption(args) {
+  const i = args.indexOf("--server-secrets-json");
+  if (i === -1) return { rest: args, digests: undefined };
+  if (!args[i + 1]) refuse("--server-secrets-json needs a file");
+  return { rest: [...args.slice(0, i), ...args.slice(i + 2)], digests: readServerDigests(resolve(args[i + 1])) };
+}
+
+function main(argv, root = HERE_ROOT) {
+  const out = (line) => process.stdout.write(`${line}\n`);
+  const [command, ...args] = argv;
+  if (command === "check" || command === "apple-apply") {
+    const { rest, digests } = serverOption(args);
+    const trust = readStoreTrust(root);
+    const gate = assertServerGate(trust, digests);
+    if (command === "check" && rest.length === 0) {
+      out(`production access trust: ${trust.rows.length} key(s)${trust.rows.length ? ` (${trust.rows.map((r) => r.kid).join(", ")})` : ""}, paid ${trust.paid ? "declared" : "not declared"}, sha256 ${trust.sha256}${gate ? `, server signs with the pinned ${gate.signingRow} key` : ""}`);
+      return 0;
+    }
+    if (command === "apple-apply" && rest.length === 2 && rest[0] === "--backup" && rest[1]) {
+      const applied = applyApplePlists(root, resolve(rest[1]), { paid: trust.paid });
+      out(applied ? `Apple plists carry production trust ${applied.kids.join(", ")} (sha256 ${applied.trustSha256})` : "no production keys pinned; Apple plists left unchanged");
+      return 0;
+    }
+  }
+  const [, flag, value] = argv;
   if (command === "env" && argv.length === 1) {
     for (const [key, v] of Object.entries(readStoreTrust(root).env)) out(`${key}=${v}`);
     return 0;
   }
-  if ((command === "apple-apply" || command === "apple-restore") && flag === "--backup" && value && argv.length === 3) {
-    if (command === "apple-restore") {
-      out(restoreApplePlists(root, resolve(value)) ? "Apple plists restored" : "nothing to restore");
-      return 0;
-    }
-    const applied = applyApplePlists(root, resolve(value));
-    out(applied ? `Apple plists carry production trust ${applied.kids.join(", ")} (sha256 ${applied.trustSha256})` : "no production keys pinned; Apple plists left unchanged");
+  if (command === "apple-restore" && flag === "--backup" && value && argv.length === 3) {
+    out(restoreApplePlists(root, resolve(value)) ? "Apple plists restored" : "nothing to restore");
     return 0;
   }
   if (command === "compare-server" && flag === "--secrets-json" && value && argv.length === 3) {
-    const result = compareServerDigests(readStoreTrust(root).rows, JSON.parse(readFileSync(resolve(value), "utf8")));
+    const result = compareServerDigests(readStoreTrust(root).rows, readServerDigests(resolve(value)));
     for (const { name, pass } of result.checks) out(`${pass ? "PASS" : "FAIL"} ${name}`);
     if (result.signingRow) out(`server signs with the pinned ${result.signingRow} key`);
     return result.ok ? 0 : 1;
   }
-  process.stderr.write("usage: access-trust.mjs check | env | apple-apply --backup <dir> | apple-restore --backup <dir> | compare-server --secrets-json <file>\n");
+  process.stderr.write("usage: access-trust.mjs check [--server-secrets-json <file>] | env | apple-apply --backup <dir> [--server-secrets-json <file>] | apple-restore --backup <dir> | compare-server --secrets-json <file>\n");
   return 2;
 }
 
@@ -239,7 +325,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    // Only this module's own fixed refusal texts are printed; any other error gets a fixed line, so no
+    // file content can reach the output.
+    process.stderr.write(error instanceof TrustRefusal ? `${error.message}\n` : `store access trust: unexpected error (${error?.code ?? error?.name ?? "unknown"})\n`);
     process.exitCode = 1;
   }
 }
