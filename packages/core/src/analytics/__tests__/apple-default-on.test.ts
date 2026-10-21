@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { NativeBridge } from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { createAppAnalytics } from "../apple-app.js";
+import { LAUNCH_ACCOUNT_WAIT_MS, createAppAnalytics } from "../apple-app.js";
 import { AnalyticsClient, QUEUE_KEY, STATE_KEY } from "../client.js";
 import { readAnalyticsPermission, type AnalyticsPermission } from "../consent.js";
 import { NOTICE_VERSION_KEY, USAGE_PERMISSION_VERSION, createDefaultOnAppAnalytics, supabaseSubjectIssuer } from "../default-on.js";
@@ -629,4 +629,38 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
     }
     expect(lost).toEqual([]);
   }, 30_000);
+
+  it("a session read that never answers costs the launch only the wait: opened and active are recorded, and the switch is read again", async () => {
+    // Timers are fake; the native and crypto work in between is real, so it is let run (setImmediate).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const settled = async () => {
+      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    try {
+      const t = setup();
+      const { c } = makeController({ analytics: t.app.ui });
+      let done = false;
+      // main.ts: start().finally(refreshUsageSwitch). The session read failed, so neither
+      // identifyAccount nor accountAbsent is ever called.
+      const launched = t.app
+        .start()
+        .finally(() => c.refreshUsageSharing())
+        .then(() => void (done = true));
+      await settled();
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS - 1);
+      await settled();
+      expect(done).toBe(false);
+      expect(t.queue()).toEqual([]); // still waiting for the account answer
+      await vi.advanceTimersByTimeAsync(1);
+      await settled();
+      await launched;
+      expect(done).toBe(true);
+      // Recorded, waiting for an account answer before anything is sent (as before the wait).
+      expect(t.queue()).toEqual(expect.arrayContaining(["opened", "active"]));
+      expect(t.fetch).not.toHaveBeenCalled();
+      expect(c.usageSharing).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

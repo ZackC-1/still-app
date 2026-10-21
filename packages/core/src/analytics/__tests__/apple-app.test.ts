@@ -623,6 +623,61 @@ describe("Apple launch attribution comes first", () => {
     }
   });
 
+  it("ISS-0116: a signed-in launch whose identity request outlasts the wait is held for that account, then sent as it", async () => {
+    const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    const subjects: SubjectDeps = {
+      issue: async (_body, _signal, account) => {
+        await slow; // the server takes longer than the launch waits
+        return { state: "active", subject: testSubjectFor(account) };
+      },
+      onStopped: async () => {},
+    };
+    const { app, events, store } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true, subjects });
+    store.data[STATE_KEY] = {
+      userId: testSubjectFor(U2),
+      identifiedAs: testSubjectFor(U2),
+      daily: {},
+      anonId: null,
+    }; // an earlier account, saved by an earlier launch
+    const launch = () => events().filter((e) => ["updated", "opened", "active"].includes(e.event));
+    // Timers are fake; the storage and crypto work in between is real, so it is let run.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const settled = async () => {
+      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    try {
+      const launched = app.start();
+      await settled();
+      const identified = app.identifyAccount(U1); // the session check lands mid-launch
+      await settled();
+      expect(launch()).toEqual([]); // the launch is still waiting for the account answer
+      await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS);
+      await settled();
+      await launched;
+      // Observed under the account's hold: waiting for its identity, attributed to no one yet.
+      expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
+      expect(launch().every((e) => (e as { attributeLater?: boolean }).attributeLater === true)).toBe(true);
+      expect(launch().some((e) => "distinct_id" in e.properties)).toBe(false);
+      release();
+      await identified;
+      await settled();
+      // The identity continued the hold (ISS-0108): the launch goes to it, as signed-in use.
+      expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
+      for (const e of launch()) {
+        expect((e as { attributeLater?: boolean }).attributeLater).toBeUndefined();
+        expect(e.properties.distinct_id).toBe(testSubjectFor(U1));
+        expect(e.properties.signed_in).toBe(true);
+      }
+      const all = JSON.stringify(events());
+      expect(all).not.toContain(U1);
+      expect(all).not.toContain(testSubjectFor(U2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ISS-0116: a launch waits for the session check, so its events are recorded as signed-out use, never the earlier account's", async () => {
     const { app, events, store } = setup(
       { previousVersion: "2.0.0", created: false },
