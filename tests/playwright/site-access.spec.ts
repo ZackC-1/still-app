@@ -23,7 +23,7 @@ const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 test.skip(syncConfigured, "The site access warning is on the V3 popup and settings page only.");
 test.use({ settingsProfile: "modern" });
 
-const TITLE = "Still can't work on these sites";
+const TITLE = "Still can't block distractions yet.";
 const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
 const RELOAD = "Reload open tabs to apply.";
 const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";

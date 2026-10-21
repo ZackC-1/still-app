@@ -10,7 +10,13 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { FrameSpec, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SAFARI_SETUP_COPY, OWNER_SYNC_COPY, POPUP_PRO_CARD, STILL_PRO_TAG } from "./shared.js";
+import {
+  OWNER_SAFARI_SETUP_BODY,
+  OWNER_SETUP_HEADER_COPY,
+  OWNER_SYNC_COPY,
+  POPUP_PRO_CARD,
+  STILL_PRO_TAG,
+} from "./shared.js";
 
 const screen = "d02-mobile-popup";
 
@@ -125,7 +131,7 @@ const cases: VisualCase[] = [
     width: 375,
     frame: iphoneSE(),
     render: popup({ access: accessAll("locked"), setup: { onAction: noop } }),
-    deviations: [...signedOut, OWNER_SAFARI_SETUP_COPY],
+    deviations: [...signedOut, OWNER_SETUP_HEADER_COPY, OWNER_SAFARI_SETUP_BODY],
   },
   {
     ...base,

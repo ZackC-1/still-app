@@ -14,13 +14,25 @@ export const OWNER_SYNC_COPY: Deviation = {
 };
 
 /**
- * Owner's canvas review, 21 Oct 2026: the Safari popup's setup header reads "Still can't block
- * distractions yet." where the reference says "Still can't block on these websites yet."
+ * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can't block
+ * distractions yet." where the references say "Still can't block on these websites yet." (setup)
+ * or "Still can't work on these sites" (site access).
  */
-export const OWNER_SAFARI_SETUP_COPY: Deviation = {
+export const OWNER_SETUP_HEADER_COPY: Deviation = {
   reason:
-    'owner-approved copy (Safari setup header "Still can\'t block distractions yet."; reference says "Still can\'t block on these websites yet.")',
+    'owner-approved copy (setup header "Still can\'t block distractions yet."; reference says "Still can\'t block on these websites yet.")',
   text: "Still can't block distractions yet.",
+};
+
+/**
+ * Owner's canvas review, 21 Oct 2026: the Safari popup's setup instructions quote the two labels
+ * (choose “Still”, then “Always Allow on Every Website”), so the body line differs from the
+ * reference and may wrap differently.
+ */
+export const OWNER_SAFARI_SETUP_BODY: Deviation = {
+  reason:
+    "owner-approved copy (Safari setup instructions quote “Still” and “Always Allow on Every Website”; reference has no quotes)",
+  text: "In Safari, tap the extensions button",
 };
 
 /** The latest reference restores demo banners; their omission also moves subsequent cards. */

@@ -11,6 +11,7 @@ import type { ServiceId } from "@still/shared-types";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { Deviation, Rendered, ScreenCases, VisualCase } from "../types.js";
 import {
+  OWNER_SETUP_HEADER_COPY,
   OWNER_SYNC_COPY,
   REFERENCE_DEMO_ACCOUNT,
   STILL_PRO_TAG,
@@ -180,7 +181,7 @@ const cases: VisualCase[] = [
       setup: true,
       consent: "off",
     }),
-    deviations: [OWNER_SYNC_COPY],
+    deviations: [OWNER_SYNC_COPY, OWNER_SETUP_HEADER_COPY],
   },
   {
     ...base,
