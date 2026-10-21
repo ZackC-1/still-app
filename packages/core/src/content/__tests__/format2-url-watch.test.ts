@@ -419,8 +419,10 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     const paid = paidOnDeps();
     const h = await host("https://www.instagram.com/explore/search/", createNavigationIntentTracker(), paid, {
       MutationObserver: class extends Real {
-        override observe(target: Node, options?: MutationObserverInit) { observers.connected++; super.observe(target, options); }
-        override disconnect() { observers.disconnected++; super.disconnect(); }
+        // Subtree observers only: the root guard (ISS-0084) watches <html>'s class and direct children.
+        subtree = false;
+        override observe(target: Node, options?: MutationObserverInit) { if (options?.subtree) { this.subtree = true; observers.connected++; } super.observe(target, options); }
+        override disconnect() { if (this.subtree) { this.subtree = false; observers.disconnected++; } super.disconnect(); }
       },
     });
     await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
@@ -476,7 +478,8 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
         const Real = window.MutationObserver;
         const h = await host(href, createNavigationIntentTracker(), shippedDefaultsAllPurchased(), {
           MutationObserver: class extends Real {
-            override observe(target: Node, options?: MutationObserverInit) { observed++; super.observe(target, options); }
+            // Subtree observers only: the root guard (ISS-0084) watches <html>'s class and direct children.
+            override observe(target: Node, options?: MutationObserverInit) { if (options?.subtree) observed++; super.observe(target, options); }
           },
         });
         let at = 2;

@@ -166,3 +166,76 @@ describe("captured Shorts through maintained extension entry and atomic settings
     });
   });
 });
+
+// ISS-0084 on every surface: a page that sets its own <html class> wholesale or prunes <head>
+// after Still applied gets Still's root effects back, in both lanes; a live Off still removes them.
+describe("Still's root effects survive the page's own root writes (ISS-0084)", () => {
+  const stillClasses = () => [...document.documentElement.classList].filter((name) => name.startsWith("still-"));
+  it("format-2: a rewritten <html class> or a dropped stylesheet after a live On comes back; Off stays Off", async () => {
+    const h = await host();
+    await h.start();
+    const set = (value: boolean) => h.authority.commitIntent({ path: "sites.youtube.shorts", value, updatedAt: Date.now() });
+    await set(false);
+    await set(true);
+    expect(hidden("mobile-shorts-card")).toBe(true);
+    document.documentElement.className = "page-own";
+    await tick();
+    expect(hidden("mobile-shorts-card")).toBe(true);
+    expect(document.documentElement.classList.contains("page-own")).toBe(true);
+    for (const style of document.querySelectorAll("style")) style.remove();
+    await tick();
+    expect(hidden("mobile-shorts-card")).toBe(true);
+    expect(document.querySelectorAll("style")).toHaveLength(1);
+    await set(false);
+    document.documentElement.className = "page-own";
+    await tick();
+    expect(hidden("mobile-shorts-card")).toBe(false);
+    expect(stillClasses()).toEqual([]);
+    expect(document.querySelectorAll("style")).toHaveLength(0);
+  });
+  it("legacy lane: a rewritten <html class> gets Still's root classes back while On, never while Off", async () => {
+    const h = await host();
+    await h.start(false);
+    const applied = stillClasses();
+    expect(applied.length).toBeGreaterThan(0);
+    document.documentElement.className = "page-own";
+    await tick();
+    expect(stillClasses().sort()).toEqual([...applied].sort());
+    await h.authority.commitIntent({ path: "globalOn", value: false, updatedAt: Date.now() });
+    await tick();
+    expect(stillClasses()).toEqual([]);
+    document.documentElement.className = "page-own";
+    await tick();
+    expect(stillClasses()).toEqual([]);
+  });
+  it("legacy lane: a redirect decision that leaves a root class lost is tried once, not on every later page change", async () => {
+    const h = await host();
+    const script = await h.start(false);
+    expect(stillClasses()).toContain("still-active");
+    // An in-page move to a Shorts address: the legacy redirect decision keeps its classes as they are.
+    // The redirect is issued but the page has not left yet (navigation still in flight).
+    h.replace.mockImplementation(() => {});
+    h.setHref("https://m.youtube.com/shorts/abc123def45");
+    script.reapply();
+    expect(h.replace).toHaveBeenCalledOnce();
+    const reads = vi.spyOn(h.win.location, "href", "get");
+    // The page sets its own root classes: one restore runs, and a redirect does not put still-active back.
+    document.documentElement.className = "page-own";
+    await tick();
+    const afterRestore = reads.mock.calls.length;
+    expect(afterRestore).toBeGreaterThan(0);
+    expect(stillClasses()).not.toContain("still-active");
+    // Later class changes find it still lost and run no more legacy reapplies. (An added element
+    // is the legacy lane's own reapply trigger, which re-arms the guard, so none is added here.)
+    const before = reads.mock.calls.length;
+    for (let i = 0; i < 5; i++) {
+      document.documentElement.classList.toggle("page-theme");
+      await tick();
+    }
+    expect(reads.mock.calls.length).toBe(before);
+    expect(h.replace).toHaveBeenCalledOnce();
+    // The next reapply trigger re-arms it.
+    script.reapply();
+    expect(reads.mock.calls.length).toBeGreaterThan(before);
+  });
+});
