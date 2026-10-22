@@ -11,6 +11,7 @@ import { countInBundle, plausibleEmail, verdict } from "./review-email-check.mjs
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECK = join(HERE, "review-email-check.mjs");
 const ARCHIVE = join(HERE, "archive.sh");
+const PBXPROJ = join(HERE, "../Still/Still.xcodeproj/project.pbxproj");
 // Synthetic address on a reserved domain; never a real reviewer value.
 const FAKE = "review-check@example.invalid";
 
@@ -87,6 +88,21 @@ describe("review sign-in email check", () => {
       assert.ok(!stale.stderr.includes("other@example.invalid"));
       assert.equal(run("nonsense", fromFile).status, 2);
     } finally { [fromFile, empty].forEach((d) => rmSync(d, { recursive: true, force: true })); }
+  });
+
+  test("a raw xcodebuild Release archive (the Mac path) checks the built page in both extension-resources phases", () => {
+    const phases = readFileSync(PBXPROJ, "utf8")
+      .split("\n")
+      .filter((line) => line.includes("shellScript") && line.includes("@still/ext-safari build"));
+    assert.equal(phases.length, 2, "the iOS and macOS extension-resources phases");
+    for (const phase of phases) {
+      const release = phase.indexOf('if [ \\"${CONFIGURATION:-}\\" = \\"Release\\" ]; then');
+      const check = phase.indexOf('review-email-check.mjs\\" bundle \\"${REPO}/packages/app-webview\\"');
+      const end = phase.indexOf("\\nfi\\n", release);
+      assert.ok(release > 0, "the phase has a Release branch");
+      assert.ok(check > release && check < end, "the check runs inside the Release branch only");
+      assert.ok(check < phase.indexOf("@still/ext-safari build"), "before the extension build and copy");
+    }
   });
 
   test("archive.sh checks the address before building and the built page after the web build", () => {

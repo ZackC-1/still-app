@@ -170,8 +170,10 @@ Apple archives also refuse without `VITE_REVIEW_SIGNIN_EMAIL` (the App Review si
 owner-supplied, never committed). `archive.sh` runs `apps/apple/scripts/review-email-check.mjs env`
 before building and `review-email-check.mjs bundle` after the web build, which requires the address
 exactly once in `packages/app-webview/dist/index.html`. Both print only "set", "missing" or a count.
-For a raw macOS `xcodebuild archive`, run `node apps/apple/scripts/review-email-check.mjs bundle
-packages/app-webview` after building the web bundle and before archiving.
+A raw `xcodebuild archive` (the macOS path) runs the same `bundle` check itself: the Release branch
+of both "Copy Safari Web Extension Resources" phases calls it next to the release env guard, against
+the prebuilt `packages/app-webview/dist`. So build the web bundle with the address set (exported or in
+`packages/app-webview/.env`) before archiving; a Release build without it fails at that phase.
 
 After archiving, inspect the **signed archive's** app and extension plists and web resources for the
 matching production project, trust key IDs and environment. Source overlay tests do not establish
