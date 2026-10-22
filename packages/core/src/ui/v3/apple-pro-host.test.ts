@@ -93,6 +93,29 @@ const user = {
   confirmed: true,
 };
 describe("real Apple Pro host composition", () => {
+  it("a throwing canonical measurement completion cannot replace native purchase success", async () => {
+    const h = await harness({purchaseAnalytics:{begin:async()=>()=>{throw new Error("optional measurement failed");}}});
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(()=>expect(h.host.props([]).purchase.state).toBe("success"));
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    h.host.stop();
+  });
+
+  it("rechecks account and stopped scope after optional analytics preparation before charging", async () => {
+    for (const change of ["account", "stop"] as const) {
+      let finish!: (value: null) => void;
+      const begin = vi.fn(() => new Promise<null>(resolve => { finish = resolve; }));
+      const h = await harness({ purchaseAnalytics: { begin } });
+      h.host.props([]).native.onBuy?.();
+      await vi.waitFor(() => expect(begin).toHaveBeenCalledOnce());
+      if (change === "account") h.setAccount(user); else h.host.stop();
+      finish(null);
+      await h.settle();
+      expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+      h.host.stop();
+    }
+  });
+
   it("measures a deliberate offer opening once, dismissal, and native start without inventing a sale", async () => {
     const analytics = { track: vi.fn() };
     const { host, settle } = await harness({ analytics });

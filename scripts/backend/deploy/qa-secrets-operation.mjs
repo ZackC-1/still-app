@@ -58,6 +58,7 @@ export const SECRETS_TOOLING = Object.freeze(
       ...TOOLING_PATHS,
       "scripts/backend/deploy/analytics-subjects.mjs",
       "scripts/backend/deploy/purchase-operations.mjs",
+      "scripts/backend/deploy/purchase-route-prerequisites.mjs",
       "scripts/backend/deploy/qa-function-bundles.mjs",
       "scripts/backend/deploy/qa-functions.mjs",
       "scripts/backend/deploy/qa-secrets.mjs",

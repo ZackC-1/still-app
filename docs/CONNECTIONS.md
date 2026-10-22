@@ -36,7 +36,7 @@ Supabase CLI/Docker support local database work; Apple builds require macOS/Xcod
 | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | Package-local build configuration for ext-chromium, ext-safari and app-webview analytics. Blank → no analytics and no "Share usage data" switch. |
 | `VITE_MODERN_SETTINGS_SYNC_ENABLED` | Explicit configured modern settings/sync selection. Apple also needs the matching native authority; retain its one-way release constraints. |
 | `VITE_APPLE_ATOMIC_SETTINGS` | Apple developer-only local selection without Supabase configuration; keep Safari and app-webview builds aligned. Leave blank for store builds. |
-| `VITE_ACCESS_ENVIRONMENT`, `VITE_ACCESS_PUBLIC_KEYS` | Chromium/Firefox and Apple webview public scoped-access verifier inputs. No signing secrets; blank retains default production trust with no access keys. |
+| `VITE_ACCESS_ENVIRONMENT`, `VITE_ACCESS_PUBLIC_KEYS` | Chromium/Firefox and Apple webview public scoped-access verifier inputs. No signing secrets; blank retains default production trust with no access keys. Store builds never take these from a `.env` or `--env`: `package.mjs` and `archive.sh` set them from the committed `scripts/release/production-access-keys.json` (production rows only; see [versioning and packages](release/versioning-and-packages.md#production-access-trust-still-pro-verification-keys)). |
 | Production rule public-key allowlist | `packages/core/src/rules/trusted-keys.ts`; see [signing guide](production-rule-set-keys.md). |
 
 Blank public configuration keeps blocking local with the bundled seed and disables the associated

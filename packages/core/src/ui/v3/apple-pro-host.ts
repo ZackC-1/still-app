@@ -1,3 +1,4 @@
+import type { ApplePurchaseAnalytics } from "../../analytics/apple-purchase-analytics.js";
 import {
   FEATURE_REGISTRY,
   type BenefitAccessSnapshot,
@@ -24,6 +25,7 @@ export interface AppleProAccount {
 export interface AppleProHostDeps {
   /** Consent and device identity remain owned by the existing app analytics client. */
   analytics?: Pick<UiAnalytics, "track">;
+  purchaseAnalytics?: Pick<ApplePurchaseAnalytics, "begin">;
   bridge: Pick<
     NativeBridge,
     | "available"
@@ -434,6 +436,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         purchase = { state: "failed", notCharged: true };
         return;
       }
+      // Optional preparation has an absolute UI bound and cannot prevent a purchase.
+      let purchaseObserved: Awaited<ReturnType<ApplePurchaseAnalytics["begin"]>> = null;
+      if (kind === "buy" && deps.purchaseAnalytics) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { purchaseObserved = await Promise.race([deps.purchaseAnalytics.begin(),
+          new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 500); })]); }
+        catch { /* Analytics unavailable; purchasing continues. */ }
+        finally { clearTimeout(timer); }
+      }
+      // Analytics preparation is another asynchronous pre-charge boundary.
+      if (stopped || generation !== epoch) return;
+      if (kind === "buy" && (acquisition !== accessEpoch || owner() !== "none")) {
+        purchase = { state: "idle" };
+        return;
+      }
       preflightGeneration = undefined;
       signInContinuation = undefined;
       nativeAcquisitionGeneration = generation;
@@ -444,6 +461,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
+      try { purchaseObserved?.(result); }
+      catch { /* Optional measurement cannot change a completed purchase outcome. */ }
       if (nativeAcquisitionGeneration === generation)
         nativeAcquisitionGeneration = undefined;
       if (stopped) return;

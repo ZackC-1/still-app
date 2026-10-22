@@ -4,7 +4,9 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
-import { amoInstructions, buildPackages, cleanEnv, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
+import { generateKeyPairSync } from "node:crypto";
+import { readStoreTrust, sha256, TRUST_FILE } from "./access-trust.mjs";
+import { amoInstructions, buildPackages, cleanEnv, PINNED_ENV_KEYS, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
 import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -42,6 +44,9 @@ test("version.json is well formed", () => {
   assert.throws(() => parseVersions('{"extension":"2.1","apple":"2.1.0","appleBuild":9}'), /extension/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":0}'), /appleBuild/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":"9"}'), /appleBuild/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}').paidTier, false, "a missing paidTier means false");
+  assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":"false"}'), /paidTier/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":true}').paidTier, true);
 });
 
 test("a disagreeing consumer is reported, and sync repairs it", () => {
@@ -176,7 +181,7 @@ test("unlisted VITE_ variables read by shipped source stop the build, and the re
   }
 });
 
-test("store packages refuse scoped QA trust inputs and omit them from rebuild instructions", () => {
+test("store packages refuse scoped QA trust inputs; rebuild instructions carry only the pinned production trust", () => {
   const values = {
     VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox",
     VITE_ACCESS_ENVIRONMENT: "sandbox",
@@ -190,12 +195,16 @@ test("store packages refuse scoped QA trust inputs and omit them from rebuild in
   try {
     for (const [key, value] of Object.entries(values)) process.env[key] = value;
     const stripped = cleanEnv({});
-    const instructions = amoInstructions(readVersions(), JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")), values);
+    const pinned = readStoreTrust(ROOT).env;
+    const instructions = amoInstructions(readVersions(), JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")), values, pinned);
     for (const key of keys) {
       assert.equal(stripped[key], undefined, "ambient QA trust must be removed");
-      assert.ok(!instructions.includes(`${key}=`), "store rebuild instructions must omit QA trust");
+      if (PINNED_ENV_KEYS.includes(key)) assert.ok(instructions.includes(`\n${key}=${pinned[key]}\n`), `${key} comes only from ${TRUST_FILE}`);
+      else assert.ok(!instructions.includes(`${key}=`), "store rebuild instructions must omit QA trust");
+      assert.ok(!instructions.includes(values[key]), "no QA trust value reaches the instructions");
       assert.throws(() => buildPackages({ out, env: { [key]: values[key] }, allowDirty: true }), /not an allowed public build value/);
     }
+    assert.ok(instructions.includes("\nVITE_ACCESS_ENVIRONMENT=production\n"));
     assert.equal(existsSync(out), false, "refused trust inputs must not create package output");
   } finally {
     for (const [key, value] of saved) {
@@ -272,6 +281,105 @@ test("a tracked symlink is refused before anything is installed or built, and --
   }
 });
 
+/** Commit `edit(clone)` in a fresh clone and return it. */
+function committedClone(base, edit, message) {
+  const clone = cloneRepo(base);
+  edit(clone);
+  execFileSync("git", ["add", "-A"], { cwd: clone });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", message], { cwd: clone });
+  return clone;
+}
+
+/** A fresh Ed25519 public key; the private half is never exported or kept. */
+const freshPublicKeyHex = () => generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
+const pinKeys = (clone, keys) => writeFileSync(join(clone, TRUST_FILE), JSON.stringify({ about: "release test keys", keys }, null, 2) + "\n");
+
+test("a committed non-production trust row, a paid release without a matching key, or an unreadable paid switch stops the build before anything is installed", () => {
+  const cases = [
+    ["sandbox row", (clone) => pinKeys(clone, [{ kid: "still-qa", publicKeyHex: freshPublicKeyHex(), environment: "sandbox", purpose: "access" }]), /accepts only production keys/],
+    ["fixture row", (clone) => pinKeys(clone, JSON.parse(readFileSync(join(clone, "scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json"), "utf8")).keys), /TEST-ONLY fixture key/],
+    ["paid, no keys", (clone) => {
+      const path = join(clone, "packages/shared-types/src/entitlement.ts");
+      writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
+      const version = join(clone, "version.json");
+      writeFileSync(version, readFileSync(version, "utf8").replace('"paidTier": false', '"paidTier": true'));
+    }, /declares the paid tier/],
+    ["Swift-only paid switch, no keys", (clone) => {
+      const path = join(clone, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
+      writeFileSync(path, readFileSync(path, "utf8").replace("public static let paidTierEnabled = false", "public static let paidTierEnabled = true"));
+    }, /declares the paid tier/],
+    ["paid with a key but no server digests", (clone) => {
+      pinKeys(clone, [{ kid: "still-access-test", publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access" }]);
+      const path = join(clone, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
+      writeFileSync(path, readFileSync(path, "utf8").replace("public static let paidTierEnabled = false", "public static let paidTierEnabled: Bool = true"));
+    }, /needs the server's secret digests/],
+    ["reworded paid declaration", (clone) => {
+      const path = join(clone, "packages/shared-types/src/entitlement.ts");
+      writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = Boolean(0);"));
+    }, /exactly one PAID_TIER_ENABLED/],
+  ];
+  for (const [name, edit, refusal] of cases) {
+    const base = mkdtempSync(join(tmpdir(), "still-trust-refusal-"));
+    try {
+      const clone = committedClone(base, edit, name);
+      const out = join(base, "out");
+      withFakePnpm("process.exit(1);", (calls) => {
+        assert.throws(() => buildPackages({ out, root: clone }), refusal, name);
+        assert.equal(calls(), "", `${name}: pnpm must not run before the trust refusal`);
+      });
+      assert.equal(existsSync(out), false, `${name}: --out must not be created`);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the shared package build (Chrome and Firefox) refuses a paid flag that differs from the declared paidTier, before installing", () => {
+  const base = mkdtempSync(join(tmpdir(), "still-paidflag-"));
+  try {
+    const clone = cloneRepo(base);
+    const commit = (message) => {
+      execFileSync("git", ["add", "-A"], { cwd: clone });
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", message], { cwd: clone });
+    };
+    const flagPath = join(clone, "packages/shared-types/src/entitlement.ts");
+    const versionPath = join(clone, "version.json");
+    const out = join(base, "out");
+    const refused = (expected) =>
+      withFakePnpm("process.exit(1);", (calls) => {
+        assert.throws(() => buildPackages({ out, root: clone }), (e) => e.code === "paid-flag-mismatch" && expected.test(e.message));
+        assert.equal(calls(), "", "pnpm must not run when the flag and the declaration disagree");
+      });
+    // Flag on, line declares off.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    commit("flag on");
+    refused(/declares paidTier false/);
+    // Flag off, line declares on.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = true", "PAID_TIER_ENABLED = false"));
+    writeFileSync(versionPath, readFileSync(versionPath, "utf8").replace('"paidTier": false', '"paidTier": true'));
+    commit("declare on");
+    refused(/declares paidTier true/);
+    // Matching declarations still require pinned production trust and a matching server readback.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    const key = { kid: "still-access-release-test", publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access" };
+    pinKeys(clone, [key]);
+    commit("both on");
+    withFakePnpm("process.exit(1);", (calls) => {
+      assert.throws(() => buildPackages({ out, root: clone }), /needs the server's secret digests/);
+      assert.equal(calls(), "", "matching declarations cannot bypass the server trust gate");
+      const serverDigests = [
+        { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256(key.environment) },
+        { name: "ACCESS_PROOF_KEY_ID", value: sha256(key.kid) },
+        { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(key.publicKeyHex) },
+      ];
+      assert.throws(() => buildPackages({ out, root: clone, serverDigests }), /pnpm install --frozen-lockfile failed/);
+      assert.notEqual(calls(), "", "matching declarations and server trust reach the install step");
+    });
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("a run that fails after the Chrome zip is ready leaves --out untouched", () => {
   const base = mkdtempSync(join(tmpdir(), "still-staging-"));
   try {
@@ -294,8 +402,10 @@ if (script === "build" || script === "build:firefox") {
 test("building twice gives byte-identical packages, and nothing untracked, stale or ignored in the checkout reaches them", { timeout: 600_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "still-packages-"));
   // Everything is planted inside a throwaway clone, so a developer's own files are never touched and a
-  // killed run leaves nothing behind in the real checkout.
-  const clone = cloneRepo(base);
+  // killed run leaves nothing behind in the real checkout. The clone also does the release PR's
+  // one-file swap: fresh production public keys (private halves discarded) in the pinned trust file.
+  const trustKeys = ["still-access-release-test", "still-access-release-standby"].map((kid) => ({ kid, publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access" }));
+  const clone = committedClone(base, (c) => pinKeys(c, trustKeys), "pin release test keys");
   const ext = join(clone, "packages/ext-chromium");
   const planted = {
     untracked: join(ext, "public/PLANTED-untracked.txt"),
@@ -344,6 +454,14 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
     const instructions = unzipFile(sourceZip, "AMO-BUILD-INSTRUCTIONS.md").toString();
     assert.match(instructions, new RegExp(`version ${versions.extension.replaceAll(".", "\\.")}`));
     for (const key of PUBLIC_ENV_KEYS) assert.ok(instructions.includes(`${key}=`), `instructions list ${key}`);
+    // The pinned production trust reaches both web packages, the instructions and the hash manifest.
+    const trustJson = JSON.stringify(trustKeys);
+    assert.ok(instructions.includes(`\nVITE_ACCESS_ENVIRONMENT=production\nVITE_ACCESS_PUBLIC_KEYS=${trustJson}\n`));
+    for (const target of ["chrome", "firefox"]) {
+      const everything = spawnSync("unzip", ["-p", join(base, "a", `still-${target}-${versions.extension}.zip`)], { encoding: "buffer", maxBuffer: 1 << 29 }).stdout;
+      for (const key of trustKeys) assert.ok(everything.includes(key.publicKeyHex) && everything.includes(key.kid), `${target} carries ${key.kid}`);
+    }
+    assert.deepEqual(a.accessTrust, { environment: "production", kids: trustKeys.map((k) => k.kid), keysSha256: readStoreTrust(clone).sha256 });
     const sums = readFileSync(join(base, "a", "SHA256SUMS.txt"), "utf8");
     assert.equal(sums.trim().split("\n").length, 3);
     assert.ok(!sums.includes(base) && !readFileSync(join(base, "a", "SHA256SUMS.json"), "utf8").includes(base), "no machine path in the hash manifest");

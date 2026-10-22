@@ -1,0 +1,7 @@
+{
+  "about": "TEST ONLY. NOT THE REAL PRODUCTION KEYS. Two Ed25519 public keys generated for tests; their private halves were discarded at generation and never stored, so nothing can sign for them. Store builds refuse these keys and any kid starting with test-only. The real file is scripts/release/production-access-keys.json.",
+  "keys": [
+    { "kid": "test-only-access-current", "publicKeyHex": "559d148be57cf825d2f369e8097a3d0a7fa5ee622cbc00a398bf2758bd716b06", "environment": "production", "purpose": "access" },
+    { "kid": "test-only-access-standby", "publicKeyHex": "1139824a6423f5bd5b7382bb66fc086902b6d9da8fd6a2c34dfdf5e8a796a519", "environment": "production", "purpose": "access" }
+  ]
+}
