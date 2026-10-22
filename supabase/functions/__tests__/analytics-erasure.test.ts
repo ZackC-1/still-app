@@ -405,6 +405,22 @@ Deno.test("storage failures answer 503 and log a fixed category, never the key",
 
 // ── analytics-erasure: worker ────────────────────────────────────────────────────────────────
 
+Deno.test("optional retention runs only on authorized work even without a deletion provider", async () => {
+  const store = new FakeStore();
+  let maintenance = 0;
+  const deps = erasureDeps(store, { posthog: fakeDeleter("queued", false).port,
+    maintenance: () => { maintenance++; return Promise.resolve(); } });
+  assertEquals((await handleAnalyticsErasure(erasureRequest({action:"work"}),deps)).status,401);
+  assertEquals(maintenance,0);
+  const response = await handleAnalyticsErasure(erasureRequest({action:"work"},{Authorization:WORKER_TOKEN}),deps);
+  assertEquals(response.status,200);
+  assertEquals((await response.json()).skipped,"provider_unconfigured");
+  assertEquals(maintenance,1);
+  const failure = await handleAnalyticsErasure(erasureRequest({action:"work"},{Authorization:WORKER_TOKEN}),
+    {...deps,maintenance:()=>Promise.reject(new Error("optional unavailable"))});
+  assertEquals(failure.status,200);
+});
+
 Deno.test("the worker route needs its token; a blank configured token refuses everything", async () => {
   const store = new FakeStore();
   await store.beginDeviceErasure(KEY_1, 0);

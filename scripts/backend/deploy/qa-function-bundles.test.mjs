@@ -14,9 +14,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { defaultExec } from "./deploy.mjs";
 import {
+  ANALYTICS_FUNCTIONS,
+  ANALYTICS_BUNDLE_SET,
+  ANALYTICS_SWITCH_BUNDLE_SET,
+  buildFunctionBundles,
   buildQaFunctionBundles,
+  PURCHASE_BUNDLE_SET,
+  PURCHASE_FUNCTIONS,
   QA_FUNCTIONS,
   sealQaRuntime,
+  SYNC_SETTINGS_BUNDLE_SET,
+  SYNC_SETTINGS_FUNCTIONS,
+  verifyFunctionBundles,
   verifyQaFunctionBundles,
 } from "./qa-function-bundles.mjs";
 
@@ -25,7 +34,7 @@ async function put(root, path, bytes) {
   await writeFile(join(root, path), bytes);
 }
 
-async function fixture(t) {
+async function fixture(t, { routes = QA_FUNCTIONS, perRouteConfig = true } = {}) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "still-qa-bundle-test-")),
   );
@@ -36,8 +45,10 @@ async function fixture(t) {
   await put(
     sourceDir,
     "supabase/config.toml",
-    QA_FUNCTIONS.map(({ name, verifyJwt }) =>
-      `[functions.${name}]\nverify_jwt = ${verifyJwt}\nimport_map = "./functions/${name}/deno.json"\n`
+    routes.map(({ name, verifyJwt }) =>
+      `[functions.${name}]\nverify_jwt = ${verifyJwt}\n${
+        perRouteConfig ? `import_map = "./functions/${name}/deno.json"\n` : ""
+      }`
     ).join("\n"),
   );
   await put(sourceDir, "supabase/functions/deno.json", "{}\n");
@@ -60,13 +71,15 @@ async function fixture(t) {
   ) {
     await put(sourceDir, path, "bound compiler tooling\n");
   }
-  for (const { name } of QA_FUNCTIONS) {
+  for (const { name } of routes) {
     await put(
       sourceDir,
       `supabase/functions/${name}/index.ts`,
       'import "../../../packages/shared-types/src/product-policy.ts";\n',
     );
-    await put(sourceDir, `supabase/functions/${name}/deno.json`, "{}\n");
+    if (perRouteConfig) {
+      await put(sourceDir, `supabase/functions/${name}/deno.json`, "{}\n");
+    }
   }
   const state = {
     version: "2.8.3",
@@ -472,5 +485,220 @@ test(
       }),
       /source|graph|Deno info/i,
     );
+  },
+);
+
+// ── Production purchase routes ─────────────────────────────────────────────────────────────────
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+/** One [functions.<name>] section of the real config.toml: its verify_jwt and import_map lines. */
+async function configSection(name) {
+  const text = await readFile(join(REPO, "supabase/config.toml"), "utf8");
+  const sections = [...text.matchAll(/^\s*\[([^\]\n]+)\]\s*(?:#.*)?$/gm)];
+  const matches = sections.filter((section) => section[1] === `functions.${name}`);
+  assert.equal(matches.length, 1, name);
+  const start = matches[0].index + matches[0][0].length;
+  const next = sections.find((section) => section.index >= start);
+  const body = text.slice(start, next?.index ?? text.length);
+  return {
+    verifyJwt: [...body.matchAll(/^\s*verify_jwt\s*=\s*(true|false)\s*(?:#.*)?$/gm)].map((m) => m[1]),
+    importMap: [...body.matchAll(/^\s*import_map\s*=\s*"([^"\n]+)"/gm)].map((m) => m[1]),
+  };
+}
+
+test("the purchase routes are a closed, ordered set: read-only routes first, the webhook last", () => {
+  assert.deepEqual(
+    PURCHASE_FUNCTIONS.map(({ name, verifyJwt }) => [name, verifyJwt]),
+    [
+      ["product-policy", false],
+      ["export-user-data", true],
+      ["verify-apple-access", false],
+      ["link-apple-access", true],
+      ["reconcile-entitlement", true],
+      ["create-web-checkout", true],
+      ["complete-web-checkout", true],
+      ["revenuecat-webhook", false],
+      ["stripe-webhook", false],
+    ],
+  );
+  assert.deepEqual(
+    SYNC_SETTINGS_FUNCTIONS.map(({ name, verifyJwt }) => [name, verifyJwt]),
+    [["sync-settings", true]],
+  );
+  assert.equal(PURCHASE_BUNDLE_SET.routes, PURCHASE_FUNCTIONS);
+  assert.equal(PURCHASE_BUNDLE_SET.perRouteConfig, false);
+  assert.equal(SYNC_SETTINGS_BUNDLE_SET.routes, SYNC_SETTINGS_FUNCTIONS);
+  assert.equal(SYNC_SETTINGS_BUNDLE_SET.perRouteConfig, true);
+  const all = [...PURCHASE_FUNCTIONS, ...SYNC_SETTINGS_FUNCTIONS].map(({ name }) => name);
+  assert.equal(new Set(all).size, all.length);
+  for (const name of all) {
+    assert.doesNotMatch(name, /^qa-sandbox-/, name);
+    assert.ok(!QA_FUNCTIONS.some((route) => route.name === name), name);
+    assert.ok(!ANALYTICS_FUNCTIONS.some((route) => route.name === name), name);
+  }
+  // The owner page remains outside this deployment.
+  for (const name of ["product-policy-admin"]) {
+    assert.ok(!all.includes(name), name);
+  }
+  for (const set of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET]) {
+    assert.ok(Object.isFrozen(set) && Object.isFrozen(set.routes));
+    for (const route of set.routes) assert.ok(Object.isFrozen(route));
+  }
+});
+
+test("every purchase route's verify_jwt and import map equal the real config.toml", async () => {
+  for (const { name, verifyJwt } of PURCHASE_FUNCTIONS) {
+    const section = await configSection(name);
+    assert.deepEqual(section.verifyJwt, [String(verifyJwt)], name);
+    assert.deepEqual(section.importMap, [], `${name} is bundled with the shared import map`);
+  }
+  for (const { name, verifyJwt } of SYNC_SETTINGS_FUNCTIONS) {
+    const section = await configSection(name);
+    assert.deepEqual(section.verifyJwt, [String(verifyJwt)], name);
+    assert.deepEqual(section.importMap, [`./functions/${name}/deno.json`], name);
+  }
+});
+
+test("the purchase set builds and verifies like the QA set, and refuses JWT or import-map drift", async (t) => {
+  const options = await fixture(t, { routes: PURCHASE_FUNCTIONS, perRouteConfig: false });
+  const manifest = await buildFunctionBundles(PURCHASE_BUNDLE_SET, options);
+  assert.equal(manifest.kind, "still-purchase-function-bundles");
+  assert.deepEqual(
+    manifest.functions.map(({ name, verifyJwt, file }) => ({ name, verifyJwt, file })),
+    PURCHASE_FUNCTIONS.map((route) => ({ ...route, file: `${route.name}.js` })),
+  );
+  assert.ok(manifest.sources.every(({ path }) => !path.includes("qa-sandbox-")));
+  assert.equal(
+    await verifyFunctionBundles(PURCHASE_BUNDLE_SET, { ...options, manifest }),
+    true,
+  );
+  // A manifest of another set, or with a route outside the list, is refused.
+  await assert.rejects(
+    verifyFunctionBundles(SYNC_SETTINGS_BUNDLE_SET, { ...options, manifest }),
+    /manifest/i,
+  );
+  await assert.rejects(
+    verifyFunctionBundles(PURCHASE_BUNDLE_SET, {
+      ...options,
+      manifest: {
+        ...manifest,
+        functions: [...manifest.functions, { ...manifest.functions[0], name: "qa-sandbox-product-policy" }],
+      },
+    }),
+    /manifest/i,
+  );
+  const config = join(options.sourceDir, "supabase/config.toml");
+  const text = await readFile(config, "utf8");
+  await writeFile(
+    config,
+    text.replace("[functions.revenuecat-webhook]\nverify_jwt = false", "[functions.revenuecat-webhook]\nverify_jwt = true"),
+  );
+  await rm(options.artifactDir, { recursive: true });
+  await assert.rejects(buildFunctionBundles(PURCHASE_BUNDLE_SET, options), /JWT/i);
+  await writeFile(
+    config,
+    text.replace(
+      "[functions.product-policy]\nverify_jwt = false\n",
+      '[functions.product-policy]\nverify_jwt = false\nimport_map = "./functions/product-policy/deno.json"\n',
+    ),
+  );
+  await assert.rejects(buildFunctionBundles(PURCHASE_BUNDLE_SET, options), /import map/i);
+});
+
+// Explicitly enabled by the purchase function rehearsal workflow, which installs Deno 2.8.3.
+test(
+  "actual purchase, sync-settings and canonical analytics bundles are portable, closed, and start without authority",
+  { skip: process.env.STILL_PURCHASE_BUNDLE_INTEGRATION !== "1" },
+  async (t) => {
+    const sourceDir = await realpath(REPO);
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "still-purchase-bundle-integration-")),
+    );
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const uploads = [];
+    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, ANALYTICS_BUNDLE_SET, ANALYTICS_SWITCH_BUNDLE_SET].entries()) {
+      const artifactDir = join(root, `uploads-${index}`);
+      const manifest = await buildFunctionBundles(set, { sourceDir, artifactDir });
+      assert.equal(manifest.functions.length, set.routes.length);
+      assert.equal(JSON.stringify(manifest).includes(sourceDir), false);
+      const copiedSource = join(root, `copied-source-${index}`);
+      for (const { path } of manifest.sources) {
+        await put(copiedSource, path, await readFile(join(sourceDir, path)));
+      }
+      const copied = await buildFunctionBundles(set, {
+        sourceDir: copiedSource,
+        artifactDir: join(root, `second-uploads-${index}`),
+      });
+      assert.deepEqual(
+        copied,
+        manifest,
+        "source/upload hashes must not depend on checkout or artifact paths",
+      );
+      for (const route of manifest.functions) {
+        if (set === ANALYTICS_SWITCH_BUNDLE_SET) continue; // Same routes already start above.
+        if (set === ANALYTICS_BUNDLE_SET && !["analytics-purchase", "analytics-apple-purchase"].includes(route.name)) continue;
+        uploads.push({ ...route, url: pathToFileURL(join(artifactDir, route.file)).href });
+      }
+    }
+    // Platform-provided names only (a refused loopback URL); no purchase secret, no network.
+    const probe = join(root, "startup.mjs");
+    await writeFile(
+      probe,
+      `
+    import assert from 'node:assert/strict';
+    delete globalThis.Buffer;
+    delete globalThis.global;
+    delete globalThis.setImmediate;
+    delete globalThis.clearImmediate;
+    const platform = { SUPABASE_URL: 'http://127.0.0.1:9', SUPABASE_ANON_KEY: 'rehearsal-anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'rehearsal-service' };
+    Deno.env.get = (name) => platform[name];
+    let networkCalls = 0;
+    globalThis.fetch = () => { networkCalls++; throw new Error('Network forbidden'); };
+    let handler;
+    Deno.serve = (callback) => { handler = callback; };
+    for (const route of ${JSON.stringify(uploads)}) {
+      handler = undefined;
+      await import(route.url);
+      assert.equal(typeof handler, 'function', route.name);
+      const response = await handler(new Request('https://purchase.invalid', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+      }));
+      const body = await response.text();
+      if (route.name === 'product-policy') {
+        assert.equal(response.status, 400, route.name);
+      } else if (route.name === 'verify-apple-access') {
+        assert.equal(response.status, 200);
+        assert.deepEqual(JSON.parse(body), {status:'unavailable'});
+      } else if (route.name === 'analytics-apple-purchase') {
+        assert.equal(response.status, 200, route.name);
+        assert.deepEqual(JSON.parse(body), {schema:1,status:'unavailable'});
+      } else if (route.name === 'stripe-webhook') {
+        assert.equal(response.status, 503, route.name);
+        assert.deepEqual(JSON.parse(body), {error:'webhook_unavailable'});
+      } else {
+        // Every JWT route, and the RevenueCat webhook without its token.
+        assert.equal(response.status, 401, route.name);
+        assert.deepEqual(JSON.parse(body), {error:'unauthorized'});
+      }
+    }
+    assert.equal(networkCalls, 0);
+    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 3} isolated handlers passed`)});
+  `,
+    );
+    const result = await defaultExec("deno", [
+      "run",
+      "--no-config",
+      "--no-lock",
+      `--allow-read=${root}`,
+      "--deny-net",
+      "--deny-env",
+      "--deny-write",
+      "--deny-run",
+      probe,
+    ], { cwd: root });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /12 isolated handlers passed/);
   },
 );

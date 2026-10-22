@@ -50,15 +50,21 @@ send nothing.
 3. In project settings, turn on **Discard client IP data**. Every event also carries
    `$geoip_disable`, so no location is derived; the Apple privacy manifests declare no location, and
    the privacy policy says so. Country-level download numbers come from the stores' own reports.
-4. Create a personal API key with only the **person: write** scope, for deletion, and scope it
-   to this one project only (not the whole organization), so a wrong project id is refused rather
-   than answered with "no person".
+4. Use a personal API key with **project: read** and **person: write**, restricted to this one
+   project (not the whole organization). Project read proves the deletion target matches the
+   receiving project; person write permits erasure. A wrong project must be refused rather than
+   answered with "no person". The current protected switch requires both scopes.
 
-## Server (Supabase function secrets)
+## Historical 2.1 server setup (23 September 2026)
 
-Set these on the hosted project (`supabase secrets set --env-file <private file>`; never inline):
+The commands below record the original deployment; they are not current production instructions.
+Use the [protected analytics procedure](analytics-subjects-switch-on.md) for current secrets,
+function updates, schedule and switch operations. Never run these legacy CLI commands against
+production as a shortcut.
+
+That deployment set these on the hosted project (`supabase secrets set --env-file <private file>`; never inline):
 `POSTHOG_PROJECT_KEY`, `POSTHOG_HOST` (`https://us.i.posthog.com`), `POSTHOG_API_HOST`
-(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. Then deploy both
+(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. It deployed both
 functions with the shared import map (without it the hosted bundler rejects the bare
 `@supabase/supabase-js` import):
 
@@ -67,8 +73,8 @@ supabase functions deploy analytics-identify delete-user \
   --project-ref kikpgrreradotvvefdgd --import-map supabase/functions/deno.json
 ```
 
-Check both are `ACTIVE` with `verify_jwt: true` (`supabase functions list`) and that an
-unauthenticated POST to each returns 401. Either function skips its PostHog step quietly when its
+The historical check confirmed both were `ACTIVE` with `verify_jwt: true` (`supabase functions list`)
+and that an unauthenticated POST to each returned 401. Either function skips its PostHog step quietly when its
 settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
@@ -141,6 +147,20 @@ switch. Firefox source archives for AMO carry only the explicit allowlist of pub
   states it.
 - The privacy policy (`docs/privacy.html`) and homepage wording must be published to
   `stillapp.fit` before or with the store submissions, so every declaration matches.
+
+### V3 canonical purchase analytics follow-up
+
+Before submitting a V3 iOS or macOS build containing canonical purchase/refund reporting, update
+App Store Connect → App Privacy → Purchases → Purchase History to include **Analytics** alongside
+**App Functionality**. Keep **Linked to you: Yes**, **Tracking: No**, and no browsing-history category.
+The two canonical events use the current permitted per-device analytics identity; anonymous history
+is not merged into a later signed-in subject. The Apple app manifest declares both purposes; the
+Safari extension does not emit these purchase events and retains its existing data types.
+
+Confirm the final archive's privacy report and publish the matching `docs/privacy.html` notice before
+activation. Check [the label table](store-listing-copy.md#4-apple--app-privacy-the-label) and
+[Apple's purpose definitions](https://developer.apple.com/app-store/app-privacy-details/).
+These are portal/publication follow-ups; source changes alone do not prove they are complete.
 
 ## Website
 
@@ -263,12 +283,11 @@ and Financial Reports). Web purchases, if any were ever live, would be in the co
 account. The App Manager API key cannot read sales or finance reports; reading them through the API
 needs a key with the Sales and Finance roles.
 
-## Per-device identities and device deletion (V3, not switched on)
+## Per-device identities and device deletion (V3 activation requires hosted evidence)
 
 Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
 "delete what this device shared". Migration 0018 and the matching `delete-user` change make account
-deletion record those identities for deletion before the account is deleted. None of it is switched
-on, and nothing in this section applies until the owner approves each step.
+deletion record those identities for deletion before the account is deleted. Read the [current activation handoff](../handoffs/2026-10-21-production-payment-activation.md) for dated hosted evidence. Existing secrets/functions runs do not establish schedule or switch activation; protected receipts control that claim.
 
 **Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
 `ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
@@ -300,15 +319,12 @@ deploy step; never the Supabase CLI from a working checkout):
    GoTrue deletion rehearsal green).
 2. Set the function secrets `ANALYTICS_ERASER_DB_URL` (the eraser login), `ANALYTICS_EVENT_ID_SECRET`
    (at least 32 random characters) and, for the deletion worker, `ANALYTICS_ERASURE_WORKER_TOKEN`.
-3. Deploy `analytics-identify` (and `analytics-erasure` with the worker token) so they read them.
-   No function code changes in this release: the V3 clients use the existing per-device request.
+3. After foundation 0027 and separate reviewed migrations 0028/0029, deploy the final five-route set: `analytics-erasure`, `analytics-identify`, `delete-user`, `analytics-purchase`, `analytics-apple-purchase`. Canonical purchase reporting adds new routes and original-device attribution; source tests do not establish hosted delivery.
 4. Schedule the deletion worker (`analytics-erasure`, called with the worker token, every 15
    minutes; see "How often to run the worker"). Without it, deleting an account only records the
    account's per-device subjects for deletion; their PostHog persons and events are deleted when the
    worker runs. Do not switch identities on before the worker is scheduled.
-5. Set `ANALYTICS_SUBJECTS_ENABLED=true` on the functions and redeploy `analytics-identify` so it
-   reads the new value. For QA, set it on the sandbox project first and check with a V3 QA package
-   that a signed-in device's events appear under a random subject carrying the account email.
+5. After a successful worker run and the project/deletion permission proof, the protected switch sets `ANALYTICS_SUBJECTS_ENABLED=true` and refreshes `analytics-identify`, `analytics-purchase`, `analytics-apple-purchase` and `create-web-checkout`. Use a designated production-channel package/account for acceptance. Test-project packages are deliberately refused identity; there is no separate Supabase sandbox project.
 
 These steps are the four protected operations in
 [analytics-subjects-switch-on.md](analytics-subjects-switch-on.md): secrets, functions (which also
@@ -319,16 +335,15 @@ means the throwaway-database rehearsal every step runs before approval, then a p
 check right after switching on, with the one-approval switch-off ready. `analytics-identify` gives
 an identity only to a device that sends `projectKeySha256` equal to the digest of the server's
 `POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
-`{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
+`{"state": "test_channel"}` and nothing is written, so test-project builds cannot obtain production analytics identities. Designated disposable accounts in production-channel packages are separate internal acceptance checks and must be excluded from launch reporting.
 
-**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
+**Historical initial deploy order (do not replay applied migrations).** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.
 `delete-user` is safe to deploy before or after 0018: before it, its new first step simply fails
 and the 0017 trigger still records everything. Then the owner sets the database login and the function secrets
 (`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
 random value of at least 32 characters that keeps the "new account" event from being counted twice;
-without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
-schedule yet.
+without it that event gets a random id), and deploys the reviewed analytics route set. Each is a separate approved step. Verify the existing worker schedule through its protected receipt and actual successful runs; do not infer it from function deployment.
 
 **Account deletion and the `ANALYTICS CAPTURE DEFERRED` log line.** Once the eraser login is set,
 `delete-user` first asks the database to record the account's per-device identities for deletion,
@@ -380,3 +395,20 @@ where next_attempt_at <= now() and (lease_until is null or lease_until < now());
 
 If the number of due jobs keeps growing, check the PostHog key and project settings first, then
 the worker's schedule.
+
+## Canonical purchase reporting coverage
+
+The web canonical purchase slice records `purchase_recorded` and `purchase_refunded` only for
+production purchases originally attributed by a consenting device and later reported by that same
+origin while sharing remains enabled. A return to a Still screen supplies the fresh permission
+check; payment webhooks and restore/access snapshots do not dispatch analytics. Reports carry
+stable event IDs and canonical payment/full-refund times. Partial refunds are not reported as a
+full reversal. Missing consent, a device that never returns, erased attribution or optional lock
+contention can leave events absent. These events describe a **consented subset**, not financial
+reconciliation or all sales. Supabase's canonical payment ledger remains the payment record.
+Apple coverage is implemented separately; this web slice does not establish Apple completion.
+
+The protected analytics switch also refreshes checkout because it caches original-attribution
+configuration. A failed checkout refresh after disabling reporting produces an explicit incomplete
+receipt; do not claim collection stopped until the same planned checkout bundle has been refreshed
+and read back successfully. See plan003 for prerequisites and recovery evidence.

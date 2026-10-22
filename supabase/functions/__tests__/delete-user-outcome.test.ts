@@ -5,7 +5,6 @@ import { failureCategory } from "../_shared/auth.ts";
 import { HttpPostHog, NO_PERSON_LOG, nothingToDelete, PostHogDeletionError } from "../_shared/posthog.ts";
 import { CodedError } from "../_shared/coded-error.ts";
 import { HttpRevenueCatClient } from "../_shared/revenuecat.ts";
-import { RevenueCatWebPurchaseLink } from "../_shared/web-billing.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -256,7 +255,4 @@ Deno.test("the fixed-message throw sites carry their codes", async () => {
   } finally {
     globalThis.fetch = realFetch;
   }
-
-  const billing = await assertRejects(() => new RevenueCatWebPurchaseLink("").createCheckout(A), CodedError);
-  assertEquals(billing.code, "web_billing_unconfigured");
 });

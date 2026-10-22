@@ -91,6 +91,21 @@ function setup(
 }
 
 describe("Apple app analytics", () => {
+  it.each([['macos', 'mac_app_store'], ['ios', 'app_store']] as const)(
+    "attributes purchase actions to the native %s store and respects withdrawal",
+    async (platform, origin) => {
+      const { app, events } = setup({ platform });
+      await app.start();
+      app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+      await vi.waitFor(() => expect(events().filter(event => event.event === "purchase_started")).toHaveLength(1));
+      expect(events().find(event => event.event === "purchase_started")?.properties.purchase_origin).toBe(origin);
+      await app.ui.setSharing!(false);
+      app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+      await app.recheckSetup();
+      expect(events().some(event => event.event === "purchase_started")).toBe(false);
+    },
+  );
+
   it("a new Mac install reports installed, the app opening and one active day", async () => {
     const { app, events } = setup();
     await app.start();
@@ -225,15 +240,18 @@ describe("Apple app analytics", () => {
     const second = app.identifyAccount(U2); // U2 signs in before U1's reply
     await vi.waitFor(() => expect(asked).toEqual([U1, U2]));
     app.ui.track("signed_in", {}); // U2's use, waiting
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => expect(events().some(e => e.event === "signed_in")).toBe(true));
     resolveU1({ state: "active", subject: testSubjectFor(U1) }); // U1's reply lands first, late
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
-    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    // Subject installation and queued-event attribution finish asynchronously. Await the
+    // required outcome, not a 10ms wall-clock guess under parallel crypto/test load.
+    await vi.waitFor(() => {
+      expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+      expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
+    });
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
-    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
   });
 
   it("NEGATIVE CONTROL: two sign-ins back to back, the earlier reply first: only the later account reports", async () => {
@@ -255,8 +273,7 @@ describe("Apple app analytics", () => {
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
-    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    await vi.waitFor(() => expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2)));
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
   });
 });
@@ -662,7 +679,9 @@ describe("Apple launch attribution comes first", () => {
       expect(launch().some((e) => "distinct_id" in e.properties)).toBe(false);
       release();
       await identified;
-      await settled();
+      await vi.waitFor(() => {
+        expect(launch().every(e => (e as { attributeLater?: boolean }).attributeLater === undefined)).toBe(true);
+      });
       // The identity continued the hold (ISS-0108): the launch goes to it, as signed-in use.
       expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
       for (const e of launch()) {

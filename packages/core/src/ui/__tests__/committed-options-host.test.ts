@@ -644,7 +644,7 @@ describe("actual options sync and auth operations", () => {
     // Owner decision 71: the exact approved wording, spelled out so a strings edit cannot drift it.
     expect(
       screen.getByText(
-        "Sync didn't finish. Your settings are saved on this device.",
+        "Sync didn't finish. Settings are saved on this device.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();

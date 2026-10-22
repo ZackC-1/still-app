@@ -249,10 +249,9 @@ export const STRINGS = {
     extensionCurrent: "Safari settings match the Still app.",
     extensionChecking: "Checking settings with the Still app…",
     extensionPending: "Open Still to finish syncing your settings.",
-    unreachable:
-      "Your settings are saved on this device. Still will sync them when it reconnects.",
+    unreachable: "Sync didn't finish. Settings are saved on this device.",
     // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`.
-    failed: "Sync didn't finish. Your settings are saved on this device.",
+    failed: "Sync didn't finish. Settings are saved on this device.",
     tryAgain: "Try again",
     firstSync: "Your settings are now the same across your signed-in devices.",
   },

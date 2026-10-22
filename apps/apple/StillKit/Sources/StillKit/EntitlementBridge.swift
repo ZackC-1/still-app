@@ -239,7 +239,8 @@ public final class SharedEntitlementStore {
     // Only a freshly issued online proof can create a new receipt baseline. Ordinary cached
     // reads never invoke this path; signed stale blobs cannot start a new thirty-day window.
     guard !nativePurchase.isRevoked, binding.matches(local), binding.matches(nativePurchase), request.issuerTime == c.verifiedAt,
-      (account == nil) == (session == nil), (account == nil) == (request.accessToken == nil)
+      (account == nil) == (session == nil), (account == nil) == (request.accessToken == nil),
+      !c.isSandboxReview || account == nil
     else { throw AccessProofFailure.invalid }
     if let account, let session {
       let a = account.claims, l = local.claims
@@ -257,7 +258,7 @@ public final class SharedEntitlementStore {
       let previous = record.appleBindings.compactMap { cached -> (CachedAppleRightBinding, VerifiedAppleRightBinding)? in
         guard let verified = try? VerifiedAppleRightBinding.verify(cached.envelope, trust: trust) else { return nil }
         return (cached, verified)
-      }.first { $0.1.claims.environment == c.environment && $0.1.claims.appBundleId == c.appBundleId &&
+      }.first { $0.1.claims.environment == c.environment && $0.1.claims.nativeEnvironment == c.nativeEnvironment && $0.1.claims.appBundleId == c.appBundleId &&
         $0.1.claims.productId == c.productId && $0.1.claims.originalTransactionId == c.originalTransactionId }
       if let previous {
         let restoredFamilyLocal = previous.0.revokesAccount == false && account == nil &&
@@ -495,7 +496,7 @@ public final class SharedEntitlementStore {
       let boundAccount = record.accountId
       let rights = verifiedAppleBindings(record).filter { cached, binding, proof in
         cached.revokedAt == nil && !evidence.contains { $0.proof.identity == proof.identity && $0.revoked } &&
-          (nativePurchase.map { purchase in binding.matches(purchase) &&
+          (nativePurchase.map { purchase in !binding.claims.isSandboxReview && binding.matches(purchase) &&
             evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked } } ?? true)
       }.map { cached, binding, proof in
         let valid = evidence.contains { $0.proof.identity == proof.identity && $0.validPaid && !$0.revoked }

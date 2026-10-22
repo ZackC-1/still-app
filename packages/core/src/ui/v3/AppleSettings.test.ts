@@ -397,7 +397,7 @@ describe("controlled D04 Apple settings", () => {
     expect(screen.queryByText(/without an account/)).toBeNull();
     expect(
       screen.getByText(
-        "Free. Keep your settings the same across every supported device and browser.",
+        "Sync settings across devices and browsers. Free.",
       ),
     ).toBeTruthy();
     props.sync.account = {
@@ -1979,7 +1979,7 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     ).toEqual(["Instagram Blocker", "Facebook Blocker", "YouTube Blocker", "TikTok Blocker"]);
     expect(screen.getByRole("heading", { name: "Settings sync" }).className).toBe("card-title");
     expect(
-      screen.getByText("Free. Keep your settings the same across every supported device and browser."),
+      screen.getByText("Sync settings across devices and browsers. Free."),
     ).toBeVisible();
   });
 

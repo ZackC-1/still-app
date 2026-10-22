@@ -46,6 +46,34 @@
     });
   });
   $effect(() => () => flow?.stop());
+  let hostRoot = $state<HTMLDivElement>();
+  let offerReported = false;
+  // The inline settings card is itself the browser offer. Count it once per page only when a
+  // sellable card actually enters the visible viewport; loading Settings is not an impression.
+  $effect(() => {
+    if (!hostRoot || !deps?.analytics || offerReported || ownership !== "none" || flowState.channel !== "ready"
+        || typeof IntersectionObserver === "undefined") return;
+    const card = hostRoot.querySelector('section[aria-label="Still Pro"]');
+    if (!card) return;
+    let live = true;
+    let inView = false;
+    const report = () => {
+      if (!live || offerReported || !inView || document.visibilityState !== "visible") return;
+      offerReported = true;
+      try { deps.analytics?.track("paywall_viewed", { trigger: "settings_card", where: "options" }); } catch { /* Optional measurement. */ }
+    };
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.target === card) inView = entry.isIntersecting;
+      report();
+    });
+    observer.observe(card);
+    document.addEventListener("visibilitychange", report);
+    return () => {
+      live = false;
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", report);
+    };
+  });
 
   // Signed in, Restore is the scoped re-check; signed out it needs the normal sign-in first.
   let onRestore = $derived(
@@ -94,6 +122,7 @@
 </script>
 
 <!-- Keep the approved compact card; the existing full purchase view owns the inventory. -->
+<div bind:this={hostRoot} style="display: contents">
 <ExtensionSettings
   {...props}
   {pro}
@@ -101,3 +130,4 @@
   restore={flowState.restore}
   siteAccess={siteAccess.current}
 />
+</div>

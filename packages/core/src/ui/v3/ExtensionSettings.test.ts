@@ -194,7 +194,7 @@ describe("controlled D03 extension settings", () => {
     const { props } = await fixture();
     const view = render(ExtensionSettings, { props });
     const invitation =
-      "Free. Keep your settings the same across every supported device and browser.";
+      "Sync settings across devices and browsers. Free.";
     expect(screen.getByText(invitation)).toBeVisible();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeVisible();
@@ -529,7 +529,7 @@ describe("controlled D03 extension settings", () => {
       status: {
         tone: "failed",
         text: "Sync didn't finish.",
-        detail: "Your settings are saved on this device.",
+        detail: "Settings are saved on this device.",
         actionLabel: "Try again",
         onAction: retry,
       },

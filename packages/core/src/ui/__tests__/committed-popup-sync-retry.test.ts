@@ -169,7 +169,7 @@ describe("mounted sync retry lifecycle", () => {
       if (route === "desktop") {
         // Owner decision 71: the exact approved wording on the V3 popup.
         expect(
-          screen.getByText("Sync didn't finish. Your settings are saved on this device."),
+          screen.getByText("Sync didn't finish. Settings are saved on this device."),
         ).toBeTruthy();
       }
       expect(

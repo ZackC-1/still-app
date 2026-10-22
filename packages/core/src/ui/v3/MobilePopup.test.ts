@@ -194,7 +194,7 @@ describe("controlled D02 mobile presentation", () => {
     const view = render(MobilePopup, { props });
     expect(
       screen.getByText(
-        "Free. Keep your settings the same across every supported device and browser.",
+        "Sync settings across devices and browsers. Free.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
@@ -208,7 +208,7 @@ describe("controlled D02 mobile presentation", () => {
     });
     expect(
       screen.getByText(
-        "Free. Keep your settings the same across every supported device and browser.",
+        "Sync settings across devices and browsers. Free.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/every device and browser/)).toBeNull();
@@ -521,7 +521,7 @@ describe("controlled D02 mobile presentation", () => {
         address: "test@still.test",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Your settings are saved on this device.",
+          text: "Sync didn't finish. Settings are saved on this device.",
           retry,
         },
       };
@@ -533,12 +533,21 @@ describe("controlled D02 mobile presentation", () => {
         }),
       );
       expect(onAction).toHaveBeenCalledOnce();
+      if (host === "safari") {
+        // Owner's canvas review, 21 Oct 2026.
+        expect(screen.getByText("Still can't block distractions yet.")).toBeTruthy();
+        expect(
+          screen.getByText(
+            "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
+          ),
+        ).toBeTruthy();
+      }
       expect(screen.queryByText(/setup complete/i)).toBeNull();
       await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(retry).toHaveBeenCalledOnce();
       expect(
         screen.getByText(
-          "Sync didn't finish. Your settings are saved on this device.",
+          "Sync didn't finish. Settings are saved on this device.",
         ),
       ).toBeTruthy();
       await fireEvent.click(

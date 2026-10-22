@@ -47,11 +47,13 @@ export function batchJobs<T extends { readonly targets: readonly string[] }>(job
 }
 
 export async function runErasureWorker(deps: {
+  readonly maintenance?: () => Promise<void>;
   readonly store: ErasureStore;
   readonly posthog: PostHogErasurePort;
   readonly limit: number;
   readonly leaseSeconds: number;
 }): Promise<WorkerReport> {
+  await deps.maintenance?.().catch(() => undefined); // independent optional retention; never blocks erasure on failure
   // Without a deletion key nothing is claimed: a job must never look attempted when it was not.
   if (!deps.posthog.canDelete) {
     return { claimed: 0, advanced: 0, failed: 0, lost: 0, overdue: 0, skipped: "provider_unconfigured" };

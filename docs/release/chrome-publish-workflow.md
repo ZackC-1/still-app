@@ -86,7 +86,8 @@ Every refusal starts with `STOP (<reason>)`. The common ones:
 | `input-invalid` | A typo in the inputs. Fix and run again. |
 | `package-mismatch` | The rebuilt package is not the one with that fingerprint. Run `package-only` again and test the new zip. |
 | `commit-not-on-main` / `version-mismatch` | The commit is not on `main`, or its `version.json` says another version. |
-| `paid-flag-on` | The commit has the paid tier switched on. Store packages never do. |
+| `paid-flag-mismatch` | The commit's paid-tier flag (`PAID_TIER_ENABLED`) differs from the `paidTier` its `version.json` declares (a missing `paidTier` counts as false). Make them match on purpose, in one reviewed commit. |
+| `paid-flag-unknown` | The paid-tier flag could not be found exactly once in `packages/shared-types/src/entitlement.ts`. Restore the single declaration. |
 | `protection` | The approval rules changed (reviewer, admin bypass, branches) or someone other than the owner approved. Restore the rules. `oidc-subject-changed` means the repository was renamed or switched to GitHub's new token format, so Google's trust rule must be updated before any run can sign in. |
 | `store-access-denied` | Keyless sign-in or the dashboard's service-account link is not working. There is no fallback: upload by hand while it is fixed. |
 | `version-not-higher` | The store already has this or a higher version. Bump the version. |

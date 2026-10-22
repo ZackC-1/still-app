@@ -28,6 +28,14 @@ import {
   QA_SECRETS_TOKEN_ENV,
   STAGED_SECRETS,
 } from "./qa-secrets.mjs";
+import {
+  FUNCTIONS_OP as PURCHASE_FUNCTIONS_OP,
+  PURCHASE_OPERATIONS,
+  SECRETS_OP as PURCHASE_SECRETS_OP,
+  SECRETS_TOKEN_ENV as PURCHASE_SECRETS_TOKEN_ENV,
+  STAGED_SECRETS as PURCHASE_STAGED_SECRETS,
+  SYNC_OP as PURCHASE_SYNC_OP,
+} from "./purchase-operations.mjs";
 
 /** Secrets that reach the apply step only for one operation, as `operation == X && secret || ''`. */
 const scoped = (operation, secret) =>
@@ -36,6 +44,8 @@ const SECRETS_ONLY = [
   QA_SECRETS_TOKEN_ENV,
   ...STAGED_SECRETS.map((item) => item.from),
 ];
+/** The staged production purchase values (PROD_<NAME>), scoped to purchase-secrets alone. */
+const PURCHASE_ONLY = PURCHASE_STAGED_SECRETS.map((item) => item.from);
 
 const WORKFLOWS = new URL("../../../.github/workflows/", import.meta.url);
 const DEPLOY = "supabase-production-deploy.yml";
@@ -152,6 +162,7 @@ test("only the approved apply job is bound to the environment and sees only the 
       "SUPABASE_PRODUCTION_ACCESS_TOKEN",
       "QA_SANDBOX_SUBJECT_EMAILS_JSON",
       ...SECRETS_ONLY,
+      ...PURCHASE_ONLY,
     ],
   );
   const secretSteps = apply.steps.filter((s) =>
@@ -180,9 +191,9 @@ test("only the approved apply job is bound to the environment and sees only the 
   assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
   assert.deepEqual(secretSteps[0].env, {
     SUPABASE_DB_URL: "${{ secrets.SUPABASE_PRODUCTION_DB_URL }}",
-    // Least privilege: the functions token is withheld from qa-sandbox-secrets and
-    // analytics-subjects-secrets, which use only the Secrets-only token.
-    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && inputs.operation != '${ANALYTICS_SECRETS_OP}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
+    // Least privilege: the functions token is withheld from qa-sandbox-secrets,
+    // analytics-subjects-secrets and purchase-secrets, which use only the Secrets-only token.
+    SUPABASE_PRODUCTION_ACCESS_TOKEN: `\${{ inputs.operation != '${QA_SECRETS_OPERATION}' && inputs.operation != '${ANALYTICS_SECRETS_OP}' && inputs.operation != '${PURCHASE_SECRETS_OP}' && secrets.SUPABASE_PRODUCTION_ACCESS_TOKEN || '' }}`,
     // The test-account list reaches the apply step only for qa-sandbox-subjects.
     QA_SANDBOX_SUBJECT_EMAILS_JSON: scoped(
       "qa-sandbox-subjects",
@@ -192,12 +203,21 @@ test("only the approved apply job is bound to the environment and sees only the 
     ...Object.fromEntries(
       SECRETS_ONLY.map((name) => [name, scoped(QA_SECRETS_OPERATION, name)]),
     ),
-    // The Secrets-only token also reaches the two analytics operations that write a secret.
-    [QA_SECRETS_TOKEN_ENV]: `\${{ (inputs.operation == '${QA_SECRETS_OPERATION}' || inputs.operation == '${ANALYTICS_SECRETS_OP}' || inputs.operation == '${ANALYTICS_SWITCH_OP}') && secrets.${QA_SECRETS_TOKEN_ENV} || '' }}`,
+    // The Secrets-only token also reaches the two analytics operations that write a secret and
+    // purchase-secrets.
+    [QA_SECRETS_TOKEN_ENV]: `\${{ (inputs.operation == '${QA_SECRETS_OPERATION}' || inputs.operation == '${ANALYTICS_SECRETS_OP}' || inputs.operation == '${ANALYTICS_SWITCH_OP}' || inputs.operation == '${PURCHASE_SECRETS_OP}') && secrets.${QA_SECRETS_TOKEN_ENV} || '' }}`,
+    // The staged production purchase values reach it only for purchase-secrets.
+    ...Object.fromEntries(
+      PURCHASE_ONLY.map((name) => [name, scoped(PURCHASE_SECRETS_OP, name)]),
+    ),
     GH_TOKEN: "${{ github.token }}",
   });
   assert.equal(SECRETS_ONLY.length, 20);
+  assert.equal(PURCHASE_ONLY.length, 22);
+  assert.ok(PURCHASE_ONLY.includes("PROD_APPLE_SANDBOX_REVIEW_ENABLED"));
+  for (const name of PURCHASE_ONLY) assert.match(name, /^PROD_[A-Z0-9_]+$/);
   assert.equal(ANALYTICS_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);
+  assert.equal(PURCHASE_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);
   assert.match(secretSteps[0].run, /deploy\.mjs apply /);
   assert.ok(!JSON.stringify(plan).includes("secrets."));
   assert.equal(
@@ -308,6 +328,7 @@ test("no other workflow can reach the production database environment or its sec
       "SUPABASE_PRODUCTION_ACCESS_TOKEN",
       "QA_SANDBOX_SUBJECT_EMAILS_JSON",
       ...SECRETS_ONLY,
+      ...PURCHASE_ONLY,
     ])
       assert.ok(!text.includes(secret), name);
   }
@@ -326,6 +347,7 @@ test("operations are a closed choice that defaults to migrations and leaves migr
     QA_OPERATION,
     QA_SECRETS_OPERATION,
     ...Object.keys(ANALYTICS_OPERATIONS),
+    ...Object.keys(PURCHASE_OPERATIONS),
   ]);
   const { policy_mode, policy_expected_revision, subjects_sha256 } =
     workflow.on.workflow_dispatch.inputs;
@@ -363,7 +385,7 @@ test("every operation retains authority checks and uses only its fixed rehearsal
   assert.doesNotMatch(plan.if, /operation/);
   assert.equal(
     apply.if,
-    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets') || (inputs.mode == 'rotate' && inputs.operation == 'analytics-subjects-secrets')) && needs.plan.outputs.environment-ready == 'true'",
+    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.mode == 'apply' || (inputs.mode == 'baseline-only' && inputs.operation == 'qa-sandbox-functions') || ((inputs.mode == 'rotate' || inputs.mode == 'disable') && inputs.operation == 'qa-sandbox-secrets') || (inputs.mode == 'rotate' && inputs.operation == 'analytics-subjects-secrets') || (inputs.mode == 'rotate' && inputs.operation == 'purchase-secrets')) && needs.plan.outputs.environment-ready == 'true'",
   );
   for (const [jobName, job] of Object.entries({ plan, apply })) {
     const conditionals = job.steps.filter((step) =>
@@ -372,7 +394,7 @@ test("every operation retains authority checks and uses only its fixed rehearsal
     const expected = new Map([
       [
         "denoland/setup-deno",
-        "inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-')",
+        "inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions')",
       ],
       [
         "Install pinned Supabase CLI (checksum verified)",
@@ -506,9 +528,10 @@ test("the pull-request operation rehearsal has no environment or secret and cove
   // operation in each of its writing modes.
   const rows = job.strategy.matrix.include;
   const analytics = (row) => Object.hasOwn(ANALYTICS_OPERATIONS, row.operation);
+  const purchase = (row) => Object.hasOwn(PURCHASE_OPERATIONS, row.operation);
   assert.deepEqual(
     rows
-      .filter((row) => row.operation !== QA_SECRETS_OPERATION && !analytics(row))
+      .filter((row) => row.operation !== QA_SECRETS_OPERATION && !analytics(row) && !purchase(row))
       .map((row) => resolveOperation(row.operation, row.policy_mode))
       .sort(),
     Object.keys(OPERATIONS).sort(),
@@ -521,8 +544,23 @@ test("the pull-request operation rehearsal has no environment or secret and cove
       [ANALYTICS_SWITCH_OP, "enable", "apply"],
     ],
   );
+  // Each purchase plan rehearses all three purchase operations; the two function rows also build
+  // the real purchase and sync-settings bundles through the compiler boundary.
+  assert.deepEqual(
+    rows.filter(purchase).map((row) => [row.operation, row.policy_mode, row.mode]),
+    [
+      [PURCHASE_FUNCTIONS_OP, "none", "apply"],
+      [PURCHASE_SYNC_OP, "none", "apply"],
+      [PURCHASE_SECRETS_OP, "none", "apply"],
+    ],
+  );
   const deno = job.steps.find((s) => s.uses?.startsWith("denoland/setup-deno@"));
-  assert.equal(deno.if, "startsWith(matrix.operation, 'analytics-')");
+  assert.equal(
+    deno.if,
+    "startsWith(matrix.operation, 'analytics-') || startsWith(matrix.operation, 'purchase-functions')",
+  );
+  assert.ok([PURCHASE_FUNCTIONS_OP, PURCHASE_SYNC_OP].every((name) => name.startsWith("purchase-functions")));
+  assert.ok(!PURCHASE_SECRETS_OP.startsWith("purchase-functions"));
   assert.equal(deno.with["deno-version"], "2.8.3");
   assert.deepEqual(
     rows
@@ -590,4 +628,36 @@ test("the pull-request operation rehearsal has no environment or secret and cove
   assert.ok(
     tests.run.includes('"scripts/backend/deploy/qa-secrets*.test.mjs"'),
   );
+});
+
+test("the purchase function rehearsal compiles the real routes with no environment, secret or production access", async () => {
+  const { text, workflow } = await load("supabase-purchase-functions-rehearsal.yml");
+  assert.deepEqual(Object.keys(workflow.on), ["pull_request"]);
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  const jobs = Object.values(workflow.jobs);
+  assert.equal(jobs.length, 1);
+  const [job] = jobs;
+  assert.equal(job.environment, undefined);
+  assert.equal(job.permissions, undefined);
+  assert.equal(job.if, "github.event_name == 'pull_request'");
+  assert.doesNotMatch(text, /secrets\.|SUPABASE_PRODUCTION|PROD_|id-token|: write\b/);
+  const deno = job.steps.find((s) => s.uses?.startsWith("denoland/setup-deno@"));
+  assert.equal(deno.with["deno-version"], "2.8.3");
+  const compile = job.steps.find((s) => (s.run ?? "").includes("node --test"));
+  assert.equal(compile.env.STILL_PURCHASE_BUNDLE_INTEGRATION, "1");
+  assert.match(compile.run, /qa-function-bundles\.test\.mjs/);
+  assert.match(compile.run, /purchase-operations\.test\.mjs/);
+  // Every action is pinned to the same full commit SHA the production deploy workflow uses.
+  const production = (await load(DEPLOY)).workflow;
+  const pinned = new Map(
+    Object.values(production.jobs)
+      .flatMap((j) => j.steps)
+      .filter((s) => s.uses)
+      .map((s) => s.uses.split("@")),
+  );
+  for (const ref of job.steps.filter((s) => s.uses).map((s) => s.uses)) {
+    const [action, sha] = ref.split("@");
+    assert.match(sha, /^[0-9a-f]{40}$/, ref);
+    assert.equal(sha, pinned.get(action), `${action} pin differs from production`);
+  }
 });

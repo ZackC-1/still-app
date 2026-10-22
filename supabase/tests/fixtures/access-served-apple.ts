@@ -10,7 +10,7 @@ export function createAppleAccessVerifier(config: {
   [key: string]: unknown;
 }): AppleAccessVerifier | null {
   const instance = Deno.env.get("STILL_ACCESS_REHEARSAL_INSTANCE");
-  if (!instance || config.environment !== "sandbox") return null;
+  if (!instance || config.environment !== "production") return null;
   return {
     async authenticate(evidence: AppleEvidence) {
       if (
@@ -22,7 +22,7 @@ export function createAppleAccessVerifier(config: {
         return null;
       const identity = [
         "apple",
-        "sandbox",
+        "production",
         evidence.bundleId,
         evidence.productId,
         "900719925474099312345",
@@ -37,7 +37,7 @@ export function createAppleAccessVerifier(config: {
         key: Array.from(digest, (n) => n.toString(16).padStart(2, "0")).join(
           "",
         ),
-        environment: "sandbox",
+        environment: "production",
         bundleId: evidence.bundleId,
         productId: "still_pro_v3",
         originalTransactionId: "900719925474099312345",

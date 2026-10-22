@@ -10,7 +10,7 @@ import type { MobilePopupProps } from "../../../../packages/core/src/ui/v3/mobil
 import type { PopupInvitationPresentation } from "../../../../packages/core/src/ui/v3/invitation-presentation.js";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
 import type { Rendered, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY, STILL_PRO_TAG } from "./shared.js";
+import { OWNER_SETUP_HEADER_COPY, OWNER_SYNC_COPY, STILL_PRO_TAG } from "./shared.js";
 
 const screen = "d28-rating-prompt";
 
@@ -164,12 +164,12 @@ const cases: VisualCase[] = [
     frame: popover,
     render: desktop({
       desktopSetup: {
-        title: "Still can't block on these websites yet.",
+        title: "Still can't block distractions yet.",
         detail: "Allow Still on these websites so it can block there.",
         actionLabel: "Allow",
       },
     }),
-    deviations: [OWNER_SYNC_COPY],
+    deviations: [OWNER_SYNC_COPY, OWNER_SETUP_HEADER_COPY],
   },
   {
     ...base,
@@ -183,7 +183,7 @@ const cases: VisualCase[] = [
         address: "sam@example.com",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Your settings are saved on this device.",
+          text: "Sync didn't finish. Settings are saved on this device.",
           retry: noop,
         },
       },

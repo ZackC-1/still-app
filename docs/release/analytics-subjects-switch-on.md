@@ -9,7 +9,9 @@ dashboard or in the SQL editor.
 The code is `scripts/backend/deploy/analytics-subjects.mjs`, with its pinned SQL in
 `scripts/backend/deploy/operations/analytics-*.sql`.
 
-## Hosted state before these steps (from repository evidence, 10 October 2026)
+## Historical baseline (10 October 2026; not current hosted inventory)
+
+The table below records the original rollout baseline. The [activation handoff](../handoffs/2026-10-21-production-payment-activation.md) supersedes it: later secrets/functions runs exist, while schedule and switch activation remain unverified. Re-read protected receipts before deciding which operation is missing. PR528 adds canonical purchase reporting; its final CI and hosted deployment remain separate gates.
 
 | Piece | State | Evidence |
 |---|---|---|
@@ -29,23 +31,21 @@ the same hosted project, and `analytics-identify`, `analytics-erasure` and `dele
 production routes that every app calls. So the "sandbox first" step is: (1) the plan job of every
 run below rehearses the whole lifecycle on a throwaway copy of the database in GitHub (secrets,
 functions, schedule, switch on, switch off, schedule off, rotate) before asking for approval; then
-(2) after the switch is on, check it with a V3 QA package and a test account; and (3) if anything
-looks wrong, switch it off at once (one approval, no other gate).
+(2) after the switch is on, check it with a designated disposable account in a production-channel V3 package; and (3) if anything
+looks wrong, request the protected switch-off immediately. It stops reporters first, then refreshes checkout under the purchase prerequisites. A failed checkout refresh leaves attribution collection unconfirmed; follow the incomplete-outcome recovery below.
 
 **Test builds never get an identity.** Test builds send their events to the PostHog test project,
 while the server attaches emails and `account_created` in the live project. So `analytics-identify`
 gives a device an identity only when the device proves it sends to the live project: the request
 must carry `projectKeySha256`, the SHA-256 of the client's public PostHog project key, and it must
 equal the digest of the server's `POSTHOG_PROJECT_KEY`. Any other request (a test build, or a build
-without the field) is answered `{"state": "test_channel"}` with nothing written. **The client half
-(apps sending `projectKeySha256`) is not in this change;** until it ships in the V3 builds, every V3
-device keeps waiting even with the switch on, so step 4 waits for it.
+without the field) is answered `{"state": "test_channel"}` with nothing written. V3 source supplies the client field. Verify it in the final production-channel packages before step 4; a source test alone does not prove the packaged binding.
 
 ## The owner's steps (four approvals)
 
 Before starting, Claude:
 
-1. Merges this change to `main` and notes the merge commit. All four runs use that one commit.
+1. Merges the reviewed final integration to `main` and notes the merge commit. All four runs use that one commit. Apply foundation migrations through 0027 first, then 0028/0029 through a separate exact protected plan. The five-route functions operation and switch-on require both analytics gates; the switch also requires the complete purchase migration/secret prerequisites because it refreshes checkout.
 2. Starts the **Supabase settings rehearsal** workflow on `main` at that commit
    (`gh workflow run supabase-settings-rehearsal.yml --ref main`) and waits for it to pass. It
    deletes accounts through GoTrue and the real `delete-user` handler. Steps 1, 2, 3 and 4 refuse
@@ -70,13 +70,13 @@ starting the next step.
 | Step | What it does | Claude starts it with |
 |---|---|---|
 | 1 | Generates, in the runner's memory only, the eraser password, the worker token and the event-id secret. Writes `ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN` and `ANALYTICS_EVENT_ID_SECRET`, gives the eraser role sign-in, and copies the worker token into Supabase Vault for the schedule. Nobody ever sees a value. | `gh workflow run supabase-production-deploy.yml --ref main -f commit=<sha> -f operation=analytics-subjects-secrets -f policy_mode=none -f mode=apply` |
-| 2 | Deploys exactly `analytics-erasure`, then `analytics-identify`, then `delete-user`, built from that commit, and reads each one back byte for byte. Stops before `delete-user` if an earlier route does not read back. | `... -f operation=analytics-subjects-functions -f policy_mode=none -f mode=apply` |
+| 2 | Deploys exactly `analytics-erasure`, `analytics-identify`, `delete-user`, `analytics-purchase`, then `analytics-apple-purchase`, built from that commit, and reads each one back byte for byte. Stops before the next route if a read-back fails. | `... -f operation=analytics-subjects-functions -f policy_mode=none -f mode=apply` |
 | 3 | Schedules the deletion worker every 15 minutes (pg_cron with pg_net). The job reads the token from Vault when it runs. Run it soon after step 2. | `... -f operation=analytics-erasure-schedule -f policy_mode=enable -f mode=apply` |
-| 4 | **Only after the client half of the test-channel check has shipped, and 15 to 30 minutes after step 3**, so the schedule has run at least once. Proves PostHog deletion, then sets `ANALYTICS_SUBJECTS_ENABLED=true` and redeploys `analytics-identify`. | `... -f operation=analytics-subjects-switch -f policy_mode=enable -f mode=apply` |
+| 4 | **Only after final production-channel client configuration is verified, and an actual successful schedule run after step 3** (normally 15 to 30 minutes). Proves project/deletion permission using a never-used ID, then sets `ANALYTICS_SUBJECTS_ENABLED=true` and refreshes `analytics-identify`, `analytics-purchase`, `analytics-apple-purchase` and `create-web-checkout`. This permission probe is not completed customer erasure. | `... -f operation=analytics-subjects-switch -f policy_mode=enable -f mode=apply` |
 
 Right after step 2 (Claude, then the owner):
 
-- Prepare a reviewed revert or fix-forward commit for the three routes, so a problem can be fixed
+- Prepare a reviewed revert or fix-forward commit for the five analytics routes and checkout refresh, so a problem can be fixed
   through the same protected path.
 - Delete one disposable team account through the production `delete-user` (from a production
   build, signed in as that account) and confirm the answer is `200 {"deleted": true}`.
@@ -98,7 +98,7 @@ What each step refuses, before writing anything:
 - **Step 2:** the three analytics secrets and the five PostHog secrets must exist, the eraser must
   be able to sign in, and the Vault token must match the function secret (compared by digest only).
 - **Step 3:** as step 2, and `analytics-erasure` must be deployed at exactly the planned source.
-- **Step 4:** as step 2; all three routes at exactly the planned source; the schedule present with
+- **Step 4:** as step 2; all five analytics routes at exactly the planned source, all planned migrations and required purchase secrets present; the schedule present with
   the exact planned command; pg_cron ran it in the last 35 minutes; a worker run in that window
   answered with a report that skipped nothing and has `failed: 0` and `lost: 0`; and, last, the
   **provider proof**: `analytics-erasure`, asked through pg_net with the Vault token, reads the
@@ -110,18 +110,20 @@ Then check with a **production-channel** build (a test build is answered `test_c
 sign in with a disposable team account, confirm the app gets its analytics identity, and that the
 live PostHog person for that device shows that account's email. Then delete the account and confirm
 the device's person is removed after the next worker run (PostHog removes the events later, in a
-batch). To exercise identities with a test build instead, point the server at the PostHog test
-project; never send test accounts into the live project.
+batch). Use a local or disposable rehearsal configured for the PostHog test project to exercise
+test-build identities; never repoint production PostHog secrets. Never redirect test-build traffic
+to the live project; the designated production-channel acceptance account is a separate internal
+check and must be excluded from launch reporting.
 
 ## Undo
 
-| To | Run (one approval, no other gate) |
+| To | Protected operation and recovery gates |
 |---|---|
-| Switch signed-in analytics off | `-f operation=analytics-subjects-switch -f policy_mode=disable -f mode=apply`: sets `ANALYTICS_SUBJECTS_ENABLED=false` and redeploys `analytics-identify` |
+| Switch signed-in analytics off | `-f operation=analytics-subjects-switch -f policy_mode=disable -f mode=apply`: sets `ANALYTICS_SUBJECTS_ENABLED=false`, refreshes `analytics-identify`, `analytics-purchase`, `analytics-apple-purchase`, then `create-web-checkout`. Reporters stop first; checkout still requires the closed purchase prerequisites |
 | Stop the deletion worker | `-f operation=analytics-erasure-schedule -f policy_mode=disable -f mode=apply`: removes only the job; queued deletions wait until it is scheduled again |
 | Replace the eraser password and worker token (leak, or a step 1 that stopped after starting to write) | `-f operation=analytics-subjects-secrets -f policy_mode=none -f mode=rotate`: changes the password first, then rewrites the URL and token secrets and the Vault copy. The event-id secret is kept |
 
-Switch off first if both are needed. The functions are not rolled back: while the switch is off,
+Switch off first if both are needed. A failed checkout refresh reports an incomplete/unknown outcome: original attribution collection is not proven stopped until the same approved plan successfully refreshes checkout. Repair the named prerequisites and repeat that plan. The functions are not rolled back: while the switch is off,
 `analytics-identify` issues no new device identity, and `delete-user` keeps recording any identity
 issued earlier, so it is still deleted (once the worker runs).
 
@@ -151,6 +153,8 @@ After step 1 (the eraser role gains sign-in) and after step 3 (the first pg_net 
 Supabase's own `supabase_functions_admin` role), the QA sandbox function baseline digest changes, so
 the next `qa-sandbox-functions` apply needs a new `baseline-only` run first. That is expected. Step 3
 allows exactly that platform role and no other role change.
+
+The worker also removes bounded expired Apple attribution independently of whether the originating device returns. Keep it running for retention maintenance. For actual device erasure, a removed person or accepted deletion is an intermediate result: the existing confirmation waits at least eight days after the last queued provider deletion, with follow-up through 35 days. Record that pending status honestly.
 
 **pg_net privileges.** On Supabase the `net` schema and its functions belong to `supabase_admin`,
 which grants USAGE to PUBLIC, `anon` and `authenticated`; the `postgres` role the deploy uses is

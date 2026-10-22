@@ -10,7 +10,13 @@ import {
   type DesignId,
 } from "../fixtures.js";
 import type { FrameSpec, ScreenCases, VisualCase } from "../types.js";
-import { OWNER_SYNC_COPY, POPUP_PRO_CARD, STILL_PRO_TAG } from "./shared.js";
+import {
+  OWNER_SAFARI_SETUP_BODY,
+  OWNER_SETUP_HEADER_COPY,
+  OWNER_SYNC_COPY,
+  POPUP_PRO_CARD,
+  STILL_PRO_TAG,
+} from "./shared.js";
 
 const screen = "d02-mobile-popup";
 
@@ -125,7 +131,7 @@ const cases: VisualCase[] = [
     width: 375,
     frame: iphoneSE(),
     render: popup({ access: accessAll("locked"), setup: { onAction: noop } }),
-    deviations: signedOut,
+    deviations: [...signedOut, OWNER_SETUP_HEADER_COPY, OWNER_SAFARI_SETUP_BODY],
   },
   {
     ...base,
@@ -180,7 +186,7 @@ const cases: VisualCase[] = [
         address: "sam@example.com",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Your settings are saved on this device.",
+          text: "Sync didn't finish. Settings are saved on this device.",
           retry: noop,
         },
       },

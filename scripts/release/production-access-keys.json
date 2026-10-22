@@ -1,0 +1,11 @@
+{
+  "about": "Public production access verification key for Still Pro. Contains no private key.",
+  "keys": [
+    {
+      "kid": "still-access-production-20261021",
+      "publicKeyHex": "bd09b34b6ef89050698eb9d254c62500a16f8dd6bf25b50599c7ddc547f86587",
+      "purpose": "access",
+      "environment": "production"
+    }
+  ]
+}

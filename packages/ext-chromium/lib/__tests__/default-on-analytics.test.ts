@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createClient } from "@supabase/supabase-js";
 import {
   CONSENT_KEY,
   NOTICE_KEY,
@@ -8,6 +9,9 @@ import {
   USAGE_PERMISSION_VERSION,
   readAnalyticsPermission,
   supabaseSubjectIssuer,
+  purchaseAnalyticsContext,
+  purchaseAnalyticsReporter,
+  withCheckoutAnalytics,
   type AnalyticsKeyValue,
 } from "@still/core/analytics";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, type BackgroundAnalyticsDeps } from "../analytics.js";
@@ -43,6 +47,8 @@ function setup(
     granted?: boolean;
     local?: ReturnType<typeof memory>;
     issueSubject?: BackgroundAnalyticsDeps["issueSubject"];
+    reportPurchases?: () => void;
+    production?: boolean;
   } = {},
 ) {
   const local = over.local ?? memory();
@@ -52,7 +58,7 @@ function setup(
   const deps: BackgroundAnalyticsDeps = {
     isFirefox: over.isFirefox ?? false,
     config: { key: "phc_test", host: "https://us.i.posthog.com" },
-    envelope: { build_channel: "test" },
+    envelope: over.production ? undefined : { build_channel: "test" },
     appVersion: "3.0.0",
     local,
     shared: memory(),
@@ -66,6 +72,7 @@ function setup(
     fetch: fetch as unknown as typeof globalThis.fetch,
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
     issueSubject: over.issueSubject,
+    reportPurchases: over.reportPurchases,
   };
   const bg = factory(deps, RUNTIME_ID, ORIGIN);
   const send = (message: Record<string, unknown>) =>
@@ -127,6 +134,20 @@ describe("root cause: the 2.x wrapper supplies no permission or policy, so nothi
 });
 
 describe("V3 Chrome: on by default, with the switch as the one control", () => {
+  it("delivers offer and purchase actions through the actual V3 wrapper, then stops after withdrawal", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    await install(t);
+    await t.send({ action: "track", name: "paywall_viewed", props: { trigger: "settings_card", where: "options" } });
+    await t.send({ action: "track", name: "purchase_started", props: { purchase_origin: "web", product: "still-pro-v3" } });
+    await t.bg.flushWhenReady();
+    expect(t.sent()).toEqual(expect.arrayContaining(["paywall_viewed", "purchase_started"]));
+    await t.send({ action: "setSharing", enabled: false });
+    t.fetch.mockClear();
+    await t.send({ action: "track", name: "purchase_started", props: { purchase_origin: "web", product: "still-pro-v3" } });
+    await t.bg.flushWhenReady();
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
   it.each([0, 10])("reports from install with %i ms storage reads, even when the start's account answer lands right after onInstalled, and asks for no notice", async (readDelayMs) => {
     const t = setup(createDefaultOnBackgroundAnalytics, { local: memory({}, readDelayMs) });
     await install(t);
@@ -608,5 +629,51 @@ describe("V3 signed-in devices report under their own identity (owner decision 5
     expect(t.permission()?.state).toBe("stopped");
     expect(await t.send({ action: "sharing" })).toMatchObject({ enabled: false });
     expect(t.fetch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("canonical web reporting through the actual default-on factory", () => {
+  it.each([false,true])("captures original and current permission on %s Firefox, then stops at the real switch",async isFirefox => {
+    const account="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", subject="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let report=()=>{}, clock=1;
+    const t=setup(createDefaultOnBackgroundAnalytics,{ isFirefox,granted:true,production:true,
+      issueSubject:async()=>({ state:"active",subject }),reportPurchases:()=>report() });
+    const capture=purchaseAnalyticsContext(t.bg.client,{ key:"phc_test",host:"https://us.i.posthog.com" });
+    const reported:unknown[]=[];
+    report=purchaseAnalyticsReporter({ capture,now:()=>clock,prepare:async()=>({ account,
+      send:async body=>{ reported.push(body); } }) });
+    t.bg.onStart(account);
+    await t.bg.flushWhenReady();
+    expect(reported).toEqual([]);
+    await t.send({ action:"track",name:"opened",props:{ where:"options" } });
+    await vi.waitFor(()=>expect(reported).toHaveLength(1));
+    expect(reported[0]).toEqual({ originProof:expect.stringMatching(/^[a-f0-9]{64}$/),projectKeySha256:expect.stringMatching(/^[a-f0-9]{64}$/) });
+    const endpoint="https://synthetic.supabase.co/functions/v1/create-web-checkout";
+    const checkoutBodies:Record<string,unknown>[]=[];
+    const wire:typeof fetch=async(_input,init)=>{
+      checkoutBodies.push(JSON.parse(String(init?.body)));
+      return new Response("{}",{ headers:{ "content-type":"application/json" } });
+    };
+    const token=`header.${btoa(JSON.stringify({ sub:account }))}.signature`;
+    const supabase=createClient("https://synthetic.supabase.co","synthetic-public",{
+      accessToken:async()=>token,global:{ fetch:withCheckoutAnalytics(wire,endpoint,capture) },
+    });
+    const body={ access_schema:1,surface:isFirefox ? "firefox_desktop" : "chrome_desktop",build:"3.0.0" };
+    await supabase.functions.invoke("create-web-checkout",{ body });
+    expect(checkoutBodies[0]?.analytics).toEqual(reported[0]);
+    const prior=await capture(); expect(prior).not.toBeNull();
+    await t.send({ action:"setSharing",enabled:false });
+    expect(prior?.current()).toBe(false); expect(prior?.signal.aborted).toBe(true);
+    clock+=30_001;
+    await t.send({ action:"track",name:"opened",props:{ where:"options" } });
+    await t.bg.flushWhenReady();
+    expect(reported).toHaveLength(1);
+    await supabase.functions.invoke("create-web-checkout",{ body });
+    expect(checkoutBodies[1]).toEqual(body);
+    expect(await capture()).toBeNull();
+    expect(JSON.stringify(reported)).not.toContain(account);
+    expect(JSON.stringify(reported)).not.toContain(subject);
+    t.bg.stop();
   });
 });

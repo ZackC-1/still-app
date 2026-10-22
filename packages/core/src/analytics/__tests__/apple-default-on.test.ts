@@ -137,6 +137,23 @@ describe("root cause: without the default-on wiring the Apple app reports nothin
 });
 
 describe("V3 Apple app: on by default, with the switch as the one control", () => {
+  it("delivers offer and purchase actions with native store attribution, then honors the off switch", async () => {
+    const t = setup();
+    await launch(t);
+    t.app.ui.track("paywall_viewed", { trigger: "upgrade_button", where: "app" });
+    t.app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+    await vi.waitFor(async () => {
+      await t.app.start();
+      expect(t.sent()).toEqual(expect.arrayContaining(["paywall_viewed", "purchase_started"]));
+    });
+    expect(t.bodies().join("\n")).toContain('"purchase_origin":"app_store"');
+    await t.app.ui.setSharing!(false);
+    t.fetch.mockClear();
+    t.app.ui.track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
+    await t.app.start();
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
   it("grants in the App Group at the first launch, reports it, and asks for no notice (2026-10-12)", async () => {
     const t = setup();
     await launch(t);
@@ -631,11 +648,10 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
   }, 30_000);
 
   it("a session read that never answers costs the launch only the wait: opened and active are recorded, and the switch is read again", async () => {
-    // Timers are fake; the native and crypto work in between is real, so it is let run (setImmediate).
+    // Timers are fake, but native and crypto initialization is real. Wait for readiness rather
+    // than assuming a fixed number of event-loop turns finishes crypto on a busy CI runner.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    const settled = async () => {
-      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
-    };
+    const timeout = vi.spyOn(globalThis, "setTimeout");
     try {
       const t = setup();
       const { c } = makeController({ analytics: t.app.ui });
@@ -646,13 +662,12 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
         .start()
         .finally(() => c.refreshUsageSharing())
         .then(() => void (done = true));
-      await settled();
+      await t.app.ui.sharing!();
+      expect(timeout).toHaveBeenCalledWith(expect.any(Function), LAUNCH_ACCOUNT_WAIT_MS);
       await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS - 1);
-      await settled();
       expect(done).toBe(false);
       expect(t.queue()).toEqual([]); // still waiting for the account answer
       await vi.advanceTimersByTimeAsync(1);
-      await settled();
       await launched;
       expect(done).toBe(true);
       // Recorded, waiting for an account answer before anything is sent (as before the wait).
@@ -660,6 +675,7 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
       expect(t.fetch).not.toHaveBeenCalled();
       expect(c.usageSharing).toBe(true);
     } finally {
+      timeout.mockRestore();
       vi.useRealTimers();
     }
   });

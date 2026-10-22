@@ -54,6 +54,7 @@
     openDestination?: AppleSetupOpener;
     proServices?: Pick<
       AppleProHostDeps,
+      | "analytics"
       | "bridge"
       | "refreshAccountAccess"
       | "verifyLocalPurchase"

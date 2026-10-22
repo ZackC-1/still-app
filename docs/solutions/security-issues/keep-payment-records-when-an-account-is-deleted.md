@@ -42,6 +42,11 @@ The QA Stripe webhook settles a later full refund for a deleted account by marki
 `refunded` through the existing exact operation+Session RPC (`recordDeletedAccountRefund`). It
 never recreates, observes or grants anything to the deleted account.
 
+The production checkout ledger introduced in migration 0026 uses the same nullable holder and
+`ON DELETE SET NULL` contract. Its fixed production RPC retains a detached payment record through
+duplicate refund delivery. The environment-bound shared Stripe handler applies the same canonical
+refund procedure in each lane; no test payment or account is copied into production.
+
 ## Why it must be a BEFORE trigger
 
 Foreign-key actions run as internal `AFTER` triggers named `RI_ConstraintTrigger_…`. Postgres fires
@@ -77,6 +82,10 @@ deletion and the privacy notice discloses retained billing events.
 - `supabase/tests/account_deletion_payment_records_test.ts` runs in the GitHub-hosted security
   rehearsal (`rehearse-qa-sandbox.sh`): upgrade from a seeded 0021 deletion, private-row
   invariant, end-state gate, deletion, deleted-account refund and gate drift probes.
+- `supabase/tests/production_purchase_operations_test.ts` passed the real PostgreSQL production
+  ledger rehearsal: actual writer-role execution, account deletion, retained holder-null payment,
+  duplicate terminal refund and rejection of attempts to reopen the operation. The production
+  webhook unit test separately verifies no account observation, recreation or access issuance.
 
 ## Break-glass
 

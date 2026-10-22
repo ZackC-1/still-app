@@ -170,7 +170,7 @@ describe("live popup/App/browser Pro navigation", () => {
     const f = await popup(name, android);
     const before = await f.f.storage.get();
     const card = await screen.findByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Hide more on Instagram, Facebook and YouTube. One-time purchase.")).toBeTruthy();
+    expect(within(card).getByText("Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.")).toBeTruthy();
     expect(within(card).queryByText("Opens the Still app")).toBeNull();
     await fireEvent.click(within(card).getByRole("button", { name: "Get Still Pro" }));
     await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());

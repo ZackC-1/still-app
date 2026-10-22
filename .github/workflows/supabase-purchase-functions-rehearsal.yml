@@ -1,0 +1,44 @@
+name: Supabase purchase function rehearsal
+
+# Disposable Linux runner only. No protected environment, hosted credentials,
+# provider calls, uploaded hosted artifacts or production deployments.
+# Compiles the real purchase routes and sync-settings through the same sealed
+# compiler boundary the protected purchase-functions operations use, then starts
+# every sealed upload with no environment, no network and no write access.
+on:
+  pull_request:
+    paths:
+      - "scripts/backend/deploy/**"
+      - "scripts/backend/plan.mjs"
+      - "supabase/**"
+      - "packages/core/src/**"
+      - "packages/shared-types/src/**"
+      - ".github/workflows/supabase-production-deploy.yml"
+      - ".github/workflows/supabase-purchase-functions-rehearsal.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-purchase-functions-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  purchase-functions-rehearsal:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.8.3"
+      - name: Compile, seal and start the actual purchase and sync-settings uploads
+        env:
+          STILL_PURCHASE_BUNDLE_INTEGRATION: "1"
+        run: node --test scripts/backend/deploy/qa-function-bundles.test.mjs scripts/backend/deploy/purchase-operations.test.mjs

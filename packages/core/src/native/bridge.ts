@@ -74,9 +74,11 @@ export interface NativeProResult {
   readonly outcome: NativeProOutcome;
   readonly receipt: ReceiptStatusValue;
   readonly productId?: "still_pro_v3" | "still_sync";
+  /** Actual native SDK completion evidence; only the canonical backend may interpret it. */
+  readonly newPurchaseEvidence?: NativeApplePurchaseEvidence;
 }
 
-/** Sensitive functional evidence for the authenticated verifier only; never analytics or logs. */
+/** Sensitive evidence for canonical Apple verification only; never a PostHog payload or log. */
 export interface NativeApplePurchaseEvidence {
   readonly productId: "still_pro_v3" | "still_sync";
   readonly bundleId: string;
@@ -923,7 +925,7 @@ function parseProResult(raw: unknown): NativeProResult {
   const value = asObject(raw);
   const failed: NativeProResult = { outcome: "failed", receipt: "noSignal" };
   if (!value || Array.isArray(value) || Object.keys(value).some((key) =>
-    !["outcome", "receipt", "productId"].includes(key))) return failed;
+    !["outcome", "receipt", "productId", "newPurchaseEvidence"].includes(key))) return failed;
   const outcomes: readonly NativeProOutcome[] = ["purchased", "restored", "cancelled", "pending",
     "unavailable", "staleIdentity", "nothing", "failed"];
   if (!outcomes.includes(value.outcome as NativeProOutcome) ||
@@ -935,5 +937,13 @@ function parseProResult(raw: unknown): NativeProResult {
   if ((outcome === "purchased" || outcome === "restored") &&
     (receipt !== "entitled" || !productId || (outcome === "purchased" && productId !== "still_pro_v3"))) outcome = "pending";
   if (outcome === "nothing" && receipt === "entitled") return failed;
-  return { outcome, receipt, ...(productId ? { productId } : {}) };
+  const evidence = asObject(value.newPurchaseEvidence);
+  const newPurchaseEvidence = outcome === "purchased" && evidence &&
+    Object.keys(evidence).sort().join(",") === "bundleId,productId,signedTransaction" &&
+    evidence.productId === "still_pro_v3" && typeof evidence.bundleId === "string" &&
+    /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(evidence.bundleId) && evidence.bundleId.length <= 160 &&
+    typeof evidence.signedTransaction === "string" && evidence.signedTransaction.length <= 24_000 &&
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(evidence.signedTransaction)
+      ? evidence as unknown as NativeApplePurchaseEvidence : undefined;
+  return { outcome, receipt, ...(productId ? { productId } : {}), ...(newPurchaseEvidence ? { newPurchaseEvidence } : {}) };
 }

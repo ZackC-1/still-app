@@ -70,7 +70,7 @@ describe("Safari settings: the Still app hand-off card (proHandoff)", () => {
   it("locked: the popup's Still Pro card, opening the app; lock chips open it too; no price or purchase", async () => {
     const f = await safari("locked");
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Hide more on Instagram, Facebook and YouTube. One-time purchase.")).toBeVisible();
+    expect(within(card).getByText("Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.")).toBeVisible();
     expect(within(card).getByText("Opens the Still app")).toBeVisible();
     await fireEvent.click(within(card).getByRole("button", { name: /Get Still Pro/ }));
     expect(f.proHandoff).toHaveBeenCalledTimes(1);

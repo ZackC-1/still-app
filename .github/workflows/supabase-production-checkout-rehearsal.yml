@@ -1,0 +1,97 @@
+name: Production checkout ledger rehearsal
+
+# Synthetic disposable database only. No deployment authority or provider credentials.
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/functions/_shared/*checkout*"
+      - "supabase/functions/_shared/*purchase-operation*"
+      - "supabase/tests/production_purchase_operations_test.ts"
+      - "supabase/tests/apple_sandbox_review_access_test.ts"
+      - "supabase/tests/purchase_analytics_test.ts"
+      - "supabase/functions/analytics-purchase/**"
+      - "scripts/backend/deploy/verify/0028*"
+      - "supabase/functions/analytics-apple-purchase/**"
+      - "supabase/tests/apple_purchase_analytics_test.ts"
+      - "scripts/backend/deploy/verify/0029*"
+      - "supabase/functions/_shared/apple-review-access-store.ts"
+      - "scripts/backend/deploy/verify/0026*"
+      - "scripts/backend/deploy/verify/0027*"
+      - ".github/workflows/supabase-production-checkout-rehearsal.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-checkout-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-checkout-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.8.3"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install pinned Supabase CLI
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Rehearse production ledger on a disposable database
+        run: |
+          set -euo pipefail
+          test "$(supabase --version)" = '2.119.0'
+          trap 'supabase stop --project-id still-app --no-backup >/dev/null 2>&1' EXIT
+          supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >/dev/null
+          supabase db reset --local --no-seed --version 0024 >/dev/null
+          prior="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0026_production_purchase_operations.sql)"
+          test "$(printf '%s' "$prior" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
+          # Exercise the real deploy runner's invariant contract before the grouped migration.
+          # An issue-array query is valid SQL but is not a preservation snapshot.
+          umask 077
+          for stem in 0026_production_purchase_operations 0027_apple_sandbox_review_access; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.before"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.before"
+          done
+          supabase migration up --local >/dev/null
+          for stem in 0026_production_purchase_operations 0027_apple_sandbox_review_access; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.after"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.after"
+            cmp -s "$RUNNER_TEMP/$stem.before" "$RUNNER_TEMP/$stem.after" || { echo 'Migration changed existing application rows.' >&2; exit 1; }
+          done
+          # The protected runner captures ALL pending snapshots before either migration applies.
+          # Both analytics invariants must therefore work on their shared 0027 baseline.
+          supabase db reset --local --no-seed --version 0027 >/dev/null
+          for stem in 0028_purchase_analytics 0029_apple_purchase_analytics; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.before"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.before"
+          done
+          supabase migration up --local >/dev/null
+          for stem in 0028_purchase_analytics 0029_apple_purchase_analytics; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.after"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.after"
+            cmp -s "$RUNNER_TEMP/$stem.before" "$RUNNER_TEMP/$stem.after" || { echo 'Analytics migration changed existing rows.' >&2; exit 1; }
+          done
+          STILL_PRODUCTION_CHECKOUT_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322 \
+              --allow-read=scripts/backend/deploy/verify/ \
+              supabase/tests/production_purchase_operations_test.ts supabase/tests/apple_sandbox_review_access_test.ts supabase/tests/purchase_analytics_test.ts supabase/tests/apple_purchase_analytics_test.ts
+      - name: Failure or cancellation cleanup
+        if: always()
+        run: supabase stop --project-id still-app --no-backup

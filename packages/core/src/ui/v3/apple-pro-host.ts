@@ -1,3 +1,4 @@
+import type { ApplePurchaseAnalytics } from "../../analytics/apple-purchase-analytics.js";
 import {
   FEATURE_REGISTRY,
   type BenefitAccessSnapshot,
@@ -14,6 +15,7 @@ import type {
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
 import { proPurchased } from "./presentation.js";
+import type { UiAnalytics } from "../controller.svelte.js";
 
 export interface AppleProAccount {
   id: string;
@@ -22,6 +24,9 @@ export interface AppleProAccount {
   confirmed: boolean;
 }
 export interface AppleProHostDeps {
+  /** Consent and device identity remain owned by the existing app analytics client. */
+  analytics?: Pick<UiAnalytics, "track">;
+  purchaseAnalytics?: Pick<ApplePurchaseAnalytics, "begin">;
   bridge: Pick<
     NativeBridge,
     | "available"
@@ -122,6 +127,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let eligibilitySettled = false;
   let busy = false;
   let opening = false;
+  let measuredOffer = false;
   let offer: NativeLifetimeOffering | null = null;
   let access: BenefitAccessSnapshot | null = null;
   let purchase: PurchaseViewProps["purchase"] = { state: "idle" };
@@ -157,6 +163,18 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   const changed = () => {
     if (!stopped) deps.publish();
   };
+  const track: UiAnalytics["track"] = (name, props) => {
+    try { deps.analytics?.track(name, props); } catch { /* Analytics never controls purchase UI. */ }
+  };
+  function closeOffer() {
+    if (measuredOffer) {
+      measuredOffer = false;
+      track("paywall_dismissed", { trigger: "upgrade_button", where: "app" });
+    }
+    opening = false;
+    purchaseSignIn = false;
+    changed();
+  }
   const sameAccount = (a: AppleProAccount) => {
     const current = deps.account();
     return (
@@ -372,6 +390,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     preflightGeneration = generation;
     signInContinuation = fromSignIn ? generation : undefined;
     let verifyingLocal = false;
+    let acquisitionStarted = false;
     // A purchase started signed in links to that account once it is verified (ISS-0071).
     let linkTo: AppleProAccount | null = null;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
@@ -422,13 +441,33 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         purchase = { state: "failed", notCharged: true };
         return;
       }
+      // Optional preparation has an absolute UI bound and cannot prevent a purchase.
+      let purchaseObserved: Awaited<ReturnType<ApplePurchaseAnalytics["begin"]>> = null;
+      if (kind === "buy" && deps.purchaseAnalytics) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { purchaseObserved = await Promise.race([deps.purchaseAnalytics.begin(),
+          new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 500); })]); }
+        catch { /* Analytics unavailable; purchasing continues. */ }
+        finally { clearTimeout(timer); }
+      }
+      // Analytics preparation is another asynchronous pre-charge boundary.
+      if (stopped || generation !== epoch) return;
+      if (kind === "buy" && (acquisition !== accessEpoch || owner() !== "none")) {
+        purchase = { state: "idle" };
+        return;
+      }
       preflightGeneration = undefined;
       signInContinuation = undefined;
       nativeAcquisitionGeneration = generation;
+      acquisitionStarted = true;
+      if (kind === "buy")
+        track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
       const result =
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
+      try { purchaseObserved?.(result); }
+      catch { /* Optional measurement cannot change a completed purchase outcome. */ }
       if (nativeAcquisitionGeneration === generation)
         nativeAcquisitionGeneration = undefined;
       if (stopped) return;
@@ -458,11 +497,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         return;
       }
       if (result.outcome === "cancelled") {
+        if (kind === "buy")
+          track("purchase_cancelled", { purchase_origin: "unknown", product: "still-pro-v3" });
         purchase = { state: "idle" };
         restore = undefined;
         return;
       }
       if (result.outcome === "unavailable" && kind === "buy" && pendingKind === undefined) {
+        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "not_allowed" });
         // Native "unavailable" is refused before any charge (paid tier off, changed offer, sales
         // policy or the unverified sandbox installation check, e.g. no App Store account), so
         // the copy must not suggest a purchase happened (ISS-0070).
@@ -491,6 +533,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (stopped || generation !== epoch) return;
         if (verifying === accessEpoch) access = verified;
         if (access === verified && appleProOwnership(verified) === "owned") {
+          // This also accepts isolated App Review rights. Do not report a live sale from this
+          // generic ownership answer; canonical production purchase attribution is separate.
           pendingKind = undefined;
           linkTo = buyer;
           purchase =
@@ -501,6 +545,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         } else {
           purchase = { state: "pending" };
           restore = undefined;
+          if (kind === "buy")
+            track("purchase_pending", { purchase_origin: "unknown", product: "still-pro-v3" });
         }
         return;
       }
@@ -524,6 +570,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         }
       }
       if (stopped || generation !== epoch) return;
+      if (kind === "buy" && acquisitionStarted)
+        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "unknown" });
       purchase = { state: "failed" };
       if (kind === "restore")
         // Keep fresh native Restore failures distinct from this call's signed verifier.
@@ -756,11 +804,11 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       void refresh();
     },
     close() {
-      opening = false;
-      purchaseSignIn = false;
-      changed();
+      if (!stopped) closeOffer();
     },
     accountChanged() {
+      // Dismissal must not be attributed to a replacement account that never saw this opening.
+      measuredOffer = false;
       // Cancel only checks that have not reached native purchase/Restore. A dispatched
       // purchase still needs its independent signed-rights recovery, never another charge.
       if (preflightGeneration === epoch) {
@@ -878,9 +926,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           ...(!busy ? { onVerify: () => void refresh() } : {}),
         },
         onBack: () => {
-          opening = false;
-          purchaseSignIn = false;
-          changed();
+          if (!stopped) closeOffer();
         },
       };
     },
@@ -901,6 +947,11 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           ...(pendingKind !== undefined ? { verificationRequired: true } : {}),
           ...(purchase.notCharged ? { notCharged: true } : {}),
           onBuy: () => {
+            if (stopped) return;
+            if (!opening && owner() === "none" && offer && deps.bridge.available) {
+              measuredOffer = true;
+              track("paywall_viewed", { trigger: "upgrade_button", where: "app" });
+            }
             opening = true;
             changed();
           },

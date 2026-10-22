@@ -306,7 +306,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
       props: { ...props, pro: { ...ready, onBuy, onSignIn, onRestore } },
     });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Hide more of what distracts you.")).toBeVisible();
+    expect(within(card).getByText("Remove more of what distracts you.")).toBeVisible();
     const rows = within(card)
       .getAllByRole("listitem")
       .map((item) => [
