@@ -149,3 +149,25 @@
     </section>
   {/key}
 {/if}
+
+<style>
+  /* The owner's canvas (Chrome-Popup-Invite and Chrome-Popup-Rating, 21 Oct 2026): 10px between
+     the text and the buttons, the detail at 1.4 line height, the main button 14px from its label
+     on each side, 16px between the two buttons and "Not now" at 14px. */
+  section.card-stack {
+    gap: 10px;
+  }
+  .sync-row-sub {
+    line-height: 1.4;
+  }
+  .inline-actions {
+    column-gap: var(--space-4);
+  }
+  .inline-actions > .primary.inline {
+    padding-inline: 14px;
+  }
+  .inline-actions > .link {
+    font-size: calc(14px * var(--text-scale, 1));
+    line-height: normal;
+  }
+</style>
