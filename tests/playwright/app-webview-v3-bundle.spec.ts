@@ -179,6 +179,26 @@ test.describe("the V3 bundle in WebKit over file://", () => {
     await page.context().close();
   });
 
+  // Full-width buttons are 54px tall in the Apple apps and 44px in Chrome and Firefox (owner ruling;
+  // the browser side is block-button-heights.spec.ts). In the apps the height comes from the default
+  // block-button padding; see the "Full-width button heights" note in components.css.
+  for (const platform of ["ios", "macos"] as const) {
+    test(`D04 settings on ${platform}: full-width buttons are 54px tall`, async () => {
+      const { page, errors } = await open(false, platform);
+      await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const heights = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".primary.block, .secondary.block")]
+          .filter((el) => el.offsetParent)
+          .map((el) => `${el.textContent!.trim()}: ${Math.round(el.getBoundingClientRect().height)}`),
+      );
+      expect(heights.length, "a full-width button on the signed-out settings screen").toBeGreaterThan(0);
+      for (const entry of heights) expect(entry).toMatch(/: 54$/);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+  }
+
   // The site list is one card whose dividers sit directly between the rows (owner, 19 Oct): on the
   // iPhone 55px rows, 56px per site and a 223px card; the Mac keeps its 12.5% tighter rows (52px),
   // so 53px per site and a 211px card. Measured in WebKit, the engine of the app's web view.

@@ -168,6 +168,16 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .primary:active { transform: translateY(1px); }
 .secondary { background: transparent; color: var(--link); border: 1px solid var(--border); }
 .secondary:hover { background: var(--surface); border-color: var(--border-strong); }
+/* Full-width button heights (owner ruling): 54px in the Apple apps, 44px in Chrome and Firefox. Two
+   mechanisms, by where the button lives:
+   - In a page, height comes from padding. The default 16px padding gives 54px (the apps). Browser
+     frames narrow it with --block-button-padding so the 44px minimum sets the height: the popups'
+     compact density (above) and the Settings page's .options frame (ext-chromium OptionsApp.svelte,
+     which also covers the legacy 2.x Settings page of builds without modern sync).
+   - Overlays that size their buttons by a fixed minimum instead (the confirmation dialog below,
+     SignInSheet.svelte) take 44px and raise it to 54px under data-host="apple", which the Apple
+     app's settings root and its sign-in sheet carry.
+   Guarded by app-webview-v3-bundle.spec.ts (54px) and block-button-heights.spec.ts (44px). */
 .primary.block, .secondary.block { inline-size: 100%; min-block-size: 44px; padding: var(--block-button-padding, var(--space-4)); font-size: calc(16px * var(--text-scale, 1)); }
 .danger-solid { background: #c2261e; color: #fff; border: none; align-self: flex-start; }
 .link { background: transparent; border: none; color: var(--link); font: inherit; cursor: pointer; padding: 0; align-self: flex-start; text-decoration: none; }
