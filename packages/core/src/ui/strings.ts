@@ -268,10 +268,11 @@ export const STRINGS = {
     noticeTurnOff: "Turn off",
   },
 
-  // The green tag on the "Settings sync" heading while Still Pro is purchased (ISS-0073). ISS-0105
+  // The boxed tag on the "Settings sync" heading while Still Pro is purchased (ISS-0073). ISS-0105
   // (owner, 21 Oct, option B): "Still Pro User" only when the signed-in account itself holds Still
   // Pro; a device that holds it while signed out, or for an account that does not (including one
-  // linked to another account), says so instead.
+  // linked to another account), says so instead. Owner canvas ruling (22 Oct; P-AppSync and
+  // P-PopupSync): "Still Pro User" is green, "Still Pro on this device" is grey on every surface.
   proTag: {
     account: "Still Pro User",
     device: "Still Pro on this device",

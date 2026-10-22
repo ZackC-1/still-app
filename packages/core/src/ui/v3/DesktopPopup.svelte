@@ -402,12 +402,4 @@
         var(--service-card-padding-block, var(--space-3))
     );
   }
-  /* "Settings sync" uses the shared card heading (15px, semibold, ink), the same as the Still Pro
-     and Share usage data headings on every surface (owner, 12 Oct); only its spacing stays. */
-  .sync-row-title {
-    margin: 0 0 4px;
-  }
-  .d28-invitation .sync-row-title {
-    margin: 0;
-  }
 </style>

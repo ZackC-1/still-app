@@ -61,6 +61,9 @@
 }
 .hero.off { background: var(--surface-raised); color: var(--ink); }
 .hero.compact { --hero-padding: var(--space-3); --hero-title-size: 18px; }
+/* Owner ruling R1 (22 Oct, canvas P-Hero): in the popups the hero's title and switch sit 16px inside the
+   blue card (12px above and below). The Settings page and the Apple app keep their own hero. */
+.app[data-density="compact"] .hero.compact { padding-inline: var(--space-4); }
 .hero.compact h1 { margin: 0; }
 .hero-text { flex: 1; min-inline-size: 0; }
 .hero h1 { margin: 0 0 4px; font-size: calc(var(--hero-title-size, 25px) * var(--text-scale, 1)); font-weight: 700; letter-spacing: -0.02em; }
@@ -206,7 +209,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .primary.inline { white-space: nowrap; min-inline-size: max-content; flex: none; min-block-size: 36px; padding: var(--space-2) var(--space-3); font-size: calc(14px * var(--text-scale, 1)); }
 /* Footer links sit well inside the popup's edges so a sheet's rounded corners (iPhone Safari) never
    clip them (owner, 12 Oct): 16px on each side, plus the popup's own 12px. */
-.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-inline: var(--space-4); font-size: calc(13px * var(--text-scale, 1)); }
+/* Owner ruling R2 (22 Oct, canvas P-PopupFooter): 14px links with 4px above and below. */
+.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block: var(--space-1); padding-inline: var(--space-4); font-size: calc(14px * var(--text-scale, 1)); }
 .open-options { background: transparent; border: none; color: var(--link); font: inherit; padding: 0; cursor: pointer; text-align: start; }
 .open-options:hover { color: var(--link-pressed); text-decoration: underline; text-underline-offset: 2px; }
 
@@ -227,7 +231,7 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .service-options { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1), visibility 220ms; }
 .service-options.open { grid-template-rows: 1fr; visibility: visible; }
 .service-options > .inner { overflow: hidden; min-block-size: 0; }
-.service-options .list { display: flex; flex-direction: column; padding: 0 var(--service-card-padding-inline, var(--space-4)) 4px calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
+.service-options .list { display: flex; flex-direction: column; padding: 0 var(--service-card-padding-inline, var(--space-4)) 6px calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
 .option-row { display: flex; align-items: center; gap: var(--space-3); min-block-size: 44px; border-block-start: 1px solid var(--border); font-size: calc(15px * var(--text-scale, 1)); }
 .option-row .row-main { flex: 1; min-inline-size: 0; display: flex; flex-direction: column; gap: 1px; padding-block: var(--space-2); }
 .option-row .label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); row-gap: 2px; }
@@ -236,8 +240,22 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .row-action { align-self: flex-start; font-size: calc(12.5px * var(--text-scale, 1)); }
 .option-row .lock { flex: none; display: inline-flex; align-items: center; justify-content: center; min-inline-size: var(--tap-target); min-block-size: var(--tap-target); margin-inline-end: -12px; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--ink-secondary); }
 .option-row .lock:hover { color: var(--ink); }
-.option-row .lock-pro { flex: none; display: inline-flex; align-items: center; gap: 4px; min-block-size: var(--tap-target); padding: 0; background: transparent; border: none; font: inherit; font-size: calc(12.5px * var(--text-scale, 1)); font-weight: 600; color: var(--ink-secondary); cursor: pointer; white-space: nowrap; }
-.option-row .lock-pro:hover { color: var(--ink); }
+/* A locked row keeps at least 120px for its name (review F-1, 22 Oct): when the saved switch and
+   the Still Pro pill leave less (a narrow phone, or large text), they wrap onto their own line under
+   the name, right-aligned, instead of squeezing the name to a few letters per line. */
+.option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
+.option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
+/* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
+   locked row keeps the 40px compact row height. The ::before keeps a full tap-target-tall hit area
+   without growing the row. scroll-margin: a pill scrolled into view (keyboard focus, larger text)
+   is never left a fraction of a pixel under the page's edge. */
+.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; scroll-margin-block: var(--space-1); }
+.option-row .lock-pro::before { content: ""; position: absolute; inset-inline: 0; inset-block: min(0px, calc((var(--tap-target) - 100%) / -2)); }
+.option-row .lock-pro:hover { border-color: var(--ink-secondary); }
+/* A dormant row's pill (paid tier off: aria-disabled, no destination) is inert, so it must not look
+   clickable (review F-3, 22 Oct): no pointer and no hover change. */
+.option-row .lock-pro[aria-disabled="true"] { cursor: default; }
+.option-row .lock-pro[aria-disabled="true"]:hover { border-color: var(--border-strong); }
 .service-row .toggle-slot { flex: none; display: flex; }
 .app[data-density="compact"] .option-row { min-block-size: 40px; font-size: calc(14px * var(--text-scale, 1)); }
 /* Owner canvas (P-Sites, 22 Oct): an open site's option rows are 46px on the app and the Settings page
@@ -278,7 +296,10 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
    Sign in when signed out. A long address wraps under its own line; the tag never shrinks. */
 .account-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .account-line > .account-address { min-inline-size: 0; overflow-wrap: anywhere; }
-.still-pro-tag { flex: none; }
+/* Line height 1.4 as on the canvas (the tag box is 20.8px tall at 12px), so the heading row it sits
+   on keeps the canvas height. "Still Pro on this device" is the neutral boxed tag; only "Still Pro
+   User" (StillProTag kind "account") is green. */
+.still-pro-tag { flex: none; line-height: 1.4; }
 .account-signin { display: flex; align-items: center; gap: var(--space-3); }
 .account-signin > .primary.block { flex: 1; inline-size: auto; min-inline-size: 0; }
 
@@ -384,7 +405,6 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .sync-row.pro-signed-out { display: grid; grid-template-columns: minmax(0, 1fr) var(--popup-action-inline-size, auto); align-items: center; gap: 4px var(--space-3); }
 .sync-row.pro-signed-out > .sync-row-text, .sync-row.pro-signed-out > .popup-action { display: contents; }
 .sync-row.pro-signed-out .offer-head { grid-column: 1; grid-row: 1; }
-.sync-row.pro-signed-out .sync-row-title { margin: 0; }
 .sync-row.pro-signed-out .sync-row-sub { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
 .sync-row.pro-signed-out .still-pro-tag { grid-column: 2; grid-row: 1; justify-self: center; }
 .sync-row.pro-signed-out .popup-action > button { grid-column: 2; grid-row: 2; align-self: start; }
