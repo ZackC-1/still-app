@@ -1,5 +1,6 @@
 import type { BrowserContext } from "@playwright/test";
 import { test, expect } from "./_extension.js";
+import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 
 // The real geometry of a browser-action popup, used both as the viewport and as the thresholds
 // asserted below so the contract is stated once. Chrome and Firefox both refuse to show a popup
@@ -274,6 +275,9 @@ test("the manifest limits host permissions to the four services (no <all_urls>)"
 for (const colorScheme of ["light", "dark"] as const) {
   test(`signed-in account status fits the configured popup in ${colorScheme} mode`, async ({ context, extensionId }) => {
     test.skip(syncConfigured !== "true", "Requires the independently declared configured build");
+    // This lane's configured build keeps modern sync off, so it shows the 2.x popup. With the paid tier
+    // compiled on (3.x) that combination is never packaged (package.mjs and the Apple guard refuse it).
+    test.skip(PAID_TIER_ENABLED, "The 2.x configured popup is not a 3.x store build");
     await context.route(/^https?:/, (route) => route.abort());
     const page = await context.newPage();
     await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });

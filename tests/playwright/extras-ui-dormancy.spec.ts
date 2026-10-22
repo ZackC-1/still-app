@@ -1,5 +1,6 @@
 import { test, expect } from "./_extension.js";
 import type { Page } from "@playwright/test";
+import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 import { EXTRAS_CONTROLS } from "../../packages/core/src/rules/__tests__/extras-fixtures.js";
 import { offersPurchase, setAllExtras } from "./_extras-helpers.js";
 
@@ -107,6 +108,8 @@ for (const surface of ["options", "popup"] as const)
 // the popup keeps its shipped parts. Paid-on coverage lives in pro-entry.paid-on.test.ts.
 for (const surface of ["options", "popup"] as const)
   test(`dormant UI: ${surface} shows no Still Pro entry card or value copy`, async ({ context, extensionId }) => {
+    // The 3.x release line compiles the paid tier on, so the entry points are live by design there.
+    test.skip(PAID_TIER_ENABLED, "Dormant entry points exist only while the paid tier is compiled off");
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/${surface}.html`);
     await expect(page.getByRole("switch").first()).toBeVisible();
