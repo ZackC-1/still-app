@@ -59,5 +59,7 @@ The first full unit attempt encountered a missing generated `packages/ext-safari
 in the fresh worktree. Typecheck/build generated it; the isolated failing storage test then passed.
 This required no application-code change. Full unit verification was restarted afterward.
 
-Delivery: local branch `fix/signin-interface-20261022` in `/private/tmp/still-interface-review-20261022`.
-No push, merge, store submission, installed native-device build or external auth action was performed.
+Delivery branch: `fix/signin-interface-20261022` in `/private/tmp/still-interface-review-20261022`.
+The owner authorized publication and merge after local verification. Final merge status and required
+CI results are recorded in the associated pull request. Store submission, native-device installation
+and external authentication remain outside this change.
