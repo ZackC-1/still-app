@@ -44,33 +44,33 @@ function harness() {
     jwtSecret: "",
     enabled: true,
     projectKeySha256: project,
-    limiter: { consume: async () => allowed ? 0 : 60 },
+    limiter: { consume: () => Promise.resolve(allowed ? 0 : 60) },
     verifier: {
-      authenticate: async () => {
+      authenticate: () => {
         verified++;
-        return transaction;
+        return Promise.resolve(transaction);
       },
-      refresh: async () => transaction,
+      refresh: () => Promise.resolve(transaction),
     },
     store: {
-      prepare: async () => {
+      prepare: () => {
         prepared++;
-        return !retired;
+        return Promise.resolve(!retired);
       },
-      read: async () => {
+      read: () => {
         reads++;
-        return retired ? null : state;
+        return Promise.resolve(retired ? null : state);
       },
-      commit: async (_hash, _scope, t) => {
+      commit: (_hash, _scope, t) => {
         commits++;
-        if (retired) return null;
+        if (retired) return Promise.resolve(null);
         state = {
           ...state,
           transaction: t,
           purchasedAt: t.purchasedAt ?? null,
           refundedAt: t.fullRefundAt ?? null,
         };
-        return state;
+        return Promise.resolve(state);
       },
     },
   };
@@ -201,9 +201,9 @@ Deno.test("Apple refuses test/family/foreign project and supplied identity/outco
 });
 Deno.test("Apple erasure after provider wait suppresses canonical results", async () => {
   const h = harness();
-  h.deps.verifier!.refresh = async () => {
+  h.deps.verifier!.refresh = () => {
     h.retire();
-    return tx;
+    return Promise.resolve(tx);
   };
   assertEquals(
     (await h.send({ action: "commit", capability, transaction: evidence }))
