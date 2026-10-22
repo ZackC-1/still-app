@@ -68,8 +68,9 @@ a $9.99 US-base one-time lifetime Pro offer with a seven-day voluntary web refun
 (Apple purchases follow Apple's refund process). This replaces the standing "do not enable paid
 behavior" guard for V3 preparation only; 2.x artifacts in review or in the stores keep their
 free behavior and must not gain paywalls through documentation or tooling commits.
-The immutable entitlement identifier remains `still_sync`; it is not a blocking or sync
-requirement. Preserve old product IDs and historical mappings; verified legacy payments map
+Preserve historical purchase identifiers alongside the separate V3 catalog; see
+[purchase identifiers](docs/monetization-design.md#purchase-identifiers). Neither historical nor
+V3 entitlements are a blocking or sync requirement. Verified legacy payments map
 to frozen Pro and zero/free-era use maps to frozen released-free protection.
 
 ## Supported-surface truth
