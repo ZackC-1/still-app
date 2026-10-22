@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T22:36:00-07:00
+updated: 2026-10-21T22:41:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -139,7 +139,8 @@ cases (one skip), with no failures or flaky cases. GitHub also marked component 
 Disposable PostgreSQL CI is separate from
 production verification. Migrations through 0029, purchase secrets and sync-settings are verified in
 production, including source/JWT read-back for all nine purchase routes and all five analytics
-routes. The Stripe runtime repair, erasure schedule and subjects switch remain pending.
+routes. The erasure schedule is installed; an actual successful worker run, Stripe runtime repair
+and subjects switch remain pending.
 The optional preview could not complete because dependency installation timed out twice; no
 successful preview verification is claimed.
 
@@ -246,10 +247,17 @@ The existing secret, eraser and Vault readiness gates passed; no secret rotation
 Private closing record: `/tmp/still-analytics-functions-39722863701/production-closing-record.md`.
 
 Direct [erasure-schedule apply39728922800](https://github.com/ZackC-1/still-app/actions/runs/39728922800)
-was dispatched immediately at `26bf5a947de9fef70102c9be87f1e69806cbce46` with policy `enable`.
-Its built-in plan/rehearsal passed and the protected apply is waiting for personal approval; no cron write has occurred. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
-After its actual closing receipt, stage the checkout-repair purchase-functions apply at that same
-repair pin. The owner asked for approvals sooner: avoid duplicate plan-only runs when the apply
+completed after the owner's approval at `26bf5a947de9fef70102c9be87f1e69806cbce46`, policy `enable`.
+Its actual closing status is verified: one `still-analytics-erasure-worker` job scheduled, no issues
+or recovery needed. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
+Private record: `/tmp/still-erasure-schedule-39728922800/production-closing-record.md`. Cron
+installation does not prove an actual successful scheduled-worker run; that proof remains pending.
+
+Checkout-repair [purchase-functions apply39729361809](https://github.com/ZackC-1/still-app/actions/runs/39729361809)
+is dispatched at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`, with its built-in plan/rehearsal
+passed and the protected apply waiting for personal approval. The repair is not yet hosted. Exact plan digest:
+`37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`. Actual upload comparison confirms three changed bundles, six unchanged, identical JWT settings, unchanged migration/secret prerequisites and settings sync excluded. The owner asked for approvals sooner:
+avoid duplicate plan-only runs when the apply
 already supplies the same gate. Global production concurrency and sequential operation requirements
 remain unchanged. Reuse the verified existing analytics secrets unless a new problem is observed.
 
@@ -264,8 +272,8 @@ confirms exposed schemas are exactly `public` and `graphql_public`; `private` an
 are unchecked and `net` is absent. Discard client IP data was confirmed earlier. These resolve the
 owner configuration questions, but do not replace the hosted provider proof.
 
-Use the protected gates to establish current state: deploy selected functions, enable the existing
-erasure schedule, wait for an actual successful run, verify project/deletion permissions through
+The selected analytics functions and erasure schedule are deployed. Wait for an actual successful
+scheduled-worker run, verify project/deletion permissions through
 the runtime, then enable subjects. A dummy permission probe is not completed account erasure.
 
 Secrets remain outside Git and chat. The public-only build trust handoff is
@@ -284,14 +292,13 @@ repository evidence and the work-state list remain the active durable record.
    through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
    as recorded above.
 2. PR531 is merged with all 12 checks green, and the new exact-revision settings rehearsal passed.
-   After erasure-schedule apply39728922800 has an actual verified closing receipt, prepare the
-   protected purchase-functions repair apply at `26bf5a94` for personal approval. Only three purchase
+   Checkout-repair apply39729361809 at `26bf5a94` passed its built-in plan/rehearsal and is waiting for
+   personal approval. Inspect its exact plan and actual closing receipt. Only three purchase
    upload bundles change. Re-run safe negative cases after actual deployment, including both Stripe
    signature cases. Keep the Stripe endpoint disabled until hosted handler/signature verification
    is ready, and preserve existing RevenueCat settings.
-3. Analytics functions apply39722863701 is verified complete. Direct erasure-schedule apply39728922800
-   passed its built-in plan/rehearsal and is waiting for personal approval; no cron write is established. Verify its
-   closing receipt and then an actual successful scheduled-worker run before later switch gates.
+3. Analytics functions apply39722863701 and erasure-schedule apply39728922800 are verified complete.
+   The worker job is installed; wait for actual successful scheduled-worker proof before later switch gates.
    Existing analytics secret/eraser/Vault readiness passed; no rotation or replay is needed.
    Avoid duplicate plan-only workflows when the direct apply already includes plan/rehearsal.
    Keep operations sequential under the global concurrency group. Each apply needs personal approval;
@@ -302,8 +309,8 @@ repository evidence and the work-state list remain the active durable record.
    39726287757; the switch refreshes checkout and must not restore `2bad3028` code.
 5. Retain completed native compilation, disposable SQL/deployment evidence and actual production
    migration receipts. Any new migration requires a new exact plan; do not replay completed 0025–29.
-6. Preserve the completed five-route analytics deployment and enable the erasure schedule through
-   its exact gate. Wait for an actual successful worker run
+6. Preserve the completed five-route analytics deployment and installed erasure schedule.
+   Wait for an actual successful worker run
    and hosted project/deletion permission proof. Keep the subjects switch deferred until the owner's
    final production-channel packages satisfy the client-configuration gates. Then prove consent, identity, production event delivery and
    erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain

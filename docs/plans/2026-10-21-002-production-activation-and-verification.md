@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: analytics routes deployed; erasure schedule approval ready, checkout repair pending
+## Latest checkpoint: erasure schedule installed; worker proof and checkout-repair apply pending
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -131,10 +131,17 @@ and Vault readiness gates passed, so no secret rotation or replay is needed. Pri
 `/tmp/still-analytics-functions-39722863701/production-closing-record.md`.
 
 Direct [erasure-schedule apply39728922800](https://github.com/ZackC-1/still-app/actions/runs/39728922800)
-was dispatched immediately on `26bf5a947de9fef70102c9be87f1e69806cbce46`, policy `enable`.
-Its built-in plan/rehearsal passed and the protected apply is waiting for personal approval; no cron write has occurred. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
-After verifying its actual receipt, immediately stage the checkout-repair purchase-functions apply
-at that repaired pin, then repeat Stripe 400-response probes before conditional endpoint enablement.
+completed after the owner's approval at `26bf5a947de9fef70102c9be87f1e69806cbce46`, policy `enable`.
+Actual closing status is verified: one `still-analytics-erasure-worker` job scheduled, no issues or
+recovery needed. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
+Private closing record: `/tmp/still-erasure-schedule-39728922800/production-closing-record.md`.
+Cron installation does not establish an actual successful worker run; that proof remains pending.
+
+Checkout-repair [purchase-functions apply39729361809](https://github.com/ZackC-1/still-app/actions/runs/39729361809)
+is dispatched at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`, with built-in plan/rehearsal
+passed and the protected apply waiting for personal approval. The repair is not yet hosted. Exact plan digest:
+`37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`. Actual upload comparison confirms three changed bundles, six unchanged, identical JWT settings, unchanged migration/secret prerequisites and settings sync excluded. Verify its exact plan and actual
+closing receipt, then repeat Stripe 400-response probes before conditional endpoint enablement.
 The owner wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of
 duplicate plan-only runs, preserving global sequential concurrency and every personal approval gate.
 
