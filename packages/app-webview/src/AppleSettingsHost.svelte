@@ -178,7 +178,7 @@
     c.dismissSignIn();
   }
   // Accountless holders: signed out, "Sign in to keep Still Pro with your account."; signed in,
-  // "Link Still Pro to your account." (ISS-0076). Both run the existing explicit link, which ends in
+  // "Link Still Pro to your account" (ISS-0076). Both run the existing explicit link, which ends in
   // the "Link Still Pro to this account?" confirmation. Not now hides the card until the app is
   // next opened.
   let linkInviteDismissed = $state(false);
@@ -454,7 +454,7 @@
         onclick={() => {
           proHost?.close();
           proHost?.requestLink();
-        }}>Link Still Pro to an account</button
+        }}>Link Still Pro to your account</button
       >
     </div>{/if}
 {/if}
@@ -508,7 +508,7 @@
     {#if view.settingsUnavailable && !reading}
       {@render settingsRecovery()}
     {:else}
-      <p class="muted" role="status">{STRINGS.sync.checking}</p>
+      <p class="muted" role="status">{STRINGS.sync.loading}</p>
     {/if}
     {@render usageActions()}
   </div>

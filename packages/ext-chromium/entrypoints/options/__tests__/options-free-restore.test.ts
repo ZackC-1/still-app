@@ -34,7 +34,7 @@ afterEach(() => {
 type Answer = "entitled" | "not-entitled" | "unknown" | "auth-required" | "signed-out";
 const RESTORED = "Still Pro is restored on this device.";
 const NOTHING = "No Still Pro purchase was found for this account.";
-const FAILED = "We couldn't finish checking. Nothing changed.";
+const FAILED = "We couldn’t finish checking. Nothing changed.";
 /** Every purchase-side session action. The Restore flow must never send one. */
 const PURCHASE_ACTIONS = ["createCheckout", "setPurchaseIntent", "setCheckoutPending", "reconcile"];
 /** The normal sign-in flow's existing events; the Restore flow adds none of its own. */

@@ -195,7 +195,7 @@ describe("Firefox options page hides switches a phone cannot use", () => {
     for (const name of ["Shorts", "Related videos", "Autoplay prevention", "Comments"]) expect(drawn(name), name).toBe(true);
     drawn = await sectionRows("Facebook Blocker");
     expect(drawn("Desktop sidebar ads")).toBe(desktop);
-    expect(drawn("Facebook Stories")).toBe(true);
+    expect(drawn("Stories")).toBe(true);
     expect(f.store["still:settings"]).toEqual(before);
   });
 });

@@ -14,8 +14,8 @@ import type { MobilePopupProps } from "./mobile-presentation.js";
 // Chrome or Firefox), Still says plainly that it cannot work on its sites and offers Allow, at the
 // top of the popup and the settings page.
 
-const TITLE = "Still can't block distractions yet.";
-const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";
+const TITLE = "Still can’t block distractions yet";
+const BODY = "Still needs permission to work on Instagram, Facebook, YouTube and TikTok.";
 
 describe("the site access warning card", () => {
   it("names the four sites in the owner's order and asks with Allow", async () => {
@@ -34,7 +34,7 @@ describe("the site access warning card", () => {
     const view = render(SiteAccessCard, {
       props: { state: "needed", browser: "Firefox", sites: ["YouTube"], onAllow: vi.fn() },
     });
-    expect(screen.getByRole("heading", { name: "Still can't block distractions yet." })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Still can’t block distractions yet" })).toBeVisible();
     expect(screen.getByText("Still needs permission to work on YouTube.")).toBeVisible();
     view.unmount();
     render(SiteAccessCard, {
@@ -66,7 +66,7 @@ describe("the site access warning card", () => {
     await view.rerender({ state: "denied", browser: "Chrome", onAllow });
     expect(screen.getByRole("status")).toBe(status);
     expect(status).toHaveTextContent(
-      "Chrome didn't allow it. Your choices are saved and start working once it's allowed.",
+      "Chrome didn’t allow it. Your choices start working once it’s allowed.",
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBe(button);
     await fireEvent.click(button);
@@ -82,7 +82,7 @@ describe("the site access warning card", () => {
     await fireEvent.click(button);
     await view.rerender({ state: "allowed", browser: "Chrome", onAllow });
     const heading = screen.getByRole("heading", {
-      name: "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+      name: "Allowed on Instagram, Facebook, YouTube and TikTok.",
     });
     expect(screen.getByRole("status")).toBe(status);
     expect(status).toHaveTextContent("Reload open tabs to apply.");

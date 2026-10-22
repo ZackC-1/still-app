@@ -282,7 +282,7 @@
                       inactive={commandsDisabled ||
                         !settings.globalOn ||
                         !settings.services[service]}
-                      unsupportedText="Not available in this browser. Your choice is saved."
+                      unsupportedText={`Not available in ${appHandoff ? "Safari" : "this browser"}. Your choice is saved.`}
                       onChange={(next) => {
                         if (
                           !commandsDisabled &&
@@ -303,7 +303,7 @@
       </div>
     {/each}
   </div>
-  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
+  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} />
   {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row" class:pro-signed-out={tagAboveSignIn}>
@@ -368,7 +368,7 @@
     <button
       type="button"
       class="open-options"
-      aria-label={settingsLabel ?? `Settings. Find Still in ${browser}.`}
+      aria-label={settingsLabel ?? "Still settings"}
       onclick={onSettings}>Settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>

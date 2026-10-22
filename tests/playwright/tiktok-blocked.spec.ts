@@ -38,7 +38,7 @@ const sessionKeys = async (context: BrowserContext) =>
 async function openBlocked(page: Page, url = "https://www.tiktok.com/foryou"): Promise<void> {
   await page.goto(url, { waitUntil: "commit" });
   await page.waitForURL(BLOCKED, { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   await expect(page.locator("#tiktok-feed")).toHaveCount(0);
 }
 
@@ -193,7 +193,7 @@ test("a failed open shows Couldn't open TikTok, and Try again asks again before 
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Open TikTok this time" }).click();
   const alert = page.getByRole("alert");
-  await expect(alert).toContainText("Couldn't open TikTok.");
+  await expect(alert).toContainText("We couldn’t open TikTok.");
   await expect(dialog).toHaveCount(0);
   expect(await tabKeys()).toEqual([]);
   expect(await savedSettings(context)).toEqual(before);

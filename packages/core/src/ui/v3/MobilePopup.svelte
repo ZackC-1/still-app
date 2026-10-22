@@ -71,7 +71,7 @@
   } as const;
   const setupCopy = {
     safari: [
-      "Still can't block distractions yet.",
+      "Still can’t block distractions yet",
       "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
       "Show me how",
     ],
@@ -273,7 +273,7 @@
       </div>
     {/each}
   </div>
-  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
+  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} />
   {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row" class:pro-signed-out={tagAboveSignIn}>
@@ -340,7 +340,7 @@
       class="open-options"
       aria-label={host === "safari"
         ? "Settings. Opens Still settings."
-        : "Settings. Find Still in Firefox."}
+        : "Still settings"}
       onclick={onSettings}>Settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>

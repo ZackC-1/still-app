@@ -14,14 +14,14 @@ export const OWNER_SYNC_COPY: Deviation = {
 };
 
 /**
- * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can't block
- * distractions yet." where the references say "Still can't block on these websites yet." (setup)
- * or "Still can't work on these sites" (site access).
+ * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can’t block
+ * distractions yet" (no full stop since the 22 Oct copy audit) where the references say "Still
+ * can't block on these websites yet." (setup) or "Still can't work on these sites" (site access).
  */
 export const OWNER_SETUP_HEADER_COPY: Deviation = {
   reason:
-    'owner-approved copy (setup header "Still can\'t block distractions yet."; reference says "Still can\'t block on these websites yet.")',
-  text: "Still can't block distractions yet.",
+    'owner-approved copy (setup header "Still can’t block distractions yet", no full stop since the 22 Oct copy audit; reference says "Still can\'t block on these websites yet.")',
+  text: "Still can’t block distractions yet",
 };
 
 /**
@@ -46,7 +46,7 @@ export const REFERENCE_DEMO_ACCOUNT: Deviation = {
 
 /**
  * ISS-0032 (owner-approved design, 12 Oct 2026): a compact Still Pro card ("Even fewer distractions on
- * Instagram, Facebook, and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
+ * Instagram, Facebook and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
  * plain "Purchase Still Pro" button under the site list, and the cards below it move down.
  */
 export const POPUP_PRO_CARD: Deviation = {
@@ -82,3 +82,40 @@ export const OWNER_SUCCESS_GREEN: Deviation = {
   selector:
     '.access-tag.boxed.success, .status-line[data-tone="success"] .glyph, .step[data-done="true"] .num',
 };
+
+/**
+ * The 22 Oct 2026 copy audit and the owner's rulings on it: curly apostrophes, no full stop on
+ * headings, no serial comma, "We couldn’t …" error lines, US spelling, and the reworded lines below.
+ * Declared on every frame (index.ts) as text regions; a frame without the text measures 0 px.
+ */
+export const OWNER_COPY_AUDIT: Deviation[] = [
+  ["’", "curly apostrophes in user-visible copy"],
+  ["Still can’t block distractions yet", "setup heading without a full stop"],
+  ["Turn on the Still extension in Safari.", "extension-off line (P2-1)"],
+  ["below.", "numbered steps end with a full stop"],
+  ["reopen it.", "numbered steps end with a full stop"],
+  ["YouTube and TikTok", "no serial comma in the site list"],
+  ["Facebook and YouTube", "no serial comma in the Still Pro line"],
+  ["Verify purchase", "\"Verify purchase\" replaces \"Verify now\""],
+  ["Your free controls keep working while this finishes.", "checking line names the free controls"],
+  ["Enjoying Still?", "rating invitation heading"],
+  ["Link Still Pro to your account", "linking offer heading and button"],
+  ["Opens the Still app", "Safari settings page signed-out sync card hands off to the app"],
+  ["Sync settings across devices and browsers. Free.", "Safari settings page signed-out sync line"],
+  ["Lifetime access. No subscription.", "purchase view terms"],
+  ["Back to Still settings", "browser purchase view back link"],
+  ["New controls start off, so turn on", "after-purchase line"],
+  ["Bought it with another account?", "browser restore not-found line"],
+  ["Loading your settings…", "loading line kept apart from \"Checking sync…\""],
+  ["Not available in Safari.", "unavailable Still Pro row on Safari"],
+  ["Not available on this device.", "unavailable Still Pro row in the Apple app"],
+  ["Helps improve Still.", "usage switch line"],
+  ["Delete shared data from all your devices", "shared-data link matches its dialog"],
+  ["6-digit sign-in code", "both sign-in prompts"],
+  ["Sign in to get Still Pro", "purchase sign-in sheet title"],
+  ["Sign in first to keep Still Pro", "purchase sign-in sheet note"],
+  ["Checkout was canceled.", "US spelling"],
+  ["Still is on", "first-run heading without a full stop"],
+  ["One step to finish setup", "first-run heading without a full stop"],
+  ["TikTok stays closed", "TikTok page heading without a full stop"],
+].map(([text, what]) => ({ reason: `22 Oct copy audit: ${what}`, text }));

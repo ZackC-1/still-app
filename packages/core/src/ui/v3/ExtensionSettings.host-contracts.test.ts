@@ -145,7 +145,7 @@ describe("options host leaf contracts", () => {
       screen.queryByRole("switch", { name: "Share email and usage data" }),
     ).toBeNull();
     expect(
-      screen.queryByText("Still Pro can't be bought here yet."),
+      screen.queryByText("Still Pro can’t be bought here yet."),
     ).toBeNull();
     expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();

@@ -5,7 +5,7 @@ import { createTikTokBlockedHost } from "@still/core/ui/v3/tiktok-blocked-host";
 import BlockedPage from "../BlockedPage.svelte";
 
 afterEach(cleanup);
-const MANUAL = "To change this, open the Still app and turn off TikTok website.";
+const MANUAL = "To change this, open the Still app and turn off TikTok Blocker.";
 async function mount(os: string | undefined, readPlatform = async () => os) {
   const native = { getPlatformInfo: vi.fn(readPlatform), openOptionsPage: vi.fn(async () => {}) };
   const send = vi.fn(async (_message: { kind: string }) => ({ status: "blocked", tab: 7 }));

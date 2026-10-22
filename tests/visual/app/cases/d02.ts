@@ -186,7 +186,7 @@ const cases: VisualCase[] = [
         address: "sam@example.com",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Settings are saved on this device.",
+          text: "Sync didn’t finish. Settings are saved on this device.",
           retry: noop,
         },
       },

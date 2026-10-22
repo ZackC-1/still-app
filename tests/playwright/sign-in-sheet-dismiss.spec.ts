@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { test, expect } from "./_extension.js";
 
-// ISS-0114: the sign-in sheet's backdrop is announced as a "Dismiss sign in" button, so a pointer
+// ISS-0114: the sign-in sheet's backdrop is announced as a "Close sign-in" button, so a pointer
 // (and Playwright's ordinary click, which aims at the middle of the element) must be able to reach
 // it. Measured in the real built extension because jsdom has no layout or hit testing.
 //

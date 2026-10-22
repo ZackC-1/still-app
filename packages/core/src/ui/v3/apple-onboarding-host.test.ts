@@ -416,7 +416,7 @@ describe("consent never shares on its own", () => {
     expect(consent.status).toBe("failed");
     expect(consent.operation).toMatchObject({
       tone: "failed",
-      text: "We couldn't save your choice. Still works either way.",
+      text: "We couldn’t save your choice. Still works either way.",
       actionLabel: "Try again",
     });
     expect(
@@ -590,7 +590,7 @@ describe("completion", () => {
     const line = h.props().completion;
     expect(line).toMatchObject({
       tone: "failed",
-      text: "We couldn't finish setup.",
+      text: "We couldn’t finish setup.",
       actionLabel: "Try again",
     });
     const retry = deferred<boolean>();
@@ -610,7 +610,7 @@ describe("completion", () => {
     await toStep(h, 4);
     h.props().onOpenSafari?.();
     await flush();
-    expect(h.props().completion?.text).toBe("We couldn't finish setup.");
+    expect(h.props().completion?.text).toBe("We couldn’t finish setup.");
     h.props().onBack?.();
     expect(h.props().step).toBe(3);
     h.props().onContinue?.();
@@ -729,7 +729,7 @@ describe("leaving the app (fixed native destinations)", () => {
     // A reachable destination's failure retries itself, never the left-out one.
     h.props().onGoToSettings?.();
     await flush();
-    expect(h.props().completion?.text).toBe("We couldn't finish setup.");
+    expect(h.props().completion?.text).toBe("We couldn’t finish setup.");
     h.bridge.completeOnboarding.mockResolvedValue(true);
     for (const port of portsOf(h.props())) port();
     await flush();

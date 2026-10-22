@@ -74,9 +74,9 @@ export interface AppleProHostDeps {
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
   // Owner (19 Oct, ISS-0085): the purchase-opened sheet says what it is for. The sync-opened
   // sheet keeps STRINGS.auth.
-  title: "Sign in to purchase Still Pro",
-  prompt: "Enter your email to get a 6-digit code.",
-  note: "Sign in before purchase to associate Still Pro with your account.",
+  title: "Sign in to get Still Pro",
+  prompt: "Enter your email to get a 6-digit sign-in code.",
+  note: "Sign in first to keep Still Pro with your account.",
   skip: "Buy without an account",
 } as const;
 

@@ -108,7 +108,7 @@ export function tikTokReloadConfirmed(
   );
 }
 
-/** True while the blocked page should show "Couldn't open TikTok." with its Try again action. */
+/** True while the blocked page should show "We couldn’t open TikTok." with its Try again action. */
 export function tikTokOpenFailed(
   presentation: TikTokBlockedPresentation | undefined,
 ): boolean {
