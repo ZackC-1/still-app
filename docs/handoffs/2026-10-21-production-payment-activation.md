@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T19:25:00-07:00
+updated: 2026-10-21T19:54:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -44,7 +44,9 @@ not literal false fields in an existing policy. The separate production Stripe w
 disabled. The existing RevenueCat webhook URL, token and portal filters remain unchanged.
 
 [sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
-has passed its matching plan and awaits owner approval. No deployment of that route is claimed.
+completed and verified at 02:26 UTC, with no issue or recovery. Its exact bundle from `bc728bca`
+is identical to final integration `589341f1`. A subsequent unauthenticated production POST returned
+401; no authenticated customer data was read or written by that check.
 
 ## Repository and concurrent ownership
 
@@ -57,13 +59,29 @@ The main checkout belongs to the separate visual/build session and was not edite
 | `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
+| `/private/tmp/still-apple-analytics-integration-20261021` | `codex/apple-analytics-integration-20261021`, PR528, `589341f1` | Final combined source and CI |
+| `/private/tmp/still-production-access-trust-pin-20261021` | `codex/production-access-trust-pin-20261021`, PR530, `08a37fc2` | Reviewed public-only trust pin; not merged |
+| `/private/tmp/still-v3-privacy-publication-20261021` | `codex/publish-v3-purchase-analytics-privacy-20261021`, PR529, `e115c097` | Approved conditional privacy publication; not published |
 
-Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI is still running; production deployment remains pending until its actual receipts pass. Disposable PostgreSQL CI is separate from production verification. Foundation migrations and purchase secrets are verified in production; final route deployment remains pending.
+Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) merged at
+`c24a246da9607a069337d1a80c0b4cc0224f10c5` at 02:54 UTC on October 22 (19:54 PT October 21).
+Its source head was `589341f1`; main CI passed: Linux core 5,671 with 84 platform skips; Chromium 855; Safari 405;
+webview 19; owner-admin 58; Node suites 58 with one skip and 137 passed; both builds passed.
+Required main, Deno and Playwright checks passed: 30 successful checks. Browser fixture phases
+passed 367 unconfigured (37 skips), 212 configured (192 conditional skips), and 96 paid-tier free-outcome
+cases (one skip), with no failures or flaky cases. GitHub also marked component PR517/520/524/526 merged.
+Disposable PostgreSQL CI is separate from
+production verification. Foundation migrations, purchase secrets and sync-settings are verified in
+production; the nine purchase routes and final analytics deployment remain pending.
+The optional preview could not complete because dependency installation timed out twice; no
+successful preview verification is claimed.
 
-Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
+The integration, public-pin, privacy-publication and operations worktrees were clean when this
+checkpoint was committed; this docs checkpoint contains only the three stated documentation files.
+Re-read status before resuming. Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
 never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
-Final integration may combine reviewed source ancestry to avoid repeated strict-base CI; no source
-PR may merge without required final-tree checks. Keep docs527 until that integration to avoid base churn.
+PR527 remains open for the next model to integrate merged main and the reviewed public pin before
+its own final checks and merge.
 
 ## Scope and decisions
 
@@ -119,8 +137,8 @@ confirm the policy date matches the eventual publication day.
 
 Public trust pin [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, matches
 genuinely fetched hosted metadata on all three comparison checks and passed independent review.
-This establishes configuration agreement; no runtime-signed access proof or final signed artifact
-has yet been verified.
+PR530 is not merged. This establishes configuration agreement; no runtime-signed access proof or
+final signed artifact has yet been verified.
 
 ## Analytics and private material
 
@@ -131,9 +149,18 @@ not evidence of failure. Missing release-channel markers are not treated as veri
 The existing legacy dashboard is untouched. No final-package delivery or erasure acceptance is claimed.
 
 Historical hosted analytics secrets/functions applies were verified. No schedule/switch activation
-was found in retained runs. Use the protected gates to establish current state: deploy selected
-functions, enable existing erasure schedule, wait for an actual successful run, verify project/deletion
-permissions, then enable subjects. A dummy permission probe is not completed account erasure.
+was found in retained runs. Fresh read-only hosted metadata confirms `ANALYTICS_SUBJECTS_ENABLED`
+is absent; no value or secret digest was printed and no analytics switch was activated.
+
+Owner screenshots confirm the active PostHog account-deletion key has **person: write** and
+**project: read**, restricted to the intended Still project. The 19:37 PT Supabase screenshot
+confirms exposed schemas are exactly `public` and `graphql_public`; `private` and `still_qa_checks`
+are unchecked and `net` is absent. Discard client IP data was confirmed earlier. These resolve the
+owner configuration questions, but do not replace the hosted provider proof.
+
+Use the protected gates to establish current state: deploy selected functions, enable the existing
+erasure schedule, wait for an actual successful run, verify project/deletion permissions through
+the runtime, then enable subjects. A dummy permission probe is not completed account erasure.
 
 Secrets remain outside Git and chat. The public-only build trust handoff is
 `/Users/zack/.local/share/still/production-payments-20261021/public-access-keys.json`.
@@ -144,26 +171,31 @@ repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Await the owner's approval of sync-settings apply39711029849 and inspect its closing receipt.
-   Foundation migrations, purchase secrets, DB-01 and PROD-01 are complete as recorded above.
-   One global workflow concurrency group means production operations remain sequential.
-2. Once PR528 merges, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
+1. Honor the owner's requested switch to **GPT-6.1 Sol** now that PR528 passed required checks
+   and merged, and this durable handoff is committed. Do not start another protected deployment
+   before that switch. Foundation migrations, purchase secrets, sync-settings, DB-01
+   and PROD-01 are complete as recorded above.
+2. The next model should merge PR528's final main commit and reviewed PR530 `08a37fc2` into PR527
+   with ancestry preserved, retaining combined privacy source `55f09c43` exactly. Run final checks
+   once on that combined tree, merge PR527, and close PR530 as incorporated. Then publish approved
+   PR529 after checking source equality and publication date. Neither final main nor the public pin
+   was integrated into PR527 during this checkpoint; privacy publication was also deferred.
+3. After the model switch and reviewed source integration, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
    replay or expand the completed foundation scope. Deploy the fixed nine purchase routes from the
    final selected SHA, whose gate requires every migration at that SHA. Handle sync-settings through
    its separate operation and verify whether its source changed before planning any further deploy.
    Each apply needs its own owner approval. Never bypass protection
    with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
-3. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
+4. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
-4. Finish independent review, native compilation, SQL/deployment rehearsals and required final-tree CI
-   for the canonical analytics and packaging integration. Apply 0028/0029 only through later exact
-   migration plans; do not add them to the already-approved 0025–27 scope.
-5. Complete protected analytics activation and prove consent, identity, production event delivery and
+5. Retain completed native compilation and disposable SQL/deployment evidence. Apply 0028/0029
+   only through new exact migration plans; do not replay the completed 0025–27 scope.
+6. Complete protected analytics activation and prove consent, identity, production event delivery and
    erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain
    explicitly unverified until observed. PROD-02 is still a proposal, not an executable check.
-6. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
+7. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
    artifacts, release values, store declarations, device acceptance and sales activation follow.
-7. After backend and visuals, perform the requested deep unused-code/test audit. Prove obsolescence
+8. After backend and visuals, perform the requested deep unused-code/test audit. Prove obsolescence
    before removal, fix bugs rather than hiding failures, preserve meaningful coverage, and recheck
    affected artifacts. Do not claim size/performance improvements without measurements.
 

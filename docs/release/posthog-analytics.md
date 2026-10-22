@@ -50,15 +50,21 @@ send nothing.
 3. In project settings, turn on **Discard client IP data**. Every event also carries
    `$geoip_disable`, so no location is derived; the Apple privacy manifests declare no location, and
    the privacy policy says so. Country-level download numbers come from the stores' own reports.
-4. Create a personal API key with only the **person: write** scope, for deletion, and scope it
-   to this one project only (not the whole organization), so a wrong project id is refused rather
-   than answered with "no person".
+4. Use a personal API key with **project: read** and **person: write**, restricted to this one
+   project (not the whole organization). Project read proves the deletion target matches the
+   receiving project; person write permits erasure. A wrong project must be refused rather than
+   answered with "no person". The current protected switch requires both scopes.
 
-## Server (Supabase function secrets)
+## Historical 2.1 server setup (23 September 2026)
 
-Set these on the hosted project (`supabase secrets set --env-file <private file>`; never inline):
+The commands below record the original deployment; they are not current production instructions.
+Use the [protected analytics procedure](analytics-subjects-switch-on.md) for current secrets,
+function updates, schedule and switch operations. Never run these legacy CLI commands against
+production as a shortcut.
+
+That deployment set these on the hosted project (`supabase secrets set --env-file <private file>`; never inline):
 `POSTHOG_PROJECT_KEY`, `POSTHOG_HOST` (`https://us.i.posthog.com`), `POSTHOG_API_HOST`
-(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. Then deploy both
+(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. It deployed both
 functions with the shared import map (without it the hosted bundler rejects the bare
 `@supabase/supabase-js` import):
 
@@ -67,8 +73,8 @@ supabase functions deploy analytics-identify delete-user \
   --project-ref kikpgrreradotvvefdgd --import-map supabase/functions/deno.json
 ```
 
-Check both are `ACTIVE` with `verify_jwt: true` (`supabase functions list`) and that an
-unauthenticated POST to each returns 401. Either function skips its PostHog step quietly when its
+The historical check confirmed both were `ACTIVE` with `verify_jwt: true` (`supabase functions list`)
+and that an unauthenticated POST to each returned 401. Either function skips its PostHog step quietly when its
 settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted

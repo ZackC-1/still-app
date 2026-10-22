@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: foundation and payment secrets deployed; sync approval pending
+## Latest checkpoint: foundation, payment secrets and sync deployed; model-switch handoff
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -26,17 +26,32 @@ confirms no production sales-policy row, expected revision 0, no admitted builds
 enabled/offer fields are null rather than a false-valued policy row.
 
 [sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
-has passed its matching plan and awaits owner approval; no deployment is claimed. Public trust pin
+completed and verified at 02:26 UTC with no issue/recovery; its bundle is identical to final
+integration `589341f1`, and an unauthenticated production POST subsequently returned 401. Public trust pin
 [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, passed all three genuine
 hosted-metadata comparisons and independent review, but runtime-signed proof remains unverified.
 Draft privacy [PR529](https://github.com/ZackC-1/still-app/pull/529) is approved for publication after
 PR527's combined source/checks complete; it remains unpublished.
 
-Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI remains in progress; disposable PostgreSQL CI is separate from production verification, and no completed deployment is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
+Web and Apple canonical analytics plus build trust/declaration changes merged through
+[PR528](https://github.com/ZackC-1/still-app/pull/528) at
+`c24a246da9607a069337d1a80c0b4cc0224f10c5`, 02:54 UTC October 22 (19:54 PT October 21).
+Required main, Deno and Playwright checks passed, including all three browser fixture phases.
+The optional preview remained unverified after dependency installation timed out twice.
+Disposable PostgreSQL CI is separate from production verification; a source merge does not prove deployment. Their source tests do not establish hosted deployment or final-device
 delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance
 remain owner-dependent; the requested obsolete-code/test audit follows backend and visual completion.
+
+Owner screenshots now confirm the scoped PostHog key has project read plus person write, and
+Supabase exposes only `public`/`graphql_public`, with `net` absent. Hosted provider proof remains
+pending. Fresh hosted metadata shows `ANALYTICS_SUBJECTS_ENABLED` absent; no switch was activated.
+
+The owner requested **GPT-6.1 Sol** after PR528 CI/merge and this durable handoff; that checkpoint is now complete. No further
+protected deployment starts before that switch. The next model should preserve ancestry while
+combining final PR528 main and reviewed PR530 into PR527, keep privacy source `55f09c43` unchanged,
+run the combined final checks, then complete PR527 and the approved conditional PR529 publication.
 
 # V3 production activation and verification
 
