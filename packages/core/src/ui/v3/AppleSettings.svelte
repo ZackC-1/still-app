@@ -422,6 +422,10 @@
     --sync-gap: calc(var(--space-3) * 0.875);
     --sync-padding: calc(var(--space-4) * 0.875) var(--space-4);
     padding-block: max(calc(var(--space-4) * 0.875), env(safe-area-inset-top)) max(calc(var(--space-4) * 0.875), env(safe-area-inset-bottom));
+    /* A6 (owner, 22 Oct, canvas page "mac"): 24px side padding and 432px cards in the 480px window.
+       The iPhone keeps its 16px. */
+    max-inline-size: calc(var(--content-max-inline-size, 432px) + 2 * var(--space-6));
+    padding-inline: max(var(--space-6), env(safe-area-inset-left)) max(var(--space-6), env(safe-area-inset-right));
   }
   .mac-settings :global(.hero.compact) {
     --hero-padding: calc(var(--space-3) * 0.875) var(--space-3);

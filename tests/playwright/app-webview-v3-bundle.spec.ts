@@ -179,6 +179,27 @@ test.describe("the V3 bundle in WebKit over file://", () => {
     await page.context().close();
   });
 
+  // A6 (owner, 22 Oct): the Mac app's settings take the canvas width, 24px side padding and 432px
+  // cards in its 480px window; the iPhone keeps its 16px side padding (cards 361px at 393 wide).
+  for (const [platform, x, width] of [["macos", 24, 432], ["ios", 16, 361]] as const) {
+    test(`D04 settings on ${platform}: cards are ${width}px wide at x ${x}`, async () => {
+      const { page, errors } = await open(false, platform);
+      await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
+      const cards = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".app > *")]
+          .filter((el) => el.offsetParent && el.getBoundingClientRect().height > 0)
+          .map((el) => {
+            const box = el.getBoundingClientRect();
+            return `${el.className.split(" ")[0] || el.tagName}: ${Math.round(box.x)} ${Math.round(box.width)}`;
+          }),
+      );
+      expect(cards.length).toBeGreaterThan(2);
+      for (const card of cards) expect(card).toMatch(new RegExp(`: ${x} ${width}$`));
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+  }
+
   // Full-width buttons are 54px tall in the Apple apps and 44px in Chrome and Firefox (owner ruling;
   // the browser side is block-button-heights.spec.ts). In the apps the height comes from the default
   // block-button padding; see the "Full-width button heights" note in components.css.
