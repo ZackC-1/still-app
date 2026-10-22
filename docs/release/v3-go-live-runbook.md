@@ -494,7 +494,7 @@ Engineering compares the read-backs side by side; the owner ticks each.
 The site publishes from `gh-pages`, separately from `main`. All publishes are owner actions; undo is
 reverting the `gh-pages` commit.
 
-- **7.1 Privacy policy for Still Pro** · Owner publication checkpoint. Reconcile the earlier PR477/478 drafts with the final reviewed source, including PR528 canonical purchase analytics and V3 no-notice wording; do not publish an older draft over the newer policy. Publish matching `gh-pages` content before store submission and analytics activation. V58: `https://stillapp.fit/privacy/` matches the approved purchase, analytics and deletion disclosures.
+- **7.1 Privacy policy for Still Pro** · Owner publication checkpoint. PR478 has already merged to `gh-pages`, publishing the older policy; source PR477 remains open. Reconcile that publication with the final reviewed source, including PR528 canonical purchase analytics and V3 no-notice wording. A new reviewed publication is still required; do not overwrite the newer policy with the older source. Publish matching `gh-pages` content before store submission and analytics activation. V58: `https://stillapp.fit/privacy/` matches the approved purchase, analytics and deletion disclosures.
 - **7.2 Setup guide** · Owner. PR #484 (`main`, draft, includes the Firefox on Android deferral)
   plus a matching `gh-pages` publish. V59: the live guide promises no Firefox on Android.
 - **7.3 Support page** · Owner. The ISS-0110 change (confirm its PR), published to `gh-pages`. V60:
