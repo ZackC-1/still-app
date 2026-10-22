@@ -145,12 +145,13 @@ jobs:
         if: inputs.check == 'DB-31' || inputs.check == 'DB-35'
         env:
           GH_TOKEN: ${{ github.token }}
+        # Lists runs unfiltered and selects locally (ISS-0120); a missing baseline fails the run.
         run: |
-          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow supabase-readonly-checks.yml --branch main \
-            --status success --limit 100 --json databaseId,displayTitle \
-            --jq '[.[] | select(.displayTitle | startswith("Read-only QA check DB-01 "))][0].databaseId // empty')
-          if [ -n "$run_id" ]; then
-            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name qa-production-baseline --dir "$RUNNER_TEMP/qa-baseline-in" || true
+          run_id=$(node scripts/backend/qa-checks/baseline.mjs) || exit 1
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name qa-production-baseline --dir "$RUNNER_TEMP/qa-baseline-in"
+          if [ ! -s "$RUNNER_TEMP/qa-baseline-in/baseline.json" ]; then
+            echo "::error::Production baseline: DB-01 run $run_id artifact holds no baseline.json"
+            exit 1
           fi
       - name: Run the read-only check (read-only role and transaction, rolled back)
         env:

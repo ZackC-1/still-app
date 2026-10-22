@@ -12,6 +12,7 @@ production deployments, payment operations, deletion, or arbitrary SQL.
 | Closed check catalogue | [`scripts/backend/qa-checks/catalogue.mjs`](../../scripts/backend/qa-checks/catalogue.mjs) |
 | Single-SELECT guard / report rendering | [`sql-guard.mjs`](../../scripts/backend/qa-checks/sql-guard.mjs), [`report.mjs`](../../scripts/backend/qa-checks/report.mjs) |
 | Runner (Deno) | [`run.ts`](../../scripts/backend/qa-checks/run.ts) |
+| Baseline lookup (DB-31, DB-35) | [`baseline.mjs`](../../scripts/backend/qa-checks/baseline.mjs) |
 | Database role, registry and views (candidate) | [`scripts/backend/sql/qa-readonly-checks-candidate.sql`](../../scripts/backend/sql/qa-readonly-checks-candidate.sql) |
 | Production sales summary view for PROD-01 (numbered migration) | [`supabase/migrations/0025_production_sales_summary_view.sql`](../../supabase/migrations/0025_production_sales_summary_view.sql), gate [`verify/0025_production_sales_summary_view.sql`](../../scripts/backend/deploy/verify/0025_production_sales_summary_view.sql) |
 | One-time owner helpers | [`owner-setup.mjs`](../../scripts/backend/qa-checks/owner-setup.mjs) |
@@ -91,7 +92,10 @@ Each layer is independent; any one of them alone stops a write.
 - **Production accounts are never printed.** DB-01 turns production rights, policy revisions and
   cutoff into one keyed digest (HMAC-SHA-256) and uploads only that digest as artifact
   `qa-production-baseline`; DB-31 and DB-35 recompute it and report "production unchanged since
-  baseline: yes / no". The one exception is PROD-01 (below): it prints the production sales policy
+  baseline: yes / no". They find the newest successful DB-01 run on main that still carries that
+  artifact ([`baseline.mjs`](../../scripts/backend/qa-checks/baseline.mjs)) and fail with
+  `baseline-not-found` when there is none, so run DB-01 again once its artifact has expired.
+  The one exception is PROD-01 (below): it prints the production sales policy
   facts the public `product-policy` route already serves and the paid cutoff's product
   configuration, in the encrypted report only, and nothing about any account or person.
 - **Keyed references.** Ids appear only as `#` plus 10 hex characters of HMAC-SHA-256 under
