@@ -36,7 +36,7 @@ const HERE_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 
 export const TRUST_FILE = "scripts/release/production-access-keys.json";
 /** Test fixture. Its keys are refused by every store build (see parseStoreTrust). */
-export const TEST_ONLY_TRUST_FIXTURE = "tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json";
+export const TEST_ONLY_TRUST_FIXTURE = "scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json";
 /** The fixture's two public keys, refused even when the fixture file cannot be read. */
 export const TEST_ONLY_FIXTURE_PUBLIC_KEYS = Object.freeze([
   "559d148be57cf825d2f369e8097a3d0a7fa5ee622cbc00a398bf2758bd716b06",

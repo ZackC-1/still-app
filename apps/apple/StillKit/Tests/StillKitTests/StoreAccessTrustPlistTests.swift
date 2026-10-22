@@ -50,7 +50,7 @@ final class StoreAccessTrustPlistTests: XCTestCase {
   }
 
   func testShippedPlistsWithPinnedTrustParseToNonEmptyProductionTrust() throws {
-    let rows = try trustRows("tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json")
+    let rows = try trustRows("scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json")
     XCTAssertEqual(rows.count, 2, "the fixture pins a current and a standby key")
     for path in plists {
       let info = overlaid(try plist(path), rows: rows)
@@ -73,7 +73,7 @@ final class StoreAccessTrustPlistTests: XCTestCase {
   }
 
   func testAStorePlistWithASandboxRowGetsNoTrust() throws {
-    var rows = try trustRows("tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json")
+    var rows = try trustRows("scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json")
     rows[1]["environment"] = "sandbox"
     XCTAssertTrue(NativeAccessConfiguration.trust(info: overlaid(try plist(plists[0]), rows: rows)).keys.isEmpty)
   }
@@ -88,7 +88,7 @@ final class StoreAccessTrustPlistTests: XCTestCase {
       process.arguments = ["node", "--input-type=module", "-e", """
         import { readFileSync } from 'node:fs';
         import { applyStoreTrustToPlist, PRODUCTION_SUPABASE_ORIGIN } from './scripts/release/access-trust.mjs';
-        const rows = JSON.parse(readFileSync('tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json')).keys;
+        const rows = JSON.parse(readFileSync('scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json')).keys;
         process.stdout.write(applyStoreTrustToPlist(readFileSync(process.argv[1], 'utf8'), rows, {
           VITE_SUPABASE_URL: PRODUCTION_SUPABASE_ORIGIN, VITE_SUPABASE_ANON_KEY: 'sb_publishable_synthetic_public'
         }));

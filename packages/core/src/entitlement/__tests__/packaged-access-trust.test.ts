@@ -72,7 +72,7 @@ describe("compiled public access trust", () => {
 describe("pinned store trust files", () => {
   it("the TEST-ONLY fixture parses to two production keys and nothing under any other environment", () => {
     const publicKeys = trustFileKeys(
-      "tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json",
+      "scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json",
     );
     const trust = packagedAccessTrust({
       environment: "production",

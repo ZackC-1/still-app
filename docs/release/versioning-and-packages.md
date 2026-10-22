@@ -132,7 +132,7 @@ A store build refuses:
 - any row whose `environment` is not `production` (a sandbox key never reaches a store);
 - any row that is not exactly `kid`, `publicKeyHex`, `environment`, `purpose` (so a private key cannot be
   added by mistake), more than two rows, or a repeated kid or key;
-- the TEST-ONLY fixture key (`tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json`, or any
+- the TEST-ONLY fixture key (`scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json`, or any
   kid starting with `test-only`). That fixture is for tests only. Its private halves were discarded when
   it was generated, so nothing can sign for it. It is not the real key;
 - an empty list once the release declares the paid tier. Today that means either paid constant is true

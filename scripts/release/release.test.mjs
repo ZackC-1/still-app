@@ -297,7 +297,7 @@ const pinKeys = (clone, keys) => writeFileSync(join(clone, TRUST_FILE), JSON.str
 test("a committed non-production trust row, a paid release without a matching key, or an unreadable paid switch stops the build before anything is installed", () => {
   const cases = [
     ["sandbox row", (clone) => pinKeys(clone, [{ kid: "still-qa", publicKeyHex: freshPublicKeyHex(), environment: "sandbox", purpose: "access" }]), /accepts only production keys/],
-    ["fixture row", (clone) => pinKeys(clone, JSON.parse(readFileSync(join(clone, "tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json"), "utf8")).keys), /TEST-ONLY fixture key/],
+    ["fixture row", (clone) => pinKeys(clone, JSON.parse(readFileSync(join(clone, "scripts/release/fixtures/access-trust/TEST-ONLY-production-access-keys.json"), "utf8")).keys), /TEST-ONLY fixture key/],
     ["paid, no keys", (clone) => {
       const path = join(clone, "packages/shared-types/src/entitlement.ts");
       writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
