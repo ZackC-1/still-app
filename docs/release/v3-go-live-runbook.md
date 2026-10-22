@@ -71,7 +71,7 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 |---|---|---|---|
 | G1. Production sales operation | Closed `production-sales-policy` on/off operations merged in #522. Final build admission, compare-and-set revision and owner approval remain required. | 2.6 | Engineering, Owner approval |
 | G2. Free cutoff | Owner approved `still-free-v2`: YouTube Shorts, Instagram Reels, Facebook Reels, TikTok website. #522 pins those four identifiers; first approved activation writes the immutable cutoff. | 2.6 | Owner approval |
-| G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4 | Owner approval |
+| G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`; `review-signin-function` redeploys `review-signin` alone. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4, 2.7 | Owner approval |
 | G4. Production Managed Payments | Owner selected the tested QA architecture with separate live configuration. #522 adds production ledger 0026, checkout/completion, Stripe webhook and canonical RevenueCat refresh. Hosted deployment and genuine fulfilment proof remain separate. | 4.4, 8.4 | Engineering, Owner approval |
 | G5. Public build trust | Final integration #528 preserves #524/#520 native public Supabase configuration and trust. Check final integration CI; pin public trust only after hosted signer verification. Signed final artifacts remain pending. | 1.5, 1.6 | Engineering |
 | G6. Declared paid build | #528 preserves #517 declaration/compiled-flag consistency guard. Verify the merged final tree before packaging; do not bypass the guard through manual upload. | 6.4 | Engineering |
@@ -228,7 +228,12 @@ listed).
   handler update does not change those portal settings.
 - Database writer URLs must match actual role passwords and are not copied from QA or staged as
   arbitrary purchase secrets. Existing legacy configuration remains intact.
-- V14: inspect names and the closing receipt, then verify runtime configuration without printing secrets.
+- `ACCESS_PROVIDER_PRODUCTS_JSON` must keep the legacy entries with store identifiers `still_sync`
+  and `still_sync_web` alongside the 3.0 products; without them no pre-3.0 paid purchase is
+  recognised for anyone ([details](purchase-routes-and-secrets.md)).
+- V14: inspect names and the closing receipt, then verify runtime configuration without printing
+  secrets, including that `ACCESS_PROVIDER_PRODUCTS_JSON` still holds the `still_sync` and
+  `still_sync_web` entries (product identifiers only).
 - Undo: reviewed rotation; leaked credentials are rotated at their provider first.
 
 **2.5 Signed-in analytics switch-on** · Owner approval
@@ -255,10 +260,26 @@ listed).
 - Note: once production has a cutoff, `qa-sandbox-sales-policy` refuses both directions; stop QA
   purchases with `pause-qa-sandbox`.
 
-**2.7 Review sign-in configuration** · Engineering, Owner
-- Where: [account and reviewer reference](extension-purchase-deploy-checklist.md), section 1c.
+**2.7 Review sign-in configuration** · Engineering, Owner, Owner approval
+- Where: [account and reviewer reference](extension-purchase-deploy-checklist.md), section 1c. The
+  route is redeployed only through `operation=review-signin-function policy_mode=none` from the
+  frozen commit, plan-only first, then `mode=apply` with its own approval:
+  `gh workflow run supabase-production-deploy.yml --ref main -f commit=<sha> -f operation=review-signin-function -f policy_mode=none -f mode=plan-only`
+  ([route gates](purchase-routes-and-secrets.md)). It deploys `review-signin` alone (verify_jwt
+  false) as a sealed bundle read back byte for byte, refuses unless every migration at the commit is
+  applied, and checks that `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and
+  `ENTITLEMENT_WRITER_DB_URL` are set, by name only. It never sets, rotates or sees those values; the
+  digests the Management API sends with the secret list are dropped in memory, not recorded or compared.
+- Setting and rotating: the owner sets `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase
+  dashboard (production project, **Edge Functions**, **Secrets**, by name), never echoing a value
+  anywhere ([details](purchase-routes-and-secrets.md#review-sign-in-secrets)).
+- Once those secrets are unset, a fix to `review-signin` cannot be deployed through the operation
+  until they are set again: it refuses with `missing_secret:<NAME>`.
 - V20: `review-signin` and its `REVIEW_SIGNIN_*` secrets match the private App Review fields and the
-  Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it.
+  Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it. After the
+  operation, its closing record lists `review-signin` as `deployed` or `unchanged`, and a request of
+  about 3,000 bytes for an address that is not the review address gets 400 (not 404).
+- Undo: redeploy the previous reviewed commit through the same operation.
 
 ## Phase 3 — RevenueCat production
 
@@ -328,7 +349,7 @@ successful deliveries.
 | V27 | The v2 webhook-integration read if the key can reach it; otherwise the owner reads 3.6 on screen and engineering reads `revenuecat-webhook` logs | Production URL with the preserved Both Production and Sandbox / All apps / All events filters; recent delivery status, with canonical persistence verified separately |
 | V28 | Owner confirms 3.7 and 3.8 on screen | Values recorded |
 | V29 | Engineering compares V22 and V24 with `revenuecat-access.ts` | Every mapping it would build passes that file's validation |
-| V30 | Engineering builds `ACCESS_PROVIDER_PRODUCTS_JSON` from V21 and V22 (kept private) | Handed to 2.4 |
+| V30 | Engineering builds `ACCESS_PROVIDER_PRODUCTS_JSON` from V21 and V22 (kept private), keeping the legacy `still_sync` and `still_sync_web` entries alongside the 3.0 products | Handed to 2.4 |
 
 Undo: detach a product or delete the new offering or entitlement while nothing has sold. Never delete
 or rename `still_sync`, and never delete a product that has purchases.
