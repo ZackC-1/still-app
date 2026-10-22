@@ -1284,6 +1284,24 @@ for (const version of [
   });
 }
 
+for (const version of ["0026_production_purchase_operations", "0027_apple_sandbox_review_access"]) {
+  test(`${version} preserves pre-existing rows with the private object contract, not issue arrays`, async () => {
+    const sql = await readFile(new URL(`./verify/${version}.invariant.sql`, import.meta.url), "utf8");
+    assert.equal(lintVerificationSql(sql), true);
+    assert.match(stripComments(sql), /^\s*select pg_catalog\.jsonb_build_object\(/);
+    const entries = [...sql.matchAll(/'([^']+)'\s*,\s*\(select pg_catalog\.(count|md5)/g)];
+    for (const table of ["auth.users", "public.profiles", "public.entitlements", "private.access_rights",
+      "private.apple_access_observations", "private.qa_sandbox_purchase_operations", "private.paid_cutoff"]) {
+      assert.ok(entries.some(([, key, kind]) => key === table && kind === "count"), table);
+      assert.ok(entries.some(([, key, kind]) => key === `${table}.fingerprint` && kind === "md5"), table);
+    }
+    assert.doesNotMatch(sql, /from private\.(production_purchase_operations|apple_sandbox_review_access)\b/);
+    const output = JSON.stringify(Object.fromEntries(entries.map(([, key, kind]) =>
+      [key, kind === "count" ? 7 : "0123456789abcdef0123456789abcdef"])));
+    assert.equal(parseRowCounts(output), output);
+  });
+}
+
 test("0021 preservation fingerprints include complete rows from all six existing ledgers", async () => {
   const sql = await readFile(
     new URL("./verify/0021_qa_sandbox_access.invariant.sql", import.meta.url),
