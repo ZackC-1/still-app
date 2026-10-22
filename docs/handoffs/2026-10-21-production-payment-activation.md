@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T18:55:00-07:00
+updated: 2026-10-21T19:09:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -20,10 +20,21 @@ backend deployment revision.
 [Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
 0025, 0026 and 0027. Its disposable receipt verified history 24→27, clean structural checks and
 unchanged existing data snapshots. Matching
-[apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) has passed its plan
-and is waiting for the owner's `supabase-production` approval. The owner has been asked to use
-Review deployments → supabase-production → Approve and deploy. No hosted migration write has
-occurred at this checkpoint. Re-read the run before acting.
+[apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) completed successfully
+on the pinned `bc728bcabad9ef383906571206becd3f46b1377f`: production history 24→27, all 18 structural
+checks clean, all three preservation snapshots unchanged. This is a verified production migration
+apply, not merely disposable CI evidence.
+
+Post-apply [DB-01 run39709691391](https://github.com/ZackC-1/still-app/actions/runs/39709691391)
+also completed successfully. Its encrypted report was decrypted privately with owner-only
+permissions: newest migrations 0027, 0026, 0025; seven of seven QA subjects enabled; one sandbox
+cutoff; narrow read-only transaction rolled back; no withheld values. `needs-review` is the expected
+catalogue verdict, not a failed check. DB-01 confirms this tail and these counts; the apply receipt
+supplies the separate structural/preservation proof.
+
+Next [purchase-secrets plan39709662125](https://github.com/ZackC-1/still-app/actions/runs/39709662125)
+is in progress at this checkpoint. A successful plan does not apply secrets; inspect its result
+before requesting its matching protected apply.
 
 Sales remain off. The separate production Stripe webhook is created and disabled. Twenty production
 configuration values are staged in GitHub's protected environment, not yet applied to Supabase.
@@ -41,7 +52,7 @@ The main checkout belongs to the separate visual/build session and was not edite
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 
-Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, disposable PostgreSQL CI checks and production deployment remain pending until their actual receipts pass. The owner approval for the foundation migration apply remains the next hosted checkpoint at this writing.
+Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, disposable PostgreSQL CI checks and production deployment remain pending until their actual receipts pass. Foundation migrations are now verified in production; purchase secrets and final route deployment remain separate pending operations.
 
 Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
 never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
@@ -94,6 +105,11 @@ still controls actual build admission. No synthetic live charge/refund should be
 - Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
   Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
 
+Draft privacy publication [PR529](https://github.com/ZackC-1/still-app/pull/529) is open and unpublished.
+It carries the reconciled PR477 purchase disclosures plus canonical analytics and V3 sharing wording.
+Source reconciliation, publication and App Privacy portal changes remain distinct; confirm the policy
+date matches the eventual publication day.
+
 ## Analytics and private material
 
 The session dashboard is [Still Pro Conversion Readiness](https://us.posthog.com/project/624923/dashboard/2242729).
@@ -116,9 +132,10 @@ repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Wait for the owner approval of apply39707838333; inspect the closing receipt before any next
-   production operation. One global workflow concurrency group means operations are sequential.
-2. If PR528 merges before route deployment, apply 0028/0029 through a separate exact plan at its final merged SHA after the already-planned foundation apply; do not add migrations to that existing approval. Then plan/apply reviewed purchase secrets, the fixed nine purchase routes and separately sync-settings from the final selected SHA. Its route gate requires every migration at that SHA, avoiding duplicate intermediate deployments. Each apply needs its own owner approval. Never bypass protection
+1. Inspect purchase-secrets plan39709662125, then prepare its matching protected apply for owner approval.
+   Foundation apply39707838333 and post-apply DB-01 are complete. One global workflow concurrency
+   group means production operations remain sequential.
+2. If PR528 merges before route deployment, apply 0028/0029 through a separate exact plan at its final merged SHA; do not replay or expand the completed foundation scope. After verified purchase secrets, deploy the fixed nine purchase routes and separately sync-settings from the final selected SHA. Its route gate requires every migration at that SHA, avoiding duplicate intermediate deployments. Each apply needs its own owner approval. Never bypass protection
    with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
 3. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
