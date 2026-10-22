@@ -1930,7 +1930,8 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
       () => resolveOperation(operation, mode),
       "operation-input-invalid",
     );
-  // The purchase operations have their own module (purchase-operations.mjs), not a registry row.
+  // The purchase operations and review-signin-function have their own module
+  // (purchase-operations.mjs), not a registry row.
   for (const operation of [
     "qa-sandbox-functions",
     "migrations",
@@ -1939,6 +1940,7 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
     "purchase-functions",
     "purchase-functions-sync-settings",
     "purchase-secrets",
+    "review-signin-function",
   ])
     throwsCategory(
       () => resolveOperation(operation, "none"),
@@ -1946,7 +1948,7 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
     );
   for (const name of Object.keys(WORKFLOW_OPERATIONS))
     assert.ok(isKnownOperation(name), name);
-  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, "", "purchase-functions", "purchase-secrets"])
+  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, "", "purchase-functions", "purchase-secrets", "review-signin-function"])
     assert.ok(!isKnownOperation(name), name);
 });
 

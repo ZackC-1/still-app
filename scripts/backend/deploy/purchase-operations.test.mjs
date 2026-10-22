@@ -29,12 +29,14 @@ import {
   PURCHASE_KIND,
   PURCHASE_OPERATIONS,
   PURCHASE_TOOLING,
+  PRESENCE_ONLY_SECRETS,
   readStaged,
   rehearsalApi,
   REHEARSAL_REPOSITORY,
   renderPurchaseFinal,
   renderPurchasePlan,
   renderPurchaseReplay,
+  REVIEW_OP,
   ROUTE_SECRETS,
   runPurchaseOperation,
   runPurchaseReplay,
@@ -53,6 +55,7 @@ import {
 import {
   PURCHASE_BUNDLE_SET,
   PURCHASE_FUNCTIONS,
+  REVIEW_SIGNIN_BUNDLE_SET,
   SYNC_SETTINGS_BUNDLE_SET,
 } from "./qa-function-bundles.mjs";
 import { REQUIRED_SECRETS as QA_REQUIRED_SECRETS } from "./qa-functions.mjs";
@@ -214,9 +217,19 @@ async function harness(t, options = {}) {
 // ── Closed lists ─────────────────────────────────────────────────────────────────────────────
 
 test("the operations, secret names and groups are closed lists with no QA or platform name", () => {
-  assert.deepEqual(Object.keys(PURCHASE_OPERATIONS), [FUNCTIONS_OP, SYNC_OP, SECRETS_OP]);
+  assert.deepEqual(Object.keys(PURCHASE_OPERATIONS), [FUNCTIONS_OP, SYNC_OP, SECRETS_OP, REVIEW_OP]);
+  assert.equal(REVIEW_OP, "review-signin-function");
   assert.equal(PURCHASE_OPERATIONS[FUNCTIONS_OP].set, PURCHASE_BUNDLE_SET);
   assert.equal(PURCHASE_OPERATIONS[SYNC_OP].set, SYNC_SETTINGS_BUNDLE_SET);
+  assert.equal(PURCHASE_OPERATIONS[REVIEW_OP].set, REVIEW_SIGNIN_BUNDLE_SET);
+  assert.deepEqual(PURCHASE_OPERATIONS[REVIEW_OP].modes, ["plan-only", "apply"]);
+  // review-signin-function checks its secrets by name only and never writes one.
+  assert.deepEqual(ROUTE_SECRETS[REVIEW_OP], ["ENTITLEMENT_WRITER_DB_URL", "REVIEW_SIGNIN_CODE", "REVIEW_SIGNIN_EMAIL"]);
+  assert.deepEqual(PRESENCE_ONLY_SECRETS, ["REVIEW_SIGNIN_CODE", "REVIEW_SIGNIN_EMAIL"]);
+  for (const name of PRESENCE_ONLY_SECRETS) {
+    assert.ok(!WRITABLE_SECRETS.includes(name) && !SHARED_SECRETS.includes(name), name);
+    refusesSync(() => assertWritableSecret(name), "purchase-secret-name-refused");
+  }
   assert.equal(PURCHASE_OPERATIONS[SECRETS_OP].set, null);
   assert.deepEqual(PURCHASE_OPERATIONS[SECRETS_OP].modes, ["plan-only", "apply", "rotate"]);
   assert.deepEqual(
@@ -259,7 +272,9 @@ test("the operations, secret names and groups are closed lists with no QA or pla
   // Every grouped and route-required name is a known name.
   for (const group of SECRET_GROUPS) for (const name of group) assert.ok(WRITABLE_SECRETS.includes(name));
   for (const names of Object.values(ROUTE_SECRETS)) {
-    for (const name of names) assert.ok(WRITABLE_SECRETS.includes(name) || SHARED_SECRETS.includes(name), name);
+    for (const name of names) {
+      assert.ok(WRITABLE_SECRETS.includes(name) || SHARED_SECRETS.includes(name) || PRESENCE_ONLY_SECRETS.includes(name), name);
+    }
   }
   assert.ok(WRITABLE_SECRETS.includes("STRIPE_SECRET_API_KEY"));
   assert.ok(ROUTE_SECRETS[FUNCTIONS_OP].includes("STRIPE_WEBHOOK_SECRET"));
@@ -279,8 +294,9 @@ test("every staged name is one the production routes actually read", async () =>
     "supabase/functions/revenuecat-webhook/index.ts",
     "supabase/functions/product-policy/index.ts",
     "supabase/functions/sync-settings/index.ts",
+    "supabase/functions/review-signin/index.ts",
   ].map(real))).join("\n");
-  for (const name of [...WRITABLE_SECRETS, ...SHARED_SECRETS]) {
+  for (const name of [...WRITABLE_SECRETS, ...SHARED_SECRETS, ...PRESENCE_ONLY_SECRETS]) {
     assert.ok(sources.includes(`"${name}"`), `${name} is read by a production purchase route`);
   }
 });
@@ -318,6 +334,14 @@ test("the plan binds the operation, the commit on main, the routes or secret nam
   const sync = (await plan(t, root, head, { operation: SYNC_OP })).plan;
   assert.deepEqual(sync.bundles.functions.map((f) => f.name), ["sync-settings"]);
   assert.deepEqual(sync.requiredSecrets, ["SETTINGS_WRITER_DB_URL"]);
+  const review = (await plan(t, root, head, { operation: REVIEW_OP })).plan;
+  assert.deepEqual(review.bundles.functions.map((f) => [f.name, f.verifyJwt]), [["review-signin", false]]);
+  assert.equal(review.bundles.kind, REVIEW_SIGNIN_BUNDLE_SET.kind);
+  assert.deepEqual(review.migrations, ["0023", "0024"]);
+  assert.deepEqual(review.requiredSecrets, [...ROUTE_SECRETS[REVIEW_OP]]);
+  assert.equal(review.secrets, null);
+  assert.equal((await plan(t, root, head, { operation: REVIEW_OP, mode: "plan-only" })).plan.mode, "plan-only");
+  assert.notEqual(review.digest, sync.digest);
   const secrets = (await plan(t, root, head, { operation: SECRETS_OP, mode: "plan-only" })).plan;
   assert.equal(secrets.bundles, null);
   assert.deepEqual(secrets.migrations, []);
@@ -332,6 +356,13 @@ test("the plan refuses unknown operations, wrong modes and inputs, a commit off 
   await refuses(plan(t, root, head, { operation: "purchase-other" }), "purchase-operation-unknown");
   await refuses(plan(t, root, head, { mode: "rotate" }), "purchase-input-invalid");
   await refuses(plan(t, root, head, { operation: SYNC_OP, mode: "disable" }), "purchase-input-invalid");
+  for (const mode of ["rotate", "disable", "baseline-only"]) {
+    await refuses(plan(t, root, head, { operation: REVIEW_OP, mode }), "purchase-input-invalid");
+  }
+  // The route list is closed: no caller-chosen function list, not even review-signin itself.
+  for (const functions of ["review-signin", "review-signin,sync-settings"]) {
+    await refuses(plan(t, root, head, { operation: REVIEW_OP, functions }), "purchase-input-invalid");
+  }
   await refuses(plan(t, root, head, { operation: SECRETS_OP, mode: "disable" }), "purchase-input-invalid");
   for (const extra of [
     { policyMode: "enable" }, { migrations: "0024_x.sql" }, { functions: "sync-settings" },
@@ -350,6 +381,7 @@ test("the plan refuses unknown operations, wrong modes and inputs, a commit off 
   const old = await repo(t, { migrations: ["0023_qa_settings_notifications"] });
   await refuses(plan(t, old.root, old.head), "purchase-prerequisite-history-missing");
   await refuses(plan(t, old.root, old.head, { operation: SYNC_OP }), "purchase-prerequisite-history-missing");
+  await refuses(plan(t, old.root, old.head, { operation: REVIEW_OP }), "purchase-prerequisite-history-missing");
 });
 
 test("freshness: an unrelated change or a new migration on main is fine; a changed bound file refuses", async (t) => {
@@ -465,6 +497,132 @@ test("a bad readback stops the run; later routes are never attempted and the rec
   assert.equal(h.api.functions.get("revenuecat-webhook").version, 3);
   assert.match(receipt.recovery, /never blindly retry/);
   assert.match(renderPurchaseFinal(receipt), /status: outcome-unknown/);
+});
+
+// ── review-signin-function ──────────────────────────────────────────────────────────────────
+
+const REVIEW_SECRETS = ["REVIEW_SIGNIN_EMAIL", "REVIEW_SIGNIN_CODE"];
+/** Synthetic review values; never an address or a code shaped like a real one. */
+const reviewValues = () =>
+  Object.fromEntries(REVIEW_SECRETS.map((name) => [name, `synthetic-${name.toLowerCase()}-${Math.random().toString(36).slice(2)}`]));
+/** The /secrets responses the stub served, so a test can look for them without hashing anything. */
+function servedSecretFields(api) {
+  const served = new Set();
+  const fetchImpl = async (url, init = {}) => {
+    const response = await api.fetchImpl(url, init);
+    if (/\/secrets$/.test(url) && (init.method ?? "GET") === "GET") {
+      for (const item of await response.clone().json()) served.add(item.value);
+    }
+    return response;
+  };
+  return { served, fetchImpl };
+}
+
+test("review-signin-function deploys review-signin alone (verify_jwt false), read back; a repeat changes nothing", async (t) => {
+  const h = await harness(t);
+  const values = reviewValues();
+  for (const [name, value] of Object.entries(values)) h.api.secrets.set(name, value);
+  const before = new Map(h.api.secrets);
+  const versions = new Map([...h.api.functions].map(([slug, item]) => [slug, item.version]));
+  const watch = servedSecretFields(h.api);
+  const deployed = await h.run(REVIEW_OP, {}, { fetchImpl: watch.fetchImpl });
+  assert.equal(deployed.status, "verified", deployed.issues.join(" "));
+  assert.deepEqual(deployed.steps, [{ name: "review-signin", outcome: "deployed" }]);
+  const live = h.api.functions.get("review-signin");
+  assert.equal(live.version, versions.get("review-signin") + 1);
+  assert.equal(live.verify_jwt, false);
+  assert.equal(live.import_map, false);
+  // Every other route is untouched, and no secret was written or changed.
+  for (const [slug, version] of versions) {
+    if (slug !== "review-signin") assert.equal(h.api.functions.get(slug).version, version, slug);
+  }
+  assert.equal(h.api.calls.secretPosts, 0);
+  assert.deepEqual(new Map(h.api.secrets), before);
+  assert.deepEqual(h.db.state.files, ["migration-history.sql"]);
+  const again = await h.run(REVIEW_OP);
+  assert.equal(again.status, "no-change");
+  assert.equal(h.api.calls.deploys, 1);
+  // No review value, and none of the fields the secrets listing served, reaches any record.
+  const { plan: p } = h.made[REVIEW_OP];
+  const printed = [JSON.stringify(h.receipts), renderPurchasePlan(p), ...h.receipts.map((r) => renderPurchaseFinal(r))].join("\n");
+  assert.ok(watch.served.size > 0);
+  for (const value of [...Object.values(values), ...watch.served]) {
+    assert.ok(!printed.includes(value), "a review value or a served secret field reached an output");
+  }
+  assert.match(renderPurchasePlan(p), /`review-signin` \(verify_jwt false\)/);
+  assert.match(renderPurchasePlan(p), /REVIEW_SIGNIN_EMAIL/);
+  assert.match(renderPurchasePlan(p), /never read, compared or changed/);
+});
+
+test("review-signin-function checks its secrets by name only: it runs with no value in the listing", async (t) => {
+  const h = await harness(t);
+  for (const [name, value] of Object.entries(reviewValues())) h.api.secrets.set(name, value);
+  // A listing that carries names alone (no digest field at all) is enough for this operation.
+  const namesOnly = async (url, init = {}) => {
+    const response = await h.api.fetchImpl(url, init);
+    if (/\/secrets$/.test(url) && (init.method ?? "GET") === "GET") {
+      const names = (await response.json()).map(({ name }) => ({ name }));
+      return new Response(JSON.stringify(names), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return response;
+  };
+  const deployed = await h.run(REVIEW_OP, {}, { fetchImpl: namesOnly });
+  assert.equal(deployed.status, "verified", deployed.issues.join(" "));
+  // The purchase routes, by contrast, still read the digests for their preservation check.
+  const purchase = await h.run(FUNCTIONS_OP, {}, { fetchImpl: namesOnly });
+  assert.equal(purchase.status, "stopped-before-write");
+});
+
+test("review-signin-function refuses before any write without its migrations, a review secret, or a closed route list", async (t) => {
+  const h = await harness(t, { history: ["0023"] });
+  const values = reviewValues();
+  for (const [name, value] of Object.entries(values)) h.api.secrets.set(name, value);
+  const pending = await h.run(REVIEW_OP);
+  assert.deepEqual(pending.issues, ["purchase-gate-failed", `history_missing:${SYNC_GUARD_MIGRATION}`]);
+  h.db.state.history = ["0023", "0024"];
+  const missing = [];
+  for (const name of ROUTE_SECRETS[REVIEW_OP]) {
+    const kept = h.api.secrets.get(name);
+    h.api.secrets.delete(name);
+    missing.push([name, await h.run(REVIEW_OP)]);
+    h.api.secrets.set(name, kept);
+  }
+  for (const [name, receipt] of missing) {
+    assert.deepEqual(receipt.issues, ["purchase-gate-failed", `missing_secret:${name}`], name);
+  }
+  const unapproved = await h.run(REVIEW_OP, { EXPECTED_PLAN_DIGEST: "f".repeat(64) });
+  assert.deepEqual(unapproved.issues, ["plan-differs"]);
+  const wrongOp = await h.run(REVIEW_OP, { DEPLOY_OPERATION: SYNC_OP });
+  assert.deepEqual(wrongOp.issues, ["purchase-target-invalid"]);
+  const planOnly = await h.run(REVIEW_OP, { DEPLOY_MODE: "plan-only" });
+  assert.deepEqual(planOnly.issues, ["purchase-target-invalid"]);
+  const badBundle = await h.run(REVIEW_OP, {}, { verifyBundles: async () => { throw new Error("drift"); } });
+  assert.deepEqual(badBundle.issues, ["purchase-bundle-differs"]);
+  for (const r of [pending, ...missing.map(([, receipt]) => receipt), unapproved, wrongOp, planOnly, badBundle]) {
+    assert.equal(r.status, "stopped-before-write");
+    assert.equal(r.writeAttempted, false);
+  }
+  // A hand-edited plan cannot add a route, switch on JWT, or drop a gate.
+  const { plan: p } = h.made[REVIEW_OP];
+  const extra = { ...p.bundles.functions[0], name: "sync-settings", file: "sync-settings.js", verifyJwt: true };
+  for (const edit of [
+    { bundles: { ...p.bundles, functions: [...p.bundles.functions, extra] } },
+    { bundles: { ...p.bundles, functions: [extra] } },
+    { bundles: { ...p.bundles, functions: [{ ...p.bundles.functions[0], verifyJwt: true }] } },
+    { bundles: { ...p.bundles, kind: SYNC_SETTINGS_BUNDLE_SET.kind } },
+    { requiredSecrets: ["ENTITLEMENT_WRITER_DB_URL"] },
+    { migrations: ["0023"] },
+  ]) {
+    const edited = { ...p, ...edit };
+    const receipt = await runPurchaseOperation({ plan: edited, env: context(edited), platform: "linux",
+      cwd: h.root, sourceDir: h.made[REVIEW_OP].sourceDir, artifactDir: h.made[REVIEW_OP].artifactDir,
+      exec: h.db.exec, fetchImpl: h.api.fetchImpl, verifyBundles: async () => true });
+    assert.deepEqual(receipt.issues, ["purchase-plan-invalid"], JSON.stringify(edit));
+  }
+  assert.equal(h.api.calls.deploys, 0);
+  assert.equal(h.api.calls.secretPosts, 0);
+  const printed = JSON.stringify(h.receipts);
+  for (const value of Object.values(values)) assert.ok(!printed.includes(value));
 });
 
 // ── Secrets ──────────────────────────────────────────────────────────────────────────────────
@@ -652,7 +810,12 @@ test("the CLI routes purchase operations to this module and keeps rotate and oth
   await refuses(main(["plan", "--source-dir", join(source, "d")], env({ DEPLOY_OPERATION: SECRETS_OP, DEPLOY_MODE: "disable" }), { cwd: root, out }), "mode-invalid");
   await refuses(main(["plan", "--source-dir", join(source, "e")], env({ DEPLOY_OPERATION: "purchase-other", DEPLOY_MODE: "plan-only" }), { cwd: root, out }), "operation-unknown");
   await refuses(main(["plan", "--source-dir", join(source, "f")], env({ DEPLOY_OPERATION: SECRETS_OP, DEPLOY_MODE: "plan-only", DEPLOY_FUNCTIONS: "sync-settings" }), { cwd: root, out }), "purchase-input-invalid");
+  await refuses(main(["plan", "--source-dir", join(source, "g"), "--artifact-dir", join(source, "g-art")], env({ DEPLOY_OPERATION: REVIEW_OP, DEPLOY_MODE: "rotate" }), { cwd: root, out }), "mode-invalid");
+  await refuses(main(["plan", "--source-dir", join(source, "h"), "--artifact-dir", join(source, "h-art")], env({ DEPLOY_OPERATION: REVIEW_OP, DEPLOY_MODE: "plan-only", DEPLOY_FUNCTIONS: "review-signin" }), { cwd: root, out }), "purchase-input-invalid");
+  await refuses(main(["plan", "--source-dir", join(source, "i")], env({ DEPLOY_OPERATION: "review-signin-other", DEPLOY_MODE: "plan-only" }), { cwd: root, out }), "operation-unknown");
   const summary = { text: "", write(s) { this.text += s; } };
+  assert.equal(await main(["final-summary", "--receipt", join(source, "missing.json")], { DEPLOY_OPERATION: REVIEW_OP, APPLY_OUTCOME: "skipped" }, { out: summary }), 0);
+  assert.match(summary.text, /stopped-before-write/);
   assert.equal(await main(["final-summary", "--receipt", join(source, "missing.json")], { DEPLOY_OPERATION: SYNC_OP, APPLY_OUTCOME: "failure" }, { out: summary }), 0);
   assert.match(summary.text, /Purchase closing record/);
 });
@@ -665,7 +828,8 @@ test("the plan-job rehearsal proves every step through the exact module path, an
   const conn = parseDbUrl("postgresql://postgres:postgres@127.0.0.1:54322/postgres");
   const result = await runPurchaseReplay({ exec: db.exec, plan: p, dir: sourceDir, conn, cwd: root, log: (l) => lines.push(l) });
   assert.equal(result.status, "verified", lines.join("\n"));
-  assert.equal(result.proofs.length, 8);
+  assert.equal(result.proofs.length, 10);
+  assert.ok(result.proofs.some((proof) => /^review-signin-function:/.test(proof.name)));
   assert.ok(result.proofs.every((proof) => proof.ok));
   assert.match(renderPurchaseReplay(result), /: verified/);
   await refuses(

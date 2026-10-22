@@ -16,10 +16,13 @@ dashboard, which stays available as the fallback for any problem.
   stops. There is no other way in.
 - It never cancels a review, never changes a rollout percentage, never tries to skip review and never
   repeats an upload or a submission on its own. Cancelling a review is done in the dashboard.
-- A submitted update goes live to everyone once Google approves it. Still is too small for Chrome's
-  partial rollouts (that needs more than 10,000 weekly users), and by owner decision staged holds are not used.
-  To undo a bad release, ship a higher version with the earlier code, or cancel in the dashboard while
-  it is still in review.
+- Chrome is submitted with automatic publishing turned off: after `upload`, the update is submitted
+  for review in the dashboard with automatic publication unchecked (`upload-and-submit` asks for
+  automatic publication, so it is not used for a held release). Once Google approves it, the item
+  is held (Chrome keeps an approved item for up to 30 days) until the owner publishes all stores
+  together. When published it goes to everyone: Still is too small for Chrome's partial rollouts
+  (that needs more than 10,000 weekly users). To undo a bad release, ship a higher version with the
+  earlier code, or cancel in the dashboard while it is still in review or held.
 
 ## Modes
 

@@ -39,8 +39,9 @@ redeploy, remint or rotate merely to complete an old checkbox. For a newly appro
 
 1. Prepare only the required secrets in a private ignored env file; never inline values in command
    arguments or public artifacts. Keep reviewer configuration out of extension builds.
-2. Follow [the deployment/dependency procedure](counter-retention.md#edge-dependency-configuration)
-   for the exact reviewed function and target. Preserve the documented CLI compatibility behavior.
+2. Redeploy the route only through the protected `review-signin-function` operation
+   ([procedure](purchase-routes-and-secrets.md)). It deploys the reviewed commit's sealed bundle
+   and checks the secrets by name only; it never sets or changes them.
 3. Verify source/configuration parity and the approved reviewer sign-in; wrong-code and unrelated
    address requests must fail closed. Use only approved test identities, with no secret-bearing logs.
 4. Preserve the shared reviewer code while either iOS or macOS submission references it. After all
