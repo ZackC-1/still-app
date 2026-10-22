@@ -5,20 +5,60 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: protected migration rehearsal
+## Latest checkpoint: resumed consolidation; foundation, payment secrets and sync deployed
 
-PR #522 merged as `bac1539f382798fa2ca812dd782beabc76c47b69` after all 32 checks passed.
-Fresh DB-01 run `39704032899` privately confirmed the hosted migration tail is still 0024.
-Plan-only run `39704528557` bound exactly 0025–0027, but its disposable rehearsal refused before
-any write: the new 0026 and 0027 `.invariant.sql` files mistakenly returned structural issue
-arrays rather than private row-count/fingerprint objects. No hosted apply was dispatched.
+PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
+merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
+revision. The failed earlier plan39704528557 performed no hosted write.
 
-The correction preserves the existing strict parser and independent structural verification
-queries, replaces both preservation queries with complete snapshots of pre-existing application
-and QA rows, and exercises actual SQL output before/after migration in the checkout rehearsal.
-Both queries must work before the grouped deployment, when the new tables do not exist.
-All 76 offline deployment tests pass; reviewed correction and protected replay remain separate
-gates before owner approval. A new merged SHA will be pinned for the next deployment plan.
+[Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) now passes for exactly
+0025–0027: disposable history 24→27, clean structural checks, unchanged existing row snapshots.
+Matching [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) completed
+in production at the pinned foundation revision: history 24→27, all 18 structural checks clean,
+all three preservation snapshots unchanged, verified at 02:07 UTC. Post-apply [DB-01 run39709691391](https://github.com/ZackC-1/still-app/actions/runs/39709691391)
+completed and its private report confirms migration tail 0027/0026/0025; its expected `needs-review`
+verdict is not a failure. No sales activation is included.
+
+[purchase-secrets apply39709986466](https://github.com/ZackC-1/still-app/actions/runs/39709986466)
+completed after plan39709662125, verified at 02:16 UTC: 21 installed, two legacy RevenueCat values
+kept, three role URLs present/not managed, no issues. [PROD-01 run39710042569](https://github.com/ZackC-1/still-app/actions/runs/39710042569)
+confirms no production sales-policy row, expected revision 0, no admitted builds and no cutoff;
+enabled/offer fields are null rather than a false-valued policy row.
+
+[sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
+completed and verified at 02:26 UTC with no issue/recovery; its bundle is identical to final
+integration `589341f1`, and an unauthenticated production POST subsequently returned 401. Public trust pin
+[PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, passed all three genuine
+hosted-metadata comparisons and independent review, but runtime-signed proof remains unverified.
+Draft privacy [PR529](https://github.com/ZackC-1/still-app/pull/529) is approved for publication after
+PR527's combined source/checks complete; it remains unpublished.
+
+Web and Apple canonical analytics plus build trust/declaration changes merged through
+[PR528](https://github.com/ZackC-1/still-app/pull/528) at
+`c24a246da9607a069337d1a80c0b4cc0224f10c5`, 02:54 UTC October 22 (19:54 PT October 21).
+Required main, Deno and Playwright checks passed, including all three browser fixture phases.
+The optional preview remained unverified after dependency installation timed out twice.
+Disposable PostgreSQL CI is separate from production verification; a source merge does not prove deployment. Their source tests do not establish hosted deployment or final-device
+delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
+[current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
+verification and remaining gates. Final screen/image edits, signed packages and device acceptance
+remain owner-dependent; the requested obsolete-code/test audit follows backend and visual completion.
+
+Owner screenshots now confirm the scoped PostHog key has project read plus person write, and
+Supabase exposes only `public`/`graphql_public`, with `net` absent. Hosted provider proof remains
+pending. Fresh hosted metadata shows `ANALYTICS_SUBJECTS_ENABLED` absent; no switch was activated.
+
+The owner authorized resuming after the model-switch checkpoint. PR527 now incorporates main
+`c24a246d` and reviewed PR530 `08a37fc2` through ancestry-preserving merges `fb4ca36a` and
+`f7cf38c9`. Combined privacy source `55f09c43` remains byte-identical (SHA256
+`991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). Complete combined checks
+and review before merging PR527 and publishing approved PR529. No new protected production
+operation was started during consolidation; every new apply retains its personal owner-approval gate.
+
+Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
+18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
+source hash, and `git diff --check`. Existing Svelte build warnings remain; required GitHub checks
+and the combined review still control source merge. See the handoff for local log paths.
 
 # V3 production activation and verification
 
@@ -454,7 +494,7 @@ The served access rehearsal exposed its old sandbox issuer setting against the n
 reconciliation route. Its disposable fixture now uses production composition with generated keys,
 synthetic provider ports and local PostgreSQL. Production source is unchanged by this correction;
 QA routes retain their separate sandbox rehearsal. All 17 runtime-closure tests and four proof/
-readiness tests passed locally; the actual CLI/database rerun remains required in hosted CI.
+readiness tests passed locally; the actual CLI/database rerun remains required on the disposable CI runner.
 
 ### Provider read-back and reporting checkpoint — 21 October, 17:05 PT
 
