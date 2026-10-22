@@ -72,7 +72,7 @@
   const setupCopy = {
     safari: [
       "Still can't block distractions yet.",
-      "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
+      "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
       "Show me how",
     ],
     firefox: [

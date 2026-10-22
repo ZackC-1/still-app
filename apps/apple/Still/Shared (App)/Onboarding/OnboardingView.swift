@@ -204,6 +204,11 @@ struct OnboardingView: View {
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
+      #if os(iOS)
+      SafariAddressBarButtonIllustration(accent: Self.stillBlue)
+      #else
+      SafariToolbarStillButtonIllustration(accent: Self.stillBlue)
+      #endif
       Text(returnToSafariTip)
         .font(.still(size: 15, relativeTo: .body))
         .foregroundColor(.secondary)
@@ -223,9 +228,9 @@ struct OnboardingView: View {
   /// Platform-specific reminder of where Still lives once the user returns to Safari.
   private var returnToSafariTip: String {
     #if os(iOS)
-    return "Back in Safari, use the Page Menu to reach Still."
+    return "Back in Safari, tap the button at the left of the address bar, then tap “Still”."
     #else
-    return "Back in Safari, click Still’s toolbar button."
+    return "Back in Safari, click the Still button to the right of the address bar. If you don’t see it, click “»” at the right end of the toolbar and choose “Still”."
     #endif
   }
 
@@ -395,6 +400,129 @@ struct OnboardingView: View {
     .padding(.bottom, 4)
   }
 }
+
+#if os(iOS)
+/// A small drawing of Safari's bottom address bar on iPhone, beside the "Back in Safari" tip on the
+/// done screen. Checked against the owner's iPhone (iOS 27, Safari) on 21 Oct 2026: the bar is a pill
+/// with the site name and a reload arrow at its right end, and at its left end one button whose glyph
+/// is a small puzzle-piece tab above three short lines. That button opens Safari's page menu, where
+/// "Still" opens Still's popup. Drawn with shapes rather than a screenshot so it follows light and
+/// dark mode; Still Blue marks the button the tip points at. Fixed size, so nothing else moves.
+private struct SafariAddressBarButtonIllustration: View {
+  let accent: Color
+
+  var body: some View {
+    HStack(spacing: 0) {
+      SafariPageMenuButtonGlyph()
+        .stroke(accent, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+        .frame(width: 20, height: 20)
+        .padding(.leading, 16)
+      Spacer(minLength: 12)
+      // A neutral stand-in for the site name.
+      Capsule()
+        .fill(Color.primary.opacity(0.18))
+        .frame(width: 96, height: 8)
+      Spacer(minLength: 12)
+      Image(systemName: "arrow.clockwise")
+        .font(.system(size: 15, weight: .medium))
+        .foregroundColor(.secondary)
+        .padding(.trailing, 16)
+    }
+    .frame(width: 240, height: 44)
+    .background(Capsule().fill(Color.primary.opacity(0.06)))
+    .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 1))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("The button at the left of Safari's address bar")
+    .accessibilityAddTraits(.isImage)
+  }
+}
+
+/// The address-bar button's glyph: a small puzzle-piece tab at the top left over three short lines.
+private struct SafariPageMenuButtonGlyph: Shape {
+  func path(in rect: CGRect) -> Path {
+    let w = rect.width, h = rect.height
+    func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+      CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
+    }
+    var path = Path()
+    // The puzzle tab: a small square with a round knob on its right side.
+    path.move(to: point(0.10, 0.08))
+    path.addLine(to: point(0.40, 0.08))
+    path.addLine(to: point(0.40, 0.16))
+    path.addArc(
+      center: point(0.46, 0.22), radius: 0.06 * w,
+      startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+    path.addLine(to: point(0.40, 0.36))
+    path.addLine(to: point(0.10, 0.36))
+    path.closeSubpath()
+    // Three short lines below it.
+    for y in [0.56, 0.74, 0.92] as [CGFloat] {
+      path.move(to: point(0.10, y))
+      path.addLine(to: point(0.90, y))
+    }
+    return path
+  }
+}
+#endif
+
+#if os(macOS)
+/// A small drawing of Safari's toolbar on the Mac, beside the "Back in Safari" tip on the done
+/// screen. Checked against the owner's Mac (Safari 27.0.1) on 21 Oct 2026: extension buttons sit
+/// immediately to the right of the address bar (another extension's, then Still's blue square),
+/// before the download, share, + and tabs buttons; a narrow window folds them into "»" at the right
+/// end of the toolbar. Drawn with shapes so it follows light and dark mode; Still Blue marks Still's
+/// button, the one thing the tip points at. Fixed size, so nothing else moves.
+private struct SafariToolbarStillButtonIllustration: View {
+  let accent: Color
+  /// 112 + 8 + 16 + 8 + 16, then four 14pt buttons each after an 8pt gap.
+  private static let rowWidth: CGFloat = 248
+
+  var body: some View {
+    VStack(spacing: 4) {
+      HStack(spacing: 8) {
+        // The address bar, with a neutral stand-in for the site name.
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill(Color.primary.opacity(0.06))
+          .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+              .stroke(Color.primary.opacity(0.15), lineWidth: 1))
+          .overlay(
+            Capsule().fill(Color.primary.opacity(0.18)).frame(width: 64, height: 6))
+          .frame(width: 112, height: 26)
+        // Another extension's button.
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+          .fill(Color.primary.opacity(0.28))
+          .frame(width: 16, height: 16)
+        // Still's button.
+        ZStack {
+          RoundedRectangle(cornerRadius: 4, style: .continuous).fill(accent)
+          Capsule().fill(Color.white).frame(width: 11, height: 1.5).offset(y: 3)
+          Circle().fill(Color.white).frame(width: 4, height: 4).offset(y: 1.5)
+        }
+        .frame(width: 16, height: 16)
+        // Download, share, + and tabs.
+        ForEach(0..<4, id: \.self) { _ in
+          RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(Color.primary.opacity(0.10))
+            .frame(width: 14, height: 14)
+        }
+      }
+      // A short "Still" callout centred under Still's button, whose centre sits 152pt in
+      // (address bar 112, gap 8, neighbour 16, gap 8, half of Still's 16).
+      Text("Still")
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundColor(accent)
+        .frame(width: 32)
+        .padding(.leading, 152 - 16)
+        .frame(width: Self.rowWidth, alignment: .leading)
+    }
+    .frame(width: Self.rowWidth, height: 46)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Still's button to the right of Safari's address bar")
+    .accessibilityAddTraits(.isImage)
+  }
+}
+#endif
 
 private extension Font {
   static func still(
