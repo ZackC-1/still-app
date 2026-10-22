@@ -56,7 +56,7 @@ describe("Firefox manifest compatibility", () => {
       id: "still@chartash.com",
       strict_min_version: "140.0",
       data_collection_permissions: {
-        required: ["authenticationInfo"],
+        required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"],
         optional: ["technicalAndInteraction"],
       },
     };

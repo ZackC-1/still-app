@@ -24,7 +24,7 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `manifest_version` | 3 |
 | `gecko.id` | `still@chartash.com` — permanent identifier, not a contact mailbox |
 | `gecko.strict_min_version` | `140.0` |
-| `gecko.data_collection_permissions` | `required: ["authenticationInfo"]` |
+| `gecko.data_collection_permissions` | `required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"]`, `optional: ["technicalAndInteraction"]` (3.0 adds the email address and the Still Pro purchase status; existing users are asked to accept the two new types on update) |
 | `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; QA sandbox packages only until Firefox on Android ships in a later update |
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
