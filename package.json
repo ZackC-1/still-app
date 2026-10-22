@@ -27,7 +27,9 @@
     "test:release": "node --test scripts/release/access-trust.test.mjs scripts/release/release.test.mjs scripts/release/chrome-store.test.mjs scripts/release/chrome-workflow.test.mjs apps/apple/scripts/release-env-guard.test.mjs",
     "test:chrome-release": "node --test scripts/release/chrome-store.test.mjs scripts/release/chrome-workflow.test.mjs",
     "visual:store": "node tests/visual/store.mjs",
-    "test:qa-backend": "node --test \"tests/qa/backend/*.test.mjs\""
+    "test:qa-backend": "node --test \"tests/qa/backend/*.test.mjs\"",
+    "build:website": "python3 scripts/website/site.py build",
+    "test:website": "python3 -m unittest discover -s scripts/website -p \"test_*.py\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
