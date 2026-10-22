@@ -240,15 +240,18 @@ describe("Apple app analytics", () => {
     const second = app.identifyAccount(U2); // U2 signs in before U1's reply
     await vi.waitFor(() => expect(asked).toEqual([U1, U2]));
     app.ui.track("signed_in", {}); // U2's use, waiting
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => expect(events().some(e => e.event === "signed_in")).toBe(true));
     resolveU1({ state: "active", subject: testSubjectFor(U1) }); // U1's reply lands first, late
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
-    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    // Subject installation and queued-event attribution finish asynchronously. Await the
+    // required outcome, not a 10ms wall-clock guess under parallel crypto/test load.
+    await vi.waitFor(() => {
+      expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+      expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
+    });
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
-    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
   });
 
   it("NEGATIVE CONTROL: two sign-ins back to back, the earlier reply first: only the later account reports", async () => {
@@ -270,8 +273,7 @@ describe("Apple app analytics", () => {
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
-    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    await vi.waitFor(() => expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2)));
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
   });
 });
@@ -677,7 +679,9 @@ describe("Apple launch attribution comes first", () => {
       expect(launch().some((e) => "distinct_id" in e.properties)).toBe(false);
       release();
       await identified;
-      await settled();
+      await vi.waitFor(() => {
+        expect(launch().every(e => (e as { attributeLater?: boolean }).attributeLater === undefined)).toBe(true);
+      });
       // The identity continued the hold (ISS-0108): the launch goes to it, as signed-in use.
       expect(launch().map((e) => e.event)).toEqual(["updated", "opened", "active"]);
       for (const e of launch()) {

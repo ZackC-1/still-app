@@ -138,3 +138,40 @@ remain outstanding until recorded below.
   gate. The subject switch redeploys both identify and purchase handlers on every reapplication:
   matching secret bytes alone cannot prove a previous partial rollout loaded that setting.
 - Full bundle integration, disposable SQL, PR checks and independent implementation review pending.
+
+## Deployment switch correction and verification
+
+Independent review found that checkout caches its optional analytics configuration at startup.
+Changing the secret alone does not stop or start original attribution on an already warm instance.
+The protected switch plan now binds a separate five-route bundle catalogue, all migration bytes,
+and the shared closed purchase deployment prerequisites. Normal analytics function deployment
+continues to deploy only the four analytics routes. Switch enable checks payment history and all
+purchase secret names before any write, then refreshes identify, purchase reporting and checkout
+using the exact planned bytes with readback. No payment secret is changed by this operation.
+
+Emergency disable writes false and refreshes both reporting workers before checking the payment
+prerequisites for checkout refresh. If those prerequisites or its upload/readback fail, the durable
+receipt reports `outcome-unknown`; it does not claim attribution collection has stopped. Repairing
+prerequisites and repeating the same approved plan refreshes all three runtimes even if the secret
+already equals false. Existing in-flight requests remain bounded by the reporting deadline; browser
+cancellation is best effort and does not guarantee cancellation of deployed edge work.
+
+Verification at the first implementation commit: the hosted disposable production-ledger rehearsal
+(run 39705655857) passed migration 0028 structural/preservation checks and real SQL concurrency,
+retirement, lease/CAS and account-erasure scenarios. Local Deno: 642 passed, one database-only test
+ignored; typecheck, lint and full build passed. The full analytics suite passed 430 tests after
+replacing three fixed 10ms waits in Apple negative-control fixtures with bounded condition waits.
+The untouched main baseline bac1539f failed the same full suite at the adjacent Apple late-identity
+assertion, while its isolated file passed; all positive and negative assertions remain. This is a
+fixture scheduling correction, not a change to Apple application behavior. Hosted production
+verification and actual default-on browser delivery remain release evidence gates.
+
+The switch correction passed 18 analytics deployment tests, 17 purchase deployment tests and
+9 production runtime tests, including actual off/on/off runtime recomposition. The real sealed
+bundle integration rebuilt the switch catalogue twice from different paths and passed the existing
+startup probes. CI also exposed a separate Apple fixture's fixed 50-turn wait before checking held
+launch-event attribution; its final wait now observes the exact expected condition with a bounded
+timeout, retaining all identity and event assertions (35 focused Apple tests passed). The earlier
+CI Deno lint failure was a test callback's unnecessary async declaration; corrected without runtime
+changes. A broad local test run was stopped under shared-machine contention after an unrelated
+AppleSettings timeout; full-suite completion must be taken from the new CI run, not that local run.

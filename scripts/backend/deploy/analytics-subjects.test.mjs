@@ -61,7 +61,8 @@ import {
   WORKER_TOKEN_SECRET,
   WRITABLE_SECRETS,
 } from "./analytics-subjects.mjs";
-import { ANALYTICS_FUNCTIONS } from "./qa-function-bundles.mjs";
+import { PURCHASE_ROUTE_SECRETS } from "./purchase-route-prerequisites.mjs";
+import { ANALYTICS_BUNDLE_SET, ANALYTICS_FUNCTIONS } from "./qa-function-bundles.mjs";
 import { scramKeys } from "./qa-secrets.mjs";
 
 const REPO = new URL("../../../", import.meta.url);
@@ -268,12 +269,16 @@ async function harness(t, options = {}) {
   const made = await plan(root, head, { operation: SWITCH_OP, mode: "apply", policyMode: "enable" });
   const db = world(options);
   const api = rehearsalApi(REF);
+  for (const name of PURCHASE_ROUTE_SECRETS) api.secrets.set(name,"synthetic-payment-prerequisite");
   const planFor = (operation, mode = "apply", policyMode = "none") =>
     siblingPlan(made.plan, {
       operation,
       mode,
       policyMode,
-      bundles: ANALYTICS_OPERATIONS[operation].bundles ? made.plan.bundles : null,
+      bundles: ANALYTICS_OPERATIONS[operation].bundles ? operation === SWITCH_OP ? made.plan.bundles : {
+        ...made.plan.bundles, kind: ANALYTICS_BUNDLE_SET.kind,
+        functions: made.plan.bundles.functions.filter(item => item.name !== "create-web-checkout"),
+      } : null,
     });
   const receipts = [];
   const run = async (p, extra = {}) => {
@@ -350,6 +355,10 @@ test("the plan binds the operation, the commit on main, the pinned SQL and the b
     ["delete-user", true],
     ["analytics-purchase", true],
   ]);
+  const switching = (await plan(root,head,{ operation: SWITCH_OP,policyMode: "enable" })).plan;
+  assert.deepEqual(switching.bundles.functions.map(f=>f.name),[...ANALYTICS_FUNCTIONS.map(f=>f.name),"create-web-checkout"]);
+  assert.deepEqual(switching.migrations,["0017","0018"]);
+  assert.ok(switching.files.some(f=>f.path==="supabase/migrations/0017_analytics_erasure.sql"));
   assert.notEqual(
     (await plan(root, head, { operation: SCHEDULE_OP, policyMode: "disable" })).plan.digest,
     schedule.digest,
@@ -696,9 +705,6 @@ test("the schedule needs analytics-erasure at source, stores the exact command, 
 
 test("the switch turns on only with a running schedule and a worker that deletes; off always works", async (t) => {
   const h = await harness(t);
-  // Off needs nothing, even before anything else exists.
-  const offFirst = await h.run(h.planFor(SWITCH_OP, "apply", "disable"));
-  assert.equal(offFirst.status, "no-change");
   await h.run(h.planFor(SECRETS_OP));
   await h.run(h.planFor(FUNCTIONS_OP));
   const noSchedule = await h.run(h.planFor(SWITCH_OP, "apply", "enable"));
@@ -827,4 +833,58 @@ test("the CLI routes analytics operations to this module and keeps rotate and po
   const summary = { text: "", write(s) { this.text += s; } };
   assert.equal(await main(["final-summary", "--receipt", join(source, "missing.json")], { DEPLOY_OPERATION: SWITCH_OP, APPLY_OUTCOME: "failure" }, { out: summary }), 0);
   assert.match(summary.text, /Analytics closing record/);
+});
+
+test("canonical reporting deployment requires its migration and structural gate before any write", async (t) => {
+  const h = await harness(t);
+  await h.run(h.planFor(SECRETS_OP));
+  h.db.state.history = ["0017", "0018"];
+  const missing = await h.run(h.planFor(FUNCTIONS_OP));
+  assert.equal(missing.status,"stopped-before-write");
+  assert.ok(missing.issues.includes("history_missing:0028"));
+  assert.equal(h.api.calls.deploys,0);
+  h.db.state.history.push("0028");
+  h.db.state.purchaseGate = ["erasure_cascade"];
+  const drift = await h.run(h.planFor(FUNCTIONS_OP));
+  assert.equal(drift.status,"stopped-before-write");
+  assert.ok(drift.issues.some(code => code.includes("erasure_cascade")));
+  assert.equal(h.api.calls.deploys,0);
+});
+
+test("checkout refresh shares purchase gates; partial disable stops reporters and retry refreshes the pinned checkout", async t => {
+  const h = await harness(t);
+  await h.run(h.planFor(SECRETS_OP));
+  await h.run(h.planFor(FUNCTIONS_OP));
+  await h.run(h.planFor(SCHEDULE_OP,"apply","enable"));
+  h.db.state.runs=1; h.db.state.ok=1;
+  const enable=h.planFor(SWITCH_OP,"apply","enable"), disable=h.planFor(SWITCH_OP,"apply","disable");
+  const checkout=enable.bundles.functions.find(item => item.name==="create-web-checkout");
+  assert.ok(checkout);
+  const posts=h.api.calls.secretPosts, deploys=h.api.calls.deploys;
+  h.api.secrets.delete("STRIPE_SECRET_API_KEY");
+  const refused=await h.run(enable);
+  assert.equal(refused.status,"stopped-before-write");
+  assert.ok(refused.issues.includes("missing_secret:STRIPE_SECRET_API_KEY"));
+  assert.equal(h.api.calls.secretPosts,posts); assert.equal(h.api.calls.deploys,deploys);
+  h.api.secrets.set("STRIPE_SECRET_API_KEY","synthetic-payment-prerequisite");
+  h.db.state.history=h.db.state.history.filter(version => version!=="0017");
+  const missingHistory=await h.run(enable);
+  assert.equal(missingHistory.writeAttempted,false); assert.ok(missingHistory.issues.includes("history_missing:0017"));
+  h.db.state.history.push("0017");
+  assert.equal((await h.run(enable)).status,"verified");
+  const prior=h.api.functions.get("create-web-checkout").version;
+  h.api.secrets.delete("STRIPE_SECRET_API_KEY");
+  const partial=await h.run(disable);
+  assert.equal(partial.status,"outcome-unknown");
+  assert.ok(partial.issues.includes("analytics-checkout-refresh-incomplete"));
+  assert.equal(h.api.secrets.get(SWITCH_SECRET),"false");
+  assert.equal(h.api.functions.get("create-web-checkout").version,prior);
+  assert.equal(partial.steps.find(item=>item.name==="create-web-checkout").outcome,"not-attempted");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-identify").outcome,"deployed");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-purchase").outcome,"deployed");
+  h.api.secrets.set("STRIPE_SECRET_API_KEY","synthetic-payment-prerequisite");
+  const retried=await h.run(disable);
+  assert.equal(retried.status,"verified",retried.issues.join(" "));
+  assert.equal(h.api.functions.get("create-web-checkout").version,prior+1);
+  assert.equal(retried.steps.find(item=>item.name==="create-web-checkout").outcome,"deployed");
 });

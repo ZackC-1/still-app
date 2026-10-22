@@ -30,6 +30,7 @@
 //
 // Public records (plan, logs, step summary) carry names, counts, fixed codes and hashes of public
 // code only: never a secret value, a digest of a secret, an email or an account id.
+import { PURCHASE_ROUTE_SECRETS, purchaseRouteIssues } from "./purchase-route-prerequisites.mjs";
 import {
   createPrivateKey,
   createPublicKey,
@@ -103,32 +104,7 @@ export const SYNC_GUARD_MIGRATION = "0024";
  * validates values. Shared database sign-ins are provisioned by their own protected operations.
  */
 export const ROUTE_SECRETS = Object.freeze({
-  [FUNCTIONS_OP]: Object.freeze([
-    "ENTITLEMENT_WRITER_DB_URL",
-    "PRODUCT_POLICY_READER_DB_URL",
-    "REVENUECAT_SECRET_API_KEY",
-    "REVENUECAT_WEBHOOK_TOKEN",
-    "ACCESS_PROOF_ENVIRONMENT",
-    "ACCESS_PROOF_KEY_ID",
-    "ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64",
-    "ACCESS_PROOF_PUBLIC_KEY_HEX",
-    "ACCESS_APPLE_PRODUCTS_JSON",
-    "ACCESS_PROVIDER_PRODUCTS_JSON",
-    "APP_STORE_SERVER_ISSUER_ID",
-    "APP_STORE_SERVER_KEY_ID",
-    "APP_STORE_SERVER_PRIVATE_KEY",
-    "REVENUECAT_PROJECT_ID",
-    "REVENUECAT_ACCESS_SECRET_API_KEY",
-    "STRIPE_SECRET_API_KEY",
-    "STRIPE_ACCOUNT_ID",
-    "STRIPE_WEBHOOK_SECRET",
-    "STRIPE_API_VERSION",
-    "STRIPE_PRICE_ID",
-    "STRIPE_PRODUCT_ID",
-    "REVENUECAT_STRIPE_PUBLIC_API_KEY",
-    "WEB_RETURN_ORIGIN",
-    "WEB_RETURN_PATHS_JSON",
-  ]),
+  [FUNCTIONS_OP]: PURCHASE_ROUTE_SECRETS,
   [SYNC_OP]: Object.freeze(["SETTINGS_WRITER_DB_URL"]),
 });
 
@@ -211,6 +187,7 @@ export const PURCHASE_TOOLING = Object.freeze(
   [
     ...new Set([
       ...TOOLING_PATHS,
+      "scripts/backend/deploy/purchase-route-prerequisites.mjs",
       "scripts/backend/deploy/analytics-subjects.mjs",
       "scripts/backend/deploy/purchase-operations.mjs",
       "scripts/backend/deploy/qa-function-bundles.mjs",
@@ -702,14 +679,7 @@ async function deployFunctions({
       file: join(sourceDir, HISTORY_SQL),
     }),
   );
-  const applied = new Set(history.map((item) => item.version));
-  for (const version of plan.migrations) {
-    if (!applied.has(version)) codes.push(`history_missing:${version}`);
-  }
-  const secrets = new Set((await listSecrets()).map((item) => item.name));
-  for (const name of plan.requiredSecrets) {
-    if (!secrets.has(name)) codes.push(`missing_secret:${name}`);
-  }
+  codes.push(...purchaseRouteIssues(history, plan.migrations, await listSecrets(), plan.requiredSecrets));
   if (codes.length) refuse("purchase-gate-failed", codes);
 
   for (const upload of plan.bundles.functions) step(upload.name, "pending");

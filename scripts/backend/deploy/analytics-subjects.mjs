@@ -18,8 +18,8 @@
 //      A pg_cron job (Supabase Cron, with pg_net) that POSTs {"action":"work"} to analytics-erasure
 //      every 15 minutes with the token read from Vault. Disable removes only that job.
 //   4. analytics-subjects-switch    (policy_mode enable / disable)
-//      Sets ANALYTICS_SUBJECTS_ENABLED to "true" or "false", then redeploys analytics-identify and analytics-purchase from
-//      the planned commit so every running copy picks the setting up.
+//      Sets ANALYTICS_SUBJECTS_ENABLED, then refreshes analytics-identify, analytics-purchase and
+//      create-web-checkout from sealed planned bytes. Checkout caches optional attribution config.
 //
 // Hard gates, all checked read-only before the first write (any failure stops the run and names
 // fixed codes only):
@@ -30,7 +30,8 @@
 //   - functions: the three analytics secrets and the five POSTHOG_* secrets exist, the eraser can
 //     sign in, and the Vault token matches the function secret (digests only);
 //   - schedule enable: analytics-erasure is deployed at the planned source;
-//   - switch enable: all four functions are deployed at the planned source, the schedule is present
+//   - switch enable: all four analytics functions are deployed at the planned source, every
+//     planned migration and purchase route secret exists, and the schedule is present
 //     with the exact planned command, pg_cron ran it in the last 35 minutes, a worker run in that
 //     window answered 200 with a report that skipped nothing and has failed = 0 and lost = 0, and,
 //     last, the PostHog provider proof passes inside analytics-erasure (the personal key reads the
@@ -38,11 +39,15 @@
 //     accepted with nobody found), asked through pg_net with the Vault token;
 //   - the secrets step and switch-on: the Secrets-only token must be refused by GET /functions.
 // A rotate skips the history, migration and rehearsal gates (it is the recovery path; re-running
-// it is always safe). The disable directions have no gate beyond owner approval: the way back.
+// it is always safe). Switch-off first stops reporting without payment gates, then refreshes
+// checkout under the same migration/secret prerequisites as purchase-functions. A failed checkout
+// refresh reports outcome-unknown: attribution collection is not proven stopped. Repeat the same
+// approved plan after repairing prerequisites. Schedule disable remains ungated recovery.
 //
 // Public records (plan, logs, step summary) carry names, counts, fixed codes and hashes of public
 // code only: never a secret value, digest of a secret, password, verifier, email, account id or
 // PostHog data.
+import { PURCHASE_ROUTE_SECRETS, purchaseRouteIssues } from "./purchase-route-prerequisites.mjs";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -70,6 +75,7 @@ import {
 } from "./deploy.mjs";
 import {
   ANALYTICS_BUNDLE_SET,
+  ANALYTICS_SWITCH_BUNDLE_SET,
   buildFunctionBundles,
   verifyFunctionBundles,
 } from "./qa-function-bundles.mjs";
@@ -184,7 +190,7 @@ export const ANALYTICS_SQL = Object.freeze({
 });
 /** 0018's post-apply check: covers 0018, 0017's snapshot trigger and routes, and the eraser role. */
 export const PURCHASE_ANALYTICS_GATE = `${VERIFY_DIR}/0028_purchase_analytics.sql`;
-export const SWITCH_ROUTES = Object.freeze(["analytics-identify", "analytics-purchase"]);
+export const SWITCH_ROUTES = Object.freeze(["analytics-identify", "analytics-purchase", "create-web-checkout"]);
 export const MIGRATION_GATE = `${VERIFY_DIR}/0018_analytics_account_erasure.sql`;
 /**
  * Codes 0018's check reports only because a LATER reviewed migration changed that object on
@@ -205,6 +211,7 @@ export const ANALYTICS_TOOLING = Object.freeze(
   [
     ...new Set([
       ...TOOLING_PATHS,
+      "scripts/backend/deploy/purchase-route-prerequisites.mjs",
       "scripts/backend/deploy/analytics-subjects.mjs",
       "scripts/backend/deploy/qa-function-bundles.mjs",
       "scripts/backend/deploy/qa-functions.mjs",
@@ -389,12 +396,13 @@ export async function createAnalyticsPlan({
   await prepareQaSource({ exec, cwd, revision, sourceDir });
   await pinnedFiles(sourceDir);
   const bundles = spec.bundles
-    ? await buildBundles(ANALYTICS_BUNDLE_SET, { sourceDir, artifactDir, exec })
+    ? await buildBundles(operation === SWITCH_OP ? ANALYTICS_SWITCH_BUNDLE_SET : ANALYTICS_BUNDLE_SET, { sourceDir, artifactDir, exec })
     : null;
   const paths = [
     ...new Set([
       ...ANALYTICS_TOOLING,
       ...Object.values(ANALYTICS_SQL).map((pin) => pin.path),
+      ...history.map(item => `supabase/migrations/${item.file}`),
       ...(bundles ? bundles.sources.map((item) => item.path) : []),
     ]),
   ].sort();
@@ -420,6 +428,7 @@ export async function createAnalyticsPlan({
     onFirstParent: await git.onFirstParent(revision, workflowRevision),
     projectRef,
     files,
+    migrations: history.map(item => item.version),
     bundles,
     writable: [...WRITABLE_SECRETS],
     workerCommandSha256: sha256(workerCommand(projectRef)),
@@ -784,7 +793,7 @@ export async function runAnalyticsOperation({
     await checkSource(plan, sourceDir);
     if (plan.bundles) {
       try {
-        await verifyBundles(ANALYTICS_BUNDLE_SET, {
+        await verifyBundles(plan.operation === SWITCH_OP ? ANALYTICS_SWITCH_BUNDLE_SET : ANALYTICS_BUNDLE_SET, {
           sourceDir,
           artifactDir,
           manifest: plan.bundles,
@@ -915,6 +924,13 @@ export async function runAnalyticsOperation({
         ) codes.push(`function_not_at_source:${name}`);
       }
     };
+    // Checkout uses the same closed history/secret gate as the purchase route operation.
+    // On disable, defer this read until reporting workers are stopped; a failed refresh remains
+    // explicitly incomplete and can be retried with the exact approved bundle.
+    const checkoutIssues = async () => purchaseRouteIssues(
+      parseHistory(await read(join(sourceDir, HISTORY_SQL))), plan.migrations, await listSecrets(),
+    );
+    if (operation === SWITCH_OP && enable) codes.push(...await checkoutIssues());
     if (operation === FUNCTIONS_OP) runtimeReady();
     if (operation === SCHEDULE_OP && enable) {
       runtimeReady();
@@ -923,7 +939,7 @@ export async function runAnalyticsOperation({
     }
     if (operation === SWITCH_OP && enable) {
       runtimeReady();
-      await atSource(plan.bundles.functions.map((item) => item.name));
+      await atSource(ANALYTICS_BUNDLE_SET.routes.map((item) => item.name));
       const job = before.facts.job;
       if (!job) codes.push("schedule_missing");
       else if (
@@ -1035,13 +1051,6 @@ export async function runAnalyticsOperation({
       step(CRON_JOB, enable ? "scheduled" : "unscheduled");
     } else {
       const value = enable ? "true" : "false";
-      const current = digest.get(SWITCH_SECRET);
-      if (!enable && current === undefined) {
-        step(SWITCH_SECRET, enable ? "already-on" : "already-off");
-        receipt.status = "no-change";
-        await progress();
-        return receipt;
-      }
       assertWritableSecret(SWITCH_SECRET);
       step(SWITCH_SECRET, OUTCOME_UNKNOWN);
       for (const name of SWITCH_ROUTES) step(name, "pending");
@@ -1055,8 +1064,12 @@ export async function runAnalyticsOperation({
       step(SWITCH_SECRET, enable ? "set-true" : "set-false");
       await progress();
       // Reapply even when the secret matches: a previous run may have failed mid-rollout.
-      // Both workers must load the current setting; byte-identical source cannot prove that.
+      // All three cached runtimes must load the setting; identical source cannot prove that.
       for (const name of SWITCH_ROUTES) {
+        if (name === "create-web-checkout" && !enable) {
+          const issues = await checkoutIssues();
+          if (issues.length) refuse("analytics-checkout-refresh-incomplete", issues);
+        }
         const upload = plan.bundles.functions.find((item) => item.name === name);
         await deployRoute({
           api: functionsApi, upload, bytes: await bundleBytes(upload), plan, receipt,
@@ -1515,7 +1528,7 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactDir, { recursive: true });
   const functions = [];
-  for (const name of ROUTE_NAMES) {
+  for (const name of [...ROUTE_NAMES, "create-web-checkout"]) {
     const file = `${name}.js`;
     const bytes = Buffer.from(`// rehearsal bundle ${name} ${randomBytes(8).toString("hex")}\n`);
     await writeFile(join(artifactDir, file), bytes);
@@ -1523,7 +1536,10 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   }
   const bundles = { protocol: 1, kind: ANALYTICS_BUNDLE_SET.kind, toolchain: {}, sources: [], functions };
   const planFor = (operation, mode, policyMode = "none") =>
-    siblingPlan(plan, { operation, mode, policyMode, bundles: ANALYTICS_OPERATIONS[operation].bundles ? bundles : null });
+    siblingPlan(plan, { operation, mode, policyMode, bundles: ANALYTICS_OPERATIONS[operation].bundles ? { ...bundles,
+      kind: operation === SWITCH_OP ? ANALYTICS_SWITCH_BUNDLE_SET.kind : ANALYTICS_BUNDLE_SET.kind,
+      functions: operation === SWITCH_OP ? functions : functions.filter(item => item.name !== "create-web-checkout"),
+    } : null });
   const envFor = (p, extra = {}) => ({
     GITHUB_ACTIONS: "true",
     RUNNER_ENVIRONMENT: "github-hosted",
@@ -1656,6 +1672,7 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
     probe.join(" "),
   );
 
+  for (const name of PURCHASE_ROUTE_SECRETS) api.secrets.set(name, "synthetic-payment-prerequisite");
   const noEvidence = await operate(planFor(SWITCH_OP, "apply", "enable"));
   // Synthetic evidence of scheduled runs and worker answers (rehearsal only).
   await sql(`insert into cron.job_run_details (jobid, runid, status, start_time, end_time) select j.jobid, 900000001, 'succeeded', now(), now() from cron.job j where j.jobname = '${CRON_JOB}'`);
@@ -1684,9 +1701,9 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   const disabled = await operate(planFor(SWITCH_OP, "apply", "disable"));
   const disabledAgain = await operate(planFor(SWITCH_OP, "apply", "disable"));
   prove(
-    "switch disable: sets the switch to false and redeploys analytics-identify; a repeat changes nothing",
+    "switch disable: sets the switch to false and redeploys analytics-identify; a repeat refreshes every cached runtime",
     disabled.status === "verified" && api.secrets.get(SWITCH_SECRET) === "false" &&
-      version("analytics-identify") === identifyBefore + 2 && disabledAgain.status === "verified",
+      version("analytics-identify") === identifyBefore + 3 && disabledAgain.status === "verified",
     issues(disabled),
   );
 

@@ -26,6 +26,8 @@ export function handlePurchaseAnalytics(
   req: Request,
   deps: PurchaseAnalyticsDeps,
 ): Promise<Response> {
+  const now = deps.now ?? Date.now;
+  const deadline = now() + 4_000;
   return withAuthenticatedUser(req, deps, async (account) => {
     if (!deps.enabled || !deps.projectKeySha256 || !deps.store || !deps.limiter)
       return jsonResponse(503, { error: "unavailable" });
@@ -56,8 +58,6 @@ export function handlePurchaseAnalytics(
       { network: true },
     );
     if (limited) return limited;
-    const now = deps.now ?? Date.now;
-    const deadline = now() + 4_000;
     let delivered = 0;
     for (let i = 0; i < 2 && now() < deadline && !req.signal.aborted; i++) {
       const claim = await deps.store.claim(account, body.originProof);

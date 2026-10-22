@@ -380,3 +380,20 @@ where next_attempt_at <= now() and (lease_until is null or lease_until < now());
 
 If the number of due jobs keeps growing, check the PostHog key and project settings first, then
 the worker's schedule.
+
+## Canonical purchase reporting coverage
+
+The web canonical purchase slice records `purchase_recorded` and `purchase_refunded` only for
+production purchases originally attributed by a consenting device and later reported by that same
+origin while sharing remains enabled. A return to a Still screen supplies the fresh permission
+check; payment webhooks and restore/access snapshots do not dispatch analytics. Reports carry
+stable event IDs and canonical payment/full-refund times. Partial refunds are not reported as a
+full reversal. Missing consent, a device that never returns, erased attribution or optional lock
+contention can leave events absent. These events describe a **consented subset**, not financial
+reconciliation or all sales. Supabase's canonical payment ledger remains the payment record.
+Apple coverage is implemented separately; this web slice does not establish Apple completion.
+
+The protected analytics switch also refreshes checkout because it caches original-attribution
+configuration. A failed checkout refresh after disabling reporting produces an explicit incomplete
+receipt; do not claim collection stopped until the same planned checkout bundle has been refreshed
+and read back successfully. See plan003 for prerequisites and recovery evidence.

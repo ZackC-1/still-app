@@ -49,6 +49,12 @@ export const ANALYTICS_BUNDLE_SET = routeSet(
   ANALYTICS_FUNCTIONS,
   false,
 );
+/** Switch refresh also re-creates checkout, whose optional attribution config is cached. */
+export const ANALYTICS_SWITCH_BUNDLE_SET = routeSet(
+  "still-analytics-switch-function-bundles",
+  Object.freeze([...ANALYTICS_FUNCTIONS, Object.freeze({ name: "create-web-checkout", verifyJwt: true })]),
+  false,
+);
 /**
  * Production purchase routes, in deploy order (see purchase-operations.mjs): the read-only routes
  * first (the public policy read, the account export), then the routes that verify a purchase and

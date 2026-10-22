@@ -7,6 +7,7 @@ module: packages/core/src/analytics
 applies_when: Analytics validators accept purchase events but real purchase UI never emits them
 date: 2026-10-21
 status: active
+last_updated: 2026-10-21
 tags:
   - analytics
   - purchases
@@ -55,3 +56,26 @@ release check.
 
 Related: [production analytics gate testing](test-seams-hid-an-analytics-gate-production-never-satisfied.md),
 [ADR 0004](../../adr/0004-first-party-usage-analytics.md).
+
+## Canonical web events require two permission boundaries
+
+An active server-side analytics subject establishes identity and erasure state, not current device
+permission. The off switch sends no request, so a payment webhook cannot infer permission from an
+old subject. Bind optional attribution only in the winning, serialized checkout creation claim;
+later retries and later opt-in cannot backfill it. A fresh consenting request from that same origin
+can then claim canonical ledger events, with stable random event IDs and the original paid/refund
+timestamps. Token-CAS completion protects replacement claims, and a finite entry-time deadline
+bounds dispatch even when authentication or rate limiting stalls. Financial writes remain
+independent: optional attribution errors and lock contention must not abort or delay fulfilment.
+
+Checkout caches the optional attribution switch at startup. Protected switch operations must
+refresh it as well as the reporter. Reusing the closed purchase deployment prerequisites avoids
+refreshing a payment route with missing live configuration. On emergency disable, stop reporters
+first and report an incomplete outcome if checkout cannot refresh; a matching secret alone cannot
+prove warm instances stopped collecting. Repeat the same sealed bundle and verify readback.
+
+`purchase_analytics_test.ts` proves SQL serialization, nonblocking refund contention, canonical
+ordering, lease replacement and erasure. `production-checkout-runtime.test.ts` proves warmed
+runtime behavior through off/on/off recomposition; `analytics-subjects.test.mjs` proves preflight,
+partial disable and retry. Device/SDK tests retain the fresh consent and account dispatch fences.
+The resulting events cover a consented subset and cannot reconcile total sales.

@@ -44,22 +44,22 @@ function fixture() {
     expected: TEST_EXPECTED_CLAIMS,
     enabled: true,
     projectKeySha256: PROJECT,
-    limiter: { consume: async () => 0 },
+    limiter: { consume: () => Promise.resolve(0) },
     now: () => clock,
     store: {
-      claim: async (account, origin) => {
+      claim: (account, origin) => {
         scopes.push([account, origin]);
-        return claim;
+        return Promise.resolve(claim);
       },
-      current: async () => active,
-      finish: async (_, delivered) => {
+      current: () => Promise.resolve(active),
+      finish: (_, delivered) => {
         finished.push(delivered);
-        return true;
+        return Promise.resolve(true);
       },
     },
-    send: async (event) => {
+    send: (event) => {
       sent.push(event);
-      return true;
+      return Promise.resolve(true);
     },
   };
   return {
@@ -146,9 +146,9 @@ Deno.test(
     const f = fixture();
     const store = {
       ...f.deps.store!,
-      current: async () => {
+      current: () => {
         f.setClock(4001);
-        return true;
+        return Promise.resolve(true);
       },
     };
     await handlePurchaseAnalytics(await request(), { ...f.deps, store });
@@ -162,9 +162,7 @@ Deno.test(
     const f = fixture();
     await handlePurchaseAnalytics(await request(), {
       ...f.deps,
-      send: async () => {
-        throw new Error("offline");
-      },
+      send: () => Promise.reject(new Error("offline")),
     });
     assertEquals(f.finished, [false]);
     assertEquals(f.scopes.length, 1);
@@ -222,3 +220,9 @@ Deno.test(
     });
   },
 );
+
+Deno.test("authorization/rate-limit waiting cannot extend the original device dispatch lifetime", async () => {
+  const f = fixture();
+  await handlePurchaseAnalytics(await request(), { ...f.deps, limiter: { consume: () => { f.setClock(4001); return Promise.resolve(0); } } });
+  assertEquals(f.scopes, []); assertEquals(f.sent, []);
+});

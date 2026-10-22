@@ -16,6 +16,7 @@ import { defaultExec } from "./deploy.mjs";
 import {
   ANALYTICS_FUNCTIONS,
   ANALYTICS_BUNDLE_SET,
+  ANALYTICS_SWITCH_BUNDLE_SET,
   buildFunctionBundles,
   buildQaFunctionBundles,
   PURCHASE_BUNDLE_SET,
@@ -616,7 +617,7 @@ test(
     );
     t.after(() => rm(root, { recursive: true, force: true }));
     const uploads = [];
-    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, ANALYTICS_BUNDLE_SET].entries()) {
+    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, ANALYTICS_BUNDLE_SET, ANALYTICS_SWITCH_BUNDLE_SET].entries()) {
       const artifactDir = join(root, `uploads-${index}`);
       const manifest = await buildFunctionBundles(set, { sourceDir, artifactDir });
       assert.equal(manifest.functions.length, set.routes.length);
@@ -635,6 +636,7 @@ test(
         "source/upload hashes must not depend on checkout or artifact paths",
       );
       for (const route of manifest.functions) {
+        if (set === ANALYTICS_SWITCH_BUNDLE_SET) continue; // Same routes already start above.
         if (set === ANALYTICS_BUNDLE_SET && route.name !== "analytics-purchase") continue;
         uploads.push({ ...route, url: pathToFileURL(join(artifactDir, route.file)).href });
       }
