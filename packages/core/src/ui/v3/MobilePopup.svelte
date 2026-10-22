@@ -109,6 +109,8 @@
   }
   // Safari actions hand off to the Still app unless the host says otherwise.
   let handoff = $derived(appHandoff ?? host === "safari");
+  /** Safari, signed out holding Still Pro: the tag sits in the right column above Sign in. */
+  let tagAboveSignIn = $derived(stillPro && !account && Boolean(onSignIn) && handoff);
   // A normal settings refresh does not change Pro access. Keep its offer mounted while syncing;
   // setup and sync failures still take priority, and the destination checks sales readiness.
   let popupClear = $derived(
@@ -274,12 +276,14 @@
   <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
   {#if !syncInvitationShown}
   <section class="card card-stack">
-    <div class="sync-row">
+    <div class="sync-row" class:pro-signed-out={tagAboveSignIn}>
       <div class="sync-row-text">
-        <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). -->
+        <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). In Safari,
+          signed out, it moves to the right column, directly above Sign in and level with the
+          heading, so the heading stays on one line (owner, 21 Oct; the pro-signed-out grid). -->
         <div class="offer-head">
           <h2 class="sync-row-title">Settings sync</h2>
-          {#if stillPro}<StillProTag />{/if}
+          {#if stillPro && !tagAboveSignIn}<StillProTag />{/if}
         </div>
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
@@ -289,7 +293,7 @@
       </div>
       {#if !account && onSignIn}<div
           class:popup-action={handoff}
-        ><button
+        >{#if tagAboveSignIn}<StillProTag />{/if}<button
           type="button"
           class="primary inline"
           aria-describedby={handoff ? "popup-signin-handoff" : undefined}
