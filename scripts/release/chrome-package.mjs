@@ -25,22 +25,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseServerDigests } from "./access-trust.mjs";
-import { buildPackages, PUBLIC_ENV_KEYS, sha256 } from "./package.mjs";
-import { ROOT } from "./version.mjs";
+import { assertPaidTierDeclared, buildPackages, PAID_FLAG_FILE, PUBLIC_ENV_KEYS, sha256 } from "./package.mjs";
+import { parseVersions, ROOT } from "./version.mjs";
 import { checkInputs, checkRunContext, zipName } from "./chrome-release.mjs";
 import { redact, StoreRefusal } from "./chrome-store.mjs";
 
 // The four values a configured store build cannot do without. The modern-sync switch is optional:
 // empty means the release leaves it unset.
 export const REQUIRED_PUBLIC_KEYS = Object.freeze(["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_POSTHOG_KEY", "VITE_POSTHOG_HOST"]);
-const PAID_FLAG_FILE = "packages/shared-types/src/entitlement.ts";
-
-/** Store packages ship with the paid tier switched off (product rule: a paid-test package never goes to a store). */
-export function assertPaidTierOff(sourceText) {
-  const matches = [...String(sourceText).matchAll(/export const PAID_TIER_ENABLED\s*=\s*(true|false)\s*;/g)];
-  if (matches.length !== 1) throw new StoreRefusal("paid-flag-unknown", `Could not find exactly one PAID_TIER_ENABLED in ${PAID_FLAG_FILE}`);
-  if (matches[0][1] !== "false") throw new StoreRefusal("paid-flag-on", "PAID_TIER_ENABLED is true at this commit; a store package must have the paid tier off");
-}
 
 /** The public build values from the environment. Required ones must be present; empty optional ones are left unset. */
 export function collectPublicEnv(env) {
@@ -88,7 +80,7 @@ export function runPackage({ env, out, root = ROOT, build = buildPackages, git =
   const candidate = join(work, "tree");
   try {
     git(["worktree", "add", "--detach", candidate, inputs.commit]);
-    assertPaidTierOff(readFileSync(join(candidate, PAID_FLAG_FILE), "utf8"));
+    assertPaidTierDeclared(readFileSync(join(candidate, PAID_FLAG_FILE), "utf8"), parseVersions(readFileSync(join(candidate, "version.json"), "utf8")).paidTier);
     log(`Building ${inputs.version} from ${inputs.commit}`);
     const manifest = build({ out: stage, root: candidate, env: publicEnv, ...(serverDigests ? { serverDigests } : {}) });
     const name = zipName(inputs.version);

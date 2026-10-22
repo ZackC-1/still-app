@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { generateKeyPairSync } from "node:crypto";
-import { readStoreTrust, TRUST_FILE } from "./access-trust.mjs";
+import { readStoreTrust, sha256, TRUST_FILE } from "./access-trust.mjs";
 import { amoInstructions, buildPackages, cleanEnv, PINNED_ENV_KEYS, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
 import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
@@ -44,6 +44,9 @@ test("version.json is well formed", () => {
   assert.throws(() => parseVersions('{"extension":"2.1","apple":"2.1.0","appleBuild":9}'), /extension/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":0}'), /appleBuild/);
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":"9"}'), /appleBuild/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}').paidTier, false, "a missing paidTier means false");
+  assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":"false"}'), /paidTier/);
+  assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":true}').paidTier, true);
 });
 
 test("a disagreeing consumer is reported, and sync repairs it", () => {
@@ -298,6 +301,8 @@ test("a committed non-production trust row, a paid release without a matching ke
     ["paid, no keys", (clone) => {
       const path = join(clone, "packages/shared-types/src/entitlement.ts");
       writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
+      const version = join(clone, "version.json");
+      writeFileSync(version, readFileSync(version, "utf8").replace('"paidTier": false', '"paidTier": true'));
     }, /declares the paid tier/],
     ["Swift-only paid switch, no keys", (clone) => {
       const path = join(clone, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
@@ -311,7 +316,7 @@ test("a committed non-production trust row, a paid release without a matching ke
     ["reworded paid declaration", (clone) => {
       const path = join(clone, "packages/shared-types/src/entitlement.ts");
       writeFileSync(path, readFileSync(path, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = Boolean(0);"));
-    }, /exactly one paid-tier declaration/],
+    }, /exactly one PAID_TIER_ENABLED/],
   ];
   for (const [name, edit, refusal] of cases) {
     const base = mkdtempSync(join(tmpdir(), "still-trust-refusal-"));
@@ -326,6 +331,52 @@ test("a committed non-production trust row, a paid release without a matching ke
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  }
+});
+
+test("the shared package build (Chrome and Firefox) refuses a paid flag that differs from the declared paidTier, before installing", () => {
+  const base = mkdtempSync(join(tmpdir(), "still-paidflag-"));
+  try {
+    const clone = cloneRepo(base);
+    const commit = (message) => {
+      execFileSync("git", ["add", "-A"], { cwd: clone });
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", message], { cwd: clone });
+    };
+    const flagPath = join(clone, "packages/shared-types/src/entitlement.ts");
+    const versionPath = join(clone, "version.json");
+    const out = join(base, "out");
+    const refused = (expected) =>
+      withFakePnpm("process.exit(1);", (calls) => {
+        assert.throws(() => buildPackages({ out, root: clone }), (e) => e.code === "paid-flag-mismatch" && expected.test(e.message));
+        assert.equal(calls(), "", "pnpm must not run when the flag and the declaration disagree");
+      });
+    // Flag on, line declares off.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    commit("flag on");
+    refused(/declares paidTier false/);
+    // Flag off, line declares on.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = true", "PAID_TIER_ENABLED = false"));
+    writeFileSync(versionPath, readFileSync(versionPath, "utf8").replace('"paidTier": false', '"paidTier": true'));
+    commit("declare on");
+    refused(/declares paidTier true/);
+    // Matching declarations still require pinned production trust and a matching server readback.
+    writeFileSync(flagPath, readFileSync(flagPath, "utf8").replace("PAID_TIER_ENABLED = false", "PAID_TIER_ENABLED = true"));
+    const key = { kid: "still-access-release-test", publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access" };
+    pinKeys(clone, [key]);
+    commit("both on");
+    withFakePnpm("process.exit(1);", (calls) => {
+      assert.throws(() => buildPackages({ out, root: clone }), /needs the server's secret digests/);
+      assert.equal(calls(), "", "matching declarations cannot bypass the server trust gate");
+      const serverDigests = [
+        { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256(key.environment) },
+        { name: "ACCESS_PROOF_KEY_ID", value: sha256(key.kid) },
+        { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(key.publicKeyHex) },
+      ];
+      assert.throws(() => buildPackages({ out, root: clone, serverDigests }), /pnpm install --frozen-lockfile failed/);
+      assert.notEqual(calls(), "", "matching declarations and server trust reach the install step");
+    });
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 });
 
