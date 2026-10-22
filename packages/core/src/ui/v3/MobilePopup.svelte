@@ -6,7 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
-    proPurchased,
+    stillProTag,
     proRowsDormant,
     rowsFor,
   } from "./presentation.js";
@@ -72,7 +72,7 @@
   const setupCopy = {
     safari: [
       "Still can't block distractions yet.",
-      "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
+      "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
       "Show me how",
     ],
     firefox: [
@@ -87,7 +87,7 @@
   let knownMissing = $derived(proKnownMissing(shownAccess));
   let dormant = $derived(proRowsDormant(access));
   // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
-  let stillPro = $derived(proPurchased(access));
+  let stillPro = $derived(stillProTag(access, account));
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
   );
@@ -110,7 +110,7 @@
   // Safari actions hand off to the Still app unless the host says otherwise.
   let handoff = $derived(appHandoff ?? host === "safari");
   /** Safari, signed out holding Still Pro: the tag sits in the right column above Sign in. */
-  let tagAboveSignIn = $derived(stillPro && !account && Boolean(onSignIn) && handoff);
+  let tagAboveSignIn = $derived(Boolean(stillPro) && !account && Boolean(onSignIn) && handoff);
   // A normal settings refresh does not change Pro access. Keep its offer mounted while syncing;
   // setup and sync failures still take priority, and the destination checks sales readiness.
   let popupClear = $derived(
@@ -283,7 +283,7 @@
           heading, so the heading stays on one line (owner, 21 Oct; the pro-signed-out grid). -->
         <div class="offer-head">
           <h2 class="sync-row-title">Settings sync</h2>
-          {#if stillPro && !tagAboveSignIn}<StillProTag />{/if}
+          {#if stillPro && !tagAboveSignIn}<StillProTag kind={stillPro} />{/if}
         </div>
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
@@ -293,7 +293,7 @@
       </div>
       {#if !account && onSignIn}<div
           class:popup-action={handoff}
-        >{#if tagAboveSignIn}<StillProTag />{/if}<button
+        >{#if tagAboveSignIn && stillPro}<StillProTag kind={stillPro} />{/if}<button
           type="button"
           class="primary inline"
           aria-describedby={handoff ? "popup-signin-handoff" : undefined}

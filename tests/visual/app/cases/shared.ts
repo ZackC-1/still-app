@@ -27,12 +27,14 @@ export const OWNER_SETUP_HEADER_COPY: Deviation = {
 /**
  * Owner's canvas review, 21 Oct 2026: the Safari popup's setup instructions quote the two labels
  * (choose “Still”, then “Always Allow on Every Website”), so the body line differs from the
- * reference and may wrap differently.
+ * reference and may wrap differently. The owner's iPhone check the same day (iOS 27, Safari) also
+ * renamed the first step: Safari's extensions sit behind the button at the left of the address bar,
+ * where the reference says "the extensions button".
  */
 export const OWNER_SAFARI_SETUP_BODY: Deviation = {
   reason:
-    "owner-approved copy (Safari setup instructions quote “Still” and “Always Allow on Every Website”; reference has no quotes)",
-  text: "In Safari, tap the extensions button",
+    "owner-approved copy (Safari setup instructions name “the button at the left of the address bar” and quote “Still” and “Always Allow on Every Website”; reference says “the extensions button” with no quotes)",
+  text: "In Safari, tap the button at the left of the address bar",
 };
 
 /** The latest reference restores demo banners; their omission also moves subsequent cards. */

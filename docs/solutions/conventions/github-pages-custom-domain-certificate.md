@@ -55,3 +55,23 @@ Do not regenerate unrelated store screenshots or promoted-purchase assets in the
 Directory aliases change relative asset resolution: `./assets/legal.css` under `/support/` requests
 `/support/assets/legal.css`. Use root-relative asset paths and check each `.html` and directory URL
 in a real browser. The same issue affected the setup logo. HTTP 200 on the HTML alone misses it.
+
+## Build the public tree from an explicit manifest
+
+Serving a directory alias changes relative URL resolution; copying HTML separately also allows its
+canonical and alias copies to drift. The website build in `scripts/website/site.py` copies each
+canonical page and its aliases from the same source bytes, then validates the resulting public
+tree before replacing `.output/website/`. `scripts/website/manifest.json` lists public assets, the
+custom-domain file and the existing public verification token. It excludes repository plans,
+internal documentation and local evidence. Keep legacy asset URLs available for cached stylesheets.
+
+Run `pnpm build:website` and `pnpm test:website` before proposing a gh-pages publication. The ten
+failure-injection checks cover alias drift, broken links/resources/fragments, canonical-link drift,
+invalid schema, sitemap mistakes, blocked noindex discovery and accidental extra HTML. Passing
+source CI does not publish or override a release hold. Reconcile the live branch and approved
+source before copying the artifact, then verify the deployed bytes and aliases over normal TLS.
+
+Do not combine `Disallow` with HTML `noindex` on public return pages: a crawler must retrieve the
+page to observe the indexing instruction. Keep these pages out of sitemaps and public navigation.
+This controls indexing, not access. The checkout-return pages remain generic and use
+`no-referrer`; neither robots.txt nor noindex can protect private content.

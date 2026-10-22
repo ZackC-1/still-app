@@ -1,78 +1,63 @@
-# Still — free release and retained monetization design
+# Still purchase identifiers and compatibility
 
-Current reference for 2.0.0; reviewed September 14, 2026. The
-[product specification](PRODUCT.md) and [strategy](../STRATEGY.md) govern current access.
-The [earlier design](archive/pre-2.0-reference-refresh/docs/monetization-design.md) preserves all
-paid-era proposals, decisions and implementation history, including features that never shipped.
+Current source reference, reviewed October 22, 2026. The [strategy](../STRATEGY.md) and
+[product specification](PRODUCT.md) govern access and pricing. Shipped 2.x keeps paid behavior
+dormant; V3 adds the approved optional Still Pro extras. Free blocking and settings sync never
+require a purchase. Sign-in is optional and enables settings sync.
 
-## Current access model
+The [earlier design](archive/pre-2.0-reference-refresh/docs/monetization-design.md) preserves
+paid-era proposals and implementation history. The [RevenueCat runbook](release/04-revenuecat.md)
+separately labels the 2.x checkpoint and historical setup procedures.
 
-| Capability | Account | Payment |
+## Purchase identifiers
+
+Use this table when documenting the catalog. These are distinct records, not alternative names
+for one product. Preserve historical identifiers and customer rights.
+
+| Record | Identifier | Purpose |
 |---|---|---|
-| YouTube Shorts removal/redirection | Not required | Free |
-| Instagram/Facebook Reels removal | Not required | Free |
-| TikTok website blocking | Not required | Free |
-| Local global/per-service settings | Not required | Free |
-| Cross-device settings sync | Optional sign-in with the same account | Free |
+| V3 Apple product and RevenueCat entitlement | `still_pro_v3` | The current V3 purchase catalog. |
+| V3 RevenueCat offering / package | `still_pro_v3` / `$rc_lifetime` | The exact lifetime offer selected by the Apple catalog. |
+| Historical Apple product and RevenueCat entitlement | `still_sync` | Existing purchases and restore compatibility. Do not rename or repurpose. |
+| Historical RevenueCat Web Billing product | `still_sync_web` | Maps to the historical `still_sync` entitlement. |
+| V3 web purchase | Environment-specific Stripe price mapped to `still_pro_v3` | The backend validates the exact configured price; do not substitute a historical Web Billing product. |
+| Historical Supabase entitlement projection | `entitlements.still_sync` / TypeScript `stillSync` | Retained data compatibility; not a requirement for free blocking or sync. |
 
-Both compile-time constants are false: `PAID_TIER_ENABLED` in shared types and
-`MonetizationConfig.paidTierEnabled` in StillKit. They cover engine access, packaged CSS, UI locks,
-purchase presentation and native purchase/restore actions. The server free-sync migration is
-`0012_profiles_write_free_sync.sql`. A slow or failed entitlement reconcile cannot delay free sync.
-No checkout, restore, promotional grant, dummy entitlement or paid subscription is needed.
+The source of truth for Apple product, entitlement and offering selection is
+[ApplePurchaseCatalog](../apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift).
+The backend's [provider mapping parser](../supabase/functions/_shared/revenuecat-access.ts)
+defines accepted V3 and historical mappings. The owner's October 21 decision to keep the new
+product separate from the historical purchase is recorded in the
+[production activation record](plans/2026-10-21-002-production-activation-and-verification.md).
+This table describes the source contract, not a fresh verification of provider dashboards.
 
-## What stays active
+## Access and purchase authority
 
-- Apple initializes the RevenueCat SDK anonymously and rekeys it to the Supabase account UUID on
-  sign-in; sign-out/deletion resets that identity. Settings sync is independent of purchase rekeying.
-- StoreKit receipt inspection and the App Group entitlement stamp remain. The source-aware
-  never-downgrade rules are governed by [ADR 0003](adr/0003-entitlement-authority-receipt-and-server.md).
-- `revenuecat-webhook` and `reconcile-entitlement` maintain historical account entitlements.
-  Entitlement records are separate from client-writable settings. Browser extensions use Supabase
-  and do not initialize a RevenueCat SDK.
-- The immutable entitlement/Apple product is `still_sync`; the retained web product is
-  `still_sync_web`. Preserve existing customer/product identities and restore behavior.
-- The retained browser checkout function constructs the configured RevenueCat Purchase Link using
-  the verified JWT subject. `REVENUECAT_WEB_PRODUCT_ID` is not read by the current implementation.
-  The free client does not expose this checkout; disabled client UI does not delete the endpoint.
+Both paid-tier flags remain false in this reviewed main: `PAID_TIER_ENABLED` in shared types and
+`MonetizationConfig.paidTierEnabled` in StillKit. V3 release activation must coordinate the client
+flags, catalog, backend, disclosures and verification. Turning on paid extras must never restore
+the historical paid-sync gate; migration `0012_profiles_write_free_sync.sql` removed it.
 
-The previous signed entitlement-token proposal was deferred. The current browser cache is an
-identity-bound record, not a claimed server-signed token. Rule-set signatures are a separate trust
-mechanism. Retained entitlement cache/receipt semantics must not be confused with free-access rules.
+Settings and purchase authority remain separate. Apple supports device-owned purchases and
+Restore without sign-in; account linking and browser access follow their own authority rules.
+Use [ADR 0003](adr/0003-entitlement-authority-receipt-and-server.md), its
+[V3 purchase-flow amendment](adr/0005-apple-still-pro-purchase-starts-with-sign-in.md), and the
+[architecture's entitlement flow](ARCHITECTURE.md#entitlement-flow-dormant-in-shipped-2x-active-under-v3).
+Keep historical receipt and account mappings when changing V3 wiring.
 
-## Prices and presentation
+V3's signed paid-access deadlines are distinct from the historical entitlement cache and from
+rule-set signatures. The [V3 release record](release/history/v3/README.md) defines the offline
+access contract. The retired RevenueCat Purchase Link design is historical; use the
+[production activation plan](plans/2026-10-21-002-production-activation-and-verification.md)
+for the current managed-checkout work and its remaining verification gates.
 
-App-download pricing, in-app-product pricing, entitlement state and client feature gates are
-separate. The September 14 [release snapshot](release/history/2026-09-14-release-status.md#store-snapshot)
-records a free Apple download and the existing Apple product at zero price; it does not assert a
-new Web Billing price or a live portal state checked during this documentation refresh.
-Apple may retain an in-app-purchase label while the historical product exists. Reviewer notes explain
-that no purchase is required. Preserve owner-edited portal descriptions and submitted screenshots.
+## Release and support references
 
-The local `.storekit` fixture and historical price strings belong to dormant test/purchase paths;
-they do not determine App Store Connect prices. Do not rename identifiers, delete the product or
-rebuild a pending artifact to remove that history.
+App-download prices, in-app-product prices, feature flags and entitlement records are separate.
+A dated zero-price observation or local StoreKit fixture does not establish a current store price.
+Do not rebuild a submitted artifact merely to synchronize it with later source or documentation.
 
-## Privacy, deletion and support
-
-Use the [published privacy notice](https://stillapp.fit/privacy/) and
-[retention runbook](release/counter-retention.md). Deleting a Still account removes active account,
-settings and account-entitlement data; it does not automatically delete RevenueCat customers,
-historical billing events, support mail or provider backups/logs. Those have the separately disclosed
-handling. Do not represent anonymous SDK identifiers as “zero data” or purchase analytics as
-advertising tracking without evidence of that use.
-
-Prior web purchases use the approved seven-day refund window. Apple handles Apple refunds.
-`support@stillapp.fit` handles receipt/refund questions. A former buyer does not need purchase
-recovery to use any 2.0.0 feature.
-
-## Future paid release
-
-Changing either flag is a new product/release decision. A future reactivation must coordinate both
-client flags, server sync permissions, current pricing/offerings, UI/metadata/privacy, receipt and
-account identity, checkout/restore/refund paths, offline behavior and actual store/device tests.
-The June/July feature proposals for recommendations, comments, sponsored content and granular
-controls are not implemented promises of this release.
-
-Use the [RevenueCat runbook](release/04-revenuecat.md) for retained configuration and historical
-purchase checks. Do not run that historical purchase program as a prerequisite for free activation.
+Use [the product specification](PRODUCT.md) for free access and Pro behavior, the
+[retention runbook](release/counter-retention.md) for account and provider deletion boundaries,
+and [the release overview](release/README.md) for dated release evidence. Historical purchase
+checks are not prerequisites for free activation.
