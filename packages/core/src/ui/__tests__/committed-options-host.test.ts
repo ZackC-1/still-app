@@ -210,12 +210,20 @@ describe("current options account, privacy and loader lifetime", () => {
         screen.queryByRole("button", { name: "Delete account" }),
       ).toBeNull();
       expect(screen.queryByRole("dialog")).toBeNull();
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
       held.open();
+      // The person always sees the written line; the raw reason goes to the console only.
       await waitFor(() =>
         expect(screen.getByRole("alert")).toHaveTextContent(
-          "Synthetic deletion failure",
+          STRINGS.account.deleteError,
         ),
       );
+      expect(screen.queryByText(/Synthetic deletion failure/)).toBeNull();
+      expect(logged).toHaveBeenCalledWith(
+        "Account deletion failed:",
+        "Synthetic deletion failure",
+      );
+      logged.mockRestore();
     } finally {
       held.open();
     }
@@ -384,7 +392,7 @@ describe("saved options authority holds and recovery", () => {
     await flush();
     await flush();
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
-    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
     expect(screen.getByText("Settings are unavailable.")).toBeTruthy();
     const action = screen.getByRole("button", { name: "Try again" });
     try {
@@ -644,7 +652,7 @@ describe("actual options sync and auth operations", () => {
     // Owner decision 71: the exact approved wording, spelled out so a strings edit cannot drift it.
     expect(
       screen.getByText(
-        "Sync didn't finish. Settings are saved on this device.",
+        "Sync didn’t finish. Settings are saved on this device.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { AtomicSettingsWriter, InMemoryStorageAdapter } from "@still/core/storage";
 import {
@@ -157,7 +157,7 @@ describe("the app-owned account reaches every V3 Safari screen (U12-W4 risk 6)",
     const runtime = readFileSync(resolve(import.meta.dirname, "../safari-v3-runtime.ts"), "utf8");
     expect(runtime).toContain("controller.accountManagedByApp = true;");
     expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8")).toContain("appManagedPopupAccount(c, STRINGS.sync, view.state?.access)");
-    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync, view.state?.access)");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync, openApp ? openSync : undefined, view.state?.access)");
   });
 });
 
@@ -187,19 +187,32 @@ describe("the Apple app owns the account on Safari", () => {
     // Still app reported through the App Group; the extension never invents or advances it.
     const at = 1_760_900_000_000;
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at }, TEXT)?.lastSyncedAt).toBe(at);
-    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: at }, TEXT).account.lastSyncedAt).toBe(at);
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: at }, TEXT).account?.lastSyncedAt).toBe(at);
     // Kept through a failed or pending sync, so the line reads "… · Last synced <time>".
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, cloudReachable: false }, TEXT)?.lastSyncedAt).toBe(at);
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, pendingUpload: true }, TEXT)?.lastSyncedAt).toBe(at);
     // Never synced: no time at all.
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: null }, TEXT)?.lastSyncedAt).toBeNull();
-    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: null }, TEXT).account.lastSyncedAt).toBeNull();
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: null }, TEXT).account?.lastSyncedAt).toBeNull();
   });
 
-  it("signed out: no account display and, in particular, no sign-in", () => {
+  it("signed out: no account display, and Sign in only ever hands off to the Still app", () => {
     expect(appManagedPopupAccount({ ...signedIn, userId: null }, TEXT)).toBeUndefined();
-    // An empty account: SyncCard then shows neither its Sign in button nor any account action.
+    // With the page's hand-off: the signed-out card (sync line, Sign in, "Opens the Still app"),
+    // whose Sign in is exactly that hand-off. No account and no other action.
+    const openSync = vi.fn();
+    const settings = appManagedSettingsSync({ ...signedIn, userId: null }, TEXT, openSync);
+    expect(settings).toEqual({ onSignIn: openSync, appHandoff: true });
+    settings.onSignIn?.();
+    expect(openSync).toHaveBeenCalledOnce();
+    // Without one: an empty account, so SyncCard shows no Sign in button that could do nothing.
     expect(appManagedSettingsSync({ ...signedIn, userId: null }, TEXT)).toEqual({ account: { confirmed: false } });
+  });
+
+  it("signed in: the hand-off never adds a Sign in", () => {
+    const settings = appManagedSettingsSync(signedIn, TEXT, vi.fn());
+    expect(settings.onSignIn).toBeUndefined();
+    expect(settings.appHandoff).toBeUndefined();
   });
 });
 
@@ -209,7 +222,7 @@ describe("ISS-0105 follow-up (owner, 22 Oct): Safari's tag follows native's acco
 
   it("marks the app's account as holding Still Pro only when native's snapshot says so", () => {
     expect(appManagedPopupAccount(source, text, { accountHoldsPro: true })?.holdsPro).toBe(true);
-    expect(appManagedSettingsSync(source, text, { accountHoldsPro: true }).account.holdsPro).toBe(true);
+    expect(appManagedSettingsSync(source, text, undefined, { accountHoldsPro: true }).account?.holdsPro).toBe(true);
   });
 
   it.each([
@@ -218,11 +231,19 @@ describe("ISS-0105 follow-up (owner, 22 Oct): Safari's tag follows native's acco
     ["no snapshot yet", undefined],
   ] as const)("%s: not the account's, so the tag reads Still Pro on this device", (_name, access) => {
     expect(appManagedPopupAccount(source, text, access)?.holdsPro).toBe(false);
-    expect(appManagedSettingsSync(source, text, access).account.holdsPro).toBe(false);
+    expect(appManagedSettingsSync(source, text, undefined, access).account?.holdsPro).toBe(false);
   });
 
   it("signed out never carries account provenance, whatever the snapshot says", () => {
     expect(appManagedPopupAccount({ ...source, userId: null }, text, { accountHoldsPro: true })).toBeUndefined();
-    expect(appManagedSettingsSync({ ...source, userId: null }, text, { accountHoldsPro: true })).toEqual({ account: { confirmed: false } });
+    expect(appManagedSettingsSync({ ...source, userId: null }, text, undefined, { accountHoldsPro: true })).toEqual({ account: { confirmed: false } });
+    // With the app hand-off (#539), signed out is still only Sign in: no account, so no provenance.
+    const openSync = () => {};
+    expect(appManagedSettingsSync({ ...source, userId: null }, text, openSync, { accountHoldsPro: true })).toEqual({ onSignIn: openSync, appHandoff: true });
+  });
+
+  it("signed in with the app hand-off available still carries native's answer", () => {
+    expect(appManagedSettingsSync(source, text, () => {}, { accountHoldsPro: true }).account?.holdsPro).toBe(true);
+    expect(appManagedSettingsSync(source, text, () => {}, { accountHoldsPro: false }).account?.holdsPro).toBe(false);
   });
 });

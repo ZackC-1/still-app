@@ -359,7 +359,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(card).getAllByRole("listitem")).toHaveLength(3);
     expect(within(card).queryByText("One-time purchase. Lifetime access.")).toBeNull();
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
-    expect(within(card).getByText("Still Pro can't be bought here yet.")).toBeVisible();
+    expect(within(card).getByText("Still Pro can’t be bought here yet.")).toBeVisible();
   });
 
   it.each([

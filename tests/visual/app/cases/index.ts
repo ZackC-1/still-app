@@ -8,17 +8,21 @@ import { D14 } from "./d14.js";
 import { D18 } from "./d18.js";
 import { D28 } from "./d28.js";
 import { GALLERY } from "./gallery.js";
-import { OWNER_SUCCESS_GREEN } from "./shared.js";
+import { OWNER_COPY_AUDIT, OWNER_SUCCESS_GREEN } from "./shared.js";
 
-/** Light frames all carry the darker success green (owner, 21 Oct); see OWNER_SUCCESS_GREEN. */
+/** Light frames all carry the darker success green (owner, 21 Oct); see OWNER_SUCCESS_GREEN.
+ * Every frame carries the 22 Oct copy audit's text regions; see OWNER_COPY_AUDIT. */
 function withSuccessGreen(screen: ScreenCases): ScreenCases {
   return {
     ...screen,
-    cases: screen.cases.map((c) =>
-      c.theme === "light"
-        ? { ...c, deviations: [...(c.deviations ?? []), OWNER_SUCCESS_GREEN] }
-        : c,
-    ),
+    cases: screen.cases.map((c) => ({
+      ...c,
+      deviations: [
+        ...(c.deviations ?? []),
+        ...OWNER_COPY_AUDIT,
+        ...(c.theme === "light" ? [OWNER_SUCCESS_GREEN] : []),
+      ],
+    })),
   };
 }
 

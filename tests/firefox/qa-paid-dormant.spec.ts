@@ -118,7 +118,7 @@ test("J12.FD no popup, options, first-run or TikTok page state offers a purchase
       tiktok
         .evaluate<string>("document.querySelector('h1')?.textContent ?? ''")
         .catch(() => ""),
-    (t) => t === "TikTok stays closed.",
+    (t) => t === "TikTok stays closed",
   );
   await expectNoOffer(tiktok, "tiktok blocked page");
   await tiktok.waitFor(
@@ -192,7 +192,7 @@ test("J12.FD locked Pro rows show the lock and Still Pro, and offer nothing when
       "Suggested accounts",
       "Threads links",
     ],
-    Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
+    Facebook: ["Stories", "Video tab", "Desktop sidebar ads"],
   };
   let tapped = 0;
   for (const [service, names] of Object.entries(rows)) {

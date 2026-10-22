@@ -68,7 +68,7 @@ describe.each(CASES)("%s", (_name, source, held, state, expected) => {
     // As the Safari Settings host passes it: no in-page purchase producer, Still Pro opens the app.
     const { pro: _browserOnly, ...safari } = props;
     safari.proHandoff = vi.fn();
-    safari.sync = appManagedSettingsSync(source, TEXT, safari.access);
+    safari.sync = appManagedSettingsSync(source, TEXT, vi.fn(), safari.access);
     render(ExtensionSettings, { props: safari });
     expectTag(expected);
   });

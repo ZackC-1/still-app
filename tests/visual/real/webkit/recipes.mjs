@@ -37,7 +37,7 @@ async function onboardingTo(frame, page, step) {
   await frame.getByRole("heading", { name: "Welcome to Still" }).waitFor({ timeout: 15_000 });
   const forward = [
     () => frame.getByRole("button", { name: "Continue", exact: true }).click(),
-    () => frame.getByRole("button", { name: "I've turned it on", exact: true }).click(),
+    () => frame.getByRole("button", { name: "I’ve turned it on", exact: true }).click(),
   ];
   for (let i = 1; i < step; i++) {
     await forward[i - 1]();
@@ -75,6 +75,6 @@ export const recipes = {
   },
   "onboarding-step-1": async ({ frame, page }) => onboardingTo(frame, page, 1),
   "onboarding-step-2": async ({ frame, page }) => onboardingTo(frame, page, 2),
-  // The build's last step ("You're set"), which the reference numbers as step 4 of 4.
+  // The build's last step ("You’re set"), which the reference numbers as step 4 of 4.
   "onboarding-last-step": async ({ frame, page }) => onboardingTo(frame, page, 3),
 };

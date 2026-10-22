@@ -48,10 +48,10 @@ test("J1.FD a new install opens the first-run page once and saves the defaults",
   );
   expect(
     await page.evaluate<string>("document.querySelector('h1').textContent"),
-  ).toBe("Still is on.");
+  ).toBe("Still is on");
   // Firefox grants the four sites at install, so the permission step reads as done.
   expect(await text(page)).toContain(
-    "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+    "Allowed on Instagram, Facebook, YouTube and TikTok.",
   );
   await ev.shot("first-run", "first-run-just-installed");
 
@@ -250,7 +250,7 @@ test("J11.FD site access withdrawn shows the one-step permission-needed state (D
     ),
   ).toBe(true);
   expect(body).not.toContain(
-    "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+    "Allowed on Instagram, Facebook, YouTube and TikTok.",
   );
   await ev.shot("first-run.html", "first-run-permission-needed", {
     width: 420,

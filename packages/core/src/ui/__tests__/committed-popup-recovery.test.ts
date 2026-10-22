@@ -635,7 +635,7 @@ describe("visible current-settings recovery in the maintained App", () => {
     expect(screen.getByRole("status").textContent).toBe(
       "Settings are unavailable.",
     );
-    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     await fireEvent.click(recovery());
     await flush();

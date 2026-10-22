@@ -40,8 +40,8 @@ test("a new install opens the first-run page once, without a combined consent qu
   await page.waitForLoadState("domcontentloaded");
   await expect(page).toHaveTitle("Welcome to Still");
   // Chrome grants the four declared hosts at install and the background saves the defaults.
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
-  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on");
+  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube and TikTok.")).toBeVisible();
   await expect(page.getByText("Pin Still to your toolbar")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Still settings" })).toBeEnabled();
   await expect(page.getByText("Share your email and usage data with Still?")).toHaveCount(0);
@@ -53,13 +53,13 @@ test("a new install opens the first-run page once, without a combined consent qu
 // notice. The CI lanes have no PostHog key, so the switch itself stays hidden here (no readable
 // sharing state); the page must still draw no notice, and the built page must carry the owner's
 // subtext and not the first wording.
-const USAGE_SUBTEXT = "Helps to improve Still. Never shares the websites, pages or videos you visit.";
+const USAGE_SUBTEXT = "Helps improve Still. Never shares the websites, pages or videos you visit.";
 
 test("the V3 welcome page shows no usage notice, and its switch carries the owner's subtext", async ({ context }) => {
   test.skip(syncConfigured, V3_ONLY);
   const page = await firstRunPage(context);
   await page.waitForLoadState("domcontentloaded");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on");
   await expect(page.getByText(/Still shares usage data/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Turn off" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "OK" })).toHaveCount(0);
@@ -291,7 +291,7 @@ test("Settings → Setup guide reopens the first-run page", async ({ context, ex
   const reopened = context.waitForEvent("page", { predicate: (page) => FIRST_RUN.test(page.url()) });
   await options.getByRole("button", { name: "Setup guide" }).click();
   const page = await reopened;
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on");
 });
 
 test("a configured store-style build does not open the first-run page on install", async ({ context, extensionId }) => {

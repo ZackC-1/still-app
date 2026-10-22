@@ -137,7 +137,7 @@ describe("first-run host mount", () => {
         onOpenSettings,
       },
     });
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Still is on."));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Still is on"));
     expect(screen.getByText("Still is pinned.")).toBeTruthy();
     // No combined email-and-usage question, and no one-time notice: the existing switch, with the
     // owner's subtext, is the one usage-data control (ISS-0029 item 3). The page draws no notice
@@ -147,7 +147,7 @@ describe("first-run host mount", () => {
     expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull();
     expect(
-      screen.getByText("Helps to improve Still. Never shares the websites, pages or videos you visit."),
+      screen.getByText("Helps improve Still. Never shares the websites, pages or videos you visit."),
     ).toBeTruthy();
     expect(screen.queryByText(/as usual/)).toBeNull();
     const sharing = screen.getByRole("switch", { name: "Share usage data" });
@@ -174,7 +174,7 @@ describe("first-run host mount", () => {
     // No pinned report from the browser: the instruction reads true either way (ISS-0031).
     expect(
       screen.getByText(
-        "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+        "If Still isn’t in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
       ),
     ).toBeTruthy();
     await waitFor(() => expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(false));
@@ -255,10 +255,10 @@ describe("first-run host mount", () => {
     render(FirstRunApp, {
       props: { controller, browser: "chrome", binding, permissions: permissionsApi(true), origins: ORIGINS },
     });
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Still is on."));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Still is on"));
     await binding!.setGlobalOn(false);
     await waitFor(() =>
-      expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("One step to finish setup."),
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("One step to finish setup"),
     );
   });
 

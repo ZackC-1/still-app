@@ -53,7 +53,7 @@ describe("controlled extension first-run", () => {
       const view = render(FirstRun, { props });
       await fireEvent.click(screen.getByRole("button", { name: "Allow" }));
       expect(props.permission.onRequest).toHaveBeenCalledOnce();
-      expect(screen.queryByText("Still is on.")).toBeNull();
+      expect(screen.queryByText("Still is on")).toBeNull();
       props.permission = { ...props.permission, state };
       await view.rerender(props);
       const request = screen.queryByRole("button", {
@@ -63,7 +63,7 @@ describe("controlled extension first-run", () => {
       expect(props.permission.onRequest).toHaveBeenCalledTimes(
         state === "denied" ? 2 : 1,
       );
-      expect(screen.queryByText("Still is on.")).toBeNull();
+      expect(screen.queryByText("Still is on")).toBeNull();
       view.unmount();
     },
   );
@@ -78,8 +78,8 @@ describe("controlled extension first-run", () => {
       if (kind === "off") props.blocking.state = "off";
       if (kind === "unknown") props.blocking.state = "unknown";
       const view = render(FirstRun, { props });
-      expect(screen.queryByText("Still is on.")).toBeNull();
-      expect(screen.getByText("One step to finish setup.")).toBeVisible();
+      expect(screen.queryByText("Still is on")).toBeNull();
+      expect(screen.getByText("One step to finish setup")).toBeVisible();
       view.unmount();
     },
   );
@@ -89,11 +89,11 @@ describe("controlled extension first-run", () => {
     props.blocking = { state: "on", verified: true };
     props.consent = { status: "saved", choice: "off" };
     const view = render(FirstRun, { props });
-    expect(screen.getByText("Still is on.")).toBeVisible();
+    expect(screen.getByText("Still is on")).toBeVisible();
     // Owner copy (ISS-0029): no "visit as usual" line, and the sites in the owner's order.
     expect(screen.queryByText(/as usual/)).toBeNull();
     expect(
-      screen.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok."),
+      screen.getByText("Allowed on Instagram, Facebook, YouTube and TikTok."),
     ).toBeVisible();
     expect(
       screen.getByText("You chose not to share your email and usage data."),
@@ -104,7 +104,7 @@ describe("controlled extension first-run", () => {
     expect(
       screen.getByText("You chose not to share your email and usage data."),
     ).toBeVisible();
-    expect(screen.queryByText("Still is on.")).toBeNull();
+    expect(screen.queryByText("Still is on")).toBeNull();
     view.unmount();
   });
   it("uses the current request callback and holds repeated requests as soon as pending", async () => {
@@ -139,7 +139,7 @@ describe("controlled extension first-run", () => {
       if (action) await fireEvent.click(action);
       if (props.permission.onRequest)
         expect(props.permission.onRequest).not.toHaveBeenCalled();
-      expect(screen.queryByText("Still is on.")).toBeNull();
+      expect(screen.queryByText("Still is on")).toBeNull();
       view.unmount();
     },
   );

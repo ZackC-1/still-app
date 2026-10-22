@@ -1617,7 +1617,7 @@ describe("a right linked to a different account is stated, not offered (ISS-0104
 });
 
 // ISS-0081: on 2.1.1.387 and .392 a Mac that had linked an accountless Apple Still Pro to the
-// signed-in account offered "Link Still Pro to your account." again on every launch: the link read
+// signed-in account offered "Link Still Pro to your account" again on every launch: the link read
 // said "can link" for a right the server had already linked. Native now names the account its
 // current server-signed account proof links the right to, and the host offers nothing for it.
 describe("a right already linked to the signed-in account is not offered again (ISS-0081)", () => {

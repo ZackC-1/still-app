@@ -379,7 +379,7 @@ test("Firefox for Android spike", async () => {
       expect.soft(String(error)).toBe("");
       if (page) await fixtureEvidence(page);
     }
-    // TikTok: the background sends the tab to Still's own "TikTok stays closed." page. Firefox for
+    // TikTok: the background sends the tab to Still's own "TikTok stays closed" page. Firefox for
     // Android's tabs.update rejects `loadReplace`, which once left only the in-page block here.
     if (page) {
       const tab = page;
@@ -549,7 +549,7 @@ test("Firefox for Android spike", async () => {
   expect.soft(granted, "the four sites can be granted on Firefox for Android").toBe(true);
   await pageScreenshot(bidi, firstRun, "first-run-after-allow");
   const firstRunAllowed = await firstRun.evaluate<boolean>(
-    `document.body.textContent.includes("Allowed on Instagram, Facebook, YouTube, and TikTok.")`,
+    `document.body.textContent.includes("Allowed on Instagram, Facebook, YouTube and TikTok.")`,
   );
   record("first-run page shows the granted state", firstRunAllowed ? "pass" : "fail", { firstRunAllowed });
 

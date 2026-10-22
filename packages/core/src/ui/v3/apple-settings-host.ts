@@ -172,8 +172,7 @@ export type AppleSetupOpener = (
 ) => void;
 
 const SETUP_TITLE = "Turn on Still in Safari";
-const SETUP_DETAIL =
-  "Still works inside Safari. Your choices are saved and start working once it's on.";
+const SETUP_DETAIL = "Turn on the Still extension in Safari.";
 
 /**
  * The iPhone onboarding's owner-approved steps for Still's Safari extension page (iOS 26.2+):
@@ -181,9 +180,9 @@ const SETUP_DETAIL =
  * Onboarding.swift, so the card and onboarding cannot drift apart.
  */
 export const IOS_EXTENSION_PAGE_ENABLE_STEPS: readonly string[] = [
-  "Tap “Open Settings” below",
-  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-  "Close Safari, then reopen it",
+  "Tap “Open Settings” below.",
+  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+  "Close Safari, then reopen it.",
 ];
 
 /**

@@ -112,7 +112,7 @@ struct OnboardingView: View {
       brandMark
       Text("Still")
         .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("Do what you came to do. Remove distractions like short-form video from your favorite websites.")
+      Text("Do what you came to do. Remove distractions like short-form video from YouTube, Instagram, Facebook and TikTok.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -122,10 +122,10 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("Distractions are gone.")
+      Text("Distractions are gone")
         .font(.still(size: 30, weight: .semibold, relativeTo: .title))
         .multilineTextAlignment(.center)
-      Text("Keep the best elements of Instagram, Facebook, YouTube, and TikTok. Remove what distracts you.")
+      Text("Keep the best of Instagram, Facebook and YouTube. Remove what distracts you.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -137,12 +137,14 @@ struct OnboardingView: View {
       glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
       Text("Turn on Still in Safari")
         .font(.still(size: 28, weight: .semibold, relativeTo: .title))
-      Text("Enable the Still extension to use in Safari.")
+      Text("Turn on the Still extension in Safari.")
         .font(.still(size: 16, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
 
-      statusBadge
+      // Hidden while the state is unknown (an iPhone before iOS 26.2, or not read yet): its line
+      // would only repeat the heading (owner, 22 Oct 2026).
+      if status != .unknown { statusBadge }
 
       VStack(alignment: .leading, spacing: 12) {
         ForEach(Array(enableSteps.enumerated()), id: \.offset) { index, line in
@@ -198,7 +200,7 @@ struct OnboardingView: View {
   private var done: some View {
     VStack(spacing: 20) {
       glyph("checkmark.seal.fill", tint: .green)
-      Text("Still is ready.")
+      Text("Still is ready")
         .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
       Text(completionSubtitle)
         .font(.still(size: 20, relativeTo: .title3))
@@ -219,7 +221,7 @@ struct OnboardingView: View {
 
   private var completionSubtitle: String {
     #if os(macOS)
-    return "Distractions are removed from enabled websites in Safari"
+    return "Distractions are removed from enabled websites in Safari."
     #else
     return "Short-form video is removed from enabled websites in Safari."
     #endif
@@ -320,7 +322,7 @@ struct OnboardingView: View {
     case 2:
       // The Safari setup sheet has no next screen, so its confirmed state reads "Done".
       if status.isConfirmedEnabled { return onClose == nil ? "Continue" : "Done" }
-      return "I've turned it on"
+      return "I’ve turned it on"
     default: return "Get started"
     }
   }
@@ -432,7 +434,7 @@ private struct SafariAddressBarButtonIllustration: View {
     .background(Capsule().fill(Color.primary.opacity(0.06)))
     .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 1))
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("The button at the left of Safari's address bar")
+    .accessibilityLabel("The button at the left of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }
@@ -521,7 +523,7 @@ private struct SafariToolbarStillButtonIllustration: View {
     }
     .frame(width: Self.rowWidth, height: 46)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Still's button to the right of Safari's address bar")
+    .accessibilityLabel("Still’s button to the right of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }
