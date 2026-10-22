@@ -5,6 +5,21 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
+## Latest checkpoint: protected migration rehearsal
+
+PR #522 merged as `bac1539f382798fa2ca812dd782beabc76c47b69` after all 32 checks passed.
+Fresh DB-01 run `39704032899` privately confirmed the hosted migration tail is still 0024.
+Plan-only run `39704528557` bound exactly 0025–0027, but its disposable rehearsal refused before
+any write: the new 0026 and 0027 `.invariant.sql` files mistakenly returned structural issue
+arrays rather than private row-count/fingerprint objects. No hosted apply was dispatched.
+
+The correction preserves the existing strict parser and independent structural verification
+queries, replaces both preservation queries with complete snapshots of pre-existing application
+and QA rows, and exercises actual SQL output before/after migration in the checkout rehearsal.
+Both queries must work before the grouped deployment, when the new tables do not exist.
+All 76 offline deployment tests pass; reviewed correction and protected replay remain separate
+gates before owner approval. A new merged SHA will be pinned for the next deployment plan.
+
 # V3 production activation and verification
 
 ## Outcome and ownership
