@@ -18,6 +18,9 @@
 #                     release declares the paid tier (see docs/release/versioning-and-packages.md)
 #   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY  exported production public inputs, required when
 #                     access trust is pinned; shared by both web bundles and all native plists
+#   VITE_REVIEW_SIGNIN_EMAIL  the App Review sign-in address (owner-supplied, never committed); required.
+#                     Exported or in packages/app-webview/.env. The archive refuses without it, and
+#                     after the web build checks the built page carries it exactly once (count only).
 #   UPLOAD=1          also upload the .ipa to App Store Connect via altool
 #
 set -euo pipefail
@@ -42,6 +45,9 @@ mkdir -p "$BUILD_DIR"
 source "$HERE/release-env-guard.sh"
 release_env_guard "$REPO/packages/app-webview" "$REPO/packages/ext-safari" "$HERE/modern-sync-shipped" \
   || exit 1
+# App Review must be able to sign in: refuse a release archive whose web bundle has no review address.
+# Presence and shape only; the value is never printed. See review-email-check.mjs.
+node "$HERE/review-email-check.mjs" env "$REPO/packages/app-webview"
 
 # Production access trust (V3 release enablement, G5). The PUBLIC Still Pro verification keys come
 # only from scripts/release/production-access-keys.json: the web bundle gets them as
@@ -68,6 +74,7 @@ done < <(node "$TRUST" env)
 
 echo "==> Building the shared web bundle…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
+node "$HERE/review-email-check.mjs" bundle "$REPO/packages/app-webview"
 echo "==> Building the Safari extension bundle…"
 # The app targets' "Copy Safari Web Extension Resources" phases hard-fail without
 # packages/ext-safari/dist/safari-mv3/manifest.json — dist/ is gitignored, so a clean checkout

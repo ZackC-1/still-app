@@ -154,6 +154,13 @@ public signing key is correct. `apple-config-check` refuses missing or incorrect
 before archive compilation; `apple-apply` validates again before changing any plist. For a raw archive,
 export the same inputs before building either web bundle and running `apple-apply`.
 
+Apple archives also refuse without `VITE_REVIEW_SIGNIN_EMAIL` (the App Review sign-in address,
+owner-supplied, never committed). `archive.sh` runs `apps/apple/scripts/review-email-check.mjs env`
+before building and `review-email-check.mjs bundle` after the web build, which requires the address
+exactly once in `packages/app-webview/dist/index.html`. Both print only "set", "missing" or a count.
+For a raw macOS `xcodebuild archive`, run `node apps/apple/scripts/review-email-check.mjs bundle
+packages/app-webview` after building the web bundle and before archiving.
+
 After archiving, inspect the **signed archive's** app and extension plists and web resources for the
 matching production project, trust key IDs and environment. Source overlay tests do not establish
 that a signed artifact carries them. Repeat for iOS/iPadOS and macOS after the final screen/image edits.
