@@ -126,3 +126,22 @@ describe("canvas: the Mac Safari popup's sync heading", () => {
     expect(style).not.toMatch(/margin: 0 0 4px/);
   });
 });
+
+// Owner rulings R1 and R2 on the canvas fidelity report (22 Oct): every popup (Safari iPhone,
+// Safari Mac, Chrome/Firefox) takes the canvas hero inset and footer.
+describe("canvas: the popup hero (R1)", () => {
+  it("insets the hero's title and switch 16px from its sides, popups only", () => {
+    expect(rule('.app[data-density="compact"] .hero.compact')).toContain("padding-inline: var(--space-4);");
+    // The Settings page and the Apple app (not compact density) keep their own hero.
+    expect(rule(".hero.compact")).not.toContain("padding-inline");
+  });
+});
+
+describe("canvas: the popup footer (R2)", () => {
+  it("draws its links at 14px with 4px above and below", () => {
+    const footer = rule(".popup-footer");
+    expect(footer).toContain("font-size: calc(14px * var(--text-scale, 1));");
+    expect(footer).toContain("padding-block: var(--space-1);");
+    expect(footer).toContain("padding-inline: var(--space-4);");
+  });
+});

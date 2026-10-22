@@ -61,6 +61,9 @@
 }
 .hero.off { background: var(--surface-raised); color: var(--ink); }
 .hero.compact { --hero-padding: var(--space-3); --hero-title-size: 18px; }
+/* Owner ruling R1 (22 Oct, canvas P-Hero): in the popups the hero's title and switch sit 16px inside the
+   blue card (12px above and below). The Settings page and the Apple app keep their own hero. */
+.app[data-density="compact"] .hero.compact { padding-inline: var(--space-4); }
 .hero.compact h1 { margin: 0; }
 .hero-text { flex: 1; min-inline-size: 0; }
 .hero h1 { margin: 0 0 4px; font-size: calc(var(--hero-title-size, 25px) * var(--text-scale, 1)); font-weight: 700; letter-spacing: -0.02em; }
@@ -206,7 +209,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .primary.inline { white-space: nowrap; min-inline-size: max-content; flex: none; min-block-size: 36px; padding: var(--space-2) var(--space-3); font-size: calc(14px * var(--text-scale, 1)); }
 /* Footer links sit well inside the popup's edges so a sheet's rounded corners (iPhone Safari) never
    clip them (owner, 12 Oct): 16px on each side, plus the popup's own 12px. */
-.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-inline: var(--space-4); font-size: calc(13px * var(--text-scale, 1)); }
+/* Owner ruling R2 (22 Oct, canvas P-PopupFooter): 14px links with 4px above and below. */
+.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block: var(--space-1); padding-inline: var(--space-4); font-size: calc(14px * var(--text-scale, 1)); }
 .open-options { background: transparent; border: none; color: var(--link); font: inherit; padding: 0; cursor: pointer; text-align: start; }
 .open-options:hover { color: var(--link-pressed); text-decoration: underline; text-underline-offset: 2px; }
 
