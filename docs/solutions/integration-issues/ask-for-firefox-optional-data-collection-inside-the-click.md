@@ -63,7 +63,7 @@ Pro's re-checks and Restore run without one. A stored checkout's completion is s
 The real-Firefox lane (`tests/firefox`) cannot raise the prompt. BiDi has no input on extension pages,
 and `script.evaluate` with `userActivation: true` does not count as a user input handler (checked on
 Firefox 158 with `extensions.webextOptionalPermissionPrompts` false). The lane pins what it can see:
-nothing optional granted at install, the refusal outside a click, and blocking with no grant
+nothing optional granted at install, the refusal outside a click and blocking with no grant
 (`tests/firefox/data-permission.spec.ts`). The click handlers are covered by unit tests with a mocked
 permissions API.
 
