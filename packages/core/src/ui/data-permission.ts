@@ -34,5 +34,5 @@ export interface DataPermission {
  */
 export const DATA_PERMISSION_COPY = Object.freeze({
   email: "Sign in needs permission to send your email address. Your settings stay on this device.",
-  purchase: "Still Pro needs permission to check your purchase.",
+  purchase: "Still Pro needs permission to start your purchase.",
 } satisfies Record<DataPermissionKind, string>);

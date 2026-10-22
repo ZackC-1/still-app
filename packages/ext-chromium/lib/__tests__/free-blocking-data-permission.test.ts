@@ -69,7 +69,12 @@ describe("the background", () => {
   });
 
   it("reads grants only inside the account session and account analytics, never in start-up, install, settings or blocking wiring", () => {
-    const outsideSession = without(without(source, "createSessionSpine"), "firefoxEmailGated")
+    // The account analytics gate (identify and subject, email grant) is account work too.
+    const gate = source.indexOf("...(import.meta.env.FIREFOX ? gateAccountAnalytics(");
+    expect(gate).toBeGreaterThan(-1);
+    const gateEnd = source.indexOf(": accountAnalytics)", gate);
+    const withoutGate = source.slice(0, gate) + source.slice(gateEnd);
+    const outsideSession = without(withoutGate, "createSessionSpine")
       .split("\n")
       .filter((line) => !line.startsWith("import "))
       .join("\n");

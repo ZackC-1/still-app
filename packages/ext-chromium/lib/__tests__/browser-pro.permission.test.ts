@@ -76,7 +76,9 @@ function harness(initiallyGranted: boolean) {
   };
   const tabs = { focus: vi.fn(async () => false), remember: vi.fn(async () => {}), close: vi.fn(async () => {}) };
   const states: BrowserProState[] = [];
+  const analytics = { track: vi.fn() };
   const deps: BrowserProDeps = {
+    analytics,
     controller,
     checkout,
     available: async () => true,
@@ -96,6 +98,7 @@ function harness(initiallyGranted: boolean) {
     page,
     listeners,
     permission,
+    analytics,
     controller,
     checkout,
     get state() {
@@ -203,6 +206,35 @@ describe("a purchase waiting in its checkout tab", () => {
   });
 });
 
+describe("Restore analytics on Firefox", () => {
+  const restoreEvents = (h: ReturnType<typeof harness>) =>
+    h.analytics.track.mock.calls.filter(([name]) => String(name).startsWith("restore_"));
+
+  it("are not sent without the purchase grant (\"restored\" would reveal Still Pro ownership)", async () => {
+    const h = harness(false);
+    h.observe("none");
+    await settle();
+    h.flow.restore();
+    await settle();
+    expect(h.state.restore).toEqual({ state: "nothing" }); // the restore itself still runs
+    expect(restoreEvents(h)).toEqual([]);
+    h.flow.stop();
+  });
+
+  it("are sent as before with the grant", async () => {
+    const h = harness(true);
+    h.observe("none");
+    await settle();
+    h.flow.restore();
+    await settle();
+    expect(restoreEvents(h)).toEqual([
+      ["restore_started", { purchase_origin: "web" }],
+      ["restore_completed", { purchase_origin: "web", outcome: "nothing_to_restore" }],
+    ]);
+    h.flow.stop();
+  });
+});
+
 describe("Restore purchase on Firefox", () => {
   it("checks without the purchase grant and without asking", async () => {
     const h = harness(false);
@@ -211,7 +243,8 @@ describe("Restore purchase on Firefox", () => {
     h.log.length = 0;
     h.flow.restore();
     await settle();
-    expect(h.log).toEqual(["recheck"]);
+    expect(h.log).toContain("recheck");
+    expect(h.log.some((entry) => entry.startsWith("ask:"))).toBe(false);
     expect(h.state.restore).toEqual({ state: "nothing" });
     h.flow.stop();
   });

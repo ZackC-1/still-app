@@ -219,7 +219,7 @@ export interface BrowserProDeps {
   /**
    * Firefox only (lib/data-permission.ts): the optional permission for purchase data. Get Still Pro
    * and Try again start a checkout for the account, so they ask for it first, inside their tap;
-   * declined, the card says "Still Pro needs permission to check your purchase." and no checkout
+   * declined, the card says "Still Pro needs permission to start your purchase." and no checkout
    * starts. Restore purchase and the page's re-checks only receive the account's Still Pro status,
    * which sends no purchase data (Mozilla's data types describe what an add-on transmits), so they
    * never ask or wait on it and Still Pro cannot lock for want of it.
@@ -449,12 +449,16 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     restoreFor = userId;
     const ticket = generation;
     set({ restore: { state: "checking" } });
-    track("restore_started", { purchase_origin: "web" });
+    // Firefox: a restore's outcome ("restored") reveals Still Pro ownership, so its events go only
+    // with the purchase-data grant. The restore itself never waits on it.
+    const measured = deps.permission ? await deps.permission.granted("purchase").catch(() => false) : true;
+    if (stopped || ticket !== generation) return;
+    if (measured) track("restore_started", { purchase_origin: "web" });
     const result = await recheck();
     if (stopped || ticket !== generation) return;
     restoreFlight = false;
     const ownership = result ? proOwnership(result.access) : null;
-    track("restore_completed", {
+    if (measured) track("restore_completed", {
       purchase_origin: "web",
       outcome: ownership === "owned" ? "restored"
         : result?.outcome === "not-entitled" && ownership === "none" ? "nothing_to_restore" : "failed",

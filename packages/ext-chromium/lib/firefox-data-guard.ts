@@ -17,12 +17,13 @@ export { EMAIL_GRANT_ACCOUNT_KEY, EMAIL_PERMISSION_WITHDRAWN_KEY } from "./data-
 //   * guardFirefoxDataFetch: the Supabase client's fetch. A request that sends the email address
 //     as personal data (the code request and code check, the store-review sign-in, and
 //     analytics-identify, whose server attaches the account's email to its analytics person or
-//     subject) or sends purchase data (starting a checkout, purchase analytics, an Apple receipt)
-//     goes out only while Firefox lists that permission as granted, read again for every request.
-//     Without it the request is refused as a network failure, which every caller already handles
-//     calmly. Requests that only receive the account's Still Pro status (reconcile, the
-//     entitlement read, a checkout's completion) send no purchase data and are never held back,
-//     so Still Pro cannot lock for want of a grant.
+//     subject) or references a purchase or checkout (starting a checkout, completing one with its
+//     operation id, purchase analytics, an Apple receipt) goes out only while Firefox lists that
+//     permission as granted, read again for every request. Without it the request is refused as a
+//     network failure, which every caller already handles calmly. Requests that only receive the
+//     account's Still Pro status (the reconcile and the entitlement read, which send only the
+//     session token and the anon key) are never held back, so Still Pro cannot lock for want of a
+//     grant; the reconcile skips a stored checkout's completion instead (mayCompleteCheckout).
 //   * The sign-in session token is different: it is declared under the required
 //     "authenticationInfo", it embeds the account's email address (Supabase's default claims), and
 //     every signed-in request carries it, to Still's own backend only. It is the account's
@@ -45,15 +46,17 @@ const emailAuthPaths = (): readonly string[] => ["/auth/v1/otp", "/auth/v1/verif
  * analytics-identify (both its account identify and its per-device subject request), whose server
  * attaches the account's email to the analytics person or subject. */
 const emailFunctions = (): readonly string[] => ["review-signin", "analytics-identify"];
-/** Edge functions that send purchase data, on both route profiles: starting a checkout (a
- * transaction for the account), Apple receipts, and purchase analytics. Reading the account's
- * Still Pro status (reconcile, a checkout's completion, the entitlement row) only receives it. */
+/** Edge functions whose request references a purchase or checkout, on both route profiles:
+ * starting a checkout (a transaction for the account), completing one (its operation id, a
+ * transaction reference), Apple receipts, and purchase analytics. Reading the account's Still Pro
+ * status (the reconcile, `{ access_schema: 1 }`, and the entitlement row) sends only the session
+ * token and the anon key, and only receives it. */
 function purchaseFunctions(): readonly string[] {
   return [
     ...(["production", "shared-hosted-sandbox"] as const).flatMap((profile) => {
       const routes = backendRoutes(profile);
-      return [routes.verifyApple, routes.linkApple, routes.createCheckout];
-    }),
+      return [routes.verifyApple, routes.linkApple, routes.createCheckout, routes.completeCheckout];
+    }).filter((name): name is string => typeof name === "string"),
     "analytics-purchase",
   ];
 }
@@ -286,4 +289,23 @@ export function watchFirefoxAccountEmail(
     if (permissions.data_collection?.includes(FIREFOX_DATA_TYPES.email)) void watch.granted();
   });
   return withAccountEmailWatch(session, watch);
+}
+
+/**
+ * Firefox: the background's two account analytics calls (analytics-identify's account identify
+ * and its per-device subject request), each run only with the email grant (requireEmailGrant).
+ * An absent call stays absent.
+ */
+export function gateAccountAnalytics<
+  T extends {
+    readonly identifyOnServer?: ((...args: never[]) => Promise<unknown>) | undefined;
+    readonly issueSubject?: ((...args: never[]) => Promise<unknown>) | undefined;
+  },
+>(calls: T, granted: () => Promise<boolean>): T {
+  const gated: Record<string, unknown> = { ...calls };
+  for (const key of ["identifyOnServer", "issueSubject"] as const) {
+    const call = calls[key] as ((...args: unknown[]) => Promise<unknown>) | undefined;
+    if (call) gated[key] = requireEmailGrant(call, granted);
+  }
+  return gated as T;
 }

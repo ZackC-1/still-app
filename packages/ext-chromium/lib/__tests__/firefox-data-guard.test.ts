@@ -3,6 +3,7 @@ import type { ExtensionSession } from "@still/core/sync";
 import {
   createAccountEmailWatch,
   dataKindForRequest,
+  gateAccountAnalytics,
   guardFirefoxDataFetch,
   requireEmailGrant,
   watchFirefoxAccountEmail,
@@ -29,6 +30,9 @@ describe("which requests carry what", () => {
     ["/functions/v1/analytics-identify", "email"],
     ["/functions/v1/create-web-checkout", "purchase"],
     ["/functions/v1/qa-sandbox-create-web-checkout", "purchase"],
+    // Sends the checkout's operation id, a transaction reference.
+    ["/functions/v1/complete-web-checkout", "purchase"],
+    ["/functions/v1/qa-sandbox-complete-web-checkout", "purchase"],
     ["/functions/v1/analytics-purchase", "purchase"],
     ["/functions/v1/verify-apple-access", "purchase"],
     ["/functions/v1/link-apple-access", "purchase"],
@@ -48,7 +52,6 @@ describe("which requests carry what", () => {
     // Receiving the account's Still Pro status sends no purchase data: never held back.
     "/functions/v1/reconcile-entitlement",
     "/functions/v1/qa-sandbox-reconcile-entitlement",
-    "/functions/v1/complete-web-checkout",
     "/rest/v1/entitlements?select=still_sync",
   ])("%s sends neither (settings sync, the session, Still Pro status reads)", (path) => {
     expect(dataKindForRequest(`${SUPABASE}${path}`, SUPABASE)).toBeNull();
@@ -89,9 +92,16 @@ describe("guardFirefoxDataFetch", () => {
     expect(h.base).not.toHaveBeenCalled();
   });
 
+  it("without the purchase permission, a stored checkout is not completed (its operation id stays on the device)", async () => {
+    const h = setup({ email: true });
+    const body = JSON.stringify({ access_schema: 1, surface: "firefox_desktop", build: "3.0.0", operation_id: "11111111-1111-4111-8111-111111111111" });
+    await expect(h.guarded(`${SUPABASE}/functions/v1/complete-web-checkout`, { method: "POST", body })).rejects.toBeInstanceOf(TypeError);
+    expect(h.base).not.toHaveBeenCalled();
+  });
+
   it("without the purchase permission, Still Pro status is still received (it never locks for want of a grant)", async () => {
     const h = setup({});
-    await h.guarded(`${SUPABASE}/functions/v1/reconcile-entitlement`);
+    await h.guarded(`${SUPABASE}/functions/v1/reconcile-entitlement`, { method: "POST", body: '{"access_schema":1}' });
     await h.guarded(`${SUPABASE}/rest/v1/entitlements?select=still_sync`);
     expect(h.base).toHaveBeenCalledTimes(2);
     expect(h.granted).not.toHaveBeenCalled();
@@ -348,5 +358,47 @@ describe("the background wiring (watchFirefoxAccountEmail)", () => {
     chromeLike.add(["personallyIdentifyingInfo"]);
     await settle();
     expect(chromeLike.items[EMAIL_PERMISSION_WITHDRAWN_KEY]).toBeUndefined();
+  });
+});
+
+describe("gateAccountAnalytics: the Firefox background's account analytics calls", () => {
+  it("wraps both identifyOnServer and issueSubject with the email gate", async () => {
+    const identifyOnServer = vi.fn(async (_signal?: AbortSignal) => {});
+    const issueSubject = vi.fn(async (_body: unknown, _signal: AbortSignal, _account: string) => ({}));
+    let granted = false;
+    const gated = gateAccountAnalytics({ identifyOnServer, issueSubject }, async () => granted);
+    await expect(gated.identifyOnServer!()).rejects.toThrow();
+    await expect(gated.issueSubject!({}, new AbortController().signal, "u1")).rejects.toThrow();
+    expect(identifyOnServer).not.toHaveBeenCalled();
+    expect(issueSubject).not.toHaveBeenCalled();
+    granted = true;
+    await gated.identifyOnServer!();
+    await gated.issueSubject!({}, new AbortController().signal, "u1");
+    expect(identifyOnServer).toHaveBeenCalledOnce();
+    expect(issueSubject).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an absent call absent (2.x builds pass no issueSubject; signed-out builds no identify)", () => {
+    const gated = gateAccountAnalytics({ identifyOnServer: undefined }, async () => true);
+    expect(gated.identifyOnServer).toBeUndefined();
+    expect("issueSubject" in gated).toBe(false);
+  });
+});
+
+describe("background.ts hands both account analytics calls through the gate on Firefox", () => {
+  it("defines them in one object that reaches the analytics factory only through gateAccountAnalytics", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const source = readFileSync(fileURLToPath(new URL("../../entrypoints/background.ts", import.meta.url)), "utf8");
+    const start = source.indexOf("const accountAnalytics = {");
+    expect(start).toBeGreaterThan(-1);
+    const block = source.slice(start, source.indexOf("\n  };\n", start));
+    expect(block).toContain("identifyOnServer:");
+    expect(block).toContain("issueSubject:");
+    // Nowhere else does the background name either call.
+    const outside = source.slice(0, start) + source.slice(start + block.length);
+    expect(outside).not.toMatch(/identifyOnServer:|issueSubject:/);
+    expect(source).toMatch(/\.\.\.\(import\.meta\.env\.FIREFOX\s*\?\s*gateAccountAnalytics\(accountAnalytics,/);
+    expect(source.match(/accountAnalytics\b/g)).toHaveLength(3); // declared, gated, or passed as is
   });
 });

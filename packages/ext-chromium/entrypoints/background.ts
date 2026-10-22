@@ -22,7 +22,7 @@ import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
 import { firefoxDataGranted, type FirefoxDataCollectionApi } from "../lib/data-permission.js";
-import { guardFirefoxDataFetch, requireEmailGrant, watchFirefoxAccountEmail, type AccountEmailBrowser } from "../lib/firefox-data-guard.js";
+import { gateAccountAnalytics, guardFirefoxDataFetch, watchFirefoxAccountEmail, type AccountEmailBrowser } from "../lib/firefox-data-guard.js";
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
@@ -302,6 +302,24 @@ export default defineBackground(() => {
   // the optional data-collection permission), per ADR 0004 (lib/default-on-analytics.ts). The
   // inline build-time check folds this to the 2.x factory in every 2.x build, byte-for-byte.
   let reportPurchaseAnalytics: (() => void) | undefined;
+  // The two account analytics calls. Their server attaches the account's email to the analytics
+  // person and the device's subject, so on Firefox they run only with the email grant
+  // (gateAccountAnalytics, lib/firefox-data-guard.ts).
+  const accountAnalytics = {
+    identifyOnServer: spine
+      ? async () => {
+          const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
+          if (error) throw error;
+        }
+      : undefined,
+    // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
+    // Folds away in 2.x builds.
+    ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
+      ? {
+          issueSubject: supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined),
+        }
+      : {}),
+  };
   const analytics = (
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
       ? createDefaultOnBackgroundAnalytics
@@ -322,21 +340,8 @@ export default defineBackground(() => {
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       requestQuietFlush: () => requestQuietFlush(chrome.alarms),
       reportPurchases: () => reportPurchaseAnalytics?.(),
-      // The server attaches the account's email to the analytics person (and below, to the
-      // device's subject): on Firefox only with the email grant (firefoxEmailGated).
-      identifyOnServer: spine
-        ? firefoxEmailGated(async () => {
-            const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
-            if (error) throw error;
-          })
-        : undefined,
-      // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
-      // Folds away in 2.x builds, byte-for-byte.
-      ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
-        ? {
-            issueSubject: firefoxEmailGated(supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined)),
-          }
-        : {}),
+      ...(import.meta.env.FIREFOX ? gateAccountAnalytics(accountAnalytics, () =>
+        firefoxDataGranted(() => chrome.permissions as unknown as FirefoxDataCollectionApi, "email")) : accountAnalytics),
     },
     chrome.runtime.id,
     chrome.runtime.getURL(""),
@@ -756,6 +761,9 @@ function createSessionSpine(
     records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
+    // Firefox: completing a stored checkout sends its operation id, so it waits for the purchase
+    // grant; the reconcile itself never does (lib/firefox-data-guard.ts).
+    ...(import.meta.env.FIREFOX ? { mayCompleteCheckout: () => firefoxDataGranted(firefoxPermissions, "purchase") } : {}),
     canCreateCheckout: PAID_TIER_ENABLED ? async () => {
       const surface = await checkoutSurface;
       if (!surface) return false;
@@ -802,17 +810,4 @@ function createSessionSpine(
     },
     accessEvidence: verified => scoped?.evidenceStatus(verified) ?? "unknown",
     accessEvidenceDeadline: () => scoped?.evidenceDeadline() ?? null };
-}
-
-/**
- * Firefox only: analytics calls whose server attaches the account's email address run only while
- * Firefox's optional email permission is granted (lib/firefox-data-guard.ts requireEmailGrant). A
- * Firefox account signed in before that permission existed, with usage sharing on, therefore never
- * has its email attached until a sign-in here grants it. Chrome folds this to the call itself.
- */
-function firefoxEmailGated<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
-  return import.meta.env.FIREFOX
-    ? requireEmailGrant(call, () =>
-        firefoxDataGranted(() => chrome.permissions as unknown as FirefoxDataCollectionApi, "email"))
-    : call;
 }

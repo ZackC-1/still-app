@@ -230,3 +230,12 @@ describe("the sign-in sheet's line", () => {
     expect(auth.requestCode).not.toHaveBeenCalled();
   });
 });
+
+describe("the owner-approved lines (22 Oct 2026)", () => {
+  it("are exactly these", () => {
+    expect(DATA_PERMISSION_COPY).toEqual({
+      email: "Sign in needs permission to send your email address. Your settings stay on this device.",
+      purchase: "Still Pro needs permission to start your purchase.",
+    });
+  });
+});
