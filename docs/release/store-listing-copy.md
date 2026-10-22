@@ -627,7 +627,7 @@ phone, twelve on a Mac) and no price (Apple shows it).
 | Review Notes (IAP) | One-time, non-consumable purchase. Open Still and tap Get Still Pro, then complete the sandbox purchase on the review device. Sign-in is offered first and can be skipped with “Buy without an account”. Restore purchase works without signing in. | 243/4000 |
 
 The recommended description reuses the popup’s own words (“Even fewer distractions on Instagram,
-Facebook, and YouTube. One-time purchase.”). The runbook’s earlier draft, “Twelve extra controls.
+Facebook and YouTube. One-time purchase.”). The runbook’s earlier draft, “Twelve extra controls.
 One-time purchase.”, is not used because iPhone and iPad offer nine.
 
 ### V3 Apple App Review Information
