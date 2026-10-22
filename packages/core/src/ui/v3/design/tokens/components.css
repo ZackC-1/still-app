@@ -118,18 +118,20 @@
 .split-actions > button { min-block-size: var(--tap-target); }
 /* The Help card is condensed (owner, 19 Oct): tighter gap and padding, link-sized text. */
 /* Help (owner, 21 Oct): two columns of links. Each host places its cells with data-help-column and
-   data-help-row, so the markup keeps Delete account last in Tab order. Every link is a 44px target;
-   the card's block padding is small because the targets carry the space. Above 1.5x text the cells
-   stack in one column, in markup order. */
-.card-stack.help { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 0 var(--space-4); padding: var(--space-1) var(--space-4); }
+   data-help-row, so the markup keeps Delete account last in Tab order. Above 1.5x text the cells
+   stack in one column, in markup order. The canvas rhythm (owner, 22 Oct): 12px above and below,
+   10px between rows, link-sized rows and the address 2px under Contact support. Every link still
+   has a 44px hit area, drawn by an invisible ::before that extends past the link's own box. */
+.card-stack.help { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 10px var(--space-4); padding: var(--space-3) var(--space-4); }
 .card-stack.help > [data-help-column="left"] { grid-column: 1; }
 .card-stack.help > [data-help-column="right"] { grid-column: 2; }
 .card-stack.help > [data-help-row="1"] { grid-row: 1; }
 .card-stack.help > [data-help-row="2"] { grid-row: 2; }
 .card-stack.help > [data-help-row="3"] { grid-row: 3; }
-.card-stack.help .link { display: inline-flex; align-items: center; justify-self: start; min-block-size: var(--tap-target); max-inline-size: 100%; text-align: start; font-size: calc(14px * var(--text-scale, 1)); }
-.help-contact { display: flex; flex-direction: column; min-inline-size: 0; }
-.help-contact > .sync-row-sub { margin: 0; padding-block-end: var(--space-2); overflow-wrap: anywhere; }
+.card-stack.help .link { position: relative; display: inline-flex; align-items: center; justify-self: start; max-inline-size: 100%; text-align: start; font-size: calc(14px * var(--text-scale, 1)); }
+.card-stack.help .link::before { content: ""; position: absolute; inset-block: calc((100% - var(--tap-target)) / 2); inset-inline: calc(-1 * var(--space-1)); }
+.help-contact { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.help-contact > .sync-row-sub { margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
 html[data-still-text-scale="large"] .card-stack.help { grid-template-columns: minmax(0, 1fr); }
 html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; grid-row: auto; }
 .section-label { margin: 0; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; letter-spacing: 0.01em; color: var(--ink-secondary); }
@@ -222,7 +224,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .service-row .text { display: flex; flex-direction: column; min-inline-size: 0; }
 .service-row .name { font-size: calc(var(--service-name-size, 17px) * var(--text-scale, 1)); font-weight: 600; letter-spacing: -0.01em; }
 .service-row .status { font-size: calc(var(--service-status-size, 14px) * var(--text-scale, 1)); color: var(--ink-secondary); }
-.service-row .chevron { flex: none; color: var(--ink-secondary); transition: transform 200ms ease; }
+/* 14px on every site expander, as drawn (owner, 22 Oct); the glyph's own size is 16. */
+.service-row .chevron { flex: none; inline-size: 14px; block-size: 14px; color: var(--ink-secondary); transition: transform 200ms ease; }
 .service-row .expander[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .service-options { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1), visibility 220ms; }
 .service-options.open { grid-template-rows: 1fr; visibility: visible; }

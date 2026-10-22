@@ -35,3 +35,38 @@ describe("Chrome and Firefox popup, canvas measurements", () => {
     expect(notNow).toMatch(/line-height:\s*normal/);
   });
 });
+
+describe("Help card and site expanders, canvas measurements (owner rulings B1 and B3, 22 Oct)", () => {
+  const css = source("design/tokens/components.css");
+  const line = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^${escaped} \\{([^}]*)\\}`, "m").exec(css)?.[1] ?? "";
+  };
+
+  it("draws the Help card at the canvas rhythm: 12px above and below, 10px between rows", () => {
+    expect(line(".card-stack.help")).toContain("gap: 10px var(--space-4);");
+    expect(line(".card-stack.help")).toContain("padding: var(--space-3) var(--space-4);");
+  });
+
+  it("keeps each Help link link-sized, with a 44px hit area drawn by an invisible ::before", () => {
+    expect(line(".card-stack.help .link")).not.toContain("min-block-size");
+    expect(line(".card-stack.help .link")).toContain("position: relative;");
+    const hit = line(".card-stack.help .link::before");
+    expect(hit).toContain('content: "";');
+    expect(hit).toContain("position: absolute;");
+    expect(hit).toContain("inset-block: calc((100% - var(--tap-target)) / 2);");
+  });
+
+  it("puts the support address 2px under Contact support, at the card's line height", () => {
+    expect(line(".help-contact")).toContain("gap: 2px;");
+    const address = line(".help-contact > .sync-row-sub");
+    expect(address).toContain("line-height: 1.4;");
+    expect(address).not.toContain("padding");
+  });
+
+  it("draws every site expander's chevron at 14px", () => {
+    const chevron = line(".service-row .chevron");
+    expect(chevron).toContain("inline-size: 14px;");
+    expect(chevron).toContain("block-size: 14px;");
+  });
+});
