@@ -211,7 +211,7 @@ Build the next candidate from a clean main commit using `paid-sandbox apple-all`
 manifest version against the reviewed sales-policy admission before applying that separate protected
 operation. A policy-only merge also increments the QA sequence; never infer the next version from
 the last packaged candidate. The admissions are test set 7 (2.1.1.351, decision A3), 2.1.1.361
-(notification candidate, still on the Firefox Android emulator), the 17 Oct package 2.1.1.383, the 18 Oct packages 2.1.1.385 and 2.1.1.387, the 19 Oct packages 2.1.1.392 and 2.1.1.400, the 20 Oct package 2.1.1.420, and the 22 Oct package 2.1.1.1438. The server accepts at most 32 build entries, so superseded packages that no device runs any more (357, 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026. Every QA package card
+(notification candidate, still on the Firefox Android emulator), the 20 Oct package 2.1.1.420, and the 22 Oct packages 2.1.1.1438 and 2.1.1.1444. The server accepts at most 32 build entries, so superseded packages that no device runs any more (357, 359, 370, 371, 374, 376, 379) were removed on 18 Oct 2026, and the 17 to 19 Oct packages (383, 385, 387, 392, 400) on 22 Oct 2026. Every QA package card
 records the allowlist revision it was checked against (see `scripts/qa/README.md`). Source merge, migration application, admission and installed acceptance are separate gates.
 
 Active clients refresh canonical settings after a private hint or channel join. A fallback read

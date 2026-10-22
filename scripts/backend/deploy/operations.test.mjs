@@ -1946,7 +1946,14 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
     );
   for (const name of Object.keys(WORKFLOW_OPERATIONS))
     assert.ok(isKnownOperation(name), name);
-  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, "", "purchase-functions", "purchase-secrets"])
+  for (const name of [
+    "migrations",
+    "qa-sandbox-functions",
+    POLICY_ON,
+    "",
+    "purchase-functions",
+    "purchase-secrets",
+  ])
     assert.ok(!isKnownOperation(name), name);
 });
 
@@ -1977,27 +1984,15 @@ test("the sales bodies, cutoff and builds are pinned identically in JS and SQL, 
         ["chrome_desktop", "2.1.1.361"],
         ["firefox_desktop", "2.1.1.361"],
         ["firefox_android", "2.1.1.361"],
-        ["chrome_desktop", "2.1.1.383"],
-        ["firefox_desktop", "2.1.1.383"],
-        ["firefox_android", "2.1.1.383"],
-        ["chrome_desktop", "2.1.1.385"],
-        ["firefox_desktop", "2.1.1.385"],
-        ["firefox_android", "2.1.1.385"],
-        ["chrome_desktop", "2.1.1.387"],
-        ["firefox_desktop", "2.1.1.387"],
-        ["firefox_android", "2.1.1.387"],
-        ["chrome_desktop", "2.1.1.392"],
-        ["firefox_desktop", "2.1.1.392"],
-        ["firefox_android", "2.1.1.392"],
-        ["chrome_desktop", "2.1.1.400"],
-        ["firefox_desktop", "2.1.1.400"],
-        ["firefox_android", "2.1.1.400"],
         ["chrome_desktop", "2.1.1.420"],
         ["firefox_desktop", "2.1.1.420"],
         ["firefox_android", "2.1.1.420"],
         ["chrome_desktop", "2.1.1.1438"],
         ["firefox_desktop", "2.1.1.1438"],
         ["firefox_android", "2.1.1.1438"],
+        ["chrome_desktop", "2.1.1.1444"],
+        ["firefox_desktop", "2.1.1.1444"],
+        ["firefox_android", "2.1.1.1444"],
         ["apple_mobile_host", "2.1.0"],
         ["apple_macos_host", "2.1.0"],
       ],
@@ -2799,10 +2794,20 @@ test("the apply command hands the list secret only to the run and prints none of
 });
 
 test("production sales pin the four released-free benefits and exclude QA/Android build admission", async () => {
-  assert.deepEqual(PRODUCTION_CUTOFF, { product: "still-free-v2", benefits: ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"] });
+  assert.deepEqual(PRODUCTION_CUTOFF, {
+    product: "still-free-v2",
+    benefits: [
+      "facebook.reels",
+      "instagram.reels",
+      "tiktok.all",
+      "youtube.shorts",
+    ],
+  });
   assert.deepEqual(PRODUCTION_SALES_BUILDS, [
-    { surface: "chrome_desktop", build: "3.0.0" }, { surface: "firefox_desktop", build: "3.0.0" },
-    { surface: "apple_mobile_host", build: "3.0" }, { surface: "apple_macos_host", build: "3.0" },
+    { surface: "chrome_desktop", build: "3.0.0" },
+    { surface: "firefox_desktop", build: "3.0.0" },
+    { surface: "apple_mobile_host", build: "3.0" },
+    { surface: "apple_macos_host", build: "3.0" },
   ]);
   for (const mode of ["off", "on"]) {
     const op = OPERATIONS[`production-sales-policy-${mode}`];
@@ -2814,8 +2819,19 @@ test("production sales pin the four released-free benefits and exclude QA/Androi
     assert.equal(op.template.salesEnabled, mode === "on");
     assert.equal(op.cutoff, mode === "on" ? PRODUCTION_CUTOFF : null);
     assertOperationScope(sql, op);
-    throwsCategory(() => assertOperationScope(sql.replaceAll("'production'", "'sandbox'"), op), "operation-scope");
-    throwsCategory(() => assertOperationScope(sql, OPERATIONS[mode === "on" ? POLICY_ON : POLICY_OFF]), "operation-scope");
+    throwsCategory(
+      () =>
+        assertOperationScope(sql.replaceAll("'production'", "'sandbox'"), op),
+      "operation-scope",
+    );
+    throwsCategory(
+      () =>
+        assertOperationScope(
+          sql,
+          OPERATIONS[mode === "on" ? POLICY_ON : POLICY_OFF],
+        ),
+      "operation-scope",
+    );
     const check = await real(op.verification.path);
     lintVerificationSql(check);
     assert.ok(!check.includes("sandbox_cutoff_missing")); // an existing QA cutoff is permitted
@@ -2824,13 +2840,27 @@ test("production sales pin the four released-free benefits and exclude QA/Androi
 
 test("production sales on is reviewable but cannot apply before final package admission is verified", async (t) => {
   const { root, head } = await repo(t);
-  const on = await plan(root, head, "production-sales-policy", { policyMode: "on", expectedRevision: "0" });
+  const on = await plan(root, head, "production-sales-policy", {
+    policyMode: "on",
+    expectedRevision: "0",
+  });
   assert.equal(JSON.parse(on.body).environment, "production");
   assert.deepEqual(on.cutoff, PRODUCTION_CUTOFF);
   assert.ok(on.provisional.length);
   assert.match(renderOperationPlan(on), /Provisional content: plan-only/);
-  await refuses(plan(root, head, "production-sales-policy", { policyMode: "on", expectedRevision: "0", mode: "apply" }), "operation-provisional");
-  const off = await plan(root, head, "production-sales-policy", { policyMode: "off", expectedRevision: "2", mode: "apply" });
+  await refuses(
+    plan(root, head, "production-sales-policy", {
+      policyMode: "on",
+      expectedRevision: "0",
+      mode: "apply",
+    }),
+    "operation-provisional",
+  );
+  const off = await plan(root, head, "production-sales-policy", {
+    policyMode: "off",
+    expectedRevision: "2",
+    mode: "apply",
+  });
   assert.equal(off.operation, "production-sales-policy-off");
   assert.equal(off.cutoff, undefined);
   assert.deepEqual(off.provisional, []);
@@ -2842,10 +2872,14 @@ test("production sales on is reviewable but cannot apply before final package ad
 });
 
 test("production stop-sales runs through the same fixed transaction and repeats without rewriting", async (t) => {
-  const fx = await txFixture(t, "production-sales-policy", { policyMode: "off", expectedRevision: "2" });
+  const fx = await txFixture(t, "production-sales-policy", {
+    policyMode: "off",
+    expectedRevision: "2",
+  });
   const db = fakeTxDb({
-    issues: state => state.applied ? [] : ["production_sales_policy_differs"],
-    apply: env => {
+    issues: (state) =>
+      state.applied ? [] : ["production_sales_policy_differs"],
+    apply: (env) => {
       const body = JSON.parse(env.STILL_OPERATION_POLICY_BODY);
       assert.equal(body.environment, "production");
       assert.equal(body.salesEnabled, false);
