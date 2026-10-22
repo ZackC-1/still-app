@@ -175,7 +175,9 @@
           : (prompt ?? STRINGS.auth.prompt)}
       {/if}
     </p>
-    {#if note}<p class="body">{note}</p>{/if}
+    <!-- The purchase note and its skip belong to the email step; the code step shows the code
+         field only (owner ruling D5, 22 Oct 2026). Cancel stays on every step. -->
+    {#if note && !inCodeEntry}<p class="body">{note}</p>{/if}
 
     {#if c.needsEmailConsent}
       <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
@@ -303,7 +305,7 @@
       </form>
     {/if}
 
-    {#if skip}
+    {#if skip && !inCodeEntry}
       <button type="button" class="link" onclick={skip.onSkip}
         >{skip.label}</button
       >

@@ -99,6 +99,8 @@ public enum OnboardingLayout {
   public static let openFontSize: Double = 18
   public static let openSpacing: Double = 10
   public static let openIconSize: Double = 16
+  /// The outline symbol, as drawn on the canvas (owner ruling D3, 22 Oct 2026).
+  public static let openIconSymbol = "arrow.up.forward.app"
 
   /// sRGB colours, light then dark.
   public struct Hex: Equatable, Sendable {

@@ -189,7 +189,7 @@ struct OnboardingView: View {
 
       Button(action: openEnableLocation) {
         HStack(spacing: Self.points(OnboardingLayout.openSpacing)) {
-          Image(systemName: "arrow.up.forward.app.fill")
+          Image(systemName: OnboardingLayout.openIconSymbol)
             .font(.system(size: Self.points(OnboardingLayout.openIconSize)))
           Text(OnboardingCopy.openButtonTitle(for: enableLocation))
             .font(.still(size: OnboardingLayout.openFontSize, weight: .semibold, relativeTo: .body))

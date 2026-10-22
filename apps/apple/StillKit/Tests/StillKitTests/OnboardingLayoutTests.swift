@@ -71,6 +71,19 @@ final class OnboardingLayoutTests: XCTestCase {
     XCTAssertEqual(OnboardingLayout.openSpacing, 10)
   }
 
+  /// Owner ruling D3 (22 Oct): the Open Settings button's icon is the outline symbol, as drawn.
+  func testOpenSettingsUsesTheOutlineSymbol() throws {
+    XCTAssertEqual(OnboardingLayout.openIconSymbol, "arrow.up.forward.app")
+    let root = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let view = try String(
+      contentsOf: root.appendingPathComponent("Still/Shared (App)/Onboarding/OnboardingView.swift"),
+      encoding: .utf8)
+    XCTAssertTrue(view.contains("Image(systemName: OnboardingLayout.openIconSymbol)"))
+    XCTAssertFalse(view.contains("arrow.up.forward.app.fill"))
+  }
+
   func testColoursMatchTheCanvas() {
     XCTAssertEqual(OnboardingLayout.background, .init(light: 0xF7F7F7, dark: 0x0A0A0A))
     XCTAssertEqual(OnboardingLayout.secondaryText, .init(light: 0x6E6E73, dark: 0x98989D))

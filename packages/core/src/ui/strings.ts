@@ -203,7 +203,7 @@ export const STRINGS = {
   // strings stay only for the currently-unwired signIn() path.
   codeAuth: {
     send: "Send code",
-    prompt: "Check your email for a 6-digit code.",
+    prompt: "Check your email for a 6-digit sign-in code.",
     sentTo: "Sent to",
     codeLabel: "6-digit code",
     verify: "Verify code",

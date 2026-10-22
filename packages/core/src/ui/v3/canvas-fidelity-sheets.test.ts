@@ -102,6 +102,25 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
     expect(screen.getByRole("button", { name: "Use a different email" })).toHaveClass("code-step");
   });
 
+  it("keeps the purchase note and Buy without an account on the email step only (owner ruling D5)", () => {
+    const skip = { label: "Buy without an account", onSkip: vi.fn() };
+    const note = "Sign in first to keep Still Pro with your account.";
+    render(SignInSheet, { controller: controller("email"), onDismiss: vi.fn(), host: "apple", note, skip });
+    expect(screen.getByText(note)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy without an account" })).toBeInTheDocument();
+    cleanup();
+    render(SignInSheet, { controller: controller("code"), onDismiss: vi.fn(), host: "apple", note, skip });
+    expect(screen.queryByText(note)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Buy without an account" })).toBeNull();
+    expect(screen.getByLabelText("6-digit code")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("asks for the 6-digit sign-in code on the code step (ruling D6, P3-9)", () => {
+    render(SignInSheet, { controller: controller("code"), onDismiss: vi.fn() });
+    expect(screen.getByText("Check your email for a 6-digit sign-in code.")).toBeInTheDocument();
+  });
+
   it("gives Firefox's agreement a 20px box and 15px words, and a disabled Continue at half strength", () => {
     expect(rule(style(), ".agree")).toContain("gap: 10px;");
     expect(rule(style(), ".agree")).toContain("font-size: calc(15px * var(--text-scale, 1));");
