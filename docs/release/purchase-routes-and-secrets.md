@@ -126,7 +126,7 @@ Every operation follows the same three moves. Replace `<sha>` with the release c
 | Step | Plan-only (move 1) | Apply after owner approval (moves 2 and 3) | Check after |
 |---|---|---|---|
 | 2.3 routes | `gh workflow run supabase-production-deploy.yml --ref main -f commit=<sha> -f operation=purchase-functions -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | V13: the closing record lists each route `created`, `deployed` or `unchanged`; the dashboard shows the new versions |
-| 2.3 sync-settings (separate) | `... -f operation=purchase-functions-sync-settings -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | DB-01 still shows `0024`; a released 2.1 app still syncs settings (runbook V19 smoke test) |
+| 2.3 sync-settings (separate) | `... -f operation=purchase-functions-sync-settings -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | DB-01 matches all migrations at the pinned commit (foundation through 0027; final analytics integration also 0028/0029); a released 2.1 app still syncs settings |
 | 2.4 secrets | `... -f operation=purchase-secrets -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | V14: every name appears in Edge Functions, Secrets (names only); the routes answer without `unavailable` |
 | Replace a value later | `... -f operation=purchase-secrets -f policy_mode=none -f mode=plan-only` | the same with `-f mode=rotate`, with only the new `PROD_*` values staged | the closing record shows `replaced` for exactly those names |
 

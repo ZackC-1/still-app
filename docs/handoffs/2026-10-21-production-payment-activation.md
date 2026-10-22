@@ -41,6 +41,8 @@ The main checkout belongs to the separate visual/build session and was not edite
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 
+Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, hosted SQL checks and production deployment remain pending until their actual receipts pass. The owner approval for the foundation migration apply remains the next hosted checkpoint at this writing.
+
 Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
 never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
 Final integration may combine reviewed source ancestry to avoid repeated strict-base CI; no source
@@ -88,7 +90,7 @@ still controls actual build admission. No synthetic live charge/refund should be
 - Apple optional analytics uses actual purchase provenance and canonical server-authored descriptors
   through a dedicated consent-fenced client lane. Generic queues still reject purchase events.
   The reviewed lock-order fix has a two-session SQL regression. Full iPhone simulator compilation
-  passed; Mac compilation and integrated hosted SQL/deployment checks remain pending at this checkpoint.
+  passed, and arm64 Mac Debug compilation also passed. Both used signing disabled. Integrated hosted SQL/deployment checks and signed final packages remain separate pending gates.
 - Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
   Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
 
@@ -116,8 +118,7 @@ repository evidence and the work-state list remain the active durable record.
 
 1. Wait for the owner approval of apply39707838333; inspect the closing receipt before any next
    production operation. One global workflow concurrency group means operations are sequential.
-2. On the pinned revision, plan/apply reviewed purchase secrets, then the fixed nine purchase routes,
-   then separately sync-settings. Each apply needs its own owner approval. Never bypass protection
+2. If PR528 merges before route deployment, apply 0028/0029 through a separate exact plan at its final merged SHA after the already-planned foundation apply; do not add migrations to that existing approval. Then plan/apply reviewed purchase secrets, the fixed nine purchase routes and separately sync-settings from the final selected SHA. Its route gate requires every migration at that SHA, avoiding duplicate intermediate deployments. Each apply needs its own owner approval. Never bypass protection
    with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
 3. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.

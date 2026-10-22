@@ -73,8 +73,8 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 | G2. Free cutoff | Owner approved `still-free-v2`: YouTube Shorts, Instagram Reels, Facebook Reels, TikTok website. #522 pins those four identifiers; first approved activation writes the immutable cutoff. | 2.6 | Owner approval |
 | G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4 | Owner approval |
 | G4. Production Managed Payments | Owner selected the tested QA architecture with separate live configuration. #522 adds production ledger 0026, checkout/completion, Stripe webhook and canonical RevenueCat refresh. Hosted deployment and genuine fulfilment proof remain separate. | 4.4, 8.4 | Engineering, Owner approval |
-| G5. Public build trust | #524 preserves #520 and adds native Apple public Supabase configuration. Merge/check its final CI; pin public trust only after hosted signer verification. Signed final artifacts remain pending. | 1.5, 1.6 | Engineering |
-| G6. Declared paid build | #517 adds a declaration/compiled-flag consistency guard. Merge and verify it before packaging; do not bypass the guard through manual upload. | 6.4 | Engineering |
+| G5. Public build trust | Final integration #528 preserves #524/#520 native public Supabase configuration and trust. Check final integration CI; pin public trust only after hosted signer verification. Signed final artifacts remain pending. | 1.5, 1.6 | Engineering |
+| G6. Declared paid build | #528 preserves #517 declaration/compiled-flag consistency guard. Verify the merged final tree before packaging; do not bypass the guard through manual upload. | 6.4 | Engineering |
 | G7. Modern sync build | Configured V3 builds require `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`. The one-way shipped marker and final production package configuration belong in the release build change. | 1.3 | Owner, Engineering |
 | G8. Apple review access | #522 adds isolated device-only sandbox review access, migration 0027 and a separate default-off switch. It grants no production account rights or revenue. Final native review flow and sales admission must both be verified. | 5.9 | Engineering, Owner approval |
 | G9. V3 entitlement | Owner/provider read-back confirms `still_pro_v3`; retain historical `still_sync` mappings. No rename or replacement of legacy products. | 3.4 | Done |
@@ -154,8 +154,7 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 **1.6 Apple archives** · Engineering
 - Where: `apps/apple/scripts/archive.sh` for iOS and `xcodebuild archive` for the macOS scheme
   ([Apple build helpers](../../apps/apple/scripts/README.md)).
-- V08: marketing version and build match `version.json`; nested bundle ids, App Group and
-  entitlements correct; web resources from the frozen commit; release env guard passed.
+- V08: marketing version and build match `version.json`; nested bundle ids, App Group and entitlements correct; web resources from the frozen commit; release env guard passed. Inspect the signed app and extension plists and web resources in both archives for the exact production public Supabase binding, access-trust key IDs/environment and privacy manifests. Match the committed public trust artifact to hosted signer evidence before packaging; see [production access trust](versioning-and-packages.md#production-access-trust-still-pro-verification-keys). Unsigned Debug compilation is not archive/device proof.
 
 **1.7 Upload Apple builds** · Owner approval
 - Where: `UPLOAD=1` on `archive.sh`, or Xcode, Window, Organizer, Archives, the archive, Distribute
@@ -199,7 +198,7 @@ listed).
 
 **2.2 Apply pending migrations** · Owner approval
 - Where: `operation=migrations`, `migrations=<exact comma-separated names from V10's gap>` (
-  the verified 0024 baseline requires 0025–0027 before the foundation routes), `policy_mode=none`, `commit=<sha>`.
+  the verified 0024 baseline requires 0025–0027), `policy_mode=none`, `commit=<sha>`. If PR528 is merged before route deployment, keep the already-planned foundation apply unchanged, then apply 0028/0029 under a separate exact plan at the final merged SHA before secrets/functions. Route gates require every migration at their pinned SHA; there is no need to deploy intermediate route versions twice.
 - V12: closing record passes; DB-01 re-run shows the new tail.
 - Undo: fix forward with a reviewed migration.
 
@@ -229,8 +228,7 @@ listed).
 - Undo: `operation=analytics-subjects-switch policy_mode=disable mode=apply`.
 
 **2.6 Paid cutoff and production sales on** · Owner, Owner approval
-- Order: after Phases 3 and 4 and the cross-system check (V50 to V55), after QA purchase tests are
-  finished, and before the Apple submission (reviewers must see Get Still Pro).
+- Order: after Phases 3 and 4, final package verification and the cross-system check (V50 to V55), after existing QA purchase tests are finished, and before Apple submission. The operation still refuses production apply until a reviewed release change removes its provisional final-version hold. Check actual packaged strings first. Positive production-bound TestFlight/review purchase proof follows this admission plus the separate review switch while store publication remains held; it cannot be required before admission.
 - Where: `operation=production-sales-policy policy_mode=on` with the verified current
   `policy_expected_revision` and reviewed exact build strings; [procedure](production-sales-policy.md). Body: `salesEnabled: true`; channels `apple` and `web`
   enabled with offer `still-pro-v3`; approved builds only the 3.0 builds (plan D9). The first
@@ -327,8 +325,7 @@ or rename `still_sync`, and never delete a product that has purchases.
 
 ## Phase 4 — Stripe live
 
-Nothing exists in live mode yet. All steps are owner actions in the Stripe Dashboard with **Test
-mode off**. Live keys reach production only through the protected secrets run (2.4).
+The owner has prepared the separate live product, provider connection and restricted key; the new webhook exists disabled. Verify the current state before making changes. Owner account/terms decisions happen in the Stripe Dashboard with **Test mode off**; authorized engineering can perform available read-backs and endpoint operations. Live keys reach production only through the protected secrets run (2.4).
 
 **Owner, click by click:**
 
@@ -389,11 +386,7 @@ or delete keys. A charged customer can only be refunded.
 
 ## Phase 5 — App Store Connect
 
-Verified 21 October 2026: `still_pro_v3` ("Still Pro", non-consumable) exists in state
-`MISSING_METADATA` (no price, localization or review screenshot; never submitted); the old
-`still_sync` IAP is removed from sale; iOS and macOS are live at 2.1.0 (build 9) with no new version
-and nothing pending. Paid Apps agreement, tax and banking were in force for the July 2026 sales. The
-IAP must go to review with the first V3 submission.
+Owner screenshots on 21 October show `still_pro_v3` with a USD 9.99 base price, English localization and availability configured; its review screenshot was still missing. The owner also accepted the updated agreement and its warning disappeared. RevenueCat’s earlier `MISSING_METADATA` label is not a current App Store Connect inventory. Re-read current IAP state, agreements, uploaded build numbers and version submissions before acting. The old `still_sync` remains removed from sale. The IAP must go to review with the first V3 submission.
 
 **Owner, click by click** (appstoreconnect.apple.com):
 
@@ -502,9 +495,7 @@ Engineering compares the read-backs side by side; the owner ticks each.
 The site publishes from `gh-pages`, separately from `main`. All publishes are owner actions; undo is
 reverting the `gh-pages` commit.
 
-- **7.1 Privacy policy for Still Pro** · Owner. Merge PR #477 (source, `main`), then PR #478
-  (publish, `gh-pages`); both drafts on 21 October. Before any store submission, because every
-  listing links it. V58: `https://stillapp.fit/privacy/` shows the Still Pro purchase sections.
+- **7.1 Privacy policy for Still Pro** · Owner publication checkpoint. Reconcile the earlier PR477/478 drafts with the final reviewed source, including PR528 canonical purchase analytics and V3 no-notice wording; do not publish an older draft over the newer policy. Publish matching `gh-pages` content before store submission and analytics activation. V58: `https://stillapp.fit/privacy/` matches the approved purchase, analytics and deletion disclosures.
 - **7.2 Setup guide** · Owner. PR #484 (`main`, draft, includes the Firefox on Android deferral)
   plus a matching `gh-pages` publish. V59: the live guide promises no Firefox on Android.
 - **7.3 Support page** · Owner. The ISS-0110 change (confirm its PR), published to `gh-pages`. V60:
@@ -561,8 +552,7 @@ fulfilment failure triggers the reviewed stop-sales procedure (2.6) and investig
   Safari extension iPhone/Mac. Physical iPad remains explicitly unverified.
 - Verify offer view/start/outcome delivery, original-device canonical sale/refund attribution, stable
   deduplication, production project/version/channel and internal/test exclusions.
-- Verify consent off, Firefox optional permission, sign-in/out and deletion through actual worker/provider
-  completion. An active subject or queued deletion is not proof of current consent or completed erasure.
+- Verify consent off, Firefox optional permission, sign-in/out and deletion through actual worker/provider completion. An active subject or queued deletion is not proof of current consent or completed erasure. Record the initial deletion acceptance separately from the existing confirmation at least eight days after the last provider deletion, and follow-up through 35 days; do not compress that elapsed-time evidence into a same-day pass.
 - Canonical conversion is a consented subset with documented delivery/retention limits, not a financial
   ledger or an account-deduplicated funnel. Supabase holds payments/entitlements; PostHog holds usage.
 - See the [production evidence matrix](../plans/2026-10-21-002-production-activation-and-verification.md#production-evidence-matrix).

@@ -263,12 +263,11 @@ and Financial Reports). Web purchases, if any were ever live, would be in the co
 account. The App Manager API key cannot read sales or finance reports; reading them through the API
 needs a key with the Sales and Finance roles.
 
-## Per-device identities and device deletion (V3, not switched on)
+## Per-device identities and device deletion (V3 activation requires hosted evidence)
 
 Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
 "delete what this device shared". Migration 0018 and the matching `delete-user` change make account
-deletion record those identities for deletion before the account is deleted. None of it is switched
-on, and nothing in this section applies until the owner approves each step.
+deletion record those identities for deletion before the account is deleted. Read the [current activation handoff](../handoffs/2026-10-21-production-payment-activation.md) for dated hosted evidence. Existing secrets/functions runs do not establish schedule or switch activation; protected receipts control that claim.
 
 **Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
 `ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
@@ -300,15 +299,12 @@ deploy step; never the Supabase CLI from a working checkout):
    GoTrue deletion rehearsal green).
 2. Set the function secrets `ANALYTICS_ERASER_DB_URL` (the eraser login), `ANALYTICS_EVENT_ID_SECRET`
    (at least 32 random characters) and, for the deletion worker, `ANALYTICS_ERASURE_WORKER_TOKEN`.
-3. Deploy `analytics-identify` (and `analytics-erasure` with the worker token) so they read them.
-   No function code changes in this release: the V3 clients use the existing per-device request.
+3. After foundation 0027 and separate reviewed migrations 0028/0029, deploy the final five-route set: `analytics-erasure`, `analytics-identify`, `delete-user`, `analytics-purchase`, `analytics-apple-purchase`. Canonical purchase reporting adds new routes and original-device attribution; source tests do not establish hosted delivery.
 4. Schedule the deletion worker (`analytics-erasure`, called with the worker token, every 15
    minutes; see "How often to run the worker"). Without it, deleting an account only records the
    account's per-device subjects for deletion; their PostHog persons and events are deleted when the
    worker runs. Do not switch identities on before the worker is scheduled.
-5. Set `ANALYTICS_SUBJECTS_ENABLED=true` on the functions and redeploy `analytics-identify` so it
-   reads the new value. For QA, set it on the sandbox project first and check with a V3 QA package
-   that a signed-in device's events appear under a random subject carrying the account email.
+5. After a successful worker run and the project/deletion permission proof, the protected switch sets `ANALYTICS_SUBJECTS_ENABLED=true` and refreshes `analytics-identify`, `analytics-purchase`, `analytics-apple-purchase` and `create-web-checkout`. Use a designated production-channel package/account for acceptance. Test-project packages are deliberately refused identity; there is no separate Supabase sandbox project.
 
 These steps are the four protected operations in
 [analytics-subjects-switch-on.md](analytics-subjects-switch-on.md): secrets, functions (which also
@@ -321,14 +317,13 @@ an identity only to a device that sends `projectKeySha256` equal to the digest o
 `POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
 `{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
 
-**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
+**Historical initial deploy order (do not replay applied migrations).** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.
 `delete-user` is safe to deploy before or after 0018: before it, its new first step simply fails
 and the 0017 trigger still records everything. Then the owner sets the database login and the function secrets
 (`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
 random value of at least 32 characters that keeps the "new account" event from being counted twice;
-without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
-schedule yet.
+without it that event gets a random id), and deploys the reviewed analytics route set. Each is a separate approved step. Verify the existing worker schedule through its protected receipt and actual successful runs; do not infer it from function deployment.
 
 **Account deletion and the `ANALYTICS CAPTURE DEFERRED` log line.** Once the eraser login is set,
 `delete-user` first asks the database to record the account's per-device identities for deletion,

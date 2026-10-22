@@ -17,8 +17,7 @@ Matching [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39
 its plan and waits for the owner's protected-environment approval. No sales activation is included.
 Read its latest closing receipt before starting any later operation.
 
-Web and Apple canonical analytics plus build trust/declaration changes are being combined in a
-reviewed integration branch. Their source tests do not establish hosted deployment or final-device
+Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI and hosted SQL checks remain in progress; no completed result is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
 delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance
