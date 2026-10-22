@@ -6,7 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
-    proPurchased,
+    stillProTag,
     proRowsDormant,
     rowsFor,
     type DesktopPopupProps,
@@ -96,9 +96,9 @@
   );
   let dormant = $derived(proRowsDormant(access));
   // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
-  let stillPro = $derived(proPurchased(access));
+  let stillPro = $derived(stillProTag(access, account));
   /** Safari, signed out holding Still Pro: the tag sits in the right column above Sign in. */
-  let tagAboveSignIn = $derived(stillPro && !account && Boolean(onSignIn) && appHandoff);
+  let tagAboveSignIn = $derived(Boolean(stillPro) && !account && Boolean(onSignIn) && appHandoff);
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -282,7 +282,7 @@
                       inactive={commandsDisabled ||
                         !settings.globalOn ||
                         !settings.services[service]}
-                      unsupportedText="Not available in this browser. Your choice is saved."
+                      unsupportedText={`Not available in ${appHandoff ? "Safari" : "this browser"}. Your choice is saved.`}
                       onChange={(next) => {
                         if (
                           !commandsDisabled &&
@@ -303,7 +303,7 @@
       </div>
     {/each}
   </div>
-  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} canonicalSync />
+  <PopupInvitation presentation={invitationReady && (invitation?.kind !== "sync" || !account) ? invitation : undefined} />
   {#if !syncInvitationShown}
   <section class="card card-stack">
     <div class="sync-row" class:pro-signed-out={tagAboveSignIn}>
@@ -313,7 +313,7 @@
           heading, so the heading stays on one line (owner, 21 Oct; the pro-signed-out grid). -->
         <div class="offer-head">
           <h2 class="sync-row-title">Settings sync</h2>
-          {#if stillPro && !tagAboveSignIn}<StillProTag />{/if}
+          {#if stillPro && !tagAboveSignIn}<StillProTag kind={stillPro} />{/if}
         </div>
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
@@ -323,7 +323,7 @@
       </div>
       {#if !account && onSignIn}<div
           class:popup-action={appHandoff}
-        >{#if tagAboveSignIn}<StillProTag />{/if}<button
+        >{#if tagAboveSignIn && stillPro}<StillProTag kind={stillPro} />{/if}<button
           type="button"
           class="primary inline"
           aria-describedby={appHandoff ? "popup-signin-handoff" : undefined}
@@ -368,13 +368,30 @@
     <button
       type="button"
       class="open-options"
-      aria-label={settingsLabel ?? `Settings. Find Still in ${browser}.`}
-      onclick={onSettings}>Settings</button
+      aria-label={settingsLabel ?? "Still settings"}
+      onclick={onSettings}>Still settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
 </div>
 
 <style>
+  /* ISS-0098 (owner, 21 Oct, option B): the popup grows to fit an expanded site; the site list is
+     never a scroll box of its own. Past the browser's popup height limit (about 600px) the whole
+     popup scrolls: the document, never a box inside it. The Safari popup already scrolls its page
+     the same way (SafariV3Popup). The phone popup (MobilePopup) is unchanged. */
+  .app[data-density="compact"] {
+    max-block-size: none;
+  }
+  .app[data-density="compact"] .site-scroll {
+    flex: none;
+    max-block-size: none;
+    overflow: visible;
+  }
+  /* The list's former scroll-padding, now for the document: a control scrolled into view (keyboard
+     focus, larger text) is never left a fraction of a pixel under the popup's edge. */
+  .site-scroll :global(:is(button, a, [role="switch"])) {
+    scroll-margin-block: var(--space-1);
+  }
   .app.invitation-scroll {
     overflow-y: auto;
     overscroll-behavior-y: contain;

@@ -103,7 +103,7 @@ function settingsPage(options: {
         ? {
             title: "Turn on Still in Safari",
             detail:
-              "Still works inside Safari. Your choices are saved and start working once it's on.",
+              "Turn on the Still extension in Safari.",
             steps: SETUP_STEPS[platform],
             actionLabel:
               platform === "mac" ? "Open Safari Settings" : "Open Settings",

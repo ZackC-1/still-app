@@ -36,7 +36,7 @@ final class SignInWithAppleCoordinator: NSObject {
 
     var errorDescription: String? {
       switch self {
-      case .cancelled: return "Sign in was cancelled."
+      case .cancelled: return "Sign in was canceled."
       case .noIdentityToken: return "Apple did not return an identity token."
       case .inProgress: return "A sign-in is already in progress."
       case .failed(let message): return message

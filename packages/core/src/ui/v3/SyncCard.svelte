@@ -12,8 +12,9 @@
     account,
     onSignIn,
     accountActions,
-    stillPro = false,
+    stillPro,
     invitation,
+    appHandoff = false,
   }: SyncCardProps = $props();
   const icons = {
     pending: "spinner",
@@ -41,7 +42,7 @@
     19 Oct): the one signal on this screen that the person has Still Pro. -->
   <div class="offer-head">
     <h2 class="card-title">Settings sync</h2>
-    {#if stillPro}<StillProTag />{/if}
+    {#if stillPro}<StillProTag kind={stillPro} />{/if}
   </div>
   {#if account}
     {#if account.address}<p class="synced account-line">
@@ -174,9 +175,19 @@
     <button
       type="button"
       class="primary block"
+      aria-describedby={appHandoff ? "sync-signin-handoff" : undefined}
       disabled={!onSignIn}
       onclick={onSignIn}>Sign in</button
     >
+    <!-- Safari: the Still app owns the account, so Sign in opens the app and says so, as in the
+      Safari popups' signed-out sync row. -->
+    {#if appHandoff}<p
+        class="handoff"
+        id="sync-signin-handoff"
+        style="justify-content:center;"
+      >
+        Opens the Still app
+      </p>{/if}
     <p class="card-body">
       Sync settings across devices and browsers. Free.
     </p>

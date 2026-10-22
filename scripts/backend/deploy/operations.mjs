@@ -158,24 +158,15 @@ export const QA_SANDBOX_SALES_BUILDS = Object.freeze(
     ["chrome_desktop", "2.1.1.361"],
     ["firefox_desktop", "2.1.1.361"],
     ["firefox_android", "2.1.1.361"],
-    ["chrome_desktop", "2.1.1.383"],
-    ["firefox_desktop", "2.1.1.383"],
-    ["firefox_android", "2.1.1.383"],
-    ["chrome_desktop", "2.1.1.385"],
-    ["firefox_desktop", "2.1.1.385"],
-    ["firefox_android", "2.1.1.385"],
-    ["chrome_desktop", "2.1.1.387"],
-    ["firefox_desktop", "2.1.1.387"],
-    ["firefox_android", "2.1.1.387"],
-    ["chrome_desktop", "2.1.1.392"],
-    ["firefox_desktop", "2.1.1.392"],
-    ["firefox_android", "2.1.1.392"],
-    ["chrome_desktop", "2.1.1.400"],
-    ["firefox_desktop", "2.1.1.400"],
-    ["firefox_android", "2.1.1.400"],
     ["chrome_desktop", "2.1.1.420"],
     ["firefox_desktop", "2.1.1.420"],
     ["firefox_android", "2.1.1.420"],
+    ["chrome_desktop", "2.1.1.1438"],
+    ["firefox_desktop", "2.1.1.1438"],
+    ["firefox_android", "2.1.1.1438"],
+    ["chrome_desktop", "2.1.1.1444"],
+    ["firefox_desktop", "2.1.1.1444"],
+    ["firefox_android", "2.1.1.1444"],
     ["apple_mobile_host", "2.1.0"],
     ["apple_macos_host", "2.1.0"],
   ].map(([surface, build]) => Object.freeze({ surface, build })),
@@ -216,30 +207,62 @@ export const QA_SANDBOX_CUTOFF = Object.freeze({
 });
 
 /** Candidate release admission; apply remains blocked until final package versions are verified. */
-export const PRODUCTION_SALES_BUILDS = Object.freeze([
-  ["chrome_desktop", "3.0.0"], ["firefox_desktop", "3.0.0"],
-  ["apple_mobile_host", "3.0"], ["apple_macos_host", "3.0"],
-].map(([surface, build]) => Object.freeze({ surface, build })));
-export const PRODUCTION_SALES_TEMPLATES = Object.freeze(Object.fromEntries(
-  [false, true].map(enabled => [enabled ? "on" : "off", Object.freeze({
-    ...salesTemplate(enabled), environment: "production", builds: PRODUCTION_SALES_BUILDS,
-  })]),
-));
+export const PRODUCTION_SALES_BUILDS = Object.freeze(
+  [
+    ["chrome_desktop", "3.0.0"],
+    ["firefox_desktop", "3.0.0"],
+    ["apple_mobile_host", "3.0"],
+    ["apple_macos_host", "3.0"],
+  ].map(([surface, build]) => Object.freeze({ surface, build })),
+);
+export const PRODUCTION_SALES_TEMPLATES = Object.freeze(
+  Object.fromEntries(
+    [false, true].map((enabled) => [
+      enabled ? "on" : "off",
+      Object.freeze({
+        ...salesTemplate(enabled),
+        environment: "production",
+        builds: PRODUCTION_SALES_BUILDS,
+      }),
+    ]),
+  ),
+);
 /** Owner approved these four shipped-free benefits on 21 October 2026. */
 export const PRODUCTION_CUTOFF = Object.freeze({
   product: "still-free-v2",
-  benefits: Object.freeze(["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"]),
+  benefits: Object.freeze([
+    "facebook.reels",
+    "instagram.reels",
+    "tiktok.all",
+    "youtube.shorts",
+  ]),
 });
-const productionSalesPolicy = (mode, files) => Object.freeze({
-  ...salesPolicy(mode, files), kind: PRODUCTION_SALES_POLICY,
-  workflowOperation: "production-sales-policy", run: `production-sales-policy with policy_mode ${mode}`,
-  template: PRODUCTION_SALES_TEMPLATES[mode], cutoff: mode === "on" ? PRODUCTION_CUTOFF : null,
-  provisional: Object.freeze(mode === "on" ? ["Final packaged release versions must match the pinned production build list"] : []),
-  effect: mode === "on" ? "production sales enabled for the pinned builds; approved free-benefit cutoff written once" : "new production sales disabled; existing rights and paid recovery remain available",
-  lane: "production sales", counterpart: `production-sales-policy with policy_mode ${mode === "on" ? "off" : "on"}`,
-  lastResort: "restore the reviewed production off policy through this protected operation; never pause free settings sync",
-  preconditionRecovery: "Nothing was written. Read PROD-01, inspect the current production revision and immutable cutoff, then plan again with the verified expected revision.",
-});
+const productionSalesPolicy = (mode, files) =>
+  Object.freeze({
+    ...salesPolicy(mode, files),
+    kind: PRODUCTION_SALES_POLICY,
+    workflowOperation: "production-sales-policy",
+    run: `production-sales-policy with policy_mode ${mode}`,
+    template: PRODUCTION_SALES_TEMPLATES[mode],
+    cutoff: mode === "on" ? PRODUCTION_CUTOFF : null,
+    provisional: Object.freeze(
+      mode === "on"
+        ? [
+            "Final packaged release versions must match the pinned production build list",
+          ]
+        : [],
+    ),
+    effect:
+      mode === "on"
+        ? "production sales enabled for the pinned builds; approved free-benefit cutoff written once"
+        : "new production sales disabled; existing rights and paid recovery remain available",
+    lane: "production sales",
+    counterpart: `production-sales-policy with policy_mode ${mode === "on" ? "off" : "on"}`,
+    lastResort:
+      "restore the reviewed production off policy through this protected operation; never pause free settings sync",
+    preconditionRecovery:
+      "Nothing was written. Read PROD-01, inspect the current production revision and immutable cutoff, then plan again with the verified expected revision.",
+  });
 
 /** The exact bytes private.product_policy_render('sales', template + revision) produces. */
 export function renderSalesBody(template, revision) {
@@ -390,7 +413,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.sql`,
       sha256:
-        "7c2b24bdf446077b330b552283ee90e8cb55ca6260043fc4c7f4e597750a9e94",
+        "dcf79c22401b584a8714ba3ef4840c6734bc089eb05c52756d9fdc7f4aa24523",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-off.verify.sql`,
@@ -402,7 +425,7 @@ export const OPERATIONS = Object.freeze({
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.sql`,
       sha256:
-        "b04cfb458f0d9c76d8b68ed3d2c6998d05058fd4d7c44010395a729368bbde66",
+        "5aa7f6258ae2b6193a7f85f7218ffdb54308bf34069a96fb2b6d4c12d8d48bb1",
     },
     verification: {
       path: `${OPERATIONS_DIR}/qa-sandbox-sales-policy-on.verify.sql`,
@@ -411,12 +434,28 @@ export const OPERATIONS = Object.freeze({
     },
   }),
   "production-sales-policy-off": productionSalesPolicy("off", {
-    sql: { path: "scripts/backend/deploy/operations/production-sales-policy-off.sql", sha256: "bb8d53882e74502bfbb93f5614bd71dcb72d9600e358601f447e59375d1e6096" },
-    verification: { path: "scripts/backend/deploy/operations/production-sales-policy-off.verify.sql", sha256: "e821debcb14f8878fcfafa7481bd8a1fb93cf57365cbd8a847e5050e427f9b98" },
+    sql: {
+      path: "scripts/backend/deploy/operations/production-sales-policy-off.sql",
+      sha256:
+        "bb8d53882e74502bfbb93f5614bd71dcb72d9600e358601f447e59375d1e6096",
+    },
+    verification: {
+      path: "scripts/backend/deploy/operations/production-sales-policy-off.verify.sql",
+      sha256:
+        "e821debcb14f8878fcfafa7481bd8a1fb93cf57365cbd8a847e5050e427f9b98",
+    },
   }),
   "production-sales-policy-on": productionSalesPolicy("on", {
-    sql: { path: "scripts/backend/deploy/operations/production-sales-policy-on.sql", sha256: "b30171be17e08164aa21a01c6cd93b1eb15aecb3c2d4e4cf78dcf772d2f37752" },
-    verification: { path: "scripts/backend/deploy/operations/production-sales-policy-on.verify.sql", sha256: "202cf3c1736c255594cd6f646b36a620ff86bfdf9e582a9ebeebbba472750b10" },
+    sql: {
+      path: "scripts/backend/deploy/operations/production-sales-policy-on.sql",
+      sha256:
+        "b30171be17e08164aa21a01c6cd93b1eb15aecb3c2d4e4cf78dcf772d2f37752",
+    },
+    verification: {
+      path: "scripts/backend/deploy/operations/production-sales-policy-on.verify.sql",
+      sha256:
+        "202cf3c1736c255594cd6f646b36a620ff86bfdf9e582a9ebeebbba472750b10",
+    },
   }),
   "qa-sandbox-subjects-enable": subjects("enable", {
     sql: {
@@ -464,7 +503,10 @@ export const WORKFLOW_OPERATIONS = Object.freeze({
     off: "qa-sandbox-sales-policy-off",
     on: "qa-sandbox-sales-policy-on",
   }),
-  "production-sales-policy": Object.freeze({ off: "production-sales-policy-off", on: "production-sales-policy-on" }),
+  "production-sales-policy": Object.freeze({
+    off: "production-sales-policy-off",
+    on: "production-sales-policy-on",
+  }),
   "qa-sandbox-subjects": Object.freeze({
     enable: "qa-sandbox-subjects-enable",
     disable: "qa-sandbox-subjects-disable",
@@ -639,7 +681,8 @@ function salesPolicyKind(environment, templates, cutoff) {
         reads: ["private.product_policy_revisions", "private.paid_cutoff"],
         updates: false,
         required: [`'${environment}'`],
-        forbiddenEnvironment: environment === "production" ? "sandbox" : "production",
+        forbiddenEnvironment:
+          environment === "production" ? "sandbox" : "production",
       }),
     inputs(op, { expectedRevision, subjectsSha256 }) {
       noExtraInputs({ subjectsSha256 });
@@ -694,7 +737,10 @@ function salesPolicyKind(environment, templates, cutoff) {
             `${environment}_sales_policy_differs`,
             `${environment}_sales_policy_missing`,
           ]
-        : [`${environment}_sales_policy_differs`, `${environment}_sales_policy_missing`],
+        : [
+            `${environment}_sales_policy_differs`,
+            `${environment}_sales_policy_missing`,
+          ],
     wrote(op, line, receipt) {
       const result = parseOutcome(line, ["revision", "cutoff"]);
       if (
@@ -781,8 +827,16 @@ export const KINDS = Object.freeze({
         : { removed: [], added: [] };
     },
   }),
-  [QA_SALES_POLICY]: salesPolicyKind("sandbox", QA_SANDBOX_SALES_TEMPLATES, QA_SANDBOX_CUTOFF),
-  [PRODUCTION_SALES_POLICY]: salesPolicyKind("production", PRODUCTION_SALES_TEMPLATES, PRODUCTION_CUTOFF),
+  [QA_SALES_POLICY]: salesPolicyKind(
+    "sandbox",
+    QA_SANDBOX_SALES_TEMPLATES,
+    QA_SANDBOX_CUTOFF,
+  ),
+  [PRODUCTION_SALES_POLICY]: salesPolicyKind(
+    "production",
+    PRODUCTION_SALES_TEMPLATES,
+    PRODUCTION_CUTOFF,
+  ),
   [QA_SUBJECTS]: Object.freeze({
     definition(op, bad) {
       if (op.role !== undefined || op.login !== undefined)
@@ -911,7 +965,14 @@ function noExtraInputs(inputs) {
 function assertTransactionScope(
   sql,
   op,
-  { getenv, writes, reads, updates, required, forbiddenEnvironment = "production" },
+  {
+    getenv,
+    writes,
+    reads,
+    updates,
+    required,
+    forbiddenEnvironment = "production",
+  },
 ) {
   const fail = (why) => {
     throw new Refusal("operation-scope", `The operation SQL ${why}`);
@@ -949,7 +1010,8 @@ function assertTransactionScope(
   if (/\$[a-z_]*\$/.test(body)) fail("nests another quoted body");
   const forbidden =
     /\b(delete|truncate|drop|alter|grant|revoke|create|copy|execute|call|dblink\w*|lo_\w+|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|security|reset|vacuum|notify|listen|comment)\b|\bset\s+(role|session|local)\b/;
-  if (new RegExp(`\\b${forbiddenEnvironment}\\b`).test(body)) fail(`names ${forbiddenEnvironment}, which this kind may never touch`);
+  if (new RegExp(`\\b${forbiddenEnvironment}\\b`).test(body))
+    fail(`names ${forbiddenEnvironment}, which this kind may never touch`);
   const hit = forbidden.exec(body);
   if (hit) fail(`uses ${hit[0]}, which this kind may never do`);
   const role = /\bstill_(?!operation\b)[a-z0-9_]+/.exec(body);
@@ -2082,9 +2144,14 @@ async function replaySalesPolicy({
 }) {
   const target = "local-replay";
   const environment = op.template.environment;
-  const otherEnvironment = environment === "production" ? "sandbox" : "production";
-  const templates = environment === "production" ? PRODUCTION_SALES_TEMPLATES : QA_SANDBOX_SALES_TEMPLATES;
-  const cutoff = environment === "production" ? PRODUCTION_CUTOFF : QA_SANDBOX_CUTOFF;
+  const otherEnvironment =
+    environment === "production" ? "sandbox" : "production";
+  const templates =
+    environment === "production"
+      ? PRODUCTION_SALES_TEMPLATES
+      : QA_SANDBOX_SALES_TEMPLATES;
+  const cutoff =
+    environment === "production" ? PRODUCTION_CUTOFF : QA_SANDBOX_CUTOFF;
   const run = (p) =>
     runOperation({ exec, plan: p, dir, conn, target, cwd, log, registry });
   const e = plan.expectedRevision;
@@ -2135,17 +2202,14 @@ async function replaySalesPolicy({
     ...QA_SANDBOX_SALES_TEMPLATES.off,
     builds: [],
   });
-  if (environment === "production") await sql(
-    "insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at) " +
-    `select 'sandbox', '${QA_SANDBOX_CUTOFF.product}', array[${QA_SANDBOX_CUTOFF.benefits.map(b => `'${b}'`).join(", ")}], 1, operation_id, pg_catalog.clock_timestamp() from private.product_policy_revisions where environment = 'sandbox' and revision = 1`,
-  );
+  if (environment === "production")
+    await sql(
+      "insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at) " +
+        `select 'sandbox', '${QA_SANDBOX_CUTOFF.product}', array[${QA_SANDBOX_CUTOFF.benefits.map((b) => `'${b}'`).join(", ")}], 1, operation_id, pg_catalog.clock_timestamp() from private.product_policy_revisions where environment = 'sandbox' and revision = 1`,
+    );
   const opposite = op.policyMode === "on" ? "off" : "on";
   for (let r = 1; r <= e; r++) {
-    await seed(
-      environment,
-      r,
-      templates[r === e ? opposite : "off"],
-    );
+    await seed(environment, r, templates[r === e ? opposite : "off"]);
     if (r === e && opposite === "on")
       await sql(
         "insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at) " +
@@ -2254,9 +2318,7 @@ async function replaySalesPolicy({
     cutoffWanted
       ? afterFacts.currentCutoffs.length === 1 &&
           afterFacts.currentCutoffs[0].p === cutoff.product &&
-          sameList(afterFacts.currentCutoffs[0].b, [
-            ...cutoff.benefits,
-          ]) &&
+          sameList(afterFacts.currentCutoffs[0].b, [...cutoff.benefits]) &&
           afterFacts.currentCutoffs[0].r === e + 1
       : sameList(afterFacts.currentCutoffs, startFacts.currentCutoffs),
     `${afterFacts.currentCutoffs.length} ${environment} cutoff(s)`,
@@ -2672,7 +2734,8 @@ function renderPlanInputs(plan) {
       ...plan.provisional.map((reason) => `  - ${reason}`),
     );
   if ([QA_SALES_POLICY, PRODUCTION_SALES_POLICY].includes(plan.operationKind)) {
-    const environment = plan.operationKind === PRODUCTION_SALES_POLICY ? "production" : "sandbox";
+    const environment =
+      plan.operationKind === PRODUCTION_SALES_POLICY ? "production" : "sandbox";
     lines.push(
       `- ${environment} sales revision: compare-and-set from \`${plan.expectedRevision}\` to \`${plan.policyRevision}\` (fixed environment; the other environment is untouched).`,
       `- Exact body published (SHA-256 \`${plan.bodySha256}\`):`,

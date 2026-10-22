@@ -177,7 +177,7 @@
   {:else if unavailable}
     {@render recovery()}
   {:else}
-    <p class="muted" role="status">{STRINGS.sync.checking}</p>
+    <p class="muted" role="status">{STRINGS.sync.loading}</p>
   {/if}
 </div>
 

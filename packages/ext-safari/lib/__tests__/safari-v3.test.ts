@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { AtomicSettingsWriter, InMemoryStorageAdapter } from "@still/core/storage";
 import {
@@ -157,7 +157,7 @@ describe("the app-owned account reaches every V3 Safari screen (U12-W4 risk 6)",
     const runtime = readFileSync(resolve(import.meta.dirname, "../safari-v3-runtime.ts"), "utf8");
     expect(runtime).toContain("controller.accountManagedByApp = true;");
     expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8")).toContain("appManagedPopupAccount(c, STRINGS.sync)");
-    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync)");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync, openApp ? openSync : undefined)");
   });
 });
 
@@ -187,18 +187,40 @@ describe("the Apple app owns the account on Safari", () => {
     // Still app reported through the App Group; the extension never invents or advances it.
     const at = 1_760_900_000_000;
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at }, TEXT)?.lastSyncedAt).toBe(at);
-    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: at }, TEXT).account.lastSyncedAt).toBe(at);
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: at }, TEXT).account?.lastSyncedAt).toBe(at);
     // Kept through a failed or pending sync, so the line reads "… · Last synced <time>".
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, cloudReachable: false }, TEXT)?.lastSyncedAt).toBe(at);
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: at, pendingUpload: true }, TEXT)?.lastSyncedAt).toBe(at);
     // Never synced: no time at all.
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: null }, TEXT)?.lastSyncedAt).toBeNull();
-    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: null }, TEXT).account.lastSyncedAt).toBeNull();
+    expect(appManagedSettingsSync({ ...signedIn, lastSyncedAt: null }, TEXT).account?.lastSyncedAt).toBeNull();
   });
 
-  it("signed out: no account display and, in particular, no sign-in", () => {
+  it("signed out: no account display, and Sign in only ever hands off to the Still app", () => {
     expect(appManagedPopupAccount({ ...signedIn, userId: null }, TEXT)).toBeUndefined();
-    // An empty account: SyncCard then shows neither its Sign in button nor any account action.
+    // With the page's hand-off: the signed-out card (sync line, Sign in, "Opens the Still app"),
+    // whose Sign in is exactly that hand-off. No account and no other action.
+    const openSync = vi.fn();
+    const settings = appManagedSettingsSync({ ...signedIn, userId: null }, TEXT, openSync);
+    expect(settings).toEqual({ onSignIn: openSync, appHandoff: true });
+    settings.onSignIn?.();
+    expect(openSync).toHaveBeenCalledOnce();
+    // Without one: an empty account, so SyncCard shows no Sign in button that could do nothing.
     expect(appManagedSettingsSync({ ...signedIn, userId: null }, TEXT)).toEqual({ account: { confirmed: false } });
+  });
+
+  it("signed in: the hand-off never adds a Sign in", () => {
+    const settings = appManagedSettingsSync(signedIn, TEXT, vi.fn());
+    expect(settings.onSignIn).toBeUndefined();
+    expect(settings.appHandoff).toBeUndefined();
+  });
+});
+
+describe("ISS-0105: Safari has no account provenance for Still Pro", () => {
+  it("never marks the app's account as holding Still Pro, so the tag reads Still Pro on this device", () => {
+    const source = { userId: "u1", accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
+    const text = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
+    expect(appManagedPopupAccount(source, text)).not.toHaveProperty("holdsPro");
+    expect(appManagedSettingsSync(source, text).account).not.toHaveProperty("holdsPro");
   });
 });

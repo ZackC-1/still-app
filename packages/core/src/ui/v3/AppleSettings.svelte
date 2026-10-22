@@ -6,7 +6,7 @@
   import Toggle from "./Toggle.svelte";
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
-  import { proPurchased } from "./presentation.js";
+  import { stillProTag } from "./presentation.js";
   import { SUPPORT_EMAIL } from "../config.js";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
@@ -285,12 +285,13 @@
     {services}
     {labels}
     features={supportedRows}
+    unsupportedText="Not available on this device."
     onProAction={proActionReady ? revealPro : undefined}
   />
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
     Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
-    stillPro={proPurchased(access)}
+    stillPro={stillProTag(access, sync.account)}
     onSignIn={sync.onSignIn}
     invitation={showInvitation && !linkInvitation?.signedIn
       ? { onAccept: linkInvitation?.onLink, onDismiss: linkInvitation?.onDismiss }
@@ -309,7 +310,7 @@
   {#if showInvitation && linkInvitation?.signedIn}
     <!-- ISS-0076: signed in, one line offers the link itself (Link runs that explicit link).
          ISS-0071's signed-out line lives inside the sync card above (owner, 19 Oct). -->
-    {@const invitation = { title: "Link Still Pro to your account.", action: "Link" }}
+    {@const invitation = { title: "Link Still Pro to your account", action: "Link" }}
     <section class="card card-stack" aria-label={invitation.title}>
       <div class="sync-row-text">
         <h2 class="sync-row-title">{invitation.title}</h2>

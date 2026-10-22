@@ -47,6 +47,11 @@
         : undefined,
   );
   let visibleNote = $derived(state === "unsupported" ? unsupportedText : note);
+  // CH-96 (owner, 21 Oct, option C): after a refund the saved choice stays visible. A locked row
+  // draws its saved switch, dimmed and in its saved position, beside the lock; it changes nothing
+  // while locked, and the saved position applies again when Still Pro returns. A dormant row (paid
+  // tier off) keeps the lock alone (decision 24).
+  let savedShown = $derived(state === "locked" && !dormant);
 </script>
 
 <div
@@ -77,6 +82,10 @@
         .join(" ") || undefined}
     />
   {:else if state === "locked"}
+    {#if savedShown}<span class="sr-only" id={`${key}-locked`}
+        >Included in Still Pro. Your choice is saved.</span
+      >{/if}
+    <span class="locked-controls">
     <button
       type="button"
       class="lock-pro"
@@ -90,5 +99,22 @@
         : undefined}
       ><Glyph name="lock" size={14} /><span>Still Pro</span></button
     >
+    {#if savedShown}<Toggle
+        small
+        {checked}
+        disabled
+        labelledBy={`${key}-l`}
+        describedBy={`${key}-locked`}
+      />{/if}
+    </span>
   {/if}
 </div>
+
+<style>
+  .locked-controls {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+  }
+</style>

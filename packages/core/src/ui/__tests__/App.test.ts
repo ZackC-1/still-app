@@ -445,9 +445,31 @@ describe("App", () => {
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByText(STRINGS.codeAuth.sendError)).toBeTruthy();
+    expect(dialog.getByText("We couldn’t send the code. Try again.")).toBeTruthy();
     expect(dialog.queryByText(STRINGS.auth.error)).toBeNull();
+    expect(dialog.queryByText(STRINGS.auth.sendError)).toBeNull();
     expect(screen.getByRole("dialog").textContent).not.toMatch(/link/i); // no "link" in the code path
+  });
+
+  it("link host: a failed request shows the written line, never the raw reason (copy audit, 22 Oct)", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const c = controller({
+      auth: {
+        signIn: () => Promise.resolve({ error: "Synthetic backend reason 429" }),
+        signOut: () => Promise.resolve(),
+      },
+    });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
+    await c.signIn("a@b.com");
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    // A link host says "email"; a code host keeps "code" (owner, 22 Oct 2026).
+    expect(dialog.getByText("We couldn’t send the email. Try again.")).toBeTruthy();
+    expect(dialog.queryByText(STRINGS.codeAuth.sendError)).toBeNull();
+    expect(screen.getByRole("dialog").textContent).not.toContain("Synthetic backend reason");
+    expect(logged).toHaveBeenCalledWith("Sign-in request failed:", "Synthetic backend reason 429");
+    logged.mockRestore();
   });
 
   it("a rate-limited first send renders wait copy with the CTA locked — never an existing-code claim (AE1)", async () => {

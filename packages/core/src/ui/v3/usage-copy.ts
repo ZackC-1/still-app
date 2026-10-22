@@ -9,5 +9,5 @@
 // it is written out here because reading it from STRINGS would keep this object in 2.x bundles.
 export const USAGE_SWITCH_COPY = {
   title: "Share usage data",
-  body: "Helps to improve Still. Never shares the websites, pages or videos you visit.",
+  body: "Helps improve Still. Never shares the websites, pages or videos you visit.",
 } as const;

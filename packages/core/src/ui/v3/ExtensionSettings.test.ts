@@ -67,8 +67,8 @@ describe("controlled D03 extension settings", () => {
           status === "verify"
             ? "Still Pro needs to be verified again."
             : status === "failed"
-              ? "We couldn't finish checking. Nothing changed."
-              : "The purchase wasn't confirmed.",
+              ? "We couldn’t finish checking. Nothing changed."
+              : "The purchase wasn’t confirmed.",
         ),
       ).toBeVisible();
       expect(
@@ -144,11 +144,11 @@ describe("controlled D03 extension settings", () => {
       expect(confirmed ? buy : signIn).toHaveBeenCalledTimes(2);
       expect(confirmed ? signIn : buy).not.toHaveBeenCalled();
       expect(
-        screen.getByText("Still Pro is ready. New controls start off."),
+        screen.getByText("Still Pro is ready. New controls start off, so turn on the ones you want."),
       ).toBeVisible();
       expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
       expect(
-        screen.queryByText("Still Pro can't be bought here yet."),
+        screen.queryByText("Still Pro can’t be bought here yet."),
       ).toBeNull();
       expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
@@ -427,7 +427,7 @@ describe("controlled D03 extension settings", () => {
     await view.rerender(props);
     expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
     expect(
-      screen.getByText("We couldn't finish checking. Nothing changed."),
+      screen.getByText("We couldn’t finish checking. Nothing changed."),
     ).toBeVisible();
     expect(document.body.textContent).not.toContain("test localized offer");
     expect(onBuy).toHaveBeenCalledOnce();
@@ -485,7 +485,7 @@ describe("controlled D03 extension settings", () => {
     const view = render(ExtensionSettings, { props });
     expect(
       screen.getByText(
-        "Deletion requested. Your shared data hasn't been deleted yet.",
+        "Deletion requested. Your shared data hasn’t been deleted yet.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText("Your shared data has been deleted.")).toBeNull();
@@ -528,7 +528,7 @@ describe("controlled D03 extension settings", () => {
       confirmed: true,
       status: {
         tone: "failed",
-        text: "Sync didn't finish.",
+        text: "Sync didn’t finish.",
         detail: "Settings are saved on this device.",
         actionLabel: "Try again",
         onAction: retry,
@@ -563,7 +563,7 @@ describe("controlled D03 extension settings", () => {
       screen.getByRole("button", { name: "Privacy policy" }),
     );
     expect(props.help.onPrivacy).toHaveBeenCalledOnce();
-    expect(screen.getByText("Sync didn't finish.")).toBeTruthy();
+    expect(screen.getByText("Sync didn’t finish.")).toBeTruthy();
     expect(screen.queryByText("Settings synced.")).toBeNull();
     expect(document.body.textContent).not.toMatch(
       /sam@example.com|Demonstration only|\[Provider\]/,
@@ -860,7 +860,7 @@ describe("controlled D03 extension settings", () => {
         screen.getByText(
           ownership === "verify"
             ? "Still Pro needs to be verified again."
-            : "We couldn't finish checking. Nothing changed.",
+            : "We couldn’t finish checking. Nothing changed.",
         ),
       ).toBeVisible();
       expect(
@@ -1066,13 +1066,13 @@ describe("free-period Restore purchase link (owner decisions 62 and 73)", () => 
       "nothing",
       [
         "No Still Pro purchase was found for this account.",
-        "Bought it with another account or Apple ID? Sign in with that one and try again.",
+        "Bought it with another account? Sign in with that one and try again.",
       ],
     ],
     [
       "failed",
       [
-        "We couldn't finish checking. Nothing changed.",
+        "We couldn’t finish checking. Nothing changed.",
         "Your free controls and saved choices are unaffected.",
       ],
     ],

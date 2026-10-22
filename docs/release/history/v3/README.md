@@ -5,10 +5,10 @@ G3/D522, G4/D523, G5/D524); execution authorized under D525. D526–D542 are
 recorded in the local-only decision log; D543 is below. Next decision ID: D544. No application, store, payment, or production changes are claimed by
 this record — it curates local-only preparation into committed docs.
 
-V3 keeps the free core and adds an optional one-time-purchase Pro tier. This
-supersedes the "free, paid flags disabled" posture the current canonical docs
-still describe; Step 3 of the docs refresh carries these decisions into
-`STRATEGY.md`, `docs/PRODUCT.md`, and `docs/ARCHITECTURE.md`.
+V3 keeps the free core and adds an optional one-time-purchase Pro tier. The
+[strategy](../../../../STRATEGY.md), [product specification](../../../PRODUCT.md), and
+[architecture](../../../ARCHITECTURE.md) distinguish shipped 2.x from V3 preparation.
+The V3 decision does not change existing 2.x artifacts or enable paid behavior by itself.
 
 ## Product contract (settled)
 
@@ -39,8 +39,9 @@ Curated from the local-only commercial package and decision summary; see
   needs sign-in; web checkout only through an enforceably managed provider.
 - Paid offline: signed 30-day deadlines, revocation/expiry latches, clock
   rollback safeguards; no DRM or fingerprinting.
-- Analytics: fresh optional combined email/usage/AI consent; 42 retained
-  closed events; no browsing/URL/search/video/replay/autocapture.
+- Analytics: the current permission, identity and closed-event rules are in
+  [ADR 0004](../../../adr/0004-first-party-usage-analytics.md#v3-consent-2026-10-10).
+  The October 10 and 12 decisions supersede the original combined-consent proposal.
 - AI: dashboard assistance and five scouts On, training Off; customer analysis
   only after consented eligible inputs and deletion/expiry are proven.
 - Rating: owner-controlled, initially Off; no rating analytics.
@@ -76,8 +77,9 @@ Firefox on Android is deferred to a later update; its Pro parity work stays in t
 
 - Existing Claude Design system update approved; D01 desktop popup approved
   (D530). Remaining screens keep their review gates.
-- D531 correction stands: one fresh optional combined email/usage consent;
-  any export claiming no-email or anonymized-only is superseded.
+- D531 originally specified combined email/usage consent. Its prompt requirement was superseded
+  by [ADR 0004's later V3 decisions](../../../adr/0004-first-party-usage-analytics.md#one-usage-data-control-2026-10-12).
+  Use that record for the current settings switch and identity disclosures.
 - Handoffs (local-only): `DESIGN-HANDOFF-V3.0.1.md`, `DESIGN-HANDOFF-V3.1.md`;
   reference archives `still-design-system-v3.0.1/v3.1` with extraction receipts.
 

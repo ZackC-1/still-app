@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { test, expect } from "./_extension.js";
 
-// ISS-0114: the sign-in sheet's backdrop is announced as a "Dismiss sign in" button, so a pointer
+// ISS-0114: the sign-in sheet's backdrop is announced as a "Close sign-in" button, so a pointer
 // (and Playwright's ordinary click, which aims at the middle of the element) must be able to reach
 // it. Measured in the real built extension because jsdom has no layout or hit testing.
 //
@@ -39,12 +39,12 @@ test.describe("sign-in sheet backdrop", () => {
   test.skip(!SIGN_IN_BUILT, "Needs a build with sign-in (the configured lane)");
 
   for (const surface of SURFACES) {
-    test(`${surface.name}: the Dismiss backdrop takes an ordinary click and closes the sheet`, async ({
+    test(`${surface.name}: the Close sign-in backdrop takes an ordinary click and closes the sheet`, async ({
       context,
       extensionId,
     }) => {
       const page = await openSheet(context, extensionId, surface);
-      const backdrop = page.getByRole("button", { name: "Dismiss" });
+      const backdrop = page.getByRole("button", { name: "Close sign-in" });
       await expect(backdrop).toHaveCount(1);
       // The backdrop button sits beside the panel, never underneath it.
       const button = (await backdrop.boundingBox())!;

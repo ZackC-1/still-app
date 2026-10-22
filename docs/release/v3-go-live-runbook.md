@@ -71,7 +71,7 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 |---|---|---|---|
 | G1. Production sales operation | Closed `production-sales-policy` on/off operations merged in #522. Final build admission, compare-and-set revision and owner approval remain required. | 2.6 | Engineering, Owner approval |
 | G2. Free cutoff | Owner approved `still-free-v2`: YouTube Shorts, Instagram Reels, Facebook Reels, TikTok website. #522 pins those four identifiers; first approved activation writes the immutable cutoff. | 2.6 | Owner approval |
-| G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4 | Owner approval |
+| G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`; `review-signin-function` redeploys `review-signin` alone. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4, 2.7 | Owner approval |
 | G4. Production Managed Payments | Owner selected the tested QA architecture with separate live configuration. #522 adds production ledger 0026, checkout/completion, Stripe webhook and canonical RevenueCat refresh. Hosted deployment and genuine fulfilment proof remain separate. | 4.4, 8.4 | Engineering, Owner approval |
 | G5. Public build trust | Final integration #528 preserves #524/#520 native public Supabase configuration and trust. Check final integration CI; pin public trust only after hosted signer verification. Signed final artifacts remain pending. | 1.5, 1.6 | Engineering |
 | G6. Declared paid build | #528 preserves #517 declaration/compiled-flag consistency guard. Verify the merged final tree before packaging; do not bypass the guard through manual upload. | 6.4 | Engineering |
@@ -143,9 +143,20 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 - Record the full SHA on `main` every package below is built from. Later commits never change what
   was submitted.
 
-**1.5 Chrome and Firefox packages** · Engineering (Owner approval for the Chrome workflow build)
-- Where: `node scripts/release/package.mjs --out <dir> --env <NAME>=...`, or `release-chrome.yml` in
-  `package-only` mode (after G6) for Chrome.
+**1.5 Chrome and Firefox packages** · Engineering
+- Where: a local build from the frozen commit (1.4), with public values by name only and never a
+  secret:
+  `node scripts/release/package.mjs --out <dir> --env VITE_SUPABASE_URL=<value> --env VITE_SUPABASE_ANON_KEY=<value> --env VITE_POSTHOG_KEY=<value> --env VITE_POSTHOG_HOST=<value> --env VITE_MODERN_SETTINGS_SYNC_ENABLED=true --server-secrets-json <path to the server digests file>`.
+  These five `--env` names are the script's whole public list (`PUBLIC_ENV_KEYS`). Access trust comes
+  from the committed `scripts/release/production-access-keys.json`, never an `--env` value.
+  `--server-secrets-json` (the digest-only output of `supabase secrets list -o json`) is required
+  because 3.0 declares the paid tier: the build refuses unless the server's public key, key id and
+  environment match a pinned row. The script also refuses a `PAID_TIER_ENABLED` that does not match
+  `version.json`. Never pass `--allow-dirty` for a store package.
+- Record on the RC card: the build receipt (the frozen commit SHA, the `--env` names passed and the
+  written `SHA256SUMS.json`) and the Chrome zip's sha256. Install and test that exact zip.
+- For 3.0, `release-chrome.yml` is not used; moving the Chrome build and upload to the workflow is a
+  post-launch follow-up.
 - V07: `SHA256SUMS.json` written; Firefox `manifest.json` has no `gecko_android`; both manifests list
   only the documented permissions and the four supported hosts, no `<all_urls>`; the exact zips
   installed and smoke-tested (free blocking signed out, sign-in, Get Still Pro shown).
@@ -217,7 +228,12 @@ listed).
   handler update does not change those portal settings.
 - Database writer URLs must match actual role passwords and are not copied from QA or staged as
   arbitrary purchase secrets. Existing legacy configuration remains intact.
-- V14: inspect names and the closing receipt, then verify runtime configuration without printing secrets.
+- `ACCESS_PROVIDER_PRODUCTS_JSON` must keep the legacy entries with store identifiers `still_sync`
+  and `still_sync_web` alongside the 3.0 products; without them no pre-3.0 paid purchase is
+  recognised for anyone ([details](purchase-routes-and-secrets.md)).
+- V14: inspect names and the closing receipt, then verify runtime configuration without printing
+  secrets, including that `ACCESS_PROVIDER_PRODUCTS_JSON` still holds the `still_sync` and
+  `still_sync_web` entries (product identifiers only).
 - Undo: reviewed rotation; leaked credentials are rotated at their provider first.
 
 **2.5 Signed-in analytics switch-on** · Owner approval
@@ -244,10 +260,26 @@ listed).
 - Note: once production has a cutoff, `qa-sandbox-sales-policy` refuses both directions; stop QA
   purchases with `pause-qa-sandbox`.
 
-**2.7 Review sign-in configuration** · Engineering, Owner
-- Where: [account and reviewer reference](extension-purchase-deploy-checklist.md), section 1c.
+**2.7 Review sign-in configuration** · Engineering, Owner, Owner approval
+- Where: [account and reviewer reference](extension-purchase-deploy-checklist.md), section 1c. The
+  route is redeployed only through `operation=review-signin-function policy_mode=none` from the
+  frozen commit, plan-only first, then `mode=apply` with its own approval:
+  `gh workflow run supabase-production-deploy.yml --ref main -f commit=<sha> -f operation=review-signin-function -f policy_mode=none -f mode=plan-only`
+  ([route gates](purchase-routes-and-secrets.md)). It deploys `review-signin` alone (verify_jwt
+  false) as a sealed bundle read back byte for byte, refuses unless every migration at the commit is
+  applied, and checks that `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and
+  `ENTITLEMENT_WRITER_DB_URL` are set, by name only. It never sets, rotates or sees those values; the
+  digests the Management API sends with the secret list are dropped in memory, not recorded or compared.
+- Setting and rotating: the owner sets `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase
+  dashboard (production project, **Edge Functions**, **Secrets**, by name), never echoing a value
+  anywhere ([details](purchase-routes-and-secrets.md#review-sign-in-secrets)).
+- Once those secrets are unset, a fix to `review-signin` cannot be deployed through the operation
+  until they are set again: it refuses with `missing_secret:<NAME>`.
 - V20: `review-signin` and its `REVIEW_SIGNIN_*` secrets match the private App Review fields and the
-  Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it.
+  Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it. After the
+  operation, its closing record lists `review-signin` as `deployed` or `unchanged`, and a request of
+  about 3,000 bytes for an address that is not the review address gets 400 (not 404).
+- Undo: redeploy the previous reviewed commit through the same operation.
 
 ## Phase 3 — RevenueCat production
 
@@ -317,7 +349,7 @@ successful deliveries.
 | V27 | The v2 webhook-integration read if the key can reach it; otherwise the owner reads 3.6 on screen and engineering reads `revenuecat-webhook` logs | Production URL with the preserved Both Production and Sandbox / All apps / All events filters; recent delivery status, with canonical persistence verified separately |
 | V28 | Owner confirms 3.7 and 3.8 on screen | Values recorded |
 | V29 | Engineering compares V22 and V24 with `revenuecat-access.ts` | Every mapping it would build passes that file's validation |
-| V30 | Engineering builds `ACCESS_PROVIDER_PRODUCTS_JSON` from V21 and V22 (kept private) | Handed to 2.4 |
+| V30 | Engineering builds `ACCESS_PROVIDER_PRODUCTS_JSON` from V21 and V22 (kept private), keeping the legacy `still_sync` and `still_sync_web` entries alongside the 3.0 products | Handed to 2.4 |
 
 Undo: detach a product or delete the new offering or entitlement while nothing has sold. Never delete
 or rename `still_sync`, and never delete a product that has purchases.
@@ -399,8 +431,9 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 - b. **Price Schedule**, **Add Pricing**: Base Country or Region **United States (USD)**, Price
   **$9.99** (Apple retired numbered tiers in 2023; this is the old Tier 10 price point), **Next**,
   keep Apple's equalized prices for other regions, **Next**, **Confirm**.
-- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (55
-  characters at most, owner-approved; draft: `Twelve extra controls. One-time purchase.`); **Add**.
+- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (45
+  characters at most in App Store Connect, owner-approved; draft in
+  [listing copy](store-listing-copy.md#30-still-pro-in-app-purchase)); **Add**.
 - d. **Review Information**: Screenshot, upload the Get Still Pro screen from the 3.0 build. Review
   Notes: `One-time, non-consumable purchase. Open Still and tap Get Still Pro. Sign-in is offered
   first and can be skipped with "Buy without an account". Restore purchase works without signing in.`
@@ -415,13 +448,15 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 **macOS App**. Undo: delete an unsubmitted version.
 
 5.4 **Listing and screenshots.** On each version: Promotional Text, Description, Keywords, What's
-New and screenshots from the approved V3 copy and set (6.1, 6.2). State: Owner (not yet written).
+New from the approved [3.0 release listing](store-listing-copy.md#30-release-listing-minimal-update-of-the-21-copy)
+(a minimal update of the 2.1 copy; the 2.1 screenshots stay, owner ruling 22 October 2026). State:
+Owner (draft written, awaiting owner approval).
 
 5.5 **App Privacy.** Left menu **App Privacy**, **Edit**. Keep the analytics types (ADR 0004). Make
 sure **Purchases, Purchase History** covers **App Functionality** for Still Pro and **Analytics**
 for the consented canonical purchase events sent to PostHog,
 linked to the user: Yes, used for tracking: No. The release brief says Purchase History must be
-added; [listing copy section 4](store-listing-copy.md#4-apple--app-privacy-the-label) records it as
+added; the [V3 App Privacy label](store-listing-copy.md#v3-apple-app-privacy-label) records it as
 already declared for historical purchases, so confirm on screen. **Publish**. The label must match
 `PrivacyInfo.xcprivacy` and the published privacy policy (7.1).
 
@@ -434,7 +469,21 @@ private username and password fields (2.7). Notes: the V3 Still Pro text in the
 submission.
 
 5.8 **Release options** (each version). **App Store Version Release**: **Manually release this
-version**. **Phased Release for Automatic Updates**: per 0.3. Save.
+version**. **Phased Release for Automatic Updates**: **Release update over 7-day period using
+phased release** (ON; owner decision, 22 October 2026). Save.
+- Apple's fixed schedule for people with automatic updates: day 1 1%, day 2 2%, day 3 5%, day 4 10%,
+  day 5 20%, day 6 50%, day 7 100%. Anyone can still download 3.0 manually from the App Store at any
+  time, and new downloads get 3.0 at once; phasing only paces automatic updates. Day 1 starts when the
+  owner releases the approved version.
+- The owner wants a 4-day rollout: on **day 4**, the owner releases to everyone. App Store Connect,
+  **Apps**, **Still**, in the sidebar under **iOS App** the version **3.0** (status "Ready for
+  Distribution", marked "Phased Release"), then **Release to All Users** at the top right of the page,
+  and confirm. Repeat under **macOS App**, version **3.0**. Until then, **Pause Phased Release** in
+  the "Phased Release for Automatic Updates" section stops the rollout if monitoring (Phase 8) finds
+  a problem (pauses total at most 30 days).
+  ([Apple reference](https://developer.apple.com/help/app-store-connect/update-your-app/release-a-version-update-in-phases/))
+- Verify: the version page shows "Ready for Distribution" without "Phased Release" after day 4.
+- Undo: before release, switch back to **Release update to all users immediately**.
 
 5.9 **Submit** (after 2.6 and G8). **Add for Review**, then **Submit to App Review**, once per
 platform. Undo before review starts: open the submission, **Remove from Review**.
@@ -476,15 +525,15 @@ Engineering compares the read-backs side by side; the owner ticks each.
 
 | Step | Chrome Web Store | Firefox Add-ons (AMO) | Who | State |
 |---|---|---|---|---|
-| 6.1 Listing copy | Add the V3 Still Pro wording to [listing copy](store-listing-copy.md#6-chrome-web-store) (currently 2.1, free only) | Same, [AMO section](store-listing-copy.md#7-firefox-add-ons-amo); describe the optional purchase | Engineering drafts, Owner approves | Owner |
+| 6.1 Listing copy | Minimal update of the 2.1 copy: [3.0 Chrome changes](store-listing-copy.md#30-chrome-web-store-changes) | [3.0 Firefox changes](store-listing-copy.md#30-firefox-add-ons-changes), plus the [manifest declarations](store-listing-copy.md#firefox-manifest-declarations-before-the-amo-upload) that must land in the build first | Engineering drafts, Owner approves | Owner |
 | 6.2 Screenshots | No V3 Pro set exists; capture with `screenshots/source/v3` tooling into [store-ready](screenshots/store-ready/README.md) | Same | Engineering, Owner approves | Engineering |
-| 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still, **Edit Product Page**: privacy text matches the manifest's `data_collection_permissions` | Owner | Owner (confirm) |
-| 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload`; in the dashboard submit for review with automatic publication unchecked. Do not use `upload-and-submit` for this held release: its current API body requests automatic publication | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
+| 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still: the data-collection entries match the 3.0 manifest exactly (AMO rejects a mismatch): tick **Authentication information**, **Personally identifying information** and **Financial and payment information** as **required**, and **Technical and interaction data** as **optional**; privacy text in **Edit Product Page** describes the same data ([listing copy](store-listing-copy.md#firefox-manifest-declarations-before-the-amo-upload)) | Owner | Owner (confirm) |
+| 6.4 Upload | The locally built zip from 1.5, the one whose sha256 is on the RC card and which was tested. The owner uploads it in the Chrome Web Store Developer Dashboard (Still, **Package**, **Upload new package**), then submits for review with automatic publication unchecked. `release-chrome.yml` is not used for 3.0 | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions. Before continuing, confirm the data-collection entries shown for the version match the manifest (required: authentication information, personally identifying information, financial and payment information; optional: technical and interaction data). New installers see the three required types in Firefox's install prompt; existing users are asked to accept the two newly added types (personally identifying, financial and payment) when they update | Owner | Owner |
 | 6.5 Compatibility | Desktop only by nature | On the upload's platform step, **untick Firefox for Android**; the build has no `gecko_android` | Owner | Owner |
-| 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields | Same, plus reproducible-source instructions | Owner | Owner |
+| 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields. The package is a local reproducible build of the frozen commit (the release tests prove two builds are byte-identical), not a workflow build | Same, plus reproducible-source instructions | Owner | Owner |
 | 6.7 Publication | Choose deferred publication before submission; approval then waits for the owner to publish | **Continue** after validation can publish before **Submit Version**; have everything ready first ([AMO lesson](../solutions/conventions/amo-continue-can-publish-an-update.md)) | Owner | Owner |
 
-- V56: Chrome `release-chrome.yml` in `status` mode (or the dashboard) shows 3.0 in review, then approved and held; verify publication only after the owner explicitly publishes.
+- V56: the Chrome Web Store dashboard shows 3.0 in review, then approved and held; verify publication only after the owner explicitly publishes.
 - V57: the AMO version page lists Firefox only, no Android; the public AMO API shows the version once public.
 - Undo: Chrome, cancel review in the dashboard, or ship a higher version later. AMO, **Manage
   Status & Versions**, disable the version, or ship a higher one.
@@ -493,6 +542,15 @@ Engineering compares the read-backs side by side; the owner ticks each.
 
 The site publishes from `gh-pages`, separately from `main`. All publishes are owner actions; undo is
 reverting the `gh-pages` commit.
+
+The owner scheduled the technical SEO changes for the V3 website release on October 22, 2026.
+Merge their source into `main` first, then reconcile the final setup/support copy with the
+SEO navigation, metadata and canonical links before publishing. The setup guide work in PR #484
+also edits `docs/setup.html`; retain both its reviewed instructions and the SEO improvements.
+Use `pnpm build:website` and `pnpm test:website` to prepare and validate the public tree, including
+the directory aliases. See the [SEO audit](../research/2026-10-22-website-seo-audit.md) and
+[website publication checklist](../../scripts/website/README.md). Merging the source PR does not
+publish `gh-pages` or alter store artifacts.
 
 - **7.1 Privacy policy for Still Pro** · Owner publication checkpoint. PR478 has already merged to `gh-pages`, publishing the older policy; source PR477 remains open. Reconcile that publication with the final reviewed source, including PR528 canonical purchase analytics and V3 no-notice wording. A new reviewed publication is still required; do not overwrite the newer policy with the older source. Publish matching `gh-pages` content before store submission and analytics activation. V58: `https://stillapp.fit/privacy/` matches the approved purchase, analytics and deletion disclosures.
 - **7.2 Setup guide** · Owner. PR #484 (`main`, draft, includes the Firefox on Android deferral)

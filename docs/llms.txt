@@ -15,12 +15,14 @@ Key facts:
 
 ## Get Still
 - [App Store (iPhone, iPad, Mac)](https://apps.apple.com/app/id6784061138)
-- [Chrome Web Store](https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/still-remove-shorts-reels/midpefhbieafmeboompbboemeahjjnkf)
 - [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/)
 
 ## Guides
 - [How to block YouTube Shorts without blocking YouTube](https://stillapp.fit/block-youtube-shorts.html)
 - [Remove Instagram Reels in Safari](https://stillapp.fit/remove-instagram-reels-safari.html)
+- [Block Facebook Reels](https://stillapp.fit/block-facebook-reels.html)
+- [Block the TikTok website](https://stillapp.fit/block-tiktok-website.html)
 - [A short-form video blocker for Safari, Chrome and Firefox](https://stillapp.fit/short-form-video-blocker.html)
 - [Why browser extensions cannot block native iPhone apps](https://stillapp.fit/browser-extensions-native-iphone-apps.html)
 - [Set up Still](https://stillapp.fit/setup/)

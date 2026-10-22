@@ -14,6 +14,7 @@ import type {
 } from "../../sync/apple-session.js";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
+import { proPurchased } from "./presentation.js";
 import type { UiAnalytics } from "../controller.svelte.js";
 
 export interface AppleProAccount {
@@ -50,6 +51,10 @@ export interface AppleProHostDeps {
     readonly ownershipRevision: number;
     readonly linkedAccount?: string | null;
   } | null>;
+  /** ISS-0105: positive provenance that this account itself holds Still Pro (a verified account
+   * proof for it in native's record). Absent, or false, the tag stays "Still Pro on this device"
+   * unless native's proof links this device's purchase to the account. Display only. */
+  readAccountHeldPro?(accountId: string): Promise<boolean>;
   linkPurchase(
     intent: ApplePurchaseLinkIntent,
   ): Promise<ApplePurchaseLinkResult>;
@@ -74,9 +79,9 @@ export interface AppleProHostDeps {
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
   // Owner (19 Oct, ISS-0085): the purchase-opened sheet says what it is for. The sync-opened
   // sheet keeps STRINGS.auth.
-  title: "Sign in to purchase Still Pro",
-  prompt: "Enter your email to get a 6-digit code.",
-  note: "Sign in before purchase to associate Still Pro with your account.",
+  title: "Sign in to get Still Pro",
+  prompt: "Enter your email to get a 6-digit sign-in code.",
+  note: "Sign in first to keep Still Pro with your account.",
   skip: "Buy without an account",
 } as const;
 
@@ -121,6 +126,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     readonly ownershipRevision: number;
     readonly linkedAccount: string | null;
   } | null = null;
+  // ISS-0105: `eligiblePurchase` is this access observation's own settled answer. It goes stale
+  // when a read starts or the answer is cleared, so a pending or refused read never shows the
+  // account's tag from an older answer (for example across a refund and a rebuy).
+  let eligibilityFresh = false;
+  // ISS-0105: the account a positive provenance read found holding Still Pro, for one access
+  // observation only.
+  let accountProvenance: { readonly account: string; readonly access: number } | null = null;
+  let provenanceEpoch = 0;
   let busy = false;
   let opening = false;
   let measuredOffer = false;
@@ -242,6 +255,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   async function refreshLinkEligibility(offer = true) {
     const ticket = ++eligibilityEpoch;
     const observed = accessEpoch;
+    eligibilityFresh = false;
+    void refreshAccountProvenance();
     if (stopped || owner() !== "owned") return;
     let next: typeof eligiblePurchase;
     try {
@@ -272,6 +287,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
       return;
     eligiblePurchase = next;
+    eligibilityFresh = true;
     // A link already in flight rereads eligibility itself and ends in linked or failed (with
     // Try again); an overlapping refresh must not cancel it silently.
     if (!eligiblePurchase && link?.state !== "pending") clearLink();
@@ -308,6 +324,24 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     changed();
     if (offer) offerRequestedLink();
   }
+  /** ISS-0105: re-read whether the signed-in account itself holds Still Pro, for the current
+   * access observation. Cleared first; only a positive answer for the same account and observation
+   * stands. */
+  async function refreshAccountProvenance() {
+    const ticket = ++provenanceEpoch;
+    const observed = accessEpoch;
+    accountProvenance = null;
+    const account = deps.account();
+    if (stopped || !account?.confirmed || !deps.readAccountHeldPro) return;
+    const held = await deps.readAccountHeldPro(account.id).then(
+      (answer) => answer === true,
+      () => false,
+    );
+    if (stopped || ticket !== provenanceEpoch || observed !== accessEpoch || deps.account()?.id !== account.id) return;
+    if (!held) return;
+    accountProvenance = { account: account.id, access: observed };
+    changed();
+  }
   /** A requested link whose sign-in has confirmed: show the confirmation as soon as access is
    * owned and the purchaser provenance has settled, whichever of the two lands last. */
   function offerRequestedLink() {
@@ -333,6 +367,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // to come back to.
     if (owner() === "none") {
       eligiblePurchase = null;
+      eligibilityFresh = false;
       clearLink();
     }
     void refreshLinkEligibility();
@@ -988,6 +1023,19 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     },
     get open() {
       return opening;
+    },
+    /** ISS-0105: the signed-in account itself holds Still Pro, so the sync heading's tag reads
+     * "Still Pro User". Only on positive provenance for the current access observation: this
+     * observation's settled read says native's server-signed proof links this device's purchase to
+     * this account (ISS-0081), or the account's own verified proof is in native's record (an Apple
+     * purchase linked to it, or one bought on the web). Never inferred from missing device
+     * evidence. Signed out, an accountless purchase, one linked to another account (ISS-0104), or
+     * a read still pending or refused reads "Still Pro on this device". */
+    get accountHoldsPro() {
+      const current = deps.account();
+      if (!current?.confirmed || !access || !proPurchased(access)) return false;
+      if (eligibilityFresh && linkedHere()) return true;
+      return accountProvenance?.account === current.id && accountProvenance.access === accessEpoch;
     },
     get canLink() {
       return (

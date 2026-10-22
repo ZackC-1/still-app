@@ -28,10 +28,10 @@ export interface SiteAccessCardProps {
 export const SITE_ACCESS_COPY = {
   allow: "Allow",
   retry: "Try again",
-  /** The first-run page's declined detail. */
-  declinedDetail: "Your choices are saved and start working once it's allowed.",
+  /** The site-access card's declined detail (shortened for the popup, owner 22 Oct 2026). */
+  declinedDetail: "Your choices start working once it’s allowed.",
   /** The first-run page's done state (owner, 12 Oct). The request asks for all four sites. */
-  allowed: "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+  allowed: "Allowed on Instagram, Facebook, YouTube and TikTok.",
   /** Pages already open keep running without Still until they reload. */
   reload: "Reload open tabs to apply.",
 } as const;
@@ -45,7 +45,7 @@ export function siteAccessSiteFor(origin: string): SiteAccessSite | undefined {
 function siteList(sites: readonly SiteAccessSite[]): string {
   const ordered = SITE_ACCESS_SITES.filter((site) => sites.includes(site));
   if (ordered.length <= 2) return ordered.join(" and ");
-  return `${ordered.slice(0, -1).join(", ")}, and ${ordered.at(-1)}`;
+  return `${ordered.slice(0, -1).join(", ")} and ${ordered.at(-1)}`;
 }
 
 function missingSites(sites: readonly SiteAccessSite[] | undefined): readonly SiteAccessSite[] {
@@ -55,7 +55,7 @@ function missingSites(sites: readonly SiteAccessSite[] | undefined): readonly Si
 
 /** One heading for one missing site or several (owner's canvas review, 21 Oct 2026). */
 export function siteAccessTitle(_sites?: readonly SiteAccessSite[]): string {
-  return "Still can't block distractions yet.";
+  return "Still can’t block distractions yet";
 }
 
 export function siteAccessBody(sites?: readonly SiteAccessSite[]): string {
@@ -69,7 +69,7 @@ export function siteAccessPendingText(name: SiteAccessBrowser): string {
 
 /** The first-run page's wording after the browser answered without the grant. */
 export function siteAccessDeclinedText(name: SiteAccessBrowser): string {
-  return `${name} didn't allow it.`;
+  return `${name} didn’t allow it.`;
 }
 
 /**

@@ -14,7 +14,7 @@ export const FEATURE_REGISTRY = Object.freeze([
   Object.freeze({"id":"instagram.suggested","service":"instagram","name":"Suggested accounts","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"instagram.threads","service":"instagram","name":"Threads links","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"facebook.reels","service":"facebook","name":"Facebook Reels","tier":"free","freshDefault":true} as const),
-  Object.freeze({"id":"facebook.stories","service":"facebook","name":"Facebook Stories","tier":"pro","freshDefault":false} as const),
+  Object.freeze({"id":"facebook.stories","service":"facebook","name":"Stories","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"facebook.videos","service":"facebook","name":"Video tab","tier":"pro","freshDefault":false} as const),
   Object.freeze({"id":"facebook.sponsored","service":"facebook","name":"Desktop sidebar ads","tier":"pro","freshDefault":false} as const),
 ]);

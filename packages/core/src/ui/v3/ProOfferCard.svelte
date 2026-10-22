@@ -122,15 +122,18 @@
       >
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
+      <!-- The configured price line (owner, 21 Oct), in the apps' "One-time purchase. Lifetime
+        access." style; nothing at all when the host could not read a configured price. -->
+      {#if checkoutPriced && offer?.priceLine?.trim()}<p class="card-body">{offer.priceLine}</p>{/if}
     {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success"}
       <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. It stays
         through a Restore, which cannot change it. -->
       <div class="status-line" data-tone="info">
         <div class="status-body">
-          <span>Still can't check right now.</span><span
+          <span>Still can’t check right now.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
-            >Try again when you're online.</span
+            >Try again when you’re online.</span
           >
         </div>
       </div>
@@ -145,7 +148,7 @@
       <div class="status-line" data-tone="failed" role="alert">
         <span class="glyph"><Glyph name="alert" size={16} /></span>
         <div class="status-body">
-          <span>We couldn't finish checking. Nothing changed.</span><span
+          <span>We couldn’t finish checking. Nothing changed.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >Your free controls and saved choices are unaffected.</span
@@ -155,7 +158,7 @@
     {:else if state !== "failed" && state !== "success" && !restoreHeld}
       <div class="status-line" data-tone="info">
         <div class="status-body">
-          <span>Still Pro can't be bought here yet.</span><span
+          <span>Still Pro can’t be bought here yet.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >Already bought it somewhere else? Restore it below.</span
@@ -167,7 +170,7 @@
       <div class="status-line" data-tone="failed" role="alert">
         <span class="glyph"><Glyph name="alert" size={16} /></span>
         <div class="status-body">
-          <span>The purchase wasn't confirmed.</span><span
+          <span>The purchase wasn’t confirmed.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >If you were charged, Restore purchase will find it.</span
@@ -182,7 +185,10 @@
       <div class="status-line" data-tone="success" role="status">
         <span class="glyph"><Glyph name="check" size={16} /></span>
         <div class="status-body">
-          <span>Still Pro is ready. New controls start off.</span>
+          <span
+            >Still Pro is ready. New controls start off, so turn on the ones you
+            want.</span
+          >
         </div>
       </div>
     {/if}

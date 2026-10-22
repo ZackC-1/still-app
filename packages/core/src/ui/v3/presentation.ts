@@ -95,6 +95,21 @@ export function proPurchased(
   );
 }
 
+/** Which Still Pro tag the "Settings sync" heading carries (ISS-0105): "account" ("Still Pro User")
+ * only when the signed-in account itself holds Still Pro, "device" ("Still Pro on this device")
+ * when Still Pro is purchased but signed out or not held by the signed-in account. */
+export type StillProTagKind = "account" | "device";
+
+/** Undefined while Still Pro is not verified as purchased (no tag). `accountHoldsPro` is the host's
+ * answer for the signed-in account; signed out it is never the account's. */
+export function stillProTag(
+  access: Pick<BenefitAccessSnapshot, "states">,
+  account: { readonly holdsPro?: boolean } | undefined,
+): StillProTagKind | undefined {
+  if (!proPurchased(access)) return undefined;
+  return account?.holdsPro === true ? "account" : "device";
+}
+
 /**
  * The access a Still Pro offer surface draws from (ISS-0032, reopened 15 Oct 2026). Once this view
  * has seen Still Pro conclusively missing (proKnownMissing), a later hold is Still re-confirming the
@@ -142,7 +157,7 @@ export function createProOfferLatch(): (
  * canvas review, 21 Oct 2026.
  */
 export const POPUP_PRO_VALUE =
-  "Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.";
+  "Even fewer distractions on Instagram, Facebook and YouTube. One-time purchase.";
 
 /** Written as what each extra hides, for the settings Still Pro card's by-site list. */
 const PRO_VALUE_PHRASES: Record<string, string> = {
@@ -162,9 +177,8 @@ const PRO_VALUE_PHRASES: Record<string, string> = {
 
 /**
  * Joins the phrases for one site. Three or more: "a, b and c" ("Stories, the Video tab and desktop
- * sidebar ads"), with a serial comma only where the item before the final "and" itself contains
- * "and" (as Instagram's "Stories and Highlights" does). Two: "a and b" (on a phone, "Stories and
- * the Video tab"), or "a, plus b" where either already contains "and".
+ * sidebar ads"), never with a serial comma (owner house rule, 22 Oct 2026). Two: "a and b" (on a
+ * phone, "Stories and the Video tab"), or "a, plus b" where either already contains "and".
  */
 function joinPhrases(items: readonly string[]): string {
   if (items.length < 2) return items.join("");
@@ -174,8 +188,7 @@ function joinPhrases(items: readonly string[]): string {
     return / and /.test(head[0]!) || / and /.test(last)
       ? `${head[0]}, plus ${last}`
       : `${head[0]} and ${last}`;
-  const serial = / and /.test(head[head.length - 1]!);
-  return `${head.join(", ")}${serial ? ", and " : " and "}${last}`;
+  return `${head.join(", ")} and ${last}`;
 }
 
 /**
@@ -234,7 +247,7 @@ export interface DesktopPopupProps {
   onFeatureChange: (feature: FeatureId, next: boolean) => void;
   onSignIn?: () => void;
   onSettings: () => void;
-  /** Screen-reader name for the Settings button; unset keeps "Settings. Find Still in <browser>." */
+  /** Screen-reader name for the Settings button; unset keeps "Still settings". */
   settingsLabel?: string;
   privacyUrl: string;
   /** Current committed authority can hold commands without changing saved choices. */
@@ -265,6 +278,9 @@ export interface DesktopPopupProps {
   proOfferReady?: boolean;
   account?: {
     address?: string;
+    /** ISS-0105: true only when this signed-in account itself holds Still Pro (the host knows its
+     * source). Absent or false, a purchased Still Pro is this device's: "Still Pro on this device". */
+    holdsPro?: boolean;
     /** Last successful cloud exchange, not proof that every device received the settings. */
     lastSyncedAt?: number | null;
     status?: {

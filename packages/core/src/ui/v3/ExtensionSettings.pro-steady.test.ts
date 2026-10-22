@@ -41,10 +41,11 @@ describe("Chrome/Firefox settings: the Still Pro card through a hold", () => {
     expect(within(screen.getByRole("region", { name: "Still Pro" })).getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
     for (const held of ["verification_required", "checking"] as const) {
       await view.rerender({ ...props, access: withPro(props.access, held) });
-      // The card stays (in its held state) and every Pro row keeps its lock: no switch appears.
+      // The card stays (in its held state) and every Pro row keeps its lock; its saved switch
+      // shows beside it, dimmed, and changes nothing (CH-96).
       expect(screen.getByRole("region", { name: "Still Pro" })).toBeTruthy();
       expect(screen.getByRole("button", { name: /^Comments\. Included in Still Pro\./ })).toBeTruthy();
-      expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+      expect(screen.getByRole("switch", { name: "Comments" })).toHaveAttribute("aria-disabled", "true");
       // Buying waits for the re-check (nothing asks for money while Still is unsure).
       expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     }
@@ -69,7 +70,7 @@ describe("Safari settings: the Still app hand-off card (proHandoff)", () => {
   it("locked: the popup's Still Pro card, opening the app; lock chips open it too; no price or purchase", async () => {
     const f = await safari("locked");
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.")).toBeVisible();
+    expect(within(card).getByText("Even fewer distractions on Instagram, Facebook and YouTube. One-time purchase.")).toBeVisible();
     expect(within(card).getByText("Opens the Still app")).toBeVisible();
     await fireEvent.click(within(card).getByRole("button", { name: /Get Still Pro/ }));
     expect(f.proHandoff).toHaveBeenCalledTimes(1);

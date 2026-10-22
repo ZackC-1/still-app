@@ -6,6 +6,7 @@ problem_type: maintainability
 module: repository
 applies_when: Cleaning a multi-platform repository while preserving releases and project history
 date: 2026-09-14
+last_updated: 2026-10-22
 status: active
 tags: [documentation, repository, preservation]
 ---
@@ -52,3 +53,12 @@ Treat source defaults, export-time settings and submitted artifacts as separate 
 checked-in build number can differ from the submitted package; document the provenance instead of
 rebuilding a pending release to make the numbers match. Validate archive text, links/anchors and
 unchanged non-document bytes before claiming the refresh preserved information and functionality.
+
+When a new purchase catalog coexists with historical products, keep one
+[identifier table](../../monetization-design.md#purchase-identifiers) grounded in the catalog and
+provider parser. Link other current references to it. Preserving an old identifier does not mean
+it is the only current identifier. Likewise, mark superseded consent proposals as historical and
+link to the later decision rather than leaving two competing current instructions.
+The [October 22 review](../../plans/2026-10-22-002-refactor-main-simplification-review.md) records
+the cleanup and verification. Source-comment edits can be checked separately by comparing
+TypeScript tokens with comments excluded; this establishes unchanged code, not identical build hashes.

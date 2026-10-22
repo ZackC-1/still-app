@@ -9,7 +9,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
-    proPurchased,
+    stillProTag,
   } from "./presentation.js";
   import PopupProCard from "./PopupProCard.svelte";
   import SyncCard from "./SyncCard.svelte";
@@ -46,6 +46,7 @@
     setup,
     siteAccess,
     help,
+    unsupportedText,
   }: ExtensionSettingsProps = $props();
   let deleteTarget = $state<{
     address?: string;
@@ -236,7 +237,7 @@
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">
-          <span>Still can't block distractions yet.</span><span
+          <span>Still can’t block distractions yet</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >{setup.detail}</span
@@ -261,6 +262,7 @@
     {services}
     {features}
     {labels}
+    {unsupportedText}
     onProAction={proActionReady
       ? revealPro
       : handoffReady
@@ -271,8 +273,9 @@
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and the account's sync status,
     beside the Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
-    stillPro={proPurchased(access)}
+    stillPro={stillProTag(access, sync.account)}
     onSignIn={sync.onSignIn}
+    appHandoff={sync.appHandoff}
     accountActions={sync.accountActions}
     account={sync.account
       ? {

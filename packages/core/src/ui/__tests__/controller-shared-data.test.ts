@@ -1,4 +1,4 @@
-// The controller's account-wide "Delete shared data on all devices" flow (U5-W3 packet B; owner
+// The controller's account-wide "Delete shared data from all your devices" flow (U5-W3 packet B; owner
 // decisions 60, 61 and 74): load, confirm, progress, failure and retry, the other-device line, and
 // that it reports no new analytics event.
 import { describe, it, expect, vi } from "vitest";
@@ -31,7 +31,7 @@ function setup(service: Partial<UiAccountErasure> = {}, sharing = true) {
   return { c, accountErasure, analytics, calls: recording.calls, stopSharing: () => (enabled = false) };
 }
 
-describe("Delete shared data on all devices (controller)", () => {
+describe("Delete shared data from all your devices (controller)", () => {
   it("is hidden while signed out, and when the host does not offer it", async () => {
     const t = setup();
     await t.c.loadSharedData();

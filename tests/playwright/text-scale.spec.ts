@@ -123,6 +123,23 @@ async function expectNoSidewaysOverflow(page: Page): Promise<void> {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
 }
 
+/** ISS-0098 (owner, 21 Oct): nothing inside the popup scrolls on its own; when it is taller than
+ * the browser's cap the document scrolls. */
+async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean): Promise<void> {
+  const scrollers = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".still-ui, .still-ui *")]
+      .filter((element) => element.scrollHeight > element.clientHeight + 1 &&
+        ["auto", "scroll"].includes(getComputedStyle(element).overflowY))
+      .map((element) => element.className),
+  );
+  expect(scrollers).toEqual([]);
+  const scroll = await page.evaluate(() => ({
+    height: document.scrollingElement!.scrollHeight,
+    view: document.scrollingElement!.clientHeight,
+  }));
+  expect(scroll.height > scroll.view).toBe(documentScrolls);
+}
+
 /** Every button, link and switch in the V3 screen can be scrolled into view and seen. */
 async function expectEveryControlReachable(page: Page): Promise<void> {
   const controls = page.locator(".still-ui :is(button, a, [role=switch])");
@@ -194,7 +211,7 @@ async function holdSettingsRead(page: Page, mode: "hold" | "fail"): Promise<void
     new MutationObserver(() => {
       if (seen.stillFirstStatusSize !== undefined) return;
       const line = [...document.querySelectorAll("[role=status]")].find((element) =>
-        /Checking sync…|Settings are unavailable\./.test(element.textContent ?? ""),
+        /Loading your settings…|Settings are unavailable\./.test(element.textContent ?? ""),
       );
       if (line) seen.stillFirstStatusSize = parseFloat(getComputedStyle(line).fontSize);
     }).observe(document, { subtree: true, childList: true, characterData: true });
@@ -326,23 +343,21 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("at 1.5× the popup keeps its approved layout; above it the whole popup scrolls", async () => {
-    for (const [fontSize, overflowY] of [
-      [24, "visible"],
-      [32, "auto"],
+    for (const [fontSize, documentScrolls] of [
+      [24, false],
+      [32, true],
     ] as const) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);
-        const app = page.locator('.app[data-density="compact"]');
-        await expect(app).toBeVisible();
-        expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe(overflowY);
-        const height = await app.evaluate((element) => element.getBoundingClientRect().height);
-        expect(height).toBeLessThanOrEqual(600);
+        await expect(page.locator('.app[data-density="compact"]')).toBeVisible();
+        await expectOnlyTheDocumentScrolls(page, documentScrolls);
       } finally {
         await browser.close();
       }
     }
   });
+
 
   for (const fontSize of [24, 32]) {
     test(`at default font size ${fontSize}px nothing overflows and every control is reachable`, async () => {
@@ -392,8 +407,9 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("the loading and unavailable lines follow the text size too", async () => {
-    // Until the first settings read answers the popup and settings page say "Checking sync…"; a
-    // read that fails says "Settings are unavailable." with Try again. Both follow the text size.
+    // Until the first settings read answers, the popup and settings page say "Loading your
+    // settings…"; a read that fails says "Settings are unavailable." with Try again. Both follow
+    // the text size.
     for (const [fontSize, scale] of [
       [16, 1],
       [32, 2],
@@ -412,7 +428,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
             await page.bringToFront();
             const where = `${path}, ${mode === "hold" ? "checking" : "unavailable"}, ${fontSize}px`;
             const line = page.getByRole("status").filter({
-              hasText: mode === "hold" ? "Checking sync…" : "Settings are unavailable.",
+              hasText: mode === "hold" ? "Loading your settings…" : "Settings are unavailable.",
             });
             await expect(line, where).toBeVisible({ timeout: 10_000 });
             await expect.poll(() => textScale(page), { message: where }).toBe(String(scale));
@@ -468,11 +484,9 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
       await page.goto(`chrome-extension://${browser.id}/popup.html`);
       await page.bringToFront();
       await expect.poll(() => textScale(page)).toBe("2");
-      const card = page.getByRole("region", { name: "Rate Still" });
+      const card = page.getByRole("region", { name: "Enjoying Still?" });
       await expect(card).toBeVisible();
-      const app = page.locator('.app[data-density="compact"]');
-      expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
-      expect(await app.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(600);
+      await expectOnlyTheDocumentScrolls(page, true);
       await expectNoSidewaysOverflow(page);
       await expectEveryControlReachable(page);
       for (const name of ["Rate Still", "Not now"]) {
@@ -562,9 +576,7 @@ test.describe("the sync invitation card at large text (V3 build with sign-in)", 
       await expect.poll(() => textScale(popup)).toBe("2");
       const card = popup.getByRole("region", { name: CARD });
       await expect(card).toBeVisible();
-      const app = popup.locator('.app[data-density="compact"]');
-      expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
-      expect(await app.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(600);
+      await expectOnlyTheDocumentScrolls(popup, true);
       await expectNoSidewaysOverflow(popup);
       await expectEveryControlReachable(popup);
       for (const name of ["Sign in", "Not now"]) {

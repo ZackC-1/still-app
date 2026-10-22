@@ -205,7 +205,7 @@ describe("controlled D18 purchase view", () => {
       screen.queryByRole("button", { name: "Restore purchase" }),
     ).toBeNull();
     await fireEvent.click(
-      screen.getByRole("button", { name: "Back to settings" }),
+      screen.getByRole("button", { name: "Back to Settings" }),
     );
     expect(props.onBack).toHaveBeenCalledOnce();
   });
@@ -227,7 +227,7 @@ describe("controlled D18 purchase view", () => {
       if (state === "verify" || state === "failed") {
         await fireEvent.click(
           screen.getByRole("button", {
-            name: state === "verify" ? "Verify now" : "Try again",
+            name: state === "verify" ? "Verify purchase" : "Try again",
           }),
         );
         expect(onAction).toHaveBeenCalledOnce();
@@ -315,14 +315,14 @@ describe("controlled D18 purchase view", () => {
       ...props,
       restore: { state: "verify", verified: true, onAction: current },
     });
-    await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Verify purchase" }));
     expect(current).toHaveBeenCalledOnce();
     expect(old).not.toHaveBeenCalled();
     await view.rerender({
       ...props,
       restore: { state: "checking", verified: true, onAction: current },
     });
-    expect(screen.queryByRole("button", { name: "Verify now" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
   });
   it("keeps missing actions held and contains no default price, identity or provider", () => {
     render(PurchaseView, {
@@ -331,7 +331,7 @@ describe("controlled D18 purchase view", () => {
     expect(buy()!.hasAttribute("disabled")).toBe(true);
     expect(
       screen
-        .getByRole("button", { name: "Back to settings" })
+        .getByRole("button", { name: "Back to Still settings" })
         .hasAttribute("disabled"),
     ).toBe(true);
     expect(document.body.textContent).not.toContain("verified fixture");
@@ -440,22 +440,22 @@ describe("Apple Buy the App Store never started (ISS-0070)", () => {
     render(PurchaseView, {
       props: apple({ purchase: { state: "failed", notCharged: true } }),
     });
-    expect(screen.getByText("Still Pro couldn't be bought right now.")).toBeVisible();
+    expect(screen.getByText("Still Pro couldn’t be bought right now.")).toBeVisible();
     expect(
       screen.getByText(
-        "Nothing was charged. Make sure you're signed in to the App Store, then try again.",
+        "Nothing was charged. Make sure you’re signed in to the App Store, then try again.",
       ),
     ).toBeVisible();
-    expect(screen.queryByText("The purchase wasn't confirmed.")).toBeNull();
+    expect(screen.queryByText("The purchase wasn’t confirmed.")).toBeNull();
     expect(screen.queryByText(/If you were charged/)).toBeNull();
   });
   it("keeps the may-have-been-charged copy for an ambiguous failure", () => {
     render(PurchaseView, { props: apple({ purchase: { state: "failed" } }) });
-    expect(screen.getByText("The purchase wasn't confirmed.")).toBeVisible();
+    expect(screen.getByText("The purchase wasn’t confirmed.")).toBeVisible();
     expect(
       screen.getByText("If you were charged, Restore purchase will find it."),
     ).toBeVisible();
-    expect(screen.queryByText("Still Pro couldn't be bought right now.")).toBeNull();
+    expect(screen.queryByText("Still Pro couldn’t be bought right now.")).toBeNull();
   });
 });
 

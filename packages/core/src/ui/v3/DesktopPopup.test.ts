@@ -91,28 +91,31 @@ describe("controlled D01 presentation", () => {
       screen.getByRole("button", { name: "Instagram Blocker" }),
     ).toHaveAttribute("aria-expanded", "true");
     await fireEvent.click(
-      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(props.onSettings).toHaveBeenCalledOnce();
   });
 
-  it("names the Settings button after the browser by default, and uses a supplied label exactly", async () => {
+  it("names the Settings button for what it opens by default, and uses a supplied label exactly", async () => {
+    // Copy audit (22 Oct 2026): the default name says what the button opens ("Still settings"),
+    // not the 2.x guidance page's "Find Still in <browser>".
     for (const browser of ["Chrome", "Firefox"] as const) {
       const { props } = await fixture();
       const view = render(DesktopPopup, { props: { ...props, browser } });
       expect(
-        screen.getByRole("button", {
-          name: `Settings. Find Still in ${browser}.`,
-        }),
+        screen.getByRole("button", { name: "Still settings" }),
       ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
       view.unmount();
     }
     const { props } = await fixture();
     const view = render(DesktopPopup, {
-      props: { ...props, settingsLabel: "Still settings" },
+      props: { ...props, settingsLabel: "Still settings. Opens Still settings." },
     });
-    const settings = screen.getByRole("button", { name: "Still settings" });
-    expect(settings).toHaveTextContent("Settings");
+    const settings = screen.getByRole("button", {
+      name: "Still settings. Opens Still settings.",
+    });
+    expect(settings).toHaveTextContent("Still settings");
     expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
     await fireEvent.click(settings);
     expect(props.onSettings).toHaveBeenCalledOnce();
@@ -276,8 +279,8 @@ describe("controlled D01 presentation", () => {
         .closest(".option-row") as HTMLElement;
       const usable = state === "purchased" || state === "protected";
       if (state === "unsupported" || state === "locked") {
-        expect(within(row).queryByRole("switch")).toBeNull();
         if (state === "unsupported") {
+          expect(within(row).queryByRole("switch")).toBeNull();
           expect(
             within(row).getByText(
               "Not available in this browser. Your choice is saved.",
@@ -290,6 +293,11 @@ describe("controlled D01 presentation", () => {
           });
           expect(locked).toHaveAttribute("aria-disabled", "true");
           await fireEvent.click(locked);
+          // CH-96: the saved switch shows beside the lock, dimmed and in its saved position.
+          const saved = within(row).getByRole("switch", { name: "Comments" });
+          expect(saved).toHaveAttribute("aria-checked", "true");
+          expect(saved).toHaveAttribute("aria-disabled", "true");
+          await fireEvent.click(saved);
         }
       } else {
         const comments = within(row).getByRole("switch", { name: "Comments" });
@@ -602,7 +610,7 @@ describe("controlled D01 presentation", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledOnce();
     await fireEvent.click(
-      screen.getByRole("button", { name: /Settings\. Find Still/ }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(props.onSettings).toHaveBeenCalledOnce();
     expect(

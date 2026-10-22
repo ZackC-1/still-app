@@ -23,10 +23,10 @@ const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 test.skip(syncConfigured, "The site access warning is on the V3 popup and settings page only.");
 test.use({ settingsProfile: "modern" });
 
-const TITLE = "Still can't block distractions yet.";
-const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
+const TITLE = "Still can’t block distractions yet";
+const ALLOWED = "Allowed on Instagram, Facebook, YouTube and TikTok.";
 const RELOAD = "Reload open tabs to apply.";
-const BODY = "Still needs permission to work on Instagram, Facebook, YouTube, and TikTok.";
+const BODY = "Still needs permission to work on Instagram, Facebook, YouTube and TikTok.";
 
 type Probe = { requests: { origins: string[]; gesture: boolean }[]; granted: boolean };
 
@@ -141,7 +141,7 @@ test("popup: a declined prompt says Chrome didn't allow it and offers Try again"
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   const card = page.getByRole("region", { name: TITLE });
   await card.getByRole("button", { name: "Allow" }).click();
-  await expect(card.getByText("Chrome didn't allow it.")).toBeVisible();
+  await expect(card.getByText("Chrome didn’t allow it.")).toBeVisible();
   await card.getByRole("button", { name: "Try again" }).click();
   await expect.poll(async () => (await probe(page)).requests.length).toBe(2);
   expect((await probe(page)).requests.every((request) => request.gesture)).toBe(true);

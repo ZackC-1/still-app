@@ -26,6 +26,11 @@
       <span class="glyph"><Glyph name="spinner" size={16} /></span>
       <div class="status-body">
         <span id="popup-pro-checking">Checking your Still Pro access…</span>
+        <span
+          class="muted"
+          style="font-size:calc(12.5px * var(--text-scale, 1));"
+          >Your free controls keep working while this finishes.</span
+        >
       </div>
     </div>
   </section>

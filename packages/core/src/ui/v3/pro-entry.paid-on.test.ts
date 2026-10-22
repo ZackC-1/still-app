@@ -127,7 +127,10 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
       const expander = screen.getByRole("button", { name: `${site} Blocker` });
       if (expander.getAttribute("aria-expanded") !== "true") await fireEvent.click(expander);
       const panel = screen.getByRole("group", { name: `${site} Blocker` });
-      expect(within(panel).queryAllByRole("switch")).toHaveLength(1); // the free row only
+      // The free row's switch is the only one that works; each locked row shows its saved switch
+      // dimmed beside the lock (CH-96).
+      const switches = within(panel).queryAllByRole("switch");
+      expect(switches.filter((s) => s.getAttribute("aria-disabled") !== "true")).toHaveLength(1);
       for (const lock of within(panel).getAllByRole("button", {
         name: new RegExp(
           `Included in Still Pro\\. ${surface.appHandoff ? "Open the Still app" : "See Still Pro"}$`,
@@ -356,7 +359,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     expect(within(card).getAllByRole("listitem")).toHaveLength(3);
     expect(within(card).queryByText("One-time purchase. Lifetime access.")).toBeNull();
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
-    expect(within(card).getByText("Still Pro can't be bought here yet.")).toBeVisible();
+    expect(within(card).getByText("Still Pro can’t be bought here yet.")).toBeVisible();
   });
 
   it.each([
@@ -414,6 +417,8 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
           account: {
             address: "person@still.test",
             confirmed: true,
+            // A browser's Still Pro is always the signed-in account's own (ISS-0105).
+            holdsPro: true,
             status: { tone: "success", text: "Synced with your account." },
             onSignOut: vi.fn(),
           },

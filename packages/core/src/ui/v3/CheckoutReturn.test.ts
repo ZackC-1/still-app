@@ -89,7 +89,7 @@ describe("controlled D20 checkout return", () => {
         ),
       ).toBeNull();
       expect(
-        screen.getByText("We couldn't confirm your payment yet."),
+        screen.getByText("We couldn’t confirm your payment yet."),
       ).toBeTruthy();
     });
   }
@@ -140,7 +140,7 @@ describe("controlled D20 checkout return", () => {
   ] satisfies NonNullable<CheckoutReturnProps["outcome"]>[]) {
     it("does not give a cancellation assurance for an unverified or stale result", () => {
       render(CheckoutReturn, { props: fixture({ outcome }) });
-      expect(screen.queryByText("Checkout was cancelled.")).toBeNull();
+      expect(screen.queryByText("Checkout was canceled.")).toBeNull();
       expect(
         screen.queryByText(
           "Nothing was bought. You can try again from Still settings.",
@@ -170,7 +170,7 @@ describe("controlled D20 checkout return", () => {
     });
     expect(open()).toBeNull();
     expect(
-      screen.getByText("We couldn't confirm your payment yet."),
+      screen.getByText("We couldn’t confirm your payment yet."),
     ).toBeTruthy();
     await view.rerender({ ...props, requestId: "b" });
     expect(open()).toBeNull();
@@ -212,7 +212,7 @@ describe("controlled D20 checkout return", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(props.retry!.onRequest).toHaveBeenCalledOnce();
     expect(
-      screen.getByText("We couldn't confirm your payment yet."),
+      screen.getByText("We couldn’t confirm your payment yet."),
     ).toBeTruthy();
     await view.rerender({
       ...props,
@@ -300,7 +300,7 @@ describe("controlled D20 checkout return", () => {
     expect(current).toHaveBeenCalledOnce();
     expect(props.retry!.onRequest).not.toHaveBeenCalled();
     expect(
-      screen.getByText("We couldn't confirm your payment yet."),
+      screen.getByText("We couldn’t confirm your payment yet."),
     ).toBeTruthy();
   });
   it("keeps footer capabilities independent of purchase confirmation and uses current callbacks", async () => {

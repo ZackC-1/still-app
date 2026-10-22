@@ -217,6 +217,9 @@
     if (!c.userId) return undefined;
     return {
       address: c.accountEmail ?? undefined,
+      // ISS-0105: Chrome and Firefox only ever grant Still Pro from the signed-in account's own
+      // signed proof (chrome-adapter), so a purchased Still Pro here is always the account's.
+      holdsPro: true,
       lastSyncedAt: c.lastSyncedAt,
       status: !c.cloudReachable
         ? {
@@ -353,6 +356,8 @@
         identity,
         revision: optionsAccountRevision,
         confirmed: controller.accountConfirmed,
+        // ISS-0105: as the popup's account above, Still Pro here is always this account's own.
+        holdsPro: true,
         // The time sits on the synced line ("Synced · Today at 2:10 PM", owner, 19 Oct), the same
         // line the Apple app and the popup show; there is no separate "Last synced" line below.
         lastSyncedAt: controller.lastSyncedAt,
@@ -549,7 +554,7 @@
         {/each}
       </div>
     {:else if (!desktopPresentation && !settingsHost && !settingsUnavailable) || popupView.reading}
-      <p class="muted" role="status">{STRINGS.sync.checking}</p>
+      <p class="muted" role="status">{STRINGS.sync.loading}</p>
     {/if}
   {/if}
 
@@ -660,7 +665,7 @@
             >{STRINGS.account.delete}</button
           >
           {#if c.deleteFlow === "error"}<p class="error">
-              {c.deleteError ?? STRINGS.account.deleteError}
+              {STRINGS.account.deleteError}
             </p>{/if}
         {/if}
       {/if}
@@ -688,7 +693,7 @@
         {STRINGS.account.deleting}
       </p>{/if}
     {#if c.userId && c.deleteFlow === "error"}<p class="error" role="alert">
-        {c.deleteError ?? STRINGS.account.deleteError}
+        {STRINGS.account.deleteError}
       </p>{/if}
     {@render settingsRecoveryAction()}
   {/snippet}
@@ -913,8 +918,8 @@
       <button
         type="button"
         class="open-options"
-        aria-label={`Settings. Find Still in ${desktopPresentation.browser}.`}
-        onclick={desktopPresentation.onSettings}>Settings</button
+        aria-label="Still settings"
+        onclick={desktopPresentation.onSettings}>Still settings</button
       >
       <a class="link" href={PRIVACY_POLICY_URL}>Privacy policy</a>
     </footer>

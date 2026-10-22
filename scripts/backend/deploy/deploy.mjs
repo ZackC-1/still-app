@@ -59,9 +59,13 @@ const secretsOperation = () => import("./qa-secrets-operation.mjs");
 const ANALYTICS_KIND = "supabase-analytics-subjects";
 const isAnalyticsName = (operation) => /^analytics-/.test(operation);
 const analyticsOperations = () => import("./analytics-subjects.mjs");
-/** Plan kind of the three purchase operations (purchase-operations.mjs, loaded on demand). */
+/**
+ * Plan kind of the three purchase operations and review-signin-function (purchase-operations.mjs,
+ * loaded on demand).
+ */
 const PURCHASE_KIND = "supabase-purchase-operations";
-const isPurchaseName = (operation) => /^purchase-/.test(operation);
+const isPurchaseName = (operation) =>
+  /^purchase-/.test(operation) || operation === "review-signin-function";
 const purchaseOperations = () => import("./purchase-operations.mjs");
 /** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
 const operations = () => import("./operations.mjs");
