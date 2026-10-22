@@ -89,11 +89,11 @@ describe("canvas: the locked Still Pro row", () => {
     expect(chip).not.toContain("min-block-size: var(--tap-target)");
     // Scrolled into view, a pill is never left a fraction of a pixel under the page's edge.
     expect(chip).toContain("scroll-margin-block: var(--space-1);");
-    // The shared hit-area ::before (one pattern with the Help links), reaching 6px past the pill.
+    // The shared hit-area ::before (one pattern with the Help links), reaching 7px past the pill.
     expect(rule(":is(.card-stack.help .link, .option-row .lock-pro)::before")).toContain(
       "inset-block: max(calc(-1 * var(--hit-reach, 22px)), min(0px, calc((var(--tap-target) - 100%) / -2)));",
     );
-    expect(chip).toContain("--hit-reach: 6px;");
+    expect(chip).toContain("--hit-reach: 7px;");
     expect(styleBlock("FeatureRow.svelte")).toMatch(/\.locked-controls \{[^}]*gap: var\(--space-3, 12px\);/);
   });
 });

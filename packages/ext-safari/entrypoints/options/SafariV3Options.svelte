@@ -166,7 +166,9 @@
 
 <style>
   .options {
-    /* Same frame as OptionsApp.svelte: the shared content width token. */
+    /* The same content width token as OptionsApp.svelte, but not its other frame rules: Safari's own
+       Settings page keeps this vertical padding and the default block-button padding, and is not
+       covered by the 22 Oct canvas rulings (32px top and bottom, 44px buttons on Chrome/Firefox). */
     max-inline-size: var(--content-max-inline-size, 432px);
     margin-inline: auto;
     padding-block: clamp(var(--space-3), 5vh, var(--space-8));

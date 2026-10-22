@@ -252,6 +252,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   }
 
   test("the Help card keeps two columns of links with clear hit areas, and one column above 1.5×", async () => {
+    test.setTimeout(240_000);
     // Owner, 21 Oct: Setup guide on the left; Privacy policy, then Contact support with its
     // address, on the right. Signed out in this lane, so Delete account is absent.
     for (const [fontSize, columns] of [
@@ -623,6 +624,75 @@ test.describe("configured 2.x builds", () => {
 test.describe("paid tier on: locked rows at large text keep their names readable", () => {
   test.skip(process.env.STILL_TEST_PAID_TIER !== "true", "Needs the paid-tier-on build");
   test.skip(configured, V3_ONLY);
+
+  // Review F1 and F4 (22 Oct): the Still Pro pill's invisible hit area is a full 44px at normal text
+  // (as much as the 40px popup rows allow there),
+  // and no control's hit area (the pill's or the saved switch's) covers the row's name, whether the
+  // switch and pill sit beside the name or wrap under it (375px wraps on the Settings page at 1x).
+  test("locked rows: a 44px pill hit area that never covers the row's name", async () => {
+    test.setTimeout(240_000);
+    const browser = await launchWithFontSize(16);
+    try {
+      for (const [path, width] of [["options.html", 375], ["options.html", 432], ["popup.html", 380]] as const) {
+        const page = await openPage(browser, path, width, 900);
+        const where = `${path} ${width}px wide`;
+        const expanders = page.locator(".still-ui button.expander");
+        let measured = 0;
+        for (let index = 0; index < (await expanders.count()); index++) {
+          const expander = expanders.nth(index);
+          await expander.scrollIntoViewIfNeeded();
+          if ((await expander.getAttribute("aria-expanded")) !== "true") await expander.click();
+          await expect(expander).toHaveAttribute("aria-expanded", "true");
+          await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
+          const panel = page.locator(`[id="${await expander.getAttribute("aria-controls")}"]`);
+          const rows = panel.locator('.option-row[data-access="locked"]');
+          for (let r = 0; r < (await rows.count()); r++) {
+            const row = rows.nth(r);
+            await row.scrollIntoViewIfNeeded();
+            const found = await row.evaluate((element) => {
+              const pill = element.querySelector<HTMLElement>(".lock-pro")!;
+              const label = element.querySelector<HTMLElement>(".label")!;
+              const box = pill.getBoundingClientRect();
+              const x = box.left + box.width / 2;
+              let top = Infinity;
+              let bottom = -Infinity;
+              for (let y = box.top - 30; y <= box.bottom + 30; y += 0.25) {
+                const hit = document.elementFromPoint(x, y);
+                if (hit && pill.contains(hit)) {
+                  top = Math.min(top, y);
+                  bottom = Math.max(bottom, y);
+                }
+              }
+              const covered: string[] = [];
+              const range = document.createRange();
+              range.selectNodeContents(label);
+              for (const rect of range.getClientRects())
+                for (let y = rect.top + 0.5; y < rect.bottom; y += 0.5)
+                  for (const px of [rect.left + 1, rect.left + rect.width / 2, rect.right - 1]) {
+                    const hit = document.elementFromPoint(px, y);
+                    const control = hit?.closest("button, [role=switch], a");
+                    if (control && element.contains(control)) covered.push(`(${px.toFixed(0)}, ${y.toFixed(1)})`);
+                  }
+              return { name: label.textContent!.trim(), hit: bottom - top, covered: covered.slice(0, 5) };
+            });
+            // 44px where the rows leave room (the 49px app and Settings rows). The popups' locked rows
+            // are 40px apart, so neighbouring pills' 44px areas meet halfway and each keeps ~40px.
+            expect(found.hit, `${where}: ${found.name} pill hit area`).toBeGreaterThanOrEqual(
+              path === "popup.html" ? 39.5 : 43.5,
+            );
+            expect(found.covered, `${where}: ${found.name} name under a control's hit area`).toEqual([]);
+            measured++;
+          }
+        }
+        expect(measured, where).toBeGreaterThan(0);
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
 
   test("every locked row keeps a 120px name beside or above its saved switch and pill", async () => {
     test.setTimeout(240_000);

@@ -79,9 +79,13 @@ describe("P-AppSync: Sign in and Not now are one 54px row", () => {
 
   it("Not now's 1px border comes out of its padding, in the strong border colour", () => {
     // Without this the outlined button is 56.4px and stretches Sign in with it (canvas 54).
-    const css = appleRule(".app :global(.split-actions > .secondary.block)");
-    expect(css).toContain("padding-block: calc(var(--space-4) - 1px);");
-    expect(css).toContain("border-color: var(--border-strong);");
+    expect(appleRule(".app :global(.split-actions > .secondary.block)")).toContain(
+      "border-color: var(--border-strong);",
+    );
+    // Every Apple outlined block button's border comes out of its padding (review F2).
+    expect(rule(components(), '[data-host="apple"] .secondary.block')).toContain(
+      "padding-block: calc(var(--space-4) - 1px);",
+    );
   });
 });
 
@@ -174,17 +178,16 @@ describe("P-Sites: an open site's option rows", () => {
 });
 
 describe("P-Sites: a locked row is 49px on the app and Settings page, 40px in the popups", () => {
-  it("moves the 8px block padding from the name to the row outside the popups", () => {
+  it("keeps 8px around the switch and pill outside the popups, and the name's own padding", () => {
     const css = components();
-    // 5px on the row plus the pill group's own 3px margin = 8px around the 32px pill.
-    expect(lastRule(css, '.option-row[data-access="locked"]')).toContain("padding-block: 5px;");
-    expect(lastRule(css, '.option-row[data-access="locked"] .row-main')).toContain("padding-block: 0;");
-    expect(rule(css, '.app[data-density="compact"] .option-row[data-access="locked"]')).toContain(
-      "padding-block: 0;",
+    expect(lastRule(css, '.option-row[data-access="locked"] .locked-controls')).toContain(
+      "margin-block: var(--space-2);",
     );
     expect(
-      rule(css, '.app[data-density="compact"] .option-row[data-access="locked"] .row-main'),
-    ).toContain("padding-block: var(--space-2);");
+      rule(css, '.app[data-density="compact"] .option-row[data-access="locked"] .locked-controls'),
+    ).toContain("margin-block: 3px;");
+    // The name keeps its 8px (the base row-main rule), so wrapped controls never cover it.
+    expect(rule(css, '.option-row[data-access="locked"] .row-main')).not.toContain("padding-block");
   });
 });
 

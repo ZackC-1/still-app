@@ -93,7 +93,11 @@ class MemoryAppGroup implements StorageAdapter {
 }
 
 /** Answers window.webkit.messageHandlers.still the way WebBridgeRouter.swift shapes its replies. */
-function nativeHost(showOnboarding: boolean, platform: "ios" | "macos" = "ios"): (message: unknown) => Promise<unknown> {
+function nativeHost(
+  showOnboarding: boolean,
+  platform: "ios" | "macos" = "ios",
+  settingsUnavailable = false,
+): (message: unknown) => Promise<unknown> {
   const group = new MemoryAppGroup();
   let n = 0;
   const writer = new AtomicSettingsWriter(group, () => `00000000-0000-4000-8000-${(++n).toString(16).padStart(12, "0")}`);
@@ -105,7 +109,7 @@ function nativeHost(showOnboarding: boolean, platform: "ios" | "macos" = "ios"):
         return group.record ? JSON.stringify(group.record) : "";
       case "settingsAtomic": {
         const command = JSON.parse(String(m.command)) as { action?: string; ownership?: "unknown" };
-        if (command.action !== "initialize") return JSON.stringify({ status: "unavailable" });
+        if (command.action !== "initialize" || settingsUnavailable) return JSON.stringify({ status: "unavailable" });
         return JSON.stringify(await writer.initialize(command.ownership ?? "unknown"));
       }
       case "onboardingState":
@@ -140,13 +144,14 @@ test.describe("the V3 bundle in WebKit over file://", () => {
   async function open(
     showOnboarding: boolean,
     platform: "ios" | "macos" = "ios",
+    settingsUnavailable = false,
   ): Promise<{ page: Page; errors: string[] }> {
     const viewport = platform === "ios" ? { width: 393, height: 759 } : { width: 480, height: 900 };
     const context = await browser.newContext({ viewport });
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.exposeFunction("__stillGuardNative", nativeHost(showOnboarding, platform));
+    await page.exposeFunction("__stillGuardNative", nativeHost(showOnboarding, platform, settingsUnavailable));
     await page.addInitScript(() => {
       const w = window as unknown as {
         webkit?: unknown;
@@ -182,6 +187,22 @@ test.describe("the V3 bundle in WebKit over file://", () => {
   // A6 (owner, 22 Oct): the Mac app's settings take the canvas width, 24px side padding and 432px
   // cards in its 480px window; the iPhone keeps its 16px side padding (cards 361px at 393 wide).
   for (const [platform, x, width] of [["macos", 24, 432], ["ios", 16, 361]] as const) {
+    // Review F3: the host's own containers (here the "Try again" recovery) take the same width.
+    test(`D04 settings on ${platform}: the recovery's button is ${width}px wide at x ${x}`, async () => {
+      const { page, errors } = await open(false, platform, true);
+      const retry = page.getByRole("button", { name: "Try again" });
+      await expect(retry).toBeVisible();
+      // The width rule follows the platform once the first setup read reports it.
+      await expect
+        .poll(async () => {
+          const box = (await retry.boundingBox())!;
+          return `${Math.round(box.x)} ${Math.round(box.width)}`;
+        })
+        .toBe(`${x} ${width}`);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+
     test(`D04 settings on ${platform}: cards are ${width}px wide at x ${x}`, async () => {
       const { page, errors } = await open(false, platform);
       await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
@@ -215,6 +236,33 @@ test.describe("the V3 bundle in WebKit over file://", () => {
       );
       expect(heights.length, "a full-width button on the signed-out settings screen").toBeGreaterThan(0);
       for (const entry of heights) expect(entry).toMatch(/: 54$/);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
+
+    // Review F2 (22 Oct): an outlined (bordered) block button is 54px too, whatever its border. The
+    // real "Try again" recovery; then the host's other outlined buttons ("Verify purchase", "Link
+    // Still Pro to your account", the purchase screen's "Back to Settings"), drawn in the same
+    // containers the host draws them in, with the bundle's own stylesheet.
+    test(`D04 settings on ${platform}: outlined full-width buttons are 54px tall`, async () => {
+      const { page, errors } = await open(false, platform, true);
+      const retry = page.getByRole("button", { name: "Try again" });
+      await expect(retry).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      expect(Math.round((await retry.boundingBox())!.height), "Try again").toBe(54);
+      const drawn = await page.evaluate(() => {
+        const host = document.createElement("div");
+        host.innerHTML = [
+          '<div class="still-ui app" data-host="apple"><button type="button" class="secondary block">Verify purchase</button></div>',
+          '<div class="still-ui app" data-host="apple"><button type="button" class="secondary block">Link Still Pro to your account</button></div>',
+          '<main class="still-ui ob" data-host="apple"><button type="button" class="secondary block">Back to Settings</button><button type="button" class="primary block">Get Still Pro</button></main>',
+        ].join("");
+        document.body.append(host);
+        return [...host.querySelectorAll("button")].map(
+          (el) => `${el.textContent}: ${Math.round(el.getBoundingClientRect().height)}`,
+        );
+      });
+      for (const entry of drawn) expect(entry).toMatch(/: 54$/);
       expect(errors).toEqual([]);
       await page.context().close();
     });

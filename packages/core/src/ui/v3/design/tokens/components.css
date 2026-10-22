@@ -170,7 +170,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .secondary:hover { background: var(--surface); border-color: var(--border-strong); }
 /* Full-width button heights (owner ruling): 54px in the Apple apps, 44px in Chrome and Firefox. Two
    mechanisms, by where the button lives:
-   - In a page, height comes from padding. The default 16px padding gives 54px (the apps). Browser
+   - In a page, height comes from padding. The default 16px padding gives 54px (the apps; an
+     outlined button's border comes out of its padding under data-host="apple"). Browser
      frames narrow it with --block-button-padding so the 44px minimum sets the height: the popups'
      compact density (above) and the Settings page's .options frame (ext-chromium OptionsApp.svelte,
      which also covers the legacy 2.x Settings page of builds without modern sync).
@@ -179,6 +180,9 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
      app's settings root and its sign-in sheet carry.
    Guarded by app-webview-v3-bundle.spec.ts (54px) and block-button-heights.spec.ts (44px). */
 .primary.block, .secondary.block { inline-size: 100%; min-block-size: 44px; padding: var(--block-button-padding, var(--space-4)); font-size: calc(16px * var(--text-scale, 1)); }
+/* An outlined block button's 1px border comes out of its padding in the Apple apps, so it is 54px
+   like a filled one (review F2, 22 Oct). */
+[data-host="apple"] .secondary.block { padding-block: calc(var(--space-4) - 1px); }
 .danger-solid { background: #c2261e; color: #fff; border: none; align-self: flex-start; }
 .link { background: transparent; border: none; color: var(--link); font: inherit; cursor: pointer; padding: 0; align-self: flex-start; text-decoration: none; }
 .link.center { align-self: center; }
@@ -268,20 +272,20 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
    the name, right-aligned, instead of squeezing the name to a few letters per line. */
 .option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
 .option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
-/* On the app and the Settings page a locked row carries its block padding itself (owner canvas,
-   P-Sites since 10:22, 22 Oct): 8px above and below the 32px pill, so the row is 49px as drawn. The
-   pill group's own 3px margins count toward the 8px, so the row adds 5px and the name drops its
-   8px. The popups keep the name's padding and their 40px row (compact rule below). */
-.option-row[data-access="locked"] { padding-block: 5px; }
-.option-row[data-access="locked"] .row-main { padding-block: 0; }
-.app[data-density="compact"] .option-row[data-access="locked"] { padding-block: 0; }
-.app[data-density="compact"] .option-row[data-access="locked"] .row-main { padding-block: var(--space-2); }
+/* On the app and the Settings page the saved switch and pill keep 8px above and below them (owner
+   canvas, P-Sites since 10:22, 22 Oct), so a locked row is 49px as drawn. The name keeps its own 8px
+   too, so when the controls wrap under it (a 375pt iPhone wraps at 1x) the two hit areas reaching
+   past the switch and the pill stay inside that 8px and never cover the name. The popups keep the
+   pill group's 3px and their 40px row (FeatureRow.svelte). */
+.option-row[data-access="locked"] .locked-controls { margin-block: var(--space-2); }
+.app[data-density="compact"] .option-row[data-access="locked"] .locked-controls { margin-block: 3px; }
 /* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
    locked row keeps the 40px compact row height. Its hit area is the shared ::before (Help card,
-   above), reaching 6px: a 44px target at normal text without growing the row. scroll-margin: a
+   above), reaching 7px past its 30px padding box (the box the ::before is laid out in): a 44px
+   target at normal text without growing the row. scroll-margin: a
    pill scrolled into view (keyboard focus, larger text) is never left a fraction of a pixel under
    the page's edge. */
-.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; scroll-margin-block: var(--space-1); --hit-reach: 6px; }
+.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; scroll-margin-block: var(--space-1); --hit-reach: 7px; }
 .option-row .lock-pro::before { inset-inline: 0; }
 .option-row .lock-pro:hover { border-color: var(--ink-secondary); }
 /* A dormant row's pill (paid tier off: aria-disabled, no destination) is inert, so it must not look
@@ -304,6 +308,12 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
   padding-block-start: max(var(--app-padding, var(--space-4)), env(safe-area-inset-top));
   padding-block-end: max(var(--app-padding, var(--space-4)), env(safe-area-inset-bottom));
   padding-inline: max(var(--app-padding, var(--space-4)), env(safe-area-inset-left)) max(var(--app-padding, var(--space-4)), env(safe-area-inset-right));
+}
+/* A6 (owner, 22 Oct, canvas page "mac"): the Mac app's settings and the host's own containers beside
+   them take 24px side padding and 432px cards in the 480px window. The iPhone keeps its 16px. */
+.app[data-host="apple"][data-platform="mac"] {
+  max-inline-size: calc(var(--content-max-inline-size, 432px) + 2 * var(--space-6));
+  padding-inline: max(var(--space-6), env(safe-area-inset-left)) max(var(--space-6), env(safe-area-inset-right));
 }
 .app[data-density="compact"] { max-block-size: var(--popup-max-block-size, 600px); }
 .app[data-density="compact"] > :not(.site-scroll) { flex-shrink: 0; }

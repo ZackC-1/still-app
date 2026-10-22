@@ -241,7 +241,7 @@
   {/if}
 {/snippet}
 
-<div class="still-ui app" class:mac-settings={platform === "mac"} data-host="apple">
+<div class="still-ui app" class:mac-settings={platform === "mac"} data-host="apple" data-platform={platform}>
   <!-- The setup card leads the screen when the extension is off (owner, 19 Oct). -->
   {#if setup}
     <section class="card card-stack">
@@ -423,20 +423,16 @@
     --sync-gap: calc(var(--space-3) * 0.875);
     --sync-padding: calc(var(--space-4) * 0.875) var(--space-4);
     padding-block: max(calc(var(--space-4) * 0.875), env(safe-area-inset-top)) max(calc(var(--space-4) * 0.875), env(safe-area-inset-bottom));
-    /* A6 (owner, 22 Oct, canvas page "mac"): 24px side padding and 432px cards in the 480px window.
-       The iPhone keeps its 16px. */
-    max-inline-size: calc(var(--content-max-inline-size, 432px) + 2 * var(--space-6));
-    padding-inline: max(var(--space-6), env(safe-area-inset-left)) max(var(--space-6), env(safe-area-inset-right));
+    /* The Mac width (A6) is the shared .app[data-host="apple"][data-platform="mac"] rule. */
   }
   .mac-settings :global(.hero.compact) {
     --hero-padding: calc(var(--space-3) * 0.875) var(--space-3);
   }
   /* Owner canvas (P-AppSync, 22 Oct): Sign in and Not now share one row at the app's 54px button
-     height, and Not now's outline is the strong border. Its 1px border comes out of its padding so
-     it adds no height. */
+     height (every Apple outlined block button's border comes out of its padding, components.css),
+     and Not now's outline is the strong border. */
   .app :global(.split-actions > .secondary.block) {
     border-color: var(--border-strong);
-    padding-block: calc(var(--space-4) - 1px);
   }
   /* Owner canvas (P-Invite, 22 Oct): the signed-in link offer's Link is a 44px, 15px button with
      16px before Not now. */
