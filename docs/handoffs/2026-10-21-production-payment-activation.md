@@ -2,142 +2,138 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
+updated: 2026-10-21T18:55:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
 
 # Production payment activation checkpoint
 
-## Repository state
+## Current operational state
 
-- Worktree: `/private/tmp/still-production-activation-20261021`
-- Branch: `codex/production-activation-20261021`
-- Previous source HEAD: `c680143a`; the following webhook increment is on the same draft
-  [PR 522](https://github.com/ZackC-1/still-app/pull/522). Read Git for the current source HEAD.
-- PRs 518/519 are incorporated with their commits preserved. The other session owns builds,
-  visuals and PRs 517/520. The main checkout was not edited by this session.
-- This checkpoint accompanies the owner-authorized RevenueCat handler increment and its tests.
+Foundation [PR522](https://github.com/ZackC-1/still-app/pull/522) merged at
+`bac1539f382798fa2ca812dd782beabc76c47b69` after 32 checks. Deployment preservation fix
+[PR525](https://github.com/ZackC-1/still-app/pull/525) merged at
+`bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. The latter is the pinned
+backend deployment revision.
 
-## Objective and completed work
+[Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
+0025, 0026 and 0027. Its disposable receipt verified history 24→27, clean structural checks and
+unchanged existing data snapshots. Matching
+[apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) has passed its plan
+and is waiting for the owner's `supabase-production` approval. The owner has been asked to use
+Review deployments → supabase-production → Approve and deploy. No hosted migration write has
+occurred at this checkpoint. Re-read the run before acting.
 
-Production must implement the app's tested payment/sync behavior with live provider bindings,
-while sandbox purchases remain isolated. Supabase holds payment and entitlement records;
-PostHog holds consented product analytics. The owner authorized autonomous implementation.
+Sales remain off. The separate production Stripe webhook is created and disabled. Twenty production
+configuration values are staged in GitHub's protected environment, not yet applied to Supabase.
+The existing RevenueCat webhook URL, token and portal filters remain unchanged.
 
-PR 522 contains production Stripe Managed Payments checkout/recovery, migration 0026's narrow
-purchase ledger, production provider composition, migration 0027's isolated Apple sandbox
-review ledger, consent-aware purchase interaction producers, historical SKU compatibility and
-production return pages. It also contains the protected production sales on/off operation.
-First activation preserves exactly the four shipped-free benefits. Activation remains provisional
-until packaged version admission is checked; emergency sales-off is independently available.
+## Repository and concurrent ownership
 
-The new Stripe and RevenueCat keys passed read-only account/catalog checks. Live price, product,
-RevenueCat app, entitlement and current offering bindings match the intended V3 USD9.99 one-time
-product. Historical products remain separate. Apple key format and runtime composition pass;
-an Apple API parameter-validation response is not successful transaction verification.
+The main checkout belongs to the separate visual/build session and was not edited here.
 
-Twenty production configuration values have been staged in GitHub's protected environment.
-None have been applied to Supabase. Private material is outside Git. The build owner can read
-the **public-only** trust handoff at
+| Worktree | Branch / source | Responsibility |
+|---|---|---|
+| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, source `a85491bc` now merged through PR525 | Protected deployment commands and evidence |
+| `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527, prior checkpoint `40fa02ae` | Current runbook, original PR515 ancestry and this handoff |
+| `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
+| `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
+| `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
+
+Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
+never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
+Final integration may combine reviewed source ancestry to avoid repeated strict-base CI; no source
+PR may merge without required final-tree checks. Keep docs527 until that integration to avoid base churn.
+
+## Scope and decisions
+
+Production must match the app's tested payment and sync behavior with separate live bindings.
+Supabase holds payment/entitlement records; PostHog holds consented usage and conversion events.
+Never copy sandbox customer purchases, account rights or credentials into production.
+
+The owner authorized autonomous implementation and parallel agents, selected Stripe Managed Payments,
+approved the four-benefit `still-free-v2` cutoff, and approved isolated device-only Apple review
+sandbox access behind a separate switch. The four free protections and optional free sync remain
+free. Review access cannot create live account rights or revenue. Review-proof issuance alone does
+not enable purchase admission; final production-bound review testing also needs the reviewed sales
+policy and exact build admission.
+
+The RevenueCat server handler extension is authorized; its existing dashboard settings are preserved.
+Planned versions are Chrome/Firefox 3.0.0 and Apple 3.0, subject to final QA. Final package inspection
+still controls actual build admission. No synthetic live charge/refund should be manufactured.
+
+## Verified engineering and provider preparation
+
+- Foundation implements production Managed Payments checkout, GET-only recovery, narrow production
+  ledger 0026, isolated review ledger 0027, canonical RevenueCat rights refresh, historical SKU
+  compatibility, sales on/off and the four-free-benefit cutoff. Full local Deno passed 632 tests
+  and 147 steps, one gated integration ignored; all 32 foundation CI checks passed.
+- The first protected plan refused safely because 0026/27 invariant SQL emitted structural arrays.
+  PR525 restores complete-row preservation objects without weakening the parser. 76 deployment
+  tests, independent review, real PostgreSQL preservation tests and all browser lanes pass.
+- Live provider account/catalog read-backs matched the intended separate V3 USD 9.99 one-time price,
+  product, RevenueCat production app, entitlement and offering. Historical products remain separate.
+  Apple key format and runtime composition passed; an API parameter-validation response is not
+  proof of an actual purchase.
+- Return pages are published via merged PR523 on gh-pages. Success/cancel paths and .html variants
+  return HTTP 200 and match source bytes. No tracking scripts were added.
+- PR524 fixes native public Supabase configuration and trust packaging. Initial CI caught a synthetic
+  trust fixture placed inside the handwritten browser fixture directory. It is moved to the release
+  tooling fixture directory while retaining the browser guard. PR517's declaration guard is being
+  integrated with trust checks; current paid flags are not flipped. Final CI remains required.
+- Web canonical analytics SQL 0028, consent fences and actual Chrome/Firefox factory coverage pass
+  focused tests and independent review. CI found closed deployment capability/manifest integration
+  gaps; their exact allowlists are corrected and final CI remains required.
+- Apple optional analytics uses actual purchase provenance and canonical server-authored descriptors
+  through a dedicated consent-fenced client lane. Generic queues still reject purchase events.
+  The reviewed lock-order fix has a two-session SQL regression. Full iPhone simulator compilation
+  passed; Mac compilation and integrated hosted SQL/deployment checks remain pending at this checkpoint.
+- Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
+  Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
+
+## Analytics and private material
+
+The session dashboard is [Still Pro Conversion Readiness](https://us.posthog.com/project/624923/dashboard/2242729).
+It has three interaction charts and canonical sale/refund counts by surface. All saved aggregate
+queries execute; test/dev and internal filters are set. Empty charts are labelled activation pending,
+not evidence of failure. Missing release-channel markers are not treated as verified release traffic.
+The existing legacy dashboard is untouched. No final-package delivery or erasure acceptance is claimed.
+
+Historical hosted analytics secrets/functions applies were verified. No schedule/switch activation
+was found in retained runs. Use the protected gates to establish current state: deploy selected
+functions, enable existing erasure schedule, wait for an actual successful run, verify project/deletion
+permissions, then enable subjects. A dummy permission probe is not completed account erasure.
+
+Secrets remain outside Git and chat. The public-only build trust handoff is
 `/Users/zack/.local/share/still/production-payments-20261021/public-access-keys.json`.
-Its key ID is `still-access-production-20261021`. Match it against the actually deployed signer
-before completing PR 520's paid-build gate; local preparation is not hosted evidence.
+Match it against hosted signer readback before packaging. Private prepared configuration and encrypted
+read-only reports are in the existing owner-local locations recorded by the operational tooling;
+do not print their contents. Mem0 retrieval quota and the claude-mem observer are exhausted;
+repository evidence and the work-state list remain the active durable record.
 
-## Verification
+## Next actions and blockers
 
-- Local protected-operation suite: 62 pass; analytics-operation suite: 16 pass.
-- Local webhook suite: 22 pass; provider/configuration suites: 38 pass.
-- Current source CI passes production checkout/review PostgreSQL ledger, Deno, StillKit, Firefox,
-  read-only check route and all protected operations, including production sales on/off.
-- The previous head passed all checks except Playwright still running at that read. The webhook
-  increment must receive fresh CI. Local full Deno: 632 tests and 147 steps pass, one ignored;
-  Deno lint and webhook entrypoint typechecking pass.
-- Earlier local Playwright run: 367 pass, 37 skipped. Production device checks remain outstanding.
-- Two timing fixtures were corrected: a future signature moved inside its tolerance while awaiting
-  crypto, and a cron quarter-hour tick supplied evidence during a no-run negative control. Cron
-  suppression belongs only to the disposable runner container, not the ordinary production role.
-- A direct production `product-policy` request returned gateway `NOT_FOUND` (function absent),
-  not a policy-body 404. No production sales revision or cutoff can be inferred from that response.
+1. Wait for the owner approval of apply39707838333; inspect the closing receipt before any next
+   production operation. One global workflow concurrency group means operations are sequential.
+2. On the pinned revision, plan/apply reviewed purchase secrets, then the fixed nine purchase routes,
+   then separately sync-settings. Each apply needs its own owner approval. Never bypass protection
+   with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
+3. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
+   until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
+4. Finish independent review, native compilation, SQL/deployment rehearsals and required final-tree CI
+   for the canonical analytics and packaging integration. Apply 0028/0029 only through later exact
+   migration plans; do not add them to the already-approved 0025–27 scope.
+5. Complete protected analytics activation and prove consent, identity, production event delivery and
+   erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain
+   explicitly unverified until observed. PROD-02 is still a proposal, not an executable check.
+6. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
+   artifacts, release values, store declarations, device acceptance and sales activation follow.
+7. After backend and visuals, perform the requested deep unused-code/test audit. Prove obsolescence
+   before removal, fix bugs rather than hiding failures, preserve meaningful coverage, and recheck
+   affected artifacts. Do not claim size/performance improvements without measurements.
 
-## Owner answers and latest preparation
-
-All three owner questions were answered. Stripe Webhook Endpoints Write was saved; live endpoint
-creation now succeeds. The separate Still production endpoint is created, disabled and verified
-with its five fixed events/API version. Its signing secret is saved privately and staged as
-`PROD_STRIPE_WEBHOOK_SECRET`; twenty values are staged in total. The unrelated endpoint is untouched.
-
-Planned release versions are confirmed as Chrome/Firefox `3.0.0`, Apple `3.0`; QA may change them.
-Keep the packaged-version gate until actual artifacts are inspected.
-
-The owner authorized the RevenueCat server handler extension while preserving dashboard settings.
-The implementation now refreshes canonical V3 rights and existing linked Apple transactions, retries
-incomplete refreshes and skips sandbox notifications for both production account projections.
-83 focused tests pass; all nine production purchase routes compile. Hosted deployment is pending.
-
-## Remaining engineering and operational gates
-
-Owner update (October 21): final screen edits and images are still pending. Zack plans to finish
-them with Claude Code on the morning of October 22, 2026 (America/Los_Angeles). Preserve that
-session's UI and build work. Backend preparation can continue independently; final release
-artifact/version checks and device acceptance must use builds containing the completed visuals.
-Backend readiness does not establish release readiness.
-
-After the backend/payment/analytics work and final screen/image edits are complete, the owner
-requests a deep final-build audit for unused legacy code and obsolete tests, with subagents where
-helpful. Prove obsolescence before removal, including platform, dynamic-entry and compatibility
-uses. Fix genuine bugs instead of hiding failures; preserve meaningful coverage, run relevant
-checks, and report changes and remaining blockers. Recheck affected final release artifacts after
-cleanup. Do not claim runtime or size improvements without measurements.
-
-1. Keep the new Stripe endpoint disabled until the production handler is deployed and verified.
-2. Complete the RevenueCat handler source review and CI; verify real delivery after deployment.
-3. Implement canonical `purchase_recorded` / `purchase_refunded` attribution and deduplication.
-   These server-only events currently have no producer. Current and original device consent,
-   account lifecycle and review/sandbox exclusion must hold; purchase fulfilment must remain
-   independent. Do not infer sales from access snapshots, restores or checkout return pages.
-   An active analytics subject alone is insufficient evidence that a device still shares data.
-4. Finish current-head CI and review, merge through protection, then prepare pinned-main plans
-   for migrations, purchase secrets/functions and the separately protected sync deployment.
-   Owner environment approval is required for hosted apply; agents must not self-approve it.
-5. Verify hosted analytics erasure scheduling and subject activation. Historical secret/function
-   deployments were found, but a successful schedule/switch activation was not established.
-6. Checkout return pages are published through PR #523 (gh-pages merge
-   `b4e095d2358ac41018d687e416826ff107bd9b76`); both extensionless and `.html` success/cancel
-   paths returned HTTPS 200 with exact source-byte matches. Complete public-key/build alignment and run
-   final-device purchase, restore, account-switch/deletion and analytics-consent verification.
-   Genuine payment/refund evidence remains outstanding. Do not manufacture live test charges.
-7. Enable sales only after the release gates clear, preserving the approved free outcome.
-
-## Reporting state
-
-[Still Pro Conversion Readiness](https://us.posthog.com/project/624923/dashboard/2242729) has
-three native charts for offer-to-start conversion, supported-surface interactions and outcomes.
-The charts were rerun successfully. The dashboard labels deployment and canonical sale reporting
-as incomplete; it excludes test/dev and the existing internal cohort. It does not claim complete
-financial accounting or deduplicated account-level conversion.
-
-## Next safe action
-
-Latest read-only DB-01 run `39704032899` completed and its encrypted report was privately read:
-the migration tail remains `0024`, `0023`, `0022`. Pending migrations at PR #522 are exactly
-`0025`, `0026`, `0027`. Its `needs-review` verdict is interpreted migration evidence, not a
-production readiness pass. Independent deployment review found no source blocker for staged
-deployment with sales off; dispatch protected operations sequentially because they share one
-concurrency group. Mem0 retrieval is quota-exhausted; repository records remain authoritative.
-
-The owner authorized parallel agents. Canonical analytics implementation is in its own worktree.
-A separate build review found that PR #520's Apple trust writer omits the code-signed public
-Supabase URL/key required by native account access; a focused isolated build-tooling fix is underway.
-
-PR #522 merged at `bac1539f382798fa2ca812dd782beabc76c47b69` with all 32 checks passed.
-Plan-only migration run `39704528557` refused in its disposable rehearsal, before any write:
-0026/0027 preservation queries returned issue arrays instead of count/fingerprint objects.
-The correction on `codex/production-activation-ops-20261021` retains strict validation and adds
-real pre/post-query CI coverage. All 76 offline deployment tests pass; a reviewed merge and a new
-protected plan must precede any hosted apply. No production rollback is needed.
-
-Continue in the owned worktree;
-preserve the build session's branches. Follow the active
-[plan](../plans/2026-10-21-002-production-activation-and-verification.md) and
-[sales procedure](../release/production-sales-policy.md). These V3 changes remain undeployed and
-no sales policy was published by this work.
+Use the [activation plan](../plans/2026-10-21-002-production-activation-and-verification.md),
+[closed deployment procedure](../release/purchase-routes-and-secrets.md) and updated
+[go-live runbook](../release/v3-go-live-runbook.md). Do not equate code merge, hosted deployment,
+store approval, public availability and customer-delivery proof.
