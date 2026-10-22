@@ -24,12 +24,17 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `manifest_version` | 3 |
 | `gecko.id` | `still@chartash.com` — permanent identifier, not a contact mailbox |
 | `gecko.strict_min_version` | `140.0` |
-| `gecko.data_collection_permissions` | `required: ["authenticationInfo"]` |
+| `gecko.data_collection_permissions` | `required: ["authenticationInfo"]`; `optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"]` |
 | `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; QA sandbox packages only until Firefox on Android ships in a later update |
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
-there is no purchase requirement. Do not lower the Android floor or change the stable identifier
+there is no purchase requirement. Installing asks only for `authenticationInfo` (the sign-in
+session) and offers usage data (`technicalAndInteraction`). The email address and the Still Pro
+purchase status are optional data types: Firefox asks for them, from the person's click, at Send
+code and at Get Still Pro or Restore purchase, and nothing is sent without them
+(`lib/data-permission.ts`, `lib/firefox-data-guard.ts`). Blocking, the TikTok block and local
+settings need no grant. Do not lower the Android floor or change the stable identifier
 as metadata housekeeping. The first V3 store upload must not list Firefox for Android; when Android
 ships in a later update, confirm AMO lists that version as compatible with Firefox for Android.
 

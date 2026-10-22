@@ -333,38 +333,50 @@ Privacy: https://stillapp.fit/privacy/
 Mozilla's rules ([built-in data consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)):
 "data transmission refers to any data collected, used, transferred, shared, or handled outside the
 add-on or the local browser", and every transmitted type must be listed in
-`browser_specific_settings.gecko.data_collection_permissions`. The relevant types:
+`browser_specific_settings.gecko.data_collection_permissions`. Required types must be accepted to
+install. Optional types are not shown at install (except `technicalAndInteraction`) and are not
+granted until the person allows them; the add-on asks with `permissions.request()` from a click.
+The relevant types:
 
-| Mozilla type | Mozilla's examples | Still 3.0 in Firefox | Declared today (`packages/ext-chromium/wxt.config.ts`) |
+| Mozilla type | Mozilla's examples | Still 3.0 in Firefox | Declared (`packages/ext-chromium/wxt.config.ts`) |
 |---|---|---|---|
-| `authenticationInfo` | "passwords, usernames, ... registration information for extensions that offer account-based services" | The emailed sign-in code and session | Yes, required |
-| `personallyIdentifyingInfo` | "contact information such as name and address, email, and phone number" | The email address sent to sign in | No |
-| `financialAndPaymentInfo` | "credit card numbers, transactions, credit ratings, financial statements, or payment history" | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider's page) | No |
-| `technicalAndInteraction` | "extension usage and settings data" | Usage analytics (ADR 0004) | Yes, optional (Mozilla allows it only as optional) |
+| `authenticationInfo` | "passwords, usernames, ... registration information for extensions that offer account-based services" | The sign-in session | Required |
+| `personallyIdentifyingInfo` | "contact information such as name and address, email, and phone number" | The email address sent to sign in | Optional, asked at sign-in |
+| `financialAndPaymentInfo` | "credit card numbers, transactions, credit ratings, financial statements, or payment history" | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider's page) | Optional, asked at Get Still Pro or Restore purchase |
+| `technicalAndInteraction` | "extension usage and settings data" | Usage analytics (ADR 0004) | Optional (Mozilla allows it only as optional) |
 
-**What the manifest must declare before the AMO upload:**
+**What the manifest declares:**
 
 ```
 data_collection_permissions: {
-  required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"],
-  optional: ["technicalAndInteraction"],
+  required: ["authenticationInfo"],
+  optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"],
 }
 ```
 
-- **Email address:** Mozilla names "email" under `personallyIdentifyingInfo`. One could argue the
-  sign-in email is a username under `authenticationInfo`, but declaring it removes the doubt at no
-  cost to the person (Chrome's form already lists the email as personally identifiable).
-- **Purchase status:** a Still Pro purchase record is a transaction handled outside the add-on, so
-  `financialAndPaymentInfo` applies once Still Pro can be bought in Firefox.
-- **Required, not optional:** optional types other than `technicalAndInteraction` are not shown at
-  install and need a `permissions.request()` call inside the sign-in and Get Still Pro taps, which is
-  a larger code change. Required matches how `authenticationInfo` is declared today. Firefox shows the
-  added required types to existing users when they update.
-- **This is a code change**, not a portal edit: `wxt.config.ts`, its test
-  (`packages/ext-chromium/lib/__tests__/firefox-manifest.test.ts`), `tests/firefox/qa-first-run.spec.ts`
-  and the manifest row in [03-firefox-amo.md](03-firefox-amo.md). It must land in the reviewed
-  release build before the Firefox package is made (runbook 1.x and 6.4), and the privacy policy
-  (runbook 7.1) must describe the same data. Owner decision; this PR changes no code.
+- **Installing never asks for the email address or payment information.** Installing the free
+  blocker asks only for `authenticationInfo` (as 2.x does) and offers `technicalAndInteraction` as
+  an optional choice.
+- **Email address:** Firefox asks when the person clicks Send code in the sign-in sheet (settings
+  page, popup or first-run page). Declined, nothing is sent and the sheet says "Sign in needs
+  permission to send your email address. Your settings stay on this device." Firefox's grant is read
+  again before every later send (Resend, Verify).
+- **Purchase status:** Firefox asks when the person clicks Get Still Pro, Try again or Restore
+  purchase. Declined, nothing is sent and the Still Pro card says "Still Pro needs permission to
+  check your purchase." Still's own re-checks (page shown, signed in, renewals) never ask and are not
+  made without the grant.
+- **New and existing users:** an update shows no new install-time prompt for email or payment,
+  because Firefox shows only newly added required types on update. Existing signed-in users stay
+  signed in. Firefox asks at the next sign-in or purchase.
+- **Withdrawn later:** the person can switch either permission off in about:addons. An account that
+  signed in here with the email permission is then signed out of sync on Firefox (local settings
+  stay) and the settings page shows the sign-in line. Nothing that needs a missing permission is
+  sent: the background refuses those requests too (`lib/firefox-data-guard.ts`).
+- **Free blocking needs none of this:** blocking, the TikTok block, local settings and the free
+  controls work with no grant; nothing on install, update or start-up asks.
+- The privacy policy (runbook 7.1) and the AMO privacy text (runbook 6.3) must describe the same
+  data: required authentication information; optional personally identifying, financial and
+  payment, and technical and interaction information.
 
 ### Screenshots: kept for 3.0, with what they no longer match
 
@@ -787,10 +799,13 @@ The store build's summary is `FIREFOX_2X_DESCRIPTION` in `packages/ext-chromium/
 (the `FIREFOX_V3_DESCRIPTION` text mentions Android and is only used by builds that declare it).
 
 **Data-collection disclosure.** The manifest declares `authenticationInfo` as required and
-`technicalAndInteraction` as optional. Firefox shows both in its install prompt. Keep every privacy
-sentence consistent with that: usage data is sent only while the optional permission is granted,
-and sign-in uses the email address and a sign-in code. The description's privacy paragraph carries
-this wording.
+`personallyIdentifyingInfo`, `financialAndPaymentInfo` and `technicalAndInteraction` as optional
+([manifest declarations](#firefox-manifest-declarations-before-the-amo-upload)). Firefox's install
+prompt shows the required one and offers usage data; it asks for the email address at sign-in and
+for the purchase status at Get Still Pro or Restore purchase. Keep every privacy sentence consistent
+with that: usage data is sent only while its optional permission is granted, sign-in sends the email
+address only once Firefox's permission for it is granted, and the purchase status is checked only
+once its permission is granted. The description's privacy paragraph carries this wording.
 
 **Description** (3162/15000):
 
@@ -837,6 +852,8 @@ No account and no purchase are needed to review Still. Open YouTube, Instagram, 
 Sign-in is optional and only adds free settings sync. Blocking works without an account. Sign-in sends a six-digit code to the email address you enter, so use any address you can read. This extension has no fixed review code.
 
 Still Pro is optional. To see its purchase flow, open Still's settings (Settings in the popup) and choose Get Still Pro. You sign in first, then the web checkout opens in a new tab on a RevenueCat payment page. You don't need to buy anything or use a test card to review the free product.
+
+The email address ("personallyIdentifyingInfo") and the Still Pro purchase status ("financialAndPaymentInfo") are optional data-collection permissions. Firefox asks for them when you click Send code, or Get Still Pro or Restore purchase; nothing is sent without them, and blocking needs neither.
 
 Usage data is the optional "technicalAndInteraction" data-collection permission. Nothing is sent unless it is granted, at install or later from Still's settings. It records product events only, never page addresses, videos, searches or page content. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release is for desktop Firefox.
 
@@ -902,11 +919,10 @@ there applies: every picture must match the 3.0 build it ships with.
    purchase records (runbook 6.3 "purchase status"). Confirm.
 5. **AMO "Requires payment".** Recommended unticked, because every free feature works without
    paying and the description explains Still Pro. Confirm.
-6. **Firefox manifest declarations.** The manifest declares `authenticationInfo` (required) and
-   `technicalAndInteraction` (optional) only. Whether the email address
-   (`personallyIdentifyingInfo`) or Still Pro purchase status (`financialAndPaymentInfo`) also
-   need declaring is a privacy-review question for a code PR; this listing claims nothing beyond the
-   manifest.
+6. **Firefox manifest declarations.** Settled (owner, 22 Oct 2026): `authenticationInfo` is
+   required; the email address (`personallyIdentifyingInfo`), Still Pro purchase status
+   (`financialAndPaymentInfo`) and usage data (`technicalAndInteraction`) are optional, and Firefox
+   asks for the first two at sign-in or purchase. This listing claims nothing beyond the manifest.
 7. **Price and refund in the browser listings.** Chrome and Firefox copy says "$9.99 (US price)"
    and the seven-day web refund. The Apple copy names no price (Apple shows it). Confirm both.
 8. **Web purchase on Apple devices.** No listing claims that a Chrome or Firefox purchase unlocks
