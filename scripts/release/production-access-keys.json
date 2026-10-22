@@ -1,4 +1,11 @@
 {
-  "about": "PUBLIC Ed25519 verification keys that store builds trust for Still Pro access proofs. Public material only: a private key never goes in this file or anywhere in the repository. Row 1 is the key the server signs with now; row 2 (optional) is the standby that rotation switches to. Every row must say environment production and purpose access. Empty until the release PR; see docs/release/versioning-and-packages.md.",
-  "keys": []
+  "about": "Public production access verification key prepared for PR #520 release trust. Server installation and digest comparison remain pending. Contains no private key.",
+  "keys": [
+    {
+      "kid": "still-access-production-20261021",
+      "publicKeyHex": "bd09b34b6ef89050698eb9d254c62500a16f8dd6bf25b50599c7ddc547f86587",
+      "purpose": "access",
+      "environment": "production"
+    }
+  ]
 }
