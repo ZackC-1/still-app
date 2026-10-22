@@ -87,6 +87,18 @@ describe("the background", () => {
     expect(source).toContain("const accountFetch = import.meta.env.FIREFOX");
     expect(source).toMatch(/const session = import\.meta\.env\.FIREFOX\s*\?\s*watchFirefoxAccountEmail\(/);
   });
+
+  it("hands the session the Firefox check that skips a stored checkout's completion without the purchase grant", () => {
+    // Without it a refused completion makes the reconcile answer "unknown" before the Still Pro
+    // status read, so Still Pro could lock after the purchase permission is withdrawn.
+    const start = source.indexOf("const created = ");
+    const end = source.indexOf("clearAuthStorage:", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(source.slice(start, end)).toMatch(
+      /\.\.\.\(import\.meta\.env\.FIREFOX\s*\?\s*\{\s*mayCompleteCheckout:\s*\(\)\s*=>\s*firefoxDataGranted\(firefoxPermissions,\s*"purchase"\)\s*\}\s*:\s*\{\}\)/,
+    );
+  });
 });
 
 describe("the popup's free controls", () => {
