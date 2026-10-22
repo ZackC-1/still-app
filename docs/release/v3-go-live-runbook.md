@@ -522,6 +522,15 @@ Engineering compares the read-backs side by side; the owner ticks each.
 The site publishes from `gh-pages`, separately from `main`. All publishes are owner actions; undo is
 reverting the `gh-pages` commit.
 
+The owner scheduled the technical SEO changes for the V3 website release on October 22, 2026.
+Merge their source into `main` first, then reconcile the final setup/support copy with the
+SEO navigation, metadata and canonical links before publishing. The setup guide work in PR #484
+also edits `docs/setup.html`; retain both its reviewed instructions and the SEO improvements.
+Use `pnpm build:website` and `pnpm test:website` to prepare and validate the public tree, including
+the directory aliases. See the [SEO audit](../research/2026-10-22-website-seo-audit.md) and
+[website publication checklist](../../scripts/website/README.md). Merging the source PR does not
+publish `gh-pages` or alter store artifacts.
+
 - **7.1 Privacy policy for Still Pro** · Owner publication checkpoint. PR478 has already merged to `gh-pages`, publishing the older policy; source PR477 remains open. Reconcile that publication with the final reviewed source, including PR528 canonical purchase analytics and V3 no-notice wording. A new reviewed publication is still required; do not overwrite the newer policy with the older source. Publish matching `gh-pages` content before store submission and analytics activation. V58: `https://stillapp.fit/privacy/` matches the approved purchase, analytics and deletion disclosures.
 - **7.2 Setup guide** · Owner. PR #484 (`main`, draft, includes the Firefox on Android deferral)
   plus a matching `gh-pages` publish. V59: the live guide promises no Firefox on Android.

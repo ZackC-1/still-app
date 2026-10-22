@@ -19,6 +19,7 @@ import {
   assertCompiledSandboxTrust,
   assertFreePaidFlags,
   backendRouteProfile,
+  gitEnvironment,
 } from "../../apps/apple/scripts/paid-sandbox-qa.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -159,11 +160,14 @@ export function artifactManifest({
   paidBuild,
   analyticsKey,
   analyticsChannel,
+  integration,
 }) {
   backendRouteProfile({ STILL_QA_BACKEND_ROUTE_PROFILE: routeProfile }, { requireSandbox: profile === "paid-sandbox" });
+  if (integration !== undefined) assertIntegrationRecord(integration, profile);
   if (profile === "paid-sandbox") {
     assertPaidBuild(paidBuild);
-    if (paidBuild.backendRouteProfile !== routeProfile || paidBuild.sourceSha256 !== sourceSha256 || !paidBuild.targets.includes(surface)) throw new Error("Paid sandbox source/target identity mismatch");
+    if (paidBuild.backendRouteProfile !== routeProfile || paidBuild.sourceSha256 !== sourceSha256 || !paidBuild.targets.includes(surface) ||
+      JSON.stringify(paidBuild.integration) !== JSON.stringify(integration)) throw new Error("Paid sandbox source/target identity mismatch");
   }
   return {
     schema: "still-v3-qa-artifact/v1",
@@ -172,6 +176,8 @@ export function artifactManifest({
     revision,
     dirty,
     sourceSha256,
+    // Integration packages only (STILL_QA_INTEGRATION_BRANCH). Absent, never null, for main builds.
+    ...(integration !== undefined ? { integration } : {}),
     runtime: {
       modernSettingsSync: true,
       appleAtomicSettings: true,
@@ -308,6 +314,94 @@ export function qaBuildSequence(root, { revision, dirty }, run = spawnSync) {
   return sequence;
 }
 
+/** The only input that selects an integration package. Unset or empty keeps the main-only rule above. */
+export const INTEGRATION_BRANCH_INPUT = "STILL_QA_INTEGRATION_BRANCH";
+/** An integration package's number is its base's first-parent count on main plus this offset. */
+export const INTEGRATION_SEQUENCE_OFFSET = 1000;
+/** When built, that number must be more than this far above origin/main's current count. */
+export const INTEGRATION_SEQUENCE_MARGIN = 500;
+const SHA = /^[0-9a-f]{40}$/;
+const RECUT = branch => `recreate ${branch} from current origin/main and merge each PR branch with git merge --no-ff`;
+
+/**
+ * Integration package: origin/main plus approved PR branches merged locally on one branch, built
+ * before those PRs reach main. The revision must be that branch's head or on its first-parent line.
+ * Its base is the first commit on that line that is also on origin/main's first-parent line; every
+ * first-parent commit above the base must be a merge (git merge --no-ff <pr-branch>), and these are
+ * recorded oldest first. The package may not contain main beyond its base (a PR branch that merged
+ * a newer main, or main merged into the branch), or its number would understate what it contains.
+ *
+ * The fourth version number is the base's count on main plus 1000 and must be more than 500 above
+ * main's current count, so main needs more than 500 further merges to reach it. Main keeps growing,
+ * so the store version must change before main's count reaches the lowest integration number used
+ * while the current version string is in use. Returns undefined, without running git, when
+ * STILL_QA_INTEGRATION_BRANCH is unset or empty.
+ */
+export function qaIntegrationBuild(root, { revision, dirty }, input = process.env, run = spawnSync) {
+  const branch = input[INTEGRATION_BRANCH_INPUT] ?? "";
+  if (branch === "") return undefined;
+  if (!SHA.test(String(revision ?? ""))) throw new Error("QA build sequence needs an exact revision");
+  if (dirty !== false) throw new Error("Sandbox QA packages are built only from a clean checkout (commit or stash local changes)");
+  if (!/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/.test(branch))
+    throw new Error(`${branch} is not a usable branch name (set ${INTEGRATION_BRANCH_INPUT} to the local integration branch, for example qa/integration-20261022)`);
+  // The same Git environment as the source snapshot: no inherited GIT_* overrides.
+  const git = args => run("git", args, { cwd: root, encoding: "utf8", env: gitEnvironment() });
+  const lines = result => String(result.stdout ?? "").split("\n").filter(Boolean);
+  const log = git(["log", "--no-show-signature", "--first-parent", "--format=%H%x09%P%x09%s", `refs/heads/${branch}`, "--"]);
+  if (log.status !== 0)
+    throw new Error(`Integration QA packages need a local branch named ${branch} (create it from origin/main and merge the approved PR branches into it with git merge --no-ff, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
+  const branchLine = lines(log).map(row => {
+    const [sha = "", parents = "", ...subject] = row.split("\t");
+    return { revision: sha, parents: parents.split(" ").filter(Boolean).length, subject: subject.join("\t") };
+  });
+  const at = branchLine.findIndex(commit => commit.revision === revision);
+  if (at < 0)
+    throw new Error(`Integration QA packages are built only from the head of ${branch} or a commit on its own line (check out ${branch})`);
+  const main = git(["rev-list", "--first-parent", "origin/main"]);
+  const mainLine = main.status === 0 ? lines(main) : [];
+  if (!mainLine.length) throw new Error("Integration QA packages need origin/main to compare against (fetch origin and try again)");
+  const position = new Map(mainLine.map((sha, index) => [sha, index]));
+  const line = branchLine.slice(at);
+  const baseAt = line.findIndex(commit => position.has(commit.revision));
+  if (baseAt < 0)
+    throw new Error(`Integration QA packages need ${branch} to start from a commit on main's own line (fetch, then ${RECUT(branch)})`);
+  if (baseAt === 0)
+    throw new Error(`Integration branch ${branch} has nothing merged above main, so there is nothing to integrate (merge the approved PR branches into it with git merge --no-ff, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
+  const base = line[baseAt].revision;
+  // The main commit right after the base: if the package contains it, it contains newer main than its number says.
+  const next = mainLine[position.get(base) - 1];
+  if (next !== undefined) {
+    const newer = git(["merge-base", "--is-ancestor", next, revision]);
+    if (newer.status === 0)
+      throw new Error(`Integration branch ${branch} contains main commits newer than its base, so its number would understate what it contains (a PR branch merged a newer main, or main was merged into ${branch}); ${RECUT(branch)}`);
+    if (newer.status !== 1) throw new Error("Integration QA packages could not compare the branch with origin/main (fetch origin and try again)");
+  }
+  const merged = line.slice(0, baseAt).reverse();
+  const plain = merged.find(commit => commit.parents < 2);
+  if (plain)
+    throw new Error(`Integration branch ${branch} has a commit above main that is not a merge (${plain.revision.slice(0, 12)} ${plain.subject}); ${RECUT(branch)}`);
+  const count = mainLine.length - position.get(base);
+  const sequence = count + INTEGRATION_SEQUENCE_OFFSET;
+  if (sequence > 65535)
+    throw new Error(`Integration QA package number ${sequence} is above 65535, the largest a browser version part allows (bump the store version and change the QA numbering before building more integration packages)`);
+  if (sequence <= mainLine.length + INTEGRATION_SEQUENCE_MARGIN)
+    throw new Error(`Integration QA package number ${sequence} is too close to main, which is already at ${mainLine.length}; it must be more than ${INTEGRATION_SEQUENCE_MARGIN} ahead of main's count (recreate ${branch} from current origin/main and merge the PR branches again with git merge --no-ff)`);
+  const mergedHeads = merged.map(({ revision: sha, subject }) => ({ revision: sha, subject }));
+  return { branch, base: { revision: base, count }, originMainCount: mainLine.length, sequence, mergedHeads };
+}
+
+/** Shape check for the manifest's integration block; it may only describe a paid sandbox package. */
+export function assertIntegrationRecord(integration, profile = "paid-sandbox") {
+  const ok = profile === "paid-sandbox" && integration && typeof integration.branch === "string" && integration.branch !== "" &&
+    SHA.test(integration.base?.revision ?? "") && Number.isInteger(integration.base?.count) && integration.base.count >= 1 &&
+    Number.isInteger(integration.originMainCount) && integration.originMainCount >= integration.base.count &&
+    integration.sequence === integration.base.count + INTEGRATION_SEQUENCE_OFFSET && integration.sequence <= 65535 &&
+    integration.sequence > integration.originMainCount + INTEGRATION_SEQUENCE_MARGIN &&
+    Array.isArray(integration.mergedHeads) && integration.mergedHeads.length > 0 &&
+    integration.mergedHeads.every(head => SHA.test(head?.revision ?? "") && typeof head.subject === "string");
+  if (!ok) throw new Error("Integration record is incomplete or inconsistent; no manifest was issued");
+}
+
 /** All selected targets share one source overlay, public trust fingerprint and build identity. */
 export async function paidSandboxMain(surface, input = process.env, root = ROOT) {
   const targets = surface === "apple-all" ? [...Object.keys(SURFACES), "apple-ios-sim", "apple-macos"] :
@@ -321,9 +415,11 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
   const pending = [];
   try {
     await isolatedSandboxSource(root, config, async ({ clone, run, snapshot, overlay }) => {
-      const identity = candidateIdentity(snapshot, overlay, targets);
+      // Undefined unless STILL_QA_INTEGRATION_BRANCH is set; then it is recorded in every receipt.
+      const integration = qaIntegrationBuild(root, snapshot, input);
+      const identity = candidateIdentity(snapshot, overlay, targets, integration);
       // A distinct, increasing fourth version number per source (packages/ext-chromium/wxt.config.ts).
-      env.VITE_QA_BUILD_SEQUENCE = qaBuildSequence(root, snapshot);
+      env.VITE_QA_BUILD_SEQUENCE = integration ? String(integration.sequence) : qaBuildSequence(root, snapshot);
       const envDir = join(run, "empty-env"); await mkdir(envDir);
       runChecked("pnpm", PAID_INSTALL_ARGS, { cwd: clone, env });
       for (const target of targets) {
@@ -351,7 +447,7 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
         if (!nativePackage && target !== "safari") await assertCompiledSandboxTrust(join(targetDir, "artifact"), config, { sourceRoot: clone, inlineModules: target === "apple-webview" });
         const manifest = artifactManifest({ profile: "paid-sandbox", surface: target, revision: snapshot.revision, dirty: snapshot.dirty,
           sourceSha256: snapshot.sha256, backendUrl: config.backendUrl, backendRouteProfile: config.backendRouteProfile, artifacts,
-          analyticsKey: env.VITE_POSTHOG_KEY, analyticsChannel: env.VITE_ANALYTICS_BUILD_CHANNEL,
+          analyticsKey: env.VITE_POSTHOG_KEY, analyticsChannel: env.VITE_ANALYTICS_BUILD_CHANNEL, integration,
           paidBuild: { ...identity, ...(nativePackage ? { nativePackage } : { nativePackage: "not-built-for-this-surface" }) } });
         pending.push({ target, path: join(targetDir, "artifact-manifest.json"), manifest });
       }
@@ -359,6 +455,8 @@ export async function paidSandboxMain(surface, input = process.env, root = ROOT)
     // Issue receipts only after ALL targets and source preservation checks succeed.
     for (const item of pending) await writeFile(item.path, `${JSON.stringify(item.manifest, null, 2)}\n`);
     process.stdout.write(`Paid sandbox QA: ${targets.length} targets built; common source/trust identity recorded. Provider/device verification remains required.\n`);
+    const integration = pending[0]?.manifest.integration;
+    if (integration) process.stdout.write(`Integration package ${integration.sequence} from ${integration.branch}: base ${integration.base.count} on main, ${integration.mergedHeads.length} merged heads (see artifact-manifest.json).\n`);
   } catch (error) {
     for (const target of targets) await rm(join(output, target, "artifact-manifest.json"), { force: true });
     throw error;

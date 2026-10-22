@@ -84,11 +84,10 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   comparison; subsequent sync uses server-row version/timestamp/write-ID anchors and account isolation,
   as specified in [PRODUCT.md](docs/PRODUCT.md#settings-sync-and-account-safety). Client-writable;
   never carries entitlement. The legacy pause field does not expose a current pause feature.
-- **Entitlement** — the server-authoritative "is this account Pro" bit (RevenueCat →
-  `revenuecat-webhook` → Supabase `entitlements.still_sync` → reconcile). Reaches the Safari
-  extension via the App-Group **entitlement lane** (StillKit `EntitlementBridge`), stamped with the
-  last authoritative receipt/server confirmation time so the 30-day offline TTL is real. User-facing name: **Still Pro**;
-  immutable internal id: `still_sync`.
+- **Entitlement lane** — the App-Group path (`StillKit/EntitlementBridge`) by which the Apple app
+  shares purchase authority with Safari. See [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-server.md)
+  for receipt/server authority and [purchase identifiers](docs/monetization-design.md#purchase-identifiers)
+  for the separate V3 and historical catalog. Neither is a requirement for free blocking or sync.
 - **Apple session orchestrator** (`core/sync/apple-session.ts`) — the tested auth/purchase/
   entitlement spine of the WKWebView app: sign-in exchange, double-charge + offline guards,
   pending-vs-authority purchase states, restore, Ask-to-Buy recheck, teardown parity. The

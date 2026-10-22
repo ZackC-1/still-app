@@ -122,14 +122,15 @@ response is not needed for free blocking or sync. Do not grant fake Pro entitlem
 free access. V3 preparation activates this infrastructure deliberately per the direction above;
 2.x artifacts in review or in the stores keep their free behavior.
 
-Keep the internal `still_sync` entitlement/Apple product and `still_sync_web` web product identities.
+Keep historical purchases compatible with the separate V3 catalog; use the
+[purchase identifier table](monetization-design.md#purchase-identifiers).
 Apple configures RevenueCat anonymously, then uses the Supabase UUID for account identity;
-browser extensions do not initialize a RevenueCat SDK. The Apple product's zero-price observation
+browser extensions do not initialize a RevenueCat SDK. The historical Apple product's zero-price observation
 is recorded separately from the disabled client gates and from app-download pricing in the
 [dated release record](release/history/2026-09-14-release-status.md#store-snapshot).
 
-See [retained monetization design](monetization-design.md) and
-[ADR 0003](adr/0003-entitlement-authority-receipt-and-server.md). Future monetization requires an
+See [purchase compatibility](monetization-design.md) and
+[ADR 0003](adr/0003-entitlement-authority-receipt-and-server.md). Release activation requires an
 explicit product decision, coordinated client/server/store changes and fresh verification.
 
 ## Privacy and operations
