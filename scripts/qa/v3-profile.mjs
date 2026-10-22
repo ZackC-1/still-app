@@ -245,6 +245,13 @@ export async function main(args = process.argv.slice(2), input = process.env, ro
   const { revision, dirty, sha256: sourceSha256, files } = await sourceSnapshot(root, { includeIndexRemovedFiles: true });
   // A 2.x tree builds with the paid tier off, a 3.x tree with it on; mixed or unreadable refuses.
   const paidTierEnabled = paidFlagState(files) === "on";
+  // A paid-on tree carries the store identity and version, so a local or test package built from it
+  // must never reach production purchase routes, where a tester could be charged for real by a build
+  // that cannot verify the access proof. Refuse unless it is aimed at the shared hosted sandbox.
+  if (paidTierEnabled && env.VITE_BACKEND_ROUTE_PROFILE !== "shared-hosted-sandbox")
+    throw new Error(
+      "A paid-on source builds local and test QA packages only with STILL_QA_BACKEND_ROUTE_PROFILE=shared-hosted-sandbox, so no QA build can reach production purchase routes",
+    );
   const isolatedEnvDir = await mkdtemp(join(output, ".env-empty-"));
   const pending = [];
   try {

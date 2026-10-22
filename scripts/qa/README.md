@@ -11,6 +11,11 @@ pnpm build:v3:local chrome                # chrome, firefox, safari, or apple-we
 pnpm test:build-profiles
 ```
 
+On a source with the paid tier on (the 3.x line), `local` and `test` also require
+`STILL_QA_BACKEND_ROUTE_PROFILE=shared-hosted-sandbox` and refuse before building otherwise: such a
+package carries the store identity and version, so it must never reach production purchase routes.
+Both paid constants must appear exactly once and agree (both off or both on).
+
 Use `node scripts/qa/v3-profile.mjs local chrome` directly if a pnpm launcher attempts to
 replace the installed dependency graph. Install dependencies normally before building; the runner
 loads each package's installed WXT/Vite API rather than invoking a package-manager wrapper.

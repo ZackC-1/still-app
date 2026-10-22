@@ -423,6 +423,22 @@ test("candidate parser receives no operator environment and cannot modify verifi
 });
 
 for (const [profile, input] of [["local", {}], ["test", inputs]])
+  test(`${profile} profile refuses a paid-on source unless it is aimed at the sandbox route`, async () => {
+    for (const route of [undefined, "production"]) {
+      const root = await fixture({ paidOn: true });
+      try {
+        await writeFile(join(root, ".gitignore"), ".output/\n");
+        let calls = 0;
+        await assert.rejects(main([profile, "chrome"], { ...input, ...(route ? { STILL_QA_BACKEND_ROUTE_PROFILE: route } : {}) }, root,
+          () => { calls += 1; return { status: 1 }; }), /shared-hosted-sandbox/);
+        assert.equal(calls, 0, "nothing is built");
+        await assert.rejects(readFile(join(root, `.output/v3-qa/${profile}/chrome/artifact-manifest.json`)), /ENOENT/);
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  });
+
+for (const [profile, input] of [["local", { STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" }],
+  ["test", { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" }]])
   test(`${profile} profile builds from a 3.x source whose paid constants are already on, and says so in its receipt`, async () => {
     const { mkdirSync, writeFileSync } = await import("node:fs");
     const root = await fixture({ paidOn: true });
