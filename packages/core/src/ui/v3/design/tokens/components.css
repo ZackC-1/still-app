@@ -247,8 +247,9 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
 /* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
    locked row keeps the 40px compact row height. The ::before keeps a full tap-target-tall hit area
-   without growing the row. */
-.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; }
+   without growing the row. scroll-margin: a pill scrolled into view (keyboard focus, larger text)
+   is never left a fraction of a pixel under the page's edge. */
+.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; scroll-margin-block: var(--space-1); }
 .option-row .lock-pro::before { content: ""; position: absolute; inset-inline: 0; inset-block: min(0px, calc((var(--tap-target) - 100%) / -2)); }
 .option-row .lock-pro:hover { border-color: var(--ink-secondary); }
 /* A dormant row's pill (paid tier off: aria-disabled, no destination) is inert, so it must not look

@@ -87,6 +87,8 @@ describe("canvas: the locked Still Pro row", () => {
       expect(chip).toContain(declaration);
     // The visible pill is 32px; the hit area stays a full tap target without growing the row.
     expect(chip).not.toContain("min-block-size: var(--tap-target)");
+    // Scrolled into view, a pill is never left a fraction of a pixel under the page's edge.
+    expect(chip).toContain("scroll-margin-block: var(--space-1);");
     expect(rule(".option-row .lock-pro::before")).toContain(
       "inset-block: min(0px, calc((var(--tap-target) - 100%) / -2));",
     );
