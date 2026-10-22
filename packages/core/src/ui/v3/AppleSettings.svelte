@@ -228,7 +228,7 @@
   {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <!-- Checking and verify stay separate so the card shows the matching presentation;
       accessHeld covers only rights not known missing for any other reason. -->
-    <div bind:this={proSection} style="display:contents;">
+    <div class="pro-slot" bind:this={proSection} style="display:contents;">
       <NativeProOfferCard
         {...pro}
         {phone}
@@ -314,7 +314,7 @@
       <div class="sync-row-text">
         <h2 class="sync-row-title">{invitation.title}</h2>
       </div>
-      <div class="inline-actions">
+      <div class="inline-actions link-invite-actions">
         <button
           type="button"
           class="primary inline"
@@ -425,5 +425,32 @@
   }
   .mac-settings :global(.hero.compact) {
     --hero-padding: calc(var(--space-3) * 0.875) var(--space-3);
+  }
+  /* Owner canvas (P-AppSync, 22 Oct): Sign in and Not now share one row at the app's 54px button
+     height, and Not now's outline is the strong border. Its 1px border comes out of its padding so
+     it adds no height. */
+  .app :global(.split-actions > .secondary.block) {
+    border-color: var(--border-strong);
+    padding-block: calc(var(--space-4) - 1px);
+  }
+  /* Owner canvas (P-Invite, 22 Oct): the signed-in link offer's Link is a 44px, 15px button with
+     16px before Not now. */
+  .link-invite-actions {
+    gap: var(--space-2) var(--space-4);
+  }
+  .link-invite-actions > .primary.inline {
+    min-block-size: var(--tap-target);
+    padding: 10px 20px;
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+  /* Owner canvas (P-AppPro, P-Restore, 22 Oct): the Still Pro and restore cards' status lines are
+     body-sized (14px), with the glyph centred on the first line; detail lines stay 12.5px. */
+  .pro-slot :global(.status-line),
+  .app :global(.restore-card .status-line) {
+    font-size: calc(14px * var(--text-scale, 1));
+  }
+  .pro-slot :global(.status-line .glyph),
+  .app :global(.restore-card .status-line .glyph) {
+    margin-block-start: 2px;
   }
 </style>
