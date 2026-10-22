@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { helpHitAreas } from "./_help-hit-areas.js";
 
 // Text size (owner decision 51): the V3 screens follow Chrome's own "Font size" setting. The
 // setting is real: each browser starts with a profile whose saved Preferences carry the default
@@ -250,7 +251,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     });
   }
 
-  test("the Help card keeps two columns of 44px links, and one column above 1.5×", async () => {
+  test("the Help card keeps two columns of links with clear hit areas, and one column above 1.5×", async () => {
     // Owner, 21 Oct: Setup guide on the left; Privacy policy, then Contact support with its
     // address, on the right. Signed out in this lane, so Delete account is absent.
     for (const [fontSize, columns] of [
@@ -273,8 +274,6 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
           const setup = await box("Setup guide");
           const privacy = await box("Privacy policy");
           const contact = await box("Contact support");
-          for (const [name, target] of [["Setup guide", setup], ["Privacy policy", privacy], ["Contact support", contact]] as const)
-            expect(target.height, `${name} target, ${where}`).toBeGreaterThanOrEqual(44);
           const address = await help.getByText(/@/).boundingBox();
           expect(address!.y, `address under Contact support, ${where}`).toBeGreaterThanOrEqual(contact.y + contact.height - 1);
           expect(contact.y, `Contact support under Privacy policy, ${where}`).toBeGreaterThanOrEqual(privacy.y + privacy.height - 1);
@@ -286,6 +285,13 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
             expect(Math.abs(setup.x - privacy.x), where).toBeLessThan(1);
             expect(privacy.y, where).toBeGreaterThanOrEqual(setup.y + setup.height - 1);
           }
+          // Each link's invisible hit area is at least 24px tall, and none of them takes a click on
+          // another link's label or on the support address (ISS-0112: the address stays selectable).
+          // Measured last: it scrolls the card into view.
+          const { heights, stolen } = await helpHitAreas(page);
+          for (const name of ["Setup guide", "Privacy policy", "Contact support"])
+            expect(heights[name], `${name} hit area, ${where}`).toBeGreaterThanOrEqual(24);
+          expect(stolen, `labels and address taken by another hit area, ${where}`).toEqual([]);
           await expectNoSidewaysOverflow(page);
           await page.close();
         }

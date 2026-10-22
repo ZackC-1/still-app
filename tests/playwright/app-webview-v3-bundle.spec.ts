@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DEFAULT_SETTINGS } from "../../packages/shared-types/src/index.js";
 import { SUPPORT_EMAIL } from "../../packages/core/src/ui/config.js";
+import { helpHitAreas } from "./_help-hit-areas.js";
 import { AtomicSettingsWriter } from "../../packages/core/src/storage/atomic-settings.js";
 import type { StorageAdapter, StoredSettingsRecord } from "../../packages/core/src/storage/adapter.js";
 
@@ -223,6 +224,11 @@ test.describe("the V3 bundle in WebKit over file://", () => {
       expect(await page.evaluate(() => String(getSelection()).trim())).toBe(SUPPORT_EMAIL);
       // The rest of the card keeps its ordinary behavior: the address is the only unit.
       expect(await help.evaluate((el) => getComputedStyle(el).webkitUserSelect)).not.toBe("all");
+      // The Help links' invisible hit areas stay off each other's labels and off the address.
+      const { heights, stolen } = await helpHitAreas(page);
+      for (const name of ["Setup guide", "Privacy policy", "Contact support"])
+        expect(heights[name], `${name} hit area on ${platform}`).toBeGreaterThanOrEqual(24);
+      expect(stolen, `labels and address taken by another hit area on ${platform}`).toEqual([]);
       expect(errors).toEqual([]);
       await page.context().close();
     });

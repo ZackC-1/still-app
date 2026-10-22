@@ -187,7 +187,7 @@ describe("ruling 10: the Help card's links in two columns", () => {
     }
   });
 
-  it("the stylesheet draws two columns, 44px link hit areas, and one column above 1.5× text", () => {
+  it("the stylesheet draws two columns, link hit areas, and one column above 1.5× text", () => {
     const css = source("design/tokens/components.css");
     const rule = (selector: string) =>
       css.match(new RegExp(`^${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`, "m"))?.[1] ?? "";
@@ -198,9 +198,10 @@ describe("ruling 10: the Help card's links in two columns", () => {
     expect(rule('.card-stack.help > [data-help-column="right"]')).toContain("grid-column: 2;");
     for (const row of ["1", "2", "3"])
       expect(rule(`.card-stack.help > [data-help-row="${row}"]`)).toContain(`grid-row: ${row};`);
-    // The 44px target is the link's invisible ::before since the canvas rhythm (owner, 22 Oct).
-    expect(rule(".card-stack.help .link::before")).toContain(
-      "inset-block: calc((100% - var(--tap-target)) / 2);",
+    // The hit area is the link's invisible ::before since the canvas rhythm (owner, 22 Oct), clamped
+    // to half the row gap so it never covers a neighbour (tests/playwright/text-scale.spec.ts).
+    expect(rule(":is(.card-stack.help .link, .option-row .lock-pro)::before")).toContain(
+      "inset-block: max(calc(-1 * var(--hit-reach, 22px)), min(0px, calc((var(--tap-target) - 100%) / -2)));",
     );
     expect(rule('html[data-still-text-scale="large"] .card-stack.help')).toContain(
       "grid-template-columns: minmax(0, 1fr);",

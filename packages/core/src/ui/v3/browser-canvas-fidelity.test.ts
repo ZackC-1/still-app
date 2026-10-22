@@ -48,13 +48,17 @@ describe("Help card and site expanders, canvas measurements (owner rulings B1 an
     expect(line(".card-stack.help")).toContain("padding: var(--space-3) var(--space-4);");
   });
 
-  it("keeps each Help link link-sized, with a 44px hit area drawn by an invisible ::before", () => {
+  it("keeps each Help link link-sized, with a hit area drawn by an invisible ::before", () => {
     expect(line(".card-stack.help .link")).not.toContain("min-block-size");
     expect(line(".card-stack.help .link")).toContain("position: relative;");
-    const hit = line(".card-stack.help .link::before");
+    const hit = line(":is(.card-stack.help .link, .option-row .lock-pro)::before");
     expect(hit).toContain('content: "";');
     expect(hit).toContain("position: absolute;");
-    expect(hit).toContain("inset-block: calc((100% - var(--tap-target)) / 2);");
+    // Toward a 44px target, but never past half the 10px row gap: no link covers its neighbour.
+    expect(hit).toContain("inset-block: max(calc(-1 * var(--hit-reach, 22px)), min(0px, calc((var(--tap-target) - 100%) / -2)));");
+    expect(line(".card-stack.help")).toContain("--hit-reach: 5px;");
+    // The address paints above Contact support's hit area, so a click selects it (ISS-0112).
+    expect(line(".help-contact > .sync-row-sub")).toContain("position: relative;");
   });
 
   it("puts the support address 2px under Contact support, at the card's line height", () => {
