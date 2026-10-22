@@ -12,14 +12,6 @@ export const STRINGS = {
     // The one "Still is on" line everyone sees, because every service is included. "On enabled
     // sites" already hedges per-service state, so it needs no variant for a row someone turned off.
     onSecondary: "Short-form video is removed on enabled sites.",
-    // The two lines below belong to the dormant paid tier, where the included set was YouTube
-    // Shorts only and the hero had to say what the rest cost. They return with PAID_TIER_ENABLED.
-    onFree: "YouTube Shorts are removed. Still Pro adds Reels, TikTok, and sync.",
-    // Free user with the YouTube row itself toggled off: Still is on but removing nothing, so the
-    // hero must not claim removal (it would contradict the row, PR #96 review). Mirrors the row's
-    // own off voice ("Shorts are showing.") and keeps the Pro line.
-    onFreeYoutubeOff:
-      "YouTube Shorts are showing. Still Pro adds Reels, TikTok, and sync.",
     offSecondary: "Turn Still on to remove short-form video.",
   },
 
@@ -72,7 +64,9 @@ export const STRINGS = {
   paywall: {
     title: "Still Pro",
     headline: "Make every supported browser feel this quiet",
-    body: "Remove Instagram Reels and Facebook Reels, block the TikTok website, and keep settings synced across supported browsers and devices.",
+    // The 3.x Still Pro value line (the same words as the V3 offer card, ui/v3/presentation.ts).
+    // The four protections and settings sync are free, so this never names them.
+    body: "Even fewer distractions on Instagram, Facebook, and YouTube.",
     scope:
       "On iPhone and iPad, Still works in Safari only. It does not block short-form video inside native apps.",
     reassurance: "One purchase. No subscription.",

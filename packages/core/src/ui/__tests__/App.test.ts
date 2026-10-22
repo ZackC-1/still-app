@@ -146,7 +146,7 @@ describe("App", () => {
 
   paidTierIt("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
-    expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
     expect(document.querySelectorAll(".card.locked .lock svg").length).toBe(3);
     expect(
@@ -174,8 +174,9 @@ describe("App", () => {
     render(App, {
       props: { controller: controller({ services: { youtube: false } }) },
     });
-    expect(screen.getByText(STRINGS.global.onFreeYoutubeOff)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
+    // One free line for everyone; "on enabled sites" already covers a row that is off.
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+    expect(document.querySelector(".hero")?.textContent ?? "").not.toMatch(/Still Pro/);
   });
 
   includedAccessIt("one hero line covers everyone, whichever rows are on", () => {

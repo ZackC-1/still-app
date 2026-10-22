@@ -516,18 +516,10 @@
         <div class="hero-text">
           <h1>{choices.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
           <p>
-            <!-- With every service included there is one line for everyone: "on enabled sites" already
-             hedges per-service state. The two paid-era alternatives below it were written for a
-             free tier that removed YouTube Shorts only, where the hero had to say what the rest
-             cost and had to stop claiming removal when the one included row was itself off. They
-             return with the switch. -->
-            {choices.globalOn
-              ? committedPopupBinding || !PAID_TIER_ENABLED || c.entitled
-                ? STRINGS.global.onSecondary
-                : choices.services.youtube
-                  ? STRINGS.global.onFree
-                  : STRINGS.global.onFreeYoutubeOff
-              : STRINGS.global.offSecondary}
+            <!-- One line for everyone, paid tier on or off: the four protections and settings sync are
+             free, so the hero never says what they cost. "On enabled sites" already hedges
+             per-service state. Still Pro's extras are offered only on the V3 screens. -->
+            {choices.globalOn ? STRINGS.global.onSecondary : STRINGS.global.offSecondary}
           </p>
         </div>
         <Toggle

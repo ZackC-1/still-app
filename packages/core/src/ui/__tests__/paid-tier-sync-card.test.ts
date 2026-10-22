@@ -29,8 +29,8 @@ function codeCapableAuth(): UiAuth {
   };
 }
 
-function controller() {
-  const initial = { ...DEFAULT_SETTINGS, updatedAt: 1 };
+function controller(services: Partial<typeof DEFAULT_SETTINGS.services> = {}) {
+  const initial = { ...DEFAULT_SETTINGS, services: { ...DEFAULT_SETTINGS.services, ...services }, updatedAt: 1 };
   const cache = new SettingsCache(new InMemoryStorageAdapter(initial), {
     initial,
     now: () => Date.now(),
@@ -92,9 +92,31 @@ describe("the sync card with the paid tier on", () => {
     expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
   });
 
-  it("the hero says what the included tier removes and what the paid one adds", () => {
+  // The four free protections and settings sync are free in 3.x, so no legacy screen may say
+  // Reels, TikTok or sync need Still Pro, whatever the account holds or a row is set to.
+  const FREE_CLAIMED_AS_PAID = /Still Pro adds|Reels, TikTok, and sync|Instagram Reels|Facebook Reels|TikTok website|synced across/;
+
+  it("the hero uses the free line for an unpaid user and never says Reels, TikTok or sync need Still Pro", () => {
     const c = controller();
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+    expect(document.querySelector(".hero")?.textContent ?? "").not.toMatch(/Still Pro/);
+  });
+
+  it("the hero keeps the free line when the YouTube row is off", () => {
+    const c = controller({ youtube: false });
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+    expect(document.querySelector(".hero")?.textContent ?? "").not.toMatch(/Still Pro/);
+  });
+
+  it("the Still Pro card an unpaid account sees does not claim the free protections or sync", () => {
+    const c = controller();
+    c.userId = "u";
+    render(App, { props: { controller: c } });
+    expect(c.popupState).toBe("not-entitled");
+    // The rows above keep their own free names; the Still Pro card is what must not sell them.
+    expect(document.querySelector(".sync")?.textContent ?? "").toContain(STRINGS.paywall.body);
+    expect(document.querySelector(".sync")?.textContent ?? "").not.toMatch(FREE_CLAIMED_AS_PAID);
   });
 });

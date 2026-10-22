@@ -773,11 +773,9 @@ describe("ratified paywall copy (plan U3/D6/R10)", () => {
     expect(STRINGS.paywall.openingCheckout).toBe("Opening checkout…");
   });
 
-  it("names the three unlocks plainly and keeps sync a named benefit", () => {
-    expect(STRINGS.paywall.body).toContain("Instagram Reels");
-    expect(STRINGS.paywall.body).toContain("TikTok");
-    expect(STRINGS.paywall.body).toContain("Facebook Reels");
-    expect(STRINGS.paywall.body).toMatch(/synced/);
+  it("never sells the free protections or sync (they are free in 3.x)", () => {
+    for (const line of [STRINGS.paywall.headline, STRINGS.paywall.body])
+      expect(line).not.toMatch(/Reels|TikTok|Shorts|sync/i);
   });
 
   it("no 'on the way' promise survives anywhere — the web purchase path is real now", () => {
