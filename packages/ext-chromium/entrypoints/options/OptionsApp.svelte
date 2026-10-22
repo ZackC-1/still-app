@@ -186,6 +186,13 @@
        this reads it rather than offering a second number that changes nothing. */
     max-inline-size: var(--content-max-inline-size, 432px);
     margin-inline: auto;
-    padding-block: clamp(var(--space-3), 5vh, var(--space-8));
+    /* The settings column already pads itself by 16px (.app), so this adds at most 16px more: the
+       first card sits 32px from the top of a normal-height tab, as on the owner's canvas
+       (Chrome-Settings-*, 21 Oct 2026), and closer on a short one. */
+    padding-block: clamp(0px, calc(5vh - var(--space-4)), var(--space-4));
+    /* Full-width buttons are 44px tall on the Chrome and Firefox Settings page (owner ruling; the
+       Apple apps keep 54px): the shared 44px minimum sets the height, with 8px above and below the
+       label so a larger text size still grows the button. */
+    --block-button-padding: var(--space-2) var(--space-4);
   }
 </style>
