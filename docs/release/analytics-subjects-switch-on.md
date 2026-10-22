@@ -110,8 +110,10 @@ Then check with a **production-channel** build (a test build is answered `test_c
 sign in with a disposable team account, confirm the app gets its analytics identity, and that the
 live PostHog person for that device shows that account's email. Then delete the account and confirm
 the device's person is removed after the next worker run (PostHog removes the events later, in a
-batch). To exercise identities with a test build instead, point the server at the PostHog test
-project. Never redirect test-build traffic to the live project; the designated production-channel acceptance account is a separate internal check and must be excluded from launch reporting.
+batch). Use a local or disposable rehearsal configured for the PostHog test project to exercise
+test-build identities; never repoint production PostHog secrets. Never redirect test-build traffic
+to the live project; the designated production-channel acceptance account is a separate internal
+check and must be excluded from launch reporting.
 
 ## Undo
 

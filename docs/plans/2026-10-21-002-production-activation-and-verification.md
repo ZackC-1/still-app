@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: foundation, payment secrets and sync deployed; model-switch handoff
+## Latest checkpoint: resumed consolidation; foundation, payment secrets and sync deployed
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -48,10 +48,17 @@ Owner screenshots now confirm the scoped PostHog key has project read plus perso
 Supabase exposes only `public`/`graphql_public`, with `net` absent. Hosted provider proof remains
 pending. Fresh hosted metadata shows `ANALYTICS_SUBJECTS_ENABLED` absent; no switch was activated.
 
-The owner requested **GPT-6.1 Sol** after PR528 CI/merge and this durable handoff; that checkpoint is now complete. No further
-protected deployment starts before that switch. The next model should preserve ancestry while
-combining final PR528 main and reviewed PR530 into PR527, keep privacy source `55f09c43` unchanged,
-run the combined final checks, then complete PR527 and the approved conditional PR529 publication.
+The owner authorized resuming after the model-switch checkpoint. PR527 now incorporates main
+`c24a246d` and reviewed PR530 `08a37fc2` through ancestry-preserving merges `fb4ca36a` and
+`f7cf38c9`. Combined privacy source `55f09c43` remains byte-identical (SHA256
+`991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). Complete combined checks
+and review before merging PR527 and publishing approved PR529. No new protected production
+operation was started during consolidation; every new apply retains its personal owner-approval gate.
+
+Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
+18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
+source hash, and `git diff --check`. Existing Svelte build warnings remain; required GitHub checks
+and the combined review still control source merge. See the handoff for local log paths.
 
 # V3 production activation and verification
 

@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T19:54:00-07:00
+updated: 2026-10-21T20:05:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -55,12 +55,12 @@ The main checkout belongs to the separate visual/build session and was not edite
 | Worktree | Branch / source | Responsibility |
 |---|---|---|
 | `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, source `a85491bc` now merged through PR525 | Protected deployment commands and evidence |
-| `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527, prior checkpoint `40fa02ae` | Current runbook, original PR515 ancestry and this handoff |
+| `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527, consolidation `f7cf38c9` | Current runbook, PR515/477 ancestry, merged main and reviewed PR530 public pin |
 | `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 | `/private/tmp/still-apple-analytics-integration-20261021` | `codex/apple-analytics-integration-20261021`, PR528, `589341f1` | Final combined source and CI |
-| `/private/tmp/still-production-access-trust-pin-20261021` | `codex/production-access-trust-pin-20261021`, PR530, `08a37fc2` | Reviewed public-only trust pin; not merged |
+| `/private/tmp/still-production-access-trust-pin-20261021` | `codex/production-access-trust-pin-20261021`, PR530, `08a37fc2` | Reviewed public-only trust pin; incorporated into PR527, main merge pending |
 | `/private/tmp/still-v3-privacy-publication-20261021` | `codex/publish-v3-purchase-analytics-privacy-20261021`, PR529, `e115c097` | Approved conditional privacy publication; not published |
 
 Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) merged at
@@ -76,12 +76,21 @@ production; the nine purchase routes and final analytics deployment remain pendi
 The optional preview could not complete because dependency installation timed out twice; no
 successful preview verification is claimed.
 
-The integration, public-pin, privacy-publication and operations worktrees were clean when this
-checkpoint was committed; this docs checkpoint contains only the three stated documentation files.
-Re-read status before resuming. Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
-never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
-PR527 remains open for the next model to integrate merged main and the reviewed public pin before
-its own final checks and merge.
+The owner authorized resuming this checkpoint. The PR527 worktree was clean at `fb0922ed` before
+consolidation. Merge `fb4ca36a` incorporates main `c24a246d`; merge `f7cf38c9` incorporates reviewed
+PR530 `08a37fc2`, preserving both ancestries. The privacy conflict retained source `55f09c43`
+byte for byte (SHA256 `991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`).
+PR527 remains open pending the combined checks and review. Privacy publication remains pending.
+Read Git status and coordinate before edits; never discard another agent's dirty files.
+
+Combined local verification passed: lint, workspace typecheck and all 137 release tooling/package
+tests, including repeatable Chrome/Firefox package bytes and the Safari version check. A separate
+18-test trust run passed after the public JSON description correction; the key row still exactly
+matches reviewed PR530. All 96 local links in the nine changed Markdown files resolve, privacy HTML
+nesting is valid, the approved source hash matches, and `git diff --check` passes. Existing Svelte
+build warnings remain in the release test log; no application source changed in this consolidation.
+Logs: `/tmp/still-pr527-release-tests.log`, `/tmp/still-pr527-final-trust-tests.log`,
+`/tmp/still-pr527-lint.log`, `/tmp/still-pr527-typecheck.log`.
 
 ## Scope and decisions
 
@@ -137,7 +146,7 @@ confirm the policy date matches the eventual publication day.
 
 Public trust pin [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, matches
 genuinely fetched hosted metadata on all three comparison checks and passed independent review.
-PR530 is not merged. This establishes configuration agreement; no runtime-signed access proof or
+PR530 is incorporated into PR527; its main merge remains pending. This establishes configuration agreement; no runtime-signed access proof or
 final signed artifact has yet been verified.
 
 ## Analytics and private material
@@ -171,16 +180,13 @@ repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Honor the owner's requested switch to **GPT-6.1 Sol** now that PR528 passed required checks
-   and merged, and this durable handoff is committed. Do not start another protected deployment
-   before that switch. Foundation migrations, purchase secrets, sync-settings, DB-01
-   and PROD-01 are complete as recorded above.
-2. The next model should merge PR528's final main commit and reviewed PR530 `08a37fc2` into PR527
-   with ancestry preserved, retaining combined privacy source `55f09c43` exactly. Run final checks
-   once on that combined tree, merge PR527, and close PR530 as incorporated. Then publish approved
-   PR529 after checking source equality and publication date. Neither final main nor the public pin
-   was integrated into PR527 during this checkpoint; privacy publication was also deferred.
-3. After the model switch and reviewed source integration, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
+1. Continue the owner's authorized resumed session. Foundation migrations, purchase secrets,
+   sync-settings, DB-01 and PROD-01 are complete as recorded above. No new protected operation was
+   started during consolidation.
+2. Verify the combined PR527 checks and review, merge it preserving ancestry, and close PR530 as
+   incorporated. Main and the reviewed public pin are already incorporated locally in PR527 as
+   recorded above. Then publish approved PR529 after checking source equality and publication date.
+3. After reviewed source integration, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
    replay or expand the completed foundation scope. Deploy the fixed nine purchase routes from the
    final selected SHA, whose gate requires every migration at that SHA. Handle sync-settings through
    its separate operation and verify whether its source changed before planning any further deploy.

@@ -1,5 +1,5 @@
 {
-  "about": "Public production access verification key prepared for PR #520 release trust. Server installation and digest comparison remain pending. Contains no private key.",
+  "about": "Public production access verification key for Still Pro. Contains no private key.",
   "keys": [
     {
       "kid": "still-access-production-20261021",
