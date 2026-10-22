@@ -143,9 +143,20 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 - Record the full SHA on `main` every package below is built from. Later commits never change what
   was submitted.
 
-**1.5 Chrome and Firefox packages** · Engineering (Owner approval for the Chrome workflow build)
-- Where: `node scripts/release/package.mjs --out <dir> --env <NAME>=...`, or `release-chrome.yml` in
-  `package-only` mode (after G6) for Chrome.
+**1.5 Chrome and Firefox packages** · Engineering
+- Where: a local build from the frozen commit (1.4), with public values by name only and never a
+  secret:
+  `node scripts/release/package.mjs --out <dir> --env VITE_SUPABASE_URL=<value> --env VITE_SUPABASE_ANON_KEY=<value> --env VITE_POSTHOG_KEY=<value> --env VITE_POSTHOG_HOST=<value> --env VITE_MODERN_SETTINGS_SYNC_ENABLED=true --server-secrets-json <path to the server digests file>`.
+  These five `--env` names are the script's whole public list (`PUBLIC_ENV_KEYS`). Access trust comes
+  from the committed `scripts/release/production-access-keys.json`, never an `--env` value.
+  `--server-secrets-json` (the digest-only output of `supabase secrets list -o json`) is required
+  because 3.0 declares the paid tier: the build refuses unless the server's public key, key id and
+  environment match a pinned row. The script also refuses a `PAID_TIER_ENABLED` that does not match
+  `version.json`. Never pass `--allow-dirty` for a store package.
+- Record on the RC card: the build receipt (the frozen commit SHA, the `--env` names passed and the
+  written `SHA256SUMS.json`) and the Chrome zip's sha256. Install and test that exact zip.
+- For 3.0, `release-chrome.yml` is not used; moving the Chrome build and upload to the workflow is a
+  post-launch follow-up.
 - V07: `SHA256SUMS.json` written; Firefox `manifest.json` has no `gecko_android`; both manifests list
   only the documented permissions and the four supported hosts, no `<all_urls>`; the exact zips
   installed and smoke-tested (free blocking signed out, sign-in, Get Still Pro shown).
@@ -496,12 +507,12 @@ Engineering compares the read-backs side by side; the owner ticks each.
 | 6.1 Listing copy | Minimal update of the 2.1 copy: [3.0 Chrome changes](store-listing-copy.md#30-chrome-web-store-changes) | [3.0 Firefox changes](store-listing-copy.md#30-firefox-add-ons-changes), plus the [manifest declarations](store-listing-copy.md#firefox-manifest-declarations-before-the-amo-upload) that must land in the build first | Engineering drafts, Owner approves | Owner |
 | 6.2 Screenshots | No V3 Pro set exists; capture with `screenshots/source/v3` tooling into [store-ready](screenshots/store-ready/README.md) | Same | Engineering, Owner approves | Engineering |
 | 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still: the data-collection entries match the 3.0 manifest exactly (AMO rejects a mismatch): tick **Authentication information**, **Personally identifying information** and **Financial and payment information** as **required**, and **Technical and interaction data** as **optional**; privacy text in **Edit Product Page** describes the same data ([listing copy](store-listing-copy.md#firefox-manifest-declarations-before-the-amo-upload)) | Owner | Owner (confirm) |
-| 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload`; in the dashboard submit for review with automatic publication unchecked. Do not use `upload-and-submit` for this held release: its current API body requests automatic publication | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions. Before continuing, confirm the data-collection entries shown for the version match the manifest (required: authentication information, personally identifying information, financial and payment information; optional: technical and interaction data). New installers see the three required types in Firefox's install prompt; existing users are asked to accept the two newly added types (personally identifying, financial and payment) when they update | Owner approval (Chrome); Owner (AMO) | Owner |
+| 6.4 Upload | The locally built zip from 1.5, the one whose sha256 is on the RC card and which was tested. The owner uploads it in the Chrome Web Store Developer Dashboard (Still, **Package**, **Upload new package**), then submits for review with automatic publication unchecked. `release-chrome.yml` is not used for 3.0 | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions. Before continuing, confirm the data-collection entries shown for the version match the manifest (required: authentication information, personally identifying information, financial and payment information; optional: technical and interaction data). New installers see the three required types in Firefox's install prompt; existing users are asked to accept the two newly added types (personally identifying, financial and payment) when they update | Owner | Owner |
 | 6.5 Compatibility | Desktop only by nature | On the upload's platform step, **untick Firefox for Android**; the build has no `gecko_android` | Owner | Owner |
-| 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields | Same, plus reproducible-source instructions | Owner | Owner |
+| 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields. The package is a local reproducible build of the frozen commit (the release tests prove two builds are byte-identical), not a workflow build | Same, plus reproducible-source instructions | Owner | Owner |
 | 6.7 Publication | Choose deferred publication before submission; approval then waits for the owner to publish | **Continue** after validation can publish before **Submit Version**; have everything ready first ([AMO lesson](../solutions/conventions/amo-continue-can-publish-an-update.md)) | Owner | Owner |
 
-- V56: Chrome `release-chrome.yml` in `status` mode (or the dashboard) shows 3.0 in review, then approved and held; verify publication only after the owner explicitly publishes.
+- V56: the Chrome Web Store dashboard shows 3.0 in review, then approved and held; verify publication only after the owner explicitly publishes.
 - V57: the AMO version page lists Firefox only, no Android; the public AMO API shows the version once public.
 - Undo: Chrome, cancel review in the dashboard, or ship a higher version later. AMO, **Manage
   Status & Versions**, disable the version, or ship a higher one.
