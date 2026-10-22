@@ -1,7 +1,7 @@
 import type postgres from "postgres";
 import { readManagedCheckoutBindings } from "./managed-checkout-config.ts";
 import { handleManagedCheckout } from "./managed-checkout-handler.ts";
-import { processManagedCheckout, type ManagedCheckoutBilling } from "./managed-checkout-processor.ts";
+import type { ManagedCheckoutBilling } from "./managed-checkout-processor.ts";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { withAuthenticatedUser, type AuthDeps } from "./auth.ts";
 import { authenticatedClaims } from "./jwt.ts";
@@ -13,8 +13,8 @@ import { readQaSandboxAppleConfig, type QaSandboxAppleConfig } from "./qa-sandbo
 import { createQaSandboxRuntime } from "./qa-sandbox-runtime.ts";
 import { createWriterSql } from "./pg-store.ts";
 import { HttpRevenueCatAccessClient, type AccessProductMapping } from "./revenuecat-access.ts";
-import { QaSandboxManagedCheckout, QA_STRIPE_API_VERSION, type QaManagedCheckoutConfig, type QaCheckoutRecovery } from "./qa-sandbox-managed-checkout.ts";
-import { PgQaPurchaseOperationStore, type QaPurchaseOperation, type QaPurchaseOperationStore } from "./qa-purchase-operation-store.ts";
+import { QaSandboxManagedCheckout, QA_STRIPE_API_VERSION, type QaManagedCheckoutConfig } from "./qa-sandbox-managed-checkout.ts";
+import { PgQaPurchaseOperationStore, type QaPurchaseOperationStore } from "./qa-purchase-operation-store.ts";
 import { type ScopedReconcileAccess } from "../reconcile-entitlement/handler.ts";
 
 const PREFIX = "STILL_QA_SANDBOX_";
@@ -72,12 +72,6 @@ export async function readQaSandboxCheckoutRuntime(read: (name: string) => strin
   const runtime = await createQaSandboxRuntime(config.apple, { sql, provider });
   return { ...runtime.reconcile, configurationHash: config.configurationHash,
     operations: new PgQaPurchaseOperationStore(sql), billing: new QaSandboxManagedCheckout(config.billing) };
-}
-
-/** Fixed sandbox composition retained for QA route and webhook callers. */
-export function processQaSandboxCheckout(operation: QaPurchaseOperation, recovery: QaCheckoutRecovery | { readonly status: "unavailable" },
-  deps: QaSandboxCheckoutDeps, guards: Parameters<typeof processManagedCheckout>[3]): Promise<Response> {
-  return processManagedCheckout(operation,recovery,{ ...deps,environment: "sandbox" },guards);
 }
 
 export function handleQaSandboxCreateCheckout(req: Request, deps: QaSandboxCheckoutDeps): Promise<Response> { return handleManagedCheckout(req,{ ...deps,environment: "sandbox",operationStore: () => deps.operations,canGrant: holder => deps.membership.enabled(holder),admissionError: "qa_membership_required" },false); }

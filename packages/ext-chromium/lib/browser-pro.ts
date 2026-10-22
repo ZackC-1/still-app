@@ -69,7 +69,7 @@ export interface BrowserProRuntime {
 }
 
 /** The same choice wxt's `browser` makes: Firefox's `browser`, else Chrome's `chrome`. */
-export function extensionRuntime(): BrowserProRuntime {
+function extensionRuntime(): BrowserProRuntime {
   const scope = globalThis as unknown as {
     browser?: { runtime?: BrowserProRuntime & { id?: string } };
     chrome: { runtime: BrowserProRuntime };

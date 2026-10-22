@@ -54,7 +54,7 @@ export function trackAddedStylesheets(doc: Document = document): () => void {
  * already in browser storage). It never initializes, converts or writes anything, and it never
  * starts watching, so there is nothing to tear down.
  */
-export async function probeSavedRecord(): Promise<StoredSettingsRecord> {
+async function probeSavedRecord(): Promise<StoredSettingsRecord> {
   const probe = new SettingsCache(new ChromeStorageAdapter());
   await probe.hydrate().catch(() => {
     /* A failed read with no retained copy leaves no atomic record: the caller keeps legacy. */
