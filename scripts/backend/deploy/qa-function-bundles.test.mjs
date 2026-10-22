@@ -637,7 +637,7 @@ test(
       );
       for (const route of manifest.functions) {
         if (set === ANALYTICS_SWITCH_BUNDLE_SET) continue; // Same routes already start above.
-        if (set === ANALYTICS_BUNDLE_SET && route.name !== "analytics-purchase") continue;
+        if (set === ANALYTICS_BUNDLE_SET && !["analytics-purchase", "analytics-apple-purchase"].includes(route.name)) continue;
         uploads.push({ ...route, url: pathToFileURL(join(artifactDir, route.file)).href });
       }
     }
@@ -671,6 +671,9 @@ test(
       } else if (route.name === 'verify-apple-access') {
         assert.equal(response.status, 200);
         assert.deepEqual(JSON.parse(body), {status:'unavailable'});
+      } else if (route.name === 'analytics-apple-purchase') {
+        assert.equal(response.status, 200, route.name);
+        assert.deepEqual(JSON.parse(body), {schema:1,status:'unavailable'});
       } else if (route.name === 'stripe-webhook') {
         assert.equal(response.status, 503, route.name);
         assert.deepEqual(JSON.parse(body), {error:'webhook_unavailable'});
@@ -681,7 +684,7 @@ test(
       }
     }
     assert.equal(networkCalls, 0);
-    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 2} isolated handlers passed`)});
+    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 3} isolated handlers passed`)});
   `,
     );
     const result = await defaultExec("deno", [
@@ -696,6 +699,6 @@ test(
       probe,
     ], { cwd: root });
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /11 isolated handlers passed/);
+    assert.match(result.stdout, /12 isolated handlers passed/);
   },
 );

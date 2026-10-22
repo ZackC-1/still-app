@@ -200,3 +200,26 @@ The existing protected analytics-erasure `work` invocation runs a fixed 256-row 
 Independent review found a lock-order inversion in preparation cleanup. Preparation now obtains its origin lock before cleanup can acquire attribution row locks. The hosted PostgreSQL suite adds a genuine concurrent erasure/preparation regression with an expired row and a bounded erasure statement deadline. Existing Apple functional verifier/fulfillment/account suites passed 34 tests (68 steps), including generated-certificate full-versus-partial refund evidence.
 
 Final host follow-up: optional canonical completion callbacks are caught independently of a completed native purchase. All 132 actual host tests passed, including a throwing-measurement regression. The previous 205-test focused set passed before this added case; core TypeScript remains clean. Independent review accepted the lock-order fix and found no additional blocker in native provenance, canonical binding, erasure/retention, transport or refund extraction. Hosted migration/concurrency and integrated deployment gates remain required.
+
+## Integrated deployment evidence
+
+The isolated integration branch preserves web analytics, Apple implementation and production
+artifact-trust commits. The protected analytics catalogue now deploys five routes, including
+`analytics-apple-purchase` with internal JWT validation for account scopes and anonymous device
+support. Switching refreshes the three reporting runtimes and `create-web-checkout`; the erasure
+worker is included in the preceding functions deployment for bounded Apple cleanup.
+
+Migration 0029 has a read-only source/owner/privilege/RLS/trigger/uniqueness gate and a preservation
+snapshot. Apply the foundation through 0027 first. Migrations 0028 and 0029 can then be grouped:
+both invariants read only the common 0027 baseline, and the hosted rehearsal captures both before
+either migration applies. Only the four exact additional eraser RPC findings are accepted after
+0029 history and its complete gate pass. Missing history, drift and unrelated grants still stop
+before writes. The hosted SQL test injects and rolls back trigger, routine, privilege and RLS faults.
+
+Independent deployment review passed after correcting the initial predecessor-table invariant.
+Combined Apple/web analytics: 437 tests passed. Protected lifecycle tests: 20 passed. Sealed
+purchase, sync, analytics and switch bundles built twice at different paths and started 12 handlers
+without authority; 14 bundle tests passed, two unrelated QA integrations skipped. Full web fixture
+suite: 367 passed, 37 intentional skips. Hosted SQL concurrency/fault-injection and final integration
+CI remain pending; these source checks do not establish production delivery or store declaration
+completion.

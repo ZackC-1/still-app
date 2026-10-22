@@ -18,6 +18,51 @@ Deno.test({
     const admin = connection(url!);
     let eraser: ReturnType<typeof connection> | undefined;
     try {
+      const gate = await Deno.readTextFile(
+        new URL(
+          "../../scripts/backend/deploy/verify/0029_apple_purchase_analytics.sql",
+          import.meta.url,
+        ),
+      );
+      assertEquals((await admin.unsafe(gate))[0].issues, []);
+      // Every injected structural/privilege fault rolls back before functional evidence runs.
+      const rollback = new Error("synthetic gate rollback");
+      for (
+        const [mutation, expected] of [
+          [
+            "alter table private.analytics_erasure_jobs disable trigger apple_analytics_retire_device",
+            "retirement_trigger_missing_or_changed",
+          ],
+          [
+            "grant execute on function private.apple_analytics_cleanup() to authenticated",
+            "unexpected_routine_grant",
+          ],
+          [
+            "revoke execute on function private.apple_analytics_cleanup() from still_analytics_eraser",
+            "required_grant_missing",
+          ],
+          [
+            "alter function private.apple_analytics_cleanup() set search_path=public",
+            "routine_missing_or_changed",
+          ],
+          [
+            "alter table private.apple_purchase_analytics disable row level security",
+            "table_missing_or_unprotected",
+          ],
+        ]
+      ) {
+        await assertRejects(
+          () =>
+            admin.begin(async (tx) => {
+              await tx.unsafe(mutation);
+              assert((await tx.unsafe(gate))[0].issues.includes(expected));
+              throw rollback;
+            }),
+          Error,
+          rollback.message,
+        );
+      }
+      assertEquals((await admin.unsafe(gate))[0].issues, []);
       await admin`alter role still_analytics_eraser login password 'apple-analytics-synthetic-only'`;
       eraser = connection(url!, "still_analytics_eraser", password);
       const store = new PgAppleAnalyticsStore(eraser);
@@ -201,7 +246,7 @@ Deno.test({
       await admin`update private.apple_purchase_analytics set transaction_key=${
         hash(207)
       },transaction=${
-        admin.json({...tx})
+        admin.json({ ...tx })
       },purchased_at=extract(epoch from clock_timestamp()-interval '91 days')*1000 where capability_hash=${
         hash(7)
       }`;

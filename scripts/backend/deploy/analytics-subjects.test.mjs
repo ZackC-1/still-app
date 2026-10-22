@@ -41,6 +41,8 @@ import {
   LATER_MIGRATION_CODES,
   MIGRATION_GATE,
   PURCHASE_ANALYTICS_GATE,
+  APPLE_ANALYTICS_GATE,
+  APPLE_ANALYTICS_CODES,
   PURCHASE_ANALYTICS_CODES,
   parseFacts,
   POSTHOG_SECRETS,
@@ -142,7 +144,7 @@ async function refuses(promise, category) {
 
 // ── In-memory database: the facts the pinned SQL reads and the effects it has ──────────────────
 
-function world({ gate = [], history = ["0017", "0018", "0028"] } = {}) {
+function world({ gate = [], history = ["0017", "0018", "0028", "0029"] } = {}) {
   const state = {
     gate,
     history,
@@ -205,6 +207,8 @@ function world({ gate = [], history = ["0017", "0018", "0028"] } = {}) {
         return ok(`${JSON.stringify(facts())}\n`);
       case "migration-history.sql":
         return ok(`${JSON.stringify(state.history.map((version) => ({ version, name: "m" })))}\n`);
+      case basename(APPLE_ANALYTICS_GATE):
+        return ok(`${JSON.stringify(state.appleGate ?? [])}\n`);
       case basename(PURCHASE_ANALYTICS_GATE):
         return ok(`${JSON.stringify(state.purchaseGate ?? [])}\n`);
       case basename(MIGRATION_GATE):
@@ -355,6 +359,7 @@ test("the plan binds the operation, the commit on main, the pinned SQL and the b
     ["analytics-identify", true],
     ["delete-user", true],
     ["analytics-purchase", true],
+    ["analytics-apple-purchase", false],
   ]);
   const switching = (await plan(root,head,{ operation: SWITCH_OP,policyMode: "enable" })).plan;
   assert.deepEqual(switching.bundles.functions.map(f=>f.name),[...ANALYTICS_FUNCTIONS.map(f=>f.name),"create-web-checkout"]);
@@ -606,6 +611,29 @@ test("0028 eraser capabilities require history and the full structural gate; unk
   assert.equal(valid.status, "verified", valid.issues.join(" "));
 });
 
+test("0029 eraser capabilities require history and the full structural gate; unknown grants still refuse", async (t) => {
+  const h = await harness(t, { gate: [...APPLE_ANALYTICS_CODES], history: ["0017", "0018"] });
+  const absent = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(absent.status, "stopped-before-write");
+  assert.equal(h.api.calls.secretPosts, 0);
+  assert.ok(absent.issues.some(code => code.startsWith("migration_gate:eraser_execute:")));
+  h.db.state.history.push("0029");
+  h.db.state.appleGate = ["routine_body_changed"];
+  const changed = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(changed.status, "stopped-before-write");
+  assert.ok(changed.issues.includes("apple_analytics_gate:routine_body_changed"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.appleGate = [];
+  h.db.state.gate.push("eraser_execute:private.unreviewed()" );
+  const extra = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(extra.status, "stopped-before-write");
+  assert.ok(extra.issues.includes("migration_gate:eraser_execute:private.unreviewed()"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.gate.pop();
+  const valid = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(valid.status, "verified", valid.issues.join(" "));
+});
+
 test("every writing run first proves the migrations, the GoTrue rehearsal and owner approval", async (t) => {
   const h = await harness(t, { gate: ["subject_snapshot_trigger:disabled"], history: ["0017"] });
   h.api.setRehearsalGreen(false);
@@ -620,7 +648,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal(h.api.calls.secretPosts, 0);
   // Exact codes explained by later reviewed migrations are accepted; other grants still stop.
   h.api.setRehearsalGreen(true);
-  h.db.state.history = ["0017", "0018", "0028"];
+  h.db.state.history = ["0017", "0018", "0028", "0029"];
   h.db.state.gate = [...LATER_MIGRATION_CODES];
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "verified");
   // A plan the owner did not approve, or a different operation, mode or target, never runs.
@@ -652,7 +680,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "stopped-before-write", "apply keeps every gate");
 });
 
-test("functions deploy exactly four routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
+test("functions deploy exactly five routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
   const h = await harness(t);
   const early = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(early.status, "stopped-before-write");
@@ -669,13 +697,14 @@ test("functions deploy exactly four routes in order after the secrets exist; a r
     ["analytics-identify", "deployed"],
     ["delete-user", "deployed"],
     ["analytics-purchase", "created"],
+    ["analytics-apple-purchase", "created"],
   ]);
   assert.equal(h.api.functions.get("analytics-identify").version, 2);
   assert.equal(h.api.functions.get("delete-user").version, 19);
   assert.equal(h.api.functions.get("analytics-erasure").verify_jwt, false);
   const again = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(again.status, "no-change");
-  assert.equal(h.api.calls.deploys, 4);
+  assert.equal(h.api.calls.deploys, 5);
 
   // A route whose stored body does not read back stops the run; delete-user is never attempted.
   const g = await harness(t);
@@ -696,7 +725,7 @@ test("functions deploy exactly four routes in order after the secrets exist; a r
     verifyBundles: async () => true,
   });
   assert.equal(receipt.status, "outcome-unknown");
-  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted", "not-attempted"]);
+  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted", "not-attempted", "not-attempted"]);
   assert.equal(g.api.functions.get("delete-user").version, 18);
   assert.match(receipt.recovery, /never blindly retry/);
   assert.match(renderAnalyticsFinal(receipt), /status: outcome-unknown/);
@@ -799,6 +828,7 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 1);
   assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "verified");
   assert.equal(h.api.functions.get("analytics-purchase").version, 3);
+  assert.equal(h.api.functions.get("analytics-apple-purchase").version, 3);
   // Emergency off: no schedule, no worker evidence, no provider proof, no token probe needed.
   h.db.state.command = null;
   h.db.state.ok = 0;
@@ -810,6 +840,7 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "false");
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 3);
   assert.equal(h.api.functions.get("analytics-purchase").version, 4);
+  assert.equal(h.api.functions.get("analytics-apple-purchase").version, 4);
   assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "disable"))).status, "verified");
 });
 
@@ -823,7 +854,7 @@ test("plan and closing records name steps and fixed codes only", async (t) => {
     assert.ok(shown.includes(needle), needle);
   }
   assert.ok(!shown.includes(REF), "the project ref is bound, not printed");
-  assert.match(renderAnalyticsPlan({ ...p, policyMode: "disable" }), /this is the way back/);
+  assert.match(renderAnalyticsPlan({ ...p, policyMode: "disable" }), /partial refresh is outcome-unknown/);
   assert.match(renderAnalyticsFinal(null, { applyOutcome: "skipped" }), /stopped-before-write/);
   assert.match(renderAnalyticsFinal(null, { operation: SWITCH_OP }), /no durable receipt for `analytics-subjects-switch`/);
   const interrupted = renderAnalyticsFinal({
@@ -866,6 +897,7 @@ test("canonical reporting deployment requires its migration and structural gate 
   const missing = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(missing.status,"stopped-before-write");
   assert.ok(missing.issues.includes("history_missing:0028"));
+  assert.ok(missing.issues.includes("history_missing:0029"));
   assert.equal(h.api.calls.deploys,0);
   h.db.state.history.push("0028");
   h.db.state.purchaseGate = ["erasure_cascade"];
@@ -906,6 +938,7 @@ test("checkout refresh shares purchase gates; partial disable stops reporters an
   assert.equal(partial.steps.find(item=>item.name==="create-web-checkout").outcome,"not-attempted");
   assert.equal(partial.steps.find(item=>item.name==="analytics-identify").outcome,"deployed");
   assert.equal(partial.steps.find(item=>item.name==="analytics-purchase").outcome,"deployed");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-apple-purchase").outcome,"deployed");
   h.api.secrets.set("STRIPE_SECRET_API_KEY","synthetic-payment-prerequisite");
   const retried=await h.run(disable);
   assert.equal(retried.status,"verified",retried.issues.join(" "));
