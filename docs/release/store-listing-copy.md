@@ -409,7 +409,7 @@ Earlier purchase (3.0):
 
 > Thanks for buying Still Pro early. In Still 3.0, removing YouTube Shorts and Instagram and Facebook Reels, blocking the TikTok website, and settings sync are all free, with no purchase or account needed.
 >
-> A paid Still Pro purchase from before 3.0 carries over to the new Still Pro extras when it is linked to your Still account. Sign in to Still with the email address you used when you bought it. The extras then appear in Still's settings, switched off until you turn them on, and you don't need to buy Still Pro again.
+> A paid Still Pro purchase from before 3.0 carries over to the new Still Pro extras when it is linked to your Still account, which it is if you were signed in to Still when you bought it. Sign in with that same email address and the extras appear in Still's settings, switched off until you turn them on, and you don't need to buy Still Pro again.
 >
 > If you don't see them, choose Restore purchase while signed in: in the Still app on iPhone or Mac, or in Still's settings in Chrome or Firefox. If Still still doesn't find your purchase, email support@stillapp.fit from the address you used, with the date you bought it (for an App Store purchase, it's on your Apple receipt), and we'll look into it.
 >
