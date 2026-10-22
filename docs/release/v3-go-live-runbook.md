@@ -399,8 +399,9 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 - b. **Price Schedule**, **Add Pricing**: Base Country or Region **United States (USD)**, Price
   **$9.99** (Apple retired numbered tiers in 2023; this is the old Tier 10 price point), **Next**,
   keep Apple's equalized prices for other regions, **Next**, **Confirm**.
-- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (55
-  characters at most, owner-approved; draft: `Twelve extra controls. One-time purchase.`); **Add**.
+- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (45
+  characters at most in App Store Connect, owner-approved; draft in
+  [listing copy](store-listing-copy.md#v3-still-pro-in-app-purchase)); **Add**.
 - d. **Review Information**: Screenshot, upload the Get Still Pro screen from the 3.0 build. Review
   Notes: `One-time, non-consumable purchase. Open Still and tap Get Still Pro. Sign-in is offered
   first and can be skipped with "Buy without an account". Restore purchase works without signing in.`
@@ -415,13 +416,14 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 **macOS App**. Undo: delete an unsubmitted version.
 
 5.4 **Listing and screenshots.** On each version: Promotional Text, Description, Keywords, What's
-New and screenshots from the approved V3 copy and set (6.1, 6.2). State: Owner (not yet written).
+New and screenshots from the approved [V3 copy](store-listing-copy.md) and set (6.1, 6.2). State:
+Owner (draft written, awaiting owner approval).
 
 5.5 **App Privacy.** Left menu **App Privacy**, **Edit**. Keep the analytics types (ADR 0004). Make
 sure **Purchases, Purchase History** covers **App Functionality** for Still Pro and **Analytics**
 for the consented canonical purchase events sent to PostHog,
 linked to the user: Yes, used for tracking: No. The release brief says Purchase History must be
-added; [listing copy section 4](store-listing-copy.md#4-apple--app-privacy-the-label) records it as
+added; the [V3 App Privacy label](store-listing-copy.md#v3-apple-app-privacy-label) records it as
 already declared for historical purchases, so confirm on screen. **Publish**. The label must match
 `PrivacyInfo.xcprivacy` and the published privacy policy (7.1).
 
@@ -476,7 +478,7 @@ Engineering compares the read-backs side by side; the owner ticks each.
 
 | Step | Chrome Web Store | Firefox Add-ons (AMO) | Who | State |
 |---|---|---|---|---|
-| 6.1 Listing copy | Add the V3 Still Pro wording to [listing copy](store-listing-copy.md#6-chrome-web-store) (currently 2.1, free only) | Same, [AMO section](store-listing-copy.md#7-firefox-add-ons-amo); describe the optional purchase | Engineering drafts, Owner approves | Owner |
+| 6.1 Listing copy | V3 draft in [listing copy](store-listing-copy.md#v3-chrome-web-store), with the optional Still Pro purchase | Same, [AMO section](store-listing-copy.md#v3-firefox-add-ons) | Engineering drafts, Owner approves | Owner |
 | 6.2 Screenshots | No V3 Pro set exists; capture with `screenshots/source/v3` tooling into [store-ready](screenshots/store-ready/README.md) | Same | Engineering, Owner approves | Engineering |
 | 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still, **Edit Product Page**: privacy text matches the manifest's `data_collection_permissions` | Owner | Owner (confirm) |
 | 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload`; in the dashboard submit for review with automatic publication unchecked. Do not use `upload-and-submit` for this held release: its current API body requests automatic publication | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
