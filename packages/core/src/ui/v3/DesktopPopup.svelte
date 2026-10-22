@@ -383,6 +383,11 @@
     max-block-size: none;
     overflow: visible;
   }
+  /* The list's former scroll-padding, now for the document: a control scrolled into view (keyboard
+     focus, larger text) is never left a fraction of a pixel under the popup's edge. */
+  .site-scroll :global(:is(button, a, [role="switch"])) {
+    scroll-margin-block: var(--space-1);
+  }
   .app.invitation-scroll {
     overflow-y: auto;
     overscroll-behavior-y: contain;
