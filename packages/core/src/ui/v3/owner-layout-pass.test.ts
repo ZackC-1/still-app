@@ -305,10 +305,26 @@ describe("ruling 18: no divider above Sign out in the popups' signed-in row", ()
   it("the V3 popup host clears the account row's divider and the space above it", () => {
     const app = readFileSync(join(here, "../App.svelte"), "utf8");
     const style = app.slice(app.indexOf("<style>"));
-    const rule = style.match(/\n {2}\.v3-popup-host \.account \{([^}]*)\}/)?.[1] ?? "";
+    const rule = style.match(/\n {2}\.v3-popup-host\[data-density\] \.account \{([^}]*)\}/)?.[1] ?? "";
     expect(rule).toContain("border-block-start: 0;");
     expect(rule).toContain("padding-block-start: 0;");
     expect(rule).toContain("margin-block-start: 0;");
+    // The fallback popup's host also carries .app: the compact rule (".app[data-density=...]
+    // .account", two classes and an attribute) sets padding-block-start, so the V3 rule must match
+    // its specificity and come after it.
+    const compact = style.indexOf('\n  .app[data-density="compact"] .account {');
+    const v3 = style.indexOf("\n  .v3-popup-host[data-density] .account {");
+    expect(compact).toBeGreaterThan(-1);
+    expect(v3).toBeGreaterThan(compact);
+    for (const [selector, block] of [
+      ['.app[data-density="compact"] .account', style.slice(compact)],
+      [".v3-popup-host[data-density] .account", style.slice(v3)],
+    ] as const) {
+      expect(block.slice(0, block.indexOf("}"))).toContain(selector);
+      const classes = selector.match(/\.[\w-]+/g)!.length;
+      const attributes = selector.match(/\[[^\]]+\]/g)!.length;
+      expect(classes + attributes, selector).toBe(3);
+    }
   });
 });
 

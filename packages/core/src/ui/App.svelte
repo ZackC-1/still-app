@@ -1220,13 +1220,6 @@
   .link.danger {
     color: #c2261e;
   }
-  /* The V3 popup's signed-in row: no divider or extra space above Sign out (owner, 21 Oct), the
-     same as the Settings sync card. */
-  .v3-popup-host .account {
-    border-block-start: 0;
-    padding-block-start: 0;
-    margin-block-start: 0;
-  }
   /* The popup's Sign out uses the same plain link colour as the V3 screens' links (the Settings
      page's Help card), not the older App blue. */
   .v3-popup-host .account .link:not(:disabled) {
@@ -1297,6 +1290,15 @@
     padding-block-start: var(--space-1);
     margin-block-start: 0;
     font-size: 14px;
+  }
+  /* The V3 popup's signed-in row: no divider or extra space above Sign out (owner, 21 Oct), the
+     same as the Settings sync card. It matches the compact rule above in specificity and comes
+     after it, so it also wins in the fallback popup, whose host carries .app before DesktopPopup
+     loads. */
+  .v3-popup-host[data-density] .account {
+    border-block-start: 0;
+    padding-block-start: 0;
+    margin-block-start: 0;
   }
 
   @media (max-height: 700px) {
