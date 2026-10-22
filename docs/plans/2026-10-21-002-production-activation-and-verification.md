@@ -113,9 +113,11 @@ Repair [PR531](https://github.com/ZackC-1/still-app/pull/531), head
 Seventeen focused tests, 651 Deno tests/147 steps (one gated test ignored), lint and checks pass;
 independent final review found no blockers. Actual private writer configuration plus all 21 prepared
 values compose the runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
-is running. Only `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles change;
-the other six purchase and five analytics bundles are unchanged. Merge and a separately approved
-protected fix deployment remain pending; hosted signature rejection is not yet verified.
+passed all required checks. PR531 merged at `26bf5a947de9fef70102c9be87f1e69806cbce46`,
+05:07:50 UTC October 22. Only `create-web-checkout`, `complete-web-checkout` and `stripe-webhook`
+upload bundles change; the other six purchase and five analytics bundles are unchanged. A separately
+approved protected fix deployment remains pending; hosted signature rejection is not yet verified.
+New exact-revision settings/GoTrue rehearsal39726287757 is preparing at the repaired main revision.
 
 Five-route [analytics functions apply39722863701](https://github.com/ZackC-1/still-app/actions/runs/39722863701)
 passed its built-in plan/rehearsal and is waiting for personal approval, digest

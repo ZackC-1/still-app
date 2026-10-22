@@ -94,14 +94,16 @@ the role and project suffix. Boolean-only evidence is in
 write was used for that configuration diagnosis.
 
 Narrow parser repair [PR531](https://github.com/ZackC-1/still-app/pull/531), head
-`55e12172de053139a8ac9b02a1f33d464d3b7089`, is open in
+`55e12172de053139a8ac9b02a1f33d464d3b7089`, merged as
+`26bf5a947de9fef70102c9be87f1e69806cbce46` at 05:07:50 UTC October 22. Its isolated worktree is
 `/private/tmp/still-production-writer-pooler-fix-20261021`. It includes security regression tests and
 plan 006. Seventeen focused tests, 651 Deno tests/147 steps (one gated test ignored), lint and checks
 passed; independent final-head review found no blockers. Actual private writer configuration and
 all 21 prepared values compose the full runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
-is still running. Only the `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles
+passed all required checks. Only the `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles
 change; the other six purchase bundles and all five analytics bundles are unchanged. A separately
-approved protected deployment remains necessary after merge; this repair is not yet hosted.
+approved protected deployment remains necessary at that merged revision; this repair is not yet hosted.
+New exact-revision settings/GoTrue rehearsal39726287757 is preparing on the merged repair revision.
 
 A fresh read-only Stripe endpoint inventory confirms live mode, disabled status, the correct
 production URL, pinned API version and exact five-event set. No provider change was made;
@@ -266,12 +268,14 @@ repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Continue from reviewed main `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`. PR527 and component
+1. Use reviewed main `26bf5a947de9fef70102c9be87f1e69806cbce46` for the checkout repair and future
+   subjects switch. The pending analytics plan remains bound to `2bad3028`; its five uploads and
+   bound files are unaffected by the repair. PR527 and component
    PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Migrations
    through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
    as recorded above.
-2. Complete PR531's required CI and merge its reviewed parser repair, then prepare the protected
-   purchase-functions apply at that merged revision for personal approval. Only three purchase
+2. PR531 is merged with all required checks green. After the currently waiting analytics run finishes,
+   prepare the protected purchase-functions repair apply at `26bf5a94` for personal approval. Only three purchase
    upload bundles change. Re-run safe negative cases after actual deployment, including both Stripe
    signature cases. Keep the Stripe endpoint disabled until hosted handler/signature verification
    is ready, and preserve existing RevenueCat settings.
