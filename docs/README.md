@@ -49,9 +49,13 @@ from the app webview in `packages/app-webview/`.
 | [guides.html](guides.html) | Guide index. |
 | [block-youtube-shorts.html](block-youtube-shorts.html), [remove-instagram-reels-safari.html](remove-instagram-reels-safari.html) | Service-specific guides. |
 | [short-form-video-blocker.html](short-form-video-blocker.html), [browser-extensions-native-iphone-apps.html](browser-extensions-native-iphone-apps.html) | Product scope and native-app boundaries. |
-| [qa/success.html](qa/success.html), [qa/cancel.html](qa/cancel.html) | `noindex` return pages for the test-only sandbox web checkout (`/qa/success`, `/qa/cancel`); kept out of the sitemap and disallowed in `robots.txt`. |
-| `assets/` | Page styles, licensed font, logo and homepage poster. |
+| [qa/success.html](qa/success.html), [qa/cancel.html](qa/cancel.html) | `noindex` return pages for the test-only sandbox web checkout (`/qa/success`, `/qa/cancel`); kept out of the sitemap and crawlable so search engines can observe `noindex`. |
+| [block-facebook-reels.html](block-facebook-reels.html), [block-tiktok-website.html](block-tiktok-website.html) | Facebook Reels and TikTok website setup and scope guides. |
+| `assets/` | Page styles, licensed font, logo, responsive screenshots and homepage poster. |
 | `robots.txt`, `sitemap.xml`, `.nojekyll` | Search discovery and static-site behavior. |
+
+Build the allowlisted public tree with `pnpm build:website` and run `pnpm test:website`. See
+[website tooling](../scripts/website/README.md) for authoring, verification and publication.
 
 The site publishes separately from the root of `gh-pages`; merging main alone does not publish it.
 That branch also holds `CNAME` and the `/privacy/`, `/support/`, `/terms/` and `/setup/` directory
