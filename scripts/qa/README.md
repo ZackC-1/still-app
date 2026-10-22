@@ -131,7 +131,10 @@ build with `STILL_QA_INTEGRATION_BRANCH=<branch>` set; nothing else turns this m
 release builder ignores it. The builder refuses unless the checked-out commit is that branch's head
 (or on its first-parent line), the branch starts from a commit on main's own line (its base), every
 commit above the base is a merge, and the package contains no main commit newer than the base (for
-example a PR branch that merged a newer main). The number is the base's count on main plus 1000 (a
+example a PR branch that merged a newer main). Because only merge commits may sit above the base, a
+fix-up commit cannot live on the integration branch itself: a fix, including the resolution of a
+semantic conflict between two PRs that merge cleanly, has to live in a PR branch or inside the merge
+commit that brings it in. The number is the base's count on main plus 1000 (a
 base at count 438 gives 1438, as in `2.1.1.1438`), and the build refuses unless it is more than 500
 above main's current count, so main needs more than 500 further merges to reach it. Main keeps
 growing, so the store version must change (3.0.0 at release) before main's count reaches the lowest
