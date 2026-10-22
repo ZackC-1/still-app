@@ -526,6 +526,7 @@
 {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
   <SignInSheet
     controller={c}
+    host="apple"
     onDismiss={() => c.dismissSignIn()}
     title={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.title : undefined}
     prompt={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.prompt : undefined}

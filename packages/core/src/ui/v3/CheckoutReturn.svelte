@@ -80,8 +80,8 @@
   }
 </script>
 
-<main class="still-ui fr">
-  <div class="fr-col" style="padding-top:64px;">
+<main class="still-ui fr checkout-return">
+  <div class="fr-col">
     <div class="still-logo" role="img" aria-label="Still" translate="no">
       <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
         <rect width="48" height="48" rx="13" fill="var(--still-blue)"></rect>
