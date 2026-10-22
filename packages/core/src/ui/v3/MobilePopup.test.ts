@@ -534,11 +534,12 @@ describe("controlled D02 mobile presentation", () => {
       );
       expect(onAction).toHaveBeenCalledOnce();
       if (host === "safari") {
-        // Owner's canvas review, 21 Oct 2026.
+        // Owner's canvas review, 21 Oct 2026; the first step names the address-bar button the owner
+        // found on his iPhone (iOS 27, Safari) on 21 Oct 2026.
         expect(screen.getByText("Still can't block distractions yet.")).toBeTruthy();
         expect(
           screen.getByText(
-            "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
+            "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
           ),
         ).toBeTruthy();
       }
