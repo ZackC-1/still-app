@@ -301,6 +301,34 @@ read-only reports are in the existing owner-local locations recorded by the oper
 do not print their contents. Mem0 retrieval quota and the claude-mem observer are exhausted;
 repository evidence and the work-state list remain the active durable record.
 
+
+## Dead-code audit advanced by the owner
+
+The owner explicitly moved the audit to October 21, ahead of tomorrow's final screen/image work.
+[PR532](https://github.com/ZackC-1/still-app/pull/532), head
+`b3e6878c2c1148a73181b3e79770a944185e86a6`, contains the bounded cleanup and plan007 in
+`/private/tmp/still-dead-code-audit-20261021`. It is open and waiting for verification, not merged.
+Three audit lanes and independent adversarial review found no blocker. The 20 retired checkout
+tests passed before deletion; active managed checkout, historical receipt and redaction coverage
+remain. One duplicate Boolean assertion was also removed.
+
+Remaining backend tests pass631/147steps (one gated ignore), deployment tests113, Safari405,
+owner-admin58, app-webview19 and root Node58 (one design-reference skip). Final lint, typecheck
+and build pass. All14 production upload bundles and114 web output files are byte-identical.
+Three QA uploads differ only in consistent bound minifier-local renaming; their AST, literals,
+external names and byte sizes match. All26 Edge Function entry graphs resolve. No production
+or QA deployment was performed or required by this cleanup.
+
+Keep the local baseline limits explicit: unbounded tests hit timing failures before cleanup;
+Chromium's one lazy-view setup failure reproduces on clean26bf, and bounded core failures are
+being compared/rerun without changing assertions or timeouts. CI39733615360 has passed its unit
+step and Deno job; required browser verification and local fixtures are still running. Check
+actual final outcomes before merging. The source review is bound to the immutable PR head.
+
+After merge, new protected operations must pin the reviewed merged revision or a descendant and
+pass that exact revision's settings rehearsal. The old26bf remains evidence of existing hosted
+source, but deployment-tooling freshness prevents planning it against changed main.
+
 ## Next actions and blockers
 
 1. Use reviewed main `26bf5a947de9fef70102c9be87f1e69806cbce46` for the checkout repair and future
@@ -337,7 +365,7 @@ repository evidence and the work-state list remain the active durable record.
    Apple review access. None is ready before final build gates; no owner permission is needed now.
 7. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
    artifacts, release values, store declarations, device acceptance and sales activation follow.
-8. After backend and visuals, perform the requested deep unused-code/test audit. Prove obsolescence
+8. The owner advanced the deep unused-code/test audit to now; PR532 is in verification. Prove obsolescence
    before removal, fix bugs rather than hiding failures, preserve meaningful coverage, and recheck
    affected artifacts. Do not claim size/performance improvements without measurements.
 

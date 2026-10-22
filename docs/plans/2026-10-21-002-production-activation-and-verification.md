@@ -166,8 +166,8 @@ packages satisfy client-configuration gates; source and privacy publication do n
 Actual successful worker proof remains pending through the protected switch gates; arbitrary
 production SQL/CLI reads or writes must not bypass them. Three planned approvals remain after the
 final build gates: analytics identity switch, production sales and Apple review access. None is ready
-now, so no owner permission is needed at this checkpoint. The deep obsolete-code/test audit still
-follows backend and final visual completion.
+now, so no owner permission is needed at this checkpoint. The owner advanced the deep obsolete-code/test audit to now. PR532 at `b3e6878c` is
+implemented and under verification in an isolated worktree; final visual changes stay separate.
 
 # V3 production activation and verification
 
