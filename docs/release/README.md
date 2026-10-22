@@ -79,8 +79,7 @@ not retroactively become the source of submitted binaries.
 | Apple app / extension | `com.chartash.still` / `com.chartash.still.Extension` |
 | App Group / team | `group.com.chartash.still` / `UM9HVDH3P3` |
 | Firefox add-on | `still@chartash.com` |
-| Retained entitlement / Apple product | `still_sync` |
-| Retained web product | `still_sync_web` |
+| Purchase identifiers (V3 and historical) | [Canonical mapping](../monetization-design.md#purchase-identifiers) |
 | Website host permissions | YouTube, Instagram, Facebook and TikTok only |
 
 No Android or native social-app blocking is advertised. Historical runbooks remain in
