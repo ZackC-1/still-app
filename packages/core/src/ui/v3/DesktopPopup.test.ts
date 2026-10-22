@@ -276,8 +276,8 @@ describe("controlled D01 presentation", () => {
         .closest(".option-row") as HTMLElement;
       const usable = state === "purchased" || state === "protected";
       if (state === "unsupported" || state === "locked") {
-        expect(within(row).queryByRole("switch")).toBeNull();
         if (state === "unsupported") {
+          expect(within(row).queryByRole("switch")).toBeNull();
           expect(
             within(row).getByText(
               "Not available in this browser. Your choice is saved.",
@@ -290,6 +290,11 @@ describe("controlled D01 presentation", () => {
           });
           expect(locked).toHaveAttribute("aria-disabled", "true");
           await fireEvent.click(locked);
+          // CH-96: the saved switch shows beside the lock, dimmed and in its saved position.
+          const saved = within(row).getByRole("switch", { name: "Comments" });
+          expect(saved).toHaveAttribute("aria-checked", "true");
+          expect(saved).toHaveAttribute("aria-disabled", "true");
+          await fireEvent.click(saved);
         }
       } else {
         const comments = within(row).getByRole("switch", { name: "Comments" });

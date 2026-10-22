@@ -60,6 +60,7 @@
       | "verifyLocalPurchase"
       | "ownershipRevision"
       | "readLinkEligibility"
+      | "readAccountHeldPro"
       | "linkPurchase"
     >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
@@ -257,7 +258,12 @@
   let accountRevision = $derived(c.accountRevision);
   let sync = $derived.by(() => {
     void accountRevision;
-    return syncFor(c);
+    void proRevision;
+    const current = syncFor(c);
+    // ISS-0105: the heading tag reads "Still Pro User" only for the account's own Still Pro.
+    return current.account
+      ? { ...current, account: { ...current.account, holdsPro: proHost?.accountHoldsPro === true } }
+      : current;
   });
   $effect(() => {
     if (!PAID_TIER_ENABLED) return;
