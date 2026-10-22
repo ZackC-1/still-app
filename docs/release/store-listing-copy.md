@@ -1,10 +1,13 @@
 # Still store listing copy
 
-**Current: V3 (version 3.0) draft, written October 22, 2026. Owner-gated: nothing here goes into a
-store portal until the owner approves this copy.** The shipped 2.1 copy is kept below, collapsed, for
-reference. The 2.0 copy is in Git history.
+**Current: the [3.0 release listing](#30-release-listing-minimal-update-of-the-21-copy), a minimal
+update of the 2.1 copy. Draft written October 22, 2026; owner-gated: nothing here goes into a store
+portal until the owner approves it line by line.** Below it, the
+[later listing experiment](#later-listing-experiment-not-for-the-30-submission) is a full V3 rewrite
+kept for a separate test after release. The shipped 2.1 copy is kept at the end, collapsed. The 2.0
+copy is in Git history.
 
-V3 keeps the free core and adds Still Pro, an optional one-time purchase of twelve extras
+V3 keeps the free core and adds Still Pro, an optional one-time purchase
 ([V3 record](history/v3/README.md), [go-live runbook](v3-go-live-runbook.md) Phases 5 and 6). Every
 length below was counted with a script against the store's limit (characters; Apple keywords in
 bytes). Owner edits made directly in a portal are intentional; merge them rather than overwrite
@@ -12,15 +15,396 @@ them. Use [public contact addresses](public-contact-addresses.md). Never put rev
 codes or email addresses other than the public support addresses in this file: review access goes
 only in each portal's private fields.
 
-Accuracy rules (V3): Still removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok
-website for free on every supported surface, with no account; sign-in is optional and only adds free
-settings sync; Still Pro is optional, one-time, and never gates the free outcome; on phones Still
-works in Safari on iPhone and iPad (say nothing about Android; never mobile Chrome, mobile Firefox or
-native apps); never "everywhere", "free forever" or "no tracking"; Still doesn't collect browsing
-history; usage data follows [ADR 0004](../adr/0004-first-party-usage-analytics.md). Use the
-product's own names for the extras. No em dashes, no hype words.
+Accuracy rules (3.0): Still removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok
+website for free on every supported surface, with no account; the free core never claims to hide
+feeds, Stories, Explore or comments, and only Still Pro's optional extras do, named as the product
+names them; sign-in is optional and only adds free settings sync; Still Pro is optional, one-time,
+and never gates the free outcome; no listing claims that a Chrome or Firefox purchase unlocks Safari;
+on phones Still works in Safari on iPhone and iPad (say nothing about Android; never mobile Chrome,
+mobile Firefox or native apps); never "everywhere", "free forever" or "no tracking"; Still doesn't
+collect browsing history; usage data follows [ADR 0004](../adr/0004-first-party-usage-analytics.md).
+No em dashes, no hype words.
 
-## V3 Still Pro extras (source of truth for every listing)
+## 3.0 release listing (minimal update of the 2.1 copy)
+
+**This is the copy for the 3.0 submission.** Owner ruling, October 22, 2026: at release the listings
+change only marginally, so the effect of a new listing can be tested later, separately from the
+version. Everything in the [shipped 2.1 copy](#shipped-21-copy-reference) stays (name, subtitle,
+summaries, promotional text, keywords, categories, screenshots) except the lines below. Each change
+is shown as the 2.1 line and its 3.0 replacement, so it can be approved line by line. Owner answers
+already applied: summaries unchanged, no keyword swap, no "twelve", no price and no refund line in
+the browser listings.
+
+What changes, and only this:
+
+- (a) every 2.1 sentence that 3.0 makes false (listed next);
+- (b) one short optional Still Pro sentence per description, where accuracy needs it;
+- (c) the required declarations (Chrome "Financial and payment information", AMO "Requires
+  payment", the Firefox manifest's data-collection list);
+- (d) nothing anywhere claims that a Chrome or Firefox purchase unlocks Safari;
+- (e) the Still Pro in-app purchase's own name, description and review screenshot.
+
+### Every 2.1 sentence that 3.0 makes false
+
+| # | 2.1 sentence (where) | Why it is false in 3.0 | Fix |
+|---|---|---|---|
+| F1 | "Still removes Shorts and Reels and never claims to hide feeds, Stories, Explore or comments" (accuracy rules) | Still Pro hides Stories, Explore recommendations and comments | Rule rewritten in the intro: the free core never claims it; Still Pro's extras do, by their in-product names |
+| F2 | "• One switch per site. Turn any of them on or off whenever you want, from any device." (Apple iPhone and Mac descriptions) | Still Pro adds more switches inside each site | A1 |
+| F3 | "• One switch per site, right in your toolbar. Turn any of them on or off whenever you want." (Chrome and Firefox descriptions) | Same | C1 |
+| F4 | "No timers, no streaks, no screen-time stats, no wall of options. One switch per site." (Chrome and Firefox descriptions) | Same; Still Pro adds options | C3 |
+| F5 | "Still takes out the short videos and leaves the rest of each site as it is." (all four descriptions) | Still Pro can hide comments, Stories, Explore and more | A2, C2 |
+| F6 | "Blocking needs no account and no purchase." (all four descriptions) | Read with Still Pro's per-site extras, "blocking" no longer means only the free core | A3, C4 |
+| F7 | 2.1 What's New and the Chrome and Firefox release notes ("New in 2.1: a 'Share usage data' switch ...") | Describes the 2.1 change; 3.0 needs its own notes | A4, C5, X3 |
+| F8 | Apple review notes: "Still is free. No purchase or account is needed to test any blocking feature." and "Purchase infrastructure remains in the project for historical entitlements, with paid features disabled. No in-app purchase is needed to use Still." | 3.0 has Still Pro on | Replaced by the [3.0 App Review notes](#v3-apple-app-review-information) |
+| F9 | Chrome single purpose: "Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website, so people can use those websites with fewer short-form video distractions." | Narrower than what 3.0 does | C6 |
+| F10 | Chrome "Data not collected: ... Financial ..." | Still keeps Still Pro purchase records | C8 |
+| F11 | AMO reviewer notes: "All blocking and optional settings sync are free. No account or purchase is needed for blocking." | Same as F6 | X4 |
+| F12 | AMO caption for `firefox-05-switches`: "One switch per site, from Still's button in Firefox's toolbar." | Same as F2 | X5 |
+| F13 | Image headlines "One switch per site" in `iphone-03-switches`, `mac-05-app`, `chrome-05-switches` (and the Apple caption list item 4) | Same as F2, and they picture the 2.1 interface | Screenshot findings below; the images are kept by owner ruling |
+| F14 | Support reply "Earlier Pro purchase: Update to Still 2.0 to use all blocking and optional settings sync for free. No purchase restore is needed." (not a store field) | Verified earlier purchases map to Still Pro in 3.0 | Needs owner wording before the support page update (runbook 7.3); not part of any store upload |
+
+Checked and still true in 3.0, so unchanged: the Apple name, subtitle and both promotional texts
+(the closing "Free." describes the free download and free core; Apple shows "In-App Purchases"
+beside it), the keywords, both store summaries, "No timers, no streaks, no screen-time stats. Just
+the blocking, where you want it, when you want it.", "Still's free extensions" (the extensions are
+free to install), every "PRIVATE BY DESIGN" paragraph, and every "WHERE IT WORKS" / "HOW IT WORKS"
+paragraph.
+
+### 3.0 Apple listing changes (iPhone, iPad and Mac)
+
+Same four edits in the iPhone and Mac descriptions.
+
+| # | 2.1 (old) | 3.0 (new) |
+|---|---|---|
+| A1 | • One switch per site. Turn any of them on or off whenever you want, from any device. | • A switch for each site. Turn any of them on or off whenever you want, from any device. |
+| A2 | Still takes out the short videos and leaves the rest of each site as it is. | Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more. |
+| A3 | Blocking needs no account and no purchase. Sign-in is optional and only adds sync. | Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories. |
+| A4 | What's New: New in 2.1: a "Share usage data" switch. Still now shares how the app is used, such as which settings are turned on and whether setup finished, to help us improve it. It never includes the pages or videos you visit. You can turn it off anytime in Settings. | What's New: New in 3.0: Still Pro, an optional one-time purchase that hides more on YouTube, Instagram and Facebook, such as comments and Stories. A single Reel someone sends you now plays. Removing Shorts and Reels, blocking the TikTok website and settings sync stay free. |
+| A5 | Version 2.1.0 | Version 3.0 (owner confirms in runbook step 0.3) |
+
+"Comments and Stories" are both offered on iPhone and iPad (YouTube Comments, Instagram Stories and
+Highlights, Facebook Stories), so the sentence is true on every Apple device.
+
+| Field | Value | Length |
+|---|---|---|
+| Name, subtitle | Unchanged | 29/30, 28/30 |
+| Promotional Text (iPhone and iPad) | Unchanged | 164/170 |
+| Promotional Text (Mac) | Unchanged | 164/170 |
+| Keywords | Unchanged | 99/100 bytes |
+| What's New (both) | A4 | 261/4000 |
+| Description (iPhone and iPad) | 2.1 text with A1 to A3 | 2179/4000 |
+| Description (Mac) | 2.1 text with A1 to A3 | 2247/4000 |
+
+<details>
+<summary>Full 3.0 iPhone and iPad description, ready to paste</summary>
+
+```
+Still removes Shorts and Reels from the websites you use, so a quick visit stays a quick visit. Change your settings on any device, and the latest version follows you between your phone and your computer.
+
+WHAT STILL DOES
+• Removes YouTube Shorts. A Shorts link opens as a normal video.
+• Removes Instagram Reels and Facebook Reels.
+• Blocks the TikTok website.
+• A switch for each site. Turn any of them on or off whenever you want, from any device.
+
+WHAT YOU KEEP
+Regular YouTube videos, search and subscriptions. Instagram and Facebook posts, friends and messages. Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more.
+
+YOUR SETTINGS FOLLOW YOU
+Choose what's blocked in the Still app on your iPhone or your Mac, and change it whenever you like. Sign in free with your email on each device, and your latest settings reach Safari on your iPhone, iPad and Mac, and the Still extensions for Chrome and Firefox on your computer. Change a setting in one place and the others follow.
+
+NO LOGGING IN TO ANOTHER APP
+Still works in the Safari, Chrome or Firefox you already use, signed in as you. There's no separate browser to log in to.
+
+SIMPLE ON PURPOSE
+No timers, no streaks, no screen-time stats. Just the blocking, where you want it, when you want it.
+
+FREE
+Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories.
+
+HOW IT WORKS
+Still works on websites. On iPhone and iPad it works in Safari; on your computer it works in Safari, Chrome and Firefox. It can't change the YouTube, Instagram, Facebook or TikTok apps, so many people delete those apps and use the websites with Still instead.
+
+PRIVATE BY DESIGN
+Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Still shares usage data to help improve the app; you can turn it off in Settings.
+
+Setup and support: https://stillapp.fit/support/
+Privacy: https://stillapp.fit/privacy/
+```
+
+</details>
+
+<details>
+<summary>Full 3.0 Mac description, ready to paste</summary>
+
+```
+Still removes Shorts and Reels from Safari, Chrome and Firefox on your Mac, so a quick visit stays a quick visit. Control them all from the Still app on your Mac (Chrome and Firefox use Still's free extensions), and your latest settings follow you to your iPhone and iPad.
+
+WHAT STILL DOES
+• Removes YouTube Shorts. A Shorts link opens as a normal video.
+• Removes Instagram Reels and Facebook Reels.
+• Blocks the TikTok website.
+• A switch for each site. Turn any of them on or off whenever you want, from any device.
+
+WHAT YOU KEEP
+Regular YouTube videos, search and subscriptions. Instagram and Facebook posts, friends and messages. Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more.
+
+YOUR SETTINGS FOLLOW YOU
+Choose what's blocked in the Still app on your iPhone or your Mac, and change it whenever you like. Sign in free with your email on each device, and your latest settings reach Safari on your iPhone, iPad and Mac, and the Still extensions for Chrome and Firefox on your computer. Change a setting in one place and the others follow.
+
+NO LOGGING IN TO ANOTHER APP
+Still works in the Safari, Chrome or Firefox you already use, signed in as you. There's no separate browser to log in to.
+
+SIMPLE ON PURPOSE
+No timers, no streaks, no screen-time stats. Just the blocking, where you want it, when you want it.
+
+FREE
+Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories.
+
+HOW IT WORKS
+Still works on websites. On iPhone and iPad it works in Safari; on your computer it works in Safari, Chrome and Firefox. It can't change the YouTube, Instagram, Facebook or TikTok apps, so many people delete those apps and use the websites with Still instead.
+
+PRIVATE BY DESIGN
+Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Still shares usage data to help improve the app; you can turn it off in Settings.
+
+Setup and support: https://stillapp.fit/support/
+Privacy: https://stillapp.fit/privacy/
+```
+
+</details>
+
+### 3.0 Still Pro in-app purchase
+
+New in 3.0, so there is no 2.1 line. App Store Connect, **Monetization**, **In-App Purchases**,
+**Still Pro** (`still_pro_v3`), **App Store Localization**, English (U.S.). Limits: display name 30,
+description 45
+([Apple reference](https://developer.apple.com/help/app-store-connect/reference/in-app-purchases-and-subscriptions/in-app-purchase-information/)).
+
+| Field | Value | Length |
+|---|---|---|
+| Display Name | Still Pro | 9/30 |
+| Description | Fewer distractions. One-time purchase. | 38/45 |
+| Review Notes (IAP) | One-time, non-consumable purchase. Open Still and tap Get Still Pro, then complete the sandbox purchase on the review device. Sign-in is offered first and can be skipped with "Buy without an account". Restore purchase works without signing in. | 243/4000 |
+| Review Screenshot | A full-screen capture of the Still Pro purchase screen with Get Still Pro, from the 3.0 iPhone build (1320×2868 is accepted). Review only, never shown to customers. Missing today (runbook 5.2d, V43). | |
+
+The description states no number of extras and no price: one product serves iPhone, iPad (nine
+extras) and Mac (twelve), and Apple shows the price.
+
+### 3.0 Apple App Review Information and App Privacy
+
+- **App Review notes:** use the [V3 App Review notes](#v3-apple-app-review-information) below as
+  written (1966/4000; placeholders `<review email>` and `<review code>` only in this file; real values
+  only in the portal's User name and Password fields). They replace every 2.1 paragraph (F8).
+- **App Privacy:** use the [V3 App Privacy label](#v3-apple-app-privacy-label) below: Purchase
+  History with App Functionality (Still Pro rights) and Analytics (consented purchase events),
+  Product Interaction kept for analytics. Confirm on screen (runbook 5.5, V47).
+
+### 3.0 Chrome Web Store changes
+
+| # | 2.1 (old) | 3.0 (new) |
+|---|---|---|
+| C1 | • One switch per site, right in your toolbar. Turn any of them on or off whenever you want. | • A switch for each site, right in your toolbar. Turn any of them on or off whenever you want. |
+| C2 | Still takes out the short videos and leaves the rest of each site as it is. | Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more. |
+| C3 | No timers, no streaks, no screen-time stats, no wall of options. One switch per site. | No timers, no streaks, no screen-time stats. A switch for each site. |
+| C4 | Blocking needs no account and no purchase. Sign-in is optional and only adds sync. | Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories. |
+| C5 | Release notes: New in 2.1: a "Share usage data" switch in settings. Still can share how the extension is used, such as which switches are on and whether setup finished, to help us improve it. It never includes the pages or videos you visit. You can turn it off anytime. | Release notes: New in 3.0: Still Pro, an optional one-time purchase that hides more on YouTube, Instagram and Facebook, such as comments and Stories. A single Reel someone sends you now plays. Removing Shorts and Reels, blocking the TikTok website and settings sync stay free. |
+| C6 | Single purpose: Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website, so people can use those websites with fewer short-form video distractions. | Single purpose: Reduce distractions on YouTube, Instagram, Facebook and TikTok: remove YouTube Shorts and Instagram/Facebook Reels, block the TikTok website, and, with optional Still Pro, hide other parts of YouTube, Instagram and Facebook that the person switches on. |
+| C7 | `storage`: Saves Still's settings and the signed-in session on the device. | `storage`: Saves Still's settings, the signed-in session and the Still Pro status on the device. |
+| C8 | Data collected: Personally identifiable information (email, only for optional sign-in); Authentication information (sign-in code and session); User activity (product interactions such as switch changes and setup steps). | Same three, plus **Financial and payment information**, ticked. Justification: "Still keeps a record of each Still Pro purchase (purchase status and the payment provider's transaction reference) to unlock the extras and handle refunds; card details are entered on the payment provider's checkout page and never reach the extension." |
+| C9 | Data not collected: Health, Financial, Personal communications, Location, Web history, Website content. | Data not collected: Health, Personal communications, Location, Web history, Website content. |
+| C10 | Host permissions: Applies blocking only on YouTube, Instagram, Facebook and TikTok. No other sites. | Host permissions: Applies Still's switches only on YouTube, Instagram, Facebook and TikTok: removing Shorts and Reels, blocking the TikTok website, and any Still Pro extras the person turns on. No other sites. |
+| C11 | Test instructions (2.1 had none in this file) | The [V3 Chrome test instructions](#v3-chrome-web-store) below, as written (no fixed code; the web checkout opens on a RevenueCat page; no test card needed). |
+
+Unchanged: name (44/45), summary (130/132), category, `alarms`, `declarativeNetRequestWithHostAccess`,
+remote code, certifications, privacy URL, screenshots and promo tiles.
+
+| Field | Length |
+|---|---|
+| Name | 44/45 (unchanged) |
+| Summary | 130/132 (unchanged) |
+| Description | 2204/16000 |
+| Release notes | 261 |
+
+<details>
+<summary>Full 3.0 Chrome description, ready to paste</summary>
+
+```
+Still removes Shorts and Reels from the websites you use, so a quick visit stays a quick visit. Change your settings on any device, and the latest version follows you across your browsers.
+
+WHAT STILL DOES
+• Removes YouTube Shorts from the home page, search, subscriptions and the sidebar. A Shorts link opens as a normal video.
+• Removes Instagram Reels and Facebook Reels.
+• Blocks the TikTok website.
+• A switch for each site, right in your toolbar. Turn any of them on or off whenever you want.
+
+WHAT YOU KEEP
+Regular YouTube videos, search and subscriptions. Instagram and Facebook posts, friends and messages. Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more.
+
+YOUR SETTINGS FOLLOW YOU
+Sign in free with your email, and your settings sync between Chrome and Firefox on your computer, Safari on your Mac, and Safari on your iPhone and iPad through the Still app. Change it here, or in the Still app on your iPhone or Mac, and your other browsers follow. Install Still on each browser or device you use.
+
+NO LOGGING IN TO ANOTHER APP
+Still works in the Safari, Chrome or Firefox you already use, signed in as you. There's no separate browser to log in to.
+
+SIMPLE ON PURPOSE
+No timers, no streaks, no screen-time stats. A switch for each site.
+
+FREE
+Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories.
+
+WHERE IT WORKS
+This extension works in Chrome on desktop. Still is also available for Firefox, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad. It doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
+
+PRIVATE BY DESIGN
+Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Still shares usage data to help improve the extension; you can turn it off in settings.
+
+Setup and support: https://stillapp.fit/support/
+Privacy: https://stillapp.fit/privacy/
+```
+
+</details>
+
+### 3.0 Firefox Add-ons changes
+
+C1 to C4 apply to the Firefox description as well (the same sentences). Firefox-only changes:
+
+| # | 2.1 (old) | 3.0 (new) |
+|---|---|---|
+| X1 | Requires payment: No | Requires payment: No (unticked). Every free feature works without paying; the description names the optional purchase. |
+| X2 | Summary (from the manifest) | Unchanged, 219/250. The store build uses `FIREFOX_2X_DESCRIPTION`, which says nothing about Android. |
+| X3 | Release notes: New in 2.1: a "Share usage data" switch in settings. ... On Firefox it stays off unless you allow it. | Release notes: the C5 text. |
+| X4 | Notes to reviewer: All blocking and optional settings sync are free. No account or purchase is needed for blocking. | Notes to reviewer: Removing Shorts and Reels, blocking the TikTok website and optional settings sync are free. No account or purchase is needed for them. |
+| X4b | Notes to reviewer: New in 2.1: optional usage analytics declared as the optional "technicalAndInteraction" data collection permission. | Notes to reviewer: Usage analytics is declared as the optional "technicalAndInteraction" data collection permission. Then add the Still Pro paragraph from the [V3 AMO reviewer notes](#v3-firefox-add-ons) ("Still Pro is optional. To see its purchase flow ..."; no fixed code). |
+| X5 | Caption `firefox-05-switches`: One switch per site, from Still's button in Firefox's toolbar. | Caption `firefox-05-switches`: A switch for each site, from Still's button in Firefox's toolbar. |
+| X6 | Platform: desktop | On the upload's platform step, untick Firefox for Android (runbook 6.5). |
+
+The description's privacy paragraph ("You can choose to share usage data to help improve Still; it
+stays off unless you allow it.") already matches the optional `technicalAndInteraction` permission,
+so it is unchanged.
+
+| Field | Length |
+|---|---|
+| Name | 44/45 (unchanged) |
+| Summary | 219/250 (unchanged) |
+| Description | 2208/15000 |
+| Notes to reviewer (with X4, X4b and the Still Pro paragraph) | 1187 |
+
+<details>
+<summary>Full 3.0 Firefox description, ready to paste</summary>
+
+```
+Still removes Shorts and Reels from the websites you use, so a quick visit stays a quick visit. Change your settings on any device, and the latest version follows you across your browsers.
+
+WHAT STILL DOES
+• Removes YouTube Shorts from the home page, search, subscriptions and the sidebar. A Shorts link opens as a normal video.
+• Removes Instagram Reels and Facebook Reels.
+• Blocks the TikTok website.
+• A switch for each site, right in your toolbar. Turn any of them on or off whenever you want.
+
+WHAT YOU KEEP
+Regular YouTube videos, search and subscriptions. Instagram and Facebook posts, friends and messages. Still takes out the short videos and leaves the rest of each site as it is, unless you choose to hide more.
+
+YOUR SETTINGS FOLLOW YOU
+Sign in free with your email, and your settings sync between Chrome and Firefox on your computer, Safari on your Mac, and Safari on your iPhone and iPad through the Still app. Change it here, or in the Still app on your iPhone or Mac, and your other browsers follow. Install Still on each browser or device you use.
+
+NO LOGGING IN TO ANOTHER APP
+Still works in the Safari, Chrome or Firefox you already use, signed in as you. There's no separate browser to log in to.
+
+SIMPLE ON PURPOSE
+No timers, no streaks, no screen-time stats. A switch for each site.
+
+FREE
+Removing Shorts and Reels and blocking the TikTok website need no account and no purchase. Sign-in is optional and only adds sync. Still Pro, an optional one-time purchase, hides more on YouTube, Instagram and Facebook, such as comments and Stories.
+
+WHERE IT WORKS
+This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad. It doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
+
+PRIVATE BY DESIGN
+Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. You can choose to share usage data to help improve Still; it stays off unless you allow it.
+
+Setup and support: https://stillapp.fit/support/
+Privacy: https://stillapp.fit/privacy/
+```
+
+</details>
+
+### Firefox manifest declarations before the AMO upload
+
+Mozilla's rules ([built-in data consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)):
+"data transmission refers to any data collected, used, transferred, shared, or handled outside the
+add-on or the local browser", and every transmitted type must be listed in
+`browser_specific_settings.gecko.data_collection_permissions`. The relevant types:
+
+| Mozilla type | Mozilla's examples | Still 3.0 in Firefox | Declared today (`packages/ext-chromium/wxt.config.ts`) |
+|---|---|---|---|
+| `authenticationInfo` | "passwords, usernames, ... registration information for extensions that offer account-based services" | The emailed sign-in code and session | Yes, required |
+| `personallyIdentifyingInfo` | "contact information such as name and address, email, and phone number" | The email address sent to sign in | No |
+| `financialAndPaymentInfo` | "credit card numbers, transactions, credit ratings, financial statements, or payment history" | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider's page) | No |
+| `technicalAndInteraction` | "extension usage and settings data" | Usage analytics (ADR 0004) | Yes, optional (Mozilla allows it only as optional) |
+
+**What the manifest must declare before the AMO upload:**
+
+```
+data_collection_permissions: {
+  required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"],
+  optional: ["technicalAndInteraction"],
+}
+```
+
+- **Email address:** Mozilla names "email" under `personallyIdentifyingInfo`. One could argue the
+  sign-in email is a username under `authenticationInfo`, but declaring it removes the doubt at no
+  cost to the person (Chrome's form already lists the email as personally identifiable).
+- **Purchase status:** a Still Pro purchase record is a transaction handled outside the add-on, so
+  `financialAndPaymentInfo` applies once Still Pro can be bought in Firefox.
+- **Required, not optional:** optional types other than `technicalAndInteraction` are not shown at
+  install and need a `permissions.request()` call inside the sign-in and Get Still Pro taps, which is
+  a larger code change. Required matches how `authenticationInfo` is declared today. Firefox shows the
+  added required types to existing users when they update.
+- **This is a code change**, not a portal edit: `wxt.config.ts`, its test
+  (`packages/ext-chromium/lib/__tests__/firefox-manifest.test.ts`), `tests/firefox/qa-first-run.spec.ts`
+  and the manifest row in [03-firefox-amo.md](03-firefox-amo.md). It must land in the reviewed
+  release build before the Firefox package is made (runbook 1.x and 6.4), and the privacy policy
+  (runbook 7.1) must describe the same data. Owner decision; this PR changes no code.
+
+### Screenshots: kept for 3.0, with what they no longer match
+
+Owner ruling: the 2.1 screenshots stay for the 3.0 submission. These pictures show something 3.0
+makes false or no longer shows; recapturing them belongs to the later experiment. Compared against
+the 3.0 screens in [the ISS-0073 captures](history/v3/screenshots/iss0073/) and the current V3 source.
+
+| File | What differs in 3.0 |
+|---|---|
+| `iphone/iphone-03-switches` | Headline "One switch per site." (F13). Pictures the 2.1 app: "Still is on" hero, rows "YouTube Shorts / Shorts are gone." in the order YouTube, Instagram, TikTok, Facebook, "How to set up Still", and the sync card "Sign in to keep your settings the same across your devices." with "Sign in to sync". 3.0 shows "Still is active", rows "Instagram Blocker", "Facebook Blocker", "YouTube Blocker", "TikTok Blocker" with expanders, a "Sign in" sync card, and the Still Pro card. |
+| `iphone/iphone-06-safari-menu` | Safari menu shows the 2.1 popup ("Still is on", the four 2.1 rows, "Settings are saved on this device."). 3.0 popup uses the "Still is active" layout and Blocker rows. |
+| `iphone/iphone-07-setup` | Setup screen subtitle reads "Enable the Still extension in Safari, then choose the websites where you want short-form video removed." 3.0 reads "Enable the Still extension to use in Safari."; recheck the status pill and the footer line on the 3.0 build. |
+| `iphone/iphone-05-tiktok` | Shows 2.1's "This site is blocked." placeholder; 3.0 has its own TikTok page headed "TikTok stays closed." (`TikTokBlocked.svelte`). Confirm on the 3.0 Safari build. |
+| `ipad/ipad-01-safari-popup` | Safari toolbar popup is the 2.1 layout (as `iphone-06`). |
+| `ipad/ipad-02-switches` | 2.1 app layout (as `iphone-03`). |
+| `ipad/ipad-03-setup` | 2.1 setup subtitle (as `iphone-07`). |
+| `mac/mac-05-app` | Headline "One switch per site." (F13); 2.1 Mac app layout ("Still is on", 2.1 rows, "How to set up Still"). |
+| `mac/mac-06-chrome` | Chrome popup in the 2.1 layout. |
+| `mac/mac-04-tiktok` | 2.1 "This site is blocked." placeholder (as `iphone-05`). |
+| `chrome/chrome-05-switches` | Headline "One switch per site, right in Chrome." (F13); popup in the 2.1 layout ("Still is on", "YouTube Shorts / Shorts are gone.", sync "Sign in to keep your settings the same across your devices."). |
+| `chrome/chrome-04-tiktok` | 2.1 "This site is blocked." placeholder; 3.0 shows "TikTok stays closed." |
+| `firefox/firefox-05-switches` | Same as `chrome-05-switches`, in Firefox; its AMO caption is fixed by X5, the image is not. |
+| `firefox/firefox-04-tiktok` | Same as `chrome-04-tiktok`. |
+
+Still accurate: the YouTube, Instagram and Facebook before-and-after frames on every store (they
+show the sites, not Still's interface; the free removal is unchanged), the Chrome promo tiles and
+the Instagram feed posts. The 2.0 archive under `screenshots/archive/` is history, not an upload
+candidate. Keeping pictures of an older interface risks Apple's screenshot rule (they should show
+the app in use) and Chrome's listing-accuracy review; the owner may want to recapture at least the
+four "switches" images before submission.
+
+## Later listing experiment (not for the 3.0 submission)
+
+A full V3 rewrite, kept for a listing test after release, separately from the version (owner
+ruling, October 22, 2026). Do not paste it for the 3.0 submission. The 3.0 section above reuses
+three parts of it as written: the App Review notes, the App Privacy label and the browser reviewer
+notes. Owner answers so far: the summaries stay, no keyword swap, no "twelve" in the 3.0 listing;
+the price and refund lines belong only to this experiment.
+
+### V3 Still Pro extras (source of truth for every listing)
 
 From `packages/shared-types/src/feature-registry.ts` (row names) and
 `packages/core/src/ui/v3/presentation.ts` (`PRO_VALUE_PHRASES`, the "what it hides" wording the
@@ -45,7 +429,7 @@ All twelve work in Chrome, Firefox and Safari on Mac. iPhone and iPad offer nine
 (`DESKTOP_LAYOUT_ONLY_PRO` in `packages/core/src/entitlement/access-policy.ts`), so the iPhone
 listing and the shared in-app purchase never promise "twelve" on a phone.
 
-## V3 Apple App Information
+### V3 Apple App Information
 
 Shared by iPhone, iPad and Mac. Unchanged from 2.1: the name and subtitle stay true for V3 and keep
 their search history.
@@ -58,7 +442,7 @@ their search history.
 | Secondary category | Utilities (unchanged) | |
 | Privacy Policy URL | https://stillapp.fit/privacy/ | |
 
-## V3 Apple iPhone and iPad version 3.0
+### V3 Apple iPhone and iPad version 3.0
 
 | Box | Value | Length |
 |---|---|---|
@@ -120,7 +504,7 @@ Setup and support: https://stillapp.fit/support/
 Privacy: https://stillapp.fit/privacy/
 ```
 
-## V3 Apple Mac version 3.0
+### V3 Apple Mac version 3.0
 
 | Box | Value | Length |
 |---|---|---|
@@ -166,7 +550,7 @@ Setup and support: https://stillapp.fit/support/
 Privacy: https://stillapp.fit/privacy/
 ```
 
-## V3 Still Pro in-app purchase
+### V3 Still Pro in-app purchase
 
 App Store Connect, **Monetization**, **In-App Purchases**, **Still Pro** (`still_pro_v3`), **App
 Store Localization**, English (U.S.). App Store Connect's limits are 30 characters for the display
@@ -187,7 +571,7 @@ The recommended description reuses the popup's own words ("Even fewer distractio
 Facebook, and YouTube. One-time purchase."). The runbook's earlier draft, "Twelve extra controls.
 One-time purchase.", is not used because iPhone and iPad offer nine.
 
-## V3 Apple App Review Information
+### V3 Apple App Review Information
 
 Both platforms. **Sign-in required: Yes**, only so the reviewer can test the optional signed-in sync
 and purchase paths ([ADR 0005](../adr/0005-apple-still-pro-purchase-starts-with-sign-in.md)).
@@ -212,7 +596,7 @@ Still Pro (product still_pro_v3) is an optional one-time, non-consumable purchas
 Usage analytics (ADR 0004): Still records product events only, for example setup steps and switch changes, never the websites, pages or videos someone visits, searches or page content. It is on by default with a "Share usage data" switch in Settings, is declared in App Privacy, is not used for tracking or advertising, and does not need the App Tracking Transparency prompt. Deleting an account also deletes its analytics data.
 ```
 
-## V3 Apple App Privacy label
+### V3 Apple App Privacy label
 
 Data used to track you: **none**. Data linked to you:
 
@@ -231,7 +615,7 @@ lists Purchase History for historical entitlements, so in the portal this is eit
 type or adding the Still Pro purposes to it; read the live label first (runbook 5.5, V47) and
 publish only after the privacy policy (runbook 7.1) says the same.
 
-## V3 Chrome Web Store
+### V3 Chrome Web Store
 
 **Store listing tab**
 
@@ -322,7 +706,7 @@ Still Pro is optional. To see its purchase flow, open Still's settings (Settings
 New in 3.0: Still Pro, an optional one-time purchase that adds switches to hide more on YouTube, Instagram and Facebook. Each extra starts off. A single Reel someone sends you now plays, and Instagram profiles' Reels tabs are hidden. Removing Shorts and Reels, blocking the TikTok website and settings sync stay free.
 ```
 
-## V3 Firefox Add-ons
+### V3 Firefox Add-ons
 
 The first V3 Firefox release is desktop only. On the upload's platform step, untick Firefox for
 Android (runbook 6.5); the listing says nothing about Android.
@@ -404,7 +788,7 @@ The complete source archive includes the pnpm workspace, frozen lockfile, public
 
 **Screenshot captions:** see the assets list below.
 
-## V3 assets needed
+### V3 assets needed
 
 Sizes are from the [store-ready manifest](screenshots/store-ready/README.md). The accuracy rule
 there applies: every picture must match the 3.0 build it ships with.
@@ -445,7 +829,7 @@ there applies: every picture must match the 3.0 build it ships with.
   recapture if it changed.
 - App icon and store icons: reuse.
 
-## Open questions for the owner
+### Open questions for the experiment
 
 1. **Summaries.** Keep the current Chrome and Firefox summaries (recommended, no code change), or
    adopt the alternatives that name Still Pro (needs a manifest PR, a package rebuild and the
