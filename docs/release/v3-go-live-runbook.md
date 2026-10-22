@@ -111,10 +111,10 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 
 ## Phase 1 — Release build and signing
 
-**1.1 Flip both paid flags together** · Engineering
+**1.1 Declare the paid release and flip both flags together** · Engineering
 - Where: one PR setting `PAID_TIER_ENABLED = true` in `packages/shared-types/src/entitlement.ts` and
-  `paidTierEnabled = true` in `apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift`, and
-  updating the tests that pin the shipped value (`MonetizationConfigTests` enforces that the two
+  `paidTierEnabled = true` in `apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift`,
+  `paidTier: true` in `version.json`, and updating the tests that pin the shipped value (`MonetizationConfigTests` enforces that the two
   match; `ProductPolicyRuntimeTests.testShippedSwitchKeepsSalesOffWithoutARequest` asserts false).
 - V05: both true in the merged commit; StillKit and TypeScript suites green. The core evaluator ANDs
   this flag with the remote `salesEnabled`, so nothing sells until 2.6.
@@ -161,7 +161,9 @@ cross-references, but do not repeat completed provider setup or treat an open PR
 - Where: `UPLOAD=1` on `archive.sh`, or Xcode, Window, Organizer, Archives, the archive, Distribute
   App, App Store Connect, Upload.
 - V09: App Store Connect, Apps, Still, TestFlight shows each build as "Ready to Submit" (processed).
-  Install from TestFlight on iPhone and Mac: free blocking, sign-in, and a sandbox Still Pro purchase.
+  Install from TestFlight on iPhone and Mac for free blocking, sign-in and sales-off refusal checks.
+  The positive sandbox purchase follows 2.6 sales admission plus the verified separate review switch;
+  review-proof issuance alone does not open the purchase flow.
 - Undo: TestFlight, the build, Expire Build. The build number stays used.
 
 ## Phase 2 — Backend production (Supabase)
@@ -280,13 +282,14 @@ or change `still_sync`. State: Owner.
 3.5 **Create the offering.** **Product catalog**, **Offerings** tab, **+ New offering**. Identifier:
 `still_pro_v3`. Display name: `Still Pro`. **Save**. Open it, **+ New package**, Identifier
 **Lifetime** (`$rc_lifetime`), Description `Still Pro lifetime`, attach the same products as 3.4,
-**Save**. Do not make it the default offering; the apps ask for it by id. State: Owner.
+**Save**. The current offering was already selected by the owner; preserve that setting and verify explicit app lookup by identifier. State: Owner.
 
 3.6 **Check the webhook.** **Integrations**, **Webhooks**, the existing production configuration.
 URL ends `/functions/v1/revenuecat-webhook` on the production project; **Authorization header value**
-is set (the exact `REVENUECAT_WEBHOOK_TOKEN`, no `Bearer `); **Environment**: Production; app filter:
-all apps; events: all, or at least initial purchase, non-renewing purchase, cancellation (refund) and
-transfer. The account's plan includes webhooks. State: Owner (confirm).
+is set (the exact `REVENUECAT_WEBHOOK_TOKEN`, no `Bearer `). Preserve the existing environment
+**Both Production and Sandbox**, **All apps**, **All events**, authorization and URL. The server
+handler enforces environment isolation. Read back settings without changing them. A Sent/2xx
+delivery alone does not establish a persisted purchase or entitlement. State: Engineering, Owner (confirm).
 
 3.7 **Record restore behaviour.** **Project settings**, **General**, **Restore behavior**. Write the
 value in the release record; do not change it ([ADR 0003](../adr/0003-entitlement-authority-receipt-and-server.md)).
@@ -309,12 +312,12 @@ successful deliveries.
 | # | Request | Expect |
 |---|---|---|
 | V21 | `GET /v2/projects/{project_id}/apps` | The App Store app has bundle id `com.chartash.still`; note the Stripe app |
-| V22 | `GET /v2/projects/{project_id}/products` | `still_pro_v3` on each Apple app, one-time non-consumable; the Stripe product's store identifier equals the Stripe price id (V31). Also check the historical web product: if its store identifier is `still_sync_web` and it would go into `ACCESS_PROVIDER_PRODUCTS_JSON`, `revenuecat-access.ts` (around lines 57 to 60) rejects it, and with it the whole product list, so every purchase check answers unavailable. Leave it out of the list, or resolve it with engineering, before 2.4 |
+| V22 | `GET /v2/projects/{project_id}/products` | `still_pro_v3` on each Apple app, one-time non-consumable; the Stripe product's store identifier equals the Stripe price id (V31). Preserve historical web SKU `still_sync_web` mapped to entitlement `still_sync`; product and entitlement identifiers can differ. Validate the complete mapping against the selected source before staging |
 | V23 | `GET /v2/projects/{project_id}/entitlements` | `still_pro_v3` exists; `still_sync` still exists |
-| V24 | `GET /v2/projects/{project_id}/entitlements/{still_pro_v3 id}/products` | Exactly the new Apple and Stripe products |
+| V24 | `GET /v2/projects/{project_id}/entitlements/{still_pro_v3 id}/products` | New Apple product and live Stripe product attached; preserve the separate QA mapping and existing products |
 | V25 | `GET /v2/projects/{project_id}/entitlements/{still_sync id}/products` | The same historical products as before; nothing new |
 | V26 | `GET /v2/projects/{project_id}/offerings` then `/offerings/{id}/packages` with products expanded | Offering `still_pro_v3`, package `$rc_lifetime`, the new products |
-| V27 | The v2 webhook-integration read if the key can reach it; otherwise the owner reads 3.6 on screen and engineering reads `revenuecat-webhook` logs | Production URL, production environment, recent deliveries 2xx |
+| V27 | The v2 webhook-integration read if the key can reach it; otherwise the owner reads 3.6 on screen and engineering reads `revenuecat-webhook` logs | Production URL with the preserved Both Production and Sandbox / All apps / All events filters; recent delivery status, with canonical persistence verified separately |
 | V28 | Owner confirms 3.7 and 3.8 on screen | Values recorded |
 | V29 | Engineering compares V22 and V24 with `revenuecat-access.ts` | Every mapping it would build passes that file's validation |
 | V30 | Engineering builds `ACCESS_PROVIDER_PRODUCTS_JSON` from V21 and V22 (kept private) | Handed to 2.4 |
@@ -423,7 +426,8 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 New and screenshots from the approved V3 copy and set (6.1, 6.2). State: Owner (not yet written).
 
 5.5 **App Privacy.** Left menu **App Privacy**, **Edit**. Keep the analytics types (ADR 0004). Make
-sure **Purchases, Purchase History** is ticked, purpose **App Functionality** covering Still Pro,
+sure **Purchases, Purchase History** covers **App Functionality** for Still Pro and **Analytics**
+for the consented canonical purchase events sent to PostHog,
 linked to the user: Yes, used for tracking: No. The release brief says Purchase History must be
 added; [listing copy section 4](store-listing-copy.md#4-apple--app-privacy-the-label) records it as
 already declared for historical purchases, so confirm on screen. **Publish**. The label must match
@@ -483,12 +487,12 @@ Engineering compares the read-backs side by side; the owner ticks each.
 | 6.1 Listing copy | Add the V3 Still Pro wording to [listing copy](store-listing-copy.md#6-chrome-web-store) (currently 2.1, free only) | Same, [AMO section](store-listing-copy.md#7-firefox-add-ons-amo); describe the optional purchase | Engineering drafts, Owner approves | Owner |
 | 6.2 Screenshots | No V3 Pro set exists; capture with `screenshots/source/v3` tooling into [store-ready](screenshots/store-ready/README.md) | Same | Engineering, Owner approves | Engineering |
 | 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still, **Edit Product Page**: privacy text matches the manifest's `data_collection_permissions` | Owner | Owner (confirm) |
-| 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload-and-submit` with `confirm_submit` `submit <version>` (after G6); or **Package**, **Upload new package** in the dashboard | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
+| 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload-only`; in the dashboard submit for review with automatic publication unchecked. Do not use `upload-and-submit` for this held release: its current API body requests automatic publication | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
 | 6.5 Compatibility | Desktop only by nature | On the upload's platform step, **untick Firefox for Android**; the build has no `gecko_android` | Owner | Owner |
 | 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields | Same, plus reproducible-source instructions | Owner | Owner |
 | 6.7 Publication | Choose deferred publication before submission; approval then waits for the owner to publish | **Continue** after validation can publish before **Submit Version**; have everything ready first ([AMO lesson](../solutions/conventions/amo-continue-can-publish-an-update.md)) | Owner | Owner |
 
-- V56: Chrome `release-chrome.yml` in `status` mode (or the dashboard) shows 3.0 in review, then published.
+- V56: Chrome `release-chrome.yml` in `status` mode (or the dashboard) shows 3.0 in review, then approved and held; verify publication only after the owner explicitly publishes.
 - V57: the AMO version page lists Firefox only, no Android; the public AMO API shows the version once public.
 - Undo: Chrome, cancel review in the dashboard, or ship a higher version later. AMO, **Manage
   Status & Versions**, disable the version, or ship a higher one.
