@@ -4,3 +4,17 @@
 .fr-col .lede{margin:0;font-size:calc(16px * var(--text-scale, 1));color:var(--ink-secondary)}
 .fr-foot{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:calc(13px * var(--text-scale, 1))}
 .fr-support{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+
+/* The owner's canvas (Checkout return, 22 Oct 2026): a 520px column with 64px above and 16px at the
+   sides, 20px between parts, a 30px title, 15px status lines in an 8px-gap card, a 44px button (the
+   browsers' height, owner ruling) and 14px footer links 24px apart. */
+.checkout-return .fr-col{max-width:520px;padding:64px 16px 32px;gap:20px}
+.checkout-return .still-logo{--logo-mark-size:40px;gap:10px}
+.checkout-return .fr-col h1{margin:0;font-size:calc(30px * var(--text-scale, 1));line-height:1.4}
+.checkout-return .card-stack{gap:var(--space-2)}
+.checkout-return .status-line{font-size:calc(15px * var(--text-scale, 1))}
+.checkout-return .status-line .glyph{margin-block-start:3px}
+.checkout-return .status-line .status-action{font-weight:400;line-height:normal}
+.checkout-return .primary.block{min-block-size:44px;padding:var(--space-3) var(--space-4);line-height:normal}
+.checkout-return .fr-foot{gap:8px 24px;font-size:calc(14px * var(--text-scale, 1));line-height:1.4}
+.checkout-return .fr-foot .support-address{font-size:calc(13px * var(--text-scale, 1))}

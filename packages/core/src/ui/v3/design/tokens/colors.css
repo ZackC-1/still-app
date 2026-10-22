@@ -110,6 +110,6 @@
   --status-success: var(--success);
   --status-caution: var(--caution);
   --status-failed: var(--danger);
-  --scrim: rgba(11, 20, 48, 0.45);
+  --scrim: rgba(11, 20, 48, 0.5);
   --danger-solid: #c2261e;
 }
