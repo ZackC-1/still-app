@@ -119,7 +119,7 @@ describe("P-AppPro and P-Restore: the cards' status lines are 14px", () => {
       }),
     });
     expect(
-      screen.getByText("We couldn't finish checking. Nothing changed.").closest(".pro-slot"),
+      screen.getByText("We couldn’t finish checking. Nothing changed.").closest(".pro-slot"),
     ).not.toBeNull();
   });
 
