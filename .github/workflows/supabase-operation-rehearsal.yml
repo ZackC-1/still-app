@@ -55,6 +55,12 @@ jobs:
           - operation: qa-sandbox-sales-policy
             policy_mode: "on"
             expected_revision: "1"
+          - operation: production-sales-policy
+            policy_mode: "off"
+            expected_revision: "0"
+          - operation: production-sales-policy
+            policy_mode: "on"
+            expected_revision: "0"
           - operation: qa-sandbox-subjects
             policy_mode: enable
             subjects_sha256: "1:0000000000000000000000000000000000000000000000000000000000000000"

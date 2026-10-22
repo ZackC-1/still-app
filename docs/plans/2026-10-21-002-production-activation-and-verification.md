@@ -480,3 +480,26 @@ The historical Web Billing mapping remains distinct from V3. `docs/purchase/succ
 Cancellation copy does not claim that no charge occurred, since the backend owns that decision.
 The owner updated Stripe key permissions, but creation still returned 403 `webhook_write`; no new
 Stripe endpoint was created. The exact missing permission has been requested.
+
+### Protected production sales operation
+
+Added the fixed production on/off operation, preserving the QA path's opposite-environment guard.
+Both use the existing planner, compare-and-set transaction and rehearsal. The production rehearsal
+starts with a sandbox cutoff and policy so coexistence is checked. First on writes only the four
+owner-approved free benefits; off preserves cutoff, rights and recovery. Candidate browser versions
+are 3.0.0 and Apple host versions 3.0, with Android excluded. The owner has been asked to confirm
+these values; production on remains provisional until final packages are verified. No policy has
+been published. See [operation procedure](../release/production-sales-policy.md).
+
+Local operation coverage passes 62 tests; analytics operation coverage passes 16 tests. CI on
+`a3124cc4` passes the main lint/typecheck/unit/build, Deno, StillKit, production ledger and Firefox
+checks. A signature negative fixture could move inside its 300-second acceptance window while
+awaiting crypto; it now stays an hour outside the window. The analytics rehearsal crossed a
+quarter-hour cron tick, supplying a real run during its no-run negative control. Its disposable
+database now disables the cron launcher before constructing the exact active schedule; the
+production operation and evidence gate are unchanged. Another CI runner could not bind its
+database port, so its served-route proof must rerun. These are not production checks.
+
+Nineteen production configuration values are staged in the protected GitHub environment. Staging
+does not apply them to Supabase. The separate Stripe webhook secret remains pending its endpoint's
+creation permission; no new endpoint exists and the RevenueCat webhook is unchanged.

@@ -49,6 +49,7 @@ on:
           - pause-qa-sandbox
           - resume-qa-sandbox
           - qa-sandbox-sales-policy
+          - production-sales-policy
           - qa-sandbox-subjects
           - qa-sandbox-functions
           - qa-sandbox-secrets
@@ -60,7 +61,7 @@ on:
           - purchase-functions-sync-settings
           - purchase-secrets
       policy_mode:
-        description: "qa-sandbox-sales-policy: off or on; qa-sandbox-subjects, analytics-erasure-schedule and analytics-subjects-switch: enable or disable; none for every other operation"
+        description: "sales policies: off or on; qa-sandbox-subjects, analytics-erasure-schedule and analytics-subjects-switch: enable or disable; none for every other operation"
         required: true
         default: none
         type: choice
@@ -71,7 +72,7 @@ on:
           - enable
           - disable
       policy_expected_revision:
-        description: "qa-sandbox-sales-policy only: the current sandbox sales revision the change must start from (compare-and-set; 0 for the first entry)"
+        description: "sales policies: the current target environment sales revision the change must start from (compare-and-set; 0 for the first entry)"
         required: false
         default: ""
         type: string
