@@ -250,6 +250,51 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     });
   }
 
+  test("the Help card keeps two columns of 44px links, and one column above 1.5×", async () => {
+    // Owner, 21 Oct: Setup guide on the left; Privacy policy, then Contact support with its
+    // address, on the right. Signed out in this lane, so Delete account is absent.
+    for (const [fontSize, columns] of [
+      [16, 2],
+      [24, 2],
+      [32, 1],
+    ] as const) {
+      const browser = await launchWithFontSize(fontSize);
+      try {
+        for (const width of [320, 432]) {
+          const page = await openPage(browser, "options.html", width, 900);
+          const where = `${width}px wide at ${fontSize}px`;
+          const help = page.getByRole("region", { name: "Help" });
+          await expect(help).toBeVisible();
+          const box = async (name: string) => {
+            const found = await help.getByRole("button", { name }).boundingBox();
+            expect(found, `${name}, ${where}`).not.toBeNull();
+            return found!;
+          };
+          const setup = await box("Setup guide");
+          const privacy = await box("Privacy policy");
+          const contact = await box("Contact support");
+          for (const [name, target] of [["Setup guide", setup], ["Privacy policy", privacy], ["Contact support", contact]] as const)
+            expect(target.height, `${name} target, ${where}`).toBeGreaterThanOrEqual(44);
+          const address = await help.getByText(/@/).boundingBox();
+          expect(address!.y, `address under Contact support, ${where}`).toBeGreaterThanOrEqual(contact.y + contact.height - 1);
+          expect(contact.y, `Contact support under Privacy policy, ${where}`).toBeGreaterThanOrEqual(privacy.y + privacy.height - 1);
+          if (columns === 2) {
+            expect(Math.abs(setup.y - privacy.y), where).toBeLessThan(1);
+            expect(privacy.x, where).toBeGreaterThan(setup.x + setup.width);
+            expect(Math.abs(contact.x - privacy.x), where).toBeLessThan(1);
+          } else {
+            expect(Math.abs(setup.x - privacy.x), where).toBeLessThan(1);
+            expect(privacy.y, where).toBeGreaterThanOrEqual(setup.y + setup.height - 1);
+          }
+          await expectNoSidewaysOverflow(page);
+          await page.close();
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  });
+
   test("the popup, first-run and TikTok pages follow it too", async () => {
     const browser = await launchWithFontSize(24);
     try {

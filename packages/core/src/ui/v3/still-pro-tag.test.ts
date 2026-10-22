@@ -54,10 +54,32 @@ function expectTagBesideAddress(text = ACCOUNT_TAG) {
   expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
 }
 
-function expectTagBesideSignIn() {
+/** Popups, signed out holding Still Pro (owner, 21 Oct): "Settings sync" stays on one line; the tag
+ * sits in the right column, level with the heading and directly above Sign in (and its "Opens the
+ * Still app" line). */
+function expectTagBesideSignIn(safari: boolean) {
   // Signed out, Still Pro can only be this device's (ISS-0105).
-  expectTagOnHeading(DEVICE_TAG);
-  expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
+  // Chrome and Firefox keep the tag on the heading row (owner, 19 Oct).
+  if (!safari) {
+    expectTagOnHeading(DEVICE_TAG);
+    expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
+    expect(syncCard().querySelector(".pro-signed-out")).toBeNull();
+    return;
+  }
+  const card = syncCard();
+  expect(within(card).queryByText(ACCOUNT_TAG)).toBeNull();
+  const tag = within(card).getByText(DEVICE_TAG);
+  expect(tag).toHaveClass("access-tag", "boxed", "success");
+  expect(tag).toBeVisible();
+  const heading = within(card).getByRole("heading", { name: "Settings sync" });
+  expect(heading.parentElement).not.toContainElement(tag);
+  const signIn = within(card).getByRole("button", { name: /^Sign in/ });
+  expect(signIn).toBeVisible();
+  expect(tag.parentElement).toBe(signIn.parentElement);
+  expect(tag.parentElement).toHaveClass("popup-action");
+  expect(tag.nextElementSibling).toBe(signIn);
+  // The grid (owner-layout-pass.test.ts pins its CSS) levels the tag with the heading.
+  expect(card.querySelector(".sync-row")).toHaveClass("pro-signed-out");
 }
 
 /** The shared sync card (browser Settings, Apple app) carries the tag on its heading row, in the
@@ -137,7 +159,7 @@ describe.each([
     const { props } = await popupFixture("purchased");
     props.appHandoff = appHandoff;
     render(DesktopPopup, { props });
-    expectTagBesideSignIn();
+    expectTagBesideSignIn(appHandoff);
   });
 
   it.each(NOT_PURCHASED)("shows no tag while %s", async (_s, state, first) => {
@@ -198,7 +220,7 @@ describe.each([
 
   it("shows Still Pro beside Sign in when signed out and purchased", async () => {
     render(MobilePopup, { props: await mobileProps(host, "purchased") });
-    expectTagBesideSignIn();
+    expectTagBesideSignIn(host === "safari");
   });
 
   it.each(NOT_PURCHASED)("shows no tag while %s", async (_s, state, first) => {

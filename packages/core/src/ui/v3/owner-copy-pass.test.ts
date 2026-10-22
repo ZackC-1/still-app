@@ -81,8 +81,8 @@ describe("Help card (item 8): three links, no heading, divider or note", () => {
     const help = screen.getByRole("region", { name: "Help" });
     expect(within(help).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual([
       "Setup guide",
-      "Contact support",
       "Privacy policy",
+      "Contact support",
     ]);
     expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
   });

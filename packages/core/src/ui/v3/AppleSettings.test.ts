@@ -1633,8 +1633,8 @@ describe("D04 optional paid and combined-consent producers", () => {
     const action = screen.getByRole("button", {
       name: "Keep legacy usage sharing off",
     });
-    expect(restoreCard?.nextElementSibling).toBe(action);
-    expect(helpSection()?.previousElementSibling).toBe(action);
+    expect(restoreCard?.nextElementSibling).toBe(helpSection());
+    expect(helpSection()?.nextElementSibling).toBe(action);
     await fireEvent.click(action);
     expect(optOut).toHaveBeenCalledOnce();
     expect(
@@ -1644,6 +1644,10 @@ describe("D04 optional paid and combined-consent producers", () => {
     expect(
       screen.getByRole("switch", { name: "Share email and usage data" }),
     ).toBeVisible();
+    // Share usage data sits below Help since the owner's 21 Oct review.
+    expect(helpSection()?.nextElementSibling).toBe(
+      screen.getByText("Share email and usage data").closest("section"),
+    );
     expect(
       screen.queryByRole("button", { name: "Keep legacy usage sharing off" }),
     ).toBeNull();
@@ -1989,11 +1993,12 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
     expect(screen.queryByRole("heading", { name: "Help" })).toBeNull();
     expect(screen.queryByText(/Contact support opens your email app/)).toBeNull();
     const help = screen.getByRole("region", { name: "Help" });
+    // Two columns since the owner's 21 Oct review (owner-layout-pass.test.ts pins the grid).
     expect(within(help).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual([
       "Setup guide",
       "Safari setup",
-      "Contact support",
       "Privacy policy",
+      "Contact support",
     ]);
     expect(within(help).getByText(SUPPORT_EMAIL)).toBeVisible();
     // One selectable unit (user-select: all), scoped to the address alone.
@@ -2003,9 +2008,6 @@ describe("ISS-0029 owner copy pass on the Mac and iPhone app settings screen", (
       within(help).getByRole("button", { name: "Contact support" })
         .nextElementSibling?.textContent,
     ).toBe(SUPPORT_EMAIL);
-    expect(
-      Array.from(help.children).map((c) => c.textContent?.trim()).slice(0, 5),
-    ).toEqual(["Setup guide", "Safari setup", "Contact support", SUPPORT_EMAIL, "Privacy policy"]);
     expect(within(help).queryByRole("link")).toBeNull();
     expect(help.querySelector(".account, .section-label, .caption")).toBeNull();
   });
