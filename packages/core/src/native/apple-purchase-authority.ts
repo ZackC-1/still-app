@@ -1,11 +1,11 @@
-import type { BenefitAccessSnapshot } from "@still/shared-types";
+import { STILL_PRO_V3_BENEFITS, type BenefitAccessSnapshot } from "@still/shared-types";
 import { isAccessUUID, isSafeAccessInteger, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "../entitlement/access-proof.js";
 import type { ApplePurchaseLinkAuthority, ApplePurchaseLinkCommit } from "../sync/apple-session.js";
 import type { NativeAppleAccessCommit, NativeApplePurchaseEvidence, NativeBridge } from "./bridge.js";
 
 export interface ApplePurchaseAuthorityDeps {
   readonly trust: AccessTrust;
-  readonly bridge: Pick<NativeBridge, "appleLocalPurchaseEvidence" | "installAppleAccess" | "observeAppleAccess" | "observeAppleLinkAccess" | "observeBenefits"> & Partial<Pick<NativeBridge, "reconcileAccountAccess">>;
+  readonly bridge: Pick<NativeBridge, "appleLocalPurchaseEvidence" | "installAppleAccess" | "observeAppleAccess" | "observeAppleLinkAccess" | "observeBenefits"> & Partial<Pick<NativeBridge, "reconcileAccountAccess" | "observeAccess">>;
   readonly readVerifiedAccount: ApplePurchaseLinkAuthority["readVerifiedAccount"];
   readonly readAccessToken: () => Promise<{ readonly accountId: string; readonly accessToken: string; readonly sessionId?: string } | null>;
   readonly verifyLocal: (body: { readonly schema: 1; readonly transaction: NativeApplePurchaseEvidence }) => Promise<unknown>;
@@ -79,6 +79,38 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
     )
       return null;
     return { ownershipRevision: right.ownershipRevision, linkedAccount: right.linkedAccount };
+  }
+
+  /** ISS-0105, display only (it authorizes nothing): positive provenance that the signed-in account
+   * itself holds Still Pro. True only for a proof in native's committed access record that verifies
+   * under this build's trust as `paid_account` for exactly this holder, scoped to that account's
+   * current session generation, carrying a Still Pro benefit, and not revoked, expired or paused.
+   * This covers an Apple purchase linked to the account and one bought on the web. A device-only
+   * (`paid_apple_local`) proof, a missing record or any failure is false: absence of device
+   * evidence never counts as the account's. */
+  async function readAccountHeldPro(accountId: string): Promise<boolean> {
+    try {
+      if (!isAccessUUID(accountId) || !deps.bridge.observeAccess) return false;
+      const record = await deps.bridge.observeAccess();
+      if (record.accountId !== accountId) return false;
+      for (const cached of record.rights) {
+        if (cached.accountGeneration !== record.generation) continue;
+        const clock = cached.clock;
+        if (!clock || clock.revoked || clock.expired || clock.paused) continue;
+        const verified = await verifyAccessProof(cached.envelope, deps.trust);
+        if (verified.status !== "verified") continue;
+        const c = verified.proof.claims;
+        if (c.kind !== "paid_account" || c.holder !== accountId) continue;
+        if (!c.benefits.some(benefit => STILL_PRO_V3_BENEFITS.includes(benefit))) continue;
+        if (c.expires_at === undefined || now() >= c.expires_at) continue;
+        if (record.revocations.some(r => r.right === c.right && r.revision >= c.ownership_revision)) continue;
+        if ((record.accountRevocations ?? []).some(r => r.holder === c.holder && r.right === c.right && r.revision >= c.ownership_revision)) continue;
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   async function verifyLocalPurchase(): Promise<BenefitAccessSnapshot> {
@@ -177,5 +209,5 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
       return ack;
     },
   };
-  return { refreshAccountAccess, verifyLocalPurchase, ownershipRevision, purchaseLink, invalidateAccount, refreshOwnership, readLinkEligibility };
+  return { refreshAccountAccess, verifyLocalPurchase, ownershipRevision, purchaseLink, invalidateAccount, refreshOwnership, readLinkEligibility, readAccountHeldPro };
 }
