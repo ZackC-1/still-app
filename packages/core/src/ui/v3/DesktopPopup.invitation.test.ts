@@ -58,14 +58,14 @@ describe("optional D28 desktop invitation", () => {
     const settled = bindWriter(cache, props);
     const saved = await storage.get();
     const view = render(DesktopPopup, { props });
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     const headings = Array.from(
       document.querySelectorAll("h2"),
       (h) => h.textContent,
     );
     props.invitation = invitationSpecimen();
     await view.rerender(props);
-    const card = screen.getByRole("region", { name: "Rate Still" });
+    const card = screen.getByRole("region", { name: "Enjoying Still?" });
     expect(card.previousElementSibling?.classList.contains("site-scroll")).toBe(
       true,
     );
@@ -75,7 +75,7 @@ describe("optional D28 desktop invitation", () => {
     expect(await storage.get()).toEqual(saved);
     props.invitation = invitationSpecimen("sync");
     await view.rerender(props);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     expect(
       screen.getByRole("region", {
         name: "Settings sync",
@@ -110,7 +110,7 @@ describe("optional D28 desktop invitation", () => {
         status: { tone, text: "Current sync observation" },
       };
       render(DesktopPopup, { props });
-      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
       expect(await storage.get()).toEqual(saved);
     },
   );
@@ -122,12 +122,12 @@ describe("optional D28 desktop invitation", () => {
     const { props } = await fixture();
     props.invitation = invitationSpecimen();
     const view = render(DesktopPopup, { props });
-    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
     await view.rerender({
       ...props,
       siteAccess: { state: "needed", browser: "Chrome", onAllow: vi.fn() },
     });
-    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
   });
 
   it("holds desktop setup until a current verified port and suppresses invitations", async () => {
@@ -135,7 +135,7 @@ describe("optional D28 desktop invitation", () => {
     const saved = await storage.get();
     props.invitation = invitationSpecimen();
     props.desktopSetup = {
-      title: "Still can't block distractions yet.",
+      title: "Still can’t block distractions yet",
       detail: "Allow Still on these websites so it can block there.",
       actionLabel: "Allow",
     };
@@ -143,7 +143,7 @@ describe("optional D28 desktop invitation", () => {
     const held = screen.getByRole("button", { name: "Allow" });
     expect(held).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(held);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     const port = invitationSpecimen().accept!;
     props.desktopSetup = { ...props.desktopSetup, action: port };
     await view.rerender(props);
@@ -166,7 +166,7 @@ describe("optional D28 desktop invitation", () => {
     props.browser = "Firefox";
     props.invitation = invitationSpecimen();
     render(DesktopPopup, { props });
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
   });
 });
 
@@ -190,7 +190,7 @@ describe("issued invitation across actual host sync suppression", () => {
         status: { tone: "pending", text: "Current sync pending" },
       };
       await view.rerender(props);
-      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
       props.account = undefined;
       await view.rerender(props);
       expect(props.invitation).toBe(p);
@@ -200,7 +200,7 @@ describe("issued invitation across actual host sync suppression", () => {
       );
       expect(p[first]!.request).toHaveBeenCalledOnce();
       expect(p[opposite]!.request).not.toHaveBeenCalled();
-      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
       expect(await storage.get()).toEqual(saved);
       expect(props.onGlobalChange).not.toHaveBeenCalled();
       expect(props.onServiceChange).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("issued desktop setup request", () => {
         }
       });
       props.desktopSetup = {
-        title: "Still can't block distractions yet.",
+        title: "Still can’t block distractions yet",
         detail: "Allow Still on these websites so it can block there.",
         actionLabel: "Allow",
         action: port,
@@ -266,9 +266,9 @@ describe("issued desktop setup request", () => {
 describe("per-issued invitation claims through DesktopPopup", () => {
   const title = (kind: "rating" | "sync" | "link") =>
     ({
-      rating: "Rate Still",
+      rating: "Enjoying Still?",
       sync: "Settings sync",
-      link: "Link Still Pro to an account",
+      link: "Link Still Pro to your account",
     })[kind];
   const control = (
     kind: "rating" | "sync" | "link",

@@ -88,7 +88,7 @@ describe("controlled TikTok closed page", () => {
   it("keeps free closed content visible without caller authority and denies opening", async () => {
     render(TikTokBlocked);
     expect(
-      screen.getByRole("heading", { name: "TikTok stays closed." }),
+      screen.getByRole("heading", { name: "TikTok stays closed" }),
     ).toBeVisible();
     const open = screen.getByRole("button", { name: "Open TikTok this time" });
     expect(open).toHaveAttribute("aria-disabled", "true");
@@ -114,7 +114,7 @@ describe("caller observation and intent authority", () => {
     ).toBeVisible();
     expect(
       screen.getByText(
-        "TikTok opens in this tab until you close it. Other tabs stay closed, and your setting doesn't change.",
+        "TikTok opens in this tab until you close it. Other tabs stay closed, and your setting doesn’t change.",
       ),
     ).toBeVisible();
     expect(
@@ -174,7 +174,7 @@ describe("caller observation and intent authority", () => {
       await fireEvent.click(openControl());
       expect(p.requestConfirmation!.request).not.toHaveBeenCalled();
       expect(
-        screen.getByRole("heading", { name: "TikTok stays closed." }),
+        screen.getByRole("heading", { name: "TikTok stays closed" }),
       ).toBeVisible();
       await view.rerender({ presentation: { ...p, state: "confirmation" } });
       if (kind !== "pending") expect(screen.queryByRole("dialog")).toBeNull();
@@ -261,7 +261,7 @@ describe("caller observation and intent authority", () => {
     await view.rerender({ presentation: { ...p, host: "ios" } });
     expect(
       screen.getByText(
-        "To change this, open the Still app and turn off TikTok website.",
+        "To change this, open the Still app and turn off TikTok Blocker.",
       ),
     ).toBeVisible();
     expect(
@@ -385,7 +385,7 @@ describe("current choice fence and cancellation", () => {
       await fireEvent.click(control());
       expect(p[action]!.request).toHaveBeenCalledOnce();
       expect(
-        screen.getByRole("heading", { name: "TikTok stays closed." }),
+        screen.getByRole("heading", { name: "TikTok stays closed" }),
       ).toBeVisible();
     },
   );

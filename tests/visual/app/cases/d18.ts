@@ -30,7 +30,7 @@ const PRO_CONTROLS = [
   { site: "Instagram", label: "Explore recommendations" },
   { site: "Instagram", label: "Suggested accounts" },
   { site: "Instagram", label: "Threads links" },
-  { site: "Facebook", label: "Facebook Stories" },
+  { site: "Facebook", label: "Stories" },
   { site: "Facebook", label: "Video tab" },
   { site: "Facebook", label: "Desktop sidebar ads" },
 ];

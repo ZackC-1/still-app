@@ -49,17 +49,17 @@
       tone: "success",
       text: "Still Pro is ready.",
       detail:
-        "Go back to Still. New blockers start off, so turn on the ones you want.",
+        "Go back to Still. New controls start off, so turn on the ones you want.",
     },
     unconfirmed: {
       tone: "failed",
-      text: "We couldn't confirm your payment yet.",
+      text: "We couldn’t confirm your payment yet.",
       detail:
         "If you were charged, Restore purchase in Still settings will find it.",
     },
     cancelled: {
       tone: "info",
-      text: "Checkout was cancelled.",
+      text: "Checkout was canceled.",
       detail: "Nothing was bought. You can try again from Still settings.",
     },
   } as const;

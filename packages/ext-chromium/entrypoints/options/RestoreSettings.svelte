@@ -57,6 +57,7 @@
     privacyActions,
     setup,
     help,
+    unsupportedText,
   }: Omit<ExtensionSettingsProps, "onRestore" | "siteAccess"> = $props();
   const siteAccess = useSiteAccessCard();
   const host = bound;
@@ -109,4 +110,5 @@
   {setup}
   siteAccess={siteAccess.current}
   {help}
+  {unsupportedText}
 />

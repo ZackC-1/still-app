@@ -141,7 +141,7 @@ describe("owner page", () => {
     expect(server.writes).toBe(1); // only the other change
   });
 
-  it("failure: 'Apply didn't finish. Nothing changed.' and Try again applies the same draft", async () => {
+  it("failure: “Apply didn’t finish. Nothing changed.” and Try again applies the same draft", async () => {
     const server = new FakeAdminFunction();
     await signIn(OWNER_TOKEN, server);
     const region = await screen.findByRole("region", { name: A.title });

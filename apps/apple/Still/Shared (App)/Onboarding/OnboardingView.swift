@@ -128,7 +128,7 @@ struct OnboardingView: View {
       Text("Still")
         .font(.still(size: OnboardingLayout.welcomeTitleSize, weight: .bold, relativeTo: .largeTitle))
         .kerning(Self.tracking(OnboardingLayout.welcomeTitleSize))
-      Text("Do what you came to do. Remove distractions like short-form video from your favorite websites.")
+      Text("Do what you came to do. Remove distractions like short-form video from YouTube, Instagram, Facebook and TikTok.")
         .font(.still(size: OnboardingLayout.subtitleSize, relativeTo: .title3))
         .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
@@ -138,11 +138,11 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("Distractions are gone.")
+      Text("Distractions are gone")
         .font(.still(size: OnboardingLayout.outcomeTitleSize, weight: .semibold, relativeTo: .title))
         .kerning(Self.tracking(OnboardingLayout.outcomeTitleSize))
         .multilineTextAlignment(.center)
-      Text("Keep the best elements of Instagram, Facebook, YouTube, and TikTok. Remove what distracts you.")
+      Text("Keep the best of Instagram, Facebook and YouTube. Remove what distracts you.")
         .font(.still(size: OnboardingLayout.subtitleSize, relativeTo: .title3))
         .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
@@ -158,12 +158,20 @@ struct OnboardingView: View {
         .font(.still(size: OnboardingLayout.enableTitleSize, weight: .semibold, relativeTo: .title))
         .kerning(Self.tracking(OnboardingLayout.enableTitleSize))
         .multilineTextAlignment(.center)
-      Text("Enable the Still extension to use in Safari.")
+      Text("Turn on the Still extension in Safari.")
         .font(.still(size: OnboardingLayout.enableSubtitleSize, relativeTo: .body))
         .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
 
+      // iPhone: hidden while the state is unknown (before iOS 26.2 it always is), where its line
+      // would only repeat the heading (owner, 22 Oct 2026). The Mac keeps the badge from the first
+      // frame: its status also starts unknown until the first read, and hiding it there would
+      // make the badge appear late and move the steps down.
+      #if os(iOS)
+      if status != .unknown { statusBadge }
+      #else
       statusBadge
+      #endif
 
       VStack(alignment: .leading, spacing: Self.points(OnboardingLayout.stepsSpacing)) {
         ForEach(Array(enableSteps.enumerated()), id: \.offset) { index, line in
@@ -225,7 +233,7 @@ struct OnboardingView: View {
   private var done: some View {
     VStack(spacing: 20) {
       glyph("checkmark.seal.fill", tint: Color(onboardingHex: OnboardingLayout.readyGreen))
-      Text("Still is ready.")
+      Text("Still is ready")
         .font(.still(
           size: OnboardingLayout.doneTitleSize,
           weight: OnboardingLayout.doneTitleIsBold ? .bold : .semibold, relativeTo: .largeTitle))
@@ -249,7 +257,7 @@ struct OnboardingView: View {
 
   private var completionSubtitle: String {
     #if os(macOS)
-    return "Distractions are removed from enabled websites in Safari"
+    return "Distractions are removed from enabled websites in Safari."
     #else
     return "Short-form video is removed from enabled websites in Safari."
     #endif
@@ -357,7 +365,7 @@ struct OnboardingView: View {
     case 2:
       // The Safari setup sheet has no next screen, so its confirmed state reads "Done".
       if status.isConfirmedEnabled { return onClose == nil ? "Continue" : "Done" }
-      return "I've turned it on"
+      return "I’ve turned it on"
     default: return "Get started"
     }
   }
@@ -481,7 +489,7 @@ private struct SafariAddressBarButtonIllustration: View {
     .background(Capsule().fill(Color.primary.opacity(0.06)))
     .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 1))
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("The button at the left of Safari's address bar")
+    .accessibilityLabel("The button at the left of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }
@@ -570,7 +578,7 @@ private struct SafariToolbarStillButtonIllustration: View {
     }
     .frame(width: Self.rowWidth, height: 46)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Still's button to the right of Safari's address bar")
+    .accessibilityLabel("Still’s button to the right of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }

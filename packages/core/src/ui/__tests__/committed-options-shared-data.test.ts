@@ -23,7 +23,7 @@ beforeAll(async () => {
 });
 
 const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const LABEL = "Delete shared data on all devices";
+const LABEL = "Delete shared data from all your devices";
 const TITLE = "Delete shared data from all your devices?";
 
 function memory() {
@@ -115,7 +115,7 @@ describe("the settings page's account-wide deletion, wired end to end", () => {
     const view = await options(a);
     await fireEvent.click(await screen.findByRole("button", { name: LABEL }));
     await fireEvent.click(within(screen.getByRole("dialog", { name: TITLE })).getByRole("button", { name: "Delete shared data" }));
-    await screen.findByText("Deletion requested. Your shared data hasn't been deleted yet.");
+    await screen.findByText("Deletion requested. Your shared data hasn’t been deleted yet.");
     expect(a.sent).toEqual([{ action: "account" }]);
     expect(await a.consent.get()).toBe(false);
     expect(a.store.data[ERASURE_LEDGER_KEY]).toBeUndefined();
@@ -130,11 +130,11 @@ describe("the settings page's account-wide deletion, wired end to end", () => {
     await fireEvent.click(await screen.findByRole("button", { name: LABEL }));
     await fireEvent.click(within(screen.getByRole("dialog", { name: TITLE })).getByRole("button", { name: "Delete shared data" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("We couldn't send your deletion request. Sharing stays off on this device.");
+    expect(alert).toHaveTextContent("We couldn’t send your deletion request. Sharing stays off on this device.");
     expect(await a.consent.get()).toBe(false);
     a.server.reply = { state: "requested" };
     await fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
-    await screen.findByText("Deletion requested. Your shared data hasn't been deleted yet.");
+    await screen.findByText("Deletion requested. Your shared data hasn’t been deleted yet.");
     expect(a.sent).toEqual([{ action: "account" }, { action: "account" }]);
     view.unmount();
     a.host.stop();

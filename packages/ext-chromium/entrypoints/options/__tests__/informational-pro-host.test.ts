@@ -84,7 +84,7 @@ describe("actual paid-V3 informational options destination", () => {
     const f = await host(); const before = structuredClone(f.store);
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
-    expect(await within(region).findByText("Still Pro can't be bought here yet.")).toBeTruthy();
+    expect(await within(region).findByText("Still Pro can’t be bought here yet.")).toBeTruthy();
     expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(within(region).queryByText("Related videos")).toBeNull();
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
@@ -178,7 +178,7 @@ describe("actual paid-V3 informational options destination", () => {
     const f = await host();
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
-    await within(region).findByText("Still Pro can't be bought here yet.");
+    await within(region).findByText("Still Pro can’t be bought here yet.");
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
     if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
     const lock = screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" });

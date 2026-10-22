@@ -212,7 +212,7 @@ async function holdSettingsRead(page: Page, mode: "hold" | "fail"): Promise<void
     new MutationObserver(() => {
       if (seen.stillFirstStatusSize !== undefined) return;
       const line = [...document.querySelectorAll("[role=status]")].find((element) =>
-        /Checking sync…|Settings are unavailable\./.test(element.textContent ?? ""),
+        /Loading your settings…|Settings are unavailable\./.test(element.textContent ?? ""),
       );
       if (line) seen.stillFirstStatusSize = parseFloat(getComputedStyle(line).fontSize);
     }).observe(document, { subtree: true, childList: true, characterData: true });
@@ -413,8 +413,9 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("the loading and unavailable lines follow the text size too", async () => {
-    // Until the first settings read answers the popup and settings page say "Checking sync…"; a
-    // read that fails says "Settings are unavailable." with Try again. Both follow the text size.
+    // Until the first settings read answers, the popup and settings page say "Loading your
+    // settings…"; a read that fails says "Settings are unavailable." with Try again. Both follow
+    // the text size.
     for (const [fontSize, scale] of [
       [16, 1],
       [32, 2],
@@ -433,7 +434,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
             await page.bringToFront();
             const where = `${path}, ${mode === "hold" ? "checking" : "unavailable"}, ${fontSize}px`;
             const line = page.getByRole("status").filter({
-              hasText: mode === "hold" ? "Checking sync…" : "Settings are unavailable.",
+              hasText: mode === "hold" ? "Loading your settings…" : "Settings are unavailable.",
             });
             await expect(line, where).toBeVisible({ timeout: 10_000 });
             await expect.poll(() => textScale(page), { message: where }).toBe(String(scale));
@@ -489,7 +490,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
       await page.goto(`chrome-extension://${browser.id}/popup.html`);
       await page.bringToFront();
       await expect.poll(() => textScale(page)).toBe("2");
-      const card = page.getByRole("region", { name: "Rate Still" });
+      const card = page.getByRole("region", { name: "Enjoying Still?" });
       await expect(card).toBeVisible();
       await expectOnlyTheDocumentScrolls(page, true);
       await expectNoSidewaysOverflow(page);

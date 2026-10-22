@@ -120,7 +120,7 @@ export const recipes = {
     await page.setViewportSize(size);
     await page.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
     await page.waitForURL(/^chrome-extension:\/\/[a-p]{32}\/tiktok-blocked\.html/, { waitUntil: "commit" });
-    await page.getByRole("heading", { name: "TikTok stays closed." }).waitFor();
+    await page.getByRole("heading", { name: "TikTok stays closed" }).waitFor();
     await page.evaluate(() => document.fonts.ready);
     await settle(page);
     return page;

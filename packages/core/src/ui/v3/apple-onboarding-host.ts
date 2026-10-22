@@ -139,8 +139,8 @@ export function setupDetection(
 
 /** Owner-approved failure lines (2026-10-05). */
 export const CONSENT_FAILED_TEXT =
-  "We couldn't save your choice. Still works either way.";
-export const COMPLETION_FAILED_TEXT = "We couldn't finish setup.";
+  "We couldn’t save your choice. Still works either way.";
+export const COMPLETION_FAILED_TEXT = "We couldn’t finish setup.";
 export const RETRY_LABEL = "Try again";
 
 type ConsentState =

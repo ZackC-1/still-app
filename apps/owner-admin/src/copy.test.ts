@@ -9,7 +9,7 @@ describe("owner page copy", () => {
     expect(APPROVED.allowances.body).toBe("Off everywhere until you allow it. Nothing changes until Apply.");
     expect(APPROVED.allowances.applied).toBe("Applied and read back. The server matches.");
     expect(APPROVED.allowances.stale).toBe("These changed since you loaded them. Reload to see the current state.");
-    expect(APPROVED.allowances.failed).toBe("Apply didn't finish. Nothing changed.");
+    expect(APPROVED.allowances.failed).toBe("Apply didn’t finish. Nothing changed.");
     expect(APPROVED.allowances.readback).toBe("Reading back the saved allowances…");
     expect(APPROVED.allowances.deferred).toBe("Deferred");
     expect(APPROVED.surfaces.edge_desktop).toBe("Edge desktop");

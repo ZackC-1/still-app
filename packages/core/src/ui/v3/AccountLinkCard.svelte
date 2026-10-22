@@ -22,7 +22,7 @@
       onclick={onConfirm}>Link to this account</button
     >
     <p class="card-body">
-      You'll use this account to restore Still Pro in other browsers.
+      You’ll use this account to restore Still Pro in other browsers.
     </p>
     <button
       type="button"
@@ -59,8 +59,8 @@
             : state === "linked"
               ? `Still Pro is linked to ${email}.`
               : state === "elsewhere"
-                ? "Still Pro works on this device. It's linked to another account."
-                : "Linking didn't finish."}</span
+                ? "Still Pro works on this device. It’s linked to another account."
+                : "Linking didn’t finish."}</span
         >
         {#if state === "failed"}<span
             class="muted"

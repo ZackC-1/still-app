@@ -87,7 +87,7 @@ describe("phone surfaces hide Still Pro switches that cannot act in a phone layo
 
   const SECTIONS = {
     "YouTube Blocker": { hidden: ["End-of-video suggestions", "Live chat"], shown: ["Related videos", "Autoplay prevention", "Comments"] },
-    "Facebook Blocker": { hidden: ["Desktop sidebar ads"], shown: ["Facebook Stories", "Video tab"] },
+    "Facebook Blocker": { hidden: ["Desktop sidebar ads"], shown: ["Stories", "Video tab"] },
   } as const;
   /** Opens each service section in turn (one is open at a time) and reports its drawn rows. */
   const rowsIn = async (section: keyof typeof SECTIONS) => {
@@ -162,7 +162,7 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "Instagram Blocker" }),
     ).toHaveAttribute("aria-expanded", "true");
     await fireEvent.click(
-      screen.getByRole("button", { name: "Settings. Opens Still settings." }),
+      screen.getByRole("button", { name: "Still settings. Opens Still settings." }),
     );
     expect(props.onSettings).toHaveBeenCalledOnce();
     props.commandsDisabled = false;
@@ -521,7 +521,7 @@ describe("controlled D02 mobile presentation", () => {
         address: "test@still.test",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Settings are saved on this device.",
+          text: "Sync didn’t finish. Settings are saved on this device.",
           retry,
         },
       };
@@ -536,7 +536,7 @@ describe("controlled D02 mobile presentation", () => {
       if (host === "safari") {
         // Owner's canvas review, 21 Oct 2026; the first step names the address-bar button the owner
         // found on his iPhone (iOS 27, Safari) on 21 Oct 2026.
-        expect(screen.getByText("Still can't block distractions yet.")).toBeTruthy();
+        expect(screen.getByText("Still can’t block distractions yet")).toBeTruthy();
         expect(
           screen.getByText(
             "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
@@ -548,15 +548,15 @@ describe("controlled D02 mobile presentation", () => {
       expect(retry).toHaveBeenCalledOnce();
       expect(
         screen.getByText(
-          "Sync didn't finish. Settings are saved on this device.",
+          "Sync didn’t finish. Settings are saved on this device.",
         ),
       ).toBeTruthy();
       await fireEvent.click(
         screen.getByRole("button", {
           name:
             host === "safari"
-              ? "Settings. Opens Still settings."
-              : "Settings. Find Still in Firefox.",
+              ? "Still settings. Opens Still settings."
+              : "Still settings",
         }),
       );
       expect(props.onSettings).toHaveBeenCalledOnce();
@@ -623,7 +623,7 @@ describe("optional D28 mobile invitation", () => {
     props.invitation = invitationSpecimen("rating", "safari");
     props.channelReady = true;
     const view = render(MobilePopup, { props });
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     props.invitation = invitationSpecimen("sync", "safari");
     await view.rerender(props);
     const card = screen.getByRole("region", {
@@ -642,24 +642,24 @@ describe("optional D28 mobile invitation", () => {
     props.host = "firefox";
     props.invitation = invitationSpecimen("rating", "firefox-android");
     const view = render(MobilePopup, { props });
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     props.channelReady = true;
     await view.rerender(props);
-    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
     props.setup = {};
     await view.rerender(props);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     props.setup = undefined;
     props.account = {
       address: "specimen@still.test",
       status: { tone: "failed", text: "Current sync failed" },
     };
     await view.rerender(props);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     props.account = undefined;
     props.invitation = invitationSpecimen();
     await view.rerender(props);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
   });
 
   it("preserves saved settings and one open site while a higher-priority link invitation replaces rating", async () => {
@@ -677,7 +677,7 @@ describe("optional D28 mobile invitation", () => {
     );
     props.invitation = invitationSpecimen("link", "firefox-android");
     await view.rerender(props);
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     expect(document.querySelectorAll(".service-options.open")).toHaveLength(1);
     await fireEvent.click(screen.getByRole("button", { name: "Link" }));
     expect(props.invitation.accept!.request).toHaveBeenCalledOnce();
@@ -708,7 +708,7 @@ describe("issued invitation across actual host sync suppression", () => {
         status: { tone: "pending", text: "Current sync pending" },
       };
       await view.rerender(props);
-      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
       props.account = undefined;
       await view.rerender(props);
       expect(props.invitation).toBe(p);
@@ -718,7 +718,7 @@ describe("issued invitation across actual host sync suppression", () => {
       );
       expect(p[first]!.request).toHaveBeenCalledOnce();
       expect(p[opposite]!.request).not.toHaveBeenCalled();
-      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
       expect(await storage.get()).toEqual(saved);
       expect(props.onGlobalChange).not.toHaveBeenCalled();
       expect(props.onServiceChange).not.toHaveBeenCalled();
@@ -730,9 +730,9 @@ describe("issued invitation across actual host sync suppression", () => {
 describe("per-issued invitation claims through MobilePopup", () => {
   const title = (kind: "rating" | "sync" | "link") =>
     ({
-      rating: "Rate Still",
+      rating: "Enjoying Still?",
       sync: "Settings sync",
-      link: "Link Still Pro to an account",
+      link: "Link Still Pro to your account",
     })[kind];
   const control = (
     kind: "rating" | "sync" | "link",
@@ -845,7 +845,7 @@ describe("informational Firefox destination without a payment channel", () => {
     expect(props.onSeePro).toHaveBeenCalledOnce();
     // Get Still Pro is navigation to Settings too, so it needs no payment channel (ISS-0032).
     expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(await storage.get()).toEqual(saved);
     const delivered = () => lock.dispatchEvent(new MouseEvent("click", { bubbles: true }));
