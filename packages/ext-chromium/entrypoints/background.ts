@@ -21,6 +21,8 @@ import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage, persist
 import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
+import { EMAIL_GRANT_ACCOUNT_KEY, EMAIL_PERMISSION_WITHDRAWN_KEY, FIREFOX_DATA_TYPES, firefoxDataGranted, type FirefoxDataCollectionApi } from "../lib/data-permission.js";
+import { createAccountEmailWatch, guardFirefoxDataFetch, withAccountEmailWatch, type AccountEmailWatch } from "../lib/firefox-data-guard.js";
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
@@ -650,8 +652,16 @@ function createSessionSpine(
   let capturePurchaseAnalytics: () => Promise<PurchaseAnalyticsContext | null> = () => Promise.resolve(null);
   const paymentFetch = PAID_TIER_ENABLED && routeProfile === "production"
     ? withCheckoutAnalytics(fetch, `${config.url.replace(/\/$/, "")}/functions/v1/create-web-checkout`, () => capturePurchaseAnalytics()) : fetch;
+  // Firefox: the email address and the purchase status leave only with their optional
+  // data-collection permission, read again for every request (lib/firefox-data-guard.ts). Never on
+  // the blocking path; the Chrome build folds this away.
+  const firefoxPermissions = (): FirefoxDataCollectionApi | undefined =>
+    chrome.permissions as unknown as FirefoxDataCollectionApi;
+  const accountFetch = import.meta.env.FIREFOX
+    ? guardFirefoxDataFetch(paymentFetch, { supabaseUrl: config.url, granted: (kind) => firefoxDataGranted(firefoxPermissions, kind) })
+    : paymentFetch;
   const client = createClient(config.url, config.anonKey, {
-    ...(PAID_TIER_ENABLED ? { global: { fetch: paymentFetch } } : {}),
+    ...(import.meta.env.FIREFOX || PAID_TIER_ENABLED ? { global: { fetch: accountFetch } } : {}),
     auth: {
       persistSession: true,
       autoRefreshToken: false,
@@ -731,7 +741,7 @@ function createSessionSpine(
   // switch off, leaving exactly createExtensionSession.
   // Its answer to a signed-out page needs a conclusive sign-out, the same answer the access
   // context uses (readAccessSession null).
-  const session = (PAID_TIER_ENABLED
+  const created = (PAID_TIER_ENABLED
     ? (deps: Parameters<typeof createExtensionSession>[0]) => createSessionWithCheckoutAvailability(deps, undefined, undefined,
       async () => (await readAccessSession({
         getSession: () => client.auth.getSession(),
@@ -768,6 +778,9 @@ function createSessionSpine(
     // it on disk for the next wake to resurrect.
     clearAuthStorage: () => { authBoundary(); return clearExtensionAuthStorage(order); },
   });
+  // Firefox: an account signed in here with the email permission is signed out of sync if that
+  // permission is withdrawn in about:addons (local settings stay); the pages then say why.
+  const session = import.meta.env.FIREFOX ? watchFirefoxAccountEmail(created, auth.currentUserId, firefoxPermissions) : created;
   return { session, client,
     setPurchaseAnalytics: capture => { capturePurchaseAnalytics = capture; },
     preparePurchaseAnalytics: async () => {
@@ -775,11 +788,44 @@ function createSessionSpine(
       const { data, error } = await client.auth.getSession();
       const current = data.session;
       if (error || !current) return null;
-      return { account: current.user.id, send: (body, signal) => fetch(`${config.url.replace(/\/$/, "")}/functions/v1/analytics-purchase`, {
+      return { account: current.user.id, send: (body, signal) => accountFetch(`${config.url.replace(/\/$/, "")}/functions/v1/analytics-purchase`, {
         method: "POST", headers: { Authorization: `Bearer ${current.access_token}`, apikey: config.anonKey, "content-type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
       }) };
     },
     accessEvidence: verified => scoped?.evidenceStatus(verified) ?? "unknown",
     accessEvidenceDeadline: () => scoped?.evidenceDeadline() ?? null };
+}
+
+/**
+ * Firefox only: the session the background and its pages use, with the withdrawal check before the
+ * account's reads and the start-up resume (lib/firefox-data-guard.ts). Firefox reports a removed
+ * permission too; that runs the same check. Nothing here asks for a permission.
+ */
+function watchFirefoxAccountEmail(
+  session: ExtensionSession,
+  currentUserId: () => Promise<string | null>,
+  permissions: () => FirefoxDataCollectionApi | undefined,
+): ExtensionSession {
+  const stored = <T>(key: string) => ({
+    get: async (): Promise<T | null> => ((await chrome.storage.local.get(key))[key] as T | undefined) ?? null,
+    set: async (value: T | null): Promise<void> => {
+      if (value === null) await chrome.storage.local.remove(key);
+      else await chrome.storage.local.set({ [key]: value });
+    },
+  });
+  const watch: AccountEmailWatch = createAccountEmailWatch({
+    granted: () => firefoxDataGranted(permissions, "email"),
+    currentUserId,
+    signedInWithGrant: stored<string>(EMAIL_GRANT_ACCOUNT_KEY),
+    withdrawn: stored<true>(EMAIL_PERMISSION_WITHDRAWN_KEY),
+    signOut: () => session.signOut(),
+  });
+  const removed = (chrome.permissions as unknown as {
+    onRemoved?: { addListener(listener: (permissions: { data_collection?: string[] }) => void): void };
+  }).onRemoved;
+  removed?.addListener((permissions) => {
+    if (permissions.data_collection?.includes(FIREFOX_DATA_TYPES.email)) void watch.check();
+  });
+  return withAccountEmailWatch(session, watch);
 }

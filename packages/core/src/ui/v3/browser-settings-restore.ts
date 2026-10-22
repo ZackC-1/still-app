@@ -1,4 +1,5 @@
 import type { RestoreStatusCardProps } from "./extension-settings-presentation.js";
+import type { DataPermission } from "../data-permission.js";
 
 /**
  * The background session's answer to its existing reconcile-only `restore` action (the same
@@ -25,6 +26,9 @@ export interface BrowserSettingsRestoreDeps {
   readonly openSignIn: () => void;
   /** Receives the RestoreStatusCard state to show; undefined clears the card. */
   readonly publish: (restore: RestoreStatusCardProps | undefined) => void;
+  /** Firefox only: the optional permission to check the purchase status. The tap asks for it
+   * first; every check reads it again; without it nothing is sent and the card says so. */
+  readonly permission?: DataPermission;
 }
 
 /**
@@ -50,9 +54,17 @@ export function createBrowserSettingsRestore(deps: BrowserSettingsRestoreDeps) {
   let checkedFor: string | null = null;
   let generation = 0;
   let stopped = false;
+  /** Firefox is showing (or settling) its permission prompt for this tap. */
+  let asking = false;
 
   async function run(userId: string, ticket: number): Promise<void> {
     deps.publish({ state: "checking" });
+    if (deps.permission && !(await deps.permission.granted("purchase").catch(() => false))) {
+      // Withdrawn since the tap (or never given): nothing is sent.
+      if (!stopped && ticket === generation && account.userId === userId) deps.publish({ state: "permission" });
+      return;
+    }
+    if (stopped || ticket !== generation || account.userId !== userId) return;
     let answer: BrowserRestoreAnswer | null;
     try {
       answer = await deps.check();
@@ -77,20 +89,44 @@ export function createBrowserSettingsRestore(deps: BrowserSettingsRestoreDeps) {
   }
 
   function retry(): void {
-    if (account.userId !== null) start();
+    if (account.userId !== null) request();
+  }
+
+  function proceed(): void {
+    if (account.userId !== null) {
+      start();
+      return;
+    }
+    awaitingSignIn = true;
+    deps.openSignIn();
+  }
+
+  /** The link's tap. Ignored while a check or a sign-in for it is already under way. */
+  function request(): void {
+    if (stopped || flight || awaitingSignIn || asking) return;
+    // Firefox: asked inside the tap, before anything is awaited (Firefox prompts only then).
+    const asked = deps.permission?.ask("purchase");
+    if (asked === undefined) {
+      proceed();
+      return;
+    }
+    asking = true;
+    const ticket = generation;
+    void asked
+      .catch(() => false)
+      .then((granted) => {
+        asking = false;
+        if (stopped || ticket !== generation) return;
+        if (granted !== true) {
+          deps.publish({ state: "permission" });
+          return;
+        }
+        proceed();
+      });
   }
 
   return {
-    /** The link's tap. Ignored while a check or a sign-in for it is already under way. */
-    request(): void {
-      if (stopped || flight || awaitingSignIn) return;
-      if (account.userId !== null) {
-        start();
-        return;
-      }
-      awaitingSignIn = true;
-      deps.openSignIn();
-    },
+    request,
     /** Feed every account change; the host calls this from its reactive effect. */
     observe(next: BrowserRestoreAccount): void {
       const previous = account;
@@ -114,7 +150,7 @@ export function createBrowserSettingsRestore(deps: BrowserSettingsRestoreDeps) {
     },
     /** Whether a tap would currently be ignored (a check or its sign-in is under way). */
     get busy(): boolean {
-      return flight || awaitingSignIn;
+      return flight || awaitingSignIn || asking;
     },
     stop(): void {
       stopped = true;

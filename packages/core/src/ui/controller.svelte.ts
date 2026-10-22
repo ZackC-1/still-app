@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import { isValidEmail } from "./email.js";
 import type { EmailConsent } from "./email-consent.js";
+import { DATA_PERMISSION_COPY, type DataPermission, type DataPermissionKind } from "./data-permission.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import { readAccountDeletionResult, type AccountDeletionResult } from "../sync/account-deletion.js";
@@ -150,6 +151,12 @@ export interface UiHost {
    * policy, and an extra screen there would only put a step between someone and what they came for.
    */
   readonly emailConsent?: EmailConsent;
+  /**
+   * Firefox only: the optional data-collection permissions for the sign-in email address and the
+   * Still Pro purchase status (data-permission.ts). Asked for inside the click that would first send
+   * one, and checked again before every later send. Absent everywhere else, where nothing is asked.
+   */
+  readonly dataPermission?: DataPermission;
 }
 
 export interface UiAuth {
@@ -358,6 +365,9 @@ export class UiController {
    * memory rather than persisted: leaving the flow starts it again from the disclosure, which is
    * the conservative reading of "before the email is collected", and it costs one tap. */
   emailConsentGiven = $state(false);
+  /** Firefox: the permission the person declined (or withdrew) for the last send they tried. The
+   * sign-in sheet and the signed-out sync card show its one line; a granted send clears it. */
+  dataPermissionNotice = $state<DataPermissionKind | null>(null);
   paywallOpen = $state(false);
   /** Localized store price for the buy CTA (e.g. "$1.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
@@ -719,6 +729,28 @@ export class UiController {
     return this.emailConsent !== "none" && !this.emailConsentGiven;
   }
 
+  /** The host learned that a permission was withdrawn (Firefox's add-on manager): say so where the
+   * person will next look. Cleared by the next send that has the permission. */
+  showDataPermissionNotice(kind: DataPermissionKind): void {
+    this.dataPermissionNotice = kind;
+  }
+
+  /**
+   * Settle a Firefox data-permission ask made earlier in the same tap. No ask (every other host)
+   * means permitted. A declined, refused or failed ask means nothing may be sent: the notice says
+   * why. A granted one clears its notice.
+   */
+  private async permitted(asked: Promise<boolean> | undefined, kind: DataPermissionKind): Promise<boolean> {
+    if (asked === undefined) return true;
+    const granted = await asked.then(
+      (answer) => answer === true,
+      () => false,
+    );
+    if (!granted) this.dataPermissionNotice = kind;
+    else if (this.dataPermissionNotice === kind) this.dataPermissionNotice = null;
+    return granted;
+  }
+
   /** The consent step's one affirmative action. The sheet only enables it once the surface's own
    * requirement is met, which on Firefox means an explicit yes rather than merely reading. */
   acceptEmailConsent(): void {
@@ -925,11 +957,19 @@ export class UiController {
    * trap the buyer for 24h. */
   async startWebCheckout(): Promise<void> {
     if (!this.checkout || this.purchaseBusy) return;
+    // Firefox: a checkout reads and records the account's Still Pro purchase status, an optional
+    // data-collection permission there. Asked inside this tap, before anything is awaited.
+    const asked = this.host.dataPermission?.ask("purchase");
     // A fresh checkout supersedes any pending presentation/poll window (replace, not block).
     this.stopPollTimer();
     this.checkoutFlow = "none";
     this.purchaseFlow = "opening-checkout";
     this.purchaseError = null;
+    if (asked !== undefined && !(await this.permitted(asked, "purchase"))) {
+      this.purchaseFlow = "failed";
+      this.purchaseError = DATA_PERMISSION_COPY.purchase;
+      return;
+    }
     const outcome = await this.checkout.createCheckout();
     switch (outcome.kind) {
       case "checkout-url": {
@@ -1130,13 +1170,21 @@ export class UiController {
     // failing auth call (the sheet disables the button for the same reason; this also covers a
     // programmatic caller). No-op rather than an error state — nothing was attempted.
     if (!isValidEmail(email)) return;
+    // Firefox: the email address leaves this device only with its optional data-collection
+    // permission. Asked here, inside the tap and before anything is awaited, because Firefox only
+    // prompts from a user action and an awaiting handler has stopped being one.
+    const asked = this.host.dataPermission?.ask("email");
     if (this.canUseCode) {
-      await this.sendCode(email);
+      await this.sendCode(email, asked);
       return;
     }
     if (!this.auth.signIn) return;
     this.authFlow = "sending";
     this.authError = null;
+    if (asked !== undefined && !(await this.permitted(asked, "email"))) {
+      this.authFlow = "idle";
+      return;
+    }
     const { error } = await this.auth.signIn(email);
     if (error) {
       this.authFlow = "error";
@@ -1153,10 +1201,19 @@ export class UiController {
    * text can ever reach the code path. A rate-limited first send (R2 — the state a user hits
    * under the hourly SMTP cap) additionally locks the email-view CTA: retrying cannot help and
    * only extends the server window. */
-  private async sendCode(email: string): Promise<void> {
+  private async sendCode(email: string, asked?: Promise<boolean>): Promise<void> {
     this.authFlow = "sending";
     this.authError = null;
     const gen = this.authFlowGeneration;
+    // No ask (every host but Firefox): the request goes out in this same tick, as before.
+    if (asked !== undefined) {
+      if (!(await this.permitted(asked, "email"))) {
+        // Declined: nothing was sent. Back to the email field, with the sheet's one line.
+        if (this.authFlowGeneration === gen) this.authFlow = "idle";
+        return;
+      }
+      if (this.authFlowGeneration !== gen) return; // dismissed while Firefox was asking
+    }
     const outcome = await this.auth!.requestCode!(email);
     if (this.authFlowGeneration !== gen) return; // dismissed mid-request — don't persist or enter
     if (outcome.kind === "sent") {
@@ -1182,11 +1239,22 @@ export class UiController {
   async verifyCode(code: string): Promise<void> {
     if (!this.auth?.verifyCode || this.codeEmail === null) return;
     if (this.authFlow === "verifying" || this.verifyBlockRemaining > 0) return;
+    // Firefox: verifying sends the email address again, so the grant is checked again first (and
+    // asked for, since Verify is a tap). Withdrawn: nothing is sent and it is not a code attempt.
+    const asked = this.host.dataPermission?.ask("email");
     this.authFlow = "verifying";
     this.codeErrorKind = null;
     const expired = this.codeIsExpired(); // judged against the request time, pre-await
     const gen = this.authFlowGeneration;
-    const outcome = await this.auth.verifyCode(this.codeEmail, code);
+    const email = this.codeEmail;
+    if (asked !== undefined) {
+      if (!(await this.permitted(asked, "email"))) {
+        if (this.authFlowGeneration === gen) this.authFlow = "code-entry";
+        return;
+      }
+      if (this.authFlowGeneration !== gen) return;
+    }
+    const outcome = await this.auth.verifyCode(email, code);
     // Abandoned mid-verify (Not now / use-a-different-email): drop the result — a cancelled verify
     // must not silently sign the user in (F6).
     if (this.authFlowGeneration !== gen) return;
@@ -1250,10 +1318,16 @@ export class UiController {
       this.sendBlockRemaining > 0
     )
       return;
+    // Firefox: a resend sends the email address again, so the grant is asked for again, first.
+    const asked = this.host.dataPermission?.ask("email");
     const email = this.codeEmail;
     const gen = this.authFlowGeneration;
     this.resendInFlight = true; // synchronous guard: the cooldown only starts after this resolves (F7)
     try {
+      if (asked !== undefined) {
+        if (!(await this.permitted(asked, "email"))) return; // still on code entry, with the line
+        if (this.authFlowGeneration !== gen) return;
+      }
       const outcome = await this.auth.requestCode(email);
       if (this.authFlowGeneration !== gen) return; // abandoned mid-resend
       if (outcome.kind === "sent") {

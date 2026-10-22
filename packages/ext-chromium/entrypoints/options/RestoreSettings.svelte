@@ -13,8 +13,11 @@
    */
   export function bindSettingsRestore(
     controller: SettingsRestoreHost["controller"] | undefined,
+    permission?: SettingsRestoreHost["permission"],
   ): void {
-    bound = controller ? settingsRestoreHost(controller) : undefined;
+    bound = controller
+      ? settingsRestoreHost(controller, undefined, permission)
+      : undefined;
   }
 </script>
 
@@ -64,6 +67,7 @@
   const flow = host
     ? createBrowserSettingsRestore({
         check: host.check,
+        permission: host.permission,
         openSignIn: () => host.controller.openSignIn(),
         publish: (next) => {
           card = next;

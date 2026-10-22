@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { RestoreStatusCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import { DATA_PERMISSION_COPY } from "../data-permission.js";
   // `state` is renamed here: the prop name would shadow the $state rune this card now needs.
   let {
     state: shown,
@@ -38,6 +39,14 @@
       text: "Still Pro needs to be verified again.",
       detail: undefined,
       action: "Verify now",
+    },
+    // Firefox: the person declined the permission, so nothing was checked. Not an error; asking
+    // again is the card's own Restore purchase or Get Still Pro.
+    permission: {
+      tone: "info",
+      text: DATA_PERMISSION_COPY.purchase,
+      detail: undefined,
+      action: undefined,
     },
   } as const;
   const icons = {

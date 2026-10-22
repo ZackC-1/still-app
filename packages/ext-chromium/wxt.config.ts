@@ -8,14 +8,21 @@ export const firefoxBrowserSpecificSettings = {
     // data collection, pin the minimum so no one can install on an older desktop Firefox and sign
     // in or transmit auth/settings data without that consent screen.
     strict_min_version: "140.0",
-    // Optional account sign-in uses an emailed one-time code and persists a Supabase session. Settings
-    // sync carries only the signed-in user's own Still preferences under that account.
-    // Usage analytics is "technicalAndInteraction", which Firefox only allows as optional: the
-    // person can switch it on at install, or later from Still's settings (lib/analytics.ts), and
-    // nothing is sent until they do.
+    // Optional account sign-in persists a Supabase session ("authenticationInfo": registration info
+    // for an account-based extension). Settings sync carries only the signed-in user's own Still
+    // preferences under that account.
+    // Installing the free blocker never asks for anything else (owner decision, 22 Oct 2026). The
+    // rest is optional; Firefox does not show optional types at install and asks the person at run
+    // time instead, from their own click (lib/data-permission.ts):
+    //   * "personallyIdentifyingInfo": the email address Sign in sends for its code.
+    //   * "financialAndPaymentInfo": the Still Pro purchase status that Get Still Pro and Restore
+    //     purchase read and record.
+    //   * "technicalAndInteraction": usage analytics, which Firefox only allows as optional and
+    //     offers in its install prompt; also switched from Still's settings (lib/analytics.ts).
+    // Nothing optional is sent until it is granted (lib/firefox-data-guard.ts).
     data_collection_permissions: {
       required: ["authenticationInfo"],
-      optional: ["technicalAndInteraction"],
+      optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"],
     },
   },
 };

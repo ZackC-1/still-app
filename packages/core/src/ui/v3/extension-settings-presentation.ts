@@ -33,6 +33,9 @@ export interface SyncCardProps {
     sharedData?: SharedDataProps;
   };
   onSignIn?: () => void;
+  /** Signed out: one line in place of the sync pitch. Firefox sets it when the person declined, or
+   * withdrew, the permission to send their email address (data-permission.ts). */
+  notice?: string;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
   /** Apple accountless Still Pro holder, signed out (ISS-0071; moved into this card by the owner
@@ -107,8 +110,9 @@ export interface ProOfferCardProps {
 }
 
 export interface RestoreStatusCardProps {
-  /** "nothing" requires a conclusive caller result. Uncertainty is checking/failed. */
-  state: "checking" | "restored" | "nothing" | "failed" | "verify";
+  /** "nothing" requires a conclusive caller result. Uncertainty is checking/failed. "permission":
+   * Firefox, the person declined the permission to check the purchase status, so nothing was sent. */
+  state: "checking" | "restored" | "nothing" | "failed" | "verify" | "permission";
   onAction?: () => void;
   /**
    * Replaces the "nothing" wording for a host whose check is against something other than a Still

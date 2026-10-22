@@ -57,7 +57,7 @@ describe("Firefox manifest compatibility", () => {
       strict_min_version: "140.0",
       data_collection_permissions: {
         required: ["authenticationInfo"],
-        optional: ["technicalAndInteraction"],
+        optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"],
       },
     };
     expect(firefoxBrowserSpecificSettings).toEqual({ gecko });
@@ -180,6 +180,17 @@ describe("Firefox manifest compatibility", () => {
   it("keeps usage analytics optional: Firefox refuses it as required, and nothing is sent without it", () => {
     const { required } = firefoxBrowserSpecificSettings.gecko.data_collection_permissions;
     expect(required).not.toContain("technicalAndInteraction");
+  });
+
+  it("never makes installing the free blocker accept the email address or the purchase status", () => {
+    // Owner decision, 22 Oct 2026: Firefox asks for these at Sign in and at Get Still Pro or
+    // Restore purchase (lib/data-permission.ts), never at install or update.
+    const { required, optional } = firefoxBrowserSpecificSettings.gecko.data_collection_permissions;
+    expect(required).toEqual(["authenticationInfo"]);
+    for (const type of ["personallyIdentifyingInfo", "financialAndPaymentInfo"]) {
+      expect(required).not.toContain(type);
+      expect(optional).toContain(type);
+    }
   });
 
   it("places a new Firefox install's Still action in the toolbar, without leaking that key to Chromium", () => {

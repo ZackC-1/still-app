@@ -2,6 +2,8 @@ import { browser } from "wxt/browser";
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { extensionSupabaseConfig, readAccountDeletionResult, readBackendRouteProfile, type BackendRouteProfile } from "@still/core/sync";
 import { STRINGS, type ExtensionPurchaseDeps, type UiController } from "@still/core/ui";
+import { DATA_PERMISSION_COPY, type DataPermission } from "@still/core/ui/data-permission";
+import { dataPermission } from "./data-permission.js";
 import {
   SESSION_MESSAGE_KIND,
   unavailableResponse,
@@ -65,7 +67,39 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
   );
   if (config === null) return undefined;
   const routeProfile = readBackendRouteProfile(import.meta.env.VITE_BACKEND_ROUTE_PROFILE);
-  return routeProfile ? createExtensionPurchaseDeps(send, routeProfile) : undefined;
+  if (!routeProfile) return undefined;
+  const deps = createExtensionPurchaseDeps(send, routeProfile);
+  // Firefox only (the flag folds this away elsewhere): the email address and the purchase status
+  // are optional data-collection permissions there.
+  return import.meta.env.FIREFOX && dataPermission ? withDataPermission(deps, dataPermission) : deps;
+}
+
+/**
+ * Firefox: every closure that would send the email address or the Still Pro purchase status checks
+ * Firefox's grant again right before it sends, and sends nothing without it. The asking itself
+ * happens in the click (the controller and the settings flows call `ask` first); this is the check
+ * before each send, so a grant withdrawn in about:addons after the click still stops the send. The
+ * background's fetch guard (lib/firefox-data-guard.ts) refuses the same requests once more.
+ */
+export function withDataPermission(deps: ExtensionPurchaseDeps, permission: DataPermission): ExtensionPurchaseDeps {
+  const has = (kind: "email" | "purchase") => permission.granted(kind).catch(() => false);
+  return {
+    ...deps,
+    dataPermission: permission,
+    auth: {
+      ...deps.auth,
+      requestCode: async (email) => ((await has("email")) ? deps.auth.requestCode!(email) : { kind: "send-failed" }),
+      verifyCode: async (email, token) =>
+        ((await has("email")) ? deps.auth.verifyCode!(email, token) : { kind: "verify-failed" }),
+    },
+    checkout: {
+      ...deps.checkout,
+      createCheckout: async () => ((await has("purchase")) ? deps.checkout.createCheckout() : { kind: "unavailable" }),
+      // Also the page-open and poll re-checks, which no click starts: without the grant they are
+      // simply not made ("unknown" changes nothing).
+      reconcile: async () => ((await has("purchase")) ? deps.checkout.reconcile() : "unknown"),
+    },
+  };
 }
 
 /** Build the UI capability injection from a session sender; exported for seam-level translation pins. */
@@ -145,9 +179,21 @@ export function createExtensionPurchaseDeps(sendMessage: SessionSender, routePro
  * the background's cache write reaches the controller through the entitlement storage watch and
  * fires the payoff (R6 ordering) — this closure only settles the restore button otherwise.
  */
-export function restoreHandler(controller: UiController, sendMessage: SessionSender = send): () => void {
+export function restoreHandler(
+  controller: UiController,
+  sendMessage: SessionSender = send,
+  permission: DataPermission | undefined = dataPermission,
+): () => void {
   return () => {
-    void sendMessage({ kind: SESSION_MESSAGE_KIND, action: "restore" }).then((outcome) => {
+    // Firefox: the restore reads the purchase status, so ask inside this tap, before anything else.
+    const asked = permission?.ask("purchase");
+    void (async () => {
+      if (asked && !(await asked.catch(() => false))) {
+        // Declined: nothing is sent; the paywall's line says why.
+        controller.setPurchaseOutcome({ outcome: "failed", entitled: false, error: DATA_PERMISSION_COPY.purchase });
+        return;
+      }
+      const outcome = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "restore" });
       if (outcome === "entitled") return;
       if (outcome === "not-entitled") {
         controller.setRestoreOutcome(false); // honest: nothing to restore on this account
@@ -157,6 +203,6 @@ export function restoreHandler(controller: UiController, sendMessage: SessionSen
         // unknown (offline / spine absent): one calm retry line, CTA re-enabled.
         controller.setPurchaseOutcome({ outcome: "unavailable", entitled: false });
       }
-    });
+    })();
   };
 }

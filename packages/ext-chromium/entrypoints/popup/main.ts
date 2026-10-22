@@ -13,6 +13,7 @@ import {
   restoreHandler,
 } from "../../lib/purchase-wiring.js";
 import { emailConsent } from "../../lib/email-consent.js";
+import { extensionNoticeStorage, watchEmailPermissionNotice } from "../../lib/data-permission.js";
 import { surfaceGuidance } from "../../lib/surface-guidance.js";
 import { createPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
@@ -72,6 +73,9 @@ function init(): void {
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
     accessPlatform: platform,
   });
+  // Firefox: a withdrawn email permission signed the account out of sync; say so (data-permission.ts).
+  if (import.meta.env.FIREFOX)
+    controller.addTeardown(watchEmailPermissionNotice(controller, extensionNoticeStorage()));
   // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
   // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
   // builds contain none of this and stay byte-identical.
