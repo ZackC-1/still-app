@@ -33,11 +33,14 @@ there is no purchase requirement. Installing asks only for `authenticationInfo` 
 data (`technicalAndInteraction`). `authenticationInfo` covers the sign-in session token, which
 embeds the account's email address and goes, with every signed-in request, only to Still's own
 backend. The email address as personal data (to request a sign-in code, or attached to usage
-analytics) and purchase data (starting a Still Pro checkout) are optional data types: Firefox asks
-for them, from the person's click, at Send code and at Get Still Pro, and those requests are never
-sent without them (`lib/data-permission.ts`, `lib/firefox-data-guard.ts`). Receiving the account's
-Still Pro status (Restore purchase, re-checks) sends no purchase data and needs no grant. Blocking,
-the TikTok block and local settings need no grant. Do not lower the Android floor or change the stable identifier
+analytics) and purchase data (anything that references a purchase or checkout: starting or
+completing a Still Pro checkout, purchase analytics) are optional data types: Firefox asks for them,
+from the person's click, at Send code and at Get Still Pro, and those requests are never sent
+without them (`lib/data-permission.ts`, `lib/firefox-data-guard.ts`). Receiving the account's Still
+Pro status (Restore purchase, re-checks) sends only the session token and the anon key and needs no
+grant. Blocking, the TikTok block and local settings need no grant.
+
+Do not lower the Android floor or change the stable identifier
 as metadata housekeeping. The first V3 store upload must not list Firefox for Android; when Android
 ships in a later update, confirm AMO lists that version as compatible with Firefox for Android.
 

@@ -17,10 +17,13 @@ Required types must be accepted to install, so a required type gates installing 
 Still declares only `authenticationInfo` (the sign-in session token, which embeds the account's email
 and goes only to Still's backend) as required. The email address sent as personal data
 (`personallyIdentifyingInfo`: code requests, analytics-identify), purchase data
-(`financialAndPaymentInfo`: starting a checkout) and usage data (`technicalAndInteraction`) are
-optional (owner decision, 22 Oct 2026). Mozilla's types describe what an add-on transmits ("You
-specify the data types your extension transmits"), so receiving the account's Still Pro status needs
-no grant, and Still Pro's re-checks and Restore run without one. Optional types other than
+(`financialAndPaymentInfo`: anything that references a purchase or checkout, such as starting or
+completing a checkout, purchase analytics and Restore's events) and usage data
+(`technicalAndInteraction`) are optional (owner decision, 22 Oct 2026). Mozilla's types describe
+what an add-on transmits ("You specify the data types your extension transmits"), so receiving the
+account's Still Pro status (only the session token and the anon key go out) needs no grant, and Still
+Pro's re-checks and Restore run without one. A stored checkout's completion is skipped instead
+(`mayCompleteCheckout`), so Still Pro cannot lock for want of the grant. Optional types other than
 `technicalAndInteraction` are not shown at install and are not granted until the person allows them.
 
 ## Rules that decide the design

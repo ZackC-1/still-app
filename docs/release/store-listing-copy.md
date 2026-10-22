@@ -342,7 +342,7 @@ The relevant types:
 |---|---|---|---|
 | `authenticationInfo` | "passwords, usernames, ... registration information for extensions that offer account-based services" | The sign-in session token. It embeds the account's email address and goes, with every signed-in request, only to Still's own backend | Required |
 | `personallyIdentifyingInfo` | "contact information such as name and address, email, and phone number" | The email address sent as personal data: to request a sign-in code, or attached to usage analytics | Optional, asked at sign-in |
-| `financialAndPaymentInfo` | "credit card numbers, transactions, credit ratings, financial statements, or payment history" | Starting a Still Pro checkout (a transaction) for the account; card details stay on the payment provider's page | Optional, asked at Get Still Pro |
+| `financialAndPaymentInfo` | "credit card numbers, transactions, credit ratings, financial statements, or payment history" | Anything that references a purchase or checkout: starting a Still Pro checkout (a transaction) for the account, completing it (its operation id), and purchase analytics; card details stay on the payment provider's page | Optional, asked at Get Still Pro |
 | `technicalAndInteraction` | "extension usage and settings data" | Usage analytics (ADR 0004) | Optional (Mozilla allows it only as optional) |
 
 **What the manifest declares:**
@@ -366,14 +366,17 @@ data_collection_permissions: {
   the sheet says "Sign in needs permission to send your email address. Your settings stay on this
   device." Firefox's grant is read again before every later send (Resend, Verify), and usage
   analytics never attaches the email without it.
-- **Purchase data:** Firefox asks when the person clicks Get Still Pro (or Try again), which starts a
-  checkout. Declined, no checkout starts and the Still Pro card says "Still Pro needs permission to
-  check your purchase."
+- **Purchase data:** anything that references a purchase or checkout needs the grant: starting a
+  checkout, completing a stored one (it sends the checkout's operation id), and purchase analytics,
+  including Restore's events (a "restored" outcome reveals Still Pro ownership). Firefox asks when
+  the person clicks Get Still Pro (or Try again). Declined, no checkout starts and the Still Pro card
+  says "Still Pro needs permission to start your purchase."
 - **Still Pro status needs no grant:** Restore purchase and Still's own re-checks only receive the
-  account's Still Pro status from Still's server; the device sends no purchase or payment data for
-  them. Mozilla's types describe data an add-on transmits ("You specify the data types your
-  extension transmits"), so they run without `financialAndPaymentInfo` and Still Pro never locks for
-  want of it.
+  account's Still Pro status from Still's server. For them the device sends only the session token
+  and the backend's public anon key. Mozilla's types describe data an add-on transmits ("You specify
+  the data types your extension transmits"), so they run without `financialAndPaymentInfo` and
+  Still Pro never locks for want of it. Without the grant, a stored checkout's completion step is
+  skipped; the status read and the payment provider's webhook still unlock a paid checkout.
 - **New and existing users:** an update shows no new install-time prompt for email or payment,
   because Firefox shows only newly added required types on update. Existing signed-in users stay
   signed in; their email is not sent as personal data (code requests, analytics) until a sign-in on
@@ -816,8 +819,9 @@ for purchase data at Get Still Pro. Keep every privacy sentence consistent with 
 sent only while its optional permission is granted; the sign-in session token (required
 authentication information) embeds the account's email and goes only to Still's own backend; the
 email address is sent as personal data (to request a code, or attached to analytics) only with its
-optional grant; a checkout starts only with the purchase-data grant; and receiving the account's
-Still Pro status needs no grant. The description's privacy paragraph carries this wording.
+optional grant; anything that references a purchase or checkout is sent only with the
+purchase-data grant; and receiving the account's Still Pro status (which sends only the session
+token and the anon key) needs no grant. The description's privacy paragraph carries this wording.
 
 **Description** (3162/15000):
 
@@ -865,7 +869,7 @@ Sign-in is optional and only adds free settings sync. Blocking works without an 
 
 Still Pro is optional. To see its purchase flow, open Still's settings (Settings in the popup) and choose Get Still Pro. You sign in first, then the web checkout opens in a new tab on a RevenueCat payment page. You don't need to buy anything or use a test card to review the free product.
 
-Signed-in requests carry the sign-in session token (declared under the required "authenticationInfo"); it embeds the account's email address and goes only to Still's own backend. The email address is sent as personal data (to request a sign-in code, or attached to usage analytics) only with the optional "personallyIdentifyingInfo" permission, which Firefox asks for when you click Send code. Starting a Still Pro checkout needs the optional "financialAndPaymentInfo" permission, asked when you click Get Still Pro; receiving an account's Still Pro status (Restore purchase) sends no purchase data and needs no grant. Blocking needs neither.
+Signed-in requests carry the sign-in session token (declared under the required "authenticationInfo"); it embeds the account's email address and goes only to Still's own backend. The email address is sent as personal data (to request a sign-in code, or attached to usage analytics) only with the optional "personallyIdentifyingInfo" permission, which Firefox asks for when you click Send code. Anything that references a purchase or checkout (starting or completing a checkout, purchase analytics) needs the optional "financialAndPaymentInfo" permission, asked when you click Get Still Pro. Receiving an account's Still Pro status (Restore purchase) sends only the session token and the anon key and needs no grant. Blocking needs neither.
 
 Usage data is the optional "technicalAndInteraction" data-collection permission. Nothing is sent unless it is granted, at install or later from Still's settings. It records product events only, never page addresses, videos, searches or page content. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release is for desktop Firefox.
 
