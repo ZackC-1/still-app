@@ -142,6 +142,20 @@ switch. Firefox source archives for AMO carry only the explicit allowlist of pub
 - The privacy policy (`docs/privacy.html`) and homepage wording must be published to
   `stillapp.fit` before or with the store submissions, so every declaration matches.
 
+### V3 canonical purchase analytics follow-up
+
+Before submitting a V3 iOS or macOS build containing canonical purchase/refund reporting, update
+App Store Connect → App Privacy → Purchases → Purchase History to include **Analytics** alongside
+**App Functionality**. Keep **Linked to you: Yes**, **Tracking: No**, and no browsing-history category.
+The two canonical events use the current permitted per-device analytics identity; anonymous history
+is not merged into a later signed-in subject. The Apple app manifest declares both purposes; the
+Safari extension does not emit these purchase events and retains its existing data types.
+
+Confirm the final archive's privacy report and publish the matching `docs/privacy.html` notice before
+activation. Check [the label table](store-listing-copy.md#4-apple--app-privacy-the-label) and
+[Apple's purpose definitions](https://developer.apple.com/app-store/app-privacy-details/).
+These are portal/publication follow-ups; source changes alone do not prove they are complete.
+
 ## Website
 
 Store links on `stillapp.fit` can carry campaign tags so each store's own dashboard shows the
