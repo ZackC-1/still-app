@@ -4,7 +4,9 @@
 // GitHub's branch/status-filtered run list has returned nothing while the unfiltered list held
 // the baseline run (ISS-0120), so this lists runs unfiltered and selects locally. A missing
 // baseline is a named failure, never a silent "no baseline" comparison.
+import { realpathSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 export const WORKFLOW_PATH = ".github/workflows/supabase-readonly-checks.yml";
 export const BASELINE_ARTIFACT = "qa-production-baseline";
@@ -78,4 +80,11 @@ export async function main(env = process.env, fetchImpl = fetch) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exitCode = await main();
+/** True when `scriptPath` (process.argv[1]) is this module, through symlinks and percent-encoding. */
+export function isEntryPoint(moduleUrl, scriptPath) {
+  if (!scriptPath) return false;
+  try { return moduleUrl === pathToFileURL(realpathSync(scriptPath)).href; }
+  catch { return false; }
+}
+
+if (isEntryPoint(import.meta.url, process.argv[1])) process.exitCode = await main();

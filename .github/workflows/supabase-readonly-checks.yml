@@ -148,6 +148,7 @@ jobs:
         # Lists runs unfiltered and selects locally (ISS-0120); a missing baseline fails the run.
         run: |
           run_id=$(node scripts/backend/qa-checks/baseline.mjs) || exit 1
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::Production baseline: the lookup returned no run id"; exit 1; }
           gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name qa-production-baseline --dir "$RUNNER_TEMP/qa-baseline-in"
           if [ ! -s "$RUNNER_TEMP/qa-baseline-in/baseline.json" ]; then
             echo "::error::Production baseline: DB-01 run $run_id artifact holds no baseline.json"

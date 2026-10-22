@@ -5,7 +5,11 @@
 // only the read-only secret.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { parsers } from "prettier/plugins/yaml";
 import {
@@ -24,7 +28,7 @@ import { CHECK_VIEWS, GuardError, MIGRATION_VIEWS, assertSingleSelect } from "./
 import { lintVerificationSql } from "../deploy/deploy.mjs";
 import { WITHHELD, formatValue, ref, renderReport } from "./report.mjs";
 import { READONLY_ENVIRONMENT, main as protectionMain } from "./protection.mjs";
-import { BASELINE_ARTIFACT, BaselineError, WORKFLOW_PATH, findBaselineRun, main as baselineMain } from "./baseline.mjs";
+import { BASELINE_ARTIFACT, BaselineError, WORKFLOW_PATH, findBaselineRun, isEntryPoint, main as baselineMain } from "./baseline.mjs";
 
 const ROOT = new URL("../../../", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
@@ -607,6 +611,46 @@ test("no baseline is a named failure, never a silent pass-through", async () => 
     assert.equal(await baselineMain(env, f.fake({ pages: [[f.db01(42, "2026-10-21T00:00:00Z")]], artifacts: { 42: [f.artifact] } }).fetchImpl), 0);
     assert.deepEqual(out, ["42"]);
   } finally { Object.assign(console, quiet); }
+});
+
+test("the baseline script runs as the entry point through a symlinked, space-containing path", async () => {
+  const moduleUrl = new URL("./baseline.mjs", import.meta.url).href;
+  const real = fileURLToPath(moduleUrl);
+  const dir = await mkdtemp(join(tmpdir(), "still baseline %20 "));
+  try {
+    const link = join(dir, "lookup.mjs");
+    await symlink(real, link);
+    assert.equal(isEntryPoint(moduleUrl, real), true);
+    assert.equal(isEntryPoint(moduleUrl, link), true, "symlinked path");
+    assert.equal(isEntryPoint(moduleUrl, fileURLToPath(new URL("./protection.mjs", import.meta.url))), false);
+    assert.equal(isEntryPoint(moduleUrl, join(dir, "missing.mjs")), false);
+    assert.equal(isEntryPoint(moduleUrl, undefined), false);
+    // End to end: main really runs, and refuses before any network call without a repository.
+    const result = spawnSync(process.execPath, [link], { env: { PATH: process.env.PATH ?? "" }, encoding: "utf8" });
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Production baseline: NOT found \(repository-invalid: /);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("the workflow refuses a lookup result that is not a run id", async () => {
+  const { workflow } = await loadWorkflow(WORKFLOW);
+  const step = workflow.jobs.check.steps.find((s) => /baseline\.mjs/.test(s.run ?? ""));
+  const lines = step.run.split("\n").map((l) => l.trim());
+  const lookup = lines.findIndex((l) => l === "run_id=$(node scripts/backend/qa-checks/baseline.mjs) || exit 1");
+  const guard = lines.findIndex((l) => l.startsWith('[[ "$run_id" =~ ^[0-9]+$ ]] || {') && l.endsWith("exit 1; }"));
+  const download = lines.findIndex((l) => l.startsWith("gh run download "));
+  assert.ok(lookup >= 0 && guard === lookup + 1 && download > guard, step.run);
+});
+
+test("a malformed baseline is reported as baseline-invalid, not as a missing baseline run", () => {
+  const request = resolveRequest({ check: "DB-35" });
+  const render = (production) =>
+    renderReport({ ...request, holders: [], results: [], refKey: "11".repeat(32), production, verdict: "fail" });
+  const invalid = render("baseline-invalid");
+  assert.match(invalid, /Production unchanged since baseline: unknown: the DB-01 baseline file is present but malformed \(baseline-invalid\)/);
+  assert.doesNotMatch(invalid, /no successful DB-01 baseline run was found/);
+  assert.match(render("no-baseline"), /no DB-01 baseline file was provided/);
 });
 
 test("owner setup helpers emit only a verifier, an expiry, a key and digests", async () => {

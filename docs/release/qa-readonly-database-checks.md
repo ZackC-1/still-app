@@ -94,7 +94,8 @@ Each layer is independent; any one of them alone stops a write.
   `qa-production-baseline`; DB-31 and DB-35 recompute it and report "production unchanged since
   baseline: yes / no". They find the newest successful DB-01 run on main that still carries that
   artifact ([`baseline.mjs`](../../scripts/backend/qa-checks/baseline.mjs)) and fail with
-  `baseline-not-found` when there is none, so run DB-01 again once its artifact has expired.
+  `baseline-not-found` when there is none, so run DB-01 again once its artifact has expired. A
+  downloaded baseline file that is malformed fails the check as `baseline-invalid`.
   The one exception is PROD-01 (below): it prints the production sales policy
   facts the public `product-policy` route already serves and the paid cutoff's product
   configuration, in the encrypted report only, and nothing about any account or person.
