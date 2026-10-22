@@ -12,7 +12,7 @@ export interface RevenueCatAccessClient {
 interface LegacyAccessProductMapping {
   readonly product_id: string;
   readonly app_id: string;
-  readonly store_identifier: "still_pro_v3" | "still_sync";
+  readonly store_identifier: "still_pro_v3" | "still_sync" | "still_sync_web";
   readonly entitlement_lookup_key: "still_pro_v3" | "still_sync";
   readonly store: "app_store" | "mac_app_store" | "rc_billing";
 }
@@ -54,10 +54,16 @@ export function parseAccessProductMappings(text: string): readonly AccessProduct
         if (Object.keys(mapping).length !== 6 || typeof mapping.store_identifier !== "string" ||
             !STRIPE_STORE_ID.test(mapping.store_identifier) || mapping.entitlement_lookup_key !== "still_pro_v3" ||
             mapping.benefit_product !== "still_pro_v3") return null;
-      } else if (Object.keys(mapping).length !== 5 ||
-                 !["still_pro_v3", "still_sync"].includes(mapping.store_identifier as string) ||
-                 mapping.entitlement_lookup_key !== mapping.store_identifier ||
-                 !["app_store", "mac_app_store", "rc_billing"].includes(mapping.store as string)) return null;
+      } else {
+        // Live catalog read-back: the historical Web Billing SKU has a suffix, while its
+        // entitlement and Still benefit remain still_sync. No other alias is accepted.
+        const historicalWeb = mapping.store === "rc_billing" && mapping.store_identifier === "still_sync_web" &&
+          mapping.entitlement_lookup_key === "still_sync";
+        const sameIdentifier = ["still_pro_v3", "still_sync"].includes(mapping.store_identifier as string) &&
+          mapping.entitlement_lookup_key === mapping.store_identifier;
+        if (Object.keys(mapping).length !== 5 || !(historicalWeb || sameIdentifier) ||
+            !["app_store", "mac_app_store", "rc_billing"].includes(mapping.store as string)) return null;
+      }
     }
     if (new Set(parsed.map(mapping => mapping.product_id)).size !== parsed.length) return null;
     return parsed as AccessProductMapping[];
@@ -165,7 +171,7 @@ export class HttpRevenueCatAccessClient implements RevenueCatAccessClient {
           const mapping = this.mappings.find(candidate => candidate.product_id === purchase.product_id);
           if (!mapping) continue;
           // The provider store identity is not the benefit written to Still's rights ledger.
-          const benefit = mapping.store === "stripe" ? mapping.benefit_product : mapping.store_identifier;
+          const benefit = mapping.entitlement_lookup_key;
           // Current Apple Pro has ONE canonical original-transaction ledger and explicit account link.
           // RevenueCat purchase.id is a second provider identifier, not proof of Apple's original ID.
           // Keep legacy purchased still_sync/web rights; do not mint duplicate current Apple rights.

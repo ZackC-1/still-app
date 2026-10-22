@@ -393,11 +393,13 @@ Deno.test("mixed legacy and Stripe mappings preserve historical rights and canno
 });
 
 Deno.test("legacy still_sync remains paid and revocable on all retained stores", async () => {
-  for (const store of ["app_store", "mac_app_store", "rc_billing"] as const) {
-    const legacy = { ...MAPPING, store, store_identifier: "still_sync", entitlement_lookup_key: "still_sync" } as const;
+  for (const [store, storeIdentifier] of [["app_store", "still_sync"], ["mac_app_store", "still_sync"],
+    ["rc_billing", "still_sync"], ["rc_billing", "still_sync_web"]] as const) {
+    const legacy = { ...MAPPING, store, store_identifier: storeIdentifier, entitlement_lookup_key: "still_sync" } as const;
+    assertEquals(parseAccessProductMappings(JSON.stringify([legacy])), [legacy]);
     const p = purchase();
     const historic = { ...p, store, entitlements: { ...p.entitlements, items: [entitlementRef(ENT_SYNC, "still_sync")] } };
-    const c = catalog(); c[ENT_SYNC]!.products.items = [product(MAPPING.product_id, MAPPING.app_id, "still_sync")];
+    const c = catalog(); c[ENT_SYNC]!.products.items = [product(MAPPING.product_id, MAPPING.app_id, storeIdentifier)];
     const positive = await read([historic], {}, [legacy], c);
     if (positive.status !== "verified") throw new Error("Expected historical paid fixture");
     assertEquals(positive.complete, true);
@@ -406,6 +408,19 @@ Deno.test("legacy still_sync remains paid and revocable on all retained stores",
     assertEquals(await read([{ ...historic, status: "refunded", entitlements: undefined, revenue_in_usd: null }], {}, [legacy]),
       { status: "verified", rights: [{ ...positive.rights[0]!, state: "revoked" }], complete: true });
   }
+});
+
+Deno.test("historical web alias cannot grant V3, name an Apple SKU, or substitute another catalog product", async () => {
+  const legacy = { ...MAPPING, store_identifier: "still_sync_web", entitlement_lookup_key: "still_sync" } as const;
+  for (const patch of [{ entitlement_lookup_key: "still_pro_v3" }, { store: "app_store" }, { store: "mac_app_store" },
+    { store_identifier: "still_pro_v3_web" }, { store_identifier: "other_web" }]) {
+    assertEquals(parseAccessProductMappings(JSON.stringify([{ ...legacy, ...patch }])), null);
+  }
+  const p = purchase();
+  const historic = { ...p, entitlements: { ...p.entitlements, items: [entitlementRef(ENT_SYNC, "still_sync")] } };
+  const c = catalog();
+  c[ENT_SYNC]!.products.items = [product(MAPPING.product_id, MAPPING.app_id, "still_sync")];
+  assertEquals(await read([historic], {}, [legacy], c), { status: "verified", rights: [], complete: false });
 });
 
 Deno.test("Stripe mappings bind to the exact configured price; other stores are unaffected", () => {

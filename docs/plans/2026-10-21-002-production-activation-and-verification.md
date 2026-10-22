@@ -440,3 +440,43 @@ reconciliation route. Its disposable fixture now uses production composition wit
 synthetic provider ports and local PostgreSQL. Production source is unchanged by this correction;
 QA routes retain their separate sandbox rehearsal. All 17 runtime-closure tests and four proof/
 readiness tests passed locally; the actual CLI/database rerun remains required in hosted CI.
+
+### Provider read-back and reporting checkpoint — 21 October, 17:05 PT
+
+The owner saved the live Stripe and replacement RevenueCat V2 credentials locally. Read-only calls
+returned HTTP 200 for the expected live Stripe account, active prices, RevenueCat project, apps,
+entitlements, offerings, lifetime package and app public-key inventory. The live V3 price is USD
+9.99, one-time, tax-exclusive; its exact imported product is attached to `still_pro_v3` and the
+current offering's lifetime package. The QA price belongs to a separate app. A random nonexistent
+customer purchase-list request returned the documented customer-missing response rather than an
+authorization error; no customer was created or customer data queried. This proves permission to
+reach the purchase read, not positive purchase fulfilment.
+
+The catalog exposed a historical compatibility gap: RevenueCat Billing's `still_sync_web` SKU
+uses the `still_sync` entitlement, but the verifier previously required equal identifiers. The
+verifier now accepts only that exact historical web alias and retains its `still_sync` benefit;
+it cannot grant V3, substitute an Apple SKU or accept a different catalog product. Positive and
+refund tests cover the actual legacy naming, alongside the existing store mappings.
+
+The served access-route rehearsal now passes on head `6dfde1a0`:
+[backend rehearsal](https://github.com/ZackC-1/still-app/actions/runs/39695948607).
+The same head's production/review PostgreSQL ledger check and protected operation rehearsals pass.
+One main-CI test timed out because it advanced fake time before real crypto initialization completed.
+The test now awaits readiness and verifies that the account-wait timer exists before advancing time;
+its 29-test suite passes locally. This changes the test's synchronization, not production behavior.
+
+[Still Pro Conversion Readiness](https://us.posthog.com/project/624923/dashboard/2242729) contains
+three native charts: offer-to-checkout-start within seven days, views/starts by surface, and purchase
+interaction outcomes. All three were rerun successfully. The dashboard explicitly says producers
+are not deployed and canonical sale/refund attribution is still pending. It excludes test/dev build
+channels and the existing internal/test cohort; unlabelled events are not treated as evidence of a
+verified release build. Counts represent device identities, not unique accounts or total revenue.
+
+Local preparation validates the production Ed25519 signer pair, Apple verifier composition,
+closed provider mappings and Managed Payments bindings using the runtime parsers. Private inputs
+are stored outside the repository; the build handoff has a separate public-key-only JSON file.
+The historical Web Billing mapping remains distinct from V3. `docs/purchase/success.html` and
+`cancel.html` prepare production return pages; website publication and HTTP verification are pending.
+Cancellation copy does not claim that no charge occurred, since the backend owns that decision.
+The owner updated Stripe key permissions, but creation still returned 403 `webhook_write`; no new
+Stripe endpoint was created. The exact missing permission has been requested.

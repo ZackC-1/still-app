@@ -648,11 +648,10 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
   }, 30_000);
 
   it("a session read that never answers costs the launch only the wait: opened and active are recorded, and the switch is read again", async () => {
-    // Timers are fake; the native and crypto work in between is real, so it is let run (setImmediate).
+    // Timers are fake, but native and crypto initialization is real. Wait for readiness rather
+    // than assuming a fixed number of event-loop turns finishes crypto on a busy CI runner.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    const settled = async () => {
-      for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
-    };
+    const timeout = vi.spyOn(globalThis, "setTimeout");
     try {
       const t = setup();
       const { c } = makeController({ analytics: t.app.ui });
@@ -663,13 +662,12 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
         .start()
         .finally(() => c.refreshUsageSharing())
         .then(() => void (done = true));
-      await settled();
+      await t.app.ui.sharing!();
+      expect(timeout).toHaveBeenCalledWith(expect.any(Function), LAUNCH_ACCOUNT_WAIT_MS);
       await vi.advanceTimersByTimeAsync(LAUNCH_ACCOUNT_WAIT_MS - 1);
-      await settled();
       expect(done).toBe(false);
       expect(t.queue()).toEqual([]); // still waiting for the account answer
       await vi.advanceTimersByTimeAsync(1);
-      await settled();
       await launched;
       expect(done).toBe(true);
       // Recorded, waiting for an account answer before anything is sent (as before the wait).
@@ -677,6 +675,7 @@ describe("ISS-0116: the launch's account answer never costs the launch its event
       expect(t.fetch).not.toHaveBeenCalled();
       expect(c.usageSharing).toBe(true);
     } finally {
+      timeout.mockRestore();
       vi.useRealTimers();
     }
   });
