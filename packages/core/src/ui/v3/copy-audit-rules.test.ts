@@ -233,7 +233,9 @@ describe("popup footer (P2-8)", () => {
   it("every popup's footer button reads “Still settings”", () => {
     for (const file of ["DesktopPopup.svelte", "MobilePopup.svelte", "../App.svelte"])
       expect(source(file), file).toMatch(/>Still settings<\/button/);
-    expect(source("MobilePopup.svelte")).toContain('"Still settings. Opens Still settings."');
+    // P3-23 (22 Oct): the iPhone Safari button no longer repeats itself as "Still settings. Opens
+    // Still settings."; its name is its visible label, as on the Mac Safari and browser popups.
+    expect(source("MobilePopup.svelte")).not.toContain("Opens Still settings");
   });
 });
 

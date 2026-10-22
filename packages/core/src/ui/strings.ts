@@ -192,7 +192,7 @@ export const STRINGS = {
   emailConsent: {
     disclosureTitle: "Your email is only for sign-in",
     optInTitle: "Share your email for settings sync?",
-    body: "Still uses your email address to send a 6-digit code and sync your settings across devices. Still does not collect your browsing history.",
+    body: "Still uses your email address to send a 6-digit sign-in code and sync your settings across devices. Still does not collect your browsing history.",
     agree: "I agree to share my email for sign-in and settings sync.",
     proceed: "Continue",
     notNow: "Not now",
