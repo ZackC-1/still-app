@@ -156,7 +156,7 @@ test("backend route profile is closed and paid sandbox requires an explicit isol
   assert.equal(env.VITE_BACKEND_ROUTE_PROFILE, "shared-hosted-sandbox");
 });
 
-test("local and test profiles refuse a paid-enabled source before building or issuing receipts", async () => {
+test("local and test profiles refuse a source with mixed paid constants before building or issuing receipts", async () => {
   for (const profile of ["local", "test"]) {
     for (const flag of Object.values(paid.PAID_FLAGS)) {
       const root = await fixture();
@@ -421,6 +421,43 @@ test("candidate parser receives no operator environment and cannot modify verifi
     await rm(root, { recursive: true, force: true });
   }
 });
+
+for (const [profile, input] of [["local", {}], ["test", inputs]])
+  test(`${profile} profile builds from a 3.x source whose paid constants are already on, and says so in its receipt`, async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const root = await fixture({ paidOn: true });
+    try {
+      await writeFile(join(root, ".gitignore"), ".output/\n");
+      let calls = 0;
+      const runner = (_command, args) => {
+        calls += 1;
+        const output = join(args[2], "artifact");
+        mkdirSync(output, { recursive: true });
+        writeFileSync(join(output, "compiled.js"), "fixture result");
+        return { status: 0 };
+      };
+      await main([profile, "chrome"], input, root, runner);
+      assert.equal(calls, 1);
+      const manifest = JSON.parse(await readFile(join(root, `.output/v3-qa/${profile}/chrome/artifact-manifest.json`), "utf8"));
+      assert.equal(manifest.runtime.paidTierEnabled, true);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+for (const profile of ["local", "test"])
+  test(`${profile} profile still refuses missing or repeated paid constants before building`, async () => {
+    for (const bytes of ["export const OTHER = 1;\n", "export const PAID_TIER_ENABLED = true;\nexport const PAID_TIER_ENABLED = true;\n",
+      "export const PAID_TIER_ENABLED = false;\nexport const PAID_TIER_ENABLED = true;\n"]) {
+      const root = await fixture({ paidOn: true });
+      try {
+        await writeFile(join(root, ".gitignore"), ".output/\n");
+        await writeFile(join(root, paid.PAID_FLAGS.js), bytes);
+        let calls = 0;
+        await assert.rejects(main([profile, "chrome"], profile === "test" ? inputs : {}, root, () => { calls += 1; return { status: 1 }; }),
+          /both original paid constants/);
+        assert.equal(calls, 0);
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  });
 
 test("local all-target receipts refuse source edits during a build and retain coherent healthy results", async () => {
   const { mkdirSync, writeFileSync } = await import("node:fs");

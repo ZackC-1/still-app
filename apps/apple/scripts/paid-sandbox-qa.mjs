@@ -11,15 +11,12 @@ export const PAID_FLAGS = Object.freeze({
   native: "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift",
 });
 const PAID_FALSE_NEEDLES = ["export const PAID_TIER_ENABLED = false;", "public static let paidTierEnabled = false"];
-export function assertFreePaidFlags(files) {
-  const originals = Object.values(PAID_FLAGS).map(path => files.find(file => file.path === path)?.bytes?.toString("utf8"));
-  if (originals.some((text, i) => typeof text !== "string" || text.split(PAID_FALSE_NEEDLES[i]).length !== 2))
-    refusal("both original paid constants must be exactly false");
-}
 const PAID_TRUE_NEEDLES = PAID_FALSE_NEEDLES.map(needle => needle.replace("false", "true"));
-/** The paid sandbox overlay's source rule: both constants appear exactly once and agree. "off" (a 2.x tree)
- * is flipped on in the isolated clone; "on" (a 3.x release-line tree) is used as is. Anything else refuses. */
-export function paidSandboxFlagState(files) {
+/** The QA builds' source rule for the two paid constants: each appears exactly once and they agree.
+ * Returns "off" (a 2.x tree) or "on" (a 3.x release-line tree); mixed, missing or repeated refuses.
+ * The paid sandbox overlay flips an "off" tree on in its isolated clone; the local and test profiles
+ * build the tree as it is. */
+export function paidFlagState(files) {
   const originals = Object.values(PAID_FLAGS).map(path => files.find(file => file.path === path)?.bytes?.toString("utf8"));
   const count = (text, needle) => text.split(needle).length - 1;
   const state = (text, i) => typeof text !== "string" ? null
@@ -27,7 +24,7 @@ export function paidSandboxFlagState(files) {
     : count(text, PAID_TRUE_NEEDLES[i]) === 1 && count(text, PAID_FALSE_NEEDLES[i]) === 0 ? "on" : null;
   const states = originals.map(state);
   if (states.some(value => value === null) || states[0] !== states[1])
-    refusal("both original paid constants must agree: exactly false (flipped in the sandbox clone) or exactly true");
+    refusal("both original paid constants must each appear exactly once and agree (both false or both true)");
   return states[0];
 }
 const PLISTS = ["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"].map(part => `apps/apple/Still/${part}/Info.plist`);
@@ -144,7 +141,7 @@ export async function applySandboxOverlay(clone, config) {
   try { marker = JSON.parse(await readFile(join(dirname(clone), ".still-paid-sandbox-source"), "utf8")); } catch { refusal("overlay requires this runner's isolated source clone"); }
   if (marker.clone !== clone || marker.mode !== "paid-sandbox") refusal("overlay requires this runner's isolated source clone");
   const originals = await Promise.all(Object.values(PAID_FLAGS).map(path => readFile(join(clone, path), "utf8")));
-  const flagState = paidSandboxFlagState(Object.values(PAID_FLAGS).map((path, i) => ({ path, bytes: originals[i] })));
+  const flagState = paidFlagState(Object.values(PAID_FLAGS).map((path, i) => ({ path, bytes: originals[i] })));
   const prepared = [];
   const before = new Map(Object.values(PAID_FLAGS).map((path, i) => [path, hash(originals[i])]));
   // Flag files stay in the overlay either way, so assertSandboxOverlay still catches a change during the build.
