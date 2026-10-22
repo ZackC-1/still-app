@@ -6,7 +6,7 @@ to a store; it only prepares local files for the owner's separately authorized s
 | Key | Feeds |
 |---|---|
 | `extension` | Chrome and Firefox manifest version (through `packages/ext-chromium/package.json`, which WXT reads) |
-| `apple` | Apple app `MARKETING_VERSION` (every Xcode target) and the Safari extension version (`packages/ext-safari/package.json`) |
+| `apple` | Apple app `MARKETING_VERSION` (every Xcode target; `x.y` or `x.y.z`, so 3.0 stays 3.0) and the Safari extension version (`packages/ext-safari/package.json`, always `x.y.z`, so 3.0 is written 3.0.0) |
 | `appleBuild` | Apple `CURRENT_PROJECT_VERSION` (every Xcode target) |
 | `paidTier` | Whether the Chrome and Firefox release line ships with the paid tier on. `false` for every 2.x line, `true` for 3.x |
 
@@ -22,7 +22,7 @@ on for a release line means changing both, in the same reviewed commit. A commit
 
 ```bash
 node scripts/release/version.mjs set extension 2.2.0    # refuses to go backwards, then syncs
-node scripts/release/version.mjs set apple 2.2.0
+node scripts/release/version.mjs set apple 2.2           # x.y or x.y.z
 node scripts/release/version.mjs bump-build             # appleBuild + 1, then syncs
 node scripts/release/version.mjs check                  # exits 1 if any consumer disagrees
 node scripts/release/version.mjs sync                   # rewrite consumers from version.json

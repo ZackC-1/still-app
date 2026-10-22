@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import { readStoreTrust, sha256, TRUST_FILE } from "./access-trust.mjs";
 import { amoInstructions, buildPackages, cleanEnv, PINNED_ENV_KEYS, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
-import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
+import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, packageVersion, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
 // The lowest appleBuild ever recorded on main when this guard was written. Raise it with every
@@ -47,6 +47,12 @@ test("version.json is well formed", () => {
   assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9}').paidTier, false, "a missing paidTier means false");
   assert.throws(() => parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":"false"}'), /paidTier/);
   assert.equal(parseVersions('{"extension":"2.1.1","apple":"2.1.0","appleBuild":9,"paidTier":true}').paidTier, true);
+  // Apple may use a two-part marketing version (App Store Connect allows it); extensions may not.
+  assert.equal(parseVersions('{"extension":"3.0.0","apple":"3.0","appleBuild":11}').apple, "3.0");
+  assert.throws(() => parseVersions('{"extension":"3.0.0","apple":"3","appleBuild":11}'), /apple/);
+  assert.throws(() => parseVersions('{"extension":"3.0.0","apple":"3.0.0.1","appleBuild":11}'), /apple/);
+  assert.equal(packageVersion("3.0"), "3.0.0");
+  assert.equal(packageVersion("3.0.1"), "3.0.1");
 });
 
 test("a disagreeing consumer is reported, and sync repairs it", () => {
@@ -55,7 +61,7 @@ test("a disagreeing consumer is reported, and sync repairs it", () => {
     const pkg = join(root, "packages/ext-chromium/package.json");
     writeFileSync(pkg, readFileSync(pkg, "utf8").replace(/"version": "[^"]+"/, '"version": "9.9.9"'));
     const pbx = join(root, "apps/apple/Still/Still.xcodeproj/project.pbxproj");
-    writeFileSync(pbx, readFileSync(pbx, "utf8").replace("MARKETING_VERSION = 2.1.0;", "MARKETING_VERSION = 8.8.8;"));
+    writeFileSync(pbx, readFileSync(pbx, "utf8").replace(`MARKETING_VERSION = ${readVersions(root).apple};`, "MARKETING_VERSION = 8.8.8;"));
     const problems = findMismatches(root);
     assert.equal(problems.length, 2, problems.join("\n"));
     sync(root);
@@ -68,13 +74,19 @@ test("a disagreeing consumer is reported, and sync repairs it", () => {
 test("changing a version in version.json reaches the manifest source and every Xcode target", () => {
   const root = copyVersionFiles();
   try {
-    setVersion("extension", "2.2.0", root);
-    setVersion("apple", "2.2.0", root);
-    assert.equal(JSON.parse(readFileSync(join(root, "packages/ext-chromium/package.json"), "utf8")).version, "2.2.0");
-    assert.equal(JSON.parse(readFileSync(join(root, "packages/ext-safari/package.json"), "utf8")).version, "2.2.0");
-    const pbx = readFileSync(join(root, "apps/apple/Still/Still.xcodeproj/project.pbxproj"), "utf8");
-    assert.equal(pbx.match(/MARKETING_VERSION = 2\.2\.0;/g).length, 8);
-    assert.equal(pbx.match(/MARKETING_VERSION = 2\.1\.0;/g), null);
+    const old = readVersions(root).apple;
+    setVersion("extension", "99.2.0", root);
+    setVersion("apple", "99.2", root);
+    assert.equal(JSON.parse(readFileSync(join(root, "packages/ext-chromium/package.json"), "utf8")).version, "99.2.0");
+    assert.equal(JSON.parse(readFileSync(join(root, "packages/ext-safari/package.json"), "utf8")).version, "99.2.0");
+    let pbx = readFileSync(join(root, "apps/apple/Still/Still.xcodeproj/project.pbxproj"), "utf8");
+    assert.equal(pbx.match(/MARKETING_VERSION = 99\.2;/g).length, 8);
+    assert.equal(pbx.match(new RegExp(`MARKETING_VERSION = ${old.replaceAll(".", "\\.")};`, "g")), null);
+    assert.deepEqual(findMismatches(root), []);
+    setVersion("apple", "99.2.1", root);
+    pbx = readFileSync(join(root, "apps/apple/Still/Still.xcodeproj/project.pbxproj"), "utf8");
+    assert.equal(pbx.match(/MARKETING_VERSION = 99\.2\.1;/g).length, 8);
+    assert.equal(JSON.parse(readFileSync(join(root, "packages/ext-safari/package.json"), "utf8")).version, "99.2.1");
     assert.deepEqual(findMismatches(root), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -86,6 +98,9 @@ test("setVersion refuses to go backwards", () => {
   try {
     assert.throws(() => setVersion("extension", "2.0.9", root), /refusing to lower/);
     assert.equal(compareSemver("2.10.0", "2.9.0"), 1);
+    assert.equal(compareSemver("3.0", "3.0.0"), 0);
+    assert.equal(compareSemver("3.0", "2.1.0"), 1);
+    assert.throws(() => setVersion("apple", "1.9", root), /refusing to lower/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -102,7 +117,7 @@ test("bumping the build counter increases it in every Xcode target and survives 
   try {
     const before = readVersions(root).appleBuild;
     assert.equal(bumpBuild(root), before + 1);
-    setVersion("apple", "3.0.0", root);
+    setVersion("apple", "99.0", root);
     assert.equal(readVersions(root).appleBuild, before + 1, "a new marketing version must not reset the counter");
     const pbx = readFileSync(join(root, "apps/apple/Still/Still.xcodeproj/project.pbxproj"), "utf8");
     assert.equal(pbx.match(new RegExp(`CURRENT_PROJECT_VERSION = ${before + 1};`, "g")).length, 8);
@@ -491,5 +506,5 @@ test("the Safari extension build carries the Apple version", { timeout: 300_000 
   const run = spawnSync("pnpm", ["--filter", "@still/ext-safari", "build"], { cwd: ROOT, stdio: "ignore", env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("VITE_"))) });
   assert.equal(run.status, 0);
   const manifest = JSON.parse(readFileSync(join(ROOT, "packages/ext-safari/dist/safari-mv3/manifest.json"), "utf8"));
-  assert.equal(manifest.version, readVersions().apple);
+  assert.equal(manifest.version, packageVersion(readVersions().apple));
 });
