@@ -2,6 +2,10 @@
 // account row carries one small boxed "Still Pro" tag instead (on the Settings page and in the
 // Apple app it sits on the heading row since the owner's 19 Oct review). Only verified purchased ownership
 // shows it, on every popup and on the shared sync card (browser Settings and the Apple app).
+// ISS-0105 (owner, 21 Oct, option B): the tag reads "Still Pro User" only when the signed-in
+// account itself holds Still Pro; a device that holds Still Pro while signed out, or while signed
+// in to an account that does not hold it (including one linked to another account), reads
+// "Still Pro on this device".
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, within } from "@testing-library/svelte";
@@ -21,6 +25,8 @@ import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import { proPurchased } from "./presentation.js";
 
 const ADDRESS = "person@still.test";
+const ACCOUNT_TAG = "Still Pro User";
+const DEVICE_TAG = "Still Pro on this device";
 
 function withPro(
   access: BenefitAccessSnapshot,
@@ -42,9 +48,9 @@ function syncCard() {
   return card as HTMLElement;
 }
 
-function expectTagBesideAddress() {
+function expectTagBesideAddress(text = ACCOUNT_TAG) {
   // Since the owner's 19 Oct review every surface carries the tag on the heading row.
-  expectTagOnHeading();
+  expectTagOnHeading(text);
   expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
 }
 
@@ -52,15 +58,17 @@ function expectTagBesideAddress() {
  * sits in the right column, level with the heading and directly above Sign in (and its "Opens the
  * Still app" line). */
 function expectTagBesideSignIn(safari: boolean) {
+  // Signed out, Still Pro can only be this device's (ISS-0105).
   // Chrome and Firefox keep the tag on the heading row (owner, 19 Oct).
   if (!safari) {
-    expectTagOnHeading();
+    expectTagOnHeading(DEVICE_TAG);
     expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
     expect(syncCard().querySelector(".pro-signed-out")).toBeNull();
     return;
   }
   const card = syncCard();
-  const tag = within(card).getByText("Still Pro User");
+  expect(within(card).queryByText(ACCOUNT_TAG)).toBeNull();
+  const tag = within(card).getByText(DEVICE_TAG);
   expect(tag).toHaveClass("access-tag", "boxed", "success");
   expect(tag).toBeVisible();
   const heading = within(card).getByRole("heading", { name: "Settings sync" });
@@ -75,10 +83,12 @@ function expectTagBesideSignIn(safari: boolean) {
 }
 
 /** The shared sync card (browser Settings, Apple app) carries the tag on its heading row, in the
- * success green (owner, 19 Oct), whether signed in or out. */
-function expectTagOnHeading() {
+ * success green (owner, 19 Oct), whether signed in or out. Exactly one of the two wordings shows. */
+function expectTagOnHeading(text: string) {
   const card = syncCard();
-  const tag = within(card).getByText("Still Pro User");
+  const other = text === ACCOUNT_TAG ? DEVICE_TAG : ACCOUNT_TAG;
+  expect(within(card).queryByText(other)).toBeNull();
+  const tag = within(card).getByText(text);
   expect(tag).toHaveClass("access-tag", "boxed", "success");
   expect(tag).toBeVisible();
   const heading = within(card).getByRole("heading", { name: "Settings sync" });
@@ -89,7 +99,8 @@ function expectTagOnHeading() {
 }
 
 function expectNoTag() {
-  expect(within(syncCard()).queryByText("Still Pro User")).toBeNull();
+  expect(within(syncCard()).queryByText(ACCOUNT_TAG)).toBeNull();
+  expect(within(syncCard()).queryByText(DEVICE_TAG)).toBeNull();
 }
 
 const NOT_PURCHASED: [string, AccessState, AccessState?][] = [
@@ -118,15 +129,30 @@ describe.each([
   ["Chrome or Firefox desktop popup", false],
   ["Safari popup on the Mac", true],
 ] as const)("%s", (_name, appHandoff) => {
-  it("shows Still Pro beside the account address when purchased", async () => {
+  it("shows Still Pro User beside the account address when the account holds Still Pro", async () => {
+    const { props } = await popupFixture("purchased");
+    props.appHandoff = appHandoff;
+    props.account = {
+      address: ADDRESS,
+      holdsPro: true,
+      status: { tone: "success", text: "Synced with your account." },
+    };
+    render(DesktopPopup, { props });
+    expectTagBesideAddress(ACCOUNT_TAG);
+  });
+
+  it("shows Still Pro on this device when only the device holds Still Pro (ISS-0105)", async () => {
     const { props } = await popupFixture("purchased");
     props.appHandoff = appHandoff;
     props.account = {
       address: ADDRESS,
       status: { tone: "success", text: "Synced with your account." },
     };
-    render(DesktopPopup, { props });
-    expectTagBesideAddress();
+    const view = render(DesktopPopup, { props });
+    expectTagBesideAddress(DEVICE_TAG);
+    props.account = { ...props.account, holdsPro: false };
+    await view.rerender(props);
+    expectTagBesideAddress(DEVICE_TAG);
   });
 
   it("shows Still Pro beside Sign in when signed out and purchased", async () => {
@@ -171,14 +197,25 @@ describe.each([
   ["Safari on iPhone popup", "safari"],
   ["Firefox for Android popup", "firefox"],
 ] as const)("%s", (_name, host) => {
-  it("shows Still Pro beside the account address when purchased", async () => {
+  it("shows Still Pro User beside the account address when the account holds Still Pro", async () => {
+    const props = await mobileProps(host, "purchased");
+    props.account = {
+      address: ADDRESS,
+      holdsPro: true,
+      status: { tone: "success", text: "Synced with your account." },
+    };
+    render(MobilePopup, { props });
+    expectTagBesideAddress(ACCOUNT_TAG);
+  });
+
+  it("shows Still Pro on this device when only the device holds Still Pro (ISS-0105)", async () => {
     const props = await mobileProps(host, "purchased");
     props.account = {
       address: ADDRESS,
       status: { tone: "success", text: "Synced with your account." },
     };
     render(MobilePopup, { props });
-    expectTagBesideAddress();
+    expectTagBesideAddress(DEVICE_TAG);
   });
 
   it("shows Still Pro beside Sign in when signed out and purchased", async () => {
@@ -199,19 +236,28 @@ describe.each([
 });
 
 describe("browser Settings sync card", () => {
-  it("shows Still Pro beside the account address when purchased", async () => {
+  it("shows Still Pro User beside the account address when the account holds Still Pro", async () => {
+    const { props } = await settingsFixture("purchased");
+    props.pro = { ownership: "owned", channel: "ready" };
+    props.sync = { account: { address: ADDRESS, confirmed: true, holdsPro: true } };
+    render(ExtensionSettings, { props });
+    expectTagOnHeading(ACCOUNT_TAG);
+    expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
+  });
+
+  it("shows Still Pro on this device when the signed-in account does not hold it (ISS-0105)", async () => {
     const { props } = await settingsFixture("purchased");
     props.pro = { ownership: "owned", channel: "ready" };
     props.sync = { account: { address: ADDRESS, confirmed: true } };
     render(ExtensionSettings, { props });
-    expectTagOnHeading();
+    expectTagOnHeading(DEVICE_TAG);
     expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
   });
 
-  it("shows Still Pro beside Sign in when signed out and purchased", async () => {
+  it("shows Still Pro on this device beside Sign in when signed out and purchased", async () => {
     const { props } = await settingsFixture("purchased");
     render(ExtensionSettings, { props });
-    expectTagOnHeading();
+    expectTagOnHeading(DEVICE_TAG);
     expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
   });
 
@@ -242,20 +288,29 @@ async function appleProps(state: AccessState): Promise<AppleSettingsProps> {
 }
 
 describe.each(["ios", "mac"] as const)("Apple app sync card (%s)", (platform) => {
-  it("shows Still Pro beside the account address when purchased", async () => {
+  it("shows Still Pro User beside the account address when the account holds Still Pro", async () => {
     const props = await appleProps("purchased");
     props.platform = platform;
-    props.sync = { account: { address: ADDRESS, confirmed: true } };
+    props.sync = { account: { address: ADDRESS, confirmed: true, holdsPro: true } };
     render(AppleSettings, { props });
-    expectTagOnHeading();
+    expectTagOnHeading(ACCOUNT_TAG);
     expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
   });
 
-  it("shows Still Pro beside Sign in when signed out and purchased (Apple local proof)", async () => {
+  it("shows Still Pro on this device when the device's purchase is not this account's (ISS-0105)", async () => {
+    const props = await appleProps("purchased");
+    props.platform = platform;
+    props.sync = { account: { address: ADDRESS, confirmed: true, holdsPro: false } };
+    render(AppleSettings, { props });
+    expectTagOnHeading(DEVICE_TAG);
+    expect(within(syncCard()).getByText(ADDRESS)).toBeVisible();
+  });
+
+  it("shows Still Pro on this device beside Sign in when signed out and purchased (Apple local proof)", async () => {
     const props = await appleProps("purchased");
     props.platform = platform;
     render(AppleSettings, { props });
-    expectTagOnHeading();
+    expectTagOnHeading(DEVICE_TAG);
     expect(within(syncCard()).getByRole("button", { name: /^Sign in/ })).toBeVisible();
   });
 
