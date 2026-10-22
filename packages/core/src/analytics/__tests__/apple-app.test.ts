@@ -245,10 +245,11 @@ describe("Apple app analytics", () => {
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
+    // Subject issuance completion does not await the separate UI event dispatch. Observe its
+    // promised result rather than assuming cryptography/storage finished within ten milliseconds.
+    await vi.waitFor(() => expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2)));
     expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
-    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
   });
 
   it("NEGATIVE CONTROL: two sign-ins back to back, the earlier reply first: only the later account reports", async () => {
@@ -270,8 +271,7 @@ describe("Apple app analytics", () => {
     await first;
     resolveU2({ state: "active", subject: testSubjectFor(U2) });
     await second;
-    await new Promise((r) => setTimeout(r, 10));
-    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    await vi.waitFor(() => expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2)));
     expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
   });
 });

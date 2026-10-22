@@ -444,7 +444,9 @@ final class PurchaseManager {
       guard self.currentAppUserID == nil, await self.ensureAnonymousIdentity() else {
         return ApplePurchaseActionResult(.staleIdentity)
       }
-      let outcome = await self.purchaseStillPro(expectedOffer: offer, onVerifiedRevocation: onVerifiedRevocation)
+      var newPurchaseEvidence: [String: String]?
+      let outcome = await self.purchaseStillPro(expectedOffer: offer, onNewPurchase: { newPurchaseEvidence = $0 },
+        onVerifiedRevocation: onVerifiedRevocation)
       let status = await self.refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
       let mapped: ApplePurchaseActionOutcome
       switch outcome {
@@ -455,7 +457,7 @@ final class PurchaseManager {
       case .staleIdentity: mapped = .staleIdentity
       case .failed: mapped = .failed
       }
-      return ApplePurchaseActionResult(mapped, receipt: status, productId: self.lastReceiptRead.productID)
+      return ApplePurchaseActionResult(mapped, receipt: status, productId: self.lastReceiptRead.productID, newPurchaseEvidence: newPurchaseEvidence)
     }
     modernPurchaseInFlight = task
     Task { @MainActor in
@@ -567,7 +569,8 @@ final class PurchaseManager {
   /// Buy Still Pro — signed in OR signed out (purchase-first, R1). The returned `.purchased`
   /// acknowledges local StoreKit/RevenueCat success; the caller (router) refreshes the receipt and
   /// restamps the App Group so Safari unlocks immediately (R5).
-  func purchaseStillPro(expectedOffer: AppleLifetimeOffering? = nil, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Outcome {
+  func purchaseStillPro(expectedOffer: AppleLifetimeOffering? = nil, onNewPurchase: (([String: String]) -> Void)? = nil,
+    onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Outcome {
     let startingUserID = currentAppUserID
     // Receipt pre-flight (R14): a device that provably owns Pro never re-enters the purchase or
     // restore machinery — under default transfer semantics a RevenueCat receipt-post from a fresh
@@ -604,6 +607,13 @@ final class PurchaseManager {
     }
     guard let package else { return .unavailable }
     if let expectedOffer, offering(for: package) != expectedOffer { return .unavailable }
+    // Optional provenance reads precede the fresh sales boundary, so their latency cannot
+    // lengthen the interval between sales admission and the actual SDK charge.
+    let before = onNewPurchase == nil ? (false, Optional<String>.none) : await Self.bounded(3_000_000_000, fallback: (false, Optional<String>.none), cancelOnTimeout: true) {
+      guard let latest = await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID) else { return (true, nil) }
+      guard case .verified(let transaction) = latest else { return (false, nil) }
+      return (true, String(transaction.id))
+    }
     return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable,
                                                      installEnvironment: { await Self.verifiedInstallEnvironment() }) {
       // The policy await must not allow a departed identity to receive this new charge.
@@ -611,6 +621,19 @@ final class PurchaseManager {
       do {
         let result = try await Purchases.shared.purchase(package: package)
         if result.userCancelled { return .cancelled }
+        if let onNewPurchase, Self.proEntitlementIsActive(in: result.customerInfo),
+          let sdkID = result.transaction?.transactionIdentifier,
+          let latest = await Self.bounded(3_000_000_000, fallback: Optional<StoreKit.VerificationResult<StoreKit.Transaction>>.none, cancelOnTimeout: true, {
+            await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID)
+          }),
+          case .verified(let transaction) = latest,
+          let identity = Self.verifiedNativeIdentity(transaction, jws: latest.jwsRepresentation),
+          AppleNewPurchaseProvenance.eligible(preflightKnown: before.0, preflightID: before.1,
+            sdkID: sdkID, verifiedID: String(transaction.id), environment: identity.environment,
+            purchased: transaction.ownershipType == .purchased, revoked: transaction.revocationDate != nil) {
+          onNewPurchase(["productId": transaction.productID, "bundleId": identity.appBundleId,
+            "signedTransaction": latest.jwsRepresentation])
+        }
         return Self.proEntitlementIsActive(in: result.customerInfo) ? .purchased : .pending
       } catch {
         if let rcError = error as? RevenueCat.ErrorCode, rcError == .paymentPendingError {
