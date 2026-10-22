@@ -41,6 +41,7 @@ import {
   LATER_MIGRATION_CODES,
   MIGRATION_GATE,
   PURCHASE_ANALYTICS_GATE,
+  PURCHASE_ANALYTICS_CODES,
   parseFacts,
   POSTHOG_SECRETS,
   rehearsalApi,
@@ -580,6 +581,29 @@ test("secrets apply refuses a mixed state and names rotate; rotate replaces the 
   assert.equal(h.api.secrets.get(EVENT_ID_SECRET), before.get(EVENT_ID_SECRET));
   assert.equal(h.db.state.vault, h.api.secrets.get(WORKER_TOKEN_SECRET));
   assert.ok(rotated.steps.some((s) => s.name === `role ${ERASER_ROLE}` && s.outcome === "password-rotated"));
+});
+
+test("0028 eraser capabilities require history and the full structural gate; unknown grants still refuse", async (t) => {
+  const h = await harness(t, { gate: [...PURCHASE_ANALYTICS_CODES], history: ["0017", "0018"] });
+  const absent = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(absent.status, "stopped-before-write");
+  assert.equal(h.api.calls.secretPosts, 0);
+  assert.ok(absent.issues.some(code => code.startsWith("migration_gate:eraser_execute:")));
+  h.db.state.history.push("0028");
+  h.db.state.purchaseGate = ["routine_body_changed"];
+  const changed = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(changed.status, "stopped-before-write");
+  assert.ok(changed.issues.includes("purchase_analytics_gate:routine_body_changed"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.purchaseGate = [];
+  h.db.state.gate.push("eraser_execute:private.unreviewed()" );
+  const extra = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(extra.status, "stopped-before-write");
+  assert.ok(extra.issues.includes("migration_gate:eraser_execute:private.unreviewed()"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.gate.pop();
+  const valid = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(valid.status, "verified", valid.issues.join(" "));
 });
 
 test("every writing run first proves the migrations, the GoTrue rehearsal and owner approval", async (t) => {

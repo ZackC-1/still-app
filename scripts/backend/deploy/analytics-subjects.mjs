@@ -203,6 +203,12 @@ export const LATER_MIGRATION_CODES = Object.freeze([
   "erasure_function_body_changed:public.consume_rate_limit(text,integer,integer)",
   "client_execute:authenticated:qa_settings_notifications_enabled()",
 ]);
+/** Accepted only after the complete 0028 structural/privilege check passes. */
+export const PURCHASE_ANALYTICS_CODES = Object.freeze([
+  "eraser_execute:private.analytics_claim_purchase(uuid,text)",
+  "eraser_execute:private.analytics_purchase_current(uuid,text,uuid,uuid)",
+  "eraser_execute:private.analytics_finish_purchase(uuid,uuid,boolean)",
+]);
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
 const ROLE_FACTS = "scripts/backend/deploy/sql/role-facts.sql";
 export const REHEARSAL_WORKFLOW =
@@ -879,16 +885,21 @@ export async function runAnalyticsOperation({
           codes.push(`history_missing:${version}`);
         }
       }
-      if (operation === FUNCTIONS_OP || (operation === SWITCH_OP && enable)) {
-        if (!history.some(item => item.version === "0028")) codes.push("history_missing:0028");
+      const hasPurchaseAnalytics = history.some(item => item.version === "0028");
+      const needsPurchaseAnalytics = operation === FUNCTIONS_OP || (operation === SWITCH_OP && enable);
+      let purchaseAnalyticsVerified = false;
+      if (needsPurchaseAnalytics && !hasPurchaseAnalytics) codes.push("history_missing:0028");
+      if (hasPurchaseAnalytics || needsPurchaseAnalytics) {
         const purchaseGate = parseJsonArray(await read(join(sourceDir,PURCHASE_ANALYTICS_GATE)),"analytics-gate-unreadable");
         if (purchaseGate.length) codes.push(...gateCodes(purchaseGate,"purchase_analytics_gate"));
+        purchaseAnalyticsVerified = hasPurchaseAnalytics && purchaseGate.length === 0;
       }
       const gate = parseJsonArray(
         await read(join(sourceDir, MIGRATION_GATE)),
         "analytics-gate-unreadable",
       );
-      const unexpected = gate.filter((code) => !LATER_MIGRATION_CODES.includes(code));
+      const unexpected = gate.filter((code) => !LATER_MIGRATION_CODES.includes(code) &&
+        !(purchaseAnalyticsVerified && PURCHASE_ANALYTICS_CODES.includes(code)));
       if (unexpected.length) codes.push(...gateCodes(unexpected, "migration_gate"));
       if (
         !(await rehearsalGreen({
