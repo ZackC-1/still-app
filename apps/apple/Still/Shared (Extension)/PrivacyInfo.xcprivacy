@@ -41,7 +41,8 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Still's own random install and person ids, shared with the app. Not the advertising identifier. -->
+			<!-- V3 per-device pseudonymous analytics identifiers, shared with the app under its
+			     current permission. Not the advertising identifier; no anonymous-history merge. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
@@ -54,7 +55,8 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- The signed-in account id, read from the app, that analytics reports a signed-in person under. -->
+			<!-- The server-issued per-device account subject used for V3 signed-in analytics.
+			     The raw Supabase account UUID is not sent to PostHog. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeUserID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
