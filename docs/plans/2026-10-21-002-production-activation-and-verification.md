@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: foundation deployed; purchase secrets pending
+## Latest checkpoint: foundation and payment secrets deployed; sync approval pending
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -15,15 +15,24 @@ revision. The failed earlier plan39704528557 performed no hosted write.
 0025–0027: disposable history 24→27, clean structural checks, unchanged existing row snapshots.
 Matching [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) completed
 in production at the pinned foundation revision: history 24→27, all 18 structural checks clean,
-all three preservation snapshots unchanged. Post-apply [DB-01 run39709691391](https://github.com/ZackC-1/still-app/actions/runs/39709691391)
+all three preservation snapshots unchanged, verified at 02:07 UTC. Post-apply [DB-01 run39709691391](https://github.com/ZackC-1/still-app/actions/runs/39709691391)
 completed and its private report confirms migration tail 0027/0026/0025; its expected `needs-review`
 verdict is not a failure. No sales activation is included.
 
-[purchase-secrets plan39709662125](https://github.com/ZackC-1/still-app/actions/runs/39709662125)
-is pending completion at this checkpoint; no secrets apply or final function deployment is claimed.
-Draft privacy publication [PR529](https://github.com/ZackC-1/still-app/pull/529) is open and unpublished.
+[purchase-secrets apply39709986466](https://github.com/ZackC-1/still-app/actions/runs/39709986466)
+completed after plan39709662125, verified at 02:16 UTC: 21 installed, two legacy RevenueCat values
+kept, three role URLs present/not managed, no issues. [PROD-01 run39710042569](https://github.com/ZackC-1/still-app/actions/runs/39710042569)
+confirms no production sales-policy row, expected revision 0, no admitted builds and no cutoff;
+enabled/offer fields are null rather than a false-valued policy row.
 
-Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI and disposable PostgreSQL CI checks remain in progress; no completed result is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
+[sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
+has passed its matching plan and awaits owner approval; no deployment is claimed. Public trust pin
+[PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, passed all three genuine
+hosted-metadata comparisons and independent review, but runtime-signed proof remains unverified.
+Draft privacy [PR529](https://github.com/ZackC-1/still-app/pull/529) is approved for publication after
+PR527's combined source/checks complete; it remains unpublished.
+
+Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI remains in progress; disposable PostgreSQL CI is separate from production verification, and no completed deployment is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
 delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance

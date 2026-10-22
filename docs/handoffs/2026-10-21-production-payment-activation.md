@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T19:09:00-07:00
+updated: 2026-10-21T19:25:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -22,7 +22,7 @@ backend deployment revision.
 unchanged existing data snapshots. Matching
 [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) completed successfully
 on the pinned `bc728bcabad9ef383906571206becd3f46b1377f`: production history 24→27, all 18 structural
-checks clean, all three preservation snapshots unchanged. This is a verified production migration
+checks clean, all three preservation snapshots unchanged (verified at 02:07 UTC). This is a verified production migration
 apply, not merely disposable CI evidence.
 
 Post-apply [DB-01 run39709691391](https://github.com/ZackC-1/still-app/actions/runs/39709691391)
@@ -32,13 +32,19 @@ cutoff; narrow read-only transaction rolled back; no withheld values. `needs-rev
 catalogue verdict, not a failed check. DB-01 confirms this tail and these counts; the apply receipt
 supplies the separate structural/preservation proof.
 
-Next [purchase-secrets plan39709662125](https://github.com/ZackC-1/still-app/actions/runs/39709662125)
-is in progress at this checkpoint. A successful plan does not apply secrets; inspect its result
-before requesting its matching protected apply.
+[purchase-secrets apply39709986466](https://github.com/ZackC-1/still-app/actions/runs/39709986466)
+completed after its matching plan39709662125 (verified at 02:16 UTC): 21 values installed, two
+legacy RevenueCat values kept, three role URLs present but not managed by this operation, no issues.
+This does not deploy functions or prove a runtime-signed purchase response.
 
-Sales remain off. The separate production Stripe webhook is created and disabled. Twenty production
-configuration values are staged in GitHub's protected environment, not yet applied to Supabase.
-The existing RevenueCat webhook URL, token and portal filters remain unchanged.
+[PROD-01 run39710042569](https://github.com/ZackC-1/still-app/actions/runs/39710042569) completed;
+its privately decrypted report explicitly shows no production sales-policy row, expected revision
+0, no admitted builds and no production cutoff. Sales/channel enabled fields and offers are null,
+not literal false fields in an existing policy. The separate production Stripe webhook remains
+disabled. The existing RevenueCat webhook URL, token and portal filters remain unchanged.
+
+[sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
+has passed its matching plan and awaits owner approval. No deployment of that route is claimed.
 
 ## Repository and concurrent ownership
 
@@ -52,7 +58,7 @@ The main checkout belongs to the separate visual/build session and was not edite
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 
-Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, disposable PostgreSQL CI checks and production deployment remain pending until their actual receipts pass. Foundation migrations are now verified in production; purchase secrets and final route deployment remain separate pending operations.
+Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI is still running; production deployment remains pending until its actual receipts pass. Disposable PostgreSQL CI is separate from production verification. Foundation migrations and purchase secrets are verified in production; final route deployment remains pending.
 
 Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
 never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
@@ -93,22 +99,28 @@ still controls actual build admission. No synthetic live charge/refund should be
   return HTTP 200 and match source bytes. No tracking scripts were added.
 - PR524 fixes native public Supabase configuration and trust packaging. Initial CI caught a synthetic
   trust fixture placed inside the handwritten browser fixture directory. It is moved to the release
-  tooling fixture directory while retaining the browser guard. PR517's declaration guard is being
-  integrated with trust checks; current paid flags are not flipped. Final CI remains required.
+  tooling fixture directory while retaining the browser guard. PR528 includes PR517's declaration
+  guard with trust checks; current paid flags are not flipped. Final CI remains required.
 - Web canonical analytics SQL 0028, consent fences and actual Chrome/Firefox factory coverage pass
   focused tests and independent review. CI found closed deployment capability/manifest integration
   gaps; their exact allowlists are corrected and final CI remains required.
 - Apple optional analytics uses actual purchase provenance and canonical server-authored descriptors
   through a dedicated consent-fenced client lane. Generic queues still reject purchase events.
   The reviewed lock-order fix has a two-session SQL regression. Full iPhone simulator compilation
-  passed, and arm64 Mac Debug compilation also passed. Both used signing disabled. Integrated disposable PostgreSQL CI, protected deployment rehearsals and signed final packages remain separate pending gates.
+  passed, and arm64 Mac Debug compilation also passed. Both used signing disabled. PR528 tracks disposable PostgreSQL CI and protected deployment rehearsal evidence; final signed packages and production delivery remain separate pending gates.
 - Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
   Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
 
 Draft privacy publication [PR529](https://github.com/ZackC-1/still-app/pull/529) is open and unpublished.
-It carries the reconciled PR477 purchase disclosures plus canonical analytics and V3 sharing wording.
-Source reconciliation, publication and App Privacy portal changes remain distinct; confirm the policy
-date matches the eventual publication day.
+Publication is approved after PR527's combined source and checks complete. It carries the reconciled
+PR477 purchase disclosures plus canonical analytics and V3 sharing wording, preserved from source
+55f09c43. Source reconciliation, publication and App Privacy portal changes remain distinct;
+confirm the policy date matches the eventual publication day.
+
+Public trust pin [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, matches
+genuinely fetched hosted metadata on all three comparison checks and passed independent review.
+This establishes configuration agreement; no runtime-signed access proof or final signed artifact
+has yet been verified.
 
 ## Analytics and private material
 
@@ -125,17 +137,21 @@ permissions, then enable subjects. A dummy permission probe is not completed acc
 
 Secrets remain outside Git and chat. The public-only build trust handoff is
 `/Users/zack/.local/share/still/production-payments-20261021/public-access-keys.json`.
-Match it against hosted signer readback before packaging. Private prepared configuration and encrypted
+Its hosted metadata comparison passed as recorded above; retain that evidence and verify the final packaged binding. Private prepared configuration and encrypted
 read-only reports are in the existing owner-local locations recorded by the operational tooling;
 do not print their contents. Mem0 retrieval quota and the claude-mem observer are exhausted;
 repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Inspect purchase-secrets plan39709662125, then prepare its matching protected apply for owner approval.
-   Foundation apply39707838333 and post-apply DB-01 are complete. One global workflow concurrency
-   group means production operations remain sequential.
-2. If PR528 merges before route deployment, apply 0028/0029 through a separate exact plan at its final merged SHA; do not replay or expand the completed foundation scope. After verified purchase secrets, deploy the fixed nine purchase routes and separately sync-settings from the final selected SHA. Its route gate requires every migration at that SHA, avoiding duplicate intermediate deployments. Each apply needs its own owner approval. Never bypass protection
+1. Await the owner's approval of sync-settings apply39711029849 and inspect its closing receipt.
+   Foundation migrations, purchase secrets, DB-01 and PROD-01 are complete as recorded above.
+   One global workflow concurrency group means production operations remain sequential.
+2. Once PR528 merges, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
+   replay or expand the completed foundation scope. Deploy the fixed nine purchase routes from the
+   final selected SHA, whose gate requires every migration at that SHA. Handle sync-settings through
+   its separate operation and verify whether its source changed before planning any further deploy.
+   Each apply needs its own owner approval. Never bypass protection
    with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
 3. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
