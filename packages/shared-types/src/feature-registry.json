@@ -87,7 +87,7 @@
     {
       "id": "facebook.stories",
       "service": "facebook",
-      "name": "Facebook Stories",
+      "name": "Stories",
       "tier": "pro",
       "freshDefault": false
     },

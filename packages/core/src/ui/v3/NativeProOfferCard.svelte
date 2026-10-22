@@ -101,7 +101,7 @@
       <div class="status-line" data-tone="failed" role="alert">
         <span class="glyph"><Glyph name="alert" size={16} /></span>
         <div class="status-body">
-          <span>We couldn't finish checking. Nothing changed.</span><span
+          <span>We couldn’t finish checking. Nothing changed.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >Your free controls and saved choices are unaffected.</span
@@ -111,7 +111,7 @@
     {:else if state === "idle" && !restoreHeld}
       <div class="status-line" data-tone="info">
         <div class="status-body">
-          <span>Still Pro can't be bought here yet.</span><span
+          <span>Still Pro can’t be bought here yet.</span><span
             class="muted"
             style="font-size:calc(12.5px * var(--text-scale, 1));"
             >Already bought it somewhere else? Restore it below.</span
@@ -125,11 +125,11 @@
         <div class="status-body">
           <!-- Only a Buy the App Store never started may say nothing was charged (ISS-0070);
             any other failure may follow a charge, so it points to Restore purchase. -->
-          {#if notCharged}<span>Still Pro couldn't be bought right now.</span><span
+          {#if notCharged}<span>Still Pro couldn’t be bought right now.</span><span
               class="muted"
               style="font-size:calc(12.5px * var(--text-scale, 1));"
-              >Nothing was charged. Make sure you're signed in to the App Store, then try again.</span
-            >{:else}<span>The purchase wasn't confirmed.</span><span
+              >Nothing was charged. Make sure you’re signed in to the App Store, then try again.</span
+            >{:else}<span>The purchase wasn’t confirmed.</span><span
               class="muted"
               style="font-size:calc(12.5px * var(--text-scale, 1));"
               >If you were charged, Restore purchase will find it.</span
@@ -147,7 +147,10 @@
       <div class="status-line" data-tone="success" role="status">
         <span class="glyph"><Glyph name="check" size={16} /></span>
         <div class="status-body">
-          <span>Still Pro is ready. New controls start off.</span>
+          <span
+            >Still Pro is ready. New controls start off, so turn on the ones you
+            want.</span
+          >
         </div>
       </div>
     {/if}

@@ -21,8 +21,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const TITLE = "Still can't block distractions yet.";
-const ALLOWED = "Allowed on Instagram, Facebook, YouTube, and TikTok.";
+const TITLE = "Still can’t block distractions yet";
+const ALLOWED = "Allowed on Instagram, Facebook, YouTube and TikTok.";
 const RELOAD = "Reload open tabs to apply.";
 const FOUR_SITES = [
   "*://*.youtube.com/*",
@@ -87,7 +87,7 @@ describe("the V3 desktop popup's site access warning", () => {
     render(InvitedDesktopPopup, { props });
     const card = await screen.findByRole("region", { name: TITLE });
     expect(
-      within(card).getByText("Still needs permission to work on Instagram, Facebook, YouTube, and TikTok."),
+      within(card).getByText("Still needs permission to work on Instagram, Facebook, YouTube and TikTok."),
     ).toBeTruthy();
     await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
     // Synchronous with the click: the browser shows its prompt only inside the person's tap.
@@ -106,7 +106,7 @@ describe("the V3 desktop popup's site access warning", () => {
     render(InvitedDesktopPopup, { props });
     await fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
     browser.answer(false);
-    expect(await screen.findByText(/Chrome didn't allow it\./)).toBeTruthy();
+    expect(await screen.findByText(/Chrome didn’t allow it\./)).toBeTruthy();
     await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(browser.permissions.request).toHaveBeenCalledTimes(2);
   });
@@ -141,7 +141,7 @@ describe("naming only the missing sites", () => {
     );
     const { props } = await popupFixture();
     render(InvitedDesktopPopup, { props });
-    const card = await screen.findByRole("region", { name: "Still can't block distractions yet." });
+    const card = await screen.findByRole("region", { name: "Still can’t block distractions yet" });
     expect(await within(card).findByText("Still needs permission to work on YouTube.")).toBeTruthy();
     // Allow still asks for the four declared sites; the browser prompts only for the missing one.
     await fireEvent.click(within(card).getByRole("button", { name: "Allow" }));

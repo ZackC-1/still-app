@@ -6,7 +6,7 @@ import RestoreStatusCard from "./RestoreStatusCard.svelte";
 
 const BROWSER_NOTHING = [
   "No Still Pro purchase was found for this account.",
-  "Bought it with another account or Apple ID? Sign in with that one and try again.",
+  "Bought it with another account? Sign in with that one and try again.",
 ];
 // Owner decision 26 (the Apple app passes this as its override).
 const APPLE_NOTHING = [
@@ -49,10 +49,21 @@ describe("RestoreStatusCard nothing-found wording", () => {
   );
 });
 
+// Owner (22 Oct 2026): every checking line says the free controls keep working meanwhile.
+describe("RestoreStatusCard checking wording", () => {
+  it("says the free controls keep working while the check finishes", () => {
+    const view = render(RestoreStatusCard, { props: { state: "checking" } });
+    expect(lines(view)).toEqual([
+      "Checking for Still Pro purchases…",
+      "Your free controls keep working while this finishes.",
+    ]);
+  });
+});
+
 describe("RestoreStatusCard verify-again wording (owner, ISS-0029 item 6)", () => {
-  it("shows only the one line and its Verify now action", () => {
+  it("shows only the one line and its Verify purchase action", () => {
     const view = render(RestoreStatusCard, { props: { state: "verify" } });
-    expect(lines(view)).toEqual(["Still Pro needs to be verified again.", "Verify now"]);
+    expect(lines(view)).toEqual(["Still Pro needs to be verified again.", "Verify purchase"]);
     expect(view.container.textContent).not.toContain("Go online and sign in");
   });
 });

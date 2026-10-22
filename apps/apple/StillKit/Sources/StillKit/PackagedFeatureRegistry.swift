@@ -23,7 +23,7 @@ public enum PackagedFeatureRegistry {
     PackagedFeature(id: "instagram.suggested", service: "instagram", name: "Suggested accounts", tier: "pro", freshDefault: false),
     PackagedFeature(id: "instagram.threads", service: "instagram", name: "Threads links", tier: "pro", freshDefault: false),
     PackagedFeature(id: "facebook.reels", service: "facebook", name: "Facebook Reels", tier: "free", freshDefault: true),
-    PackagedFeature(id: "facebook.stories", service: "facebook", name: "Facebook Stories", tier: "pro", freshDefault: false),
+    PackagedFeature(id: "facebook.stories", service: "facebook", name: "Stories", tier: "pro", freshDefault: false),
     PackagedFeature(id: "facebook.videos", service: "facebook", name: "Video tab", tier: "pro", freshDefault: false),
     PackagedFeature(id: "facebook.sponsored", service: "facebook", name: "Desktop sidebar ads", tier: "pro", freshDefault: false),
   ]

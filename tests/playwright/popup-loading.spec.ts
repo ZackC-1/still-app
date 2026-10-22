@@ -66,7 +66,7 @@ async function slowSettingsRead(
       const text = document.body?.textContent ?? "";
       if (text.includes("Settings are unavailable."))
         probe.sawUnavailable = true;
-      if (text.includes("Checking sync…")) probe.sawChecking = true;
+      if (text.includes("Loading your settings…")) probe.sawChecking = true;
     }).observe(document, {
       subtree: true,
       childList: true,

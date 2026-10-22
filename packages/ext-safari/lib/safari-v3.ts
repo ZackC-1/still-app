@@ -141,7 +141,7 @@ export function appManagedPopupAccount(
 }
 
 export interface SettingsSyncDisplay {
-  readonly account: {
+  readonly account?: {
     readonly address?: string;
     readonly identity?: string;
     readonly revision?: number;
@@ -149,25 +149,28 @@ export interface SettingsSyncDisplay {
     readonly lastSyncedAt?: number | null;
     readonly status?: PopupAccountDisplay["status"];
   };
+  /** Signed out only: opens the Still app's sync screen (lib/app-handoff, route "sync"). */
+  readonly onSignIn?: () => void;
+  /** Signed out only: the card says "Opens the Still app" under Sign in. */
+  readonly appHandoff?: true;
 }
 
 /**
- * Settings-page sync card for Safari. There is no onSignIn, onSignOut, onDeleteAccount or retry
- * here (the popup's Sign in hands off to the Still app instead, lib/app-handoff): the card hides
- * every account action whose callback is absent, so the settings page never offers an action the
- * Apple app owns.
+ * Settings-page sync card for Safari. The Apple app owns the account, so a signed-in account is
+ * read-only: there is no onSignOut, onDeleteAccount or retry here, and the card hides every account
+ * action whose callback is absent, so the settings page never offers an action the Apple app owns.
  *
- * Signed out is an empty account, not "no account". With no account at all, SyncCard renders its
- * signed-out invitation with a Sign in button, which this build can never enable, so it would be a
- * permanently dead control. An empty account leaves only the card's "Settings sync" heading (plus
- * any host action slot). Omitting the card itself would need a change to ExtensionSettings, which
- * ships in the default Chrome and Firefox bundles and would break their byte identity.
+ * Signed out, the card shows the Safari popups' signed-out pattern (copy audit, 22 Oct 2026): the
+ * sync line, Sign in, and "Opens the Still app" under it. Sign in hands off to the Still app
+ * (`openApp`, the page's lib/app-handoff), never signing in here. Without a hand-off the card keeps
+ * an empty account, so it never shows a Sign in button that could do nothing.
  */
 export function appManagedSettingsSync(
   source: AppManagedAccountSource,
   text: AccountStatusText,
+  openApp?: () => void,
 ): SettingsSyncDisplay {
-  if (!source.userId) return { account: { confirmed: false } };
+  if (!source.userId) return openApp ? { onSignIn: openApp, appHandoff: true } : { account: { confirmed: false } };
   return {
     account: {
       address: source.accountEmail ?? undefined,

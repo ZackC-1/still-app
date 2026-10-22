@@ -9,9 +9,8 @@
   } from "./invitation-presentation.js";
   import "./design/styles.css";
 
-  let { presentation, canonicalSync = false }: {
+  let { presentation }: {
     presentation?: PopupInvitationPresentation;
-    canonicalSync?: boolean;
   } = $props();
   // A local current-request fence; caller observations alone control visibility.
   let current = $derived(
@@ -57,26 +56,24 @@
   });
   const copy = {
     rating: [
-      "Rate Still",
+      "Enjoying Still?",
       "A rating helps other people find Still.",
       "Rate Still",
     ],
+    // The sync invitation reads as the popups' Settings sync card (owner, 21 Oct 2026).
     sync: [
-      "Use the same settings in every browser",
-      "Sign in for free settings sync. Optional.",
+      "Settings sync",
+      "Sync settings across devices and browsers. Free.",
       "Sign in",
     ],
     link: [
-      "Link Still Pro to an account",
+      "Link Still Pro to your account",
       "So you can restore it in other browsers. Optional.",
       "Link",
     ],
   } as const;
-  let title = $derived(presentation?.kind === "sync" && canonicalSync
-    ? "Settings sync" : presentation ? copy[presentation.kind][0] : "");
-  let detail = $derived(presentation?.kind === "sync" && canonicalSync
-    ? "Sync settings across devices and browsers. Free."
-    : presentation ? copy[presentation.kind][1] : "");
+  let title = $derived(presentation ? copy[presentation.kind][0] : "");
+  let detail = $derived(presentation ? copy[presentation.kind][1] : "");
   function intent(
     observation: PopupInvitationPresentation,
     port: InvitationIntentPort | undefined,

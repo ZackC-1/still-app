@@ -480,7 +480,7 @@ describe("Apple settings to real native Pro screen integration", () => {
     );
     expect(
       await screen.findByText(
-        "No Still Pro purchase was found for this account.",
+        "No Still Pro purchase was found for this Apple Account.",
       ),
     ).toBeInTheDocument();
     expect(f.restore).toHaveBeenCalledOnce();
@@ -553,7 +553,7 @@ describe("mounted Apple host accepted access, provenance and verification recove
       expect(screen.queryByText("You have Still Pro.")).toBeNull(),
     );
     expect(
-      screen.queryByRole("button", { name: "Link Still Pro to an account" }),
+      screen.queryByRole("button", { name: "Link Still Pro to your account" }),
     ).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
@@ -574,7 +574,7 @@ describe("mounted Apple host accepted access, provenance and verification recove
         ).toBe(provenance === "protected" ? "protected" : "purchased"),
       );
       expect(
-        screen.queryByRole("button", { name: "Link Still Pro to an account" }),
+        screen.queryByRole("button", { name: "Link Still Pro to your account" }),
       ).toBeNull();
       expect(f.openSignIn).not.toHaveBeenCalled();
       expect(f.linkPurchase).not.toHaveBeenCalled();
@@ -588,10 +588,10 @@ describe("mounted Apple host accepted access, provenance and verification recove
     await fireEvent.click(
       await screen.findByRole("button", { name: "Get Still Pro" }),
     );
-    await screen.findByText("The purchase wasn't confirmed.");
+    await screen.findByText("The purchase wasn’t confirmed.");
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(f.purchase).toHaveBeenCalledOnce();
-    const verify = await screen.findByRole("button", { name: "Verify now" });
+    const verify = await screen.findByRole("button", { name: "Verify purchase" });
     expect(verify).toBeEnabled();
     await fireEvent.click(verify);
     await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(2));
@@ -602,10 +602,10 @@ describe("mounted Apple host accepted access, provenance and verification recove
 });
 
 describe("mounted Apple Buy the App Store never started (ISS-0070)", () => {
-  const notStarted = "Still Pro couldn't be bought right now.";
+  const notStarted = "Still Pro couldn’t be bought right now.";
   const notStartedDetail =
-    "Nothing was charged. Make sure you're signed in to the App Store, then try again.";
-  const ambiguous = "The purchase wasn't confirmed.";
+    "Nothing was charged. Make sure you’re signed in to the App Store, then try again.";
+  const ambiguous = "The purchase wasn’t confirmed.";
   const ambiguousDetail = "If you were charged, Restore purchase will find it.";
   it("a native unavailable Buy says nothing was charged on the purchase view and the card", async () => {
     const f = await compose();
@@ -650,17 +650,17 @@ describe("mounted Opus pending local fulfillment provenance", () => {
       await fireEvent.click(
         await screen.findByRole("button", { name: "Get Still Pro" }),
       );
-      await screen.findByText("The purchase wasn't confirmed.");
+      await screen.findByText("The purchase wasn’t confirmed.");
       await f.setAccess(state);
       await fireEvent.click(
-        await screen.findByRole("button", { name: "Verify now" }),
+        await screen.findByRole("button", { name: "Verify purchase" }),
       );
       await waitFor(() =>
         expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(2),
       );
       for (let i = 0; i < 24; i++) await Promise.resolve();
       expect(screen.queryByText("Still Pro is ready.")).toBeNull();
-      expect(screen.getByRole("button", { name: "Verify now" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Verify purchase" })).toBeEnabled();
       expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
@@ -710,7 +710,7 @@ describe("mounted settings pending verification recovery after closing", () => {
       await screen.findByText("Your purchase needs to be verified.");
       await waitFor(() =>
         screen
-          .getAllByRole("button", { name: "Verify now" })
+          .getAllByRole("button", { name: "Verify purchase" })
           .forEach((button) => expect(button).toBeEnabled()),
       );
       await f.setAccess(state);
@@ -734,11 +734,11 @@ describe("mounted settings pending verification recovery after closing", () => {
       );
       await waitFor(() =>
         screen
-          .getAllByRole("button", { name: "Verify now" })
+          .getAllByRole("button", { name: "Verify purchase" })
           .forEach((button) => expect(button).toBeEnabled()),
       );
       expect(
-        screen.getAllByRole("button", { name: "Verify now" }),
+        screen.getAllByRole("button", { name: "Verify purchase" }),
       ).toHaveLength(1);
       expect(
         screen.queryByText(
@@ -746,13 +746,13 @@ describe("mounted settings pending verification recovery after closing", () => {
         ),
       ).toBeNull();
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-      await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
+      await fireEvent.click(screen.getByRole("button", { name: "Verify purchase" }));
       await waitFor(() =>
         expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(3),
       );
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Verify now" }),
+          screen.getByRole("button", { name: "Verify purchase" }),
         ).toBeEnabled(),
       );
       expect(f.purchase).toHaveBeenCalledTimes(kind === "buy" ? 1 : 0);
@@ -770,7 +770,7 @@ describe("mounted settings pending verification recovery after closing", () => {
         expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(4),
       );
       await waitFor(() =>
-        expect(screen.queryByRole("button", { name: "Verify now" })).toBeNull(),
+        expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull(),
       );
       await fireEvent.click(
         await screen.findByRole("button", { name: "Close" }),
@@ -802,7 +802,7 @@ describe("pending locked Settings restore feedback", () => {
       await screen.findByText("Your purchase needs to be verified.");
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Verify now" }),
+          screen.getByRole("button", { name: "Verify purchase" }),
         ).toBeEnabled(),
       );
       await fireEvent.click(
@@ -896,7 +896,7 @@ describe("fresh Restore origin during an earlier pending purchase", () => {
       await screen.findByText("Your purchase needs to be verified.");
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Verify now" }),
+          screen.getByRole("button", { name: "Verify purchase" }),
         ).toBeEnabled(),
       );
       if (surface === "settings") {
@@ -918,7 +918,7 @@ describe("fresh Restore origin during an earlier pending purchase", () => {
       await waitFor(() => expect(f.restore).toHaveBeenCalledTimes(1));
       if (outcome !== "noSignal") {
         await screen.findByText(
-          "We couldn't finish checking. Nothing changed.",
+          "We couldn’t finish checking. Nothing changed.",
         );
         const retry = screen.getByRole("button", { name: "Try again" });
         expect(retry).toBeEnabled();
@@ -929,9 +929,7 @@ describe("fresh Restore origin during an earlier pending purchase", () => {
         await fireEvent.click(retry);
         await waitFor(() => expect(f.restore).toHaveBeenCalledTimes(2));
         await screen.findByText(
-          surface === "settings"
-            ? "No Still Pro purchase was found for this Apple Account."
-            : "No Still Pro purchase was found for this account.",
+          "No Still Pro purchase was found for this Apple Account.",
         );
       } else {
         await waitFor(() =>
@@ -950,7 +948,7 @@ describe("fresh Restore origin during an earlier pending purchase", () => {
       ).toBeInTheDocument();
       expect(
         screen.getAllByRole("button", {
-          name: surface === "settings" ? "Verify purchase" : "Verify now",
+          name: "Verify purchase",
         }),
       ).toHaveLength(1);
       expect(
@@ -1027,14 +1025,11 @@ describe("Restore signed-verifier progress survives accepted cache publications"
           expect(
             screen.queryByRole("button", { name: "Verify purchase" }),
           ).toBeNull();
-          expect(
-            screen.queryByRole("button", { name: "Verify now" }),
-          ).toBeNull();
         } else {
           await screen.findByText("Your purchase needs to be verified.");
           expect(
             screen.getAllByRole("button", {
-              name: surface === "settings" ? "Verify purchase" : "Verify now",
+              name: "Verify purchase",
             }),
           ).toHaveLength(1);
           expect(
@@ -1063,7 +1058,7 @@ describe("mounted Apple account-only native authority", () => {
     const f = await compose({accountOnly: true, accountUncertain});
     await fireEvent.click(await screen.findByRole("button", {name: "Get Still Pro"}));
     await fireEvent.click(await screen.findByRole("button", {name: "Get Still Pro"}));
-    await screen.findByText("The purchase wasn't confirmed.");
+    await screen.findByText("The purchase wasn’t confirmed.");
     expect(f.accountRequests.length).toBeGreaterThan(0);
     expect(f.purchase).not.toHaveBeenCalled();
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
@@ -1139,7 +1134,7 @@ describe("mounted Apple known account removal", () => {
 // ISS-0071 (owner decision, option B; ADR 0005): signed out, Get Still Pro opens the app's
 // email-code sign-in first, with one added line and "Buy without an account" under it.
 describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
-  const NOTE = "Sign in before purchase to associate Still Pro with your account.";
+  const NOTE = "Sign in first to keep Still Pro with your account.";
   const SKIP = "Buy without an account";
   async function enterCode(address: string) {
     const email = await screen.findByRole("textbox", { name: STRINGS.auth.emailLabel });
@@ -1159,8 +1154,8 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     const f = await openBuy();
     const sheet = await screen.findByRole("dialog");
     // ISS-0085 (owner, 19 Oct): the purchase-opened sheet has its own heading and prompt.
-    expect(within(sheet).getByRole("heading", { name: "Sign in to purchase Still Pro" })).toBeVisible();
-    expect(within(sheet).getByText("Enter your email to get a 6-digit code.")).toBeVisible();
+    expect(within(sheet).getByRole("heading", { name: "Sign in to get Still Pro" })).toBeVisible();
+    expect(within(sheet).getByText("Enter your email to get a 6-digit sign-in code.")).toBeVisible();
     expect(within(sheet).queryByText(STRINGS.auth.prompt)).toBeNull();
     expect(within(sheet).getByText(NOTE)).toBeVisible();
     expect(within(sheet).getByRole("button", { name: SKIP })).toBeVisible();
@@ -1231,13 +1226,13 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     expect(f.linkPurchase).not.toHaveBeenCalled();
     expect(f.controller.userId).toBeNull();
   });
-  it("right after a purchase without an account, Back to settings shows the sign-in card", async () => {
+  it("right after a purchase without an account, Back to Settings shows the sign-in card", async () => {
     await openBuy();
     await fireEvent.click(await screen.findByRole("button", { name: SKIP }));
     expect(await screen.findByText("You have Still Pro.")).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Back to Settings" }));
     expect(await screen.findByText("You have Still Pro. Sign in to keep Still Pro with your account.")).toBeVisible();
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText("Link Still Pro to your account")).toBeNull();
   });
   it("signing in continues to Apple's sheet without a second tap and links the purchase", async () => {
     const f = await openBuy();
@@ -1268,7 +1263,7 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     expect(within(card).getByRole("heading", { name: "Settings sync" })).toBeVisible();
     expect(within(card).getByRole("button", { name: "Sign in" })).toBeVisible();
     expect(within(card).getByRole("button", { name: "Not now" })).toBeVisible();
-    expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+    expect(screen.queryByText("Link Still Pro to your account")).toBeNull();
     expect(screen.queryByText("So you can restore it in other browsers. Optional.")).toBeNull();
     await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(f.controller.signInOpen).toBe(true));
@@ -1298,7 +1293,7 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
 // held open, as StoreKit's answer is on a device.
 describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)", () => {
   const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
-  const OFFER = "Link Still Pro to your account.";
+  const OFFER = "Link Still Pro to your account";
   // The invitation lives in the sync card (owner, 19 Oct); its Sign in runs the explicit link.
   const inviteCard = async () => (await screen.findByText(INVITE)).closest("section")!;
   const ACCOUNT = "account@still.test";
@@ -1317,7 +1312,7 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     const card = await screen.findByRole("region", { name: "Link Still Pro" });
     expect(within(card).getByRole("heading", { name: "Link Still Pro to this account?" })).toBeVisible();
     expect(within(card).getByText(ACCOUNT)).toBeVisible();
-    expect(within(card).getByText("You'll use this account to restore Still Pro in other browsers.")).toBeVisible();
+    expect(within(card).getByText("You’ll use this account to restore Still Pro in other browsers.")).toBeVisible();
     expect(within(card).getByRole("button", { name: "Link to this account" })).toBeVisible();
     expect(within(card).getByRole("button", { name: "Use a different account" })).toBeVisible();
     return card;
@@ -1420,7 +1415,7 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link Still Pro to your account" })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
   it("Not now hides the signed-in link card for this visit and links nothing", async () => {
@@ -1452,12 +1447,12 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
 });
 
 // ISS-0081: on 2.1.1.387 and .392 a Mac that had linked an accountless Apple Still Pro to the
-// signed-in account showed "Link Still Pro to your account." again on the next launch (Link ended in
+// signed-in account showed "Link Still Pro to your account" again on the next launch (Link ended in
 // "Still Pro is linked to …" again: the server answered already_linked). The fixture is the real host
 // launching signed in, with the account's reconcile and the native link read naming the account the
 // server's signed proof links the right to.
 describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0081)", () => {
-  const OFFER = "Link Still Pro to your account.";
+  const OFFER = "Link Still Pro to your account";
   const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
   const ACCOUNT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const ACCOUNT = "account@still.test";
@@ -1478,7 +1473,7 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Link Still Pro to an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link Still Pro to your account" })).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
   });
   it("linked to another account: the offer shows, Link asks the server once, and the answer is the fact, not a failure (ISS-0104)", async () => {
@@ -1491,9 +1486,9 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     const card = await screen.findByRole("region", { name: "Link Still Pro" });
     await fireEvent.click(within(card).getByRole("button", { name: "Link to this account" }));
     await waitFor(() => expect(f.linkPurchase).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Still Pro works on this device. It's linked to another account.")).toBeVisible();
+    expect(await screen.findByText("Still Pro works on this device. It’s linked to another account.")).toBeVisible();
     expect(screen.queryByText(/sign in with that account/i)).toBeNull();
-    expect(screen.queryByText("Linking didn't finish.")).toBeNull();
+    expect(screen.queryByText("Linking didn’t finish.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     await settled();
     expect(screen.queryByRole("button", { name: "Link" })).toBeNull();

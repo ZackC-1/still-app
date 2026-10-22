@@ -354,7 +354,7 @@ describe("TikTokBlocked rendered from the host", () => {
     const h = harness({ [TIKTOK_ROUTE.screen]: { status: "unavailable", tab: 7 } });
     await h.host.start();
     render(TikTokBlocked, { presentation: h.host.current() });
-    expect(screen.getByRole("heading", { name: "TikTok stays closed." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "TikTok stays closed" })).toBeInTheDocument();
     const open = screen.getByRole("button", { name: "Open TikTok this time" });
     expect(open).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(open);
@@ -365,9 +365,9 @@ describe("TikTokBlocked rendered from the host", () => {
   });
 });
 
-// Owner decision 34: a failed "Open TikTok this time" shows exactly "Couldn't open TikTok." with a
+// Owner decision 34: a failed "Open TikTok this time" shows exactly "We couldn’t open TikTok." with a
 // Try again action. Try again is the ordinary fenced request: it can only reopen the confirmation.
-const FAILED_LINE = "Couldn't open TikTok.";
+const FAILED_LINE = "We couldn’t open TikTok.";
 
 async function failedHarness(kind: string, reply: unknown) {
   const h = harness({

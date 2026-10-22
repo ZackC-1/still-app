@@ -147,7 +147,7 @@ describe("Still Pro copy states no number of extras (owner rule)", () => {
   it("the popup line and every by-site value line contain no digits", () => {
     expect(POPUP_PRO_VALUE).not.toMatch(COUNT);
     expect(POPUP_PRO_VALUE).toBe(
-      "Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.",
+      "Even fewer distractions on Instagram, Facebook and YouTube. One-time purchase.",
     );
     for (const row of proValueBySite()) {
       expect(row.what).not.toMatch(COUNT);

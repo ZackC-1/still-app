@@ -67,7 +67,7 @@ test("J8.CH removing and re-adding Still in the same profile is a fresh install"
     const again = await browser.load(CHROMIUM_EXTENSION);
     const second = await secondOpen;
     await second.evaluate(() => document.fonts.ready);
-    await expect(second.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+    await expect(second.getByRole("heading", { level: 1 })).toHaveText("Still is on");
     await ev.shot(second, "reinstall-first-run");
     await new Promise((done) => setTimeout(done, 1500));
     expect(context.pages().filter((p) => FIRST_RUN.test(p.url())), "first-run opens once").toHaveLength(1);

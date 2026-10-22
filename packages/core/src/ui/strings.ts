@@ -163,7 +163,7 @@ export const STRINGS = {
 
   auth: {
     title: "Sign in for settings sync",
-    dismissLabel: "Dismiss sign in",
+    dismissLabel: "Close sign-in",
     // Says what an account is for and, in the same breath, that it is not required. Someone who
     // opened this sheet by accident should be able to close it without wondering what they lost.
     prompt:
@@ -175,7 +175,9 @@ export const STRINGS = {
     send: "Email me a link",
     sending: "Sending…",
     sent: "Check your email for a sign-in link.",
-    error: "We couldn't sign you in. Try again.",
+    error: "We couldn’t sign you in. Try again.",
+    // A host that sends a sign-in link could not send it (owner, 22 Oct 2026).
+    sendError: "We couldn’t send the email. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
     signInCta: "Sign in to sync",
@@ -208,21 +210,21 @@ export const STRINGS = {
     codeLabel: "6-digit code",
     verify: "Verify code",
     verifying: "Checking…",
-    wrongCode: "That code didn't work. Check it and try again.",
+    wrongCode: "That code didn’t work. Check it and try again.",
     expiredCode: "That code has expired. Send a new one to continue.",
-    requestNew: "That code isn't working. Send a new one to continue.",
-    verifyError: "We couldn't sign you in. Try again.",
-    sendError: "Couldn't send the code. Try again.",
-    resendError: "Couldn't send a new code. The last one may still work.",
+    requestNew: "That code isn’t working. Send a new one to continue.",
+    verifyError: "We couldn’t sign you in. Try again.",
+    sendError: "We couldn’t send the code. Try again.",
+    resendError: "We couldn’t send a new code. The last one may still work.",
     // Rate-limit wait copy (R2/R3), split BY VIEW because honesty differs by context: the email
     // view's first-send block must never claim a code exists (under the hourly cap none was ever
     // sent); the code view MAY point back at the one already delivered. The verify line never
     // suggests requesting a new code — that's the worst advice during a verify lockout. sendBlocked
     // is countdown-led (the sheet appends the live seconds) because the review path's genuine
     // retry-after can be minutes, not the 60s default — a fixed "wait a minute" would misstate it.
-    sendBlocked: "We can't send a code right now. Try again in", // sheet appends "… 42s"
+    sendBlocked: "We can’t send a code right now. Try again in", // sheet appends "… 42s."
     resendBlocked: "Too many codes requested. The code already in your email still works.",
-    verifyBlocked: "Too many tries. You can enter the code again in", // sheet appends "… 42s"
+    verifyBlocked: "Too many tries. You can enter the code again in", // sheet appends "… 42s."
     resend: "Send a new code",
     resendWait: "Send a new code in", // the sheet appends the live countdown, e.g. "… in 42s"
     differentEmail: "Use a different email",
@@ -242,6 +244,10 @@ export const STRINGS = {
     // Owner (19 Oct): one word; the time after it says when ("Synced · Today at 2:10 PM").
     synced: "Synced",
     checking: "Checking sync…",
+    // While a settings screen or popup waits for its first settings read. Kept apart from
+    // `checking`, which is the sync status, so a signed-out person never sees "sync" while their
+    // switches load (copy audit, 22 Oct 2026).
+    loading: "Loading your settings…",
     lastSynced: "Last synced",
     appLastSynced: "Last synced in Still app",
     retry: "Retry sync",
@@ -249,9 +255,12 @@ export const STRINGS = {
     extensionCurrent: "Safari settings match the Still app.",
     extensionChecking: "Checking settings with the Still app…",
     extensionPending: "Open Still to finish syncing your settings.",
-    unreachable: "Sync didn't finish. Settings are saved on this device.",
-    // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`.
-    failed: "Sync didn't finish. Settings are saved on this device.",
+    unreachable: "Sync didn’t finish. Settings are saved on this device.",
+    // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`. The
+    // 22 Oct 2026 copy audit changed the shared strings for every build (curly apostrophes,
+    // "We couldn’t …" errors), so `unreachable`, the sign-in lines and `deleteError` changed on
+    // the 2.x screens too; only strings that 2.x screens alone use were left as they were.
+    failed: "Sync didn’t finish. Settings are saved on this device.",
     tryAgain: "Try again",
     firstSync: "Your settings are now the same across your signed-in devices.",
   },
@@ -287,6 +296,6 @@ export const STRINGS = {
     deleteConfirm: "Delete account",
     deleteCancel: "Cancel",
     deleting: "Deleting…",
-    deleteError: "Couldn't delete your account. Try again.",
+    deleteError: "We couldn’t delete your account. Try again.",
   },
 } as const;
