@@ -25,5 +25,6 @@ const auth = {
 const legacy = new HttpPostHog(postHogConfigFromEnv((name) => Deno.env.get(name)));
 
 Deno.serve((req) =>
-  handleAnalyticsErasure(req, { store, limiter, posthog, workerToken, auth, account: store, legacy })
+  handleAnalyticsErasure(req, { store, limiter, posthog, workerToken, auth, account: store, legacy,
+    maintenance: sql ? async () => { await sql`select private.apple_analytics_cleanup()`; } : undefined })
 );

@@ -60,6 +60,8 @@ export const WORKER_BATCH = 50;
 export const WORKER_LEASE_SECONDS = 300;
 
 export interface AnalyticsErasureDeps {
+  /** Bounded optional retention maintenance; only the authenticated worker invokes this. */
+  readonly maintenance?: () => Promise<void>;
   /** Null when this deployment has no eraser credential: every route answers 503. */
   readonly store: ErasureStore | null;
   readonly limiter: RateLimiter | null;
@@ -191,7 +193,7 @@ export async function handleAnalyticsErasure(req: Request, deps: AnalyticsErasur
         }
         if (!hasExactly(body, ["action"])) return invalid();
         if (!deps.store) return unavailable();
-        const report = await runErasureWorker({
+        const report = await runErasureWorker({ maintenance: deps.maintenance,
           store: deps.store,
           posthog: deps.posthog,
           limit: WORKER_BATCH,
