@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 // Reproducible release packages and their hashes. Local only: this never contacts a store.
 //
-//   node scripts/release/package.mjs --out <dir> [--env VITE_X=value]... [--allow-dirty]
+//   node scripts/release/package.mjs --out <dir> [--env VITE_X=value]... [--server-secrets-json <file>] [--allow-dirty]
 //
 // Writes into <dir>:
 //   still-chrome-<extension version>.zip       Chrome Web Store package
 //   still-firefox-<extension version>.zip      Firefox (AMO) package
 //   still-source-<extension version>.zip       the complete source AMO requires, with build instructions
 //   SHA256SUMS.json / SHA256SUMS.txt           a hash for every file above
+//
+// Production access trust (VITE_ACCESS_ENVIRONMENT, VITE_ACCESS_PUBLIC_KEYS) is never an --env value: it
+// always comes from the committed scripts/release/production-access-keys.json (see access-trust.mjs),
+// so a store package can carry only production public keys and only the ones reviewed in git.
+// --server-secrets-json  the output of `supabase secrets list -o json` (only digests; only the three
+//           ACCESS_PROOF_ public-side entries are read). Required once the release declares the paid
+//           tier: the build refuses unless the server's public key, kid and environment match a pinned row.
 //
 // --env     a public build value (see PUBLIC_ENV_KEYS). Every other VITE_* variable in your shell is
 //           removed first, and the values given are recorded in the AMO build instructions so a
@@ -31,6 +38,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertServerGate, paidDeclared, readServerDigests, readStoreTrust, TRUST_ENV_KEYS, TRUST_FILE } from "./access-trust.mjs";
 import { readVersions, findMismatches, ROOT } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -41,14 +49,14 @@ export const PUBLIC_ENV_KEYS = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "
 // decides which list it belongs to.
 export const DELIBERATELY_UNPACKAGED = {
   VITE_APPLE_ATOMIC_SETTINGS: "developer opt-in for the Apple settings screens; store packages leave it unset",
-  VITE_ACCESS_ENVIRONMENT: "scoped access QA trust opt-in; store packages retain production empty-key defaults",
-  VITE_ACCESS_PUBLIC_KEYS: "scoped access QA trust material; supplied only by the separate paid-sandbox profile",
   VITE_BACKEND_ROUTE_PROFILE: "sandbox backend route opt-in; store packages retain the production route default",
   VITE_ANALYTICS_BUILD_CHANNEL: "QA analytics label; set only by the QA profiles, store events stay unlabelled",
   VITE_PACKAGE_IDENTITY: "sandbox QA package identity; set only by the paid-sandbox profile, never in a store package",
   VITE_QA_BUILD_SEQUENCE: "sandbox QA package version suffix; set only by the paid-sandbox profile",
   VITE_REVIEW_SIGNIN_EMAIL: "store-review sign-in helper; must not ship in a public package",
 };
+// Store packages always set these from the pinned production trust file, never from --env or the shell.
+export const PINNED_ENV_KEYS = TRUST_ENV_KEYS;
 const ENV_SCAN_DIRS = ["packages/ext-chromium", "packages/core/src", "packages/shared-types/src"];
 
 export const WEB_TARGETS = {
@@ -102,9 +110,11 @@ export function sourceEntries(root = ROOT, { allowDirty = false } = {}) {
   return entries;
 }
 
-export function amoInstructions(versions, rootPackage, env) {
+export function amoInstructions(versions, rootPackage, env, trustEnv) {
+  if (!trustEnv || PINNED_ENV_KEYS.some((key) => typeof trustEnv[key] !== "string")) throw new Error("amoInstructions needs the pinned access trust values");
   const node = rootPackage.engines?.node ?? "see package.json";
-  const envLines = PUBLIC_ENV_KEYS.map((key) => `${key}=${key in env ? env[key] : ""}`).join("\n");
+  // Trust lines come only from the pinned file's values, never from `env`.
+  const envLines = [...PUBLIC_ENV_KEYS.map((key) => `${key}=${key in env ? env[key] : ""}`), ...PINNED_ENV_KEYS.map((key) => `${key}=${trustEnv[key]}`)].join("\n");
   return `# Rebuilding Still for Firefox (version ${versions.extension})
 
 This archive is the complete source of the submitted add-on. Chrome and Firefox are built from the same
@@ -122,8 +132,9 @@ anything outside this archive.
 1. Extract this archive into a clean directory.
 2. \`pnpm install --frozen-lockfile\`
 3. Put exactly these public build values in the environment. They are the values the submitted add-on was
-   built with. They are public (a project URL, a publishable client key and an analytics key that ships in every
-   copy of the add-on), not secrets. An empty value means it was unset.
+   built with. They are public (a project URL, a publishable client key, an analytics key and the public
+   verification keys from ${TRUST_FILE}, all of which ship in every copy of the add-on), not secrets. An
+   empty value means it was unset.
 
 \`\`\`
 ${envLines}
@@ -164,7 +175,7 @@ export function unlistedViteReferences(root = ROOT) {
     }
   };
   for (const dir of ENV_SCAN_DIRS) if (existsSync(join(root, dir))) walk(join(root, dir));
-  return [...found].filter((name) => !PUBLIC_ENV_KEYS.includes(name) && !(name in DELIBERATELY_UNPACKAGED)).sort();
+  return [...found].filter((name) => !PUBLIC_ENV_KEYS.includes(name) && !PINNED_ENV_KEYS.includes(name) && !(name in DELIBERATELY_UNPACKAGED)).sort();
 }
 
 /** Export the committed tree (only what the web packages need) into `dir`. */
@@ -188,8 +199,11 @@ function installAndBuild(dir, env) {
   }
 }
 
-export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }) {
-  for (const key of Object.keys(env)) if (!PUBLIC_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value (${PUBLIC_ENV_KEYS.join(", ")})`);
+export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false, serverDigests }) {
+  for (const key of Object.keys(env)) {
+    if (PINNED_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value: store packages take access trust only from ${TRUST_FILE}`);
+    if (!PUBLIC_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value (${PUBLIC_ENV_KEYS.join(", ")})`);
+  }
   if (!allowDirty && git(["status", "--porcelain", "--untracked-files=no"], root).trim() !== "")
     throw new Error("tracked files have uncommitted changes, which a HEAD build would ignore; commit first (or pass --allow-dirty for a throwaway package)");
   if (!allowDirty) {
@@ -208,7 +222,13 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     const problems = findMismatches(work, { skipApple: true });
     if (problems.length) throw new Error(`version.json and its consumers disagree:\n${problems.join("\n")}`);
     const versions = readVersions(work);
-    installAndBuild(work, env);
+    // Production trust from the committed tree: production rows only, none of the TEST-ONLY fixture,
+    // and, once the release declares the paid tier, at least one key that matches the server. Both paid
+    // constants are read from the commit being built in the full repository: the export above has
+    // only the web packages, not the StillKit flag.
+    const trust = readStoreTrust(work, { paid: paidDeclared(root, { rev: "HEAD" }) });
+    assertServerGate(trust, serverDigests);
+    installAndBuild(work, { ...env, ...trust.env });
 
     // Staged in memory: nothing reaches --out until every check has passed.
     const staged = {};
@@ -225,11 +245,12 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     }
 
     const rootPackage = JSON.parse(readFileSync(join(work, "package.json"), "utf8"));
-    source.push({ name: "AMO-BUILD-INSTRUCTIONS.md", data: Buffer.from(amoInstructions(versions, rootPackage, env)) });
+    source.push({ name: "AMO-BUILD-INSTRUCTIONS.md", data: Buffer.from(amoInstructions(versions, rootPackage, env, trust.env)) });
     write(`still-source-${versions.extension}.zip`, createZip(source));
 
     const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
-    const manifest = { version: versions.extension, appleVersion: versions.apple, appleBuild: versions.appleBuild, files: sorted };
+    const accessTrust = { environment: "production", kids: trust.rows.map((row) => row.kid), keysSha256: trust.sha256 };
+    const manifest = { version: versions.extension, appleVersion: versions.apple, appleBuild: versions.appleBuild, accessTrust, files: sorted };
     staged["SHA256SUMS.json"] = JSON.stringify(manifest, null, 2) + "\n";
     staged["SHA256SUMS.txt"] = Object.entries(sorted).map(([name, f]) => `${f.sha256}  ${name}\n`).join("");
     mkdirSync(out, { recursive: true });
@@ -243,10 +264,12 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
 function main(argv) {
   let out;
   let allowDirty = false;
+  let serverDigests;
   const env = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") out = resolve(argv[++i] ?? "");
     else if (argv[i] === "--allow-dirty") allowDirty = true;
+    else if (argv[i] === "--server-secrets-json") serverDigests = readServerDigests(resolve(argv[++i] ?? ""));
     else if (argv[i] === "--env") {
       const pair = argv[++i] ?? "";
       const eq = pair.indexOf("=");
@@ -255,11 +278,11 @@ function main(argv) {
     } else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!out) {
-    process.stderr.write("usage: package.mjs --out <dir> [--env VITE_X=v]... [--allow-dirty]\n");
+    process.stderr.write("usage: package.mjs --out <dir> [--env VITE_X=v]... [--server-secrets-json <file>] [--allow-dirty]\n");
     process.exitCode = 2;
     return;
   }
-  const manifest = buildPackages({ out, env, allowDirty });
+  const manifest = buildPackages({ out, env, allowDirty, serverDigests });
   for (const [name, f] of Object.entries(manifest.files)) process.stdout.write(`${f.sha256}  ${name}\n`);
 }
 

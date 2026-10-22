@@ -1,0 +1,4 @@
+{
+  "about": "PUBLIC Ed25519 verification keys that store builds trust for Still Pro access proofs. Public material only: a private key never goes in this file or anywhere in the repository. Row 1 is the key the server signs with now; row 2 (optional) is the standby that rotation switches to. Every row must say environment production and purpose access. Empty until the release PR; see docs/release/versioning-and-packages.md.",
+  "keys": []
+}

@@ -8,7 +8,12 @@
 // Inputs (environment only): RELEASE_MODE, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_ZIP_SHA256,
 // RELEASE_CONFIRM_SUBMIT, the public build values named in PUBLIC_ENV_KEYS (by owner decision they
 // are `chrome-release` environment variables; they ship inside every copy of the extension anyway),
-// and GitHub's own GITHUB_* values.
+// and GitHub's own GITHUB_* values. Production access trust (the public Still Pro verification keys)
+// is not an input: buildPackages reads it from scripts/release/production-access-keys.json at the
+// candidate commit, so the package carries exactly the keys reviewed in git.
+// ACCESS_PROOF_SERVER_DIGESTS_JSON (optional; required once the release declares the paid tier) is the
+// three ACCESS_PROOF_ public-side entries of `supabase secrets list -o json`: digests only. The build
+// refuses a paid release unless they match a pinned key.
 //
 // Writes <dir>/still-chrome-<version>.zip and <dir>/SHA256SUMS.json (the build's own manifest), and
 // the step output zip-sha256. In every mode except package-only the fingerprint must equal the
@@ -19,6 +24,7 @@ import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseServerDigests } from "./access-trust.mjs";
 import { buildPackages, PUBLIC_ENV_KEYS, sha256 } from "./package.mjs";
 import { ROOT } from "./version.mjs";
 import { checkInputs, checkRunContext, zipName } from "./chrome-release.mjs";
@@ -75,6 +81,8 @@ export function runPackage({ env, out, root = ROOT, build = buildPackages, git =
     throw new StoreRefusal("commit-not-on-main", "That commit is not on main");
   }
   const publicEnv = collectPublicEnv(env);
+  const digestsText = env.ACCESS_PROOF_SERVER_DIGESTS_JSON ?? "";
+  const serverDigests = digestsText === "" ? undefined : parseServerDigests(digestsText);
   const work = mkdtempSync(join(tmpdir(), "still-chrome-candidate-"));
   const stage = join(work, "out");
   const candidate = join(work, "tree");
@@ -82,13 +90,13 @@ export function runPackage({ env, out, root = ROOT, build = buildPackages, git =
     git(["worktree", "add", "--detach", candidate, inputs.commit]);
     assertPaidTierOff(readFileSync(join(candidate, PAID_FLAG_FILE), "utf8"));
     log(`Building ${inputs.version} from ${inputs.commit}`);
-    const manifest = build({ out: stage, root: candidate, env: publicEnv });
+    const manifest = build({ out: stage, root: candidate, env: publicEnv, ...(serverDigests ? { serverDigests } : {}) });
     const name = zipName(inputs.version);
     const digest = verifyBuilt({ manifest, zipBytes: readFileSync(join(stage, name)), inputs });
     mkdirSync(out, { recursive: true });
     copyFileSync(join(stage, name), join(out, name));
     copyFileSync(join(stage, "SHA256SUMS.json"), join(out, "SHA256SUMS.json"));
-    return { inputs, digest, name };
+    return { inputs, digest, name, accessTrust: manifest.accessTrust };
   } finally {
     try {
       git(["worktree", "remove", "--force", candidate]);
@@ -105,12 +113,12 @@ export function main(argv, deps = {}) {
   const err = deps.stderr ?? ((s) => process.stderr.write(s));
   try {
     if (argv.length !== 2 || argv[0] !== "--out" || !argv[1] || argv[1].startsWith("--")) throw new StoreRefusal("usage", "usage: chrome-package.mjs --out <dir>");
-    const { inputs, digest, name } = runPackage({ env, out: resolve(argv[1]), ...(deps.runOptions ?? {}), log: (line) => out(line + "\n") });
+    const { inputs, digest, name, accessTrust } = runPackage({ env, out: resolve(argv[1]), ...(deps.runOptions ?? {}), log: (line) => out(line + "\n") });
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `zip-sha256=${digest}\n`);
     if (env.GITHUB_STEP_SUMMARY)
       appendFileSync(
         env.GITHUB_STEP_SUMMARY,
-        `## Chrome package\n\n| | |\n|---|---|\n| Mode | ${inputs.mode} |\n| Version | ${inputs.version} |\n| Commit | ${inputs.commit} |\n| File | ${name} |\n| Fingerprint (SHA-256) | \`${digest}\` |\n\nTo upload this exact package, start the workflow again with this commit, version and fingerprint.\n`,
+        `## Chrome package\n\n| | |\n|---|---|\n| Mode | ${inputs.mode} |\n| Version | ${inputs.version} |\n| Commit | ${inputs.commit} |\n| File | ${name} |\n| Fingerprint (SHA-256) | \`${digest}\` |\n| Access trust | ${accessTrust ? `${accessTrust.environment}, ${accessTrust.kids.length ? accessTrust.kids.join(", ") : "no keys"}` : "unknown"} |\n\nTo upload this exact package, start the workflow again with this commit, version and fingerprint.\n`,
       );
     out(`${digest}  ${name}\n`);
     return 0;

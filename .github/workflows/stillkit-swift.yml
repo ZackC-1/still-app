@@ -9,6 +9,8 @@ on:
       - 'packages/shared-types/src/entitlement.ts'
       - 'packages/shared-types/fixtures/**'
       - 'tests/access-proof/**'
+      - 'scripts/release/production-access-keys.json'
+      - 'tests/fixtures/access-trust/**'
       - '.github/workflows/stillkit-swift.yml'
   push:
     branches: [main]
@@ -18,6 +20,8 @@ on:
       - 'packages/shared-types/src/entitlement.ts'
       - 'packages/shared-types/fixtures/**'
       - 'tests/access-proof/**'
+      - 'scripts/release/production-access-keys.json'
+      - 'tests/fixtures/access-trust/**'
       - '.github/workflows/stillkit-swift.yml'
   workflow_dispatch:
 
