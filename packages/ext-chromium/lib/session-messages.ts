@@ -159,7 +159,7 @@ export function unavailableResponse<A extends SessionAction>(action: A): Session
 }
 
 /** Dispatch one already-validated request. The registry's key lookup is exhaustive by construction. */
-export async function dispatchSession(
+async function dispatchSession(
   session: ExtensionSession | null,
   request: SessionRequest,
 ): Promise<SessionResponses[SessionAction]> {

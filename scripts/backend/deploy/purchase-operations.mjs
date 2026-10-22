@@ -340,9 +340,6 @@ export async function createPurchasePlan({
   return { ...manifest, digest: sha256(canonical(manifest)) };
 }
 
-/** Every file the apply relies on, for the workflow's freshness check. */
-export const purchaseBoundFiles = (plan) => plan.files;
-
 /** Extracts the exact commit (supabase/, the deploy scripts, the bundled sources) and checks hashes. */
 export async function preparePurchaseWorkdir({ exec, cwd, plan, dir }) {
   await rm(dir, { recursive: true, force: true });

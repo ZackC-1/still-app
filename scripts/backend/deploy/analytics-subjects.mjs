@@ -455,9 +455,6 @@ export async function createAnalyticsPlan({
   return { ...manifest, digest: sha256(canonical(manifest)) };
 }
 
-/** Every file the apply relies on, for the workflow's freshness check. */
-export const analyticsBoundFiles = (plan) => plan.files;
-
 /** Extracts the exact commit (supabase/, the deploy scripts, the bundled sources) and checks hashes. */
 export async function prepareAnalyticsWorkdir({ exec, cwd, plan, dir }) {
   await rm(dir, { recursive: true, force: true });
