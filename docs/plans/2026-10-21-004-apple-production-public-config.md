@@ -28,3 +28,8 @@ Verified against main `bac1539f` plus PR 520: 72 Node trust/Chrome tooling tests
 plist writer and initialize both native consumers for all four targets. Targeted ESLint, Bash syntax
 and whitespace checks passed. Reproducible packaging verification is recorded separately once its
 long-running suite completes. No signed archive, deployment or live purchase is claimed.
+
+Independent review also reproduced two issues in the incorporated trust tooling. Restoration now
+preflights all current plist bytes against their recorded original/generated hashes and preserves
+concurrent edits plus backups on divergence. Swift paid-switch parsing refuses expression prefixes
+and continuation lines. Eighteen focused Node tests pass with behavioral regressions for both cases.

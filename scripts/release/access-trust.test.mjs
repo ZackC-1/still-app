@@ -140,8 +140,13 @@ test("a reworded, missing or repeated paid declaration refuses instead of readin
     [swift, "public static let paidTierEnabled = trueish"],
     [swift, "public static var paidTierEnabled = true"],
     [swift, "public static let paidTierEnabled: Bool = Bool(\"true\")!"],
+    [swift, "public static let paidTierEnabled = false || true"],
+    [swift, "public static let paidTierEnabled = true && false"],
+    [swift, "public static let paidTierEnabled = false; otherExpression()"],
+    [swift, "public static let paidTierEnabled = false\n || true"],
+    [swift, "public static let paidTierEnabled = false // continued\n // comment\n || true"],
   ])
-    assert.throws(() => paidFlagValue(flag, text), /exactly one paid-tier declaration/, text);
+    assert.throws(() => paidFlagValue(flag, text), /exactly one paid-tier declaration|exact Boolean initializer/, text);
   const root = scratchRoot([]);
   try {
     rmSync(join(root, swift.path));
@@ -266,6 +271,27 @@ test("missing production public configuration cannot partially modify any Apple 
     assert.throws(() => applyApplePlists(root, join(root, "backup"), { env: {} }), /VITE_SUPABASE_URL/);
     APPLE_PLISTS.forEach((path, i) => assert.ok(readFileSync(join(root, path)).equals(originals[i])));
     assert.equal(existsSync(join(root, "backup")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("plist restore preserves concurrent edits and backup without partially restoring other targets", () => {
+  const root = scratchRoot([row("still-access-a")]);
+  const backup = join(root, "backup");
+  try {
+    const originals = APPLE_PLISTS.map((path) => readFileSync(join(root, path)));
+    applyApplePlists(root, backup, { env: appleEnv });
+    const last = APPLE_PLISTS.at(-1);
+    const applied = readFileSync(join(root, last), "utf8");
+    writeFileSync(join(root, last), applied.replace("</plist>", "<!-- concurrent owner edit -->\n</plist>"));
+    const before = APPLE_PLISTS.map((path) => readFileSync(join(root, path)));
+    assert.throws(() => restoreApplePlists(root, backup), /changed after the overlay/);
+    APPLE_PLISTS.forEach((path, i) => assert.ok(readFileSync(join(root, path)).equals(before[i])));
+    assert.ok(existsSync(join(backup, "manifest.json")));
+    writeFileSync(join(root, last), applied);
+    // An already restored target is accepted; the rest still restore from their overlays.
+    writeFileSync(join(root, APPLE_PLISTS[0]), originals[0]);
+    assert.equal(restoreApplePlists(root, backup), true);
+    APPLE_PLISTS.forEach((path, i) => assert.ok(readFileSync(join(root, path)).equals(originals[i])));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

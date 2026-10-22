@@ -57,7 +57,7 @@ const NATIVE_TRUST_FIELDS = ["StillAccessEnvironment", "StillAccessTrustKeys", "
 // refuses, so a reworded declaration can never read as "not paid".
 export const PAID_FLAGS = Object.freeze([
   { path: "packages/shared-types/src/entitlement.ts", pattern: /export const PAID_TIER_ENABLED\s*(?::\s*boolean\s*)?=\s*(true|false)\s*;/g },
-  { path: "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", pattern: /public static let paidTierEnabled\s*(?::\s*Bool\s*)?=\s*(true|false)(?![\w])/g },
+  { path: "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", pattern: /^[\t ]*public static let paidTierEnabled[\t ]*(?::[\t ]*Bool[\t ]*)?=[\t ]*(true|false)[\t ]*;?[\t ]*(?:\/\/[^\r\n]*)?\r?$/gm },
 ]);
 
 export const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -118,6 +118,10 @@ export function parseStoreTrust(text, { paid = false, testOnlyKeys = fixtureKeys
 export function paidFlagValue(flag, text) {
   const matches = [...String(text).matchAll(flag.pattern)];
   if (matches.length !== 1) refuse(`expected exactly one paid-tier declaration in ${flag.path}, found ${matches.length}; update PAID_FLAGS in scripts/release/access-trust.mjs if it was reworded`);
+  // This tiny Swift config has one member. Require its closing brace (or EOF for a standalone
+  // declaration) after the literal, so an operator on the next line cannot extend the initializer.
+  if (flag.path.endsWith(".swift") && !/^(?:\s|\/\/[^\r\n]*)*(?:}\s*)?$/.test(String(text).slice(matches[0].index + matches[0][0].length)))
+    refuse(`expected an exact Boolean initializer in ${flag.path}; update PAID_FLAGS if the config structure changed`);
   return matches[0][1] === "true";
 }
 
@@ -226,11 +230,16 @@ export function restoreApplePlists(root, backup) {
   const manifestPath = join(backup, "manifest.json");
   if (!existsSync(manifestPath)) return false;
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  for (const { path, backup: name, originalSha256 } of manifest) {
+  const prepared = manifest.map(({ path, backup: name, originalSha256, appliedSha256 }) => {
     const saved = readFileSync(join(backup, name));
     if (sha256(saved) !== originalSha256) refuse(`the backup of ${path} changed; restore it from git`);
-    writeFileSync(join(root, path), saved);
-  }
+    const current = sha256(readFileSync(join(root, path)));
+    if (current !== originalSha256 && current !== appliedSha256)
+      refuse(`the archived plist ${path} changed after the overlay; preserve its edits and the backup before restoring`);
+    return { path, saved };
+  });
+  // Check all four before touching any: a later target's divergence must not partially restore.
+  for (const { path, saved } of prepared) writeFileSync(join(root, path), saved);
   return true;
 }
 
