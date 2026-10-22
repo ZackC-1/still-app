@@ -14,9 +14,13 @@ tags: [firefox, permissions, data-collection, consent, bidi, manifest]
 
 Firefox lists the data an add-on sends in `browser_specific_settings.gecko.data_collection_permissions`.
 Required types must be accepted to install, so a required type gates installing the free blocker.
-Still declares only `authenticationInfo` (the sign-in session) as required. The sign-in email address
-(`personallyIdentifyingInfo`), the Still Pro purchase status (`financialAndPaymentInfo`) and usage
-data (`technicalAndInteraction`) are optional (owner decision, 22 Oct 2026). Optional types other than
+Still declares only `authenticationInfo` (the sign-in session token, which embeds the account's email
+and goes only to Still's backend) as required. The email address sent as personal data
+(`personallyIdentifyingInfo`: code requests, analytics-identify), purchase data
+(`financialAndPaymentInfo`: starting a checkout) and usage data (`technicalAndInteraction`) are
+optional (owner decision, 22 Oct 2026). Mozilla's types describe what an add-on transmits ("You
+specify the data types your extension transmits"), so receiving the account's Still Pro status needs
+no grant, and Still Pro's re-checks and Restore run without one. Optional types other than
 `technicalAndInteraction` are not shown at install and are not granted until the person allows them.
 
 ## Rules that decide the design
@@ -36,11 +40,11 @@ data (`technicalAndInteraction`) are optional (owner decision, 22 Oct 2026). Opt
   reads `getAll` beside it, resolving `request || granted`. Inside a click it prompts (or answers
   silently when already granted); outside one the refusal is harmless and the grant read decides.
   Every click handler (the controller's sign-in, resend, verify and checkout; the Still Pro card's
-  Get Still Pro, Try again and Restore; the free-period Restore) calls it before any `await`, after
-  only synchronous guards. A flow that awaits before its send takes the ask from the tap (browser-pro
+  Get Still Pro and Try again) calls it before any `await`, after only synchronous guards. A flow that awaits before its send takes the ask from the tap (browser-pro
   `retry` passes its ask into `buy`).
 - **Check before every send.** The page closures (`withDataPermission` in `purchase-wiring.ts`) and
-  the flows' automatic re-checks read `granted` and send nothing without it. The background's Supabase
+  analytics calls whose server attaches the email (`requireEmailGrant`) read `granted` and send
+  nothing without it. The background's Supabase
   fetch (`lib/firefox-data-guard.ts`) refuses the same requests once more as a network failure, which
   every caller already handles calmly.
 - **Keep the hosts that lack the API clean.** Chrome and Safari get no `DataPermission`

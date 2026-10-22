@@ -29,12 +29,15 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
-there is no purchase requirement. Installing asks only for `authenticationInfo` (the sign-in
-session) and offers usage data (`technicalAndInteraction`). The email address and the Still Pro
-purchase status are optional data types: Firefox asks for them, from the person's click, at Send
-code and at Get Still Pro or Restore purchase, and nothing is sent without them
-(`lib/data-permission.ts`, `lib/firefox-data-guard.ts`). Blocking, the TikTok block and local
-settings need no grant. Do not lower the Android floor or change the stable identifier
+there is no purchase requirement. Installing asks only for `authenticationInfo` and offers usage
+data (`technicalAndInteraction`). `authenticationInfo` covers the sign-in session token, which
+embeds the account's email address and goes, with every signed-in request, only to Still's own
+backend. The email address as personal data (to request a sign-in code, or attached to usage
+analytics) and purchase data (starting a Still Pro checkout) are optional data types: Firefox asks
+for them, from the person's click, at Send code and at Get Still Pro, and those requests are never
+sent without them (`lib/data-permission.ts`, `lib/firefox-data-guard.ts`). Receiving the account's
+Still Pro status (Restore purchase, re-checks) sends no purchase data and needs no grant. Blocking,
+the TikTok block and local settings need no grant. Do not lower the Android floor or change the stable identifier
 as metadata housekeeping. The first V3 store upload must not list Firefox for Android; when Android
 ships in a later update, confirm AMO lists that version as compatible with Firefox for Android.
 
