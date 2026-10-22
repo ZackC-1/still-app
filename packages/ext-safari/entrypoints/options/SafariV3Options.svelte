@@ -78,7 +78,7 @@
     };
   });
   let unavailable = $derived(!reading && view.settingsUnavailable);
-  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync));
+  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync, view.state?.access));
   let ready = $derived(
     view.settings && view.state && view.commands
       ? {

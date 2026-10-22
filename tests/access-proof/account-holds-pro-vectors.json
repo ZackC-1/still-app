@@ -1,0 +1,490 @@
+{
+  "notice": "Synthetic. Envelopes are the public test vectors in vectors.json (seed byte07 repeated 32); no production key, customer or provider record. Regenerate with generate-account-holds-pro-vectors.py.",
+  "snapshotKeys": [
+    "accountHoldsPro",
+    "generation",
+    "independentProtection",
+    "refreshAfterMs",
+    "schema",
+    "states"
+  ],
+  "legacySnapshotKeys": [
+    "generation",
+    "independentProtection",
+    "refreshAfterMs",
+    "schema",
+    "states"
+  ],
+  "wall": 2000,
+  "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "otherPublicKeyHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "cases": [
+    {
+      "name": "account proof",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": true
+    },
+    {
+      "name": "owner-attested account proof",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJvd25lcl9hdHRlc3RlZF9sZWdhY3lfcGFpZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"-O-IIR0eXjPiBUqT3uu_i6gAxKPpjf97r9dm5QXGSSHGZopnptKZ1c7DtqJ52hYPtVrRsI4V4ICfveg3XRM5Bw\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:f8ef88211d1e5e33e2054a93deebbf8ba800c4a3e98dff7bafd766e505c64921c6668a67a6d299d5cec3b6a279da160fb55ad1b08e15e0809fbde8375d133907",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": true
+    },
+    {
+      "name": "account proof beside a device-only proof",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYXBwbGVfbG9jYWwiLCJwcm92ZW5hbmNlIjoicHJvdmlkZXJfdmVyaWZpZWQiLCJyaWdodCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsImhvbGRlciI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInByb2R1Y3QiOiJzdGlsbC1wcm8tdjMiLCJiZW5lZml0cyI6WyJ5b3V0dWJlLmNvbW1lbnRzIl0sIm93bmVyc2hpcF9yZXZpc2lvbiI6MSwidmVyaWZpZWRfYXQiOjE3MDAwMDAwMDAwMDAsImV4cGlyZXNfYXQiOjE3MDI1OTIwMDAwMDB9\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"jXNRP_95shDnjCCLpqTXFmNByZ_QNHeeGSCQuDM1zSyKh1GEe6c9uyewixEwsJ4cxXA1CYHx15aXDU9KwwsqBQ\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:8d73513fff79b210e78c208ba6a4d7166341c99fd034779e192090b83335cd2c8a8751847ba73dbb27b08b1130b09e1cc570350981f1d796970d4f4ac30b2a05",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": null
+          },
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": true
+    },
+    {
+      "name": "device-only proof",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYXBwbGVfbG9jYWwiLCJwcm92ZW5hbmNlIjoicHJvdmlkZXJfdmVyaWZpZWQiLCJyaWdodCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsImhvbGRlciI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInByb2R1Y3QiOiJzdGlsbC1wcm8tdjMiLCJiZW5lZml0cyI6WyJ5b3V0dWJlLmNvbW1lbnRzIl0sIm93bmVyc2hpcF9yZXZpc2lvbiI6MSwidmVyaWZpZWRfYXQiOjE3MDAwMDAwMDAwMDAsImV4cGlyZXNfYXQiOjE3MDI1OTIwMDAwMDB9\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"jXNRP_95shDnjCCLpqTXFmNByZ_QNHeeGSCQuDM1zSyKh1GEe6c9uyewixEwsJ4cxXA1CYHx15aXDU9KwwsqBQ\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:8d73513fff79b210e78c208ba6a4d7166341c99fd034779e192090b83335cd2c8a8751847ba73dbb27b08b1130b09e1cc570350981f1d796970d4f4ac30b2a05",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": null
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "device-only proof while signed out",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": null,
+        "generation": 4,
+        "sessionId": null,
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYXBwbGVfbG9jYWwiLCJwcm92ZW5hbmNlIjoicHJvdmlkZXJfdmVyaWZpZWQiLCJyaWdodCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsImhvbGRlciI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInByb2R1Y3QiOiJzdGlsbC1wcm8tdjMiLCJiZW5lZml0cyI6WyJ5b3V0dWJlLmNvbW1lbnRzIl0sIm93bmVyc2hpcF9yZXZpc2lvbiI6MSwidmVyaWZpZWRfYXQiOjE3MDAwMDAwMDAwMDAsImV4cGlyZXNfYXQiOjE3MDI1OTIwMDAwMDB9\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"jXNRP_95shDnjCCLpqTXFmNByZ_QNHeeGSCQuDM1zSyKh1GEe6c9uyewixEwsJ4cxXA1CYHx15aXDU9KwwsqBQ\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:8d73513fff79b210e78c208ba6a4d7166341c99fd034779e192090b83335cd2c8a8751847ba73dbb27b08b1130b09e1cc570350981f1d796970d4f4ac30b2a05",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": null
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "free protected account proof",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InByb3RlY3RlZF9hY2NvdW50IiwicHJvdmVuYW5jZSI6ImZyZWVfc2VsZl9kZWNsYXJhdGlvbiIsInJpZ2h0IjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN5bnRoZXRpYy1mcmVlLXNuYXBzaG90IiwiYmVuZWZpdHMiOlsieW91dHViZS5jb21tZW50cyJdLCJvd25lcnNoaXBfcmV2aXNpb24iOjEsInZlcmlmaWVkX2F0IjoxNzAwMDAwMDAwMDAwfQ\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"TdPJ8gdNugWjwCNOErOWrFRWLSSUFYVCXbuEy17SHm102EKqAxVS5XNVlErHIVLQphcaagM0HMFQ69-Ej18WDQ\"}",
+            "clock": null,
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "another account signed in",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "older session generation",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 3
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "revoked clock",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": true,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "expired clock",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": true,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "paused clock",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": true
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "revoked right",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": [
+          {
+            "right": "11111111-1111-4111-8111-111111111111",
+            "revision": 1
+          }
+        ]
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "revoked for this account",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": [],
+        "accountRevocations": [
+          {
+            "holder": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "right": "11111111-1111-4111-8111-111111111111",
+            "revision": 1
+          }
+        ]
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "untrusted signing key",
+      "trust": "other-key",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    },
+    {
+      "name": "other environment",
+      "trust": "production",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1000,
+              "highWater": 1700000000000,
+              "lastWall": 1000,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false
+    }
+  ]
+}

@@ -90,7 +90,7 @@
     };
   });
   let unavailable = $derived(!reading && view.settingsUnavailable);
-  let account = $derived(appManagedPopupAccount(c, STRINGS.sync));
+  let account = $derived(appManagedPopupAccount(c, STRINGS.sync, view.state?.access));
   let ready = $derived(
     view.settings && view.state && view.commands
       ? {

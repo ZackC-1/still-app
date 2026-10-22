@@ -238,7 +238,11 @@ export function initialAccessSnapshot(context: Pick<TrustedAccessContext, "paidM
 export function parseBenefitAccessSnapshot(value: unknown): BenefitAccessSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Unreadable benefit snapshot");
   const snapshot = value as Record<string, unknown>;
-  if (Object.keys(snapshot).length !== 5 || snapshot.schema !== 1 || !isSafeAccessInteger(snapshot.generation) ||
+  // Five keys, or six with native's display-only `accountHoldsPro` Boolean (ISS-0105). An older
+  // record without it reads as "not the account's".
+  const keys = Object.keys(snapshot).length;
+  if (keys === 6 ? !Object.hasOwn(snapshot, "accountHoldsPro") || typeof snapshot.accountHoldsPro !== "boolean" : keys !== 5) throw new Error("Unreadable benefit snapshot");
+  if (snapshot.schema !== 1 || !isSafeAccessInteger(snapshot.generation) ||
       !(snapshot.refreshAfterMs === null || (isSafeAccessInteger(snapshot.refreshAfterMs) && snapshot.refreshAfterMs >= 1 && snapshot.refreshAfterMs <= 60_000)) ||
       !snapshot.states || typeof snapshot.states !== "object" || Array.isArray(snapshot.states)) throw new Error("Unreadable benefit snapshot");
   const states = snapshot.states as Record<string, unknown>;
@@ -248,7 +252,8 @@ export function parseBenefitAccessSnapshot(value: unknown): BenefitAccessSnapsho
       new Set(snapshot.independentProtection).size !== snapshot.independentProtection.length ||
       !snapshot.independentProtection.every(benefit => ACCESS_BENEFITS.includes(benefit) && ["purchased", "protected"].includes(states[benefit] as string))) throw new Error("Unreadable independent protection");
   return Object.freeze({ schema: 1, generation: snapshot.generation,
-    states: Object.freeze({ ...states }) as Readonly<Record<BenefitId, AccessState>>, refreshAfterMs: snapshot.refreshAfterMs as number | null, independentProtection: Object.freeze([...snapshot.independentProtection]) });
+    states: Object.freeze({ ...states }) as Readonly<Record<BenefitId, AccessState>>, refreshAfterMs: snapshot.refreshAfterMs as number | null, independentProtection: Object.freeze([...snapshot.independentProtection]),
+    accountHoldsPro: snapshot.accountHoldsPro === true });
 }
 
 /** Resolve exactly once per committed host observation. Never interpret a raw envelope as

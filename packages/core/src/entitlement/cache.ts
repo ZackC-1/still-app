@@ -226,6 +226,8 @@ export class EntitlementCache {
     ])) as BenefitAccessSnapshot["states"];
     this.applyAccess({ ...this.accessSnapshot, states,
       independentProtection: preserveIndependent ? this.accessSnapshot.independentProtection : [],
+      // A held answer is not an observation: whose Still Pro it is waits for the next one.
+      accountHoldsPro: false,
     });
   }
   private applyAccess(snapshot: BenefitAccessSnapshot): void {

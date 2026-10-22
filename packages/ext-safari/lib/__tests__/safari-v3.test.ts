@@ -156,8 +156,8 @@ describe("the app-owned account reaches every V3 Safari screen (U12-W4 risk 6)",
     // The V3 composition marks the account app-owned, and the V3 hosts render it read-only.
     const runtime = readFileSync(resolve(import.meta.dirname, "../safari-v3-runtime.ts"), "utf8");
     expect(runtime).toContain("controller.accountManagedByApp = true;");
-    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8")).toContain("appManagedPopupAccount(c, STRINGS.sync)");
-    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync)");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8")).toContain("appManagedPopupAccount(c, STRINGS.sync, view.state?.access)");
+    expect(readFileSync(resolve(import.meta.dirname, "../../entrypoints/options/SafariV3Options.svelte"), "utf8")).toContain("appManagedSettingsSync(c, STRINGS.sync, view.state?.access)");
   });
 });
 
@@ -167,7 +167,7 @@ describe("the Apple app owns the account on Safari", () => {
 
   it("signed in: account is shown read-only, with no account action of any kind", () => {
     const popup = appManagedPopupAccount(signedIn, TEXT);
-    expect(popup).toEqual({ address: "person@example.invalid", lastSyncedAt: 1, status: { tone: "success", text: "y" } });
+    expect(popup).toEqual({ address: "person@example.invalid", holdsPro: false, lastSyncedAt: 1, status: { tone: "success", text: "y" } });
     const settings = appManagedSettingsSync(signedIn, TEXT);
     expect(settings.account).toMatchObject({ address: "person@example.invalid", identity: signedIn.userId, revision: 3, confirmed: false, lastSyncedAt: 1 });
     for (const value of [popup, settings]) {
@@ -203,11 +203,26 @@ describe("the Apple app owns the account on Safari", () => {
   });
 });
 
-describe("ISS-0105: Safari has no account provenance for Still Pro", () => {
-  it("never marks the app's account as holding Still Pro, so the tag reads Still Pro on this device", () => {
-    const source = { userId: "u1", accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
-    const text = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
-    expect(appManagedPopupAccount(source, text)).not.toHaveProperty("holdsPro");
-    expect(appManagedSettingsSync(source, text).account).not.toHaveProperty("holdsPro");
+describe("ISS-0105 follow-up (owner, 22 Oct): Safari's tag follows native's account provenance", () => {
+  const source = { userId: "u1", accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
+  const text = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
+
+  it("marks the app's account as holding Still Pro only when native's snapshot says so", () => {
+    expect(appManagedPopupAccount(source, text, { accountHoldsPro: true })?.holdsPro).toBe(true);
+    expect(appManagedSettingsSync(source, text, { accountHoldsPro: true }).account.holdsPro).toBe(true);
+  });
+
+  it.each([
+    ["native says no", { accountHoldsPro: false }],
+    ["an older snapshot without the field", {}],
+    ["no snapshot yet", undefined],
+  ] as const)("%s: not the account's, so the tag reads Still Pro on this device", (_name, access) => {
+    expect(appManagedPopupAccount(source, text, access)?.holdsPro).toBe(false);
+    expect(appManagedSettingsSync(source, text, access).account.holdsPro).toBe(false);
+  });
+
+  it("signed out never carries account provenance, whatever the snapshot says", () => {
+    expect(appManagedPopupAccount({ ...source, userId: null }, text, { accountHoldsPro: true })).toBeUndefined();
+    expect(appManagedSettingsSync({ ...source, userId: null }, text, { accountHoldsPro: true })).toEqual({ account: { confirmed: false } });
   });
 });

@@ -128,8 +128,12 @@ describe("NativeBridge", () => {
   it("reads the closed native benefit projection without sending trust/context/clock input", async () => {
     const snapshot = initialAccessSnapshot();
     const host = makeHost({ getBenefitAccess: JSON.stringify({ ok: true, snapshot }) });
-    expect(await new NativeBridge(host.win).observeBenefits()).toEqual(snapshot);
+    // An older app's five-key snapshot reads as not the account's (ISS-0105).
+    expect(await new NativeBridge(host.win).observeBenefits()).toEqual({ ...snapshot, accountHoldsPro: false });
     expect(host.posted).toEqual([{ kind: "getBenefitAccess" }]);
+    const held = { ...snapshot, accountHoldsPro: true };
+    expect(await new NativeBridge(makeHost({ getBenefitAccess: JSON.stringify({ ok: true, snapshot: held }) }).win).observeBenefits()).toEqual(held);
+    await expect(new NativeBridge(makeHost({ getBenefitAccess: JSON.stringify({ ok: true, snapshot: { ...snapshot, accountHoldsPro: "yes" } }) }).win).observeBenefits()).rejects.toThrow();
     await expect(new NativeBridge(makeHost({ getBenefitAccess: { ok: true, record: {} } }).win).observeBenefits()).rejects.toThrow();
     await expect(new NativeBridge({}).observeBenefits()).rejects.toThrow();
   });
@@ -143,7 +147,7 @@ describe("NativeBridge", () => {
       const pending = bridge.observeBenefits(); const rejected = expect(pending).rejects.toThrow("timed out");
       await vi.advanceTimersByTimeAsync(ACCESS_OBSERVATION_DEADLINE_MS); await rejected;
       expect(vi.getTimerCount()).toBe(0);
-      expect(await bridge.observeBenefits()).toEqual(initialAccessSnapshot());
+      expect(await bridge.observeBenefits()).toEqual({ ...initialAccessSnapshot(), accountHoldsPro: false });
       expect(vi.getTimerCount()).toBe(0);
     } finally { vi.useRealTimers(); }
   });
