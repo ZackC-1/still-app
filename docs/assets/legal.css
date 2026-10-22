@@ -1,6 +1,6 @@
 @font-face {
   font-family: "InterVariable";
-  src: url("./InterVariable.woff2") format("woff2-variations");
+  src: url("./StillLatinVariable.woff2") format("woff2-variations");
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
@@ -131,3 +131,10 @@ code {
 .store-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 20px 0 8px; }
 .store-badges a { display: inline-flex; line-height: 0; border-radius: 8px; }
 .store-badges img { height: 48px; width: auto; }
+
+/* Keyboard access and static navigation work without JavaScript. */
+.skip-link { position: absolute; top: -100px; left: 16px; z-index: 100; padding: 10px 16px; color: #101426; background: white; }
+.skip-link:focus { top: 8px; }
+.site-nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-bottom: 1.5rem; }
+.site-nav a { padding-block: .4rem; }
+.breadcrumbs { margin-block: 1rem; font-size: .9rem; }
