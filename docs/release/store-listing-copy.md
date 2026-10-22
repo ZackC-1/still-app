@@ -335,14 +335,16 @@ Mozilla’s rules ([built-in data consent](https://extensionworkshop.com/documen
 add-on or the local browser”, and every transmitted type must be listed in
 `browser_specific_settings.gecko.data_collection_permissions`. The relevant types:
 
-| Mozilla type | Mozilla’s examples | Still 3.0 in Firefox | Declared today (`packages/ext-chromium/wxt.config.ts`) |
+| Mozilla type | Mozilla’s examples | Still 3.0 in Firefox | Declared in the 3.0 manifest |
 |---|---|---|---|
-| `authenticationInfo` | “passwords, usernames, ... registration information for extensions that offer account-based services” | The emailed sign-in code and session | Yes, required |
-| `personallyIdentifyingInfo` | “contact information such as name and address, email, and phone number” | The email address sent to sign in | No |
-| `financialAndPaymentInfo` | “credit card numbers, transactions, credit ratings, financial statements, or payment history” | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider’s page) | No |
-| `technicalAndInteraction` | “extension usage and settings data” | Usage analytics (ADR 0004) | Yes, optional (Mozilla allows it only as optional) |
+| `authenticationInfo` | “passwords, usernames, ... registration information for extensions that offer account-based services” | The emailed sign-in code and session | Required (as in 2.x) |
+| `personallyIdentifyingInfo` | “contact information such as name and address, email, and phone number” | The email address sent to sign in | Required (new in 3.0) |
+| `financialAndPaymentInfo` | “credit card numbers, transactions, credit ratings, financial statements, or payment history” | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider’s page) | Required (new in 3.0) |
+| `technicalAndInteraction` | “extension usage and settings data” | Usage analytics (ADR 0004) | Optional (Mozilla allows it only as optional) |
 
-**What the manifest must declare before the AMO upload:**
+**Owner decision (22 October 2026): the Firefox 3.0 manifest declares** the sign-in code and
+session, the email address and the purchase status as required, and usage sharing as optional. This
+matches `packages/ext-chromium/wxt.config.ts` on the 3.0 release branch:
 
 ```
 data_collection_permissions: {
@@ -351,20 +353,36 @@ data_collection_permissions: {
 }
 ```
 
+**AMO data-collection entries for 3.0** (they must match the manifest exactly; AMO rejects a
+mismatch):
+
+| AMO entry | Setting |
+|---|---|
+| Authentication information | Required |
+| Personally identifying information | Required |
+| Financial and payment information | Required |
+| Technical and interaction data | Optional |
+
+**What Firefox users see:**
+
+- New installers see the three required types (authentication information, personally identifying
+  information, financial and payment information) in Firefox’s install prompt, and can switch
+  technical and interaction data on or off there.
+- Existing users are asked to accept the two newly added types (personally identifying
+  information, financial and payment information) when the add-on updates to 3.0.
+
+Why each is declared:
+
 - **Email address:** Mozilla names “email” under `personallyIdentifyingInfo`. One could argue the
-  sign-in email is a username under `authenticationInfo`, but declaring it removes the doubt at no
-  cost to the person (Chrome’s form already lists the email as personally identifiable).
+  sign-in email is a username under `authenticationInfo`, but declaring it removes the doubt
+  (Chrome’s form already lists the email as personally identifiable).
 - **Purchase status:** a Still Pro purchase record is a transaction handled outside the add-on, so
-  `financialAndPaymentInfo` applies once Still Pro can be bought in Firefox.
+  `financialAndPaymentInfo` applies now that Still Pro can be bought in Firefox.
 - **Required, not optional:** optional types other than `technicalAndInteraction` are not shown at
-  install and need a `permissions.request()` call inside the sign-in and Get Still Pro taps, which is
-  a larger code change. Required matches how `authenticationInfo` is declared today. Firefox shows the
-  added required types to existing users when they update.
-- **This is a code change**, not a portal edit: `wxt.config.ts`, its test
-  (`packages/ext-chromium/lib/__tests__/firefox-manifest.test.ts`), `tests/firefox/qa-first-run.spec.ts`
-  and the manifest row in [03-firefox-amo.md](03-firefox-amo.md). It must land in the reviewed
-  release build before the Firefox package is made (runbook 1.x and 6.4), and the privacy policy
-  (runbook 7.1) must describe the same data. Owner decision; this PR changes no code.
+  install and would need a `permissions.request()` call inside the sign-in and Get Still Pro taps.
+  Required matches how `authenticationInfo` has always been declared.
+- The privacy policy (runbook 7.1) must describe the same data, and the manifest row in
+  [03-firefox-amo.md](03-firefox-amo.md) follows the release branch when it merges.
 
 ### Screenshots: kept for 3.0, with what they no longer match
 
@@ -786,11 +804,13 @@ Android (runbook 6.5); the listing says nothing about Android.
 The store build’s summary is `FIREFOX_2X_DESCRIPTION` in `packages/ext-chromium/wxt.config.ts`
 (the `FIREFOX_V3_DESCRIPTION` text mentions Android and is only used by builds that declare it).
 
-**Data-collection disclosure.** The manifest declares `authenticationInfo` as required and
-`technicalAndInteraction` as optional. Firefox shows both in its install prompt. Keep every privacy
-sentence consistent with that: usage data is sent only while the optional permission is granted,
-and sign-in uses the email address and a sign-in code. The description’s privacy paragraph carries
-this wording.
+**Data-collection disclosure.** The 3.0 manifest declares `authenticationInfo`,
+`personallyIdentifyingInfo` and `financialAndPaymentInfo` as required and `technicalAndInteraction`
+as optional (see [Firefox manifest declarations](#firefox-manifest-declarations-before-the-amo-upload)).
+Keep every privacy sentence consistent with that: usage data is sent only while the optional
+permission is granted, and sign-in uses the email address and a sign-in code. Before this
+experiment runs, update the description’s last privacy sentence, which still says Firefox lists the
+email as authentication information.
 
 **Description** (3162/15000):
 
@@ -902,11 +922,9 @@ there applies: every picture must match the 3.0 build it ships with.
    purchase records (runbook 6.3 “purchase status”). Confirm.
 5. **AMO “Requires payment”.** Recommended unticked, because every free feature works without
    paying and the description explains Still Pro. Confirm.
-6. **Firefox manifest declarations.** The manifest declares `authenticationInfo` (required) and
-   `technicalAndInteraction` (optional) only. Whether the email address
-   (`personallyIdentifyingInfo`) or Still Pro purchase status (`financialAndPaymentInfo`) also
-   need declaring is a privacy-review question for a code PR; this listing claims nothing beyond the
-   manifest.
+6. **Firefox manifest declarations.** Decided (22 October 2026): email address and purchase status
+   are declared as required, usage sharing stays optional; see
+   [Firefox manifest declarations](#firefox-manifest-declarations-before-the-amo-upload).
 7. **Price and refund in the browser listings.** Chrome and Firefox copy says “$9.99 (US price)”
    and the seven-day web refund. The Apple copy names no price (Apple shows it). Confirm both.
 8. **Web purchase on Apple devices.** No listing claims that a Chrome or Firefox purchase unlocks
