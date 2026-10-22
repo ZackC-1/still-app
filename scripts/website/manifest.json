@@ -1,0 +1,247 @@
+{
+  "origin": "https://stillapp.fit",
+  "pages": [
+    {
+      "source": "docs/block-facebook-reels.html",
+      "url": "/block-facebook-reels.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/block-tiktok-website.html",
+      "url": "/block-tiktok-website.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/block-youtube-shorts.html",
+      "url": "/block-youtube-shorts.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/browser-extensions-native-iphone-apps.html",
+      "url": "/browser-extensions-native-iphone-apps.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/guides.html",
+      "url": "/guides.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/index.html",
+      "url": "/",
+      "aliases": ["/index.html"],
+      "indexable": true
+    },
+    {
+      "source": "docs/privacy.html",
+      "url": "/privacy/",
+      "aliases": ["/privacy.html"],
+      "indexable": true
+    },
+    {
+      "source": "docs/remove-instagram-reels-safari.html",
+      "url": "/remove-instagram-reels-safari.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/setup.html",
+      "url": "/setup/",
+      "aliases": ["/setup.html"],
+      "indexable": true
+    },
+    {
+      "source": "docs/short-form-video-blocker.html",
+      "url": "/short-form-video-blocker.html",
+      "aliases": [],
+      "indexable": true
+    },
+    {
+      "source": "docs/support.html",
+      "url": "/support/",
+      "aliases": ["/support.html"],
+      "indexable": true
+    },
+    {
+      "source": "docs/terms.html",
+      "url": "/terms/",
+      "aliases": ["/terms.html"],
+      "indexable": true
+    },
+    {
+      "source": "docs/purchase/cancel.html",
+      "url": "/purchase/cancel.html",
+      "aliases": [],
+      "indexable": false
+    },
+    {
+      "source": "docs/purchase/success.html",
+      "url": "/purchase/success.html",
+      "aliases": [],
+      "indexable": false
+    },
+    {
+      "source": "docs/qa/cancel.html",
+      "url": "/qa/cancel.html",
+      "aliases": [],
+      "indexable": false
+    },
+    {
+      "source": "docs/qa/success.html",
+      "url": "/qa/success.html",
+      "aliases": [],
+      "indexable": false
+    }
+  ],
+  "assets": [
+    {
+      "source": "docs/assets/Inter-LICENSE.txt",
+      "target": "assets/Inter-LICENSE.txt"
+    },
+    {
+      "source": "docs/assets/StillLatinVariable.woff2",
+      "target": "assets/StillLatinVariable.woff2"
+    },
+    {
+      "source": "docs/assets/badges/app-store.svg",
+      "target": "assets/badges/app-store.svg"
+    },
+    {
+      "source": "docs/assets/badges/chrome-web-store.png",
+      "target": "assets/badges/chrome-web-store.png"
+    },
+    {
+      "source": "docs/assets/badges/firefox-add-ons.svg",
+      "target": "assets/badges/firefox-add-ons.svg"
+    },
+    {
+      "source": "docs/assets/badges/mac-app-store.svg",
+      "target": "assets/badges/mac-app-store.svg"
+    },
+    {
+      "source": "docs/assets/hero-animation.js",
+      "target": "assets/hero-animation.js"
+    },
+    {
+      "source": "docs/assets/legal.css",
+      "target": "assets/legal.css"
+    },
+    {
+      "source": "docs/assets/marketing.css",
+      "target": "assets/marketing.css"
+    },
+    {
+      "source": "docs/assets/platforms/instagram-reels.svg",
+      "target": "assets/platforms/instagram-reels.svg"
+    },
+    {
+      "source": "docs/assets/platforms/tiktok.svg",
+      "target": "assets/platforms/tiktok.svg"
+    },
+    {
+      "source": "docs/assets/platforms/youtube-shorts.svg",
+      "target": "assets/platforms/youtube-shorts.svg"
+    },
+    {
+      "source": "docs/assets/screens/still-01-youtube.jpg",
+      "target": "assets/screens/still-01-youtube.jpg"
+    },
+    {
+      "source": "docs/assets/screens/still-02-switches.jpg",
+      "target": "assets/screens/still-02-switches.jpg"
+    },
+    {
+      "source": "docs/assets/screens/still-03-sync.jpg",
+      "target": "assets/screens/still-03-sync.jpg"
+    },
+    {
+      "source": "docs/assets/screens/still-04-tiktok.jpg",
+      "target": "assets/screens/still-04-tiktok.jpg"
+    },
+    {
+      "source": "docs/assets/still-launch-poster.jpg",
+      "target": "assets/still-launch-poster.jpg"
+    },
+    {
+      "source": "docs/assets/still-logo.png",
+      "target": "assets/still-logo.png"
+    },
+    {
+      "source": "docs/release/screenshots/store-ready/web/still-open-graph-v2-1200x630.jpg",
+      "target": "release/screenshots/store-ready/web/still-open-graph-v2-1200x630.jpg"
+    },
+    {
+      "source": "docs/robots.txt",
+      "target": "robots.txt"
+    },
+    {
+      "source": "docs/sitemap.xml",
+      "target": "sitemap.xml"
+    },
+    {
+      "source": "docs/llms.txt",
+      "target": "llms.txt"
+    },
+    {
+      "source": "docs/.nojekyll",
+      "target": ".nojekyll"
+    },
+    {
+      "source": "docs/release/screenshots/store-ready/web/still-open-graph-v2-1200x630.jpg",
+      "target": "release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg"
+    },
+    {
+      "source": "scripts/website/public/CNAME",
+      "target": "CNAME"
+    },
+    {
+      "source": "scripts/website/public/b205442c7a364db6b06dd1aa11098111.txt",
+      "target": "b205442c7a364db6b06dd1aa11098111.txt"
+    },
+    {
+      "source": "docs/assets/screens/still-01-youtube-1280.webp",
+      "target": "assets/screens/still-01-youtube-1280.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-01-youtube-480.webp",
+      "target": "assets/screens/still-01-youtube-480.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-01-youtube-800.webp",
+      "target": "assets/screens/still-01-youtube-800.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-02-switches-1280.webp",
+      "target": "assets/screens/still-02-switches-1280.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-02-switches-480.webp",
+      "target": "assets/screens/still-02-switches-480.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-02-switches-800.webp",
+      "target": "assets/screens/still-02-switches-800.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-03-sync-1280.webp",
+      "target": "assets/screens/still-03-sync-1280.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-03-sync-480.webp",
+      "target": "assets/screens/still-03-sync-480.webp"
+    },
+    {
+      "source": "docs/assets/screens/still-03-sync-800.webp",
+      "target": "assets/screens/still-03-sync-800.webp"
+    },
+    {
+      "source": "docs/assets/InterVariable.woff2",
+      "target": "assets/InterVariable.woff2"
+    }
+  ]
+}
