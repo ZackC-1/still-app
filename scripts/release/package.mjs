@@ -218,6 +218,22 @@ function installAndBuild(dir, env) {
   }
 }
 
+/**
+ * A paid release line (3.x) ships only the V3 screens: configured for sign-in with modern settings
+ * sync on. A configured build without VITE_MODERN_SETTINGS_SYNC_ENABLED=true would load the 2.x
+ * screens, whose paid-on copy offers Still Pro for the free protections, so it is refused, as the
+ * Apple release env guard refuses it once modern-sync-shipped says "shipped".
+ */
+export function assertPaidBuildEnv(paidTier, env) {
+  if (!paidTier) return;
+  const configured = Boolean(env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY);
+  if (!configured || env.VITE_MODERN_SETTINGS_SYNC_ENABLED !== "true") {
+    const error = new Error("this release line declares the paid tier, so a store package must be configured (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY) with VITE_MODERN_SETTINGS_SYNC_ENABLED=true");
+    error.code = "paid-needs-modern-sync";
+    throw error;
+  }
+}
+
 export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false, serverDigests }) {
   for (const key of Object.keys(env)) {
     if (PINNED_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value: store packages take access trust only from ${TRUST_FILE}`);
@@ -248,6 +264,7 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false, 
     // only the web packages, not the StillKit flag.
     const trust = readStoreTrust(work, { paid: paidDeclared(root, { rev: "HEAD" }) });
     assertServerGate(trust, serverDigests);
+    assertPaidBuildEnv(versions.paidTier, env);
     installAndBuild(work, { ...env, ...trust.env });
 
     // Staged in memory: nothing reaches --out until every check has passed.

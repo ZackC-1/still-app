@@ -105,6 +105,11 @@ Firefox's install prompt. Existing Firefox users see the two new types on update
 added required data types and asks them to accept before the update applies. The Chrome manifest is
 unchanged.
 
+A paid release line's Chrome and Firefox packages must be configured with
+`VITE_MODERN_SETTINGS_SYNC_ENABLED=true`: `package.mjs` (and so the Chrome workflow) refuses otherwise
+(`paid-needs-modern-sync`), because a configured build without it loads the 2.x screens, whose paid-on
+copy offers Still Pro for the free protections.
+
 Because the release declares the paid tier, `node scripts/release/access-trust.mjs check` now refuses
 without the server digests; run it as `check --server-secrets-json <file>` once the owner has saved them.
 

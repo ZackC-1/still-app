@@ -6,7 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import { readStoreTrust, sha256, TRUST_FILE } from "./access-trust.mjs";
-import { amoInstructions, buildPackages, cleanEnv, PINNED_ENV_KEYS, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
+import { amoInstructions, assertPaidBuildEnv, buildPackages, cleanEnv, PINNED_ENV_KEYS, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
 import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, packageVersion, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -399,12 +399,22 @@ test("the shared package build (Chrome and Firefox) refuses a paid flag that dif
       assert.throws(() => buildPackages({ out, root: clone }), /needs the server's secret digests/);
       assert.equal(calls(), "", "matching declarations cannot bypass the server trust gate");
       const serverDigests = serverDigestsFor(key);
-      assert.throws(() => buildPackages({ out, root: clone, serverDigests }), /pnpm install --frozen-lockfile failed/);
+      assert.throws(() => buildPackages({ out, root: clone, serverDigests }), /VITE_MODERN_SETTINGS_SYNC_ENABLED=true/);
+      const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder", VITE_MODERN_SETTINGS_SYNC_ENABLED: "true" };
+      assert.throws(() => buildPackages({ out, root: clone, serverDigests, env }), /pnpm install --frozen-lockfile failed/);
       assert.notEqual(calls(), "", "matching declarations and server trust reach the install step");
     });
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+test("a paid release line needs a configured build with modern sync on; a free line does not", () => {
+  const full = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder", VITE_MODERN_SETTINGS_SYNC_ENABLED: "true" };
+  assertPaidBuildEnv(true, full);
+  assertPaidBuildEnv(false, {});
+  for (const env of [{}, { ...full, VITE_MODERN_SETTINGS_SYNC_ENABLED: undefined }, { ...full, VITE_MODERN_SETTINGS_SYNC_ENABLED: "1" }, { ...full, VITE_SUPABASE_ANON_KEY: "" }])
+    assert.throws(() => assertPaidBuildEnv(true, env), (e) => e.code === "paid-needs-modern-sync");
 });
 
 test("a run that fails after the Chrome zip is ready leaves --out untouched", () => {
@@ -422,7 +432,8 @@ if (script === "build" || script === "build:firefox") {
     // A paid release line needs matching server digests to reach the build at all.
     const [current] = readStoreTrust(ROOT).rows;
     const serverDigests = current ? serverDigestsFor(current) : undefined;
-    withFakePnpm(body, () => assert.throws(() => buildPackages({ out, root: ROOT, allowDirty: true, serverDigests }), /firefox manifest version 0\.0\.0/));
+    const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder", VITE_MODERN_SETTINGS_SYNC_ENABLED: "true" };
+    withFakePnpm(body, () => assert.throws(() => buildPackages({ out, root: ROOT, allowDirty: true, serverDigests, env }), /firefox manifest version 0\.0\.0/));
     assert.equal(existsSync(out) ? readdirSync(out).length : 0, 0, "no zip may be written when a later check fails");
   } finally {
     rmSync(base, { recursive: true, force: true });
@@ -455,7 +466,8 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
   };
   const unplant = () => Object.values(planted).forEach((path) => rmSync(path, { force: true }));
   try {
-    const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" };
+    const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder",
+      ...(readVersions(clone).paidTier ? { VITE_MODERN_SETTINGS_SYNC_ENABLED: "true" } : {}) };
     plant();
     const serverDigests = serverDigestsFor(trustKeys[0]);
     const a = buildPackages({ out: join(base, "a"), root: clone, env, allowDirty: true, serverDigests });
