@@ -5,8 +5,9 @@
  * The 3.x release line declares the paid tier on (Still Pro: optional extras sold once). Nothing is
  * sold until the server's remote `salesEnabled` also says so, because the evaluator ANDs the two.
  * Keep StillKit's MonetizationConfig.paidTierEnabled and version.json's paidTier equal to this; see
- * docs/monetization-design.md. Free blocking and settings sync never require an entitlement,
- * regardless of this flag.
+ * docs/monetization-design.md. Free blocking never requires an entitlement. Settings sync is free
+ * on the modern settings path, which every 3.0 store build uses; on the legacy settings backend,
+ * sync with this flag on still needs an entitlement (see packages/core/src/sync/service.ts).
  */
 export const PAID_TIER_ENABLED = true;
 
