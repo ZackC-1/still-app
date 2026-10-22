@@ -35,8 +35,14 @@ export async function readProductionCheckoutConfig(read: (name: string) => strin
   const apple = readAppleFulfillmentRuntimeConfig(get);
   try {
     const db = new URL(apple.writerDbUrl), auth = new URL(apple.auth.supabaseUrl);
+    const writer = decodeURIComponent(db.username);
+    const project = /^([a-z0-9]{20})\.supabase\.co$/.exec(auth.hostname)?.[1];
+    // Supabase poolers select the project through the username; bind that suffix to Auth.
+    const poolerWriter = project && !auth.port &&
+      /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(db.hostname) &&
+      ["", "5432", "6543"].includes(db.port) && writer === `still_entitlement_writer.${project}`;
     if (!["postgres:","postgresql:"].includes(db.protocol) || !db.hostname || !db.password || db.hash || db.pathname.length < 2 ||
-      decodeURIComponent(db.username) !== "still_entitlement_writer" || auth.protocol !== "https:" || auth.username || auth.password ||
+      (writer !== "still_entitlement_writer" && !poolerWriter) || auth.protocol !== "https:" || auth.username || auth.password ||
       auth.search || auth.hash || auth.pathname !== "/" || !apple.auth.publicApiKey) return null;
     if (!await createAccessSigner({ ...apple.signer,environment: "production" }) ||
       !createAppleAccessVerifier({ ...apple.apple,environment: "production" })) return null;
