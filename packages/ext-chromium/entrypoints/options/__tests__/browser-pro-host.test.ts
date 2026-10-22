@@ -148,12 +148,43 @@ const intent = (messages: Record<string, unknown>[]) =>
   messages.filter(message => message.action === "setPurchaseIntent" && message.active !== false);
 
 describe("paid-tier browser Still Pro card", () => {
+  it("counts an offer only after its sellable card enters a visible viewport, once per page", async () => {
+    const observers: { callback: IntersectionObserverCallback; target?: Element }[] = [];
+    vi.stubGlobal("IntersectionObserver", class {
+      record: { callback: IntersectionObserverCallback; target?: Element };
+      constructor(callback: IntersectionObserverCallback) {
+        this.record = { callback }; observers.push(this.record);
+      }
+      observe(target: Element) { this.record.target = target; }
+      disconnect() {}
+    });
+    const f = await host();
+    render(OptionsApp);
+    await within(await region()).findByRole("button", { name: "Get Still Pro" });
+    await waitFor(() => expect(observers.some(item => item.target)).toBe(true));
+    const impressions = () => f.messages.filter(message => message.name === "paywall_viewed");
+    expect(impressions()).toEqual([]);
+    visibility("hidden");
+    const observer = observers.find(item => item.target)!;
+    observer.callback([{ target: observer.target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    await flush();
+    expect(impressions()).toEqual([]);
+    visibility("visible"); await flush();
+    expect(impressions()).toEqual([
+      { kind: "still:analytics", action: "track", name: "paywall_viewed",
+        props: { trigger: "settings_card", where: "options" } },
+    ]);
+    observer.callback([{ target: observer.target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    visibility("hidden"); visibility("visible"); await flush();
+    expect(impressions()).toHaveLength(1);
+  });
+
   it("re-checks when the page opens, reads access after the reconcile, and offers Buy with no price", async () => {
     const f = await host();
     render(OptionsApp);
     const card = await region();
     await within(card).findByRole("button", { name: "Get Still Pro" });
-    expect(within(card).getByText("The price is shown at checkout.")).toBeTruthy();
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(/\$|9\.99|1\.99/);
     const actions = f.actions();
     // The access read that shows Buy comes after the page-open reconcile, and the Buy question
@@ -178,6 +209,11 @@ describe("paid-tier browser Still Pro card", () => {
     await waitFor(() => expect(f.pending).toMatchObject({ tabId: 7 }));
     expect(typeof f.pending?.startedAt).toBe("number");
     expect(intent(f.messages)).toEqual([]);
+    expect(f.messages.filter(message => message.name === "purchase_started")).toEqual([
+      { kind: "still:analytics", action: "track", name: "purchase_started",
+        props: { purchase_origin: "web", product: "still-pro-v3" } },
+    ]);
+    expect(f.messages.some(message => message.name === "purchase_completed" || message.name === "purchase_recorded")).toBe(false);
   });
 
   it("Buy again brings the open checkout tab forward instead of opening a second", async () => {

@@ -27,6 +27,7 @@ import {
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
 import { ANON_INDEX_LIMIT, deriveAnonymousId, holdTag } from "./derive.js";
+import { readAppleCanonicalReceipt } from "./apple-canonical-receipt.js";
 
 // Still's own PostHog client. It exists instead of posthog-js for three reasons:
 //
@@ -302,6 +303,14 @@ export interface AnalyticsStamp {
   readonly holds?: number;
 }
 
+/** Local immutable identity scope. Never sent as an analytics property or backend identity. */
+export interface AppleAnalyticsIdentityScope {
+  readonly accountGeneration: number;
+  readonly subject: string | null;
+  readonly account: string | null;
+  readonly anonIndex: number | null;
+}
+
 export interface AnalyticsObservation {
   readonly stamp: AnalyticsStamp;
   readonly permission: AnalyticsPermission;
@@ -394,6 +403,44 @@ export class AnalyticsClient {
 
   get accountConfirmed(): boolean {
     return this.confirmed;
+  }
+
+  /** Snapshot only an already-confirmed Apple identity; never borrow a later sign-in answer. */
+  applePurchaseScope(observation: AnalyticsObservation): Promise<AppleAnalyticsIdentityScope | null> {
+    return this.run(async () => {
+      if (!this.confirmed || !["app-ios", "app-macos"].includes(this.deps.surface) ||
+        this.deps.envelope?.build_channel === "test" || !this.isCurrent(observation.stamp) ||
+        !(await this.allowed(observation.permission))) return null;
+      const state = await this.read();
+      if (!state || !this.isCurrent(observation.stamp) || !(await this.allowed(observation.permission)) ||
+        (state.userId === null && state.anonIndex === null)) return null;
+      return { accountGeneration: state.accountGeneration, subject: state.userId,
+        account: state.accountRef, anonIndex: state.userId === null ? state.anonIndex : null };
+    });
+  }
+
+  /** Only the Apple canonical-server adapter calls this. No queue, delayed attribution or
+   * caller-selected event facts: failed delivery is retried with the server's same UUID/time. */
+  deliverAppleCanonicalReceipt(value: unknown, observation: AnalyticsObservation,
+    originalScope: AppleAnalyticsIdentityScope): Promise<boolean> {
+    const receipt = readAppleCanonicalReceipt(value);
+    return this.run(async () => {
+      const at = receipt ? Date.parse(receipt.timestamp) : NaN;
+      if (!receipt || !this.confirmed || this.deps.envelope?.build_channel === "test" ||
+        !["app-ios", "app-macos"].includes(this.deps.surface) ||
+        receipt.properties.purchase_origin !== (this.deps.surface === "app-ios" ? "app_store" : "mac_app_store") ||
+        at < this.deps.now() - MAX_EVENT_AGE_MS || at > this.deps.now() ||
+        !this.isCurrent(observation.stamp) || !(await this.allowed(observation.permission))) return false;
+      const identity = await this.identity();
+      const state = await this.read();
+      if (!identity || !state || !this.isCurrent(observation.stamp) || !(await this.allowed(observation.permission)) ||
+        state.accountGeneration !== originalScope.accountGeneration || state.userId !== originalScope.subject ||
+        state.accountRef !== originalScope.account || (state.userId === null ? state.anonIndex : null) !== originalScope.anonIndex) return false;
+      return await this.post([{ ...receipt, permission: observation.permission,
+        accountGeneration: state.accountGeneration,
+        properties: { ...receipt.properties, ...this.envelope(state, identity), signed_in: state.userId !== null },
+      }], observation.stamp.epoch, true) === "done";
+    });
   }
 
   // ── Recording ────────────────────────────────────────────────────────────────────────────────
@@ -1547,6 +1594,7 @@ export class AnalyticsClient {
   private async post(
     batch: readonly QueuedEvent[],
     epoch: number,
+    canonicalApple = false,
   ): Promise<"done" | "retry"> {
     const permission = this.permission;
     if (epoch !== this.epoch || !permission || !(await this.allowed(permission)) || epoch !== this.epoch)
@@ -1555,7 +1603,8 @@ export class AnalyticsClient {
     if (!state || epoch !== this.epoch) return "retry";
     const oldest = this.deps.now() - MAX_EVENT_AGE_MS;
     const outbound = batch.flatMap((event) => {
-      if (!samePermission(event.permission ?? null, permission) || !isAppClientEvent(event.event)) return [];
+      if (!samePermission(event.permission ?? null, permission) || (!isAppClientEvent(event.event) &&
+        !(canonicalApple && ["purchase_recorded", "purchase_refunded"].includes(event.event)))) return [];
       const props = event.properties;
       const envelopeKeys = [
         "distinct_id",

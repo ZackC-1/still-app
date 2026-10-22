@@ -6,7 +6,7 @@ problem_type: authentication_error
 module: StillKit
 applies_when: Installing server-issued Apple local access proofs or linked account rights in the shared App Group
 date: 2026-10-07
-last_updated: 2026-10-08
+last_updated: 2026-10-21
 status: active
 tags:
   - entitlement
@@ -20,6 +20,15 @@ A paid Apple local proof uses a server-issued UUID as both right and holder. Nat
 [AppleRightBinding.swift](../../../apps/apple/StillKit/Sources/StillKit/AppleRightBinding.swift) verifies a separate signed canonical binding between the right UUID and environment, bundle, product and original transaction ID. The verifier shares the access-proof envelope/key checks but uses the distinct `still-apple-right-binding-v1` signing domain. The native purchase oracle independently reads a current verified StoreKit transaction and rejects revocation, unsupported environment and mismatched metadata. Purchased ownership is required for account installation and the explicit link evidence port. A separate local evidence port permits verified family-shared ownership for local installation only. Original transaction IDs remain strings across the transport.
 
 [NativeAccessConfiguration.swift](../../../apps/apple/StillKit/Sources/StillKit/NativeAccessConfiguration.swift) reads an explicit environment-bound public-key allowlist and auth endpoint from the code-signed bundle. Its empty defaults reject installation. Linked account installation uses the exact token accepted by that native endpoint, matching confirmed account and native session identifiers, plus the App Group generation and router account lineage. Display-only account UUIDs are insufficient authentication.
+
+For production App Review/TestFlight, issuer environment and transaction environment are distinct.
+Binding schema 2 uses the `still-apple-right-binding-v2` signing purpose, a production issuer and
+explicit `transactionEnvironment: sandbox`. Native verification requires both a production-trusted
+signature and a matching independently verified sandbox transaction. It rejects an accompanying
+account proof and excludes review bindings from account-link eligibility. Schema 1 bytes and trust
+remain unchanged. Regression tests cover wrong signing purpose, mismatched live transactions,
+account-install refusal, refund/replay and unchanged ordinary binding behavior. This establishes
+the native boundary; server deployment and physical review journeys need separate evidence.
 
 [EntitlementBridge.swift](../../../apps/apple/StillKit/Sources/StillKit/EntitlementBridge.swift) commits the verified binding, local proof, clock and optional account proof under the existing transaction lock. Scope identity is right plus proof kind, so account and local proofs coexist. Failed replacement publishes no acknowledgment and preserves old bytes. Identical proof retries preserve the original receipt baseline and expiry/rollback latches. Signed-out reads derive local rights from persisted verified bindings, without needing JavaScript holder IDs.
 

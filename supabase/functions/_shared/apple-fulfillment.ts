@@ -14,6 +14,8 @@ export interface AppleFulfillmentDeps extends AuthDeps {
   readonly limiter: RateLimiter;
   readonly accounts?: ConfirmedAppleAccountPort;
   readonly access?: { readonly verifier: AppleAccessVerifier; readonly store: AppleAccessStore; readonly signer: AccessSigner };
+  /** Separately composed production review store. Never available to account linking. */
+  readonly reviewAccess?: AppleFulfillmentDeps["access"];
 }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const safe = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
@@ -59,11 +61,12 @@ async function limited(req: Request, deps: AppleFulfillmentDeps, holder?: string
   }
   return null;
 }
-async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link?: AppleAccessLink, authorize?: () => Promise<boolean>, currentAuthority?: () => boolean): Promise<Response> {
-  const access = deps.access;
+async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link?: AppleAccessLink, authorize?: () => Promise<boolean>, currentAuthority?: () => boolean, review = false): Promise<Response> {
+  const access = review ? deps.reviewAccess : deps.access;
   if (!access || !access.signer.signAppleBinding) return unavailable();
+  if (review && (link || access.signer.environment !== "production")) return unavailable();
   const tx = await deadline(access.verifier.authenticate(evidence));
-  if (!tx || tx.environment !== access.signer.environment) return unavailable();
+  if (!tx || tx.environment !== (review ? "sandbox" : access.signer.environment)) return unavailable();
   if (link && tx.localOnly) return unavailable();
   const token = await access.store.begin(tx);
   const current = await deadline(access.verifier.refresh(tx));
@@ -87,7 +90,9 @@ async function fulfill(evidence: AppleEvidence, deps: AppleFulfillmentDeps, link
     (link && result.status === "verified") || (!link && result.status !== "verified")) return unavailable();
   const local = { ...right, holder: right.right };
   const localProof = await access.signer.sign(local, "paid_apple_local");
-  const nativeBinding = await access.signer.signAppleBinding({ schema: 1, environment: tx.environment,
+  const nativeBinding = await access.signer.signAppleBinding({
+    ...(review ? { schema: 2 as const, transactionEnvironment: "sandbox" as const } : { schema: 1 as const }),
+    environment: access.signer.environment,
     appBundleId: tx.bundleId, productId: tx.productId, originalTransactionId: tx.originalTransactionId,
     right: right.right, ownershipRevision: right.revision, verifiedAt: right.verified_at,
     expiresAt: right.verified_at + PAID_ACCESS_WINDOW_MS });
@@ -108,7 +113,16 @@ export async function handleVerifyAppleAccess(req: Request, deps: AppleFulfillme
     const body = await readBody(req);
     if (!object(body) || Object.keys(body).sort().join(",") !== "schema,transaction" ||
       body.schema !== 1 || !isAppleEvidence(body.transaction)) return invalid();
-    return await fulfill(body.transaction, deps);
+    // Untrusted hint selects one verifier, never grants authority. That verifier must authenticate
+    // Apple's signature, bundle/product, environment and canonical current transaction in full.
+    // No fallback after failed verification, and the account-link route never uses this selection.
+    let sandboxHint = false;
+    try {
+      const payload = body.transaction.signedTransaction.split(".")[1];
+      sandboxHint = JSON.parse(atob(payload.replaceAll("-", "+").replaceAll("_", "/"))).environment === "Sandbox";
+    } catch { /* The normal verifier returns unavailable for malformed evidence. */ }
+    const review = deps.access?.signer.environment === "production" && sandboxHint;
+    return await fulfill(body.transaction, deps, undefined, undefined, undefined, review);
   } catch { return unavailable(); }
 }
 

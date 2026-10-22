@@ -20,7 +20,7 @@ import { createHmac } from "node:crypto";
 import type postgres from "postgres";
 import { createAuditConnection } from "../audit.ts";
 import { InputError, LABELS, OPTIONAL_LABELS, PRODUCTION_QUERIES, queryParams, resolveRequest } from "./catalogue.mjs";
-import { assertSingleSelect, CHECK_VIEWS } from "./sql-guard.mjs";
+import { assertSingleSelect, CHECK_VIEWS, MIGRATION_VIEWS } from "./sql-guard.mjs";
 import { renderReport } from "./report.mjs";
 
 export const CHECKER_ROLE = "still_qa_readonly_checker";
@@ -42,6 +42,9 @@ export const EXPECTED_ROLE_CONFIG = [
  */
 export const DEFINER_ALLOW_LIST: readonly string[] = [];
 
+/** Views a numbered migration installs; the role holds them only once that migration is applied. */
+const MIGRATION_VIEW_NAMES: readonly string[] = Object.keys(MIGRATION_VIEWS);
+
 export const LABEL_SQL =
   "select a.holder, a.auth_present, a.in_scope from still_qa_checks.account_status a where a.label = $1";
 
@@ -62,6 +65,11 @@ select current_user as "user", r.rolsuper as superuser, r.rolbypassrls as bypass
     lateral pg_catalog.aclexplode(c.relacl) a
     where a.grantee = r.oid and (n.nspname <> 'still_qa_checks' or c.relkind <> 'v'
       or a.privilege_type <> 'SELECT' or a.is_grantable)) as foreign_grants,
+  -- Migration-installed views the role already holds (comma-separated names, possibly empty).
+  coalesce((select pg_catalog.string_agg(c.relname::text, ',' order by c.relname) from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace, lateral pg_catalog.aclexplode(c.relacl) a
+    where a.grantee = r.oid and n.nspname = 'still_qa_checks' and c.relkind = 'v' and a.privilege_type = 'SELECT'
+      and c.relname = any (array[${MIGRATION_VIEW_NAMES.map((v) => `'${v}'`).join(", ")}]::text[])), '') as migration_grants,
   (select count(*)::int from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace
     where c.relkind in ('r', 'p', 'v', 'm', 'f')
       and n.nspname in ('auth', 'public', 'private', 'storage', 'supabase_migrations', 'still_qa_checks')
@@ -101,6 +109,7 @@ export interface CheckerSession {
   read_only: string;
   own_grants: number;
   foreign_grants: number;
+  migration_grants: string;
   writable: number;
   direct_reads: number;
   create_schemas: number;
@@ -124,13 +133,43 @@ export function sessionProblems(session: CheckerSession | undefined): string[] {
   }
   if (session.memberships !== 0) problems.push("membership");
   if (session.read_only !== "on") problems.push("not-read-only");
-  if (session.own_grants !== CHECK_VIEWS.length || session.foreign_grants !== 0) problems.push("grants");
+  // Exactly SELECT on every candidate view plus each migration view whose migration is applied.
+  const granted = grantedMigrationViews(session);
+  if (
+    !granted ||
+    session.own_grants !== CHECK_VIEWS.length - (MIGRATION_VIEW_NAMES.length - granted.length) ||
+    session.foreign_grants !== 0
+  ) problems.push("grants");
   if (session.writable !== 0) problems.push("writable-relation");
   if (session.direct_reads !== 0) problems.push("direct-read");
   if (session.create_schemas !== 0) problems.push("schema-create");
   if (session.definer_execute !== 0) problems.push("definer-execute");
   if (session.role_config !== EXPECTED_ROLE_CONFIG || session.database_role_config !== 0) problems.push("role-settings");
   return problems;
+}
+
+/** The migration views the role holds, or undefined when the session reports anything else. */
+export function grantedMigrationViews(session: Pick<CheckerSession, "migration_grants">): string[] | undefined {
+  if (typeof session.migration_grants !== "string") return undefined;
+  const names = session.migration_grants.split(",").filter(Boolean);
+  if (new Set(names).size !== names.length || names.some((n) => !MIGRATION_VIEW_NAMES.includes(n))) return undefined;
+  return names;
+}
+
+/**
+ * Refuses a check that reads a migration view the role does not hold yet (its migration is not
+ * applied to this database), with a fixed message naming the migration. Nothing is read.
+ */
+export function requireMigrationViews(programId: string, views: Iterable<string>, session: CheckerSession): void {
+  const granted = grantedMigrationViews(session) ?? [];
+  for (const view of views) {
+    const version = (MIGRATION_VIEWS as Record<string, string>)[view];
+    if (version && !granted.includes(view)) {
+      throw new CheckError(
+        `${programId} reads still_qa_checks.${view}, which migration ${version} installs; that migration is not applied to this database yet (apply it through the protected migration operation). Nothing was read.`,
+      );
+    }
+  }
 }
 
 /** Refuses any session that is not exactly the narrow read-only checker. */
@@ -161,8 +200,9 @@ const EXTENDED = { prepare: false, simple: false } as { prepare: boolean };
 
 /** Runs the check in one read-only transaction and always rolls it back. */
 export async function runCheck(sql: Sql, request: Request): Promise<CheckRun> {
+  const views = new Set<string>();
   for (const query of request.check.queries) {
-    assertSingleSelect(query.sql, queryParams(query, request.labels.length).length);
+    for (const view of assertSingleSelect(query.sql, queryParams(query, request.labels.length).length)) views.add(view);
   }
   for (const query of PRODUCTION_QUERIES) assertSingleSelect(query.sql, 0);
   assertSingleSelect(LABEL_SQL, 1);
@@ -173,6 +213,7 @@ export async function runCheck(sql: Sql, request: Request): Promise<CheckRun> {
       await tx.unsafe("set local lock_timeout = '1s'");
       const [session] = await tx.unsafe(SESSION_SQL, [], EXTENDED);
       requireCheckerSession(session as unknown as CheckerSession);
+      requireMigrationViews(request.programId, views, session as unknown as CheckerSession);
       const holders: string[] = [];
       for (const label of request.labels) {
         const rows = await tx.unsafe(LABEL_SQL, [label], EXTENDED);
@@ -278,7 +319,7 @@ export async function encryptReport(report: string, { ageBin, recipient, outFile
 
 if (import.meta.main) {
   const env = (name: string) => Deno.env.get(name) ?? "";
-  const programId = /^(setup|DB-[0-9]{2})$/.test(env("QA_CHECK_ID")) ? env("QA_CHECK_ID") : "unknown";
+  const programId = /^(setup|DB-[0-9]{2}|PROD-[0-9]{2})$/.test(env("QA_CHECK_ID")) ? env("QA_CHECK_ID") : "unknown";
   let sql: Sql | undefined;
   let line: string;
   try {

@@ -19,6 +19,7 @@ public struct NativeVerifiedApplePurchase {
 public struct AppleRightBindingClaims: Codable, Equatable {
   public let schema: Int
   public let environment: String
+  public var transactionEnvironment: String? = nil
   public let appBundleId: String
   public let productId: String
   public let originalTransactionId: String
@@ -26,8 +27,11 @@ public struct AppleRightBindingClaims: Codable, Equatable {
   public let ownershipRevision: Int
   public let verifiedAt: Int
   public let expiresAt: Int
+  var isSandboxReview: Bool { schema == 2 }
+  var nativeEnvironment: String { transactionEnvironment ?? environment }
   func canonical() -> String {
-    "{\"schema\":\(schema),\"environment\":\"\(environment)\",\"appBundleId\":\"\(appBundleId)\",\"productId\":\"\(productId)\",\"originalTransactionId\":\"\(originalTransactionId)\",\"right\":\"\(right)\",\"ownershipRevision\":\(ownershipRevision),\"verifiedAt\":\(verifiedAt),\"expiresAt\":\(expiresAt)}"
+    let transaction = isSandboxReview ? ",\"transactionEnvironment\":\"\(transactionEnvironment ?? "")\"" : ""
+    return "{\"schema\":\(schema),\"environment\":\"\(environment)\"\(transaction),\"appBundleId\":\"\(appBundleId)\",\"productId\":\"\(productId)\",\"originalTransactionId\":\"\(originalTransactionId)\",\"right\":\"\(right)\",\"ownershipRevision\":\(ownershipRevision),\"verifiedAt\":\(verifiedAt),\"expiresAt\":\(expiresAt)}"
   }
 }
 
@@ -38,11 +42,19 @@ public struct VerifiedAppleRightBinding {
     self.claims = claims; self.envelope = envelope
   }
   public static func verify(_ envelope: String, trust: AccessTrust) throws -> VerifiedAppleRightBinding {
-    let signed = try verifySignedAccessPayload(envelope, trust: trust, domain: "still-apple-right-binding-v1\n")
+    // Both purposes require the same trusted issuer key. A v2 signature cannot authorize a v1 body.
+    let (signed, version) = try {
+      if let signed = try? verifySignedAccessPayload(envelope, trust: trust, domain: "still-apple-right-binding-v1\n") {
+        return (signed, 1)
+      }
+      guard trust.environment == "production" else { throw AccessProofFailure.invalid }
+      return (try verifySignedAccessPayload(envelope, trust: trust, domain: "still-apple-right-binding-v2\n"), 2)
+    }()
     let c = try JSONDecoder().decode(AppleRightBindingClaims.self, from: signed.payload)
     guard let raw = try JSONSerialization.jsonObject(with: signed.payload) as? [String: Any],
-      Set(raw.keys) == Set(["schema", "environment", "appBundleId", "productId", "originalTransactionId", "right", "ownershipRevision", "verifiedAt", "expiresAt"]),
-      c.schema == 1, c.environment == trust.environment, ["production", "sandbox"].contains(c.environment),
+      Set(raw.keys) == Set(["schema", "environment", "appBundleId", "productId", "originalTransactionId", "right", "ownershipRevision", "verifiedAt", "expiresAt"] + (version == 2 ? ["transactionEnvironment"] : [])),
+      c.schema == version, c.environment == trust.environment, ["production", "sandbox"].contains(c.environment),
+      version == 1 || (c.environment == "production" && c.transactionEnvironment == "sandbox"),
       c.appBundleId.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$", options: .regularExpression) != nil,
       ApplePurchaseCatalog.all.contains(where: { $0.productID == c.productId }),
       c.originalTransactionId.range(of: "^[1-9][0-9]{0,39}$", options: .regularExpression) != nil,
@@ -59,7 +71,7 @@ public struct VerifiedAppleRightBinding {
       p.verified_at == c.verifiedAt && p.expires_at == c.expiresAt
   }
   func matches(_ native: NativeVerifiedApplePurchase) -> Bool {
-    claims.environment == native.environment && claims.appBundleId == native.appBundleId &&
+    claims.nativeEnvironment == native.environment && claims.appBundleId == native.appBundleId &&
       claims.productId == native.productId && claims.originalTransactionId == native.originalTransactionId
   }
 }

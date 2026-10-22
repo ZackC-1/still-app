@@ -85,8 +85,9 @@ const checks = {
     assert.ok(!json.includes("vars.CWS_"), "CWS variable in build job");
     assert.equal(authSteps(w.jobs.package).length, 0);
     const buildEnv = steps(w.jobs.package).find((s) => s.id === "package").env;
-    assert.deepEqual(Object.keys(buildEnv).sort(), [...PUBLIC_ENV_KEYS].sort());
-    for (const key of PUBLIC_ENV_KEYS) assert.equal(buildEnv[key], `\${{ vars.${key} }}`);
+    const buildKeys = [...PUBLIC_ENV_KEYS, "ACCESS_PROOF_SERVER_DIGESTS_JSON"];
+    assert.deepEqual(Object.keys(buildEnv).sort(), [...buildKeys].sort());
+    for (const key of buildKeys) assert.equal(buildEnv[key], `\${{ vars.${key} }}`);
   },
   "no secret, key file or OAuth refresh token anywhere (keyless only)": (t) => {
     for (const forbidden of ["secrets.", "credentials_json", "client_secret", "refresh_token", "private_key", "GOOGLE_APPLICATION_CREDENTIALS", "workload_identity_provider: projects/", "cloud-platform"]) assert.ok(!t.includes(forbidden), forbidden);

@@ -156,7 +156,7 @@ export const EVENT_SCHEMA = {
     where: ["popup", "options", "app"],
   },
   paywall_viewed: {
-    trigger: ["locked_switch", "upgrade_button"],
+    trigger: ["locked_switch", "upgrade_button", "settings_card"],
     where: ["popup", "options", "app"],
   },
   paywall_dismissed: {
@@ -274,6 +274,7 @@ export type AnalyticsEventProps<E extends AnalyticsEventName> = E extends "servi
     : E extends "paywall_viewed" | "paywall_dismissed"
       ? { readonly where: AnalyticsWhere } & (
           | { readonly trigger: "upgrade_button" }
+          | (E extends "paywall_viewed" ? { readonly trigger: "settings_card" } : never)
           | {
               readonly trigger: "locked_switch";
               readonly site: ValueOf<typeof EVENT_SCHEMA.locked_switch_tapped.site>;

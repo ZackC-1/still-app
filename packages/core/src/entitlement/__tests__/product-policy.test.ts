@@ -253,7 +253,7 @@ describe("dormancy", () => {
       .filter(path => pattern.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
 
-  it("the browser client has only background-owned rating and explicit QA sales consumers", () => {
+  it("the browser client has only background-owned rating and paid-build sales consumers", () => {
     // U13-P3: the rating card's allowance asks `freshCheck("rating")` for an opening the ledger
     // would offer it; background.ts loads it on first use behind the inline V3 build gate.
     expect(nonTestImporters(/product-policy-runtime(\.js|\.ts)?["']/)).toEqual([
@@ -261,7 +261,8 @@ describe("dormancy", () => {
       "packages/ext-chromium/lib/rating-invitation.ts",
     ]);
     const background = readFileSync(join(root, "packages/ext-chromium/entrypoints/background.ts"), "utf8");
-    expect(background).toContain('canCreateCheckout: routeProfile === "shared-hosted-sandbox" ? async () =>');
+    expect(background).toContain('canCreateCheckout: PAID_TIER_ENABLED ? async () =>');
+    expect(background).toContain('environment: routeProfile === "shared-hosted-sandbox" ? "sandbox" : "production"');
   });
 
   it("the paid-cutoff adapter has no importer until a configuration-signing verifier exists", () => {

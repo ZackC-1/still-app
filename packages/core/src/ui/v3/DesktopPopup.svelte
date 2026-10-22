@@ -318,7 +318,7 @@
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
           </p>{:else if !account}<p class="muted sync-row-sub">
-            Free. Keep your settings the same across every supported device and browser.
+            Sync settings across devices and browsers. Free.
           </p>{/if}
       </div>
       {#if !account && onSignIn}<div

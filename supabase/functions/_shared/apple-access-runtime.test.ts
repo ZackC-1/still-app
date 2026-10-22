@@ -26,17 +26,39 @@ function storage(environments: AccessEnvironment[]): AppleFulfillmentRuntimePort
 }
 
 Deno.test("legacy environment reader retains ordinary names and empty defaults", () => {
-  assertEquals(readAppleFulfillmentRuntimeConfig(() => undefined), { environment: undefined, writerDbUrl: "",
+  assertEquals(readAppleFulfillmentRuntimeConfig(() => undefined), { environment: undefined, sandboxReviewEnabled: false, writerDbUrl: "",
     signer: { kid: undefined, privateKeyPkcs8Base64: undefined, publicKeyHex: undefined },
     apple: { productsJson: undefined, apiPrivateKey: undefined, apiKeyId: undefined, apiIssuerId: undefined },
     auth: { supabaseUrl: "", jwtSecret: "", publicApiKey: "" } });
   const names: string[] = [];
   const config = readAppleFulfillmentRuntimeConfig(name => { names.push(name); return name; });
-  assertEquals(config, { environment: "ACCESS_PROOF_ENVIRONMENT", writerDbUrl: "ENTITLEMENT_WRITER_DB_URL",
+  assertEquals(config, { environment: "ACCESS_PROOF_ENVIRONMENT", sandboxReviewEnabled: false, writerDbUrl: "ENTITLEMENT_WRITER_DB_URL",
     signer: { kid: "ACCESS_PROOF_KEY_ID", privateKeyPkcs8Base64: "ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64", publicKeyHex: "ACCESS_PROOF_PUBLIC_KEY_HEX" },
     apple: { productsJson: "ACCESS_APPLE_PRODUCTS_JSON", apiPrivateKey: "APP_STORE_SERVER_PRIVATE_KEY", apiKeyId: "APP_STORE_SERVER_KEY_ID", apiIssuerId: "APP_STORE_SERVER_ISSUER_ID" },
     auth: { supabaseUrl: "SUPABASE_URL", jwtSecret: "SUPABASE_JWT_SECRET", publicApiKey: "SUPABASE_ANON_KEY" } });
   assert(names.every(name => !name.startsWith("STILL_QA_")));
+});
+
+Deno.test("review runtime requires explicit true, production signer and a separate store port", async () => {
+  for (const environment of ["production", "sandbox"] as const) {
+    const base = await configured(environment);
+    for (const enabled of [undefined, false, true]) {
+      let calls = 0;
+      const ports = { ...storage([]), createReviewStore: () => { calls++; return storage([]).createStore("sandbox"); } };
+      const deps = await createAppleFulfillmentRuntimeFromConfig({ ...base, sandboxReviewEnabled: enabled }, ports);
+      assertEquals(!!deps.reviewAccess, environment === "production" && enabled === true);
+      assertEquals(calls, environment === "production" && enabled === true ? 1 : 0);
+      if (deps.reviewAccess) {
+        assertEquals(deps.reviewAccess.signer.environment, "production");
+        assertEquals(await deps.reviewAccess.verifier.refresh({ key: "a".repeat(64), environment: "production",
+          bundleId: "com.example.still", productId: "still_pro_v3", originalTransactionId: "123", transactionId: "123", active: true }), null);
+      }
+    }
+    assertEquals((await createAppleFulfillmentRuntimeFromConfig({ ...base, sandboxReviewEnabled: true }, storage([]))).reviewAccess, undefined);
+  }
+  for (const value of [undefined, "false", "TRUE", "1", "true"]) {
+    assertEquals(readAppleFulfillmentRuntimeConfig(name => name === "APPLE_SANDBOX_REVIEW_ENABLED" ? value : undefined).sandboxReviewEnabled, value === "true");
+  }
 });
 
 Deno.test("explicit factory shares one environment across real signer, Apple verifier and supplied store", async () => {

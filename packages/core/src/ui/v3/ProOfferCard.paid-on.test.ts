@@ -31,11 +31,12 @@ function props(overrides: Partial<ProOfferCardProps & { knownMissing: boolean }>
 }
 
 describe("checkout-priced browser offer (paid tier compiled on)", () => {
-  it("enables Buy with no price on the card and says the checkout shows it", async () => {
+  it("enables Buy with no price and no price note on the card", async () => {
     const input = props();
     render(ProOfferCard, { props: input });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("The price is shown at checkout.")).toBeInTheDocument();
+    // Owner's canvas review, 21 Oct 2026: the "price is shown at checkout" note is gone.
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(/\$|\d+\.\d\d/);
     await fireEvent.click(within(card).getByRole("button", { name: "Get Still Pro" }));
     expect(input.onBuy).toHaveBeenCalledOnce();

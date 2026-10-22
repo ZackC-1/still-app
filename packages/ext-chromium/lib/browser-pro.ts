@@ -1,5 +1,5 @@
 import { FEATURE_REGISTRY, type BenefitAccessSnapshot } from "@still/shared-types";
-import type { AccessRecheck, UiCheckout, UiController } from "@still/core/ui";
+import type { AccessRecheck, UiAnalytics, UiCheckout, UiController } from "@still/core/ui";
 import type { RestoreStatusCardProps } from "@still/core/ui/v3/extension-settings-presentation";
 
 // The Chrome and Firefox settings page's Still Pro card in paid-tier builds (owner decisions,
@@ -69,7 +69,7 @@ export interface BrowserProRuntime {
 }
 
 /** The same choice wxt's `browser` makes: Firefox's `browser`, else Chrome's `chrome`. */
-export function extensionRuntime(): BrowserProRuntime {
+function extensionRuntime(): BrowserProRuntime {
   const scope = globalThis as unknown as {
     browser?: { runtime?: BrowserProRuntime & { id?: string } };
     chrome: { runtime: BrowserProRuntime };
@@ -196,6 +196,8 @@ export type BrowserProController = Pick<
 
 export interface BrowserProDeps {
   readonly controller: BrowserProController;
+  /** Existing page port: background consent, permission and identity checks still decide delivery. */
+  readonly analytics?: Pick<UiAnalytics, "track">;
   /** The existing background-backed checkout seam (lib/purchase-wiring.ts). */
   readonly checkout: Pick<UiCheckout, "createCheckout" | "openCheckoutTab">;
   /** Defaults to the session protocol's getState / setCheckoutPending. */
@@ -291,6 +293,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   let onlineAt = -Infinity;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectTries = 0;
+  let leftForCheckout = false;
   /** Offline, or back online only moments ago: a failure now says nothing about the answer. */
   const unsettled = () => !online() || now() - onlineAt < RECONNECT_GRACE_MS;
 
@@ -301,6 +304,9 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   }
   const visible = () => page.visibilityState === "visible";
   const current = (): BrowserProState => state;
+  const track: UiAnalytics["track"] = (name, props) => {
+    try { deps.analytics?.track(name, props); } catch { /* Measurement cannot interrupt checkout. */ }
+  };
 
   function clearKeepAlive(): void {
     if (keepAlive !== null) clearTimeout(keepAlive);
@@ -386,6 +392,11 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   /** The person showed or focused the page: the renewal allowance starts again. */
   function engage(): void {
     keepAliveCount = 0;
+    if (leftForCheckout) {
+      leftForCheckout = false;
+      // Returning to Settings proves no payment outcome. Only canonical verification can do so.
+      track("checkout_returned", { outcome: "unknown" });
+    }
     if (state.purchase === "waiting") void recheck(true);
     else if (seen?.ownership === "owned") return;
     else if (seen?.ownership === "verify" && (knownNone || knownOwned)) renew(true);
@@ -428,10 +439,16 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     restoreFor = userId;
     const ticket = generation;
     set({ restore: { state: "checking" } });
+    track("restore_started", { purchase_origin: "web" });
     const result = await recheck();
     if (stopped || ticket !== generation) return;
     restoreFlight = false;
     const ownership = result ? proOwnership(result.access) : null;
+    track("restore_completed", {
+      purchase_origin: "web",
+      outcome: ownership === "owned" ? "restored"
+        : result?.outcome === "not-entitled" && ownership === "none" ? "nothing_to_restore" : "failed",
+    });
     if (ownership === "owned") set({ restore: { state: "restored" } });
     else if (result?.outcome === "not-entitled" && ownership === "none") set({ restore: { state: "nothing" } });
     else set({ restore: { state: "failed", onAction: () => requestRestore() } });
@@ -471,11 +488,15 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (!live()) return;
     if (typeof existing?.startedAt === "number" && typeof existing.tabId === "number" &&
         await tabs.focus({ startedAt: existing.startedAt, tabId: existing.tabId })) {
-      if (live()) set({ purchase: "waiting" });
+      if (live()) {
+        leftForCheckout = !visible();
+        set({ purchase: "waiting" });
+      }
       return;
     }
     if (!live()) return;
     const startedUnsettled = unsettled();
+    track("purchase_started", { purchase_origin: "web", product: "still-pro-v3" });
     let outcome: Awaited<ReturnType<UiCheckout["createCheckout"]>>;
     try {
       outcome = await deps.checkout.createCheckout();
@@ -497,7 +518,10 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // No tab opened: say so rather than wait for a return that cannot come, and end only the
         // record this Buy wrote. (set() replaced `state` meanwhile, so read it afresh.)
         if (ours) await pendingStore.write(null);
-        if (live() && current().purchase === "waiting") set({ purchase: "failed" });
+        if (live() && current().purchase === "waiting") {
+          track("purchase_failed", { purchase_origin: "web", product: "still-pro-v3", reason: "unknown" });
+          set({ purchase: "failed" });
+        }
         return;
       }
       if (!ours || !live()) {
@@ -526,15 +550,21 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     // right now (the Buy question is asked again once the browser is back online) rather than
     // "If you were charged, Restore purchase will find it" (ISS-0090).
     if (startedUnsettled || unsettled()) {
+      track("purchase_failed", { purchase_origin: "web", product: "still-pro-v3", reason: "network" });
       set({ purchase: "idle", channel: "offline" });
       return;
     }
+    track("purchase_failed", {
+      purchase_origin: "web", product: "still-pro-v3",
+      reason: outcome.kind === "auth-required" ? "not_allowed" : "unknown",
+    });
     set({ purchase: "failed" });
   }
 
   function onVisibility(): void {
     if (stopped) return;
     if (!visible()) {
+      if (state.purchase === "waiting") leftForCheckout = true;
       clearKeepAlive();
       return;
     }
@@ -579,6 +609,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (switched) {
         // Before anything runs for the new account, so its own checks are not fenced off.
         generation += 1;
+        leftForCheckout = false;
         channelFlight = false;
         channelAgain = false;
         renewFlight = false;

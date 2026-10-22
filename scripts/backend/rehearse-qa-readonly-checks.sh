@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Disposable proof of the read-only QA check route: migrations at head, the candidate role/views
-# installed twice (idempotent, with its own end-state check), then every catalogue check run as
-# the real narrow role against synthetic QA accounts and a synthetic customer
+# Disposable proof of the read-only QA check route. Migration 0025 is rehearsed as hosted production
+# meets it: the database at 0024 with the candidate role/views already installed (the checker role
+# exists), its gate before and after, unchanged policy rows, wider-grant controls and a re-apply.
+# Then the candidate is installed twice more (idempotent, with its own end-state check) and every
+# catalogue check runs as the real narrow role against synthetic QA accounts and a synthetic customer
 # (scripts/backend/qa-checks/run-db.test.ts). Database execution belongs only to a disposable
 # GitHub-hosted Linux runner; this never touches a hosted project.
 if [[ ${GITHUB_ACTIONS:-} != true || ${RUNNER_ENVIRONMENT:-} != github-hosted || $(uname -s) != Linux ]]; then
@@ -15,7 +17,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >/dev/null
-supabase db reset --local --no-seed >/dev/null
+supabase db reset --local --no-seed --version 0024 >/dev/null
 # Hosted Auth has auth.sessions (GoTrue's table). If this stack lacks it, add a minimal synthetic
 # stand-in owned like the real one, so the sessions view can be created and exercised.
 if [[ $(psql "$db_url" -XAtc "select pg_catalog.to_regclass('auth.sessions') is not null") != t ]]; then
@@ -26,8 +28,33 @@ alter table auth.sessions owner to supabase_auth_admin;
 grant select on auth.sessions to postgres;
 SQL
 fi
+readonly gate_0025=scripts/backend/deploy/verify/0025_production_sales_summary_view.sql
+prod01_migration_test() {
+  STILL_PROD01_TEST_DATABASE_URL="$db_url" STILL_PROD01_TEST_MODE="$1" \
+    deno test --frozen --config supabase/functions/deno.json --allow-env=STILL_PROD01_TEST_DATABASE_URL,STILL_PROD01_TEST_MODE,STILL_REQUIRE_CLOUD_TESTS,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \
+      --allow-read=scripts/backend/deploy/verify,supabase/migrations --allow-net=127.0.0.1:54322 \
+      supabase/tests/production_sales_summary_migration_test.ts
+}
+prod01_rows() {
+  psql "$db_url" -X -At --set=ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0025_production_sales_summary_view.invariant.sql
+}
+# Production order: the candidate (checker role present) first, then 0025 through the CLI.
+psql "$db_url" -X -q --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/qa-readonly-checks-candidate.sql
+prod01_migration_test pre-upgrade
+rows_before=$(prod01_rows)
+supabase migration up --local >/dev/null
+rows_after=$(prod01_rows)
+if [[ "$rows_before" != "$rows_after" ]]; then echo '0025 changed product policy rows.' >&2; exit 1; fi
+unset rows_before rows_after
+prod01_migration_test upgrade
+psql "$db_url" -X -q --set=ON_ERROR_STOP=1 --single-transaction --file=supabase/migrations/0025_production_sales_summary_view.sql >/dev/null
+reapplied=$(psql "$db_url" -X -At --set=ON_ERROR_STOP=1 --file="$gate_0025" | tail -n 1)
+if [[ $reapplied != '[]' ]]; then echo "0025 end-state check failed after a second apply: $reapplied" >&2; exit 1; fi
+echo '0025 with the checker present: gate before/after, unchanged rows, wider-grant controls, idempotent re-apply: PASS.'
 psql "$db_url" -X -q --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/qa-readonly-checks-candidate.sql
 psql "$db_url" -X -q --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/qa-readonly-checks-candidate.sql
+after_candidate=$(psql "$db_url" -X -At --set=ON_ERROR_STOP=1 --file="$gate_0025" | tail -n 1)
+if [[ $after_candidate != '[]' ]]; then echo "0025 end-state check failed after re-installing the candidate: $after_candidate" >&2; exit 1; fi
 STILL_REQUIRE_CLOUD_TESTS=1 STILL_QA_CHECKS_TEST_DATABASE_URL="$db_url" \
   deno test --frozen --config supabase/functions/deno.json \
     --allow-env=STILL_REQUIRE_CLOUD_TESTS,STILL_QA_CHECKS_TEST_DATABASE_URL,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME \

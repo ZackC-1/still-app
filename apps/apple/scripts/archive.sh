@@ -14,6 +14,10 @@
 #   ASC_KEY_PATH      path to the AuthKey_*.p8
 # Optional env:
 #   DEVELOPMENT_TEAM  defaults to UM9HVDH3P3
+#   ACCESS_SERVER_DIGESTS_FILE  `supabase secrets list -o json` output (digests only); required once the
+#                     release declares the paid tier (see docs/release/versioning-and-packages.md)
+#   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY  exported production public inputs, required when
+#                     access trust is pinned; shared by both web bundles and all native plists
 #   UPLOAD=1          also upload the .ipa to App Store Connect via altool
 #
 set -euo pipefail
@@ -39,6 +43,29 @@ source "$HERE/release-env-guard.sh"
 release_env_guard "$REPO/packages/app-webview" "$REPO/packages/ext-safari" "$HERE/modern-sync-shipped" \
   || exit 1
 
+# Production access trust (V3 release enablement, G5). The PUBLIC Still Pro verification keys come
+# only from scripts/release/production-access-keys.json: the web bundle gets them as
+# VITE_ACCESS_ENVIRONMENT / VITE_ACCESS_PUBLIC_KEYS, and the four Info.plists get the same rows
+# (StillAccessEnvironment, StillAccessTrustKeys) for this archive only. The plists are restored
+# exactly on exit. The check refuses non-production rows, the TEST-ONLY fixture key, and an empty
+# list once the release declares the paid tier. A paid release also needs ACCESS_SERVER_DIGESTS_FILE: the
+# path to `supabase secrets list -o json` output (digests only), which must match a pinned key. No
+# private key is involved anywhere here.
+TRUST="$REPO/scripts/release/access-trust.mjs"
+SERVER_GATE=()
+if [ -n "${ACCESS_SERVER_DIGESTS_FILE:-}" ]; then SERVER_GATE=(--server-secrets-json "$ACCESS_SERVER_DIGESTS_FILE"); fi
+TRUST_BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/still-store-trust.XXXXXX")"
+restore_store_trust() { node "$TRUST" apple-restore --backup "$TRUST_BACKUP" && rm -rf "$TRUST_BACKUP"; }
+trap restore_store_trust EXIT
+node "$TRUST" check ${SERVER_GATE[@]+"${SERVER_GATE[@]}"}
+# Explicit exported inputs take precedence over both packages' .env files. Validate before building;
+# apple-apply consumes these same inputs and refuses incomplete or non-production configuration.
+node "$TRUST" apple-config-check
+export VITE_BACKEND_ROUTE_PROFILE=production
+while IFS='=' read -r key value; do
+  case "$key" in VITE_ACCESS_ENVIRONMENT|VITE_ACCESS_PUBLIC_KEYS) export "$key=$value" ;; *) echo "unexpected trust line" >&2; exit 1 ;; esac
+done < <(node "$TRUST" env)
+
 echo "==> Building the shared web bundle…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
 echo "==> Building the Safari extension bundle…"
@@ -46,6 +73,9 @@ echo "==> Building the Safari extension bundle…"
 # packages/ext-safari/dist/safari-mv3/manifest.json — dist/ is gitignored, so a clean checkout
 # archive dies at that phase unless the extension is built first.
 ( cd "$REPO" && pnpm --filter @still/ext-safari build )
+
+echo "==> Writing production access trust into the Apple plists (restored on exit)…"
+node "$TRUST" apple-apply --backup "$TRUST_BACKUP" ${SERVER_GATE[@]+"${SERVER_GATE[@]}"}
 
 echo "==> Archiving Still (iOS)…"
 cd "$PROJECT_DIR"

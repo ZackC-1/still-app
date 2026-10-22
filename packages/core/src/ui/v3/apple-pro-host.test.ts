@@ -93,6 +93,69 @@ const user = {
   confirmed: true,
 };
 describe("real Apple Pro host composition", () => {
+  it("a throwing canonical measurement completion cannot replace native purchase success", async () => {
+    const h = await harness({purchaseAnalytics:{begin:async()=>()=>{throw new Error("optional measurement failed");}}});
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(()=>expect(h.host.props([]).purchase.state).toBe("success"));
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    h.host.stop();
+  });
+
+  it("rechecks account and stopped scope after optional analytics preparation before charging", async () => {
+    for (const change of ["account", "stop"] as const) {
+      let finish!: (value: null) => void;
+      const begin = vi.fn(() => new Promise<null>(resolve => { finish = resolve; }));
+      const h = await harness({ purchaseAnalytics: { begin } });
+      h.host.props([]).native.onBuy?.();
+      await vi.waitFor(() => expect(begin).toHaveBeenCalledOnce());
+      if (change === "account") h.setAccount(user); else h.host.stop();
+      finish(null);
+      await h.settle();
+      expect(h.deps.bridge.purchasePro).not.toHaveBeenCalled();
+      h.host.stop();
+    }
+  });
+
+  it("measures a deliberate offer opening once, dismissal, and native start without inventing a sale", async () => {
+    const analytics = { track: vi.fn() };
+    const { host, settle } = await harness({ analytics });
+    host.settings().pro?.onBuy?.();
+    host.settings().pro?.onBuy?.();
+    host.props([]).native.onBuy?.();
+    await settle();
+    host.props([]).onBack?.();
+    host.close();
+    expect(analytics.track.mock.calls).toEqual([
+      ["paywall_viewed", { trigger: "upgrade_button", where: "app" }],
+      ["purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" }],
+      ["paywall_dismissed", { trigger: "upgrade_button", where: "app" }],
+    ]);
+    // A generic accepted local proof could be an Apple sandbox review right, never a live sale.
+    expect(analytics.track.mock.calls.some(([name]) => name === "purchase_completed" || name === "purchase_recorded")).toBe(false);
+  });
+
+  it("does not count Verify purchase or Restore as an offer or a new purchase", async () => {
+    const analytics = { track: vi.fn() };
+    const { host, settle } = await harness({ analytics });
+    host.show(); await settle();
+    host.close();
+    host.props([]).native.onRestore?.(); await settle();
+    expect(analytics.track).not.toHaveBeenCalled();
+  });
+
+  it("a failing analytics port cannot prevent purchase, and stopped callbacks report nothing", async () => {
+    const analytics = { track: vi.fn(() => { throw new Error("measurement unavailable"); }) };
+    const { host, deps, settle } = await harness({ analytics });
+    host.settings().pro?.onBuy?.();
+    host.props([]).native.onBuy?.(); await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase.state).toBe("success");
+    host.stop();
+    analytics.track.mockClear();
+    host.settings().pro?.onBuy?.(); host.close();
+    expect(analytics.track).not.toHaveBeenCalled();
+  });
+
   it("buys accountlessly using the localized exact offer and confirms only native signed-rights readback", async () => {
     const { host, deps, settle } = await harness();
     host.props([]).native.onBuy?.();

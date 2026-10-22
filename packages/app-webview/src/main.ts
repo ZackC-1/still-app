@@ -103,6 +103,7 @@ const refreshUsageSwitch = (): void => void controller.refreshUsageSharing();
 let identifyOnServer: (() => Promise<void>) | undefined;
 /** V3 only: requests this device's analytics identity for the signed-in account (set below). */
 let analyticsSubjectIssuer: SubjectDeps["issue"] | undefined;
+let appleAnalyticsRequest: import("@still/core/analytics").AppAnalyticsDeps["purchaseRequest"];
 // Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
 // the "Share usage data" switch; this owns the client. It waits for the native context and does
 // nothing outside the app or in a build without a PostHog key.
@@ -119,6 +120,7 @@ const analytics = (appleSettingsMode !== "legacy" ? createDefaultOnAppAnalytics 
   envelope: buildChannelEnvelope(import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL),
   store: storageKeyValue(safeStorage()),
   identifyOnServer: () => identifyOnServer?.() ?? Promise.resolve(),
+  purchaseRequest: (body, account, signal, current) => appleAnalyticsRequest?.(body, account, signal, current) ?? Promise.resolve(null),
   // V3: signed-in use reports under this device's own server-issued identity (owner decision 50).
   ...(appleSettingsMode !== "legacy"
     ? {
@@ -140,8 +142,8 @@ let applePurchaseAuthority: {
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
-  | "heldElsewhereMemory"> | undefined;
+  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  | "heldElsewhereMemory" | "purchaseAnalytics"> | undefined;
 /** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
 const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
 
@@ -168,6 +170,20 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     reviewEmail ? { email: reviewEmail } : undefined,
   );
   if (appleSettingsMode !== "legacy" && PAID_TIER_ENABLED && bridge.available) {
+    if (backendRouteProfile === "production" && import.meta.env.VITE_ACCESS_ENVIRONMENT === "production") {
+      appleAnalyticsRequest = async (body, account, signal, current) => {
+        const session = await supabase.auth.getSession();
+        if (session.error || signal.aborted || (account === null ? session.data.session !== null : session.data.session?.user.id !== account)) return null;
+        if (!await current() || signal.aborted) return null;
+        const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/analytics-apple-purchase`, {
+          method: "POST", redirect: "error", signal,
+          headers: { "Content-Type": "application/json", apikey: supabaseAnonKey,
+            ...(account !== null && session.data.session ? {Authorization: `Bearer ${session.data.session.access_token}`} : {}) },
+          body: JSON.stringify(body),
+        });
+        return response.ok && await current() ? response.json() : null;
+      };
+    }
     const fulfillment = createAppleFulfillmentTransport(
       backendRouteProfile,
       (name, options) => supabase.functions.invoke(name, options),
@@ -321,6 +337,8 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     const heldElsewhereStore = safeStorage();
     appleProServices = {
       bridge,
+      analytics: analytics.ui,
+      purchaseAnalytics: analytics.purchases,
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
       verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,

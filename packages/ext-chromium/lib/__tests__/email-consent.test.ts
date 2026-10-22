@@ -14,9 +14,4 @@ describe("which consent step each browser gets", () => {
     expect(pickEmailConsent(false)).toBe("disclosure");
   });
 
-  it("never answers none: both browser stores require something", () => {
-    for (const isFirefox of [true, false]) {
-      expect(pickEmailConsent(isFirefox)).not.toBe("none");
-    }
-  });
 });

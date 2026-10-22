@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertNotEquals, assertRejects, assertThrows } from "@std/assert";
-import { CHECK_VIEWS } from "./sql-guard.mjs";
+import { CHECK_VIEWS, MIGRATION_VIEWS } from "./sql-guard.mjs";
 import {
   CHECKER_ROLE,
   CheckError,
@@ -7,8 +7,10 @@ import {
   describeFailure,
   encryptReport,
   EXPECTED_ROLE_CONFIG,
+  grantedMigrationViews,
   productionDigest,
   requireCheckerSession,
+  requireMigrationViews,
   sessionProblems,
 } from "./run.ts";
 
@@ -24,6 +26,7 @@ const narrow = {
   read_only: "on",
   own_grants: CHECK_VIEWS.length,
   foreign_grants: 0,
+  migration_grants: Object.keys(MIGRATION_VIEWS).join(","),
   writable: 0,
   direct_reads: 0,
   create_schemas: 0,
@@ -63,6 +66,28 @@ Deno.test("the session proof accepts only the exact narrow read-only checker", (
   }
   // The failure names conditions, never values.
   assertEquals(sessionProblems({ ...narrow, definer_execute: 3, writable: 2 }), ["writable-relation", "definer-execute"]);
+});
+
+Deno.test("before migration 0025 the role holds the candidate views only; checks still run, PROD-01 refuses", () => {
+  const before = { ...narrow, own_grants: CHECK_VIEWS.length - 1, migration_grants: "" };
+  requireCheckerSession(before);
+  assertEquals(grantedMigrationViews(before), []);
+  assertEquals(grantedMigrationViews(narrow), ["production_sales_summary"]);
+  // The count must match the reported migration grants exactly, in both directions.
+  for (const session of [
+    { ...narrow, own_grants: CHECK_VIEWS.length - 1 },
+    { ...before, own_grants: CHECK_VIEWS.length },
+    { ...narrow, migration_grants: "production_sales_summary,production_sales_summary", own_grants: CHECK_VIEWS.length + 1 },
+    { ...narrow, migration_grants: "qa_accounts" },
+    { ...narrow, migration_grants: undefined as unknown as string },
+  ]) {
+    assertEquals(sessionProblems(session), ["grants"], JSON.stringify(session));
+  }
+  requireMigrationViews("PROD-01", ["production_sales_summary"], narrow);
+  requireMigrationViews("DB-31", ["policy_heads", "isolation_summary"], before);
+  const error = assertThrows(() => requireMigrationViews("PROD-01", ["production_sales_summary"], before), CheckError);
+  assert(error.message.includes("migration 0025"), error.message);
+  assert(error.message.includes("Nothing was read"), error.message);
 });
 
 Deno.test("production is compared only as a keyed digest", () => {

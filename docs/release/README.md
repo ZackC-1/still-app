@@ -44,6 +44,7 @@ once a version ships.
 
 | Track | Reference |
 |---|---|
+| V3 go-live | [V3 go-live runbook](v3-go-live-runbook.md): ordered, owner-verifiable checklist from release candidate to live in all three stores with real payments, including numbered read-backs, the open engineering gaps and the rollback map. |
 | Apple iOS/macOS + Safari | [Apple runbook](01-apple-app-store.md): submitted build provenance, free reviewer flow, legacy IAP presentation and manual release. |
 | Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. Owner-approved, keyless upload and submission: [Chrome release workflow](chrome-publish-workflow.md). |
 | Firefox desktop | [Firefox runbook](03-firefox-amo.md): complete reproducible sources, consent declaration and publication boundary. |
@@ -52,6 +53,7 @@ once a version ships.
 | Auth and reviewer access | [Account/reviewer reference](extension-purchase-deploy-checklist.md): OTP and private fixed-code configuration. |
 | Backend retention | [Counter runbook](counter-retention.md): current behavior, safe maintenance and recovery. |
 | QA database checks | [Read-only check route](qa-readonly-database-checks.md): owner-approved, read-only verification of the owner QA programme's DB-xx steps. |
+| Production purchase routes and secrets | [Protected operations](purchase-routes-and-secrets.md): deploy the purchase routes and `sync-settings`, and copy the `PROD_*` environment secrets to the function secrets, each after owner approval. |
 | Sync log noise | [Expected log noise](sync-log-noise.md): why older 2.1 apps' refused saves show up in server logs after new sync, and how to filter them. |
 | Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. Switching on signed-in (per-device) analytics: [protected operations](analytics-subjects-switch-on.md). |
 | Marketing and assets | [Listing drafts](store-listing-copy.md), [screenshot manifest](screenshots/store-ready/README.md), [public contacts](public-contact-addresses.md). |

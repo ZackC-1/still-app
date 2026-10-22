@@ -83,6 +83,7 @@ export interface BackgroundAnalyticsDeps {
   readonly identifyOnServer?: () => Promise<void>;
   /** Random-time flush for quietly recorded events (chrome.alarms). */
   readonly requestQuietFlush?: () => void;
+  readonly reportPurchases?: () => void;
 }
 
 export function createBackgroundAnalytics(

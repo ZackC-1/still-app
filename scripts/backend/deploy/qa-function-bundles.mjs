@@ -42,11 +42,54 @@ export const ANALYTICS_FUNCTIONS = Object.freeze([
   ["analytics-erasure", false],
   ["analytics-identify", true],
   ["delete-user", true],
+  ["analytics-purchase", true],
+  ["analytics-apple-purchase", false],
 ].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
 export const ANALYTICS_BUNDLE_SET = routeSet(
   "still-analytics-function-bundles",
   ANALYTICS_FUNCTIONS,
   false,
+);
+/** Switch refresh also re-creates checkout, whose optional attribution config is cached. */
+export const ANALYTICS_SWITCH_BUNDLE_SET = routeSet(
+  "still-analytics-switch-function-bundles",
+  Object.freeze([...ANALYTICS_FUNCTIONS, Object.freeze({ name: "create-web-checkout", verifyJwt: true })]),
+  false,
+);
+/**
+ * Production purchase routes, in deploy order (see purchase-operations.mjs): the read-only routes
+ * first (the public policy read, the account export), then the routes that verify a purchase and
+ * issue access, then checkout, and the provider webhook last. `verify_jwt` equals config.toml.
+ *
+ * Managed Payments completion precedes the provider webhooks; raw signed Stripe events are last.
+ */
+export const PURCHASE_FUNCTIONS = Object.freeze([
+  ["product-policy", false],
+  ["export-user-data", true],
+  ["verify-apple-access", false],
+  ["link-apple-access", true],
+  ["reconcile-entitlement", true],
+  ["create-web-checkout", true],
+  ["complete-web-checkout", true],
+  ["revenuecat-webhook", false],
+  ["stripe-webhook", false],
+].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
+export const PURCHASE_BUNDLE_SET = routeSet(
+  "still-purchase-function-bundles",
+  PURCHASE_FUNCTIONS,
+  false,
+);
+/**
+ * sync-settings serves the released 2.x apps' free sync, so it is its own separately approved step.
+ * Its config.toml section carries a per-route import map, so it is bound like the QA routes.
+ */
+export const SYNC_SETTINGS_FUNCTIONS = Object.freeze([
+  Object.freeze({ name: "sync-settings", verifyJwt: true }),
+]);
+export const SYNC_SETTINGS_BUNDLE_SET = routeSet(
+  "still-sync-settings-function-bundles",
+  SYNC_SETTINGS_FUNCTIONS,
+  true,
 );
 
 const CONFIG = "supabase/functions/deno.json";

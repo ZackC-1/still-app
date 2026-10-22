@@ -1,3 +1,4 @@
+import { createApplePurchaseAnalytics, type ApplePurchaseAnalytics, type ApplePurchaseAnalyticsRequest } from "./apple-purchase-analytics.js";
 import {
   AnalyticsClient,
   type AnalyticsConfig,
@@ -31,6 +32,7 @@ export interface AppAnalyticsBridge {
 
 export interface AppAnalyticsDeps {
   readonly bridge: AppAnalyticsBridge;
+  readonly purchaseRequest?: ApplePurchaseAnalyticsRequest;
   readonly config: AnalyticsConfig;
   readonly permission?: () => Promise<AnalyticsPermission | null>;
   readonly privacyPolicy?: AnalyticsPrivacyPolicy;
@@ -49,6 +51,7 @@ export interface AppAnalyticsDeps {
 }
 
 export interface AppAnalytics {
+  readonly purchases?: ApplePurchaseAnalytics;
   /** The controller's seam. */
   readonly ui: UiAnalytics;
   /** Launch: install or update, setup progress, one open, one active day. */
@@ -267,10 +270,26 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     );
   };
 
+  const purchases = deps.purchaseRequest && deps.config.key?.trim() ? createApplePurchaseAnalytics({
+    store: deps.store, projectKey: deps.config.key, request: deps.purchaseRequest,
+    context: async () => {
+      const r = await observed();
+      if (!r) return null;
+      const scope = await r.client.applePurchaseScope(r.observation);
+      return scope ? { client: r.client, observation: r.observation, scope,
+        surface: r.context.platform === "macos" ? "app-macos" : "app-ios", appVersion: r.context.appVersion } : null;
+    },
+  }) : undefined;
+
   const ui: UiAnalytics = {
     track: (name, props) =>
       withReady(async (r) => {
-        await r.client.track(name, props, { observation: r.observation });
+        // Purchase UI is shared by iPhone and Mac. Resolve its unspecified origin from the same
+        // native context that supplies the surface, without waiting in or delaying the purchase.
+        const located = "purchase_origin" in props && props.purchase_origin === "unknown"
+          ? { ...props, purchase_origin: r.context.platform === "macos" ? "mac_app_store" as const : "app_store" as const }
+          : props;
+        await r.client.track(name, located, { observation: r.observation });
         await r.client.trackDaily(
           "active",
           "active",
@@ -280,6 +299,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         void r.attach(r.observation); // a failed launch attach is retried by ordinary app use
       }),
     identify: (userId) => {
+      if (account !== undefined && account !== userId) purchases?.clear();
       account = userId;
       withReady(async (r) => {
         await r.identify(userId); // a completed sign-in confirms the account
@@ -291,6 +311,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     // Resolves once the account is let go of (deletion waits for it). A deletion also forgets this
     // device's cached per-device subject for the account.
     reset: (options) => {
+      purchases?.clear();
       account = null;
       return ready()
         .then(async (r) => {
@@ -306,6 +327,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
     },
     async setSharing(enabled) {
+      if (!enabled) purchases?.clear();
       if (enabled) declinedHere = false;
       epoch += 1;
       const asked = epoch;
@@ -368,6 +390,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
 
   return {
     ui,
+    purchases,
     async start() {
       if (!(await ready())) return; // no client reports: nothing to wait for
       // The launch's account answer first (bounded): observed before it, the launch would be fenced
@@ -413,9 +436,11 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       await client.track("opened", { where: "app" }, options);
       await client.trackDaily("active", "active", {}, options);
       await client.flush(r.observation);
+      void purchases?.observe();
       void r.attach(r.observation); // the flush may have recovered the launch's account confirmation
     },
     async recheckSetup() {
+      void purchases?.observe();
       const r = await observed();
       if (!r) return;
       const observation = r.observation;
@@ -426,6 +451,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       void r.attach(observation);
     },
     async identifyAccount(userId) {
+      if (account !== undefined && account !== userId) purchases?.clear();
       account = userId;
       const r = await (async () => {
         try {
@@ -442,6 +468,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       if (!deps.subjects) void r.attach();
     },
     async accountAbsent() {
+      if (account !== undefined && account !== null) purchases?.clear();
       account = null;
       try {
         const r = await ready();
@@ -456,6 +483,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     },
     adoptCommittedConsent(enabled) {
       if (!enabled) {
+        purchases?.clear();
         declinedHere = true;
         epoch += 1; // observations and switch changes still in flight belong to the old choice
         consent = false;

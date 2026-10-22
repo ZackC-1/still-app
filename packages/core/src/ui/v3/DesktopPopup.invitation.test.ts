@@ -135,7 +135,7 @@ describe("optional D28 desktop invitation", () => {
     const saved = await storage.get();
     props.invitation = invitationSpecimen();
     props.desktopSetup = {
-      title: "Still can't block on these websites yet.",
+      title: "Still can't block distractions yet.",
       detail: "Allow Still on these websites so it can block there.",
       actionLabel: "Allow",
     };
@@ -223,7 +223,7 @@ describe("issued desktop setup request", () => {
         }
       });
       props.desktopSetup = {
-        title: "Still can't block on these websites yet.",
+        title: "Still can't block distractions yet.",
         detail: "Allow Still on these websites so it can block there.",
         actionLabel: "Allow",
         action: port,

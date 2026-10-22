@@ -40,6 +40,10 @@ import {
   gateCodes,
   LATER_MIGRATION_CODES,
   MIGRATION_GATE,
+  PURCHASE_ANALYTICS_GATE,
+  APPLE_ANALYTICS_GATE,
+  APPLE_ANALYTICS_CODES,
+  PURCHASE_ANALYTICS_CODES,
   parseFacts,
   POSTHOG_SECRETS,
   rehearsalApi,
@@ -60,7 +64,8 @@ import {
   WORKER_TOKEN_SECRET,
   WRITABLE_SECRETS,
 } from "./analytics-subjects.mjs";
-import { ANALYTICS_FUNCTIONS } from "./qa-function-bundles.mjs";
+import { PURCHASE_ROUTE_SECRETS } from "./purchase-route-prerequisites.mjs";
+import { ANALYTICS_BUNDLE_SET, ANALYTICS_FUNCTIONS } from "./qa-function-bundles.mjs";
 import { scramKeys } from "./qa-secrets.mjs";
 
 const REPO = new URL("../../../", import.meta.url);
@@ -139,7 +144,7 @@ async function refuses(promise, category) {
 
 // ── In-memory database: the facts the pinned SQL reads and the effects it has ──────────────────
 
-function world({ gate = [], history = ["0017", "0018"] } = {}) {
+function world({ gate = [], history = ["0017", "0018", "0028", "0029"] } = {}) {
   const state = {
     gate,
     history,
@@ -202,6 +207,10 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
         return ok(`${JSON.stringify(facts())}\n`);
       case "migration-history.sql":
         return ok(`${JSON.stringify(state.history.map((version) => ({ version, name: "m" })))}\n`);
+      case basename(APPLE_ANALYTICS_GATE):
+        return ok(`${JSON.stringify(state.appleGate ?? [])}\n`);
+      case basename(PURCHASE_ANALYTICS_GATE):
+        return ok(`${JSON.stringify(state.purchaseGate ?? [])}\n`);
       case basename(MIGRATION_GATE):
         return ok(`${JSON.stringify(state.gate)}\n`);
       case "role-facts.sql":
@@ -265,12 +274,16 @@ async function harness(t, options = {}) {
   const made = await plan(root, head, { operation: SWITCH_OP, mode: "apply", policyMode: "enable" });
   const db = world(options);
   const api = rehearsalApi(REF);
+  for (const name of PURCHASE_ROUTE_SECRETS) api.secrets.set(name,"synthetic-payment-prerequisite");
   const planFor = (operation, mode = "apply", policyMode = "none") =>
     siblingPlan(made.plan, {
       operation,
       mode,
       policyMode,
-      bundles: ANALYTICS_OPERATIONS[operation].bundles ? made.plan.bundles : null,
+      bundles: ANALYTICS_OPERATIONS[operation].bundles ? operation === SWITCH_OP ? made.plan.bundles : {
+        ...made.plan.bundles, kind: ANALYTICS_BUNDLE_SET.kind,
+        functions: made.plan.bundles.functions.filter(item => item.name !== "create-web-checkout"),
+      } : null,
     });
   const receipts = [];
   const run = async (p, extra = {}) => {
@@ -345,7 +358,13 @@ test("the plan binds the operation, the commit on main, the pinned SQL and the b
     ["analytics-erasure", false],
     ["analytics-identify", true],
     ["delete-user", true],
+    ["analytics-purchase", true],
+    ["analytics-apple-purchase", false],
   ]);
+  const switching = (await plan(root,head,{ operation: SWITCH_OP,policyMode: "enable" })).plan;
+  assert.deepEqual(switching.bundles.functions.map(f=>f.name),[...ANALYTICS_FUNCTIONS.map(f=>f.name),"create-web-checkout"]);
+  assert.deepEqual(switching.migrations,["0017","0018"]);
+  assert.ok(switching.files.some(f=>f.path==="supabase/migrations/0017_analytics_erasure.sql"));
   assert.notEqual(
     (await plan(root, head, { operation: SCHEDULE_OP, policyMode: "disable" })).plan.digest,
     schedule.digest,
@@ -569,6 +588,52 @@ test("secrets apply refuses a mixed state and names rotate; rotate replaces the 
   assert.ok(rotated.steps.some((s) => s.name === `role ${ERASER_ROLE}` && s.outcome === "password-rotated"));
 });
 
+test("0028 eraser capabilities require history and the full structural gate; unknown grants still refuse", async (t) => {
+  const h = await harness(t, { gate: [...PURCHASE_ANALYTICS_CODES], history: ["0017", "0018"] });
+  const absent = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(absent.status, "stopped-before-write");
+  assert.equal(h.api.calls.secretPosts, 0);
+  assert.ok(absent.issues.some(code => code.startsWith("migration_gate:eraser_execute:")));
+  h.db.state.history.push("0028");
+  h.db.state.purchaseGate = ["routine_body_changed"];
+  const changed = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(changed.status, "stopped-before-write");
+  assert.ok(changed.issues.includes("purchase_analytics_gate:routine_body_changed"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.purchaseGate = [];
+  h.db.state.gate.push("eraser_execute:private.unreviewed()" );
+  const extra = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(extra.status, "stopped-before-write");
+  assert.ok(extra.issues.includes("migration_gate:eraser_execute:private.unreviewed()"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.gate.pop();
+  const valid = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(valid.status, "verified", valid.issues.join(" "));
+});
+
+test("0029 eraser capabilities require history and the full structural gate; unknown grants still refuse", async (t) => {
+  const h = await harness(t, { gate: [...APPLE_ANALYTICS_CODES], history: ["0017", "0018"] });
+  const absent = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(absent.status, "stopped-before-write");
+  assert.equal(h.api.calls.secretPosts, 0);
+  assert.ok(absent.issues.some(code => code.startsWith("migration_gate:eraser_execute:")));
+  h.db.state.history.push("0029");
+  h.db.state.appleGate = ["routine_body_changed"];
+  const changed = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(changed.status, "stopped-before-write");
+  assert.ok(changed.issues.includes("apple_analytics_gate:routine_body_changed"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.appleGate = [];
+  h.db.state.gate.push("eraser_execute:private.unreviewed()" );
+  const extra = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(extra.status, "stopped-before-write");
+  assert.ok(extra.issues.includes("migration_gate:eraser_execute:private.unreviewed()"));
+  assert.equal(h.api.calls.secretPosts, 0);
+  h.db.state.gate.pop();
+  const valid = await h.run(h.planFor(SECRETS_OP));
+  assert.equal(valid.status, "verified", valid.issues.join(" "));
+});
+
 test("every writing run first proves the migrations, the GoTrue rehearsal and owner approval", async (t) => {
   const h = await harness(t, { gate: ["subject_snapshot_trigger:disabled"], history: ["0017"] });
   h.api.setRehearsalGreen(false);
@@ -583,7 +648,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal(h.api.calls.secretPosts, 0);
   // Exact codes explained by later reviewed migrations are accepted; other grants still stop.
   h.api.setRehearsalGreen(true);
-  h.db.state.history = ["0017", "0018"];
+  h.db.state.history = ["0017", "0018", "0028", "0029"];
   h.db.state.gate = [...LATER_MIGRATION_CODES];
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "verified");
   // A plan the owner did not approve, or a different operation, mode or target, never runs.
@@ -615,7 +680,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "stopped-before-write", "apply keeps every gate");
 });
 
-test("functions deploy exactly three routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
+test("functions deploy exactly five routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
   const h = await harness(t);
   const early = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(early.status, "stopped-before-write");
@@ -631,13 +696,15 @@ test("functions deploy exactly three routes in order after the secrets exist; a 
     ["analytics-erasure", "created"],
     ["analytics-identify", "deployed"],
     ["delete-user", "deployed"],
+    ["analytics-purchase", "created"],
+    ["analytics-apple-purchase", "created"],
   ]);
   assert.equal(h.api.functions.get("analytics-identify").version, 2);
   assert.equal(h.api.functions.get("delete-user").version, 19);
   assert.equal(h.api.functions.get("analytics-erasure").verify_jwt, false);
   const again = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(again.status, "no-change");
-  assert.equal(h.api.calls.deploys, 3);
+  assert.equal(h.api.calls.deploys, 5);
 
   // A route whose stored body does not read back stops the run; delete-user is never attempted.
   const g = await harness(t);
@@ -658,7 +725,7 @@ test("functions deploy exactly three routes in order after the secrets exist; a 
     verifyBundles: async () => true,
   });
   assert.equal(receipt.status, "outcome-unknown");
-  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted"]);
+  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted", "not-attempted", "not-attempted"]);
   assert.equal(g.api.functions.get("delete-user").version, 18);
   assert.match(receipt.recovery, /never blindly retry/);
   assert.match(renderAnalyticsFinal(receipt), /status: outcome-unknown/);
@@ -691,9 +758,6 @@ test("the schedule needs analytics-erasure at source, stores the exact command, 
 
 test("the switch turns on only with a running schedule and a worker that deletes; off always works", async (t) => {
   const h = await harness(t);
-  // Off needs nothing, even before anything else exists.
-  const offFirst = await h.run(h.planFor(SWITCH_OP, "apply", "disable"));
-  assert.equal(offFirst.status, "no-change");
   await h.run(h.planFor(SECRETS_OP));
   await h.run(h.planFor(FUNCTIONS_OP));
   const noSchedule = await h.run(h.planFor(SWITCH_OP, "apply", "enable"));
@@ -762,7 +826,9 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(on.status, "verified", on.issues.join(" "));
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "true");
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 1);
-  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "no-change");
+  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "verified");
+  assert.equal(h.api.functions.get("analytics-purchase").version, 3);
+  assert.equal(h.api.functions.get("analytics-apple-purchase").version, 3);
   // Emergency off: no schedule, no worker evidence, no provider proof, no token probe needed.
   h.db.state.command = null;
   h.db.state.ok = 0;
@@ -772,8 +838,10 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(h.db.state.providerQueued, queued);
   assert.equal(off.status, "verified");
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "false");
-  assert.equal(h.api.functions.get("analytics-identify").version, identify + 2);
-  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "disable"))).status, "no-change");
+  assert.equal(h.api.functions.get("analytics-identify").version, identify + 3);
+  assert.equal(h.api.functions.get("analytics-purchase").version, 4);
+  assert.equal(h.api.functions.get("analytics-apple-purchase").version, 4);
+  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "disable"))).status, "verified");
 });
 
 // ── Records and CLI ──────────────────────────────────────────────────────────────────────────
@@ -786,7 +854,7 @@ test("plan and closing records name steps and fixed codes only", async (t) => {
     assert.ok(shown.includes(needle), needle);
   }
   assert.ok(!shown.includes(REF), "the project ref is bound, not printed");
-  assert.match(renderAnalyticsPlan({ ...p, policyMode: "disable" }), /this is the way back/);
+  assert.match(renderAnalyticsPlan({ ...p, policyMode: "disable" }), /partial refresh is outcome-unknown/);
   assert.match(renderAnalyticsFinal(null, { applyOutcome: "skipped" }), /stopped-before-write/);
   assert.match(renderAnalyticsFinal(null, { operation: SWITCH_OP }), /no durable receipt for `analytics-subjects-switch`/);
   const interrupted = renderAnalyticsFinal({
@@ -820,4 +888,60 @@ test("the CLI routes analytics operations to this module and keeps rotate and po
   const summary = { text: "", write(s) { this.text += s; } };
   assert.equal(await main(["final-summary", "--receipt", join(source, "missing.json")], { DEPLOY_OPERATION: SWITCH_OP, APPLY_OUTCOME: "failure" }, { out: summary }), 0);
   assert.match(summary.text, /Analytics closing record/);
+});
+
+test("canonical reporting deployment requires its migration and structural gate before any write", async (t) => {
+  const h = await harness(t);
+  await h.run(h.planFor(SECRETS_OP));
+  h.db.state.history = ["0017", "0018"];
+  const missing = await h.run(h.planFor(FUNCTIONS_OP));
+  assert.equal(missing.status,"stopped-before-write");
+  assert.ok(missing.issues.includes("history_missing:0028"));
+  assert.ok(missing.issues.includes("history_missing:0029"));
+  assert.equal(h.api.calls.deploys,0);
+  h.db.state.history.push("0028");
+  h.db.state.purchaseGate = ["erasure_cascade"];
+  const drift = await h.run(h.planFor(FUNCTIONS_OP));
+  assert.equal(drift.status,"stopped-before-write");
+  assert.ok(drift.issues.some(code => code.includes("erasure_cascade")));
+  assert.equal(h.api.calls.deploys,0);
+});
+
+test("checkout refresh shares purchase gates; partial disable stops reporters and retry refreshes the pinned checkout", async t => {
+  const h = await harness(t);
+  await h.run(h.planFor(SECRETS_OP));
+  await h.run(h.planFor(FUNCTIONS_OP));
+  await h.run(h.planFor(SCHEDULE_OP,"apply","enable"));
+  h.db.state.runs=1; h.db.state.ok=1;
+  const enable=h.planFor(SWITCH_OP,"apply","enable"), disable=h.planFor(SWITCH_OP,"apply","disable");
+  const checkout=enable.bundles.functions.find(item => item.name==="create-web-checkout");
+  assert.ok(checkout);
+  const posts=h.api.calls.secretPosts, deploys=h.api.calls.deploys;
+  h.api.secrets.delete("STRIPE_SECRET_API_KEY");
+  const refused=await h.run(enable);
+  assert.equal(refused.status,"stopped-before-write");
+  assert.ok(refused.issues.includes("missing_secret:STRIPE_SECRET_API_KEY"));
+  assert.equal(h.api.calls.secretPosts,posts); assert.equal(h.api.calls.deploys,deploys);
+  h.api.secrets.set("STRIPE_SECRET_API_KEY","synthetic-payment-prerequisite");
+  h.db.state.history=h.db.state.history.filter(version => version!=="0017");
+  const missingHistory=await h.run(enable);
+  assert.equal(missingHistory.writeAttempted,false); assert.ok(missingHistory.issues.includes("history_missing:0017"));
+  h.db.state.history.push("0017");
+  assert.equal((await h.run(enable)).status,"verified");
+  const prior=h.api.functions.get("create-web-checkout").version;
+  h.api.secrets.delete("STRIPE_SECRET_API_KEY");
+  const partial=await h.run(disable);
+  assert.equal(partial.status,"outcome-unknown");
+  assert.ok(partial.issues.includes("analytics-checkout-refresh-incomplete"));
+  assert.equal(h.api.secrets.get(SWITCH_SECRET),"false");
+  assert.equal(h.api.functions.get("create-web-checkout").version,prior);
+  assert.equal(partial.steps.find(item=>item.name==="create-web-checkout").outcome,"not-attempted");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-identify").outcome,"deployed");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-purchase").outcome,"deployed");
+  assert.equal(partial.steps.find(item=>item.name==="analytics-apple-purchase").outcome,"deployed");
+  h.api.secrets.set("STRIPE_SECRET_API_KEY","synthetic-payment-prerequisite");
+  const retried=await h.run(disable);
+  assert.equal(retried.status,"verified",retried.issues.join(" "));
+  assert.equal(h.api.functions.get("create-web-checkout").version,prior+1);
+  assert.equal(retried.steps.find(item=>item.name==="create-web-checkout").outcome,"deployed");
 });

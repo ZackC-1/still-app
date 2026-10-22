@@ -330,6 +330,37 @@ test("actual 0024 plan binds its legacy-guard gate and changes only the released
   assert.match(source, /revoke all on function public\.write_profile_settings\(jsonb, uuid\) from public, anon, service_role;\ngrant execute on function public\.write_profile_settings\(jsonb, uuid\) to authenticated;/);
 });
 
+test("actual 0025 plan binds its view gate and row invariant and changes no routine", async (t) => {
+  const { root, head } = await qaMigrationRepo(t, 25);
+  const p = await plan(root, head, "0025_production_sales_summary_view.sql");
+  assert.equal(p.priorMigrations.length, 24);
+  assert.equal(p.expectedHistoryBefore.at(-1).version, "0024");
+  assert.deepEqual(p.expectedHistoryAfter.at(-1), {
+    version: "0025",
+    name: "production_sales_summary_view",
+  });
+  const [migration] = p.migrations;
+  for (const [kind, filename] of [
+    ["verification", "0025_production_sales_summary_view.sql"],
+    ["invariant", "0025_production_sales_summary_view.invariant.sql"],
+  ]) {
+    const bytes = await readFile(new URL(`./verify/${filename}`, import.meta.url));
+    assert.deepEqual(migration[kind], {
+      path: `scripts/backend/deploy/verify/${filename}`,
+      sha256: sha256(bytes),
+    });
+    assert.equal(lintVerificationSql(bytes.toString()), true);
+  }
+  const read = (path) => readFile(new URL(`../../../${path}`, import.meta.url), "utf8");
+  const source = await read("supabase/migrations/0025_production_sales_summary_view.sql");
+  assert.deepEqual([...routinesChanged(source)], []);
+  const gate = await read("scripts/backend/deploy/verify/0025_production_sales_summary_view.sql");
+  assert.deepEqual([...routinesPinned(gate)], []);
+  // Not vacuous: before the apply the gate reports the missing version and view.
+  assert.match(gate, /select 'migration_version' where not exists/);
+  assert.match(gate, /select 'view_missing' where not exists/);
+});
+
 // ── PostgREST retry boundary ─────────────────────────────────────────────────────────────────
 // PostgREST re-runs a whole transaction that fails with 40001 (serialization_failure) or 40P01
 // (deadlock_detected); the hosted version retries without a limit. A function a client request can
@@ -1250,6 +1281,24 @@ for (const version of [
       line,
       "preserve exact private comparison bytes",
     );
+  });
+}
+
+for (const version of ["0026_production_purchase_operations", "0027_apple_sandbox_review_access"]) {
+  test(`${version} preserves pre-existing rows with the private object contract, not issue arrays`, async () => {
+    const sql = await readFile(new URL(`./verify/${version}.invariant.sql`, import.meta.url), "utf8");
+    assert.equal(lintVerificationSql(sql), true);
+    assert.match(stripComments(sql), /^\s*select pg_catalog\.jsonb_build_object\(/);
+    const entries = [...sql.matchAll(/'([^']+)'\s*,\s*\(select pg_catalog\.(count|md5)/g)];
+    for (const table of ["auth.users", "public.profiles", "public.entitlements", "private.access_rights",
+      "private.apple_access_observations", "private.qa_sandbox_purchase_operations", "private.paid_cutoff"]) {
+      assert.ok(entries.some(([, key, kind]) => key === table && kind === "count"), table);
+      assert.ok(entries.some(([, key, kind]) => key === `${table}.fingerprint` && kind === "md5"), table);
+    }
+    assert.doesNotMatch(sql, /from private\.(production_purchase_operations|apple_sandbox_review_access)\b/);
+    const output = JSON.stringify(Object.fromEntries(entries.map(([, key, kind]) =>
+      [key, kind === "count" ? 7 : "0123456789abcdef0123456789abcdef"])));
+    assert.equal(parseRowCounts(output), output);
   });
 }
 

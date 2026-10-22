@@ -138,10 +138,11 @@ export function createProOfferLatch(): (
 
 /**
  * The popup's Still Pro card line (ISS-0032, owner-approved design, 12 Oct 2026). The same words on
- * every popup. Owner rules: no number of extras and no price in the popup.
+ * every popup. Owner rules: no number of extras and no price in the popup. Wording from the owner's
+ * canvas review, 21 Oct 2026.
  */
 export const POPUP_PRO_VALUE =
-  "Hide more on Instagram, Facebook and YouTube. One-time purchase.";
+  "Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.";
 
 /** Written as what each extra hides, for the settings Still Pro card's by-site list. */
 const PRO_VALUE_PHRASES: Record<string, string> = {

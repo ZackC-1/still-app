@@ -303,7 +303,7 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
       props: { ...props, pro: { ...ready, onBuy, onSignIn, onRestore } },
     });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("Hide more of what distracts you.")).toBeVisible();
+    expect(within(card).getByText("Remove more of what distracts you.")).toBeVisible();
     const rows = within(card)
       .getAllByRole("listitem")
       .map((item) => [
@@ -323,8 +323,8 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     ]);
     expect(within(card).getByText("One-time purchase. Lifetime access.")).toBeVisible();
     const get = within(card).getByRole("button", { name: "Get Still Pro" });
-    const note = within(card).getByText("The price is shown at checkout.");
-    expect(get.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Owner's canvas review, 21 Oct 2026: no checkout price note under Get Still Pro.
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(COUNT);
     expect(card.textContent).not.toMatch(/\d/);
     expect(card.textContent).not.toMatch(PRICE);

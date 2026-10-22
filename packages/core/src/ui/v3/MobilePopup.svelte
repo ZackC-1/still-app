@@ -71,8 +71,8 @@
   } as const;
   const setupCopy = {
     safari: [
-      "Still can't block on these websites yet.",
-      "In Safari, tap the extensions button, choose Still, then Always Allow on Every Website.",
+      "Still can't block distractions yet.",
+      "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
       "Show me how",
     ],
     firefox: [
@@ -288,7 +288,7 @@
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
           </p>{:else if !account}<p class="muted sync-row-sub">
-            Free. Keep your settings the same across every supported device and browser.
+            Sync settings across devices and browsers. Free.
           </p>{/if}
       </div>
       {#if !account && onSignIn}<div

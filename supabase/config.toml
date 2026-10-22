@@ -386,8 +386,15 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.create-web-checkout]
-# verify_jwt=true: RevenueCat Web Billing app_user_id is derived ONLY from auth.uid(), never the body.
+# The managed operation holder is derived ONLY from the verified JWT, never the body.
 verify_jwt = true
+
+[functions.complete-web-checkout]
+verify_jwt = true
+
+[functions.stripe-webhook]
+# Exact raw-body Stripe signature, live event and canonical production readback are required.
+verify_jwt = false
 
 [functions.delete-user]
 verify_jwt = true
@@ -522,3 +529,10 @@ import_map = "./functions/qa-sandbox-complete-web-checkout/deno.json"
 [functions.qa-sandbox-stripe-webhook]
 verify_jwt = false
 import_map = "./functions/qa-sandbox-stripe-webhook/deno.json"
+
+[functions.analytics-purchase]
+verify_jwt = true
+
+[functions.analytics-apple-purchase]
+# Anonymous originating-device reporting is supported; signed-in scopes verify their JWT internally.
+verify_jwt = false

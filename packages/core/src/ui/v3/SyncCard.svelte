@@ -178,7 +178,7 @@
       onclick={onSignIn}>Sign in</button
     >
     <p class="card-body">
-      Free. Keep your settings the same across every supported device and browser.
+      Sync settings across devices and browsers. Free.
     </p>
   {/if}
   {#if accountActions}{@render accountActions()}{/if}

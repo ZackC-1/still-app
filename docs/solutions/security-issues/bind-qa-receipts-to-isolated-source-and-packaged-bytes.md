@@ -6,7 +6,7 @@ problem_type: security_issue
 module: scripts/qa
 applies_when: Building a paid sandbox candidate from a dirty checkout without changing shipped flags
 date: 2026-10-07
-last_updated: 2026-10-14
+last_updated: 2026-10-21
 status: active
 tags:
   - qa
@@ -60,12 +60,14 @@ app/extension plist and complete resource checks. These are embedding and packag
 they do not certify a provider response or device acceptance. Compiler output streams to the run log; structured plist and bounded parser output are captured.
 
 Recognizing a supported environment reference does not authorize it as a store-package input.
-[package.mjs](../../../scripts/release/package.mjs) classifies `VITE_ACCESS_ENVIRONMENT` and
-`VITE_ACCESS_PUBLIC_KEYS` as QA-only references while retaining its public store-input allowlist.
-Ordinary store packages strip ambient QA trust values, reject explicitly requested QA trust inputs
-before creating output, and omit them from AMO rebuild instructions. Unknown and private variable
-names remain errors. Adding these names to the public allowlist would bypass that boundary; a
-future production trust configuration needs its own reviewed release change.
+[package.mjs](../../../scripts/release/package.mjs) never accepts `VITE_ACCESS_ENVIRONMENT` or
+`VITE_ACCESS_PUBLIC_KEYS` as a store-package input. Ordinary store packages strip ambient QA trust
+values and reject explicitly requested trust inputs before creating output. They set both values
+only from the committed production trust file (`PINNED_ENV_KEYS`, read through
+[access-trust.mjs](../../../scripts/release/access-trust.mjs)), which refuses any non-production
+row, so the AMO rebuild instructions list the pinned production values and never QA ones. Unknown
+and private variable names remain errors. Adding these names to the public allowlist would bypass
+that boundary.
 
 [release.test.mjs](../../../scripts/release/release.test.mjs) checks reference classification,
 ambient stripping, explicit refusal, empty output on refusal and omitted rebuild instructions.
@@ -107,3 +109,12 @@ The pinned build list in `scripts/backend/deploy/operations.mjs`, both sales-pol
 their SHA-256 pins and the operation contract test must change together. Preserve older entries
 when their manual QA is still active. The 48 operation tests validate matching templates, hashes
 and refusal paths; hosted admission still requires the protected operation and live readback.
+
+A production signing-key overlay alone does not configure native purchase consumers. The native
+session verifier, account-access runtime and fresh purchase-policy reader also require the public
+Supabase origin and client key in the signed plist. The production archive now takes those fields
+from the same exported inputs as both Apple web bundles, validates the fixed production origin and
+public key form, and writes them with trust into all four app/extension plists. Missing configuration
+refuses before compilation or any plist modification. Tests feed the real Node-generated XML into
+the Swift consumers, which catches omissions that a trust-parser-only test cannot detect. Inspect
+the final signed archive separately; a correct source overlay is not artifact evidence.
