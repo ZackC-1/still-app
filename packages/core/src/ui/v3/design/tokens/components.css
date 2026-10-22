@@ -231,8 +231,10 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .service-options { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1), visibility 220ms; }
 .service-options.open { grid-template-rows: 1fr; visibility: visible; }
 .service-options > .inner { overflow: hidden; min-block-size: 0; }
+/* Owner canvas (P-Sites, 22 Oct): 6px under an open site's last option row on every surface; option
+   rows are 46px on the app and the Settings page (the popups keep 40px, compact rule below). */
 .service-options .list { display: flex; flex-direction: column; padding: 0 var(--service-card-padding-inline, var(--space-4)) 6px calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
-.option-row { display: flex; align-items: center; gap: var(--space-3); min-block-size: 44px; border-block-start: 1px solid var(--border); font-size: calc(15px * var(--text-scale, 1)); }
+.option-row { display: flex; align-items: center; gap: var(--space-3); min-block-size: 46px; border-block-start: 1px solid var(--border); font-size: calc(15px * var(--text-scale, 1)); }
 .option-row .row-main { flex: 1; min-inline-size: 0; display: flex; flex-direction: column; gap: 1px; padding-block: var(--space-2); }
 .option-row .label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); row-gap: 2px; }
 .option-row .sub { font-size: calc(12.5px * var(--text-scale, 1)); line-height: 1.35; color: var(--ink-secondary); }
@@ -245,6 +247,14 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
    the name, right-aligned, instead of squeezing the name to a few letters per line. */
 .option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
 .option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
+/* On the app and the Settings page a locked row carries its block padding itself (owner canvas,
+   P-Sites since 10:22, 22 Oct): 8px above and below the 32px pill, so the row is 49px as drawn. The
+   pill group's own 3px margins count toward the 8px, so the row adds 5px and the name drops its
+   8px. The popups keep the name's padding and their 40px row (compact rule below). */
+.option-row[data-access="locked"] { padding-block: 5px; }
+.option-row[data-access="locked"] .row-main { padding-block: 0; }
+.app[data-density="compact"] .option-row[data-access="locked"] { padding-block: 0; }
+.app[data-density="compact"] .option-row[data-access="locked"] .row-main { padding-block: var(--space-2); }
 /* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
    locked row keeps the 40px compact row height. The ::before keeps a full tap-target-tall hit area
    without growing the row. scroll-margin: a pill scrolled into view (keyboard focus, larger text)
@@ -258,12 +268,6 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .lock-pro[aria-disabled="true"]:hover { border-color: var(--border-strong); }
 .service-row .toggle-slot { flex: none; display: flex; }
 .app[data-density="compact"] .option-row { min-block-size: 40px; font-size: calc(14px * var(--text-scale, 1)); }
-/* Owner canvas (P-Sites, 22 Oct): an open site's option rows are 46px on the app and the Settings page
-   (the popups keep 40px, above, which outranks this) with 6px under the last row on every surface.
-   Kept apart from the two base rules above so this lands beside the Safari lane's edit of the list's
-   padding without a merge conflict; fold the three together once both are merged. */
-.option-row { min-block-size: 46px; }
-.service-options .list { padding-block-end: 6px; }
 .toggle.small { inline-size: 40px; block-size: 24px; }
 .toggle.small::before { inset-block: calc((24px - var(--switch-hit, 44px)) / 2); }
 .toggle.small .knob { inline-size: 20px; block-size: 20px; transform: translateX(2px); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }

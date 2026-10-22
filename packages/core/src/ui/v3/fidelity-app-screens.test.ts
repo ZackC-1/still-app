@@ -159,14 +159,32 @@ const lastRule = (css: string, selector: string) => {
 describe("P-Sites: an open site's option rows", () => {
   it("each row is 46px on the app and Settings page, 40px in the popups", () => {
     expect(lastRule(components(), ".option-row")).toContain("min-block-size: 46px;");
-    // The popups' rule is more specific, so it keeps 40px over the later 46px rule.
+    // The popups' rule is more specific, so it keeps 40px over the base 46px rule.
     expect(rule(components(), '.app[data-density="compact"] .option-row')).toContain(
       "min-block-size: 40px;",
     );
   });
 
   it("6px under the last row", () => {
-    expect(lastRule(components(), ".service-options .list")).toContain("padding-block-end: 6px;");
+    // One rule, folded with the Safari lane's edit: top 0, inline, bottom 6px.
+    expect(lastRule(components(), ".service-options .list")).toMatch(
+      /padding: 0 var\(--service-card-padding-inline, var\(--space-4\)\) 6px /,
+    );
+  });
+});
+
+describe("P-Sites: a locked row is 49px on the app and Settings page, 40px in the popups", () => {
+  it("moves the 8px block padding from the name to the row outside the popups", () => {
+    const css = components();
+    // 5px on the row plus the pill group's own 3px margin = 8px around the 32px pill.
+    expect(lastRule(css, '.option-row[data-access="locked"]')).toContain("padding-block: 5px;");
+    expect(lastRule(css, '.option-row[data-access="locked"] .row-main')).toContain("padding-block: 0;");
+    expect(rule(css, '.app[data-density="compact"] .option-row[data-access="locked"]')).toContain(
+      "padding-block: 0;",
+    );
+    expect(
+      rule(css, '.app[data-density="compact"] .option-row[data-access="locked"] .row-main'),
+    ).toContain("padding-block: var(--space-2);");
   });
 });
 
