@@ -71,6 +71,42 @@ Deno.test("production config binds live provider, real key pairs and complete pr
   }
 });
 
+Deno.test("production composes its project-bound Supabase pooler writer without SQL calls", async () => {
+  const values = await configurationInputs();
+  const project = "abcdefghijklmnopqrst";
+  values.SUPABASE_URL = `https://${project}.supabase.co`;
+  let queries = 0;
+  const sql = Object.assign(() => { queries++; throw new Error("must not query SQL during composition"); },
+    { json: (value: unknown) => value }) as unknown as ReturnType<NonNullable<Parameters<typeof readProductionCheckoutRuntime>[1]>>;
+  for (const port of ["", ":5432", ":6543"]) {
+    values.ENTITLEMENT_WRITER_DB_URL = `postgresql://still_entitlement_writer.${project}:synthetic@aws-0-us-west-2.pooler.supabase.com${port}/postgres?sslmode=require`;
+    assert(await readProductionCheckoutRuntime(name => values[name], () => sql), `pooler port ${port || "default"}`);
+  }
+  assertEquals(queries, 0);
+});
+
+Deno.test("production pooler writer rejects other roles, projects, suffixes and host spoofs", async () => {
+  const values = await configurationInputs();
+  const project = "abcdefghijklmnopqrst";
+  values.SUPABASE_URL = `https://${project}.supabase.co`;
+  const host = "aws-0-us-west-2.pooler.supabase.com";
+  for (const [user, endpoint] of [
+    [`postgres.${project}`, host], [`still_entitlement_writer.otherproject`, host],
+    [`still_entitlement_writer.${project}.extra`, host], [`still_entitlement_writer.${project}`, "db.example.test"],
+    [`still_entitlement_writer.${project}`, `${host}.evil.test`], [`still_entitlement_writer.${project}`, "evil-pooler.supabase.com"],
+    [`still_entitlement_writer.${project}`, "aws-0-us-west-2.pooler.supabase.com.evil"],
+    [`still_entitlement_writer.${project}`, `${host}:80`],
+  ]) {
+    values.ENTITLEMENT_WRITER_DB_URL = `postgresql://${user}:synthetic@${endpoint}/postgres`;
+    assertEquals(await readProductionCheckoutConfig(name => values[name]), null, `${user}@${endpoint}`);
+  }
+  values.ENTITLEMENT_WRITER_DB_URL = `postgresql://still_entitlement_writer.${project}:synthetic@${host}/postgres`;
+  for (const origin of [URL, `https://${project}.supabase.co.evil.test`, `https://${project}.supabase.co:8443`]) {
+    values.SUPABASE_URL = origin;
+    assertEquals(await readProductionCheckoutConfig(name => values[name]), null, origin);
+  }
+});
+
 Deno.test("production cannot borrow QA secrets, sandbox signer, test key or elevated SQL role", async () => {
   const values=await configurationInputs(); let sqlCalls=0;
   for (const key of Object.keys(values).filter(key=>key!=="SUPABASE_JWT_SECRET")) {
