@@ -7,6 +7,9 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   APPLE_PLISTS,
+  appleProductionConfig,
+  PRODUCTION_SUPABASE_ORIGIN,
+  PRODUCTION_SUPABASE_REF,
   applyApplePlists,
   assertServerGate,
   PAID_FLAGS,
@@ -32,6 +35,7 @@ const freshPublicKeyHex = () => generateKeyPairSync("ed25519").publicKey.export(
 const row = (kid, extra = {}) => ({ kid, publicKeyHex: freshPublicKeyHex(), environment: "production", purpose: "access", ...extra });
 const file = (keys, about = "public keys") => JSON.stringify({ about, keys });
 const fixture = () => JSON.parse(readFileSync(join(ROOT, TEST_ONLY_TRUST_FIXTURE), "utf8"));
+const appleEnv = { VITE_SUPABASE_URL: PRODUCTION_SUPABASE_ORIGIN, VITE_SUPABASE_ANON_KEY: "sb_publishable_synthetic_public" };
 
 /** A scratch root holding just what the trust code reads. */
 function scratchRoot(keys) {
@@ -199,7 +203,7 @@ test("the plist writer adds exactly the production fields, and plutil reads them
   try {
     for (const path of APPLE_PLISTS) {
       const original = readFileSync(join(ROOT, path), "utf8");
-      const next = applyStoreTrustToPlist(original, rows);
+      const next = applyStoreTrustToPlist(original, rows, appleEnv);
       assert.ok(next.startsWith(original.replace(/<\/dict>\s*<\/plist>\s*$/, "")), "only appends before the closing dict");
       assert.throws(() => applyStoreTrustToPlist(next, rows), /already carries/);
       if (process.platform === "darwin") {
@@ -208,10 +212,10 @@ test("the plist writer adds exactly the production fields, and plutil reads them
         const parsed = spawnSync("plutil", ["-convert", "json", "-o", "-", out], { encoding: "utf8" });
         assert.equal(parsed.status, 0, parsed.stderr);
         const json = JSON.parse(parsed.stdout);
-        assert.deepEqual({ StillAccessEnvironment: json.StillAccessEnvironment, StillAccessTrustKeys: json.StillAccessTrustKeys }, plistTrustFields(rows));
+        const fields = plistTrustFields(rows, appleEnv);
+        assert.deepEqual(Object.fromEntries(Object.keys(fields).map((key) => [key, json[key]])), fields);
         const before = JSON.parse(spawnSync("plutil", ["-convert", "json", "-o", "-", join(ROOT, path)], { encoding: "utf8" }).stdout);
-        delete json.StillAccessEnvironment;
-        delete json.StillAccessTrustKeys;
+        for (const key of Object.keys(fields)) delete json[key];
         assert.deepEqual(json, before, `${path}: nothing else changes`);
       }
     }
@@ -227,7 +231,7 @@ test("apple-apply writes the four plists for the archive and apple-restore puts 
   const backup = join(root, "backup");
   try {
     const originals = APPLE_PLISTS.map((path) => readFileSync(join(root, path)));
-    const applied = applyApplePlists(root, backup);
+    const applied = applyApplePlists(root, backup, { env: appleEnv });
     assert.deepEqual(applied.kids, ["still-access-a", "still-access-b"]);
     for (const path of APPLE_PLISTS) assert.match(readFileSync(join(root, path), "utf8"), /<key>StillAccessEnvironment<\/key><string>production<\/string>\n<key>StillAccessTrustKeys<\/key><array><dict><key>kid<\/key><string>still-access-a<\/string>/);
     assert.throws(() => applyApplePlists(root, backup), /already holds a backup/);
@@ -237,6 +241,32 @@ test("apple-apply writes the four plists for the archive and apple-restore puts 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("native public configuration refuses missing, foreign or privileged inputs without echoing values", () => {
+  const jwt = (payload, alg = "HS256") => [
+    Buffer.from(JSON.stringify({ alg, typ: "JWT" })).toString("base64url"),
+    Buffer.from(JSON.stringify(payload)).toString("base64url"), "synthetic_signature",
+  ].join(".");
+  const anon = jwt({ role: "anon", ref: PRODUCTION_SUPABASE_REF });
+  assert.deepEqual(appleProductionConfig(appleEnv), { origin: PRODUCTION_SUPABASE_ORIGIN, publicKey: appleEnv.VITE_SUPABASE_ANON_KEY });
+  assert.equal(appleProductionConfig({ ...appleEnv, VITE_SUPABASE_URL: `${PRODUCTION_SUPABASE_ORIGIN}/`, VITE_SUPABASE_ANON_KEY: anon }).publicKey, anon);
+  for (const env of [
+    {}, { VITE_SUPABASE_URL: PRODUCTION_SUPABASE_ORIGIN },
+    { ...appleEnv, VITE_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" },
+    ...["https://qa.example", `${PRODUCTION_SUPABASE_ORIGIN}/path`, `${PRODUCTION_SUPABASE_ORIGIN}?x=1`, `${PRODUCTION_SUPABASE_ORIGIN}#fragment`, "http://kikpgrreradotvvefdgd.supabase.co"].map((VITE_SUPABASE_URL) => ({ ...appleEnv, VITE_SUPABASE_URL })),
+    ...["sb_secret_LEAK_CANARY", "sb_publishable_", `${anon}\n`, "not-a-key", jwt({ role: "service_role", ref: PRODUCTION_SUPABASE_REF }), jwt({ role: "anon", ref: "other-project" }), jwt({ role: "anon", ref: PRODUCTION_SUPABASE_REF }, "none")].map((VITE_SUPABASE_ANON_KEY) => ({ ...appleEnv, VITE_SUPABASE_ANON_KEY })),
+  ]) assert.throws(() => appleProductionConfig(env), (error) => /Apple production builds require/.test(error.message) && !error.message.includes("LEAK_CANARY"));
+});
+
+test("missing production public configuration cannot partially modify any Apple plist", () => {
+  const root = scratchRoot([row("still-access-a")]);
+  try {
+    const originals = APPLE_PLISTS.map((path) => readFileSync(join(root, path)));
+    assert.throws(() => applyApplePlists(root, join(root, "backup"), { env: {} }), /VITE_SUPABASE_URL/);
+    APPLE_PLISTS.forEach((path, i) => assert.ok(readFileSync(join(root, path)).equals(originals[i])));
+    assert.equal(existsSync(join(root, "backup")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("with no keys pinned the Apple plists are left untouched; refused rows touch nothing", () => {

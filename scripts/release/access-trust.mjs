@@ -47,6 +47,9 @@ export const SERVER_DIGEST_NAMES = Object.freeze(["ACCESS_PROOF_ENVIRONMENT", "A
 /** A current key and one standby, so the server can rotate without a new store version. */
 export const MAX_TRUST_KEYS = 2;
 export const TRUST_ENV_KEYS = Object.freeze(["VITE_ACCESS_ENVIRONMENT", "VITE_ACCESS_PUBLIC_KEYS"]);
+// The store release targets the existing production project. A QA origin is never a store input.
+export const PRODUCTION_SUPABASE_REF = "kikpgrreradotvvefdgd";
+export const PRODUCTION_SUPABASE_ORIGIN = `https://${PRODUCTION_SUPABASE_REF}.supabase.co`;
 export const APPLE_PLISTS = Object.freeze(["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"].map((part) => `apps/apple/Still/${part}/Info.plist`));
 /** Native configuration a store plist must not already carry (the QA overlay owns the sandbox ones). */
 const NATIVE_TRUST_FIELDS = ["StillAccessEnvironment", "StillAccessTrustKeys", "StillBackendRouteProfile", "StillAccessSupabaseURL", "StillAccessSupabasePublishableKey"];
@@ -161,17 +164,40 @@ const valueXml = (value) =>
       ? `<dict>${Object.entries(value).map(([key, v]) => `<key>${xml(key)}</key>${valueXml(v)}`).join("")}</dict>`
       : `<string>${xml(value)}</string>`;
 
-/** The native fields a store plist gets: production environment and the pinned rows. */
-export function plistTrustFields(rows) {
-  return { StillAccessEnvironment: "production", StillAccessTrustKeys: rows.map((row) => ({ ...row })) };
+/** Public inputs exported to both Apple web builds and their code-signed native consumers. */
+export function appleProductionConfig(env = process.env) {
+  if (env.VITE_BACKEND_ROUTE_PROFILE !== undefined && env.VITE_BACKEND_ROUTE_PROFILE !== "production")
+    refuse("Apple production builds require the production backend route profile");
+  const origin = env.VITE_SUPABASE_URL;
+  const publicKey = env.VITE_SUPABASE_ANON_KEY;
+  if (origin !== PRODUCTION_SUPABASE_ORIGIN && origin !== `${PRODUCTION_SUPABASE_ORIGIN}/`)
+    refuse("Apple production builds require VITE_SUPABASE_URL for the pinned production project");
+  if (typeof publicKey !== "string" || publicKey.length > 4096 || publicKey.trim() !== publicKey)
+    refuse("Apple production builds require a public VITE_SUPABASE_ANON_KEY");
+  let valid = /^sb_publishable_[A-Za-z0-9_-]+$/.test(publicKey) && publicKey.length <= 1024;
+  if (!valid && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(publicKey)) {
+    try {
+      const [header, payload] = publicKey.split(".").slice(0, 2).map((part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8")));
+      valid = header.alg === "HS256" && payload.role === "anon" && payload.ref === PRODUCTION_SUPABASE_REF;
+    } catch { /* Refuse malformed or privileged credentials without printing their contents. */ }
+  }
+  if (!valid) refuse("Apple production builds require a public publishable key or production anon JWT");
+  return { origin: PRODUCTION_SUPABASE_ORIGIN, publicKey };
+}
+
+/** Full native trust/Auth configuration, from the same exported public inputs as both web bundles. */
+export function plistTrustFields(rows, env = process.env) {
+  const config = appleProductionConfig(env);
+  return { StillAccessEnvironment: "production", StillAccessTrustKeys: rows.map((row) => ({ ...row })),
+    StillAccessSupabaseURL: config.origin, StillAccessSupabasePublishableKey: config.publicKey };
 }
 
 /** Add the store trust fields to one XML Info.plist's text. Same writer shape as the QA overlay. */
-export function applyStoreTrustToPlist(text, rows) {
+export function applyStoreTrustToPlist(text, rows, env = process.env) {
   if (!rows.length) refuse("no keys to write into a plist");
   if (!/^<\?xml/.test(text) || !/<plist\b/.test(text) || !/<\/dict>\s*<\/plist>\s*$/.test(text)) refuse("expected an XML Info.plist");
   if (NATIVE_TRUST_FIELDS.some((key) => text.includes(`<key>${key}</key>`))) refuse("the plist already carries native access configuration; restore it first");
-  const fields = plistTrustFields(rows);
+  const fields = plistTrustFields(rows, env);
   return text.replace(/<\/dict>\s*<\/plist>\s*$/, `${Object.entries(fields).map(([key, v]) => `<key>${key}</key>${valueXml(v)}`).join("\n")}\n</dict>\n</plist>\n`);
 }
 
@@ -179,13 +205,13 @@ export function applyStoreTrustToPlist(text, rows) {
  * Write the pinned rows into the four Apple plists in `root`, keeping exact copies in `backup` first.
  * Does nothing (and returns null) when the pinned list is empty: a free release ships the plists unchanged.
  */
-export function applyApplePlists(root, backup, { paid } = {}) {
+export function applyApplePlists(root, backup, { paid, env = process.env } = {}) {
   const trust = readStoreTrust(root, paid === undefined ? {} : { paid });
   if (!trust.rows.length) return null;
   if (existsSync(join(backup, "manifest.json"))) refuse(`${backup} already holds a backup; restore it first`);
   const prepared = APPLE_PLISTS.map((path) => {
     const original = readFileSync(join(root, path), "utf8");
-    return { path, original, next: applyStoreTrustToPlist(original, trust.rows) };
+    return { path, original, next: applyStoreTrustToPlist(original, trust.rows, env) };
   });
   mkdirSync(backup, { recursive: true });
   prepared.forEach(({ path }, i) => copyFileSync(join(root, path), join(backup, `${i}.plist`)));
@@ -288,6 +314,11 @@ function serverOption(args) {
 function main(argv, root = HERE_ROOT) {
   const out = (line) => process.stdout.write(`${line}\n`);
   const [command, ...args] = argv;
+  if (command === "apple-config-check" && args.length === 0) {
+    if (readStoreTrust(root).rows.length) appleProductionConfig();
+    out("Apple production public configuration checked");
+    return 0;
+  }
   if (command === "check" || command === "apple-apply") {
     const { rest, digests } = serverOption(args);
     const trust = readStoreTrust(root);
@@ -317,7 +348,7 @@ function main(argv, root = HERE_ROOT) {
     if (result.signingRow) out(`server signs with the pinned ${result.signingRow} key`);
     return result.ok ? 0 : 1;
   }
-  process.stderr.write("usage: access-trust.mjs check [--server-secrets-json <file>] | env | apple-apply --backup <dir> [--server-secrets-json <file>] | apple-restore --backup <dir> | compare-server --secrets-json <file>\n");
+  process.stderr.write("usage: access-trust.mjs check [--server-secrets-json <file>] | env | apple-config-check | apple-apply --backup <dir> [--server-secrets-json <file>] | apple-restore --backup <dir> | compare-server --secrets-json <file>\n");
   return 2;
 }
 

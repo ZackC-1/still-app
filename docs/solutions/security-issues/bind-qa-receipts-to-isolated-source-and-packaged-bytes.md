@@ -6,7 +6,7 @@ problem_type: security_issue
 module: scripts/qa
 applies_when: Building a paid sandbox candidate from a dirty checkout without changing shipped flags
 date: 2026-10-07
-last_updated: 2026-10-14
+last_updated: 2026-10-21
 status: active
 tags:
   - qa
@@ -109,3 +109,12 @@ The pinned build list in `scripts/backend/deploy/operations.mjs`, both sales-pol
 their SHA-256 pins and the operation contract test must change together. Preserve older entries
 when their manual QA is still active. The 48 operation tests validate matching templates, hashes
 and refusal paths; hosted admission still requires the protected operation and live readback.
+
+A production signing-key overlay alone does not configure native purchase consumers. The native
+session verifier, account-access runtime and fresh purchase-policy reader also require the public
+Supabase origin and client key in the signed plist. The production archive now takes those fields
+from the same exported inputs as both Apple web bundles, validates the fixed production origin and
+public key form, and writes them with trust into all four app/extension plists. Missing configuration
+refuses before compilation or any plist modification. Tests feed the real Node-generated XML into
+the Swift consumers, which catches omissions that a trust-parser-only test cannot detect. Inspect
+the final signed archive separately; a correct source overlay is not artifact evidence.

@@ -101,6 +101,24 @@ Every store build reads that one file:
   it restores, `git checkout -- 'apps/apple/Still/*/Info.plist'` puts the plists back (the next apply refuses
   until then).
 
+When production trust is pinned, Apple archives also require **exported** `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY`. Export them before running `archive.sh`; package-local `.env` values are not
+sufficient. The URL must be the existing production origin
+`https://kikpgrreradotvvefdgd.supabase.co`. The key must be a public `sb_publishable_` key or an anon JWT
+for that project, never a service-role or secret key. Verify the public key belongs to that hosted
+project before the release; a publishable key's text does not encode its project.
+
+The exported values override both Apple web bundles' `.env` files, and the same values are written
+to all four native plists as `StillAccessSupabaseURL` and `StillAccessSupabasePublishableKey`. Without
+these fields, native purchase policy and account-access verification cannot initialize even when the
+public signing key is correct. `apple-config-check` refuses missing or incorrect public configuration
+before archive compilation; `apple-apply` validates again before changing any plist. For a raw archive,
+export the same inputs before building either web bundle and running `apple-apply`.
+
+After archiving, inspect the **signed archive's** app and extension plists and web resources for the
+matching production project, trust key IDs and environment. Source overlay tests do not establish
+that a signed artifact carries them. Repeat for iOS/iPadOS and macOS after the final screen/image edits.
+
 A store build refuses:
 
 - any row whose `environment` is not `production` (a sandbox key never reaches a store);

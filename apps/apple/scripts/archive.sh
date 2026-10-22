@@ -16,6 +16,8 @@
 #   DEVELOPMENT_TEAM  defaults to UM9HVDH3P3
 #   ACCESS_SERVER_DIGESTS_FILE  `supabase secrets list -o json` output (digests only); required once the
 #                     release declares the paid tier (see docs/release/versioning-and-packages.md)
+#   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY  exported production public inputs, required when
+#                     access trust is pinned; shared by both web bundles and all native plists
 #   UPLOAD=1          also upload the .ipa to App Store Connect via altool
 #
 set -euo pipefail
@@ -56,6 +58,10 @@ TRUST_BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/still-store-trust.XXXXXX")"
 restore_store_trust() { node "$TRUST" apple-restore --backup "$TRUST_BACKUP" && rm -rf "$TRUST_BACKUP"; }
 trap restore_store_trust EXIT
 node "$TRUST" check ${SERVER_GATE[@]+"${SERVER_GATE[@]}"}
+# Explicit exported inputs take precedence over both packages' .env files. Validate before building;
+# apple-apply consumes these same inputs and refuses incomplete or non-production configuration.
+node "$TRUST" apple-config-check
+export VITE_BACKEND_ROUTE_PROFILE=production
 while IFS='=' read -r key value; do
   case "$key" in VITE_ACCESS_ENVIRONMENT|VITE_ACCESS_PUBLIC_KEYS) export "$key=$value" ;; *) echo "unexpected trust line" >&2; exit 1 ;; esac
 done < <(node "$TRUST" env)

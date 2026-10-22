@@ -77,4 +77,39 @@ final class StoreAccessTrustPlistTests: XCTestCase {
     rows[1]["environment"] = "sandbox"
     XCTAssertTrue(NativeAccessConfiguration.trust(info: overlaid(try plist(plists[0]), rows: rows)).keys.isEmpty)
   }
+
+  func testActualReleaseWriterConfiguresNativeAccountAndSessionConsumersForEveryTarget() throws {
+    // Exercise the real Node producer and native consumers together, rather than duplicating its
+    // output shape. Only synthetic public client material and the public trust fixture are used.
+    for path in plists {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      process.currentDirectoryURL = repositoryRoot
+      process.arguments = ["node", "--input-type=module", "-e", """
+        import { readFileSync } from 'node:fs';
+        import { applyStoreTrustToPlist, PRODUCTION_SUPABASE_ORIGIN } from './scripts/release/access-trust.mjs';
+        const rows = JSON.parse(readFileSync('tests/fixtures/access-trust/TEST-ONLY-production-access-keys.json')).keys;
+        process.stdout.write(applyStoreTrustToPlist(readFileSync(process.argv[1], 'utf8'), rows, {
+          VITE_SUPABASE_URL: PRODUCTION_SUPABASE_ORIGIN, VITE_SUPABASE_ANON_KEY: 'sb_publishable_synthetic_public'
+        }));
+        """, path]
+      let output = Pipe()
+      process.standardOutput = output
+      try process.run()
+      let bytes = output.fileHandleForReading.readDataToEndOfFile()
+      process.waitUntilExit()
+      XCTAssertEqual(process.terminationStatus, 0, path)
+      let info = try XCTUnwrap(PropertyListSerialization.propertyList(from: bytes, format: nil) as? [String: Any])
+      XCTAssertFalse(NativeAccessConfiguration.trust(info: info).keys.isEmpty, path)
+      XCTAssertEqual(NativeAccessConfiguration.backendRouteProfile(info: info), .production, path)
+      XCTAssertNotNil(NativeAccessConfiguration.sessionVerifier(info: info), path)
+      XCTAssertNotNil(NativeAccountAccessRuntime(info: info), path)
+      for field in ["StillAccessSupabaseURL", "StillAccessSupabasePublishableKey"] {
+        var incomplete = info
+        incomplete.removeValue(forKey: field)
+        XCTAssertNil(NativeAccessConfiguration.sessionVerifier(info: incomplete), path)
+        XCTAssertNil(NativeAccountAccessRuntime(info: incomplete), path)
+      }
+    }
+  }
 }
