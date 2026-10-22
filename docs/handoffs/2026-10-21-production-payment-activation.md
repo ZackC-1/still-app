@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T22:41:00-07:00
+updated: 2026-10-21T22:46:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -41,8 +41,9 @@ This does not deploy functions or prove a runtime-signed purchase response.
 [PROD-01 run39710042569](https://github.com/ZackC-1/still-app/actions/runs/39710042569) completed;
 its privately decrypted report explicitly shows no production sales-policy row, expected revision
 0, no admitted builds and no production cutoff. Sales/channel enabled fields and offers are null,
-not literal false fields in an existing policy. The separate production Stripe webhook remains
-disabled. The existing RevenueCat webhook URL, token and portal filters remain unchanged.
+not literal false fields in an existing policy. The separate production Stripe webhook was disabled
+at that baseline and has since been enabled after the repair proof recorded below. The existing
+RevenueCat webhook URL, token and portal filters remain unchanged.
 
 [sync-settings apply39711029849](https://github.com/ZackC-1/still-app/actions/runs/39711029849)
 completed and verified at 02:26 UTC, with no issue or recovery. Its exact bundle from `bc728bca`
@@ -85,7 +86,7 @@ prerequisites. Their only differences are mode and its bound digest: the apply d
 Private closing record: `/tmp/still-purchase-functions-39718857548/production-closing-record.md`.
 Settings sync is already deployed and its source has not changed; no repeated deployment is planned.
 
-Eleven of thirteen safe HTTP probes passed. The Stripe webhook returned 503 for unsigned and
+Initial probes passed eleven of thirteen cases. The Stripe webhook returned 503 for unsigned and
 invalid-signature POSTs, where 400 was expected; GET correctly returned 405. Read-only diagnosis
 confirmed that hosted configuration matches the existing local writer configuration and all 21
 prepared payment values, but the new strict parser rejects the valid pooler username form containing
@@ -101,15 +102,15 @@ plan 006. Seventeen focused tests, 651 Deno tests/147 steps (one gated test igno
 passed; independent final-head review found no blockers. Actual private writer configuration and
 all 21 prepared values compose the full runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
 passed all 12 checks. Only the `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles
-change; the other six purchase bundles and all five analytics bundles are unchanged. A separately
-approved protected deployment remains necessary at that merged revision; this repair is not yet hosted.
+changed; the other six purchase bundles and all five analytics bundles were unchanged. The separately
+approved repair deployment completed as recorded below.
 New exact-revision [settings/GoTrue rehearsal39726287757](https://github.com/ZackC-1/still-app/actions/runs/39726287757)
 passed on `26bf5a947de9fef70102c9be87f1e69806cbce46` using disposable infrastructure. This
 establishes the rehearsal prerequisite at the repair pin, not hosted repair or final-device acceptance.
 
-A fresh read-only Stripe endpoint inventory confirms live mode, disabled status, the correct
-production URL, pinned API version and exact five-event set. No provider change was made;
-hosted signature rejection remains blocked by the parser repair above.
+The pre-enablement read-only Stripe inventory confirmed live mode, disabled status, intended URL,
+pinned API version and exact five-event set. The later conditional enablement proof below supersedes
+that disabled status; the original 503 blocker is resolved by the deployed repair and passing probes.
 Exact-revision [settings/GoTrue rehearsal39717958292](https://github.com/ZackC-1/still-app/actions/runs/39717958292)
 passed on the pinned revision using disposable infrastructure. It does not establish hosted
 deployment or final-device acceptance.
@@ -139,8 +140,8 @@ cases (one skip), with no failures or flaky cases. GitHub also marked component 
 Disposable PostgreSQL CI is separate from
 production verification. Migrations through 0029, purchase secrets and sync-settings are verified in
 production, including source/JWT read-back for all nine purchase routes and all five analytics
-routes. The erasure schedule is installed; an actual successful worker run, Stripe runtime repair
-and subjects switch remain pending.
+routes. The erasure schedule is installed and the Stripe runtime repair is deployed; an actual
+successful worker run, final client acceptance and subjects switch remain pending.
 The optional preview could not complete because dependency installation timed out twice; no
 successful preview verification is claimed.
 
@@ -254,9 +255,26 @@ Private record: `/tmp/still-erasure-schedule-39728922800/production-closing-reco
 installation does not prove an actual successful scheduled-worker run; that proof remains pending.
 
 Checkout-repair [purchase-functions apply39729361809](https://github.com/ZackC-1/still-app/actions/runs/39729361809)
-is dispatched at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`, with its built-in plan/rehearsal
-passed and the protected apply waiting for personal approval. The repair is not yet hosted. Exact plan digest:
-`37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`. Actual upload comparison confirms three changed bundles, six unchanged, identical JWT settings, unchanged migration/secret prerequisites and settings sync excluded. The owner asked for approvals sooner:
+completed after personal approval at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`. Its actual
+closing status is verified: three routes deployed (`create-web-checkout`, `complete-web-checkout`,
+`stripe-webhook`), six unchanged, all source/JWT read-backs passed, no issues or recovery needed.
+Exact plan digest: `37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`.
+Migration/secret prerequisites and settings sync were unchanged. Private closing record:
+`/tmp/still-checkout-repair-plan-39729361809/production-closing-record.md`.
+
+All 13 safe hosted probes now pass, including both unsigned and invalid-signature Stripe POSTs
+returning `400 invalid_webhook`. Private evidence:
+`/tmp/still-checkout-repair-39729361809/postdeploy-negative-probes.json`. Fresh boolean-only
+comparison confirms all 21 prepared payment values match hosted metadata, including the signing
+secret. No secret values were output.
+
+The previously approved conditional Stripe endpoint enablement completed after those gates passed.
+Its actual proof is verified: live enabled status, intended URL, pinned version and five events
+unchanged, with every other endpoint exactly unchanged. No synthetic delivery was sent. Evidence:
+`/tmp/still-checkout-repair-39729361809/stripe-endpoint-enable-proof.json`. RevenueCat portal
+settings remain unchanged. No real purchase/refund or positive webhook delivery is established.
+
+The owner asked for approvals sooner:
 avoid duplicate plan-only runs when the apply
 already supplies the same gate. Global production concurrency and sequential operation requirements
 remain unchanged. Reuse the verified existing analytics secrets unless a new problem is observed.
@@ -292,13 +310,13 @@ repository evidence and the work-state list remain the active durable record.
    through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
    as recorded above.
 2. PR531 is merged with all 12 checks green, and the new exact-revision settings rehearsal passed.
-   Checkout-repair apply39729361809 at `26bf5a94` passed its built-in plan/rehearsal and is waiting for
-   personal approval. Inspect its exact plan and actual closing receipt. Only three purchase
-   upload bundles change. Re-run safe negative cases after actual deployment, including both Stripe
-   signature cases. Keep the Stripe endpoint disabled until hosted handler/signature verification
-   is ready, and preserve existing RevenueCat settings.
+   Checkout-repair apply39729361809 at `26bf5a94` is verified complete, all 13 safe negative probes
+   pass, and the conditionally approved Stripe endpoint is enabled with other endpoints unchanged.
+   Preserve the closing/probe/provider proofs and unchanged RevenueCat portal settings. Actual
+   purchase/refund fulfilment and positive webhook delivery remain unverified until observed.
 3. Analytics functions apply39722863701 and erasure-schedule apply39728922800 are verified complete.
-   The worker job is installed; wait for actual successful scheduled-worker proof before later switch gates.
+   The worker job is installed; actual successful worker proof remains pending through the protected
+   switch gates. Do not use arbitrary production SQL/CLI reads or writes to bypass those gates.
    Existing analytics secret/eraser/Vault readiness passed; no rotation or replay is needed.
    Avoid duplicate plan-only workflows when the direct apply already includes plan/rehearsal.
    Keep operations sequential under the global concurrency group. Each apply needs personal approval;
@@ -315,6 +333,8 @@ repository evidence and the work-state list remain the active durable record.
    final production-channel packages satisfy the client-configuration gates. Then prove consent, identity, production event delivery and
    erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain
    explicitly unverified until observed. PROD-02 is still a proposal, not an executable check.
+   The three planned remaining approvals are the analytics identity switch, production sales and
+   Apple review access. None is ready before final build gates; no owner permission is needed now.
 7. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
    artifacts, release values, store declarations, device acceptance and sales activation follow.
 8. After backend and visuals, perform the requested deep unused-code/test audit. Prove obsolescence

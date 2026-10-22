@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: erasure schedule installed; worker proof and checkout-repair apply pending
+## Latest checkpoint: checkout repair verified, Stripe enabled; final-build activation gates remain
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -101,13 +101,14 @@ source, bundles, JWT settings and prerequisites; only mode and its bound digest 
 `/tmp/still-purchase-functions-39718857548/production-closing-record.md`. Settings sync remains
 deployed with unchanged source and needs no repeated deployment.
 
-Safe HTTP probes passed eleven of thirteen cases: Stripe unsigned and invalid-signature POSTs
+Initial safe probes passed eleven of thirteen cases: Stripe unsigned and invalid-signature POSTs
 returned 503 instead of 400; GET returned the expected 405. Read-only diagnosis confirmed hosted
 configuration matches the existing local writer configuration and all 21 prepared payment values.
 The strict parser rejects the valid pooler username form containing the role and project suffix.
 Boolean-only evidence is in `/tmp/still-purchase-functions-39718857548/runtime-config-readonly-proof.json`;
-no SQL or provider write was used for diagnosis. Fresh Stripe inventory still confirms the disabled
-endpoint's intended URL, pinned API version and five events; no provider change was made.
+no SQL or provider write was used for diagnosis. Pre-enablement Stripe inventory confirmed the disabled
+endpoint's intended URL, pinned API version and five events. The later deployment and enablement
+proofs below resolve this historical 503 blocker and supersede that disabled state.
 
 Repair [PR531](https://github.com/ZackC-1/still-app/pull/531), head
 `55e12172de053139a8ac9b02a1f33d464d3b7089`, contains the narrow parser/security tests and plan 006.
@@ -116,8 +117,8 @@ independent final review found no blockers. Actual private writer configuration 
 values compose the runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
 passed all 12 checks. PR531 merged at `26bf5a947de9fef70102c9be87f1e69806cbce46`,
 05:07:50 UTC October 22. Only `create-web-checkout`, `complete-web-checkout` and `stripe-webhook`
-upload bundles change; the other six purchase and five analytics bundles are unchanged. A separately
-approved protected fix deployment remains pending; hosted signature rejection is not yet verified.
+upload bundles changed; the other six purchase and five analytics bundles were unchanged. The separately
+approved repair deployment and hosted signature rejection are verified below.
 New exact-revision [settings/GoTrue rehearsal39726287757](https://github.com/ZackC-1/still-app/actions/runs/39726287757)
 passed at repaired main `26bf5a947de9fef70102c9be87f1e69806cbce46` on disposable infrastructure;
 hosted repair and final-device acceptance remain separate.
@@ -138,10 +139,22 @@ Private closing record: `/tmp/still-erasure-schedule-39728922800/production-clos
 Cron installation does not establish an actual successful worker run; that proof remains pending.
 
 Checkout-repair [purchase-functions apply39729361809](https://github.com/ZackC-1/still-app/actions/runs/39729361809)
-is dispatched at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`, with built-in plan/rehearsal
-passed and the protected apply waiting for personal approval. The repair is not yet hosted. Exact plan digest:
-`37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`. Actual upload comparison confirms three changed bundles, six unchanged, identical JWT settings, unchanged migration/secret prerequisites and settings sync excluded. Verify its exact plan and actual
-closing receipt, then repeat Stripe 400-response probes before conditional endpoint enablement.
+completed after personal approval at exact `26bf5a947de9fef70102c9be87f1e69806cbce46`. Actual
+closing status verified: `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` deployed,
+six routes unchanged, source/JWT read-backs passed, no issues or recovery needed. Exact plan digest:
+`37c53dc48d7d8b74660a415ed9ab51f48cdb8ec622a11a1e28cb3fd59661268b`. Migration/secret
+prerequisites and settings sync were unchanged. Closing record:
+`/tmp/still-checkout-repair-plan-39729361809/production-closing-record.md`.
+
+All 13 safe hosted probes passed after repair, including both Stripe POSTs returning
+`400 invalid_webhook`; evidence is `/tmp/still-checkout-repair-39729361809/postdeploy-negative-probes.json`.
+Fresh boolean-only comparison confirms all 21 prepared payment values match hosted metadata,
+including the signing secret; no raw values were output. Previously approved conditional Stripe
+endpoint enablement then completed with actual verified proof: live enabled status, intended URL,
+pinned version and five events unchanged, all other endpoints exactly unchanged, no synthetic
+delivery. Evidence is `/tmp/still-checkout-repair-39729361809/stripe-endpoint-enable-proof.json`.
+RevenueCat portal settings remain unchanged. No real purchase/refund or positive webhook delivery
+is claimed.
 The owner wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of
 duplicate plan-only runs, preserving global sequential concurrency and every personal approval gate.
 
@@ -150,6 +163,11 @@ it refreshes checkout. Settings/GoTrue rehearsal39726287757 passed at exact repa
 the earlier `2bad3028` rehearsal does not satisfy the new pin. Analytics
 subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
 packages satisfy client-configuration gates; source and privacy publication do not satisfy them.
+Actual successful worker proof remains pending through the protected switch gates; arbitrary
+production SQL/CLI reads or writes must not bypass them. Three planned approvals remain after the
+final build gates: analytics identity switch, production sales and Apple review access. None is ready
+now, so no owner permission is needed at this checkpoint. The deep obsolete-code/test audit still
+follows backend and final visual completion.
 
 # V3 production activation and verification
 

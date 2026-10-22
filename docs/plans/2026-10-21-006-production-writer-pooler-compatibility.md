@@ -1,7 +1,7 @@
 ---
 title: Production writer pooler compatibility
 date: 2026-10-21
-status: verified-locally
+status: verified-hosted
 owner: Codex production session
 ---
 
@@ -50,7 +50,11 @@ The existing sealed compiler boundary compiled both closed deployment sets befor
 change. All five analytics uploads are byte-identical. Only three purchase uploads change:
 `create-web-checkout`, `complete-web-checkout` and `stripe-webhook`; the other six are unchanged.
 
-Hosted verification remains a separate protected deployment: inspect the new exact source receipt,
-then require unsigned and incorrectly signed webhook requests to return 400 instead of 503.
-Keep the production Stripe endpoint disabled until its remaining readiness gates are satisfied.
-No valid synthetic production event or purchase is part of this correction.
+Owner-approved [protected repair39729361809](https://github.com/ZackC-1/still-app/actions/runs/39729361809)
+verified three deployed routes and six unchanged, with source/JWT read-back and no issue or recovery
+codes. All 13 safe hosted probes passed; unsigned and incorrectly signed Stripe POSTs returned
+400 `invalid_webhook`, replacing the startup 503. Configuration/signature readiness allowed the
+previously approved conditional endpoint enablement. No valid synthetic event or purchase was used;
+positive payment, fulfilment and refund evidence remain separate. See the
+[activation checkpoint](../handoffs/2026-10-21-production-payment-activation.md) and
+[reusable parser guidance](../solutions/security-issues/bind-supabase-pooler-writer-to-auth-project.md).
