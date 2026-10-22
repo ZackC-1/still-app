@@ -9,8 +9,9 @@ transaction. Its benefits are exactly `facebook.reels`, `instagram.reels`, `tikt
 `youtube.shorts`, approved by the owner on 21 October 2026. Subsequent on/off operations preserve
 that cutoff. They never modify rights, purchase records, settings, roles or sandbox policy rows.
 
-The candidate admission list is Chrome and Firefox desktop `3.0.0`, Apple mobile/macOS hosts
-`3.0`. Android is excluded. **The on operation remains provisional and refuses production apply**
+The owner-confirmed planned admission list (21 October 2026) is Chrome and Firefox desktop
+`3.0.0`, Apple mobile/macOS hosts `3.0`. QA may require different final version numbers.
+Android is excluded. **The on operation remains provisional and refuses production apply**
 until the final packaged version strings have been checked against this list and the provisional
 reason is removed in a reviewed change. It can be planned and rehearsed before that gate clears.
 The off operation remains available independently so a release hold cannot prevent stopping sales.

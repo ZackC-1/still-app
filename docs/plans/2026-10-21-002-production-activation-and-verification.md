@@ -503,3 +503,29 @@ database port, so its served-route proof must rerun. These are not production ch
 Nineteen production configuration values are staged in the protected GitHub environment. Staging
 does not apply them to Supabase. The separate Stripe webhook secret remains pending its endpoint's
 creation permission; no new endpoint exists and the RevenueCat webhook is unchanged.
+
+### Owner answers and webhook preparation, 21 October 2026
+
+The owner confirmed Chrome/Firefox `3.0.0` and Apple `3.0` as the planned versions, with possible
+QA-driven changes. The package evidence gate remains: a confirmed plan is not a final artifact.
+The owner also authorized extending the RevenueCat server handler while preserving its dashboard
+URL, token and settings.
+
+Stripe endpoint creation now succeeds after the key permission update. A separate live production
+endpoint was created with the five reviewed events and pinned API version, its signing secret was
+saved privately, and the endpoint was disabled and read back. The unrelated existing endpoint was
+preserved. `PROD_STRIPE_WEBHOOK_SECRET` is now staged in the protected GitHub environment, bringing
+this session's staged configuration count to twenty. No hosted function or secret apply occurred.
+
+The RevenueCat handler now refreshes production V3 rights through canonical RevenueCat V2 reads
+and the existing linked-Apple transaction refresher. It neither trusts payload purchase claims nor
+issues proofs nor creates Apple account links. Verified observations can persist independently;
+unknown, partial, superseded or failed refreshes release the event claim for retry. Explicit sandbox
+events are acknowledged without changing either legacy or V3 production account rights. The
+legacy-only deployment remains compatible until production configuration is provisioned.
+
+Verification for this increment: Deno lint checks 145 files; the full handler suite passes 632 tests
+and 147 steps, with one separately gated integration test ignored. Entrypoint typechecking passes,
+and all nine fixed production purchase routes compile and verify their closed upload dependency
+sets. The 83 focused webhook/provider/Apple tests are included in the full suite. No live payment,
+refund or production database write was performed.
