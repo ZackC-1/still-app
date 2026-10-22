@@ -1,6 +1,6 @@
 ---
 title: Web canonical purchase analytics from the consenting originating device
-status: implementing
+status: implemented; review passed; CI and hosted activation pending
 created: 2026-10-21
 ---
 
@@ -164,7 +164,7 @@ replacing three fixed 10ms waits in Apple negative-control fixtures with bounded
 The untouched main baseline bac1539f failed the same full suite at the adjacent Apple late-identity
 assertion, while its isolated file passed; all positive and negative assertions remain. This is a
 fixture scheduling correction, not a change to Apple application behavior. Hosted production
-verification and actual default-on browser delivery remain release evidence gates.
+verification remains a release evidence gate.
 
 The switch correction passed 18 analytics deployment tests, 17 purchase deployment tests and
 9 production runtime tests, including actual off/on/off runtime recomposition. The real sealed
@@ -175,3 +175,12 @@ timeout, retaining all identity and event assertions (35 focused Apple tests pas
 CI Deno lint failure was a test callback's unnecessary async declaration; corrected without runtime
 changes. A broad local test run was stopped under shared-machine contention after an unrelated
 AppleSettings timeout; full-suite completion must be taken from the new CI run, not that local run.
+
+The actual default-on browser factory now has canonical reporting coverage for both Chrome and
+Firefox, with no injected permission or privacy-policy seam. A trusted screen attaches the actual
+subject, the real context derives the origin proof, the reporter sends only the closed proof/hash
+body, and the real Supabase Functions SDK attaches identical provenance to create-checkout.
+Turning the actual sharing switch off invalidates the captured observation/signal, suppresses
+reporting and leaves functional checkout available without attribution. All 39 default-on factory
+tests pass. Independent focused review of cb8e1638 found no remaining switch blocker and reran
+all 35 analytics/purchase deployment tests successfully.
