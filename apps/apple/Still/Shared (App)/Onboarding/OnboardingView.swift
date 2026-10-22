@@ -445,13 +445,16 @@ private struct SafariPageMenuButtonGlyph: Shape {
       CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
     }
     var path = Path()
-    // The puzzle tab: a small square with a round knob on its right side.
+    // The puzzle tab: a small square with a round knob on its right side. The knob's top and
+    // bottom edges are straight, and its radius is wider than the stroke so it reads as a knob.
+    let knob: CGFloat = 0.09
     path.move(to: point(0.10, 0.08))
     path.addLine(to: point(0.40, 0.08))
-    path.addLine(to: point(0.40, 0.16))
+    path.addLine(to: point(0.40, 0.22 - knob))
     path.addArc(
-      center: point(0.46, 0.22), radius: 0.06 * w,
+      center: point(0.46, 0.22), radius: knob * w,
       startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+    path.addLine(to: point(0.40, 0.22 + knob))
     path.addLine(to: point(0.40, 0.36))
     path.addLine(to: point(0.10, 0.36))
     path.closeSubpath()
