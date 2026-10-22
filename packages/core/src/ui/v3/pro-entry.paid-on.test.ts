@@ -127,7 +127,10 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
       const expander = screen.getByRole("button", { name: `${site} Blocker` });
       if (expander.getAttribute("aria-expanded") !== "true") await fireEvent.click(expander);
       const panel = screen.getByRole("group", { name: `${site} Blocker` });
-      expect(within(panel).queryAllByRole("switch")).toHaveLength(1); // the free row only
+      // The free row's switch is the only one that works; each locked row shows its saved switch
+      // dimmed beside the lock (CH-96).
+      const switches = within(panel).queryAllByRole("switch");
+      expect(switches.filter((s) => s.getAttribute("aria-disabled") !== "true")).toHaveLength(1);
       for (const lock of within(panel).getAllByRole("button", {
         name: new RegExp(
           `Included in Still Pro\\. ${surface.appHandoff ? "Open the Still app" : "See Still Pro"}$`,
@@ -323,8 +326,8 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
     ]);
     expect(within(card).getByText("One-time purchase. Lifetime access.")).toBeVisible();
     const get = within(card).getByRole("button", { name: "Get Still Pro" });
-    const note = within(card).getByText("The price is shown at checkout.");
-    expect(get.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Owner's canvas review, 21 Oct 2026: no checkout price note under Get Still Pro.
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(COUNT);
     expect(card.textContent).not.toMatch(/\d/);
     expect(card.textContent).not.toMatch(PRICE);
@@ -414,6 +417,8 @@ describe("Settings Still Pro card (Chrome, Firefox, Firefox for Android), paid w
           account: {
             address: "person@still.test",
             confirmed: true,
+            // A browser's Still Pro is always the signed-in account's own (ISS-0105).
+            holdsPro: true,
             status: { tone: "success", text: "Synced with your account." },
             onSignOut: vi.fn(),
           },

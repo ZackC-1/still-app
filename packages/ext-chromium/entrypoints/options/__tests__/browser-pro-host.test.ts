@@ -153,8 +153,11 @@ describe("paid-tier browser Still Pro card", () => {
     render(OptionsApp);
     const card = await region();
     await within(card).findByRole("button", { name: "Get Still Pro" });
-    expect(within(card).getByText("The price is shown at checkout.")).toBeTruthy();
-    expect(card.textContent).not.toMatch(/\$|9\.99|1\.99/);
+    // Owner, 21 Oct: the configured price line for the reviewed offer, under Get Still Pro; never
+    // the retired 2.x price.
+    expect(within(card).getByText("$9.99 · one-time")).toBeTruthy();
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
+    expect(card.textContent).not.toMatch(/1\.99/);
     const actions = f.actions();
     // The access read that shows Buy comes after the page-open reconcile, and the Buy question
     // after that "known none".
@@ -263,7 +266,9 @@ describe("paid-tier browser Still Pro card", () => {
     await within(await region()).findByRole("button", { name: "Get Still Pro" });
     expect(f.actions().filter(action => action === "reconcile")).toHaveLength(before + 1);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/\$\d/);
+    // No legacy sheet price; the only price is the card's configured line (owner, 21 Oct).
+    expect(document.body.textContent).not.toMatch(/1\.99/);
+    expect(document.body.textContent?.match(/\$\d[\d.]*/g)).toEqual(["$9.99"]);
     expect(f.pending).toMatchObject({ tabId: 7 }); // still pending: only the background ends it
   });
 
@@ -282,6 +287,8 @@ describe("paid-tier browser Still Pro card", () => {
     const card = await region();
     await within(card).findByText("Still Pro can't be bought here yet.");
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    // Sales off: no price anywhere on the card.
+    expect(card.textContent).not.toMatch(/\$|one-time ·|· one-time/);
     expect(f.actions()).toContain("checkoutAvailable");
     expect(f.actions()).not.toContain("createCheckout");
   });
@@ -402,6 +409,8 @@ describe("paid-tier browser Still Pro card", () => {
     expect(within(card).getByText("Try again when you're online.")).toBeTruthy();
     expect(within(card).queryByText("Still Pro can't be bought here yet.")).toBeNull();
     expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    // Offline: the price cannot be confirmed for sale, so the slot stays empty.
+    expect(card.textContent).not.toMatch(/\$|· one-time/);
     f.set({ available: true });
     network(true);
     await within(card).findByRole("button", { name: "Get Still Pro" });

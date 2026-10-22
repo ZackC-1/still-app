@@ -23,6 +23,7 @@
     type BrowserProState,
   } from "../../lib/browser-pro.js";
   import { useSiteAccessCard } from "../../lib/site-access-card.svelte.js";
+  import { stillProPriceLine } from "../../lib/still-pro-price.js";
 
   const props: ExtensionSettingsProps = $props();
   const deps = bound;
@@ -71,12 +72,13 @@
         channel: flowState.channel === "offline" ? "offline" : "unverified",
         onRestore,
       };
-    // Known none, and the background says this build may sell here: Buy with no price on this
-    // surface (the checkout page shows it).
+    // Known none, and the background says this build may sell here: Buy, with the configured price
+    // line for the reviewed offer under it when one is configured (owner, 21 Oct), else nothing.
+    const priceLine = stillProPriceLine();
     return {
       ownership: "none",
       channel: "ready",
-      offer: { price: "", checkoutPriced: true },
+      offer: { price: "", checkoutPriced: true, ...(priceLine ? { priceLine } : {}) },
       state:
         flowState.purchase === "opening" || flowState.purchase === "waiting"
           ? "pending"

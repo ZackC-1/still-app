@@ -6,7 +6,7 @@
   import Toggle from "./Toggle.svelte";
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
-  import { proPurchased } from "./presentation.js";
+  import { stillProTag } from "./presentation.js";
   import { SUPPORT_EMAIL } from "../config.js";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
@@ -289,7 +289,7 @@
   <!-- Purchased (ISS-0032): the sync card keeps its own heading and sync status, beside the
     Still Pro card's "Purchased" (no merged "Still Pro and sync" card). -->
   <SyncCard
-    stillPro={proPurchased(access)}
+    stillPro={stillProTag(access, sync.account)}
     onSignIn={sync.onSignIn}
     invitation={showInvitation && !linkInvitation?.signedIn
       ? { onAccept: linkInvitation?.onLink, onDismiss: linkInvitation?.onDismiss }

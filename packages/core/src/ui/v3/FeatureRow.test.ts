@@ -154,7 +154,6 @@ describe("controlled shared feature access row", () => {
     expect(onLock).toHaveBeenCalledOnce();
     expect(props.onChange).not.toHaveBeenCalled();
     expect(await storage.get()).toEqual(saved);
-    expect(screen.queryByRole("switch")).toBeNull();
     view.unmount();
   });
 
@@ -245,4 +244,51 @@ describe("latest reference: the locked row's screen-reader label", () => {
       view.unmount();
     },
   );
+});
+
+// CH-96 (owner, 21 Oct, option C): after a refund the row keeps showing the saved choice. A locked
+// row draws its saved switch, dimmed and in its saved position, beside the lock; the switch never
+// changes anything while locked, and the saved position applies again once Still Pro returns.
+describe("CH-96: a locked row shows its saved switch beside the lock", () => {
+  it.each([true, false])("saved %s: a dimmed switch in the saved position plus the lock", async (saved) => {
+    const { props, storage } = await fixture("locked");
+    props.checked = saved;
+    props.onLock = vi.fn();
+    const before = await storage.get();
+    const view = render(FeatureRow, { props });
+    const control = screen.getByRole("switch", { name: "Comments" });
+    expect(control).toHaveAttribute("aria-checked", String(saved));
+    expect(control).toHaveAttribute("aria-disabled", "true");
+    expect(control).toHaveAccessibleDescription("Included in Still Pro. Your choice is saved.");
+    expect(
+      screen.getByRole("button", { name: /^Comments\. Included in Still Pro\./ }),
+    ).toBeVisible();
+    await fireEvent.click(control);
+    expect(props.onChange).not.toHaveBeenCalled();
+    expect(props.onLock).not.toHaveBeenCalled();
+    expect(control).toHaveAttribute("aria-checked", String(saved));
+    expect(await storage.get()).toEqual(before);
+    view.unmount();
+  });
+
+  it("applies the saved position again when Still Pro returns", async () => {
+    const { props } = await fixture("locked");
+    const view = render(FeatureRow, { props });
+    expect(screen.getByRole("switch", { name: "Comments" })).toHaveAttribute("aria-disabled", "true");
+    await view.rerender({ ...props, state: "purchased" });
+    const control = screen.getByRole("switch", { name: "Comments" });
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(control).not.toHaveAttribute("aria-disabled");
+    expect(screen.queryByRole("button", { name: /Included in Still Pro/ })).toBeNull();
+    await fireEvent.click(control);
+    expect(props.onChange).toHaveBeenCalledExactlyOnceWith(false);
+    view.unmount();
+  });
+
+  it("keeps the dormant (paid tier off) row as the lock alone", async () => {
+    const { props } = await fixture("locked");
+    render(FeatureRow, { props: { ...props, dormant: true } });
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.getByRole("button", { name: /Included in Still Pro/ })).toBeVisible();
+  });
 });

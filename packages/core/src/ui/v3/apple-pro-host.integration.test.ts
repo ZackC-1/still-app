@@ -1457,11 +1457,18 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
   const ACCOUNT = "account@still.test";
   const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
   const syncCard = () => document.querySelector('[data-still-card="sync"]') as HTMLElement;
+  // ISS-0105 (owner, 21 Oct): "Still Pro User" only when the signed-in account holds Still Pro.
+  const DEVICE_TAG = "Still Pro on this device";
+  const expectDeviceTag = () => {
+    expect(within(syncCard()).getByText(DEVICE_TAG)).toBeVisible();
+    expect(within(syncCard()).queryByText("Still Pro User")).toBeNull();
+  };
   it("on launch, linked to the signed-in account: the sync card's Still Pro User tag and nothing else", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
     await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
     await settled();
     expect(within(syncCard()).getByText("Still Pro User")).toBeVisible();
+    expect(within(syncCard()).queryByText(DEVICE_TAG)).toBeNull();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
@@ -1485,11 +1492,28 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     await settled();
     expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
     expect(f.linkPurchase).toHaveBeenCalledOnce();
+    // The account signed in here does not hold the purchase: the tag is the device's (ISS-0105).
+    expectDeviceTag();
   });
   it("an accountless right, signed in: the offer shows", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", linkedAccount: null });
     expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
     expect(f.linkPurchase).not.toHaveBeenCalled();
+    await settled();
+    expectDeviceTag();
+  });
+  it("the signed-in account holds Still Pro and this device holds no Apple purchase: Still Pro User (ISS-0105)", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "purchased", eligible: false });
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    await settled();
+    expect(within(syncCard()).getByText("Still Pro User")).toBeVisible();
+    expect(within(syncCard()).queryByText(DEVICE_TAG)).toBeNull();
+  });
+  it("signed out, the device's own purchase reads Still Pro on this device (ISS-0105)", async () => {
+    await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    await screen.findByText(INVITE);
+    await settled();
+    expectDeviceTag();
   });
   it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked once the proof arrives", async () => {
     const f = await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });

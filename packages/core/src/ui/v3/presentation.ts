@@ -95,6 +95,21 @@ export function proPurchased(
   );
 }
 
+/** Which Still Pro tag the "Settings sync" heading carries (ISS-0105): "account" ("Still Pro User")
+ * only when the signed-in account itself holds Still Pro, "device" ("Still Pro on this device")
+ * when Still Pro is purchased but signed out or not held by the signed-in account. */
+export type StillProTagKind = "account" | "device";
+
+/** Undefined while Still Pro is not verified as purchased (no tag). `accountHoldsPro` is the host's
+ * answer for the signed-in account; signed out it is never the account's. */
+export function stillProTag(
+  access: Pick<BenefitAccessSnapshot, "states">,
+  account: { readonly holdsPro?: boolean } | undefined,
+): StillProTagKind | undefined {
+  if (!proPurchased(access)) return undefined;
+  return account?.holdsPro === true ? "account" : "device";
+}
+
 /**
  * The access a Still Pro offer surface draws from (ISS-0032, reopened 15 Oct 2026). Once this view
  * has seen Still Pro conclusively missing (proKnownMissing), a later hold is Still re-confirming the
@@ -264,6 +279,9 @@ export interface DesktopPopupProps {
   proOfferReady?: boolean;
   account?: {
     address?: string;
+    /** ISS-0105: true only when this signed-in account itself holds Still Pro (the host knows its
+     * source). Absent or false, a purchased Still Pro is this device's: "Still Pro on this device". */
+    holdsPro?: boolean;
     /** Last successful cloud exchange, not proof that every device received the settings. */
     lastSyncedAt?: number | null;
     status?: {

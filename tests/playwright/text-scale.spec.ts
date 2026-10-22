@@ -281,18 +281,29 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("at 1.5× the popup keeps its approved layout; above it the whole popup scrolls", async () => {
-    for (const [fontSize, overflowY] of [
-      [24, "visible"],
-      [32, "auto"],
+    // ISS-0098 (owner, 21 Oct): the popup grows with its content and nothing inside it scrolls on
+    // its own; past the 600px cap the document scrolls.
+    for (const [fontSize, documentScrolls] of [
+      [24, false],
+      [32, true],
     ] as const) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);
         const app = page.locator('.app[data-density="compact"]');
         await expect(app).toBeVisible();
-        expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe(overflowY);
-        const height = await app.evaluate((element) => element.getBoundingClientRect().height);
-        expect(height).toBeLessThanOrEqual(600);
+        const scrollers = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>(".still-ui, .still-ui *")]
+            .filter((element) => element.scrollHeight > element.clientHeight + 1 &&
+              ["auto", "scroll"].includes(getComputedStyle(element).overflowY))
+            .map((element) => element.className),
+        );
+        expect(scrollers).toEqual([]);
+        const scroll = await page.evaluate(() => ({
+          height: document.scrollingElement!.scrollHeight,
+          view: document.scrollingElement!.clientHeight,
+        }));
+        expect(scroll.height > scroll.view).toBe(documentScrolls);
       } finally {
         await browser.close();
       }

@@ -6,7 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
-    proPurchased,
+    stillProTag,
     proRowsDormant,
     rowsFor,
     type DesktopPopupProps,
@@ -96,7 +96,7 @@
   );
   let dormant = $derived(proRowsDormant(access));
   // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
-  let stillPro = $derived(proPurchased(access));
+  let stillPro = $derived(stillProTag(access, account));
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -309,7 +309,7 @@
         <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). -->
         <div class="offer-head">
           <h2 class="sync-row-title">Settings sync</h2>
-          {#if stillPro}<StillProTag />{/if}
+          {#if stillPro}<StillProTag kind={stillPro} />{/if}
         </div>
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
@@ -371,6 +371,18 @@
 </div>
 
 <style>
+  /* ISS-0098 (owner, 21 Oct, option B): the popup grows to fit an expanded site; the site list is
+     never a scroll box of its own. Past the browser's popup height limit (about 600px) the whole
+     popup scrolls: the document, never a box inside it. The Safari popup already scrolls its page
+     the same way (SafariV3Popup). The phone popup (MobilePopup) is unchanged. */
+  .app[data-density="compact"] {
+    max-block-size: none;
+  }
+  .app[data-density="compact"] .site-scroll {
+    flex: none;
+    max-block-size: none;
+    overflow: visible;
+  }
   .app.invitation-scroll {
     overflow-y: auto;
     overscroll-behavior-y: contain;

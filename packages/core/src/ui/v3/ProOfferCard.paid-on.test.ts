@@ -31,11 +31,12 @@ function props(overrides: Partial<ProOfferCardProps & { knownMissing: boolean }>
 }
 
 describe("checkout-priced browser offer (paid tier compiled on)", () => {
-  it("enables Buy with no price on the card and says the checkout shows it", async () => {
+  it("enables Buy with no price and no price note on the card", async () => {
     const input = props();
     render(ProOfferCard, { props: input });
     const card = screen.getByRole("region", { name: "Still Pro" });
-    expect(within(card).getByText("The price is shown at checkout.")).toBeInTheDocument();
+    // Owner's canvas review, 21 Oct 2026: the "price is shown at checkout" note is gone.
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
     expect(card.textContent).not.toMatch(/\$|\d+\.\d\d/);
     await fireEvent.click(within(card).getByRole("button", { name: "Get Still Pro" }));
     expect(input.onBuy).toHaveBeenCalledOnce();
@@ -125,5 +126,55 @@ describe("checkout-priced browser offer (paid tier compiled on)", () => {
     expect(screen.getByText("Localized lifetime terms")).toBeInTheDocument();
     expect(screen.queryByText("The price is shown at checkout.")).toBeNull();
     expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeInTheDocument();
+  });
+});
+
+// Owner, 21 Oct: the Chrome/Firefox card shows the configured price line ("$9.99 · one-time") under
+// Get Still Pro, in the muted 14px body style of the apps' "One-time purchase. Lifetime access."
+// line. Only a host that read a configured price passes it; otherwise the slot is empty.
+describe("the configured price line under Get Still Pro", () => {
+  it("shows the host's line directly under the button", () => {
+    render(ProOfferCard, {
+      props: props({ offer: { ...CHECKOUT_PRICED, priceLine: "$9.99 · one-time" } }),
+    });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    const line = within(card).getByText("$9.99 · one-time");
+    expect(line).toHaveClass("card-body");
+    expect(line.previousElementSibling).toBe(
+      within(card).getByRole("button", { name: "Get Still Pro" }),
+    );
+    expect(within(card).queryByText("The price is shown at checkout.")).toBeNull();
+  });
+
+  it("shows nothing in that slot when no price was read", () => {
+    render(ProOfferCard, { props: props() });
+    const card = screen.getByRole("region", { name: "Still Pro" });
+    const buy = within(card).getByRole("button", { name: "Get Still Pro" });
+    expect(card.textContent).not.toMatch(/\$|one-time ·|· one-time/);
+    expect(buy.nextElementSibling?.textContent ?? "").not.toMatch(/price/i);
+  });
+
+  it.each(["unverified", "unavailable", "offline"] as const)(
+    "shows no price while the channel is %s (no Get Still Pro)",
+    (channel) => {
+      render(ProOfferCard, {
+        props: props({ channel, offer: { ...CHECKOUT_PRICED, priceLine: "$9.99 · one-time" } }),
+      });
+      const card = screen.getByRole("region", { name: "Still Pro" });
+      expect(within(card).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+      expect(within(card).queryByText("$9.99 · one-time")).toBeNull();
+    },
+  );
+
+  it("shows no price while access is being checked or once owned", () => {
+    const view = render(ProOfferCard, {
+      props: props({ accessChecking: true, offer: { ...CHECKOUT_PRICED, priceLine: "$9.99 · one-time" } }),
+    });
+    expect(screen.queryByText("$9.99 · one-time")).toBeNull();
+    view.unmount();
+    render(ProOfferCard, {
+      props: props({ ownership: "owned", offer: { ...CHECKOUT_PRICED, priceLine: "$9.99 · one-time" } }),
+    });
+    expect(screen.queryByText("$9.99 · one-time")).toBeNull();
   });
 });

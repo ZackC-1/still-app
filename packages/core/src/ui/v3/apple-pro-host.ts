@@ -13,6 +13,7 @@ import type {
 } from "../../sync/apple-session.js";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
+import { proPurchased } from "./presentation.js";
 
 export interface AppleProAccount {
   id: string;
@@ -116,6 +117,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     readonly ownershipRevision: number;
     readonly linkedAccount: string | null;
   } | null = null;
+  // ISS-0105: a read has answered at least once, so a null `eligiblePurchase` means "no Apple
+  // purchase on this device" rather than "not read yet".
+  let eligibilitySettled = false;
   let busy = false;
   let opening = false;
   let offer: NativeLifetimeOffering | null = null;
@@ -254,6 +258,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     if (stopped || ticket !== eligibilityEpoch || observed !== accessEpoch)
       return;
     eligiblePurchase = next;
+    eligibilitySettled = true;
     // A link already in flight rereads eligibility itself and ends in linked or failed (with
     // Try again); an overlapping refresh must not cancel it silently.
     if (!eligiblePurchase && link?.state !== "pending") clearLink();
@@ -937,6 +942,16 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     },
     get open() {
       return opening;
+    },
+    /** ISS-0105: the signed-in account itself holds Still Pro, so the sync heading's tag reads
+     * "Still Pro User". True when native's server-signed proof links this device's purchase to
+     * this account (ISS-0081), or when a settled read found no Apple purchase on this device, so a
+     * purchased Still Pro can only be the account's own (bought on the web). Signed out, an
+     * accountless purchase, or one linked to another account (ISS-0104) is the device's:
+     * "Still Pro on this device". */
+    get accountHoldsPro() {
+      if (!deps.account()?.confirmed || !access || !proPurchased(access)) return false;
+      return linkedHere() || (eligibilitySettled && eligiblePurchase === null);
     },
     get canLink() {
       return (

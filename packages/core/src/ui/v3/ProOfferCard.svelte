@@ -122,7 +122,9 @@
       >
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
-      {#if checkoutPriced}<p class="caption">The price is shown at checkout.</p>{/if}
+      <!-- The configured price line (owner, 21 Oct), in the apps' "One-time purchase. Lifetime
+        access." style; nothing at all when the host could not read a configured price. -->
+      {#if checkoutPriced && offer?.priceLine?.trim()}<p class="card-body">{offer.priceLine}</p>{/if}
     {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success"}
       <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. It stays
         through a Restore, which cannot change it. -->

@@ -6,7 +6,7 @@
     createProOfferLatch,
     proAccessChecking,
     proKnownMissing,
-    proPurchased,
+    stillProTag,
     proRowsDormant,
     rowsFor,
   } from "./presentation.js";
@@ -87,7 +87,7 @@
   let knownMissing = $derived(proKnownMissing(shownAccess));
   let dormant = $derived(proRowsDormant(access));
   // ISS-0073: the real snapshot, so only verified purchased ownership shows the tag.
-  let stillPro = $derived(proPurchased(access));
+  let stillPro = $derived(stillProTag(access, account));
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
   );
@@ -279,7 +279,7 @@
         <!-- The Still Pro tag sits on the heading row, right-aligned (owner, 19 Oct). -->
         <div class="offer-head">
           <h2 class="sync-row-title">Settings sync</h2>
-          {#if stillPro}<StillProTag />{/if}
+          {#if stillPro}<StillProTag kind={stillPro} />{/if}
         </div>
         {#if account?.address}<p class="muted sync-row-sub account-line">
             <span class="account-address">{account.address}</span>
