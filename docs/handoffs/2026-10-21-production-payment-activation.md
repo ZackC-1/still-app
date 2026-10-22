@@ -41,7 +41,7 @@ The main checkout belongs to the separate visual/build session and was not edite
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 
-Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, hosted SQL checks and production deployment remain pending until their actual receipts pass. The owner approval for the foundation migration apply remains the next hosted checkpoint at this writing.
+Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) is open; it preserves the public build/declaration and web/Apple analytics source. Required final-tree CI, disposable PostgreSQL CI checks and production deployment remain pending until their actual receipts pass. The owner approval for the foundation migration apply remains the next hosted checkpoint at this writing.
 
 Source work is still active in agent-owned worktrees. Read Git status and coordinate before edits;
 never discard another agent's dirty files. This checkpoint itself is a documentation edit in PR527.
@@ -90,7 +90,7 @@ still controls actual build admission. No synthetic live charge/refund should be
 - Apple optional analytics uses actual purchase provenance and canonical server-authored descriptors
   through a dedicated consent-fenced client lane. Generic queues still reject purchase events.
   The reviewed lock-order fix has a two-session SQL regression. Full iPhone simulator compilation
-  passed, and arm64 Mac Debug compilation also passed. Both used signing disabled. Integrated hosted SQL/deployment checks and signed final packages remain separate pending gates.
+  passed, and arm64 Mac Debug compilation also passed. Both used signing disabled. Integrated disposable PostgreSQL CI, protected deployment rehearsals and signed final packages remain separate pending gates.
 - Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
   Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
 

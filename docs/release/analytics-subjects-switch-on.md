@@ -32,7 +32,7 @@ production routes that every app calls. So the "sandbox first" step is: (1) the 
 run below rehearses the whole lifecycle on a throwaway copy of the database in GitHub (secrets,
 functions, schedule, switch on, switch off, schedule off, rotate) before asking for approval; then
 (2) after the switch is on, check it with a designated disposable account in a production-channel V3 package; and (3) if anything
-looks wrong, switch it off at once (one approval, no other gate).
+looks wrong, request the protected switch-off immediately. It stops reporters first, then refreshes checkout under the purchase prerequisites. A failed checkout refresh leaves attribution collection unconfirmed; follow the incomplete-outcome recovery below.
 
 **Test builds never get an identity.** Test builds send their events to the PostHog test project,
 while the server attaches emails and `account_created` in the live project. So `analytics-identify`

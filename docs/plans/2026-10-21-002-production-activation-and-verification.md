@@ -17,7 +17,7 @@ Matching [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39
 its plan and waits for the owner's protected-environment approval. No sales activation is included.
 Read its latest closing receipt before starting any later operation.
 
-Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI and hosted SQL checks remain in progress; no completed result is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
+Web and Apple canonical analytics plus build trust/declaration changes are combined in open [PR528](https://github.com/ZackC-1/still-app/pull/528). Required final-tree CI and disposable PostgreSQL CI checks remain in progress; no completed result is inferred from opening the PR. Their source tests do not establish hosted deployment or final-device
 delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance
@@ -457,7 +457,7 @@ The served access rehearsal exposed its old sandbox issuer setting against the n
 reconciliation route. Its disposable fixture now uses production composition with generated keys,
 synthetic provider ports and local PostgreSQL. Production source is unchanged by this correction;
 QA routes retain their separate sandbox rehearsal. All 17 runtime-closure tests and four proof/
-readiness tests passed locally; the actual CLI/database rerun remains required in hosted CI.
+readiness tests passed locally; the actual CLI/database rerun remains required on the disposable CI runner.
 
 ### Provider read-back and reporting checkpoint — 21 October, 17:05 PT
 
