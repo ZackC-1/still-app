@@ -1456,7 +1456,8 @@ function rowControl(
 
 describe("D04 optional paid and combined-consent producers", () => {
   it.each([
-    { state: "locked", row: { lock: "disabled", toggle: "absent" } },
+    // CH-96 (owner, 21 Oct): the saved switch shows, dimmed, beside the lock.
+    { state: "locked", row: { lock: "disabled", toggle: "disabled" } },
     { state: "checking", row: { lock: "absent", toggle: "disabled" } },
     {
       state: "verification_required",

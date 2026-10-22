@@ -215,3 +215,12 @@ describe("the Apple app owns the account on Safari", () => {
     expect(settings.appHandoff).toBeUndefined();
   });
 });
+
+describe("ISS-0105: Safari has no account provenance for Still Pro", () => {
+  it("never marks the app's account as holding Still Pro, so the tag reads Still Pro on this device", () => {
+    const source = { userId: "u1", accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
+    const text = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
+    expect(appManagedPopupAccount(source, text)).not.toHaveProperty("holdsPro");
+    expect(appManagedSettingsSync(source, text).account).not.toHaveProperty("holdsPro");
+  });
+});

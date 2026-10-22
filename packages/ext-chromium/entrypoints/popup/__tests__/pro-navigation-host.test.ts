@@ -397,9 +397,10 @@ describe("a steady Still Pro offer (ISS-0032)", () => {
     for (let i = 0; i < 5; i++) await flush();
     expect(screen.getByRole("region", { name: "Still Pro" })).toBe(card);
     const lock = screen.getByRole("button", { name: LOCK });
-    // Held access never draws a Pro switch, so nothing can turn a Pro row on.
+    // Held access keeps the locked row: its saved switch shows dimmed beside the lock (CH-96), and
+    // nothing can turn a Pro row on.
     expect(document.querySelector('[data-access="verify"]')).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Comments" }).getAttribute("aria-disabled")).toBe("true");
     await fireEvent.click(lock);
     await waitFor(() => expect(f.openOptionsPage).toHaveBeenCalledOnce());
     expect(screen.queryByRole("button", { name: "Purchase Still Pro" })).toBeNull();

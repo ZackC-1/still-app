@@ -1,4 +1,4 @@
-import type { DesktopPopupProps } from "./presentation.js";
+import type { DesktopPopupProps, StillProTagKind } from "./presentation.js";
 import type { FeatureId } from "@still/shared-types";
 import type { Snippet } from "svelte";
 
@@ -18,6 +18,9 @@ export interface SyncCardProps {
     revision?: number;
     /** Actual caller-confirmed session; an address alone is not checkout authority. */
     confirmed: boolean;
+    /** ISS-0105: true only when this account itself holds Still Pro. Absent or false, a purchased
+     * Still Pro is this device's, and the heading tag reads "Still Pro on this device". */
+    holdsPro?: boolean;
     status?: OperationStatus;
     /** Last successful cloud exchange, shown beside the status as on the popups ("Synced · Today
      * at 2:10 PM"). The Apple app and the browser Settings page supply it; absent, the status line
@@ -40,10 +43,11 @@ export interface SyncCardProps {
    * and the card says "You have Still Pro. Sign in to keep Still Pro with your account." */
   invitation?: { onAccept?: () => void; onDismiss?: () => void };
   /**
-   * ISS-0073: true only while Still Pro is verified as purchased (`proPurchased` of the real
-   * access). The account row then shows the "Still Pro" tag beside the address, or beside Sign in.
+   * ISS-0073: set only while Still Pro is verified as purchased (`stillProTag` of the real access
+   * and account). The heading row then carries the tag: "account" reads "Still Pro User", "device"
+   * reads "Still Pro on this device" (ISS-0105).
    */
-  stillPro?: boolean;
+  stillPro?: StillProTagKind;
 }
 
 export interface SharedDataProps {
@@ -83,7 +87,15 @@ export interface ProOfferCardProps {
    * extensions carry no verified price, so the checkout page shows it (owner decision,
    * 10 October 2026). It enables Buy only in builds compiled with the paid tier on.
    */
-  offer?: { price: string; priceNote?: string; checkoutPriced?: true };
+  offer?: {
+    price: string;
+    priceNote?: string;
+    checkoutPriced?: true;
+    /** Checkout-priced browser offer: the host's line for the price configured for the reviewed
+     * sales offer ("$9.99 · one-time", owner 21 Oct), shown under Get Still Pro while Buy is
+     * offered. Absent (no configured price, or none readable), that slot shows nothing. */
+    priceLine?: string;
+  };
   confirmedAccount: boolean;
   accessHeld?: boolean;
   /** Actual pending observation, separate from a held or completed access result. */

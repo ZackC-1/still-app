@@ -399,8 +399,9 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 - b. **Price Schedule**, **Add Pricing**: Base Country or Region **United States (USD)**, Price
   **$9.99** (Apple retired numbered tiers in 2023; this is the old Tier 10 price point), **Next**,
   keep Apple's equalized prices for other regions, **Next**, **Confirm**.
-- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (55
-  characters at most, owner-approved; draft: `Twelve extra controls. One-time purchase.`); **Add**.
+- c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (45
+  characters at most in App Store Connect, owner-approved; draft in
+  [listing copy](store-listing-copy.md#30-still-pro-in-app-purchase)); **Add**.
 - d. **Review Information**: Screenshot, upload the Get Still Pro screen from the 3.0 build. Review
   Notes: `One-time, non-consumable purchase. Open Still and tap Get Still Pro. Sign-in is offered
   first and can be skipped with "Buy without an account". Restore purchase works without signing in.`
@@ -415,13 +416,15 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
 **macOS App**. Undo: delete an unsubmitted version.
 
 5.4 **Listing and screenshots.** On each version: Promotional Text, Description, Keywords, What's
-New and screenshots from the approved V3 copy and set (6.1, 6.2). State: Owner (not yet written).
+New from the approved [3.0 release listing](store-listing-copy.md#30-release-listing-minimal-update-of-the-21-copy)
+(a minimal update of the 2.1 copy; the 2.1 screenshots stay, owner ruling 22 October 2026). State:
+Owner (draft written, awaiting owner approval).
 
 5.5 **App Privacy.** Left menu **App Privacy**, **Edit**. Keep the analytics types (ADR 0004). Make
 sure **Purchases, Purchase History** covers **App Functionality** for Still Pro and **Analytics**
 for the consented canonical purchase events sent to PostHog,
 linked to the user: Yes, used for tracking: No. The release brief says Purchase History must be
-added; [listing copy section 4](store-listing-copy.md#4-apple--app-privacy-the-label) records it as
+added; the [V3 App Privacy label](store-listing-copy.md#v3-apple-app-privacy-label) records it as
 already declared for historical purchases, so confirm on screen. **Publish**. The label must match
 `PrivacyInfo.xcprivacy` and the published privacy policy (7.1).
 
@@ -434,7 +437,21 @@ private username and password fields (2.7). Notes: the V3 Still Pro text in the
 submission.
 
 5.8 **Release options** (each version). **App Store Version Release**: **Manually release this
-version**. **Phased Release for Automatic Updates**: per 0.3. Save.
+version**. **Phased Release for Automatic Updates**: **Release update over 7-day period using
+phased release** (ON; owner decision, 22 October 2026). Save.
+- Apple's fixed schedule for people with automatic updates: day 1 1%, day 2 2%, day 3 5%, day 4 10%,
+  day 5 20%, day 6 50%, day 7 100%. Anyone can still download 3.0 manually from the App Store at any
+  time, and new downloads get 3.0 at once; phasing only paces automatic updates. Day 1 starts when the
+  owner releases the approved version.
+- The owner wants a 4-day rollout: on **day 4**, the owner releases to everyone. App Store Connect,
+  **Apps**, **Still**, in the sidebar under **iOS App** the version **3.0** (status "Ready for
+  Distribution", marked "Phased Release"), then **Release to All Users** at the top right of the page,
+  and confirm. Repeat under **macOS App**, version **3.0**. Until then, **Pause Phased Release** in
+  the "Phased Release for Automatic Updates" section stops the rollout if monitoring (Phase 8) finds
+  a problem (pauses total at most 30 days).
+  ([Apple reference](https://developer.apple.com/help/app-store-connect/update-your-app/release-a-version-update-in-phases/))
+- Verify: the version page shows "Ready for Distribution" without "Phased Release" after day 4.
+- Undo: before release, switch back to **Release update to all users immediately**.
 
 5.9 **Submit** (after 2.6 and G8). **Add for Review**, then **Submit to App Review**, once per
 platform. Undo before review starts: open the submission, **Remove from Review**.
@@ -476,7 +493,7 @@ Engineering compares the read-backs side by side; the owner ticks each.
 
 | Step | Chrome Web Store | Firefox Add-ons (AMO) | Who | State |
 |---|---|---|---|---|
-| 6.1 Listing copy | Add the V3 Still Pro wording to [listing copy](store-listing-copy.md#6-chrome-web-store) (currently 2.1, free only) | Same, [AMO section](store-listing-copy.md#7-firefox-add-ons-amo); describe the optional purchase | Engineering drafts, Owner approves | Owner |
+| 6.1 Listing copy | Minimal update of the 2.1 copy: [3.0 Chrome changes](store-listing-copy.md#30-chrome-web-store-changes) | [3.0 Firefox changes](store-listing-copy.md#30-firefox-add-ons-changes), plus the [manifest declarations](store-listing-copy.md#firefox-manifest-declarations-before-the-amo-upload) that must land in the build first | Engineering drafts, Owner approves | Owner |
 | 6.2 Screenshots | No V3 Pro set exists; capture with `screenshots/source/v3` tooling into [store-ready](screenshots/store-ready/README.md) | Same | Engineering, Owner approves | Engineering |
 | 6.3 Privacy | Developer Dashboard, Still, **Privacy practices**: data categories match V3 (account, settings, purchase status, analytics); privacy URL | Developer Hub, Still, **Edit Product Page**: privacy text matches the manifest's `data_collection_permissions` | Owner | Owner (confirm) |
 | 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload`; in the dashboard submit for review with automatic publication unchecked. Do not use `upload-and-submit` for this held release: its current API body requests automatic publication | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
