@@ -315,7 +315,7 @@ means the throwaway-database rehearsal every step runs before approval, then a p
 check right after switching on, with the one-approval switch-off ready. `analytics-identify` gives
 an identity only to a device that sends `projectKeySha256` equal to the digest of the server's
 `POSTHOG_PROJECT_KEY`; a test build (events in the PostHog test project) is answered
-`{"state": "test_channel"}` and nothing is written, so test accounts never reach the live project.
+`{"state": "test_channel"}` and nothing is written, so test-project builds cannot obtain production analytics identities. Designated disposable accounts in production-channel packages are separate internal acceptance checks and must be excluded from launch reporting.
 
 **Historical initial deploy order (do not replay applied migrations).** Deploy and verify 0016 on its own first, then 0017 on its own, then 0018 on its
 own, then `delete-user`. The deploy planner refuses to list any two of these migrations together.
