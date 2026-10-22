@@ -29,7 +29,7 @@ describe("SafariV3Popup on iPhone and iPad: the popup grows to fit an open site"
     const list = block('.popup:not(.desktop-popup) :global(.app[data-density="compact"] .site-scroll)');
     expect(list).toMatch(/flex:\s*none;/);
     expect(list).toMatch(/max-block-size:\s*none;/);
-    expect(list).toMatch(/overflow:\s*visible;/);
+    expect(list).toMatch(/overflow-y:\s*visible;/);
   });
 
   it("takes no size from the viewport (the iPad popover measures its content)", () => {

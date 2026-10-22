@@ -240,12 +240,21 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .row-action { align-self: flex-start; font-size: calc(12.5px * var(--text-scale, 1)); }
 .option-row .lock { flex: none; display: inline-flex; align-items: center; justify-content: center; min-inline-size: var(--tap-target); min-block-size: var(--tap-target); margin-inline-end: -12px; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--ink-secondary); }
 .option-row .lock:hover { color: var(--ink); }
+/* A locked row keeps at least 120px for its name (review F-1, 22 Oct): when the saved switch and
+   the Still Pro pill leave less (a narrow phone, or large text), they wrap onto their own line under
+   the name, right-aligned, instead of squeezing the name to a few letters per line. */
+.option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
+.option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
 /* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
    locked row keeps the 40px compact row height. The ::before keeps a full tap-target-tall hit area
    without growing the row. */
 .option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .option-row .lock-pro::before { content: ""; position: absolute; inset-inline: 0; inset-block: min(0px, calc((var(--tap-target) - 100%) / -2)); }
 .option-row .lock-pro:hover { border-color: var(--ink-secondary); }
+/* A dormant row's pill (paid tier off: aria-disabled, no destination) is inert, so it must not look
+   clickable (review F-3, 22 Oct): no pointer and no hover change. */
+.option-row .lock-pro[aria-disabled="true"] { cursor: default; }
+.option-row .lock-pro[aria-disabled="true"]:hover { border-color: var(--border-strong); }
 .service-row .toggle-slot { flex: none; display: flex; }
 .app[data-density="compact"] .option-row { min-block-size: 40px; font-size: calc(14px * var(--text-scale, 1)); }
 .toggle.small { inline-size: 40px; block-size: 24px; }
@@ -388,7 +397,6 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .sync-row.pro-signed-out { display: grid; grid-template-columns: minmax(0, 1fr) var(--popup-action-inline-size, auto); align-items: center; gap: 4px var(--space-3); }
 .sync-row.pro-signed-out > .sync-row-text, .sync-row.pro-signed-out > .popup-action { display: contents; }
 .sync-row.pro-signed-out .offer-head { grid-column: 1; grid-row: 1; }
-.sync-row.pro-signed-out .sync-row-title { margin: 0; }
 .sync-row.pro-signed-out .sync-row-sub { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
 .sync-row.pro-signed-out .still-pro-tag { grid-column: 2; grid-row: 1; justify-self: center; }
 .sync-row.pro-signed-out .popup-action > button { grid-column: 2; grid-row: 2; align-self: start; }

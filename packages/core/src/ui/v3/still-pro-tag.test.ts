@@ -6,8 +6,9 @@
 // account itself holds Still Pro; a device that holds Still Pro while signed out, or while signed
 // in to an account that does not hold it (including one linked to another account), reads
 // "Still Pro on this device".
-// Canvas fidelity (22 Oct): only "Still Pro User" is green; "Still Pro on this device" is the
-// neutral boxed tag (P-AppSync and P-PopupSync draw it in secondary ink with the strong border).
+// Owner canvas ruling (22 Oct; P-AppSync and P-PopupSync): grey for device provenance on every
+// surface, green only for "Still Pro User". "Still Pro on this device" is the grey boxed tag
+// (secondary ink, strong border). This replaces the 19 Oct "green tag" wording.
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, within } from "@testing-library/svelte";
@@ -84,8 +85,8 @@ function expectTagBesideSignIn(safari: boolean) {
   expect(card.querySelector(".sync-row")).toHaveClass("pro-signed-out");
 }
 
-/** "Still Pro User" is the success-green boxed tag; "Still Pro on this device" is the neutral boxed
- * tag (owner canvas, 22 Oct). */
+/** Owner canvas ruling (22 Oct): "Still Pro User" is the success-green boxed tag; "Still Pro on this
+ * device" is the grey boxed tag, on every surface. */
 function expectTagTone(tag: HTMLElement, text: string) {
   expect(tag).toHaveClass("access-tag", "boxed", "still-pro-tag");
   if (text === ACCOUNT_TAG) expect(tag).toHaveClass("success");

@@ -218,7 +218,8 @@
   .popup:not(.desktop-popup) :global(.app[data-density="compact"] .site-scroll) {
     flex: none;
     max-block-size: none;
-    overflow: visible;
+    overflow-x: visible;
+    overflow-y: visible;
   }
   /* "Open the Still app to continue." (owner canvas, MacPopup-Offline): a raised 12px-radius note
      inside the popup's 12px inset, 8px above the hero. */

@@ -607,3 +607,58 @@ test.describe("configured 2.x builds", () => {
     }
   });
 });
+
+// Review F-1 (22 Oct): with the paid tier compiled on, a locked Still Pro row shows its saved switch
+// beside the Still Pro pill (CH-96). At large text that pair must never squeeze the row's name to a
+// few letters per line: the name keeps at least 120px, and when the switch and pill do not fit
+// beside it they wrap onto their own line. Runs only in the paid-tier-on CI step (STILL_TEST_PAID_TIER),
+// which loads the build from scripts/qa/paid-tier-extension.mjs.
+test.describe("paid tier on: locked rows at large text keep their names readable", () => {
+  test.skip(process.env.STILL_TEST_PAID_TIER !== "true", "Needs the paid-tier-on build");
+  test.skip(configured, V3_ONLY);
+
+  test("every locked row keeps a 120px name beside or above its saved switch and pill", async () => {
+    test.setTimeout(240_000);
+    for (const fontSize of [24, 32]) {
+      const browser = await launchWithFontSize(fontSize);
+      try {
+        for (const width of [375, 380]) {
+          const page = await openPage(browser, "popup.html", width, 600);
+          await expect.poll(() => textScale(page)).toBe(fontSize === 24 ? "1.5" : "2");
+          const where = `popup ${width}px wide at ${fontSize}px`;
+          const expanders = page.locator(".still-ui button.expander");
+          let locked = 0;
+          for (let index = 0; index < (await expanders.count()); index++) {
+            const expander = expanders.nth(index);
+            await expander.scrollIntoViewIfNeeded();
+            if ((await expander.getAttribute("aria-expanded")) !== "true") await expander.click();
+            await expect(expander).toHaveAttribute("aria-expanded", "true");
+            await page.evaluate(() =>
+              Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+            );
+            const panel = page.locator(`[id="${await expander.getAttribute("aria-controls")}"]`);
+            const rows = await panel.locator('.option-row[data-access="locked"]').evaluateAll((elements) =>
+              elements.map((row) => ({
+                name: row.querySelector(".label")?.textContent?.trim() ?? "",
+                nameWidth: row.querySelector(".row-main")!.getBoundingClientRect().width,
+                savedSwitch: Boolean(row.querySelector('.locked-controls [role="switch"]')),
+                pill: row.querySelector(".lock-pro")?.textContent?.trim() ?? "",
+              })),
+            );
+            for (const row of rows) {
+              expect(row.savedSwitch, `${where}: ${row.name} shows its saved switch`).toBe(true);
+              expect(row.pill, `${where}: ${row.name}`).toBe("Still Pro");
+              expect(row.nameWidth, `${where}: ${row.name} keeps a readable name`).toBeGreaterThanOrEqual(120);
+            }
+            locked += rows.length;
+          }
+          expect(locked, where).toBeGreaterThan(0);
+          await expectNoSidewaysOverflow(page);
+          await page.close();
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  });
+});

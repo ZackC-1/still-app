@@ -118,6 +118,11 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-3, 12px);
+    /* Right-aligned when it wraps under the name, with a little space below it there. 3px above
+       and below keeps the 32px pill inside the 40px compact row (39px inside its top border) when
+       it does not wrap. */
+    margin-inline-start: auto;
+    margin-block: 3px;
   }
   /* The saved switch behind the lock is drawn at 45% (owner canvas, CH-96 option C). */
   .locked-controls :global(.toggle[aria-disabled="true"]) {

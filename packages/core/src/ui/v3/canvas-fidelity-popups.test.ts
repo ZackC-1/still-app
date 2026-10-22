@@ -4,10 +4,12 @@
 //    dimmed saved switch comes first, then a bordered "Still Pro" pill 32px tall; the label keeps its
 //    normal ink and the row keeps the 40px compact height.
 //  - P-Sites, open site: 6px under the last option row.
-//  - P-PopupSync / P-AppSync: "Still Pro on this device" is the neutral boxed tag, only "Still Pro
-//    User" is green; the tag's line height is 1.4 (a 20.8px box), so its heading row is not 1.2px
-//    short.
-//  - P-PopupSync on the Mac Safari popup: no 4px gap under "Settings sync".
+//  - P-PopupSync / P-AppSync (owner canvas ruling, 22 Oct): "Still Pro on this device" is grey on
+//    every surface, only "Still Pro User" is green; the tag's line height is 1.4 (a 20.8px box),
+//    so its heading row is not 1.2px short.
+//  - P-PopupSync on every desktop popup: no 4px gap under "Settings sync".
+//  - Review follow-ups: a locked row keeps a 120px name at large text (F-1); a dormant pill does not
+//    look clickable (F-3).
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/svelte";
@@ -99,7 +101,7 @@ describe("canvas: an open site section", () => {
 });
 
 describe("canvas: the Still Pro tag", () => {
-  it("is green only for Still Pro User", () => {
+  it("is green only for Still Pro User, grey for device provenance (owner ruling, 22 Oct)", () => {
     const account = render(StillProTag, { props: { kind: "account" } });
     expect(screen.getByText("Still Pro User")).toHaveClass("access-tag", "boxed", "success", "still-pro-tag");
     account.unmount();
@@ -119,11 +121,37 @@ describe("canvas: the Still Pro tag", () => {
   });
 });
 
-describe("canvas: the Mac Safari popup's sync heading", () => {
-  it("adds no space under Settings sync", () => {
-    const style = styleBlock("DesktopPopup.svelte");
-    expect(style).toMatch(/\.sync-row-title \{\s*margin: 0;\s*\}/);
-    expect(style).not.toMatch(/margin: 0 0 4px/);
+describe("canvas: the desktop popup's sync heading", () => {
+  it("adds no space under Settings sync on any desktop popup path", () => {
+    // The shared heading rule has no margin; DesktopPopup no longer adds 4px of its own (it applied
+    // to the Safari Mac popup and to a configured build that mounts DesktopPopup directly; only the
+    // d28 InvitedDesktopPopup path had overridden it). Review F-4 (22 Oct).
+    expect(rule(".sync-row-title")).toContain("margin: 0;");
+    expect(styleBlock("DesktopPopup.svelte")).not.toMatch(/\.sync-row-title/);
+    // #521's grid-only override is redundant once no surface adds the margin.
+    expect(css).not.toMatch(/\.sync-row\.pro-signed-out \.sync-row-title/);
+  });
+});
+
+describe("canvas: locked rows at large text (review F-1)", () => {
+  it("lets the saved switch and pill wrap under a name that would get less than 120px", () => {
+    expect(rule('.option-row[data-access="locked"]')).toContain("flex-wrap: wrap;");
+    expect(rule('.option-row[data-access="locked"] .row-main')).toContain("flex: 1 1 120px;");
+    const row = styleBlock("FeatureRow.svelte");
+    expect(row).toMatch(/\.locked-controls \{[^}]*margin-inline-start: auto;/);
+    // 32px pill + 3px above and below fits inside the 40px compact row (39px inside its border).
+    expect(row).toMatch(/\.locked-controls \{[^}]*margin-block: 3px;/);
+  });
+});
+
+describe("canvas: the dormant Still Pro pill (review F-3)", () => {
+  it("does not look clickable while it has no destination", () => {
+    expect(rule('.option-row .lock-pro[aria-disabled="true"]')).toContain("cursor: default;");
+    expect(rule('.option-row .lock-pro[aria-disabled="true"]:hover')).toContain(
+      "border-color: var(--border-strong);",
+    );
+    const dormant = render(FeatureRow, { props: lockedRow({ dormant: true }) });
+    expect(dormant.container.querySelector(".lock-pro")).toHaveAttribute("aria-disabled", "true");
   });
 });
 
