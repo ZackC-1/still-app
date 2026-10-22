@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T20:05:00-07:00
+updated: 2026-10-21T20:45:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -14,8 +14,9 @@ intended_receiver: production backend session and build owner
 Foundation [PR522](https://github.com/ZackC-1/still-app/pull/522) merged at
 `bac1539f382798fa2ca812dd782beabc76c47b69` after 32 checks. Deployment preservation fix
 [PR525](https://github.com/ZackC-1/still-app/pull/525) merged at
-`bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. The latter is the pinned
-backend deployment revision.
+`bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. That revision remains the
+verified foundation deployment revision. The next rollout source is merged main
+`2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`.
 
 [Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
 0025, 0026 and 0027. Its disposable receipt verified history 24→27, clean structural checks and
@@ -48,20 +49,35 @@ completed and verified at 02:26 UTC, with no issue or recovery. Its exact bundle
 is identical to final integration `589341f1`. A subsequent unauthenticated production POST returned
 401; no authenticated customer data was read or written by that check.
 
+Exact [migration plan39718015533](https://github.com/ZackC-1/still-app/actions/runs/39718015533)
+passed at `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3` for only 0028 and 0029. The downloaded
+plan and disposable replay receipt match digest
+`264438fba4729a8e962e3ab73d9c37fac92508d5dbacf87287b9152cf033cb9b`: history 27→29,
+all 14 checks clean, both preservation snapshots unchanged, no issues or warnings. Private evidence
+is under `/tmp/still-rollout-39718015533/`.
+
+Matching [apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) has a
+successful plan job and is waiting at the owner's personal `supabase-production` approval gate.
+Its downloaded plan JSON exactly matches plan39718015533, including SHA, scope and digest.
+No hosted write or successful apply is established.
+Exact-revision [settings/GoTrue rehearsal39717958292](https://github.com/ZackC-1/still-app/actions/runs/39717958292)
+passed on the pinned revision using disposable infrastructure. It does not establish hosted
+deployment or final-device acceptance.
+
 ## Repository and concurrent ownership
 
 The main checkout belongs to the separate visual/build session and was not edited here.
 
 | Worktree | Branch / source | Responsibility |
 |---|---|---|
-| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, source `a85491bc` now merged through PR525 | Protected deployment commands and evidence |
-| `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527, consolidation `f7cf38c9` | Current runbook, PR515/477 ancestry, merged main and reviewed PR530 public pin |
+| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, fast-forwarded to `2bad3028` | Protected deployment commands and evidence; current checkpoint |
+| `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527 head `8c425aaa`, merged `2bad3028` | Runbook, PR515/477 ancestry, merged main and reviewed PR530 public pin |
 | `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
 | `/private/tmp/still-apple-canonical-analytics-20261021` | Read current Git; reviewed source includes `0aeb70fc` and `d950d179` | Apple provenance and canonical analytics follow-on |
 | `/private/tmp/still-apple-analytics-integration-20261021` | `codex/apple-analytics-integration-20261021`, PR528, `589341f1` | Final combined source and CI |
-| `/private/tmp/still-production-access-trust-pin-20261021` | `codex/production-access-trust-pin-20261021`, PR530, `08a37fc2` | Reviewed public-only trust pin; incorporated into PR527, main merge pending |
-| `/private/tmp/still-v3-privacy-publication-20261021` | `codex/publish-v3-purchase-analytics-privacy-20261021`, PR529, `e115c097` | Approved conditional privacy publication; not published |
+| `/private/tmp/still-production-access-trust-pin-20261021` | `codex/production-access-trust-pin-20261021`, PR530, `08a37fc2` | Reviewed public-only trust pin; merged through PR527 |
+| `/private/tmp/still-v3-privacy-publication-20261021` | `codex/publish-v3-purchase-analytics-privacy-20261021`, PR529, merged `e8a34d81` | Approved privacy publication; both live paths verified |
 
 Final combined integration [PR528](https://github.com/ZackC-1/still-app/pull/528) merged at
 `c24a246da9607a069337d1a80c0b4cc0224f10c5` at 02:54 UTC on October 22 (19:54 PT October 21).
@@ -80,7 +96,9 @@ The owner authorized resuming this checkpoint. The PR527 worktree was clean at `
 consolidation. Merge `fb4ca36a` incorporates main `c24a246d`; merge `f7cf38c9` incorporates reviewed
 PR530 `08a37fc2`, preserving both ancestries. The privacy conflict retained source `55f09c43`
 byte for byte (SHA256 `991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`).
-PR527 remains open pending the combined checks and review. Privacy publication remains pending.
+PR527 merged at `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`, 03:37:59 UTC October 22
+(20:37:59 PDT October 21), after all three required checks passed and independent final-head review
+found no blockers. GitHub also marked PR530, PR515 and PR477 merged through preserved ancestry.
 Read Git status and coordinate before edits; never discard another agent's dirty files.
 
 Combined local verification passed: lint, workspace typecheck and all 137 release tooling/package
@@ -91,6 +109,12 @@ nesting is valid, the approved source hash matches, and `git diff --check` passe
 build warnings remain in the release test log; no application source changed in this consolidation.
 Logs: `/tmp/still-pr527-release-tests.log`, `/tmp/still-pr527-final-trust-tests.log`,
 `/tmp/still-pr527-lint.log`, `/tmp/still-pr527-typecheck.log`.
+
+Final [CI39714941729, attempt 2](https://github.com/ZackC-1/still-app/actions/runs/39714941729/attempts/2)
+retained green main and Deno results. Deno passed 649 tests and 147 steps, with one gated test
+ignored. The first browser attempt was canceled after six minutes stalled in pnpm self-installation,
+before tests. Its retry passed all three phases: 367 with 37 skips, 212 with 192 conditional skips,
+and 96 paid-tier free-outcome cases with one skip; no failed or flaky cases.
 
 ## Scope and decisions
 
@@ -127,10 +151,10 @@ still controls actual build admission. No synthetic live charge/refund should be
 - PR524 fixes native public Supabase configuration and trust packaging. Initial CI caught a synthetic
   trust fixture placed inside the handwritten browser fixture directory. It is moved to the release
   tooling fixture directory while retaining the browser guard. PR528 includes PR517's declaration
-  guard with trust checks; current paid flags are not flipped. Final CI remains required.
+  guard with trust checks; current paid flags are not flipped. Final source CI passed as recorded above.
 - Web canonical analytics SQL 0028, consent fences and actual Chrome/Firefox factory coverage pass
   focused tests and independent review. CI found closed deployment capability/manifest integration
-  gaps; their exact allowlists are corrected and final CI remains required.
+  gaps; their exact allowlists are corrected and final source CI passed as recorded above.
 - Apple optional analytics uses actual purchase provenance and canonical server-authored descriptors
   through a dedicated consent-fenced client lane. Generic queues still reject purchase events.
   The reviewed lock-order fix has a two-session SQL regression. Full iPhone simulator compilation
@@ -138,15 +162,16 @@ still controls actual build admission. No synthetic live charge/refund should be
 - Apple optional attribution expires after 90 days; event delivery rejects events older than 30 days.
   Late or ambiguous refunds can be omitted. These are consented conversion subsets, not accounting.
 
-Draft privacy publication [PR529](https://github.com/ZackC-1/still-app/pull/529) is open and unpublished.
-Publication is approved after PR527's combined source and checks complete. It carries the reconciled
-PR477 purchase disclosures plus canonical analytics and V3 sharing wording, preserved from source
-55f09c43. Source reconciliation, publication and App Privacy portal changes remain distinct;
-confirm the policy date matches the eventual publication day.
+Approved privacy publication [PR529](https://github.com/ZackC-1/still-app/pull/529) merged to gh-pages
+at `e8a34d815aa7b0a7919bd20365d96e3d201ea4a0`, 03:38:24 UTC October 22 (20:38:24 PDT October 21).
+Pages built successfully. Both [privacy.html](https://stillapp.fit/privacy.html) and
+[privacy/](https://stillapp.fit/privacy/) returned HTTP 200 and matched the approved source SHA256
+`991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`. The policy remains dated
+October 21, the actual local publication day. App Privacy portal changes remain a separate gate.
 
 Public trust pin [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, matches
 genuinely fetched hosted metadata on all three comparison checks and passed independent review.
-PR530 is incorporated into PR527; its main merge remains pending. This establishes configuration agreement; no runtime-signed access proof or
+PR530 merged through PR527 at `2bad3028`. This establishes configuration agreement; no runtime-signed access proof or
 final signed artifact has yet been verified.
 
 ## Analytics and private material
@@ -180,13 +205,14 @@ repository evidence and the work-state list remain the active durable record.
 
 ## Next actions and blockers
 
-1. Continue the owner's authorized resumed session. Foundation migrations, purchase secrets,
-   sync-settings, DB-01 and PROD-01 are complete as recorded above. No new protected operation was
-   started during consolidation.
-2. Verify the combined PR527 checks and review, merge it preserving ancestry, and close PR530 as
-   incorporated. Main and the reviewed public pin are already incorporated locally in PR527 as
-   recorded above. Then publish approved PR529 after checking source equality and publication date.
-3. After reviewed source integration, apply 0028/0029 through a separate exact plan at its final merged SHA; do not
+1. Continue from reviewed main `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`. PR527 and component
+   PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Foundation
+   migrations, purchase secrets, sync-settings, DB-01 and PROD-01 remain complete as recorded above.
+2. Migration plan39718015533 passed with the exact receipt above. Matching apply39718256847 is
+   waiting for owner approval after its successful, exactly matching plan job; await that personal protected approval, then inspect
+   the closing receipt before claiming 0028/0029 applied. Settings/GoTrue rehearsal39717958292 is
+   passed on the pinned revision. Keep production operations sequential under their global concurrency group.
+3. Preserve the exact 0028/0029 scope and pinned merged SHA; do not
    replay or expand the completed foundation scope. Deploy the fixed nine purchase routes from the
    final selected SHA, whose gate requires every migration at that SHA. Handle sync-settings through
    its separate operation and verify whether its source changed before planning any further deploy.
@@ -196,7 +222,10 @@ repository evidence and the work-state list remain the active durable record.
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
 5. Retain completed native compilation and disposable SQL/deployment evidence. Apply 0028/0029
    only through new exact migration plans; do not replay the completed 0025–27 scope.
-6. Complete protected analytics activation and prove consent, identity, production event delivery and
+6. Prepare protected analytics deployment, reconcile existing secrets, deploy the five routes and
+   enable the erasure schedule through their exact gates. Wait for an actual successful worker run
+   and hosted project/deletion permission proof. Keep the subjects switch deferred until the owner's
+   final production-channel packages satisfy the client-configuration gates. Then prove consent, identity, production event delivery and
    erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain
    explicitly unverified until observed. PROD-02 is still a proposal, not an executable check.
 7. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed

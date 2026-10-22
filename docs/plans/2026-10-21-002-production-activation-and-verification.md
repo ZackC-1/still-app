@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: resumed consolidation; foundation, payment secrets and sync deployed
+## Latest checkpoint: privacy published; exact migration plan passed, apply approval pending
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -30,8 +30,11 @@ completed and verified at 02:26 UTC with no issue/recovery; its bundle is identi
 integration `589341f1`, and an unauthenticated production POST subsequently returned 401. Public trust pin
 [PR530](https://github.com/ZackC-1/still-app/pull/530), commit `08a37fc2`, passed all three genuine
 hosted-metadata comparisons and independent review, but runtime-signed proof remains unverified.
-Draft privacy [PR529](https://github.com/ZackC-1/still-app/pull/529) is approved for publication after
-PR527's combined source/checks complete; it remains unpublished.
+Privacy [PR529](https://github.com/ZackC-1/still-app/pull/529) was published after the source checks
+and merge, at gh-pages `e8a34d815aa7b0a7919bd20365d96e3d201ea4a0`, 03:38:24 UTC October 22
+(20:38:24 PDT October 21). Pages built successfully; both live `/privacy.html` and `/privacy/`
+returned HTTP 200 with the exact approved source hash recorded below. The October 21 policy date
+matches the local publication day. App Privacy portal declarations remain separate.
 
 Web and Apple canonical analytics plus build trust/declaration changes merged through
 [PR528](https://github.com/ZackC-1/still-app/pull/528) at
@@ -48,17 +51,38 @@ Owner screenshots now confirm the scoped PostHog key has project read plus perso
 Supabase exposes only `public`/`graphql_public`, with `net` absent. Hosted provider proof remains
 pending. Fresh hosted metadata shows `ANALYTICS_SUBJECTS_ENABLED` absent; no switch was activated.
 
-The owner authorized resuming after the model-switch checkpoint. PR527 now incorporates main
-`c24a246d` and reviewed PR530 `08a37fc2` through ancestry-preserving merges `fb4ca36a` and
-`f7cf38c9`. Combined privacy source `55f09c43` remains byte-identical (SHA256
-`991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). Complete combined checks
-and review before merging PR527 and publishing approved PR529. No new protected production
-operation was started during consolidation; every new apply retains its personal owner-approval gate.
+The owner authorized resuming after the model-switch checkpoint. PR527 merged at
+`2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`, 03:37:59 UTC October 22 (20:37:59 PDT October 21),
+after all three required checks passed and independent final-head review found no blockers. It
+preserves main `c24a246d`, PR530 `08a37fc2`, PR515 and PR477 ancestry; GitHub marked all three
+component PRs merged. Combined privacy source `55f09c43` remains byte-identical (SHA256
+`991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). This merged main SHA
+is the next rollout pin; the deployed foundation receipts above retain their original revision.
 
 Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
 18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
-source hash, and `git diff --check`. Existing Svelte build warnings remain; required GitHub checks
-and the combined review still control source merge. See the handoff for local log paths.
+source hash, and `git diff --check`. Existing Svelte build warnings remain. Final
+[CI39714941729, attempt 2](https://github.com/ZackC-1/still-app/actions/runs/39714941729/attempts/2)
+retained green main/Deno results (649 Deno tests, 147 steps, one gated test ignored). The first
+browser attempt was canceled before tests after a six-minute pnpm self-installation stall; its
+retry passed 367/37 skips, 212/192 conditional skips and 96/one skip across the three phases,
+without failed or flaky cases. See the handoff for local log paths.
+
+Exact [migration plan39718015533](https://github.com/ZackC-1/still-app/actions/runs/39718015533)
+passed for only 0028/0029 at `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`. Downloaded plan and
+disposable replay match digest `264438fba4729a8e962e3ab73d9c37fac92508d5dbacf87287b9152cf033cb9b`:
+history 27→29, all 14 checks clean, both preservation snapshots unchanged, no issues or warnings.
+Private evidence is under `/tmp/still-rollout-39718015533/`. Matching
+[apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) has a successful
+plan job and is waiting at the owner's personal `supabase-production` approval gate. Its downloaded
+plan JSON exactly matches plan39718015533, including SHA, scope and digest. No hosted write or
+successful apply is established. Exact-revision
+[settings/GoTrue rehearsal39717958292](https://github.com/ZackC-1/still-app/actions/runs/39717958292)
+passed on the pinned revision using disposable infrastructure; it is not hosted deployment or
+final-device acceptance. Each new production apply needs the owner's personal
+protected approval. Analytics
+subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
+packages satisfy client-configuration gates; source and privacy publication do not satisfy them.
 
 # V3 production activation and verification
 
