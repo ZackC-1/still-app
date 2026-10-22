@@ -1,7 +1,7 @@
 ---
 title: Dead code and obsolete test audit
 date: 2026-10-21
-status: implemented
+status: complete
 owner: Codex
 ---
 
@@ -89,3 +89,13 @@ Deployment tooling is freshness-bound. After merge, any new protected analytics/
 must use the reviewed merged revision or a descendant, with a successful exact-revision settings
 rehearsal. Existing deployed production bytes are unchanged; this cleanup does not require a
 production redeployment or another activation approval now.
+
+## Delivery
+
+[PR532](https://github.com/ZackC-1/still-app/pull/532) merged as
+`fb45a271da31ed3304770d70035a5f3d17874d4f` after all 31 CI checks passed. Its Git tree matches
+reviewed head `b3e6878c2c1148a73181b3e79770a944185e86a6`. Required CI passed full workspace
+checks and Deno, then all three browser profiles:367 passed/37 skips,212/192 and96/one skip,
+with no failed/flaky cases. Local fixtures also passed367/37. Final lint/typecheck/build pass.
+The documented local Mac timing limitations were retained without weakened assertions or timeouts.
+No production deployment, QA deployment or final visual change was required.

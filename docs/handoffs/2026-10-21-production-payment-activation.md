@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T22:46:00-07:00
+updated: 2026-10-22T00:01:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -15,8 +15,9 @@ Foundation [PR522](https://github.com/ZackC-1/still-app/pull/522) merged at
 `bac1539f382798fa2ca812dd782beabc76c47b69` after 32 checks. Deployment preservation fix
 [PR525](https://github.com/ZackC-1/still-app/pull/525) merged at
 `bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. That revision remains the
-verified foundation deployment revision. The current rollout source is merged main
-`26bf5a947de9fef70102c9be87f1e69806cbce46`; existing deployment receipts retain their original pins.
+verified foundation deployment revision. The current reviewed source for new operations is merged main
+`fb45a271da31ed3304770d70035a5f3d17874d4f`; existing hosted receipts retain their original pins.
+The cleanup merged later with identical production upload bytes, as recorded below.
 
 [Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
 0025, 0026 and 0027. Its disposable receipt verified history 24→27, clean structural checks and
@@ -121,7 +122,7 @@ The main checkout belongs to the separate visual/build session and was not edite
 
 | Worktree | Branch / source | Responsibility |
 |---|---|---|
-| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, incorporates main `26bf5a94` and existing checkpoint commits | Protected deployment commands and evidence; current checkpoint |
+| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, incorporates main `fb45a271` and existing checkpoint commits | Protected deployment commands and evidence; current checkpoint |
 | `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527 head `8c425aaa`, merged `2bad3028` | Runbook, PR515/477 ancestry, merged main and reviewed PR530 public pin |
 | `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
@@ -279,9 +280,10 @@ avoid duplicate plan-only runs when the apply
 already supplies the same gate. Global production concurrency and sequential operation requirements
 remain unchanged. Reuse the verified existing analytics secrets unless a new problem is observed.
 
-The future analytics-subjects switch must pin merged PR531 repair `26bf5a947de9fef70102c9be87f1e69806cbce46`,
-not `2bad3028`, because that operation refreshes checkout too. Exact-revision settings/GoTrue
-rehearsal39726287757 has passed at this pin. Final production-channel package gates still apply
+The future analytics-subjects switch must pin reviewed cleanup main
+`fb45a271da31ed3304770d70035a5f3d17874d4f` or a compatible reviewed descendant. It includes the
+PR531 repair and fresh deployment tooling; the operation refreshes checkout too. Exact-revision
+settings/GoTrue rehearsal39736559512 passed at this current pin. Final production-channel package gates still apply
 before switch-on, alongside the actual successful scheduled-worker run and provider proof.
 
 Owner screenshots confirm the active PostHog account-deletion key has **person: write** and
@@ -302,37 +304,43 @@ do not print their contents. Mem0 retrieval quota and the claude-mem observer ar
 repository evidence and the work-state list remain the active durable record.
 
 
-## Dead-code audit advanced by the owner
+## Dead-code audit completed before final visuals
 
-The owner explicitly moved the audit to October 21, ahead of tomorrow's final screen/image work.
-[PR532](https://github.com/ZackC-1/still-app/pull/532), head
-`b3e6878c2c1148a73181b3e79770a944185e86a6`, contains the bounded cleanup and plan007 in
-`/private/tmp/still-dead-code-audit-20261021`. It is open and waiting for verification, not merged.
-Three audit lanes and independent adversarial review found no blocker. The 20 retired checkout
-tests passed before deletion; active managed checkout, historical receipt and redaction coverage
-remain. One duplicate Boolean assertion was also removed.
+The owner explicitly advanced the audit to October 21. [PR532](https://github.com/ZackC-1/still-app/pull/532)
+merged as `fb45a271da31ed3304770d70035a5f3d17874d4f` at 06:51:06 UTC October 22, after all
+31 CI checks passed. Reviewed head `b3e6878c2c1148a73181b3e79770a944185e86a6` and the merge
+have the same Git tree. The main checkout and tomorrow's visual work were left untouched.
 
-Remaining backend tests pass631/147steps (one gated ignore), deployment tests113, Safari405,
-owner-admin58, app-webview19 and root Node58 (one design-reference skip). Final lint, typecheck
-and build pass. All14 production upload bundles and114 web output files are byte-identical.
-Three QA uploads differ only in consistent bound minifier-local renaming; their AST, literals,
-external names and byte sizes match. All26 Edge Function entry graphs resolve. No production
-or QA deployment was performed or required by this cleanup.
+Three review lanes and independent adversarial review selected the retired Purchase Link handler
+and transport, their 20 passing obsolete tests, one redundant Boolean assertion, four unused
+backend helpers/types, an unused browser constant and three unnecessary private export modifiers.
+Current managed checkout, historical receipts, public package exports, native callbacks, migration
+and security/redaction coverage remain. The entire remaining backend suite passes 631 tests and 147
+steps (one gated ignore), with 113 deployment tests. The audit plan007 records scope and limits.
 
-Keep the local baseline limits explicit: unbounded tests hit timing failures before cleanup;
-Chromium's one lazy-view setup failure reproduces on clean26bf, and bounded core failures are
-being compared/rerun without changing assertions or timeouts. CI39733615360 has passed its unit
-step and Deno job; required browser verification and local fixtures are still running. Check
-actual final outcomes before merging. The source review is bound to the immutable PR head.
+CI39733615360 passed every required check: core5671/84platform skips, Chromium854, Safari405,
+owner-admin58, webview19, root Node58/one reference skip, release137. Browser profiles passed
+367/37skips unconfigured,212/192configured,96/one paid-tier free-outcome skip; no failed/flaky cases.
+Local lint/typecheck/build pass and local fixtures pass367/37. Local Mac native/DOM timing limits
+remain documented, with tests and timeouts unchanged; the native83 cases pass focused and the
+complete unchanged UI suites pass CI. No successful all-green local Mac full-suite claim is made.
 
-After merge, new protected operations must pin the reviewed merged revision or a descendant and
-pass that exact revision's settings rehearsal. The old26bf remains evidence of existing hosted
-source, but deployment-tooling freshness prevents planning it against changed main.
+All 14 production uploads and 114 web build files (6,048,431bytes) are byte-identical. Three QA
+uploads have only consistent minifier-local renaming, with matching AST/literals/external names,
+bindings and byte sizes. All 22 JWT mappings and26 entrypoint resolutions are intact. No production
+or QA deployment was performed or required by cleanup, and no runtime/size gain is claimed.
+
+Current reviewed main for future protected plans is `fb45a271da31ed3304770d70035a5f3d17874d4f`
+or a reviewed compatible descendant. Existing hosted receipts retain their original source pins,
+including26bf, whose production bundle bytes are unchanged. Deployment-tooling freshness correctly
+prevents newly planning old26bf against changed main. Fresh exact-revision settings/GoTrue rehearsal
+[39736559512](https://github.com/ZackC-1/still-app/actions/runs/39736559512) passed at fb45a271,
+including actual SQL/GoTrue startup and failure/cancellation cleanup with absence read-back. No additional owner approval is pending.
 
 ## Next actions and blockers
 
-1. Use reviewed main `26bf5a947de9fef70102c9be87f1e69806cbce46` for the checkout repair and future
-   subjects switch. The completed analytics deployment remains bound to `2bad3028`; its five uploads and
+1. Use reviewed cleanup main `fb45a271da31ed3304770d70035a5f3d17874d4f` or a compatible reviewed
+   descendant for new protected operations. The checkout repair remains deployed from26bf. The completed analytics deployment remains bound to `2bad3028`; its five uploads and
    bound files are unaffected by the repair. PR527 and component
    PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Migrations
    through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
@@ -351,8 +359,9 @@ source, but deployment-tooling freshness prevents planning it against changed ma
    never bypass protection with direct production CLI/SQL or self-approval. Handle partial/unknown
    outcomes before retrying.
 4. Do not replay migrations through 0029 or unchanged settings sync. Preserve all previous receipts.
-   Before the analytics switch, pin the merged PR531 repair SHA with passed exact-revision rehearsal
-   39726287757; the switch refreshes checkout and must not restore `2bad3028` code.
+   Before the analytics switch, pin reviewed cleanup main or a compatible descendant and verify its
+   exact settings rehearsal. Run39736559512 passed at fb45a271; the switch must preserve the
+   hosted checkout repair and fresh deployment tooling.
 5. Retain completed native compilation, disposable SQL/deployment evidence and actual production
    migration receipts. Any new migration requires a new exact plan; do not replay completed 0025–29.
 6. Preserve the completed five-route analytics deployment and installed erasure schedule.
@@ -365,9 +374,9 @@ source, but deployment-tooling freshness prevents planning it against changed ma
    Apple review access. None is ready before final build gates; no owner permission is needed now.
 7. Owner and Claude Code finish final screens/images on the morning of October 22, 2026. Final signed
    artifacts, release values, store declarations, device acceptance and sales activation follow.
-8. The owner advanced the deep unused-code/test audit to now; PR532 is in verification. Prove obsolescence
-   before removal, fix bugs rather than hiding failures, preserve meaningful coverage, and recheck
-   affected artifacts. Do not claim size/performance improvements without measurements.
+8. The owner-advanced deep unused-code/test audit is complete in merged PR532, with required checks
+   passed and production/web output bytes unchanged. Final visual changes require their ordinary
+   proportional checks; no second cleanup audit is pending.
 
 Use the [activation plan](../plans/2026-10-21-002-production-activation-and-verification.md),
 [closed deployment procedure](../release/purchase-routes-and-secrets.md) and updated

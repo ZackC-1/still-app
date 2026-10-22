@@ -45,7 +45,7 @@ Disposable PostgreSQL CI is separate from production verification; a source merg
 delivery. Later 0028/0029 analytics migrations were applied through the separate exact plan recorded below. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance
-remain owner-dependent; the requested obsolete-code/test audit follows backend and visual completion.
+remain owner-dependent. The owner advanced the obsolete-code/test audit, now completed in merged PR532.
 
 Owner screenshots now confirm the scoped PostHog key has project read plus person write, and
 Supabase exposes only `public`/`graphql_public`, with `net` absent. Hosted provider proof remains
@@ -57,8 +57,8 @@ after all three required checks passed and independent final-head review found n
 preserves main `c24a246d`, PR530 `08a37fc2`, PR515 and PR477 ancestry; GitHub marked all three
 component PRs merged. Combined privacy source `55f09c43` remains byte-identical (SHA256
 `991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). This merged main SHA
-was the initial rollout pin; repaired main `26bf5a947de9fef70102c9be87f1e69806cbce46` now controls
-new operations. Existing deployment receipts above retain their original revisions.
+was the initial rollout pin; repaired main26bf was deployed, then reviewed cleanup main
+`fb45a271da31ed3304770d70035a5f3d17874d4f` became the source for new protected plans. Existing deployment receipts above retain their original revisions.
 
 Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
 18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
@@ -158,16 +158,19 @@ is claimed.
 The owner wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of
 duplicate plan-only runs, preserving global sequential concurrency and every personal approval gate.
 
-The future analytics-subjects switch must pin the merged PR531 repair SHA, not `2bad3028`, because
-it refreshes checkout. Settings/GoTrue rehearsal39726287757 passed at exact repaired main `26bf5a94`;
-the earlier `2bad3028` rehearsal does not satisfy the new pin. Analytics
+The future analytics-subjects switch must pin reviewed cleanup main `fb45a271da31ed3304770d70035a5f3d17874d4f`
+or a compatible reviewed descendant. This preserves the deployed PR531 repair and current deployment
+tooling. Exact-revision settings rehearsal39736559512 passed at fb45a271; the earlier26bf/2bad rehearsals
+do not satisfy the new pin. Analytics
 subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
 packages satisfy client-configuration gates; source and privacy publication do not satisfy them.
 Actual successful worker proof remains pending through the protected switch gates; arbitrary
 production SQL/CLI reads or writes must not bypass them. Three planned approvals remain after the
 final build gates: analytics identity switch, production sales and Apple review access. None is ready
-now, so no owner permission is needed at this checkpoint. The owner advanced the deep obsolete-code/test audit to now. PR532 at `b3e6878c` is
-implemented and under verification in an isolated worktree; final visual changes stay separate.
+now, so no owner permission is needed at this checkpoint. The owner-advanced dead-code audit is complete: PR532 merged `fb45a271da31ed3304770d70035a5f3d17874d4f`
+after all 31 checks passed, preserving all 14 production bundle bytes and 114 web build files.
+Use this reviewed merged revision or a compatible descendant for future protected operations;
+exact-revision rehearsal39736559512 passed at fb45a271. Final visual changes stay separate.
 
 # V3 production activation and verification
 

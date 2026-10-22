@@ -4,10 +4,11 @@ category: conventions
 track: knowledge
 problem_type: maintainability
 module: packages/core
-applies_when: Replacing physical cross-package source imports in platform shells
+applies_when: Reviewing source exports, import boundaries or removal of unused bundled code
 date: 2026-10-07
+last_updated: 2026-10-21
 status: active
-tags: [exports, bundles, svelte, architecture]
+tags: [exports, bundles, svelte, architecture, dead-code]
 ---
 
 ## Problem and cause
@@ -64,3 +65,20 @@ Add source leaves when a production consumer needs them; do not expose a whole f
 Keep optional screen imports lazy and app-only global CSS outside shared barrels. Run the boundary's
 negative probes after parser upgrades and compare all relevant bundle profiles before treating an
 import refactor as behavior-preserving.
+
+## Applying the boundary to dead-code audits
+
+An unused export report is a candidate list. Preserve explicit package leaves, dynamic screen
+imports, framework callbacks and compatibility paths until their actual consumers are understood.
+A module-private helper may remain live locally while its export modifier is unnecessary. For a
+retired server implementation, check every configured function entrypoint's compiler dependency
+closure and the workflow/CLI roots before removing its tests. Keep the same security and historical
+receipt contracts covered at the active boundary.
+
+Removing an already tree-shaken wrapper can change minifier name allocation without deleting any
+emitted statements. Equal sizes or matching AST structure/literals alone do not establish that the
+names still refer to the same bindings. Compare declaration/reference correspondence and unresolved
+global names before calling that difference harmless. The [audit](../../plans/2026-10-21-007-dead-code-and-test-audit.md)
+verified this for three QA uploads while 14 production uploads and 114 same-checkout web files stayed
+byte-identical. Existing deployed receipts remain evidence of their original source; do not label
+source cleanup a new deployment or claim a size/runtime gain when outputs are unchanged.
