@@ -12,7 +12,7 @@
     account,
     onSignIn,
     accountActions,
-    stillPro = false,
+    stillPro,
     invitation,
   }: SyncCardProps = $props();
   const icons = {
@@ -41,7 +41,7 @@
     19 Oct): the one signal on this screen that the person has Still Pro. -->
   <div class="offer-head">
     <h2 class="card-title">Settings sync</h2>
-    {#if stillPro}<StillProTag />{/if}
+    {#if stillPro}<StillProTag kind={stillPro} />{/if}
   </div>
   {#if account}
     {#if account.address}<p class="synced account-line">
@@ -81,7 +81,8 @@
       </div>
     {/if}
     {#if account.onSignOut || account.onDeleteAccount}
-      <div class="account">
+      <!-- No divider or extra space above Sign out (owner, 21 Oct); the popup's row keeps its own. -->
+      <div class="sync-account">
         {#if account.onSignOut}
           <button
             type="button"

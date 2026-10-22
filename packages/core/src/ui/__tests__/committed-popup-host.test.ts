@@ -334,7 +334,7 @@ describe("actual desktop presentation on the maintained authority", () => {
     expect(f.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("signed in, Sign out and Delete account are the same plain link, with no red (owner, ISS-0095)", async () => {
+  it("signed in, the popup offers Sign out as a plain link and no Delete account (owner, 21 Oct)", async () => {
     await browser();
     const p = purchase();
     const state = capture({ purchase: p.deps });
@@ -344,25 +344,20 @@ describe("actual desktop presentation on the maintained authority", () => {
     state.controller.lastSyncedAt = Date.now();
     await desktop(state);
     const signOut = screen.getByRole("button", { name: STRINGS.auth.signOut });
-    const remove = screen.getByRole("button", { name: STRINGS.account.delete });
-    expect(remove.closest(".v3-popup-host")).not.toBeNull();
-    expect(remove.classList.contains("danger")).toBe(false);
-    expect(remove.classList.contains("link")).toBe(true);
-    expect(remove.className).toBe(signOut.className);
-    // Only the styling changed: Delete account still asks first, and Sign out still signs out.
-    await fireEvent.click(remove);
-    expect(
-      screen.getByRole("group", { name: STRINGS.account.deleteConfirmTitle }),
-    ).toBeTruthy();
-    expect(p.auth.deleteAccount).not.toHaveBeenCalled();
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.account.deleteCancel }),
-    );
-    await fireEvent.click(screen.getByRole("button", { name: STRINGS.auth.signOut }));
+    expect(signOut.closest(".v3-popup-host")).not.toBeNull();
+    expect(signOut.classList.contains("link")).toBe(true);
+    expect(signOut.classList.contains("danger")).toBe(false);
+    // ISS-0095 → B (owner, 21 Oct): plain text in the ink colour, still a real button.
+    expect(signOut.tagName).toBe("BUTTON");
+    expect(signOut.classList.contains("plain")).toBe(true);
+    // Account deletion lives on the Settings page and in the Apple app, not in the popup.
+    expect(screen.queryByRole("button", { name: STRINGS.account.delete })).toBeNull();
+    await fireEvent.click(signOut);
     await waitFor(() => expect(p.auth.signOut).toHaveBeenCalledOnce());
+    expect(p.auth.deleteAccount).not.toHaveBeenCalled();
   });
 
-  it("uses actual identity with no email and keeps retry/delete/time in one sync card without granting success", async () => {
+  it("uses actual identity with no email and keeps retry and time in one sync card without granting success", async () => {
     await browser();
     const p = purchase();
     const state = capture({ purchase: p.deps });
@@ -381,37 +376,8 @@ describe("actual desktop presentation on the maintained authority", () => {
     await tick();
     await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(p.retrySync).toHaveBeenCalledOnce();
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.account.delete }),
-    );
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.account.deleteCancel }),
-    );
-    expect(p.auth.deleteAccount).not.toHaveBeenCalled();
-    const held = gate();
-    p.auth.deleteAccount.mockImplementationOnce(async () => {
-      await held.promise;
-      throw new Error("Synthetic deletion failure");
-    });
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.account.delete }),
-    );
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.account.deleteConfirm }),
-    );
-    try {
-      expect(
-        screen.getByRole("button", { name: STRINGS.account.deleting }),
-      ).toBeDisabled();
-      held.open();
-      await flush();
-    } finally {
-      held.open();
-    }
-    expect(state.controller.deleteFlow).toBe("error");
-    expect(
-      screen.getByRole("button", { name: STRINGS.account.delete }),
-    ).toBeTruthy();
+    // No Delete account in the popup (owner, 21 Oct); the Settings page carries it.
+    expect(screen.queryByRole("button", { name: STRINGS.account.delete })).toBeNull();
     state.controller.cloudReachable = true;
     state.controller.lastSyncedAt = 1000;
     await tick();

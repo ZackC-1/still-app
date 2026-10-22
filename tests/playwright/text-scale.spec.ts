@@ -123,6 +123,23 @@ async function expectNoSidewaysOverflow(page: Page): Promise<void> {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
 }
 
+/** ISS-0098 (owner, 21 Oct): nothing inside the popup scrolls on its own; when it is taller than
+ * the browser's cap the document scrolls. */
+async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean): Promise<void> {
+  const scrollers = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".still-ui, .still-ui *")]
+      .filter((element) => element.scrollHeight > element.clientHeight + 1 &&
+        ["auto", "scroll"].includes(getComputedStyle(element).overflowY))
+      .map((element) => element.className),
+  );
+  expect(scrollers).toEqual([]);
+  const scroll = await page.evaluate(() => ({
+    height: document.scrollingElement!.scrollHeight,
+    view: document.scrollingElement!.clientHeight,
+  }));
+  expect(scroll.height > scroll.view).toBe(documentScrolls);
+}
+
 /** Every button, link and switch in the V3 screen can be scrolled into view and seen. */
 async function expectEveryControlReachable(page: Page): Promise<void> {
   const controls = page.locator(".still-ui :is(button, a, [role=switch])");
@@ -233,6 +250,51 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     });
   }
 
+  test("the Help card keeps two columns of 44px links, and one column above 1.5×", async () => {
+    // Owner, 21 Oct: Setup guide on the left; Privacy policy, then Contact support with its
+    // address, on the right. Signed out in this lane, so Delete account is absent.
+    for (const [fontSize, columns] of [
+      [16, 2],
+      [24, 2],
+      [32, 1],
+    ] as const) {
+      const browser = await launchWithFontSize(fontSize);
+      try {
+        for (const width of [320, 432]) {
+          const page = await openPage(browser, "options.html", width, 900);
+          const where = `${width}px wide at ${fontSize}px`;
+          const help = page.getByRole("region", { name: "Help" });
+          await expect(help).toBeVisible();
+          const box = async (name: string) => {
+            const found = await help.getByRole("button", { name }).boundingBox();
+            expect(found, `${name}, ${where}`).not.toBeNull();
+            return found!;
+          };
+          const setup = await box("Setup guide");
+          const privacy = await box("Privacy policy");
+          const contact = await box("Contact support");
+          for (const [name, target] of [["Setup guide", setup], ["Privacy policy", privacy], ["Contact support", contact]] as const)
+            expect(target.height, `${name} target, ${where}`).toBeGreaterThanOrEqual(44);
+          const address = await help.getByText(/@/).boundingBox();
+          expect(address!.y, `address under Contact support, ${where}`).toBeGreaterThanOrEqual(contact.y + contact.height - 1);
+          expect(contact.y, `Contact support under Privacy policy, ${where}`).toBeGreaterThanOrEqual(privacy.y + privacy.height - 1);
+          if (columns === 2) {
+            expect(Math.abs(setup.y - privacy.y), where).toBeLessThan(1);
+            expect(privacy.x, where).toBeGreaterThan(setup.x + setup.width);
+            expect(Math.abs(contact.x - privacy.x), where).toBeLessThan(1);
+          } else {
+            expect(Math.abs(setup.x - privacy.x), where).toBeLessThan(1);
+            expect(privacy.y, where).toBeGreaterThanOrEqual(setup.y + setup.height - 1);
+          }
+          await expectNoSidewaysOverflow(page);
+          await page.close();
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  });
+
   test("the popup, first-run and TikTok pages follow it too", async () => {
     const browser = await launchWithFontSize(24);
     try {
@@ -281,23 +343,21 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("at 1.5× the popup keeps its approved layout; above it the whole popup scrolls", async () => {
-    for (const [fontSize, overflowY] of [
-      [24, "visible"],
-      [32, "auto"],
+    for (const [fontSize, documentScrolls] of [
+      [24, false],
+      [32, true],
     ] as const) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);
-        const app = page.locator('.app[data-density="compact"]');
-        await expect(app).toBeVisible();
-        expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe(overflowY);
-        const height = await app.evaluate((element) => element.getBoundingClientRect().height);
-        expect(height).toBeLessThanOrEqual(600);
+        await expect(page.locator('.app[data-density="compact"]')).toBeVisible();
+        await expectOnlyTheDocumentScrolls(page, documentScrolls);
       } finally {
         await browser.close();
       }
     }
   });
+
 
   for (const fontSize of [24, 32]) {
     test(`at default font size ${fontSize}px nothing overflows and every control is reachable`, async () => {
@@ -425,9 +485,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
       await expect.poll(() => textScale(page)).toBe("2");
       const card = page.getByRole("region", { name: "Rate Still" });
       await expect(card).toBeVisible();
-      const app = page.locator('.app[data-density="compact"]');
-      expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
-      expect(await app.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(600);
+      await expectOnlyTheDocumentScrolls(page, true);
       await expectNoSidewaysOverflow(page);
       await expectEveryControlReachable(page);
       for (const name of ["Rate Still", "Not now"]) {
@@ -517,9 +575,7 @@ test.describe("the sync invitation card at large text (V3 build with sign-in)", 
       await expect.poll(() => textScale(popup)).toBe("2");
       const card = popup.getByRole("region", { name: CARD });
       await expect(card).toBeVisible();
-      const app = popup.locator('.app[data-density="compact"]');
-      expect(await app.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
-      expect(await app.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(600);
+      await expectOnlyTheDocumentScrolls(popup, true);
       await expectNoSidewaysOverflow(popup);
       await expectEveryControlReachable(popup);
       for (const name of ["Sign in", "Not now"]) {

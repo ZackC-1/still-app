@@ -540,11 +540,12 @@ describe("controlled D02 mobile presentation", () => {
       );
       expect(onAction).toHaveBeenCalledOnce();
       if (host === "safari") {
-        // Owner's canvas review, 21 Oct 2026.
+        // Owner's canvas review, 21 Oct 2026; the first step names the address-bar button the owner
+        // found on his iPhone (iOS 27, Safari) on 21 Oct 2026.
         expect(screen.getByText("Still can't block distractions yet.")).toBeTruthy();
         expect(
           screen.getByText(
-            "In Safari, tap the extensions button, choose “Still”, then “Always Allow on Every Website”.",
+            "In Safari, tap the button at the left of the address bar, choose “Still”, then “Always Allow on Every Website”.",
           ),
         ).toBeTruthy();
       }
@@ -893,7 +894,10 @@ describe("informational Firefox destination without a payment channel", () => {
       expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
       await fireEvent.click(screen.getByRole("button", { name: /^.+\. Included in Still Pro\. See Still Pro$/, description: "Comments" }));
       expect(props.onSeePro).toHaveBeenCalledOnce();
-      expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+      // CH-96: the locked row's saved switch shows, dimmed; clicking it changes nothing.
+      const savedSwitch = screen.getByRole("switch", { name: "Comments" });
+      expect(savedSwitch).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(savedSwitch);
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(await storage.get()).toEqual(saved);
     },

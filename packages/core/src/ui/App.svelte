@@ -217,6 +217,9 @@
     if (!c.userId) return undefined;
     return {
       address: c.accountEmail ?? undefined,
+      // ISS-0105: Chrome and Firefox only ever grant Still Pro from the signed-in account's own
+      // signed proof (chrome-adapter), so a purchased Still Pro here is always the account's.
+      holdsPro: true,
       lastSyncedAt: c.lastSyncedAt,
       status: !c.cloudReachable
         ? {
@@ -353,6 +356,8 @@
         identity,
         revision: optionsAccountRevision,
         confirmed: controller.accountConfirmed,
+        // ISS-0105: as the popup's account above, Still Pro here is always this account's own.
+        holdsPro: true,
         // The time sits on the synced line ("Synced · Today at 2:10 PM", owner, 19 Oct), the same
         // line the Apple app and the popup show; there is no separate "Last synced" line below.
         lastSyncedAt: controller.lastSyncedAt,
@@ -616,8 +621,11 @@
   {#snippet accountManagement(includePrivacy = true)}
     <div class="account">
       {#if compact}
-        <button class="link" onclick={() => c.signOut()}
-          >{STRINGS.auth.signOut}</button
+        <!-- ISS-0095 → B (owner, 21 Oct): in the V3 popup, Sign out is plain text, still a button. -->
+        <button
+          class="link"
+          class:plain={Boolean(desktopPresentation)}
+          onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button
         >
       {/if}
       {#if includePrivacy}<a
@@ -628,7 +636,9 @@
         >
           {STRINGS.account.privacyPolicy}
         </a>{/if}
-      {#if c.canDeleteAccount}
+      <!-- No Delete account in the V3 popups (owner, 21 Oct): it stays on the Settings page and in
+        the iPhone and Mac app. -->
+      {#if c.canDeleteAccount && !desktopPresentation}
         {#if c.deleteFlow === "confirming"}
           <div
             class="confirm"
@@ -649,12 +659,8 @@
         {:else if c.deleteFlow === "deleting"}
           <button class="link" disabled>{STRINGS.account.deleting}</button>
         {:else}
-          <!-- In the Chrome and Firefox popup, Delete account is a plain link like Sign out, with
-            no red (owner, ISS-0095), as in the Settings page's Help card. The confirmation that
-            follows still says what deleting does. -->
           <button
-            class="link"
-            class:danger={!desktopPresentation}
+            class="link danger"
             onclick={() => c.requestDeleteAccount()}
             >{STRINGS.account.delete}</button
           >
@@ -1219,13 +1225,22 @@
   .link.danger {
     color: #c2261e;
   }
-  /* The popup's Sign out and Delete account use the same plain link colour as the V3 screens'
-     links (the Settings page's Help card), not the older App blue. */
+  /* The popup's Sign out uses the same plain link colour as the V3 screens' links (the Settings
+     page's Help card), not the older App blue. */
   .v3-popup-host .account .link:not(:disabled) {
     color: var(--link, var(--still-blue));
   }
   .v3-popup-host .account .link:not(:disabled):hover {
     color: var(--link-pressed, var(--still-blue-pressed));
+  }
+  /* ISS-0095 → B (owner, 21 Oct): the popup's Sign out reads as plain text in the ink colour, with
+     no underline; the shared focus ring still marks it. */
+  .v3-popup-host .account .link.plain:not(:disabled) {
+    color: var(--ink);
+  }
+  .v3-popup-host .account .link.plain:not(:disabled):hover {
+    color: var(--ink);
+    text-decoration: none;
   }
   .confirm {
     display: flex;
@@ -1280,6 +1295,15 @@
     padding-block-start: var(--space-1);
     margin-block-start: 0;
     font-size: 14px;
+  }
+  /* The V3 popup's signed-in row: no divider or extra space above Sign out (owner, 21 Oct), the
+     same as the Settings sync card. It matches the compact rule above in specificity and comes
+     after it, so it also wins in the fallback popup, whose host carries .app before DesktopPopup
+     loads. */
+  .v3-popup-host[data-density] .account {
+    border-block-start: 0;
+    padding-block-start: 0;
+    margin-block-start: 0;
   }
 
   @media (max-height: 700px) {
