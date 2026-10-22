@@ -65,7 +65,7 @@ async function blockedPage(): Promise<Tab> {
           ),
         "",
       ),
-    (t) => t === "TikTok stays closed.",
+    (t) => t === "TikTok stays closed",
   );
   return tab;
 }

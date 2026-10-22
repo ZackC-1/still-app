@@ -11,7 +11,7 @@
 export const WITHDRAWAL_OUTCOMES = {
   requested: {
     tone: "pending",
-    text: "Deletion requested. Your shared data hasn't been deleted yet.",
+    text: "Deletion requested. Your shared data hasn’t been deleted yet.",
   },
   verifying: {
     tone: "pending",
@@ -20,14 +20,14 @@ export const WITHDRAWAL_OUTCOMES = {
   deleted: { tone: "success", text: "Your shared data has been deleted." },
   failed: {
     tone: "failed",
-    text: "We couldn't send your deletion request. Sharing stays off on this device.",
+    text: "We couldn’t send your deletion request. Sharing stays off on this device.",
   },
 } as const;
 
 export const WITHDRAWAL_RETRY = "Try again";
 
 export const SHARED_DATA_COPY = {
-  label: "Delete shared data on all devices",
+  label: "Delete shared data from all your devices",
   sub: "Stops sharing on every device signed in to this account and deletes what they shared. Your account, settings and purchases stay.",
   confirmTitle: "Delete shared data from all your devices?",
   confirmBody:

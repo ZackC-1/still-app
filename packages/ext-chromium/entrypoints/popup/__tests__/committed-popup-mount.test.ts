@@ -468,7 +468,7 @@ describe("actual Chromium popup mount", () => {
       await mountPopup("Firefox", Promise.resolve("android"));
       expect(desktopRoot()).toBeNull();
       expect(
-        screen.getByRole("button", { name: "Settings. Find Still in Firefox." }),
+        screen.getByRole("button", { name: "Still settings" }),
       ).toBeTruthy();
       expect(screen.queryByText("Purchase Still Pro")).toBeNull();
     });
@@ -543,7 +543,7 @@ describe("actual Chromium popup mount", () => {
     await flush();
     expect(toggles()).toHaveLength(2);
     await fireEvent.click(
-      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
     await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -577,7 +577,7 @@ describe("actual Chromium popup mount", () => {
     });
     expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
     await fireEvent.click(
-      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
     view.unmount();

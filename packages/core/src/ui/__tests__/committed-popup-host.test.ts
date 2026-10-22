@@ -65,7 +65,7 @@ describe("actual desktop presentation on the maintained authority", () => {
     await flush();
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     await fireEvent.click(
-      screen.getByRole("button", { name: "Settings. Find Still in Chrome." }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(onSettings).toHaveBeenCalledOnce();
     expect(
@@ -234,7 +234,7 @@ describe("actual desktop presentation on the maintained authority", () => {
         "true",
       );
       await fireEvent.click(
-        screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+        screen.getByRole("button", { name: "Still settings" }),
       );
       expect(view.onSettings).toHaveBeenCalledOnce();
       expect(
@@ -290,13 +290,13 @@ describe("actual desktop presentation on the maintained authority", () => {
     await flush();
     const view = await desktop(state);
     expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
-    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
     expect(document.querySelector(".hero")).toBeNull();
     expect(
       screen.getAllByRole("link", { name: "Privacy policy" }),
     ).toHaveLength(1);
     await fireEvent.click(
-      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+      screen.getByRole("button", { name: "Still settings" }),
     );
     expect(view.onSettings).toHaveBeenCalledOnce();
     await fireEvent.click(
@@ -501,14 +501,14 @@ describe("maintained App committed popup host", () => {
     mount(state);
     for (let i = 0; i < 5; i++) await flush();
     expect(state.binding.current().commandAvailability).toBe("unavailable");
-    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.loading);
     expect(unavailable()).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
     read.open();
     await waitFor(() => expect(globalSwitch().disabled).toBe(false));
     expect(unavailable()).toBeNull();
-    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
     expect(f.set).not.toHaveBeenCalled();
     expect(JSON.stringify(f.store["still:settings"])).toBe(saved);
   });
@@ -520,7 +520,7 @@ describe("maintained App committed popup host", () => {
     mount(state);
     await waitFor(() => expect(unavailable()).toBeTruthy());
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
     expect(f.set).not.toHaveBeenCalled();
   });
 
@@ -535,12 +535,12 @@ describe("maintained App committed popup host", () => {
       vi.advanceTimersByTime(SETTINGS_READ_BOUND_MS - 1);
       await tick();
       expect(unavailable()).toBeNull();
-      expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+      expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.loading);
       vi.advanceTimersByTime(1);
       await tick();
       expect(unavailable()).toBeTruthy();
       expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-      expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+      expect(screen.queryByText(STRINGS.sync.loading)).toBeNull();
       expect(f.set).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -711,7 +711,7 @@ describe("maintained App committed popup host", () => {
     expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
     expect(document.querySelectorAll("[data-service]")).toHaveLength(0);
     // Startup defaults are not an answer: checking, never "unavailable", until the read lands.
-    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.loading);
     expect(screen.queryByText("Settings are unavailable.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(

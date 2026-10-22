@@ -149,15 +149,13 @@
         <h1>Welcome to Still</h1>
         <p class="lede">
           Still removes Shorts, Reels and the TikTok website when you browse in
-          Safari. It doesn't work inside the Instagram, Facebook, YouTube or
+          Safari. It doesn’t work inside the Instagram, Facebook, YouTube or
           TikTok apps.
         </p>
         <p class="caption">Free. No account needed.</p>
       {:else if step === 2}
         <h1>Turn on Still in Safari</h1>
-        <p class="lede">
-          Still works inside Safari. Your choices start working once it's on.
-        </p>
+        <p class="lede">Turn on the Still extension in Safari.</p>
         {#if setup}<section class="card card-stack">
             <ol class="onboarding-steps">
               {#each setup.steps as instruction, index (index)}<li>
@@ -206,7 +204,7 @@
           )}{/if}
       {:else}
         {@render mark()}
-        <h1>You're set</h1>
+        <h1>You’re set</h1>
         <p class="lede">
           Open Safari and visit Instagram, Facebook, YouTube or TikTok. You can
           change anything in Settings.
@@ -245,7 +243,7 @@
               type="button"
               class="link"
               disabled={!onAssertEnabled}
-              onclick={assertEnabled}>I've turned it on</button
+              onclick={assertEnabled}>I’ve turned it on</button
             >{/if}
         {:else}
           <button

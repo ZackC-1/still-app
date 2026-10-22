@@ -36,9 +36,9 @@ export const FIRST_RUN_PIN_GUIDANCE: Record<FirstRunBrowser, string> = {
 /** Where the browser did not say whether Still is pinned (a failed or missing report), the step
  * must read true either way (ISS-0031): it never tells someone to pin what is already pinned. */
 export const FIRST_RUN_PIN_GUIDANCE_UNKNOWN: Record<FirstRunBrowser, string> = {
-  chrome: "If Still isn't in your toolbar, click the puzzle piece, then the pin next to Still.",
+  chrome: "If Still isn’t in your toolbar, click the puzzle piece, then the pin next to Still.",
   firefox:
-    "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+    "If Still isn’t in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
 };
 
 /** What the browser says about Still's access to its four declared sites. "unknown" until the

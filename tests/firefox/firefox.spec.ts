@@ -359,7 +359,7 @@ async function expectTiktokBlockedPage(tab: Tab): Promise<void> {
   await tab.waitFor(
     "the TikTok blocked heading",
     () => tiktokSample(() => tab.evaluate<string>("document.querySelector('h1')?.textContent ?? ''"), ""),
-    (text) => text === "TikTok stays closed.",
+    (text) => text === "TikTok stays closed",
   );
   expect(await tab.count("#tiktok-feed")).toBe(0);
 }

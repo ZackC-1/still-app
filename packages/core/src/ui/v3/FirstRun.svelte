@@ -101,7 +101,7 @@
       >
       <img class="word" src={WORDMARK_DATA_URL} alt="" />
     </div>
-    <h1>{ready ? "Still is on." : "One step to finish setup."}</h1>
+    <h1>{ready ? "Still is on" : "One step to finish setup"}</h1>
     {#if !ready && setupDescription?.verified}<p class="lede">
         {setupDescription.text}
       </p>{/if}
@@ -117,7 +117,7 @@
               >{/if}</span
           >
           {#if allowed}<span class="b"
-              >Allowed on Instagram, Facebook, YouTube, and TikTok.</span
+              >Allowed on Instagram, Facebook, YouTube and TikTok.</span
             >{:else if permission.guidance?.verified}<span class="b"
               >{permission.guidance.text}</span
             >{/if}
@@ -144,9 +144,9 @@
             >
               {@render status({
                 tone: "caution",
-                text: `${browserName} didn't allow it. Still can't block yet.`,
+                text: `${browserName} didn’t allow it. Still can’t block yet.`,
                 detail:
-                  "Your choices are saved and start working once it's allowed.",
+                  "Your choices are saved and start working once it’s allowed.",
               })}<button
                 type="button"
                 class="primary"

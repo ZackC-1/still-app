@@ -75,7 +75,7 @@
     // no copy (a resend does NOT lift the server-side per-IP verify throttle, so the button stays
     // disabled — it just needs its reason shown).
     if (c.verifyBlockRemaining > 0)
-      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s`;
+      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s.`;
     if (c.codeErrorKind === null) return null;
     if (c.codeErrorKind === "expired") return STRINGS.codeAuth.expiredCode;
     // The rate-limited kinds outrank suggestNewCode (R3): "send a new code" is the worst advice
@@ -285,15 +285,18 @@
           </p>
         {/if}
         {#if c.authFlow === "error"}
-          <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
-             A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
-             because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
+          <!-- Every host gets a written line, the code or the email by its sign-in mode; the raw
+               reason (authError) goes to the console only (copy audit, 22 Oct 2026), as a failed
+               account deletion does.
+               A live send lock (R2) shows the wait copy instead — it must never claim a code
+               exists, because under the hourly cap none was ever sent. The lock's elapse clears
+               this state. -->
           <p class="error" role="status">
             {c.sendBlockRemaining > 0
-              ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+              ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s.`
               : c.canUseCode
                 ? STRINGS.codeAuth.sendError
-                : (c.authError ?? STRINGS.auth.error)}
+                : STRINGS.auth.sendError}
           </p>
         {/if}
       </form>

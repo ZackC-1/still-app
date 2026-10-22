@@ -272,7 +272,7 @@ test("J4.FD Setup guide in the settings reopens the first-run page", async () =>
     await opened[0]!.evaluate<string>(
       "document.querySelector('h1').textContent",
     ),
-  ).toBe("Still is on.");
+  ).toBe("Still is on");
 });
 
 test("J4.FD D01-08 has no product state to reach: no Firefox 'Autoplay unavailable' branch exists", async ({}, testInfo) => {

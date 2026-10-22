@@ -44,7 +44,7 @@ async function serveTiktok(context: BrowserContext): Promise<void> {
 async function expectBlocked(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: "commit" });
   await page.waitForURL(BLOCKED, { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   await expect(page.locator("#tiktok-feed")).toHaveCount(0);
 }
 
@@ -92,6 +92,6 @@ test("Safari bundle, paid tier on, without Still Pro: TikTok shows the blocked p
   for (const url of TIKTOK_PAGES) {
     await page.goto(url, { waitUntil: "commit" });
     await page.waitForURL(/\/tiktok-blocked\.html\?r=/, { waitUntil: "commit" });
-    await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   }
 });

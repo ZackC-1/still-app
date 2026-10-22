@@ -23,8 +23,8 @@ test("J1.CH a new install opens the first-run page once and saves the defaults",
   await page.waitForLoadState("domcontentloaded");
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveTitle("Welcome to Still");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
-  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube, and TikTok.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on");
+  await expect(page.getByText("Allowed on Instagram, Facebook, YouTube and TikTok.")).toBeVisible();
   await ev.shot(page, "first-run-just-installed");
 
   const record = await waitForCommittedSettings(context);

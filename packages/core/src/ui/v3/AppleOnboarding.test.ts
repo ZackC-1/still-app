@@ -71,7 +71,7 @@ describe("controlled D12 Apple onboarding", () => {
     );
     expect(props.setup!.onOpen).toHaveBeenCalledOnce();
     await fireEvent.click(
-      screen.getByRole("button", { name: "I've turned it on" }),
+      screen.getByRole("button", { name: "I’ve turned it on" }),
     );
     expect(props.onAssertEnabled).toHaveBeenCalledOnce();
     expect(props.onContinue).not.toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe("controlled D12 Apple onboarding", () => {
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open Settings" })).toBeNull();
     expect(
-      screen.getByRole("button", { name: "I've turned it on" }),
+      screen.getByRole("button", { name: "I’ve turned it on" }),
     ).toBeDisabled();
     view.unmount();
   });
@@ -286,7 +286,7 @@ describe("controlled D12 Apple onboarding", () => {
     const retry = vi.fn();
     props.completion = {
       tone: "failed",
-      text: "We couldn't finish setup.",
+      text: "We couldn’t finish setup.",
       actionLabel: "Try again",
       onAction: retry,
     };
@@ -294,7 +294,7 @@ describe("controlled D12 Apple onboarding", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveClass("status-line");
     expect(alert).toHaveAttribute("data-tone", "failed");
-    expect(alert).toHaveTextContent("We couldn't finish setup.");
+    expect(alert).toHaveTextContent("We couldn’t finish setup.");
     const button = screen.getByRole("button", { name: "Try again" });
     expect(button).toHaveClass("link", "status-action");
     await fireEvent.click(button);
@@ -306,7 +306,7 @@ describe("controlled D12 Apple onboarding", () => {
     // The completion line belongs to step 4 only.
     props.step = 3;
     await view.rerender(props);
-    expect(screen.queryByText("We couldn't finish setup.")).toBeNull();
+    expect(screen.queryByText("We couldn’t finish setup.")).toBeNull();
     props.step = 4;
     props.completion = { ...props.completion, onAction: undefined };
     await view.rerender(props);
@@ -463,14 +463,14 @@ describe("D12 mounted current action authority", () => {
     },
     {
       name: "iOS assertion becomes Mac",
-      label: "I've turned it on",
+      label: "I’ve turned it on",
       initial: (p) => ({ ...p, step: 2 }),
       next: (p) => ({ ...p, platform: "mac" }),
       port: (p) => p.onAssertEnabled,
     },
     {
       name: "iOS assertion leaves step two",
-      label: "I've turned it on",
+      label: "I’ve turned it on",
       initial: (p) => ({ ...p, step: 2 }),
       next: (p) => ({ ...p, step: 4 }),
       port: (p) => p.onAssertEnabled,

@@ -54,19 +54,19 @@ describe("controlled popup invitation", () => {
   it.each([
     [
       "rating",
-      "Rate Still",
+      "Enjoying Still?",
       "A rating helps other people find Still.",
       "Rate Still",
     ],
     [
       "sync",
-      "Use the same settings in every browser",
-      "Sign in for free settings sync. Optional.",
+      "Settings sync",
+      "Sync settings across devices and browsers. Free.",
       "Sign in",
     ],
     [
       "link",
-      "Link Still Pro to an account",
+      "Link Still Pro to your account",
       "So you can restore it in other browsers. Optional.",
       "Link",
     ],
@@ -290,7 +290,7 @@ describe("issued invitation choice across caller publication", () => {
         expect(
           screen.getByRole("button", { name: name(choice) }),
         ).toHaveAttribute("aria-disabled", "true");
-      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
     },
   );
 
@@ -325,9 +325,9 @@ describe("current invitation request fence", () => {
       expect(
         p[first === "accept" ? "dismiss" : "accept"]!.request,
       ).not.toHaveBeenCalled();
-      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
       await view.rerender({ presentation: { ...p, status: "pending" } });
-      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
       const next = admitted();
       await view.rerender({ presentation: next });
       await fireEvent.click(screen.getByRole("button", { name: "Rate Still" }));
@@ -346,7 +346,7 @@ describe("current invitation request fence", () => {
     render(PopupInvitation, { presentation: p });
     await fireEvent.click(screen.getByRole("button", { name: "Rate Still" }));
     expect(p.accept!.request).toHaveBeenCalledOnce();
-    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
   });
   it("allows a fresh verified replacement port without replaying an old queued intent", async () => {
     const p = admitted();

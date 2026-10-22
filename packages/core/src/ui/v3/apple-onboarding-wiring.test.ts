@@ -224,8 +224,8 @@ describe("the D12 flow in the web view", () => {
     await waitFor(() => expect(app.kinds()).toContain("safariSetupState"));
     expect(view.queryByText("Still is on in Safari.")).toBeNull();
 
-    await fireEvent.click(view.getByRole("button", { name: "I've turned it on" }));
-    await view.findByRole("heading", { name: "You're set" });
+    await fireEvent.click(view.getByRole("button", { name: "I’ve turned it on" }));
+    await view.findByRole("heading", { name: "You’re set" });
     expect(view.getByText("Step 3 of 3")).toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Help improve Still?" })).toBeNull();
     // iOS has no public way to open Safari itself, so the button never pretends to.
@@ -265,9 +265,9 @@ describe("the D12 flow in the web view", () => {
     app.native.completeReply = () => Promise.reject(new Error("still: write failed"));
     const { target, view, showSettings } = await launch(app.bridge);
     await fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    await fireEvent.click(await view.findByRole("button", { name: "I've turned it on" }));
+    await fireEvent.click(await view.findByRole("button", { name: "I’ve turned it on" }));
     await fireEvent.click(await view.findByRole("button", { name: "Go to Settings" }));
-    expect(await view.findByText("We couldn't finish setup.")).toBeInTheDocument();
+    expect(await view.findByText("We couldn’t finish setup.")).toBeInTheDocument();
     expect(showSettings).not.toHaveBeenCalled();
     expect(onboardingShown(target)).toBe(true);
 
@@ -364,7 +364,7 @@ describe("fixed native destinations", () => {
     await fireEvent.click(view.getByRole("button", { name: "Continue" }));
     expect(await view.findByText("Still is on in Safari.")).toBeInTheDocument();
     await fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    await view.findByRole("heading", { name: "You're set" });
+    await view.findByRole("heading", { name: "You’re set" });
     await fireEvent.click(view.getByRole("button", { name: "Open Safari" }));
     await waitFor(() => expect(showSettings).toHaveBeenCalledOnce());
     await waitFor(() => expect(app.native.opened).toEqual(["safari"]));
@@ -383,7 +383,7 @@ describe("fixed native destinations", () => {
       await fireEvent.click(view.getByRole("button", { name: "Continue" }));
       await fireEvent.click(await view.findByRole("button", { name: "Open Settings" }));
       expect(refused).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
-      expect(view.getByRole("button", { name: "I've turned it on" })).toBeEnabled();
+      expect(view.getByRole("button", { name: "I’ve turned it on" })).toBeEnabled();
       // Not silently lost: a developer-console trace, no user-facing copy.
       await waitFor(() =>
         expect(warn).toHaveBeenCalledExactlyOnceWith("still: could not open settingsAppStillPage"),
@@ -458,7 +458,7 @@ describe("a late native reply", () => {
     const app = fakeAppleHost({ presenter: "web", platform: "ios" });
     const { target, view, showSettings } = await launch(app.bridge, app.open);
     await fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    await fireEvent.click(await view.findByRole("button", { name: "I've turned it on" }));
+    await fireEvent.click(await view.findByRole("button", { name: "I’ve turned it on" }));
     const done = await view.findByRole("button", { name: "Go to Settings" });
     vi.useFakeTimers();
     let confirm!: (reply: unknown) => void;
@@ -468,11 +468,11 @@ describe("a late native reply", () => {
       });
     await fireEvent.click(done);
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(view.getByText("We couldn't finish setup.")).toBeInTheDocument();
+    expect(view.getByText("We couldn’t finish setup.")).toBeInTheDocument();
     app.native.completed = true;
     confirm(JSON.stringify({ ok: true }));
     await vi.advanceTimersByTimeAsync(10);
-    expect(view.getByText("We couldn't finish setup.")).toBeInTheDocument();
+    expect(view.getByText("We couldn’t finish setup.")).toBeInTheDocument();
     expect(showSettings).not.toHaveBeenCalled();
     expect(onboardingShown(target)).toBe(true);
   });

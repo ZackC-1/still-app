@@ -64,6 +64,7 @@ import {
   appleSettingsRestore,
   appleSettingsSetup,
   IOS_EXTENSION_PAGE_ENABLE_STEPS,
+  MAC_ENABLE_STEPS,
   SAFARI_SETUP_CLOSED_EVENT,
   createAppleSettingsRestore,
   SUPPORT_MAILTO,
@@ -599,7 +600,7 @@ describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
     await renderHost(f);
     expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
     expect(screen.queryByText("Still is active")).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent(STRINGS.sync.checking);
+    expect(screen.getByRole("status")).toHaveTextContent(STRINGS.sync.loading);
     initialize();
     await f.hydrated;
     await screen.findByText("Still is active");
@@ -856,7 +857,7 @@ describe("D04 host", () => {
     ).toBeEnabled();
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     expect(
-      screen.queryByText("Still Pro can't be bought here yet."),
+      screen.queryByText("Still Pro can’t be bought here yet."),
     ).toBeNull();
     expect(
       screen.queryByText("No account needed. Payment is handled by Apple."),
@@ -887,7 +888,7 @@ describe("D04 host", () => {
     // ISS-0029: the switch carries the owner's V3 subtext.
     expect(
       screen.getByText(
-        "Helps to improve Still. Never shares the websites, pages or videos you visit.",
+        "Helps improve Still. Never shares the websites, pages or videos you visit.",
       ),
     ).toBeInTheDocument();
     await fireEvent.click(usage);
@@ -1268,16 +1269,18 @@ const IOS_DIRECT = {
   platform: "ios",
   enableLocation: "settingsAppSafariExtensionPage",
 } as const;
+/** The Mac onboarding's steps (StillKit OnboardingCopy.macOSEnableSteps, owner 22 Oct 2026). */
 const MAC_STEPS = [
-  "Open Safari, then Settings, then Extensions.",
-  "Turn on Still.",
-  "Allow it on every website.",
+  "Click “Open Safari Settings” below.",
+  "In Extensions, switch on Still.",
+  "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+  "Quit Safari (⌘Q) and reopen it.",
 ];
 /** The iPhone onboarding's steps for the direct page (StillKit OnboardingCopy.enableSteps). */
 const IOS_STEPS = [
-  "Tap “Open Settings” below",
-  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-  "Close Safari, then reopen it",
+  "Tap “Open Settings” below.",
+  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+  "Close Safari, then reopen it.",
 ];
 const ONBOARDING_SWIFT = resolve(
   import.meta.dirname,
@@ -1293,8 +1296,7 @@ describe("Safari setup card", () => {
     expect(appleSettingsSetup({ ...MAC, extensionStatus: "disabled" })).toEqual(
       {
         title: "Turn on Still in Safari",
-        detail:
-          "Still works inside Safari. Your choices are saved and start working once it's on.",
+        detail: "Turn on the Still extension in Safari.",
         steps: MAC_STEPS,
         actionLabel: "Open Safari Settings",
       },
@@ -1325,8 +1327,7 @@ describe("Safari setup card", () => {
       appleSettingsSetup({ ...IOS_DIRECT, extensionStatus: "disabled" }),
     ).toEqual({
       title: "Turn on Still in Safari",
-      detail:
-        "Still works inside Safari. Your choices are saved and start working once it's on.",
+      detail: "Turn on the Still extension in Safari.",
       steps: IOS_STEPS,
       actionLabel: "Open Settings",
     });
@@ -1360,11 +1361,27 @@ describe("Safari setup card", () => {
     expect(swift).toContain(
       'case .settingsAppStillPage, .settingsAppSafariExtensionPage: return "Open Settings"',
     );
-    expect(direct).toContain('"Tap “\\(open)” below",');
+    expect(direct).toContain('"Tap “\\(open)” below.",');
     for (const step of IOS_STEPS.slice(1))
       expect(direct.slice(0, direct.indexOf("]"))).toContain(`"${step}",`);
     for (const line of [...IOS_STEPS, ...MAC_STEPS])
       expect(line).not.toMatch(/\u2014/);
+  });
+
+  it("the Mac steps are the Mac onboarding's copy in Onboarding.swift", () => {
+    expect(MAC_ENABLE_STEPS).toEqual(MAC_STEPS);
+    const swift = readFileSync(ONBOARDING_SWIFT, "utf8");
+    const start = swift.indexOf("public static let macOSEnableSteps: [String] = [");
+    expect(start).toBeGreaterThan(-1);
+    const mac = swift.slice(start + "public static let macOSEnableSteps: [String] = [".length);
+    const list = mac.slice(0, mac.indexOf("\n  ]"));
+    // Step 1 names the button through `openButtonTitle(for:)`, which reads "Open Safari Settings".
+    expect(swift).toContain('case .safariExtensionSettings: return "Open Safari Settings"');
+    expect(list).toContain(
+      '"Click “\\(openButtonTitle(for: .safariExtensionSettings))” below.",',
+    );
+    for (const step of MAC_STEPS.slice(1)) expect(list).toContain(`"${step}",`);
+    expect(MAC_STEPS[0]).toContain("“Open Safari Settings”");
   });
 
   it.each([
@@ -2080,7 +2097,7 @@ describe("free-period Restore purchase (owner decision 17)", () => {
   const NOTHING = "No Still Pro purchase was found for this Apple Account.";
   const NOTHING_DETAIL =
     "Bought it with another Apple Account? Sign in with that one and try again.";
-  const FAILED = "We couldn't finish checking. Nothing changed.";
+  const FAILED = "We couldn’t finish checking. Nothing changed.";
   type Replies = Record<string, () => Promise<unknown>>;
   const json = (value: unknown) => async (): Promise<unknown> =>
     JSON.stringify(value);
@@ -2251,7 +2268,7 @@ describe("free-period Restore purchase (owner decision 17)", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(f.native.messages.slice(before).map((m) => m.kind)).toEqual([]);
     expect(document.body.textContent).not.toMatch(
-      /Still Pro|couldn't finish|Restore purchase/,
+      /Still Pro|couldn['’]t finish|Restore purchase/,
     );
     expect(errors).not.toHaveBeenCalled();
     f.authority.stop();

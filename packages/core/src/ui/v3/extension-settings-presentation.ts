@@ -33,6 +33,9 @@ export interface SyncCardProps {
     sharedData?: SharedDataProps;
   };
   onSignIn?: () => void;
+  /** Safari: Sign in opens the Still app (lib/app-handoff), and the signed-out card says so under
+   * the button ("Opens the Still app"), as the Safari popups do. */
+  appHandoff?: boolean;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
   /** Apple accountless Still Pro holder, signed out (ISS-0071; moved into this card by the owner
@@ -157,6 +160,10 @@ export type SettingsSiteListProps = Pick<
   onProAction?: (opener: HTMLElement) => void;
   /** "safari": a lock chip names the Still app as its destination (see proHandoff). */
   host?: "browser" | "safari";
+  /** The line under a Still Pro row this host cannot run. Omitted: the browser line. Safari says
+   * "Not available in Safari. Your choice is saved."; the Apple app "Not available on this
+   * device." (owner, 22 Oct 2026). */
+  unsupportedText?: string;
 };
 
 export interface ConfirmationDialogProps {
@@ -186,6 +193,8 @@ export interface ExtensionSettingsProps extends Pick<
   | "siteAccess"
 > {
   sync: SyncCardProps;
+  /** The line under a Still Pro row this host cannot run (SettingsSiteListProps). */
+  unsupportedText?: string;
   /**
    * True only when the browser confirmed a phone platform (Firefox for Android, iPhone/iPad
    * Safari). Pending or unknown is not a phone here, even while the rows are drawn as phone rows.

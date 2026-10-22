@@ -39,7 +39,7 @@ export default defineConfig({
   manifest: {
     name: "Still",
     description:
-      "Removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website. Free, no account needed. Still Pro adds optional extras: hide YouTube related videos, end-of-video suggestions, autoplay, comments and live chat; Instagram Stories and Highlights, Explore recommendations, suggested accounts and Threads links; Facebook Stories, the Video tab, and sidebar ads.",
+      "Removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website. Free, no account needed. Still Pro adds optional extras: hide YouTube related videos, end-of-video suggestions, comments and live chat, and stop autoplay; Instagram Stories and Highlights, Explore recommendations, suggested accounts and Threads links; Facebook Stories, the Video tab and desktop sidebar ads.",
     // `nativeMessaging` lets the background bridge talk to the app's SafariWebExtensionHandler /
     // App-Group container (KTD4). No tab-access permission: the pause-on-this-site control (and
     // its activeTab grant) was removed 2026-07-06.
