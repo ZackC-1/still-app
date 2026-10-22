@@ -64,6 +64,7 @@ import {
   appleSettingsRestore,
   appleSettingsSetup,
   IOS_EXTENSION_PAGE_ENABLE_STEPS,
+  MAC_ENABLE_STEPS,
   SAFARI_SETUP_CLOSED_EVENT,
   createAppleSettingsRestore,
   SUPPORT_MAILTO,
@@ -1268,10 +1269,12 @@ const IOS_DIRECT = {
   platform: "ios",
   enableLocation: "settingsAppSafariExtensionPage",
 } as const;
+/** The Mac onboarding's steps (StillKit OnboardingCopy.macOSEnableSteps, owner 22 Oct 2026). */
 const MAC_STEPS = [
-  "Open Safari, then Settings, then Extensions.",
-  "Turn on Still.",
-  "Allow it on every website.",
+  "Click “Open Safari Settings” below.",
+  "In Extensions, switch on Still.",
+  "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+  "Quit Safari (⌘Q) and reopen it.",
 ];
 /** The iPhone onboarding's steps for the direct page (StillKit OnboardingCopy.enableSteps). */
 const IOS_STEPS = [
@@ -1363,6 +1366,22 @@ describe("Safari setup card", () => {
       expect(direct.slice(0, direct.indexOf("]"))).toContain(`"${step}",`);
     for (const line of [...IOS_STEPS, ...MAC_STEPS])
       expect(line).not.toMatch(/\u2014/);
+  });
+
+  it("the Mac steps are the Mac onboarding's copy in Onboarding.swift", () => {
+    expect(MAC_ENABLE_STEPS).toEqual(MAC_STEPS);
+    const swift = readFileSync(ONBOARDING_SWIFT, "utf8");
+    const start = swift.indexOf("public static let macOSEnableSteps: [String] = [");
+    expect(start).toBeGreaterThan(-1);
+    const mac = swift.slice(start + "public static let macOSEnableSteps: [String] = [".length);
+    const list = mac.slice(0, mac.indexOf("\n  ]"));
+    // Step 1 names the button through `openButtonTitle(for:)`, which reads "Open Safari Settings".
+    expect(swift).toContain('case .safariExtensionSettings: return "Open Safari Settings"');
+    expect(list).toContain(
+      '"Click “\\(openButtonTitle(for: .safariExtensionSettings))” below.",',
+    );
+    for (const step of MAC_STEPS.slice(1)) expect(list).toContain(`"${step}",`);
+    expect(MAC_STEPS[0]).toContain("“Open Safari Settings”");
   });
 
   it.each([

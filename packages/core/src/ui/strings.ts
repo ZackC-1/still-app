@@ -176,6 +176,8 @@ export const STRINGS = {
     sending: "Sending…",
     sent: "Check your email for a sign-in link.",
     error: "We couldn’t sign you in. Try again.",
+    // A host that sends a sign-in link could not send it (owner, 22 Oct 2026).
+    sendError: "We couldn’t send the email. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
     signInCta: "Sign in to sync",
@@ -254,7 +256,10 @@ export const STRINGS = {
     extensionChecking: "Checking settings with the Still app…",
     extensionPending: "Open Still to finish syncing your settings.",
     unreachable: "Sync didn’t finish. Settings are saved on this device.",
-    // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`.
+    // V3 screens only (decision 71): the legacy 2.x screens keep `unreachable` and `retry`. The
+    // 22 Oct 2026 copy audit changed the shared strings for every build (curly apostrophes,
+    // "We couldn’t …" errors), so `unreachable`, the sign-in lines and `deleteError` changed on
+    // the 2.x screens too; only strings that 2.x screens alone use were left as they were.
     failed: "Sync didn’t finish. Settings are saved on this device.",
     tryAgain: "Try again",
     firstSync: "Your settings are now the same across your signed-in devices.",

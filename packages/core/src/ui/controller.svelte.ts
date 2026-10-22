@@ -1143,7 +1143,9 @@ export class UiController {
     const { error } = await this.auth.signIn(email);
     if (error) {
       this.authFlow = "error";
+      // Diagnostics only: the sheet shows its written line, never this raw reason.
       this.authError = error;
+      console.error("Sign-in request failed:", error);
     } else {
       this.authFlow = "sent";
     }
