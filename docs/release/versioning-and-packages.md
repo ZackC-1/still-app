@@ -78,7 +78,7 @@ stay outside Git and chat.
 Committed in the release branch (nothing to supply):
 
 - `PAID_TIER_ENABLED`, StillKit `paidTierEnabled` and `version.json` `paidTier` are `true`.
-- `apps/apple/scripts/modern-sync-shipped` says `shipped` (owner decision D7). From now on every
+- `apps/apple/scripts/modern-sync-shipped` says `shipped` (D7: owner, 21 Oct 2026). From now on every
   Apple release archive must be configured for sync with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` in
   both web bundles, or the release env guard refuses it.
 - `scripts/release/production-access-keys.json` pins the current production public key
