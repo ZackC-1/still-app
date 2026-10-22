@@ -167,6 +167,10 @@ async function expectNothingOffered(page: Page): Promise<void> {
 
 test.describe("V3 build with sign-in: Restore purchase", () => {
   test.skip(!MODERN_SIGN_IN, "Needs the modern sign-in build (see header)");
+  // This is the free-period Restore link (owner decisions 62 and 73). With the paid tier compiled on
+  // (3.x) the page is the Still Pro settings page, whose own restore is covered by
+  // entrypoints/options/__tests__/browser-pro-host.test.ts.
+  test.skip(PAID_TIER_ENABLED, "Free-period Restore link exists only while the paid tier is compiled off");
   test.use({ settingsProfile: "modern" });
 
   test("signed out: the normal sign-in first, then one check; a past buyer is restored and nothing unlocks", async ({ context, extensionId }) => {

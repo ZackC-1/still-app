@@ -50,7 +50,17 @@ test.describe("signed-out Still Pro rows (schema-2 lane)", () => {
           if (PAID_TIER_ENABLED) {
             await expect(row.getByRole("button", { name: new RegExp(`^${name}\\. Included in Still Pro`) })).toBeVisible();
           }
-          await expect(row.getByRole("switch"), `${name} is not a switch`).toHaveCount(0);
+          if (PAID_TIER_ENABLED) {
+            // CH-96 (owner, 21 Oct): with the paid tier on, a locked row draws its saved switch, dimmed
+            // and disabled, beside the lock; it changes nothing while locked.
+            // A dormant row (no purchase path, e.g. the build without sign-in) draws none.
+            const saved = row.getByRole("switch");
+            const count = await saved.count();
+            expect(count, `${name} shows at most its saved switch`).toBeLessThanOrEqual(1);
+            if (count) await expect(saved, `${name}'s saved switch cannot be changed`).toBeDisabled();
+          } else {
+            await expect(row.getByRole("switch"), `${name} is not a switch`).toHaveCount(0);
+          }
           inspected++;
         }
       }
