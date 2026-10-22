@@ -70,6 +70,37 @@ scoped class names (`svelte-xxxxxxx`) do not change with the path. To check: bui
 different folders with the same `VITE_*` values and run `diff -r` on the two `dist` folders (for Safari,
 `packages/ext-safari/dist`; for the Apple web view, `packages/app-webview/dist`); it must print nothing.
 
+## 3.0 release configuration (runbook step 1.3)
+
+What the 3.0 store builds need, and where each value comes from. Only names appear here; values
+stay outside Git and chat.
+
+Committed in the release branch (nothing to supply):
+
+- `PAID_TIER_ENABLED`, StillKit `paidTierEnabled` and `version.json` `paidTier` are `true`.
+- `apps/apple/scripts/modern-sync-shipped` says `shipped` (owner decision D7). From now on every
+  Apple release archive must be configured for sync with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` in
+  both web bundles, or the release env guard refuses it.
+- `scripts/release/production-access-keys.json` pins the current production public key
+  (`still-access-production-20261021`); there is no standby row yet. Store builds derive
+  `VITE_ACCESS_ENVIRONMENT=production` and `VITE_ACCESS_PUBLIC_KEYS` from it; they cannot be passed by hand.
+- `archive.sh` exports `VITE_BACKEND_ROUTE_PROFILE=production` itself. Never set `VITE_PACKAGE_IDENTITY`,
+  `VITE_QA_BUILD_SEQUENCE`, `VITE_ANALYTICS_BUILD_CHANNEL` or a non-production route profile for a store build.
+
+Supplied by the owner at build time:
+
+| Name | Chrome workflow (`release-chrome.yml`) | Firefox and Chrome by hand (`package.mjs`) | Apple (`archive.sh`, raw macOS archive) |
+|---|---|---|---|
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | repository variables | `--env` | exported (required once trust is pinned) |
+| `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | repository variables | `--env` | exported or `packages/app-webview/.env` and `packages/ext-safari/.env` |
+| `VITE_MODERN_SETTINGS_SYNC_ENABLED` = `true` | repository variable (owner setting; today it may be unset) | `--env VITE_MODERN_SETTINGS_SYNC_ENABLED=true` | exported, or in both packages' `.env`; the guard refuses anything else |
+| Server digests (`ACCESS_PROOF_ENVIRONMENT`, `ACCESS_PROOF_KEY_ID`, `ACCESS_PROOF_PUBLIC_KEY_HEX` entries of `supabase secrets list -o json`) | `chrome-release` environment variable `ACCESS_PROOF_SERVER_DIGESTS_JSON` | `--server-secrets-json <file>` | `ACCESS_SERVER_DIGESTS_FILE=<file>` |
+| `REVENUECAT_PUBLIC_API_KEY` (production Apple app, not Test Store) | n/a | n/a | `apps/apple/Still/Config/Secrets.local.xcconfig` (gitignored); the committed `Secrets.xcconfig` keeps it empty |
+| `VITE_REVIEW_SIGNIN_EMAIL` | never | never | exported or `packages/app-webview/.env` only |
+
+Because the release declares the paid tier, `node scripts/release/access-trust.mjs check` now refuses
+without the server digests; run it as `check --server-secrets-json <file>` once the owner has saved them.
+
 ## Production access trust (Still Pro verification keys)
 
 Still Pro unlocks only when a store build can verify the server's signed access proof. The build needs the

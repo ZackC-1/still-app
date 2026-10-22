@@ -195,8 +195,8 @@ describe("release env guard", () => {
     assert.match(gone.output, /not a package directory/);
   });
 
-  test("the committed marker says not-shipped today, so nothing changes yet", () => {
-    assert.equal(readFileSync(MARKER, "utf8").trim(), "not-shipped");
+  test("the committed marker says shipped from the 3.0 release on (owner decision D7), so every archive keeps modern sync", () => {
+    assert.equal(readFileSync(MARKER, "utf8").trim(), "shipped");
   });
 
   test("run directly (as the Xcode phase does), the exit code is the verdict", () => {
