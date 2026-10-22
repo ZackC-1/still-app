@@ -1,11 +1,13 @@
 // Disposable-database proof for the read-only QA check route. Needs a throwaway database that
-// has migrations 0001-0021 and scripts/backend/sql/qa-readonly-checks-candidate.sql installed
+// has the migrations at head (0025 adds the PROD-01 view) and
+// scripts/backend/sql/qa-readonly-checks-candidate.sql installed
 // (scripts/backend/rehearse-qa-readonly-checks.sh does this on a GitHub-hosted runner). It seeds
 // synthetic owner QA aliases AND synthetic non-QA data, then proves, as the real narrow role:
 // only owner QA aliases can be registered or seen; every catalogue check runs and rolls back;
 // non-QA rights, holder-less rights from before the QA run and old erasure jobs are invisible;
 // nothing raw is printed; production is compared only as a keyed digest; base tables, the
-// registry and every write are refused; and every kind of widened role is refused.
+// registry and every write are refused; every kind of widened role is refused; and PROD-01 prints
+// only the production sales head and cutoff configuration (refusing cleanly before 0025's grant).
 import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import postgres from "postgres";
 import { CHECKS, CHECK_INPUTS, LABELS, resolveRequest } from "./catalogue.mjs";
@@ -221,6 +223,73 @@ Deno.test({
           await admin`update private.access_rights set ownership_revision = ownership_revision - 1 where right_id = ${id(202)}`;
         }
         assertEquals(compareProduction("0".repeat(64), undefined), "no-baseline");
+      });
+
+      await t.step("PROD-01 prints the production sales head and cutoff, and nothing keyed to a person", async () => {
+        const [{ heads }] = await admin`select count(*)::int as heads from private.product_policy_revisions
+          where namespace = 'sales' and environment = 'production'`;
+        if (heads === 0) {
+          // Fresh disposable database: production sales are Off and there is no cutoff.
+          const { run, text } = await report("PROD-01");
+          const [policy] = run.results[0].rows;
+          assertEquals([policy.sales_revision, String(policy.expected_revision), policy.sales_enabled], [null, "0", null]);
+          assertEquals(run.results[1].rows.length, 0);
+          assertEquals(run.results[2].rows[0].cutoff_present, false);
+          assertEquals(verdictFor(resolveRequest({ check: "PROD-01" }), run), "needs-review");
+          assert(text.includes("| none | 0 | none |"), text);
+        }
+        // Synthetic production history (write-once tables, so re-runs reuse the same rows): an Off
+        // revision, then an On revision with two 3.0 builds and the cutoff it froze; plus a
+        // production rating revision that must not be mistaken for sales.
+        const sales = (revision: number, on: boolean, builds: string) =>
+          `{"schema":1,"environment":"production","revision":${revision},"salesEnabled":${on},"channels":{"apple":{"enabled":${on},"offer":"still-pro-v3"},"web":{"enabled":${on},"offer":"still-pro-v3"}},"builds":[${builds}]}`;
+        const on = '{"surface":"apple_mobile_host","build":"3.0.0"},{"surface":"chrome_desktop","build":"3.0.0.1"}';
+        await admin.begin(async (tx) => {
+          for (const [n, namespace, revision] of [[601, "sales", 1], [602, "sales", 2], [603, "rating", 7]] as const) {
+            await tx`insert into private.product_policy_operations(operation_id, kind, namespace, environment, owner_subject,
+                expected_revision, body, preview_hash, created_at, expires_at, status, applied_revision, applied_at)
+              values (${id(n)}, 'apply', ${namespace}, 'production', ${CUSTOMER}, ${revision - 1}, '{}', ${"0".repeat(64)},
+                clock_timestamp(), clock_timestamp() + interval '5 minutes', 'applied', ${revision}, clock_timestamp())
+              on conflict (operation_id) do nothing`;
+          }
+          await tx`insert into private.product_policy_revisions(namespace, environment, revision, body, operation_id, published_at)
+            values ('sales', 'production', 1, ${sales(1, false, "")}, ${id(601)}, clock_timestamp()),
+                   ('sales', 'production', 2, ${sales(2, true, on)}, ${id(602)}, clock_timestamp()),
+                   ('rating', 'production', 7, '{}', ${id(603)}, clock_timestamp())
+            on conflict do nothing`;
+          await tx`insert into private.paid_cutoff(environment, product, benefits, sales_revision, operation_id, activated_at)
+            values ('production', 'still-free-v2', ${["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"]}, 2, ${id(602)}, clock_timestamp())
+            on conflict do nothing`;
+        });
+        const request = resolveRequest({ check: "PROD-01" });
+        const { run, text } = await report("PROD-01");
+        const [policy] = run.results[0].rows;
+        assertEquals(
+          [String(policy.sales_revision), String(policy.expected_revision), policy.sales_enabled, policy.apple_enabled, policy.apple_offer, policy.web_enabled, policy.web_offer],
+          ["2", "2", true, true, "still-pro-v3", true, "still-pro-v3"],
+        );
+        assertEquals(run.results[1].rows.map((r) => `${r.surface} ${r.build}`), ["apple_mobile_host 3.0.0", "chrome_desktop 3.0.0.1"]);
+        const [cutoff] = run.results[2].rows;
+        assertEquals([cutoff.cutoff_present, cutoff.cutoff_product, cutoff.cutoff_benefits, String(cutoff.cutoff_sales_revision)],
+          [true, "still-free-v2", ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"], "2"]);
+        assertEquals(verdictFor(request, run), "needs-review");
+        assert(text.includes("| 2 | 2 |") && text.includes("| apple_mobile_host | 3.0.0 |"), text);
+        assert(text.includes("| yes | still-free-v2 | facebook.reels, instagram.reels, tiktok.all, youtube.shorts | 2 |"), text);
+        assert(!text.includes("<withheld>"), text);
+        assert(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(text), "PROD-01 printed a raw id");
+        assert(!text.includes("@") && !text.includes("0".repeat(64)), "PROD-01 printed an email or a preview hash");
+      });
+
+      await t.step("before migration 0025's grant, other checks run and PROD-01 refuses without reading", async () => {
+        await admin.unsafe(`revoke select on still_qa_checks.production_sales_summary from ${CHECKER_ROLE}`);
+        try {
+          await runCheck(checker!, resolveRequest({ check: "DB-31" }));
+          const error = await assertRejects(() => runCheck(checker!, resolveRequest({ check: "PROD-01" })), CheckError);
+          assert(error.message.includes("migration 0025"), error.message);
+        } finally {
+          await admin.unsafe(`grant select on still_qa_checks.production_sales_summary to ${CHECKER_ROLE}`);
+        }
+        await runCheck(checker!, resolveRequest({ check: "PROD-01" }));
       });
 
       await t.step("the deletion check accepts a registered account whose Auth row is gone", async () => {

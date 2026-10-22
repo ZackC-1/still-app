@@ -130,6 +130,7 @@ const loginSwitch = ({
 
 /** Kind of an operation that publishes a pinned SANDBOX sales body (one transaction, compare-and-set). */
 export const QA_SALES_POLICY = "qa-sales-policy";
+export const PRODUCTION_SALES_POLICY = "production-sales-policy";
 /** Kind of an operation that enables or disables QA sandbox memberships (one transaction, never deletes). */
 export const QA_SUBJECTS = "qa-subjects";
 
@@ -212,6 +213,32 @@ export const QA_SANDBOX_CUTOFF = Object.freeze({
     "tiktok.all",
     "youtube.shorts",
   ]),
+});
+
+/** Candidate release admission; apply remains blocked until final package versions are verified. */
+export const PRODUCTION_SALES_BUILDS = Object.freeze([
+  ["chrome_desktop", "3.0.0"], ["firefox_desktop", "3.0.0"],
+  ["apple_mobile_host", "3.0"], ["apple_macos_host", "3.0"],
+].map(([surface, build]) => Object.freeze({ surface, build })));
+export const PRODUCTION_SALES_TEMPLATES = Object.freeze(Object.fromEntries(
+  [false, true].map(enabled => [enabled ? "on" : "off", Object.freeze({
+    ...salesTemplate(enabled), environment: "production", builds: PRODUCTION_SALES_BUILDS,
+  })]),
+));
+/** Owner approved these four shipped-free benefits on 21 October 2026. */
+export const PRODUCTION_CUTOFF = Object.freeze({
+  product: "still-free-v2",
+  benefits: Object.freeze(["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"]),
+});
+const productionSalesPolicy = (mode, files) => Object.freeze({
+  ...salesPolicy(mode, files), kind: PRODUCTION_SALES_POLICY,
+  workflowOperation: "production-sales-policy", run: `production-sales-policy with policy_mode ${mode}`,
+  template: PRODUCTION_SALES_TEMPLATES[mode], cutoff: mode === "on" ? PRODUCTION_CUTOFF : null,
+  provisional: Object.freeze(mode === "on" ? ["Final packaged release versions must match the pinned production build list"] : []),
+  effect: mode === "on" ? "production sales enabled for the pinned builds; approved free-benefit cutoff written once" : "new production sales disabled; existing rights and paid recovery remain available",
+  lane: "production sales", counterpart: `production-sales-policy with policy_mode ${mode === "on" ? "off" : "on"}`,
+  lastResort: "restore the reviewed production off policy through this protected operation; never pause free settings sync",
+  preconditionRecovery: "Nothing was written. Read PROD-01, inspect the current production revision and immutable cutoff, then plan again with the verified expected revision.",
 });
 
 /** The exact bytes private.product_policy_render('sales', template + revision) produces. */
@@ -383,6 +410,14 @@ export const OPERATIONS = Object.freeze({
         "c6c5277462a826f796ee259226d70da53585d581bae6a59446cb1a78e56df25f",
     },
   }),
+  "production-sales-policy-off": productionSalesPolicy("off", {
+    sql: { path: "scripts/backend/deploy/operations/production-sales-policy-off.sql", sha256: "bb8d53882e74502bfbb93f5614bd71dcb72d9600e358601f447e59375d1e6096" },
+    verification: { path: "scripts/backend/deploy/operations/production-sales-policy-off.verify.sql", sha256: "e821debcb14f8878fcfafa7481bd8a1fb93cf57365cbd8a847e5050e427f9b98" },
+  }),
+  "production-sales-policy-on": productionSalesPolicy("on", {
+    sql: { path: "scripts/backend/deploy/operations/production-sales-policy-on.sql", sha256: "b30171be17e08164aa21a01c6cd93b1eb15aecb3c2d4e4cf78dcf772d2f37752" },
+    verification: { path: "scripts/backend/deploy/operations/production-sales-policy-on.verify.sql", sha256: "202cf3c1736c255594cd6f646b36a620ff86bfdf9e582a9ebeebbba472750b10" },
+  }),
   "qa-sandbox-subjects-enable": subjects("enable", {
     sql: {
       path: `${OPERATIONS_DIR}/qa-sandbox-subjects-enable.sql`,
@@ -429,6 +464,7 @@ export const WORKFLOW_OPERATIONS = Object.freeze({
     off: "qa-sandbox-sales-policy-off",
     on: "qa-sandbox-sales-policy-on",
   }),
+  "production-sales-policy": Object.freeze({ off: "production-sales-policy-off", on: "production-sales-policy-on" }),
   "qa-sandbox-subjects": Object.freeze({
     enable: "qa-sandbox-subjects-enable",
     disable: "qa-sandbox-subjects-disable",
@@ -567,6 +603,129 @@ const count = (n) => Number.isInteger(n) && n >= 0;
  * into a safe step; `refusals` names the SQLSTATEs the SQL raises deliberately (nothing written);
  * `expectedRoleDiff` is the only change to role facts the operation may cause.
  */
+function salesPolicyKind(environment, templates, cutoff) {
+  return Object.freeze({
+    definition(op, bad) {
+      if (op.role !== undefined || op.login !== undefined)
+        bad("a sales-policy operation touches no role");
+      if (!["off", "on"].includes(op.policyMode)) bad("bad policy mode");
+      if (op.template !== templates[op.policyMode])
+        bad("the body template is not the pinned one");
+      if (op.template.environment !== environment)
+        bad(`a sales-policy operation may only publish a ${environment} body`);
+      if (op.cutoff !== (op.policyMode === "on" ? cutoff : null))
+        bad("only the on mode writes the pinned cutoff");
+      if (op.noChange !== `already-${op.policyMode}`)
+        bad("missing no-change outcome");
+      if (!Array.isArray(op.provisional)) bad("missing provisional list");
+    },
+    scope: (sql, op) =>
+      assertTransactionScope(sql, op, {
+        getenv: [
+          "STILL_OPERATION_EXPECTED_REVISION",
+          "STILL_OPERATION_POLICY_BODY",
+        ],
+        writes:
+          op.policyMode === "on"
+            ? [
+                "private.product_policy_operations",
+                "private.product_policy_revisions",
+                "private.paid_cutoff",
+              ]
+            : [
+                "private.product_policy_operations",
+                "private.product_policy_revisions",
+              ],
+        reads: ["private.product_policy_revisions", "private.paid_cutoff"],
+        updates: false,
+        required: [`'${environment}'`],
+        forbiddenEnvironment: environment === "production" ? "sandbox" : "production",
+      }),
+    inputs(op, { expectedRevision, subjectsSha256 }) {
+      noExtraInputs({ subjectsSha256 });
+      const text = String(expectedRevision ?? "").trim();
+      if (!/^(0|[1-9][0-9]{0,15})$/.test(text) || Number(text) > MAX_REVISION)
+        throw new Refusal(
+          "operation-input-invalid",
+          `policy_expected_revision must be the current ${environment} sales revision (0 for the first entry)`,
+        );
+      const expected = Number(text);
+      const body = renderSalesBody(op.template, expected + 1);
+      return {
+        workflowOperation: op.workflowOperation,
+        policyMode: op.policyMode,
+        expectedRevision: expected,
+        policyRevision: expected + 1,
+        body,
+        bodySha256: sha256(body),
+        ...(op.cutoff
+          ? {
+              cutoff: {
+                product: op.cutoff.product,
+                benefits: [...op.cutoff.benefits],
+              },
+            }
+          : {}),
+        provisional: [...op.provisional],
+      };
+    },
+    pinned: (plan, op) =>
+      plan.policyMode === op.policyMode &&
+      Number.isSafeInteger(plan.expectedRevision) &&
+      plan.expectedRevision >= 0 &&
+      plan.expectedRevision <= MAX_REVISION &&
+      plan.body === renderSalesBody(op.template, plan.expectedRevision + 1) &&
+      plan.bodySha256 === sha256(plan.body) &&
+      canonical(plan.cutoff ?? null) ===
+        canonical(
+          op.cutoff
+            ? { product: op.cutoff.product, benefits: [...op.cutoff.benefits] }
+            : null,
+        ) &&
+      canonical(plan.provisional) === canonical([...op.provisional]),
+    vars: (plan) => ({
+      STILL_OPERATION_EXPECTED_REVISION: String(plan.expectedRevision),
+      STILL_OPERATION_POLICY_BODY: plan.body,
+    }),
+    closes: (op) =>
+      op.policyMode === "on"
+        ? [
+            `${environment}_cutoff_missing`,
+            `${environment}_sales_policy_differs`,
+            `${environment}_sales_policy_missing`,
+          ]
+        : [`${environment}_sales_policy_differs`, `${environment}_sales_policy_missing`],
+    wrote(op, line, receipt) {
+      const result = parseOutcome(line, ["revision", "cutoff"]);
+      if (
+        !result ||
+        !count(result.revision) ||
+        !["inserted", "present", "unchanged"].includes(result.cutoff)
+      ) {
+        receipt.warnings.push("result-unreadable");
+        return {
+          outcome: "warning",
+          detail: "published; the result line was unreadable",
+        };
+      }
+      receipt.result = result;
+      return {
+        outcome: "ok",
+        detail: `published ${environment} sales revision ${result.revision}; ${environment} paid cutoff ${result.cutoff}`,
+      };
+    },
+    refusals: Object.freeze({
+      QP000: "operator-role-required",
+      QP001: "stale-expected-revision",
+      QP002: "body-invalid",
+      QP003: "body-differs-from-plan",
+      QP004: "body-wrong-for-mode",
+      QP005: "expected-revision-invalid",
+    }),
+    expectedRoleDiff: noRoleChange,
+  });
+}
+
 export const KINDS = Object.freeze({
   [ROLE_LOGIN]: Object.freeze({
     definition(op, bad) {
@@ -622,125 +781,8 @@ export const KINDS = Object.freeze({
         : { removed: [], added: [] };
     },
   }),
-  [QA_SALES_POLICY]: Object.freeze({
-    definition(op, bad) {
-      if (op.role !== undefined || op.login !== undefined)
-        bad("a sales-policy operation touches no role");
-      if (!["off", "on"].includes(op.policyMode)) bad("bad policy mode");
-      if (op.template !== QA_SANDBOX_SALES_TEMPLATES[op.policyMode])
-        bad("the body template is not the pinned one");
-      if (op.template.environment !== "sandbox")
-        bad("a sales-policy operation may only publish a sandbox body");
-      if (op.cutoff !== (op.policyMode === "on" ? QA_SANDBOX_CUTOFF : null))
-        bad("only the on mode writes the pinned cutoff");
-      if (op.noChange !== `already-${op.policyMode}`)
-        bad("missing no-change outcome");
-      if (!Array.isArray(op.provisional)) bad("missing provisional list");
-    },
-    scope: (sql, op) =>
-      assertTransactionScope(sql, op, {
-        getenv: [
-          "STILL_OPERATION_EXPECTED_REVISION",
-          "STILL_OPERATION_POLICY_BODY",
-        ],
-        writes:
-          op.policyMode === "on"
-            ? [
-                "private.product_policy_operations",
-                "private.product_policy_revisions",
-                "private.paid_cutoff",
-              ]
-            : [
-                "private.product_policy_operations",
-                "private.product_policy_revisions",
-              ],
-        reads: ["private.product_policy_revisions", "private.paid_cutoff"],
-        updates: false,
-        required: ["'sandbox'"],
-      }),
-    inputs(op, { expectedRevision, subjectsSha256 }) {
-      noExtraInputs({ subjectsSha256 });
-      const text = String(expectedRevision ?? "").trim();
-      if (!/^(0|[1-9][0-9]{0,15})$/.test(text) || Number(text) > MAX_REVISION)
-        throw new Refusal(
-          "operation-input-invalid",
-          "policy_expected_revision must be the current sandbox sales revision (0 for the first entry)",
-        );
-      const expected = Number(text);
-      const body = renderSalesBody(op.template, expected + 1);
-      return {
-        workflowOperation: op.workflowOperation,
-        policyMode: op.policyMode,
-        expectedRevision: expected,
-        policyRevision: expected + 1,
-        body,
-        bodySha256: sha256(body),
-        ...(op.cutoff
-          ? {
-              cutoff: {
-                product: op.cutoff.product,
-                benefits: [...op.cutoff.benefits],
-              },
-            }
-          : {}),
-        provisional: [...op.provisional],
-      };
-    },
-    pinned: (plan, op) =>
-      plan.policyMode === op.policyMode &&
-      Number.isSafeInteger(plan.expectedRevision) &&
-      plan.expectedRevision >= 0 &&
-      plan.expectedRevision <= MAX_REVISION &&
-      plan.body === renderSalesBody(op.template, plan.expectedRevision + 1) &&
-      plan.bodySha256 === sha256(plan.body) &&
-      canonical(plan.cutoff ?? null) ===
-        canonical(
-          op.cutoff
-            ? { product: op.cutoff.product, benefits: [...op.cutoff.benefits] }
-            : null,
-        ) &&
-      canonical(plan.provisional) === canonical([...op.provisional]),
-    vars: (plan) => ({
-      STILL_OPERATION_EXPECTED_REVISION: String(plan.expectedRevision),
-      STILL_OPERATION_POLICY_BODY: plan.body,
-    }),
-    closes: (op) =>
-      op.policyMode === "on"
-        ? [
-            "sandbox_cutoff_missing",
-            "sandbox_sales_policy_differs",
-            "sandbox_sales_policy_missing",
-          ]
-        : ["sandbox_sales_policy_differs", "sandbox_sales_policy_missing"],
-    wrote(op, line, receipt) {
-      const result = parseOutcome(line, ["revision", "cutoff"]);
-      if (
-        !result ||
-        !count(result.revision) ||
-        !["inserted", "present", "unchanged"].includes(result.cutoff)
-      ) {
-        receipt.warnings.push("result-unreadable");
-        return {
-          outcome: "warning",
-          detail: "published; the result line was unreadable",
-        };
-      }
-      receipt.result = result;
-      return {
-        outcome: "ok",
-        detail: `published sandbox sales revision ${result.revision}; sandbox paid cutoff ${result.cutoff}`,
-      };
-    },
-    refusals: Object.freeze({
-      QP000: "operator-role-required",
-      QP001: "stale-expected-revision",
-      QP002: "body-invalid",
-      QP003: "body-differs-from-plan",
-      QP004: "body-wrong-for-mode",
-      QP005: "expected-revision-invalid",
-    }),
-    expectedRoleDiff: noRoleChange,
-  }),
+  [QA_SALES_POLICY]: salesPolicyKind("sandbox", QA_SANDBOX_SALES_TEMPLATES, QA_SANDBOX_CUTOFF),
+  [PRODUCTION_SALES_POLICY]: salesPolicyKind("production", PRODUCTION_SALES_TEMPLATES, PRODUCTION_CUTOFF),
   [QA_SUBJECTS]: Object.freeze({
     definition(op, bad) {
       if (op.role !== undefined || op.login !== undefined)
@@ -864,12 +906,12 @@ function noExtraInputs(inputs) {
  * One-transaction operation: exactly `begin; [select set_config(...) as configured;] do $$ ... $$;
  * select current_setting(outcome); commit;`, with only the allowed `\getenv` lines, inserts and
  * updates only into `writes`, reads only from `reads` and `writes`, no other role, no DDL or
- * privilege change, no dynamic SQL, no delete and never the production environment.
+ * privilege change, no dynamic SQL, no delete and never the other environment.
  */
 function assertTransactionScope(
   sql,
   op,
-  { getenv, writes, reads, updates, required },
+  { getenv, writes, reads, updates, required, forbiddenEnvironment = "production" },
 ) {
   const fail = (why) => {
     throw new Refusal("operation-scope", `The operation SQL ${why}`);
@@ -906,7 +948,8 @@ function assertTransactionScope(
   const body = flat.slice(prefix.length, flat.length - suffix.length);
   if (/\$[a-z_]*\$/.test(body)) fail("nests another quoted body");
   const forbidden =
-    /\b(delete|truncate|drop|alter|grant|revoke|create|copy|execute|call|dblink\w*|lo_\w+|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|security|reset|vacuum|notify|listen|comment|production)\b|\bset\s+(role|session|local)\b/;
+    /\b(delete|truncate|drop|alter|grant|revoke|create|copy|execute|call|dblink\w*|lo_\w+|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|security|reset|vacuum|notify|listen|comment)\b|\bset\s+(role|session|local)\b/;
+  if (new RegExp(`\\b${forbiddenEnvironment}\\b`).test(body)) fail(`names ${forbiddenEnvironment}, which this kind may never touch`);
   const hit = forbidden.exec(body);
   if (hit) fail(`uses ${hit[0]}, which this kind may never do`);
   const role = /\bstill_(?!operation\b)[a-z0-9_]+/.exec(body);
@@ -1787,7 +1830,7 @@ export async function runOperationReplay({
       loginEnv,
       snapshot,
     };
-    return op.kind === QA_SALES_POLICY
+    return [QA_SALES_POLICY, PRODUCTION_SALES_POLICY].includes(op.kind)
       ? replaySalesPolicy(shared)
       : replaySubjects(shared);
   }
@@ -1971,7 +2014,7 @@ export async function runOperationReplay({
 
 /** A plan for the same kind in another mode or at another revision (rehearsal follow-ups only). */
 export function derivePolicyPlan(plan, mode, expected, registry = OPERATIONS) {
-  const name = WORKFLOW_OPERATIONS["qa-sandbox-sales-policy"][mode];
+  const name = WORKFLOW_OPERATIONS[plan.workflowOperation][mode];
   const op = operationNamed(name, registry);
   const { cutoff: _cutoff, ...rest } = plan;
   return {
@@ -1979,7 +2022,7 @@ export function derivePolicyPlan(plan, mode, expected, registry = OPERATIONS) {
     operation: name,
     sql: { ...op.sql },
     verification: { ...op.verification },
-    ...KINDS[QA_SALES_POLICY].inputs(op, {
+    ...KINDS[op.kind].inputs(op, {
       expectedRevision: String(expected),
     }),
   };
@@ -2038,6 +2081,10 @@ async function replaySalesPolicy({
   snapshot,
 }) {
   const target = "local-replay";
+  const environment = op.template.environment;
+  const otherEnvironment = environment === "production" ? "sandbox" : "production";
+  const templates = environment === "production" ? PRODUCTION_SALES_TEMPLATES : QA_SANDBOX_SALES_TEMPLATES;
+  const cutoff = environment === "production" ? PRODUCTION_CUTOFF : QA_SANDBOX_CUTOFF;
   const run = (p) =>
     runOperation({ exec, plan: p, dir, conn, target, cwd, log, registry });
   const e = plan.expectedRevision;
@@ -2058,10 +2105,10 @@ async function replaySalesPolicy({
     JSON.parse(
       await sql(
         "select pg_catalog.json_build_object(" +
-          "'production', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('n', namespace, 'r', revision, 'b', pg_catalog.md5(body), 'o', operation_id) order by namespace, revision), '[]') from private.product_policy_revisions where environment = 'production'), " +
-          "'productionCutoffs', (select pg_catalog.count(*) from private.paid_cutoff where environment = 'production'), " +
-          "'sandbox', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('n', namespace, 'r', revision, 'b', pg_catalog.md5(body), 'o', operation_id) order by namespace, revision), '[]') from private.product_policy_revisions where environment = 'sandbox'), " +
-          "'sandboxCutoffs', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('p', product, 'b', benefits, 'r', sales_revision, 'o', operation_id)), '[]') from private.paid_cutoff where environment = 'sandbox'), " +
+          `'other', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('n', namespace, 'r', revision, 'b', pg_catalog.md5(body), 'o', operation_id) order by namespace, revision), '[]') from private.product_policy_revisions where environment = '${otherEnvironment}'), ` +
+          `'otherCutoffs', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('p', product, 'b', benefits, 'r', sales_revision, 'o', operation_id)), '[]') from private.paid_cutoff where environment = '${otherEnvironment}'), ` +
+          `'current', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('n', namespace, 'r', revision, 'b', pg_catalog.md5(body), 'o', operation_id) order by namespace, revision), '[]') from private.product_policy_revisions where environment = '${environment}'), ` +
+          `'currentCutoffs', (select coalesce(pg_catalog.json_agg(pg_catalog.json_build_object('p', product, 'b', benefits, 'r', sales_revision, 'o', operation_id)), '[]') from private.paid_cutoff where environment = '${environment}'), ` +
           `'operatorRows', (select pg_catalog.count(*) from private.product_policy_operations where owner_subject = '${PROTECTED_OPERATOR_SUBJECT}' and status = 'applied'), ` +
           "'ledgerRows', (select pg_catalog.count(*) from private.product_policy_operations))::text",
         { readOnly: true },
@@ -2076,7 +2123,7 @@ async function replaySalesPolicy({
         "-A",
         "-t",
         "-c",
-        "select private.read_product_policy('sales', 'sandbox')",
+        `select private.read_product_policy('sales', '${environment}')`,
       ],
       { cwd, env: loginEnv("still_policy_reader") },
     );
@@ -2084,22 +2131,26 @@ async function replaySalesPolicy({
   };
 
   // Starting state, rehearsal only.
-  await seed("production", 1, {
+  await seed(otherEnvironment, 1, {
     ...QA_SANDBOX_SALES_TEMPLATES.off,
     builds: [],
   });
+  if (environment === "production") await sql(
+    "insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at) " +
+    `select 'sandbox', '${QA_SANDBOX_CUTOFF.product}', array[${QA_SANDBOX_CUTOFF.benefits.map(b => `'${b}'`).join(", ")}], 1, operation_id, pg_catalog.clock_timestamp() from private.product_policy_revisions where environment = 'sandbox' and revision = 1`,
+  );
   const opposite = op.policyMode === "on" ? "off" : "on";
   for (let r = 1; r <= e; r++) {
     await seed(
-      "sandbox",
+      environment,
       r,
-      QA_SANDBOX_SALES_TEMPLATES[r === e ? opposite : "off"],
+      templates[r === e ? opposite : "off"],
     );
     if (r === e && opposite === "on")
       await sql(
         "insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at) " +
-          `select 'sandbox', '${QA_SANDBOX_CUTOFF.product}', array[${QA_SANDBOX_CUTOFF.benefits.map((b) => `'${b}'`).join(", ")}], ${r}, ` +
-          `operation_id, pg_catalog.clock_timestamp() from private.product_policy_revisions where environment = 'sandbox' and revision = ${r}`,
+          `select '${environment}', '${cutoff.product}', array[${cutoff.benefits.map((b) => `'${b}'`).join(", ")}], ${r}, ` +
+          `operation_id, pg_catalog.clock_timestamp() from private.product_policy_revisions where environment = '${environment}' and revision = ${r}`,
       );
   }
   await sql(
@@ -2131,13 +2182,13 @@ async function replaySalesPolicy({
         STILL_OPERATION_POLICY_BODY: body,
       },
     });
-  const productionBody = renderSalesBody(
-    { ...op.template, environment: "production" },
+  const otherBody = renderSalesBody(
+    { ...op.template, environment: otherEnvironment },
     e + 1,
   );
-  const wrongBody = await direct(String(e), productionBody);
+  const wrongBody = await direct(String(e), otherBody);
   prove(
-    "negative control: a body other than the approved one (here a production body) is refused",
+    "negative control: a body for the other environment is refused",
     wrongBody.code !== 0 && wrongBody.refusal === "QP003",
     wrongBody.refusal ?? `exit ${wrongBody.code}`,
   );
@@ -2161,27 +2212,27 @@ async function replaySalesPolicy({
   const after = await snapshot();
   const afterFacts = await facts();
   prove(
-    "production sales and rating revisions unchanged",
-    sameList(afterFacts.production, startFacts.production) &&
-      startFacts.production.length === 1,
-    `${afterFacts.production.length} production revision(s)`,
+    `${otherEnvironment} sales and rating revisions unchanged`,
+    sameList(afterFacts.other, startFacts.other) &&
+      startFacts.other.length === 1,
+    `${afterFacts.other.length} ${otherEnvironment} revision(s)`,
   );
   prove(
-    "no production paid cutoff exists",
-    afterFacts.productionCutoffs === 0,
-    `${afterFacts.productionCutoffs}`,
+    `${otherEnvironment} paid cutoff unchanged`,
+    sameList(afterFacts.otherCutoffs, startFacts.otherCutoffs),
+    `${afterFacts.otherCutoffs.length}`,
   );
-  const newRows = afterFacts.sandbox.slice(startFacts.sandbox.length);
+  const newRows = afterFacts.current.slice(startFacts.current.length);
   prove(
-    "sandbox revisions only appended: every earlier row unchanged and exactly one new revision",
+    `${environment} revisions only appended: every earlier row unchanged and exactly one new revision`,
     sameList(
-      afterFacts.sandbox.slice(0, startFacts.sandbox.length),
-      startFacts.sandbox,
+      afterFacts.current.slice(0, startFacts.current.length),
+      startFacts.current,
     ) &&
       newRows.length === 1 &&
       newRows[0].n === "sales" &&
       newRows[0].r === e + 1,
-    `${startFacts.sandbox.length} -> ${afterFacts.sandbox.length}`,
+    `${startFacts.current.length} -> ${afterFacts.current.length}`,
   );
   prove(
     "one ledger row recorded for the fixed protected-workflow operator",
@@ -2190,25 +2241,25 @@ async function replaySalesPolicy({
   );
   const served = await readerSees();
   prove(
-    "the policy reader (the qa-sandbox-product-policy route's login) reads exactly the approved body",
+    "the policy reader reads exactly the approved body",
     served === plan.body,
     served === null ? "read failed" : `${served.length} bytes`,
   );
   const cutoffWanted =
-    op.policyMode === "on" && startFacts.sandboxCutoffs.length === 0;
+    op.policyMode === "on" && startFacts.currentCutoffs.length === 0;
   prove(
     cutoffWanted
-      ? "the sandbox paid cutoff was written once, with the pinned content, at the new revision"
-      : "the sandbox paid cutoff is unchanged",
+      ? `the ${environment} paid cutoff was written once, with the pinned content, at the new revision`
+      : `the ${environment} paid cutoff is unchanged`,
     cutoffWanted
-      ? afterFacts.sandboxCutoffs.length === 1 &&
-          afterFacts.sandboxCutoffs[0].p === QA_SANDBOX_CUTOFF.product &&
-          sameList(afterFacts.sandboxCutoffs[0].b, [
-            ...QA_SANDBOX_CUTOFF.benefits,
+      ? afterFacts.currentCutoffs.length === 1 &&
+          afterFacts.currentCutoffs[0].p === cutoff.product &&
+          sameList(afterFacts.currentCutoffs[0].b, [
+            ...cutoff.benefits,
           ]) &&
-          afterFacts.sandboxCutoffs[0].r === e + 1
-      : sameList(afterFacts.sandboxCutoffs, startFacts.sandboxCutoffs),
-    `${afterFacts.sandboxCutoffs.length} sandbox cutoff(s)`,
+          afterFacts.currentCutoffs[0].r === e + 1
+      : sameList(afterFacts.currentCutoffs, startFacts.currentCutoffs),
+    `${afterFacts.currentCutoffs.length} ${environment} cutoff(s)`,
   );
   const roleDiff = diffFacts(start.roles, after.roles);
   prove(
@@ -2260,8 +2311,8 @@ async function replaySalesPolicy({
       off.status === "verified" &&
         onAgain.status === "verified" &&
         onAgain.result?.cutoff === "present" &&
-        later.sandbox.length === afterFacts.sandbox.length + 2 &&
-        sameList(later.sandboxCutoffs, afterFacts.sandboxCutoffs),
+        later.current.length === afterFacts.current.length + 2 &&
+        sameList(later.currentCutoffs, afterFacts.currentCutoffs),
       `${off.status}, ${onAgain.status}, cutoff ${onAgain.result?.cutoff ?? "unknown"}`,
     );
   }
@@ -2620,18 +2671,20 @@ function renderPlanInputs(plan) {
       "- ⚠️ **Provisional content: plan-only.** Apply is refused until a reviewed change settles it:",
       ...plan.provisional.map((reason) => `  - ${reason}`),
     );
-  if (plan.operationKind === QA_SALES_POLICY)
+  if ([QA_SALES_POLICY, PRODUCTION_SALES_POLICY].includes(plan.operationKind)) {
+    const environment = plan.operationKind === PRODUCTION_SALES_POLICY ? "production" : "sandbox";
     lines.push(
-      `- Sandbox sales revision: compare-and-set from \`${plan.expectedRevision}\` to \`${plan.policyRevision}\` (environment fixed to \`sandbox\`; production is never named).`,
+      `- ${environment} sales revision: compare-and-set from \`${plan.expectedRevision}\` to \`${plan.policyRevision}\` (fixed environment; the other environment is untouched).`,
       `- Exact body published (SHA-256 \`${plan.bodySha256}\`):`,
       "",
       "```json",
       fence(plan.body),
       "```",
       plan.cutoff
-        ? `- First \`on\` only, and only if the sandbox has none: write-once sandbox paid cutoff \`${plan.cutoff.product}\` with \`${plan.cutoff.benefits.join(", ")}\`.`
-        : "- The sandbox paid cutoff is not written.",
+        ? `- First \`on\` only, and only if ${environment} has none: write-once ${environment} paid cutoff \`${plan.cutoff.product}\` with \`${plan.cutoff.benefits.join(", ")}\`.`
+        : `- The ${environment} paid cutoff is not written.`,
     );
+  }
   if (plan.operationKind === QA_SUBJECTS)
     lines.push(
       plan.policyMode === "enable"

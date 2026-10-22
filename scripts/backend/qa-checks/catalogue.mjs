@@ -7,6 +7,12 @@
 // account ids inside the database through the owner-filled registry; no email, id or free-form
 // SQL is ever an input. Every output column has a declared type that report.mjs enforces before
 // anything is printed.
+//
+// Production is read in exactly two ways: as one keyed digest (PRODUCTION_QUERIES below, never
+// printed), and by PROD-01, which prints the production sales policy facts the public
+// product-policy route already serves plus the paid cutoff's product configuration, through the
+// one view migration 0025 adds. No production account, right, count of people or anything keyed to
+// a person is ever read in the clear.
 
 /** The designated Still QA accounts: workflow label -> programme name. */
 export const LABELS = Object.freeze({
@@ -66,6 +72,9 @@ const ENV = state(...ENVIRONMENTS);
 const SOURCE = state("revenuecat", "apple");
 const PRODUCT = state("still_pro_v3", "still_sync");
 const OP_STATE = state(...OPERATION_STATES);
+/** Product policy surfaces (0016 grammar, PRODUCT_POLICY_SURFACES) and the one sales offer. */
+const SURFACE = state("chrome_desktop", "edge_desktop", "firefox_desktop", "firefox_android", "apple_mobile_host", "apple_macos_host");
+const OFFER = state("still-pro-v3");
 
 const RIGHTS_FIELDS = {
   right_id: "ref",
@@ -189,7 +198,7 @@ const BASELINE_QUERIES = [
 ];
 
 /**
- * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | { type: "state", values: string[] }} FieldType
+ * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | "id" | "ids" | { type: "state", values: string[] }} FieldType
  * @typedef {{ name: string, sql: string, params?: number[], fields: Record<string, FieldType> }} CheckQuery
  * @typedef {"pass" | "fail" | undefined} Verdict
  * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline") => Verdict, notes?: (rows: Record<string, unknown>[][]) => string[], queries: CheckQuery[] }} Check
@@ -868,6 +877,53 @@ export const CHECKS = Object.freeze([
         name: "unknown settings keys and unhashed rate-limit keys",
         sql: "select p.unknown_settings_keys, p.unhashed_rate_keys from still_qa_checks.privacy_summary p",
         fields: { unknown_settings_keys: "count", unhashed_rate_keys: "count" },
+      },
+    ],
+  },
+  {
+    id: "production-sales",
+    programIds: ["PROD-01"],
+    title: "Production sales and cutoff summary (public policy facts and cutoff configuration; no account data)",
+    expected:
+      "One summary row. Before production sales are switched on: no production sales revision (sales Off), expected_revision 0 and no cutoff. After the owner switches them on (go-live runbook 2.6): the new revision, sales_enabled yes, both channels enabled with offer still-pro-v3, only the approved 3.0 builds, and the write-once cutoff present with the approved product id and benefits. expected_revision is the value the next production sales operation must name.",
+    accounts: [],
+    verdict: ([summary, , cutoff]) => (summary.length === 1 && cutoff.length === 1 ? undefined : "fail"),
+    queries: [
+      {
+        name: "production sales policy (newest revision; the same facts the public product-policy route serves)",
+        sql:
+          "select s.sales_revision, s.expected_revision, s.sales_published_at, s.sales_enabled, s.apple_enabled, s.apple_offer, " +
+          "s.web_enabled, s.web_offer from still_qa_checks.production_sales_summary s",
+        fields: {
+          sales_revision: "number",
+          expected_revision: "number",
+          sales_published_at: "timestamp",
+          sales_enabled: "bool",
+          apple_enabled: "bool",
+          apple_offer: OFFER,
+          web_enabled: "bool",
+          web_offer: OFFER,
+        },
+      },
+      {
+        name: "production approved builds",
+        sql:
+          "select b ->> 'surface' as surface, b ->> 'build' as build from still_qa_checks.production_sales_summary s, " +
+          "pg_catalog.jsonb_array_elements(s.builds) b order by 1, 2",
+        fields: { surface: SURFACE, build: "id" },
+      },
+      {
+        name: "production paid cutoff (write-once product configuration)",
+        sql:
+          "select s.cutoff_present, s.cutoff_product, s.cutoff_benefits, s.cutoff_sales_revision, s.cutoff_activated_at " +
+          "from still_qa_checks.production_sales_summary s",
+        fields: {
+          cutoff_present: "bool",
+          cutoff_product: "id",
+          cutoff_benefits: "ids",
+          cutoff_sales_revision: "number",
+          cutoff_activated_at: "timestamp",
+        },
       },
     ],
   },

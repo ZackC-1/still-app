@@ -7,7 +7,7 @@ import { PgAppleAccessStore } from "../_shared/apple-access-store.ts";
 import { createAppleAccessVerifier } from "../_shared/apple-access.ts";
 import { VerifiedAppleAccountRefresher } from "../_shared/apple-account-access.ts";
 import { PgAccessRightStore } from "../_shared/pg-access-store.ts";
-import { HttpRevenueCatAccessClient, parseAccessProductMappings } from "../_shared/revenuecat-access.ts";
+import { HttpRevenueCatAccessClient, parseAccessProductMappings, stripeMappingsBoundTo } from "../_shared/revenuecat-access.ts";
 
 // Entrypoint (config.toml: verify_jwt=true). The platform verifies the JWT; the handler verifies it
 // again and derives the subject only from it. Writes via the narrow entitlement-writer role.
@@ -25,11 +25,12 @@ const expected = authenticatedClaims(supabaseUrl || undefined);
 // Independently provisioned issuer key and reviewed provider mapping. Missing/bad material keeps
 // scoped issuance unavailable while the existing endpoint/free sync continue normally.
 const signer = await createAccessSigner({
-  environment: Deno.env.get("ACCESS_PROOF_ENVIRONMENT"), kid: Deno.env.get("ACCESS_PROOF_KEY_ID"),
+  environment: Deno.env.get("ACCESS_PROOF_ENVIRONMENT") === "production" ? "production" : undefined, kid: Deno.env.get("ACCESS_PROOF_KEY_ID"),
   privateKeyPkcs8Base64: Deno.env.get("ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64"),
   publicKeyHex: Deno.env.get("ACCESS_PROOF_PUBLIC_KEY_HEX"),
 });
-const products = parseAccessProductMappings(Deno.env.get("ACCESS_PROVIDER_PRODUCTS_JSON") ?? "");
+const products = stripeMappingsBoundTo(parseAccessProductMappings(Deno.env.get("ACCESS_PROVIDER_PRODUCTS_JSON") ?? ""),
+  Deno.env.get("STRIPE_PRICE_ID") ?? "");
 const project = Deno.env.get("REVENUECAT_PROJECT_ID") ?? "";
 const accessSecret = Deno.env.get("REVENUECAT_ACCESS_SECRET_API_KEY") ?? "";
 const appleVerifier = createAppleAccessVerifier({ environment: signer?.environment,
@@ -40,7 +41,7 @@ const appleVerifier = createAppleAccessVerifier({ environment: signer?.environme
 const apple = signer ? new VerifiedAppleAccountRefresher(new PgAppleAccessStore(sql, signer.environment),
   appleVerifier ?? { authenticate: () => Promise.resolve(null), refresh: () => Promise.resolve(null) }) : undefined;
 const access = signer && products && project && accessSecret ? {
-  signer, apple, rights: new PgAccessRightStore(sql), provider: new HttpRevenueCatAccessClient(accessSecret, project, products),
+  signer, apple, rights: new PgAccessRightStore(sql), provider: new HttpRevenueCatAccessClient(accessSecret, project, products,"production"),
 } : undefined;
 
 Deno.serve((req) => handleReconcile(req, { jwtSecret, jwksUrl, expected, store, rc, limiter, access }));

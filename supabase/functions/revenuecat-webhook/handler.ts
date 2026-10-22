@@ -7,6 +7,7 @@ import {
   MissingUserError,
 } from "../_shared/store.ts";
 import { affectedUuids, isUuid, type RcWebhookBody, type RcWebhookEvent } from "../_shared/types.ts";
+import { type ProductionWebhookAccess, refreshProductionWebhookAccess } from "./access.ts";
 
 // RevenueCat webhook (verify_jwt=false). Gated by the shared constant-time static-token check
 // (KTD5), idempotent on the event id via an atomic claim taken BEFORE side effects, and ALWAYS
@@ -17,6 +18,8 @@ export interface WebhookDeps {
   readonly token: string;
   readonly store: EntitlementStore;
   readonly rc: RevenueCatClient;
+  /** Undefined preserves the legacy deployment. Null means configured V3 is unavailable: retry. */
+  readonly productionAccess?: ProductionWebhookAccess | null;
 }
 
 export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response> {
@@ -34,7 +37,9 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
     return jsonResponse(400, { error: "invalid_event" });
   }
 
-  const uuids = affectedUuids(event);
+  // Review/TestFlight purchases never update production account rights, including the legacy
+  // projection. They are fulfilled through the independently gated device-only review route.
+  const uuids = deps.productionAccess !== undefined && event.environment === "SANDBOX" ? [] : affectedUuids(event);
 
   // Claim the event BEFORE side effects so a replayed delivery cannot re-run the RevenueCat
   // lookups and entitlement writes (workload idempotency). A failed reconcile RELEASES the claim,
@@ -54,7 +59,7 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
 
   let reconciled = 0;
   // Which step threw, so the log says where without ever carrying the error text.
-  let step: "rc_lookup" | "entitlement_write" | "complete" = "rc_lookup";
+  let step: "rc_lookup" | "entitlement_write" | "access_refresh" | "complete" = "rc_lookup";
   try {
     // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
     // Each UUID reconciles independently: a subject deleted from auth.users (the losing side of a
@@ -72,6 +77,12 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
           "webhook",
           subscriber?.original_app_user_id ?? null,
         );
+        if (deps.productionAccess !== undefined) {
+          step = "access_refresh";
+          if (!deps.productionAccess || !await refreshProductionWebhookAccess(uuid, deps.productionAccess)) {
+            throw new Error("Production access refresh unavailable");
+          }
+        }
         reconciled += 1;
       } catch (error) {
         if (!(error instanceof MissingUserError)) throw error;

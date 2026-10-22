@@ -184,7 +184,7 @@ Deno.test({
     const access = reconciled.data.access;
     assert(
       access.status === "verified" &&
-        access.environment === "sandbox" &&
+        access.environment === "production" &&
         Array.isArray(access.proofs) &&
         access.proofs.length === 1 &&
         Array.isArray(access.revocations),

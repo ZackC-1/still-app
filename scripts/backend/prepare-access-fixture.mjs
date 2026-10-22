@@ -80,7 +80,9 @@ export async function prepareAccessFixture(root, target, envFile, stateFile) {
   const kid = `access-rehearsal-${instance}`;
   const env = [
     "ENTITLEMENT_WRITER_DB_URL=postgresql://still_entitlement_writer:access-synthetic-writer-only@db:5432/postgres",
-    "ACCESS_PROOF_ENVIRONMENT=sandbox",
+    // Production route composition, but only a disposable local database and generated keys.
+    // The separately served qa-sandbox routes retain their own sandbox isolation rehearsal.
+    "ACCESS_PROOF_ENVIRONMENT=production",
     `ACCESS_PROOF_KEY_ID=${kid}`,
     `ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64=${privateBytes.toString("base64")}`,
     `ACCESS_PROOF_PUBLIC_KEY_HEX=${publicHex}`,

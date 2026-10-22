@@ -17,7 +17,7 @@ severity: medium
 tags: [supabase, edge-functions, rate-limiting, webhook-idempotency, revenuecat, cloudflare, cron, x-forwarded-for]
 date: 2026-07-10
 status: active
-last_updated: 2026-10-07
+last_updated: 2026-10-21
 ---
 
 # Hardening Supabase Edge Function surfaces
@@ -191,3 +191,26 @@ actual handler budgets, network grouping, missing/failed configuration, no-op/au
 and the real `index.ts` composition with synthetic environment configuration. Test the actual
 entrypoint as well as dependency-injected handlers: otherwise a safe handler can still ship
 without its limiter dependency.
+
+## Refresh every entitlement projection before completing a webhook (2026-10-21)
+
+Adding a scoped rights ledger leaves an easy compatibility trap: the existing webhook can keep
+returning success after updating only the historical Boolean projection. Client reconciliation
+then repairs access only when the account next opens the app. Updating the webhook dashboard
+alone cannot repair the missing server path.
+
+The production RevenueCat handler now completes its existing event claim only after canonical V2
+purchase observations and the already-linked Apple transaction refresher settle. It starts the
+account observation before provider reads and confirms its token after committing. Verified refund
+observations persist even when the other provider fails; incomplete, missing or superseded evidence
+keeps the delivery retryable. Empty purchase lists do not revoke known transactions. The handler
+issues no signed proofs and cannot create an Apple account link from a RevenueCat alias.
+
+Explicit sandbox notifications skip both production projections. Missing configured V3 dependencies
+return a retry instead of silently reverting to the legacy success path. Deleted users retain the
+existing skip behavior, so transfers can still reconcile a surviving account.
+
+Verification: 83 focused handler/provider/Apple tests passed, including duplicate claims, sandbox
+isolation, deletion, partial failures and stale observations. All nine production purchase routes
+compiled through the fixed deployment bundle builder. This establishes source behavior, not live
+provider delivery or deployment. Keep actual purchase/refund delivery as a separate release check.

@@ -30,6 +30,10 @@ import {
   POLICY_MODES,
   PROTECTED_OPERATOR_SUBJECT,
   QA_SANDBOX_CUTOFF,
+  PRODUCTION_CUTOFF,
+  PRODUCTION_SALES_TEMPLATES,
+  PRODUCTION_SALES_BUILDS,
+  derivePolicyPlan,
   QA_SANDBOX_SALES_BUILDS,
   QA_SANDBOX_SALES_TEMPLATES,
   QA_SANDBOX_WRITER_ROLE,
@@ -69,6 +73,8 @@ const SUBJECTS_DISABLE = "qa-sandbox-subjects-disable";
 const TRANSACTIONAL = [
   POLICY_OFF,
   POLICY_ON,
+  "production-sales-policy-off",
+  "production-sales-policy-on",
   SUBJECTS_ENABLE,
   SUBJECTS_DISABLE,
 ];
@@ -1924,11 +1930,15 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
       () => resolveOperation(operation, mode),
       "operation-input-invalid",
     );
+  // The purchase operations have their own module (purchase-operations.mjs), not a registry row.
   for (const operation of [
     "qa-sandbox-functions",
     "migrations",
     POLICY_OFF,
     "__proto__",
+    "purchase-functions",
+    "purchase-functions-sync-settings",
+    "purchase-secrets",
   ])
     throwsCategory(
       () => resolveOperation(operation, "none"),
@@ -1936,7 +1946,7 @@ test("workflow choices resolve to exactly the registry, and any other mode or in
     );
   for (const name of Object.keys(WORKFLOW_OPERATIONS))
     assert.ok(isKnownOperation(name), name);
-  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, ""])
+  for (const name of ["migrations", "qa-sandbox-functions", POLICY_ON, "", "purchase-functions", "purchase-secrets"])
     assert.ok(!isKnownOperation(name), name);
 });
 
@@ -2783,4 +2793,66 @@ test("the apply command hands the list secret only to the run and prints none of
     .join("\n");
   for (const leak of [...emails, ...list.hashes, SECRET, SALT])
     assert.ok(!unmasked.includes(leak), leak);
+});
+
+test("production sales pin the four released-free benefits and exclude QA/Android build admission", async () => {
+  assert.deepEqual(PRODUCTION_CUTOFF, { product: "still-free-v2", benefits: ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"] });
+  assert.deepEqual(PRODUCTION_SALES_BUILDS, [
+    { surface: "chrome_desktop", build: "3.0.0" }, { surface: "firefox_desktop", build: "3.0.0" },
+    { surface: "apple_mobile_host", build: "3.0" }, { surface: "apple_macos_host", build: "3.0" },
+  ]);
+  for (const mode of ["off", "on"]) {
+    const op = OPERATIONS[`production-sales-policy-${mode}`];
+    const sql = await real(op.sql.path);
+    const match = /v_template constant jsonb := '([^']+)'/.exec(sql);
+    assert.ok(match);
+    assert.deepEqual(JSON.parse(match[1]), PRODUCTION_SALES_TEMPLATES[mode]);
+    assert.equal(op.template.environment, "production");
+    assert.equal(op.template.salesEnabled, mode === "on");
+    assert.equal(op.cutoff, mode === "on" ? PRODUCTION_CUTOFF : null);
+    assertOperationScope(sql, op);
+    throwsCategory(() => assertOperationScope(sql.replaceAll("'production'", "'sandbox'"), op), "operation-scope");
+    throwsCategory(() => assertOperationScope(sql, OPERATIONS[mode === "on" ? POLICY_ON : POLICY_OFF]), "operation-scope");
+    const check = await real(op.verification.path);
+    lintVerificationSql(check);
+    assert.ok(!check.includes("sandbox_cutoff_missing")); // an existing QA cutoff is permitted
+  }
+});
+
+test("production sales on is reviewable but cannot apply before final package admission is verified", async (t) => {
+  const { root, head } = await repo(t);
+  const on = await plan(root, head, "production-sales-policy", { policyMode: "on", expectedRevision: "0" });
+  assert.equal(JSON.parse(on.body).environment, "production");
+  assert.deepEqual(on.cutoff, PRODUCTION_CUTOFF);
+  assert.ok(on.provisional.length);
+  assert.match(renderOperationPlan(on), /Provisional content: plan-only/);
+  await refuses(plan(root, head, "production-sales-policy", { policyMode: "on", expectedRevision: "0", mode: "apply" }), "operation-provisional");
+  const off = await plan(root, head, "production-sales-policy", { policyMode: "off", expectedRevision: "2", mode: "apply" });
+  assert.equal(off.operation, "production-sales-policy-off");
+  assert.equal(off.cutoff, undefined);
+  assert.deepEqual(off.provisional, []);
+  const derived = derivePolicyPlan(on, "off", 1);
+  assert.equal(derived.workflowOperation, "production-sales-policy");
+  assert.equal(derived.operation, "production-sales-policy-off");
+  assert.equal(JSON.parse(derived.body).environment, "production");
+  assertPlanPinned(derived);
+});
+
+test("production stop-sales runs through the same fixed transaction and repeats without rewriting", async (t) => {
+  const fx = await txFixture(t, "production-sales-policy", { policyMode: "off", expectedRevision: "2" });
+  const db = fakeTxDb({
+    issues: state => state.applied ? [] : ["production_sales_policy_differs"],
+    apply: env => {
+      const body = JSON.parse(env.STILL_OPERATION_POLICY_BODY);
+      assert.equal(body.environment, "production");
+      assert.equal(body.salesEnabled, false);
+      assert.equal(body.revision, 3);
+      return { revision: 3, cutoff: "unchanged" };
+    },
+  });
+  const first = await runTx(fx, db);
+  assert.equal(first.status, "verified", JSON.stringify(first));
+  const again = await runTx(fx, db);
+  assert.equal(again.status, "no-change", JSON.stringify(again));
+  assert.equal(again.writeAttempted, false);
 });
