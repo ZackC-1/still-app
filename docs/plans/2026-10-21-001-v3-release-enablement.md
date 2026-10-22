@@ -7,6 +7,13 @@ branch: "docs/v3-go-live-runbook-20261021 (plan only); each work unit gets its o
 related: docs/release/v3-go-live-runbook.md (gaps G1 to G10), PR #515
 ---
 
+> Historical planning baseline. Current owner decisions and execution evidence are recorded in the
+> [production activation plan](2026-10-21-002-production-activation-and-verification.md) and
+> [go-live runbook](../release/v3-go-live-runbook.md). In particular, do not execute the original
+> proposed real-money test/refund sequence, treat already-applied migrations as pending, or
+> infer that a source PR is deployed. The current runbook supersedes those operational steps.
+
+
 # V3 release enablement
 
 ## Outcome

@@ -5,8 +5,12 @@ Firefox Add-ons, with real payments". Written 21 October 2026. Facts marked "ver
 on 21 October 2026; everything else says how to confirm it. Check each portal live before acting: a
 dated line here is not a claim of current state.
 
-The engineering work behind the gaps below, and the nine owner decisions D1 to D9 it waits on, are in
-the [V3 release enablement plan](../plans/2026-10-21-001-v3-release-enablement.md).
+The original engineering scope and decisions are in the [V3 release enablement plan](../plans/2026-10-21-001-v3-release-enablement.md).
+Use the [production activation plan](../plans/2026-10-21-002-production-activation-and-verification.md)
+and [operational handoff](../handoffs/2026-10-21-production-payment-activation.md) for current evidence.
+A merged implementation is not a hosted deployment or a completed customer purchase. Final screen
+edits and images remain with the owner and Claude Code; final artifact checks follow those edits.
+The requested obsolete-code/test audit follows backend and visual completion.
 
 Scope of the first V3 release (owner decision, 20 October 2026): Chrome desktop, Firefox desktop and
 the Apple apps (Safari on iPhone, iPad and Mac). Firefox on Android is deferred to a later update,
@@ -35,8 +39,8 @@ has moved, the ids and values are what matter. Each portal section ends with **I
 (the expected end state) and **Read-back** (independent checks engineering runs). Every verification
 has a number (V01, V02, ...) so the QA companion can tick them one by one in a sitting.
 
-Product truths that hold at every step: free blocking and free settings sync never gain a purchase or
-account requirement; Still Pro never gates the free outcome; host access stays the four supported
+Product truths that hold at every step: free blocking never requires an account or purchase;
+optional sign-in enables free settings sync; Still Pro never gates the free outcome; host access stays the four supported
 services; copy says "every supported surface", never "everywhere"; no release copy promises Firefox
 on Android.
 
@@ -46,7 +50,7 @@ A mismatch in any row breaks purchases or unlocks. Check them all again in V50 t
 
 | Value | App Store Connect | RevenueCat | Stripe | Server and apps |
 |---|---|---|---|---|
-| Product id `still_pro_v3` | In-app purchase Product ID | Product identifier in each Apple app | Price lookup key `still_pro_v3` | `ApplePurchaseCatalog` (Apple), `ACCESS_APPLE_PRODUCTS_JSON`, `ACCESS_PROVIDER_PRODUCTS_JSON` |
+| Product id `still_pro_v3` | In-app purchase Product ID | Product identifier in each Apple app | Separate live V3 price; lookup key optional | `ApplePurchaseCatalog` (Apple), `ACCESS_APPLE_PRODUCTS_JSON`, `ACCESS_PROVIDER_PRODUCTS_JSON` |
 | Entitlement `still_pro_v3` (see G9) | — | Entitlement identifier the new products attach to | — | `entitlement_lookup_key` in `ACCESS_PROVIDER_PRODUCTS_JSON`; `entitlementID` in `ApplePurchaseCatalog` |
 | Historical entitlement and product `still_sync` | Removed from sale; never edited | Entitlement and its old products left exactly as they are | — | Historical mapping; never renamed |
 | Offering `still_pro_v3`, package `$rc_lifetime` | — | Offering identifier and its Lifetime package | — | `ApplePurchaseCatalog` (`offeringID`, `packageID`) |
@@ -55,25 +59,26 @@ A mismatch in any row breaks purchases or unlocks. Check them all again in V50 t
 | Bundle id `com.chartash.still` | The app | App Store app bundle id | — | `bundleId` in `ACCESS_APPLE_PRODUCTS_JSON` |
 | Sales offer `still-pro-v3` (hyphen) | — | — | — | Production sales body `channels.*.offer`; granted package |
 | RevenueCat webhook | — | Destination `/functions/v1/revenuecat-webhook` on the production project; Authorization equals `REVENUECAT_WEBHOOK_TOKEN` exactly, no `Bearer ` | — | `revenuecat-webhook` route and secret |
-| Stripe webhook | — | — | Destination `/functions/v1/<production Stripe route from G4>`; the five events in 4.4 | That route and its signing-secret name |
+| Stripe webhook | — | — | Destination `/functions/v1/stripe-webhook`; the five events in 4.4 | That route and its signing-secret name |
 
-## Gaps found while writing this runbook (close first)
+## Release dependencies (check source and hosted evidence separately)
 
-True of `main` on 21 October 2026. Each needs a reviewed PR (and, where marked, an owner decision)
-before the phases named can finish. Closing them is Phase 0's main work.
+These rows supersede the original gap inventory. PR #522 supplies the backend foundation; the
+linked operational handoff records deployments and later fixes. Keep the identifiers G1–G10 for
+cross-references, but do not repeat completed provider setup or treat an open PR as deployed.
 
-| Gap | What the repository shows | Blocks | State |
+| Gap | Current requirement | Blocks | State |
 |---|---|---|---|
-| G1. No production sales switch in the protected workflow | `supabase-production-deploy.yml` offers `qa-sandbox-sales-policy` (sandbox body only) and no production sales operation. Production sales are published only through the owner-only `product-policy-admin` route (the page in `apps/owner-admin`), which needs an owner on the server allowlist and an approved-build list that nothing fills yet (its README, "Approved builds (known gap)"). Decide the production path and land it. | 2.6 | Engineering, Owner |
-| G2. Production paid cutoff content is undecided | On the protected-operation path (plan D1 default), the cutoff needs no migration and no `cutoff.ts` change: the sales operation writes its cutoff row directly inside its own transaction, as `scripts/backend/deploy/operations/qa-sandbox-sales-policy-on.sql` already does for the sandbox. Migration 0016's refusal of a cutoff snapshot and `PAID_CUTOFF_SNAPSHOT = null` in `supabase/functions/product-policy-admin/cutoff.ts` matter only if D1 picks the owner-page path. What remains is the content: owner question 6 (which features count as released free; a protected product id that is not `still-pro-v3`) is open for production (plan D2). The sandbox used `still-free-v2` with Facebook Reels, Instagram Reels, TikTok and YouTube Shorts. The answer is pinned in the production operation (plan PR-G). | 2.6 | Owner, Engineering |
-| G3. No protected path deploys production paid routes or writes their secrets | The workflow refuses arbitrary function lists; it deploys only the three analytics routes and the fixed `qa-sandbox-*` routes, and writes only analytics and `QA_STAGE_*` secrets. Production `product-policy`, `product-policy-admin`, `reconcile-entitlement`, `verify-apple-access`, `link-apple-access`, `create-web-checkout`, `revenuecat-webhook`, `sync-settings` and `export-user-data`, and their secrets (2.4), have no protected path. Add closed, reviewed operations following the QA operations' pattern. Never deploy them with the Supabase CLI from a checkout. | 2.3, 2.4, 4.5 | Engineering |
-| G4. Production web checkout is still the 2.x design | `packages/core/src/sync/backend-route-profile.ts` sends production checkout to `create-web-checkout` (a RevenueCat Web Purchase Link from `REVENUECAT_WEB_BILLING_CHECKOUT_URL`) with no completion route, and `packages/core/src/sync/profile.ts:39` turns managed checkout on only for the sandbox profile. The Stripe Managed Payments checkout, its Stripe webhook and the RevenueCat import exist only as `qa-sandbox-*` routes, which refuse live mode, and the purchase-operation ledger accepts sandbox rows only (migration 0021, around lines 40 to 46: `environment = 'sandbox'`, test-mode session ids). So the Stripe path needs a new migration (a production ledger), production routes and a client change (plan PR-E). The owner chooses in plan D3: option B, Stripe Managed Payments (the QA-tested design this runbook's Phase 4 assumes, the larger change), or option A, the RevenueCat Web Billing link (smaller, untested in V3, and not a merchant of record, so the owner handles sales tax). | 3.3, 4.4 to 4.6, 8.4 | Owner, Engineering |
-| G5. Store packages cannot carry production access-proof trust | `scripts/release/package.mjs` lists `VITE_ACCESS_ENVIRONMENT` and `VITE_ACCESS_PUBLIC_KEYS` as deliberately unpackaged ("store packages retain production empty-key defaults"). Decide how production public verification keys reach the Chrome, Firefox, Safari and Apple web-view builds, paired with the server's `ACCESS_PROOF_*` secrets. | 1.5, 1.6 | Engineering |
-| G6. The Chrome release workflow refuses a paid build | `scripts/release/chrome-package.mjs` stops with `paid-flag-on` when `PAID_TIER_ENABLED` is true. Change that guard for V3 in a reviewed PR, or upload by hand. | 6.4 | Engineering |
-| G7. V3 screens need modern sync on in configured builds | `runsV3Interface` in `packages/ext-chromium/wxt.config.ts` shows V3 screens on a configured build only with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`, so the configured V3 store builds must set it. `apps/apple/scripts/modern-sync-shipped` says `not-shipped`; `release-env-guard.sh` (around line 125) accepts that without refusing, so the marker does not block the V3 archive today. Flipping it to `shipped` is a one-way commitment: every later archive must then keep modern sync on. Decide the flip in plan D7 and make it in the release PR. | 1.3 | Owner, Engineering |
-| G8. App Review buys in the sandbox | Apple reviewers buy with sandbox accounts against the production app. Confirm production `verify-apple-access` accepts an App Review sandbox transaction for `still_pro_v3`, or the review purchase fails. | 5.9 | Engineering |
-| G9. Which RevenueCat entitlement V3 uses | The release brief says attach the new products to `still_sync`. The code says otherwise: `ApplePurchaseCatalog.swift` gives `still_pro_v3` its own entitlement `still_pro_v3` ("so the historical entitlement can never be mistaken for a new purchase"), and `supabase/functions/_shared/revenuecat-access.ts` requires `entitlement_lookup_key` `still_pro_v3` for the new products and `still_sync` only for the historical one. This runbook follows the code. The owner and engineering confirm before Phase 3; changing it means a reviewed code change, not a dashboard choice. | 3.4 | Owner, Engineering |
-| G10. No read-only check shows production sales, cutoff or purchases | The read-only catalogue never prints production: DB-01 turns production rights, policy revisions and cutoff into a keyed digest, and rights are visible only for QA accounts. Add two reviewed checks (privacy-reviewed, closed SQL, same workflow): a production sales and cutoff summary, and a production purchase summary for one owner-registered label (right present, provider, active or revoked, keyed reference only). Working names below: PROD-01 and PROD-02. | V17, V66 to V69 | Engineering, Owner |
+| G1. Production sales operation | Closed `production-sales-policy` on/off operations merged in #522. Final build admission, compare-and-set revision and owner approval remain required. | 2.6 | Engineering, Owner approval |
+| G2. Free cutoff | Owner approved `still-free-v2`: YouTube Shorts, Instagram Reels, Facebook Reels, TikTok website. #522 pins those four identifiers; first approved activation writes the immutable cutoff. | 2.6 | Owner approval |
+| G3. Production deployment | #522 integrates #519: `purchase-secrets`, fixed nine `purchase-functions`, and separate `purchase-functions-sync-settings`. Follow the [closed operation runbook](purchase-routes-and-secrets.md). | 2.3, 2.4 | Owner approval |
+| G4. Production Managed Payments | Owner selected the tested QA architecture with separate live configuration. #522 adds production ledger 0026, checkout/completion, Stripe webhook and canonical RevenueCat refresh. Hosted deployment and genuine fulfilment proof remain separate. | 4.4, 8.4 | Engineering, Owner approval |
+| G5. Public build trust | #524 preserves #520 and adds native Apple public Supabase configuration. Merge/check its final CI; pin public trust only after hosted signer verification. Signed final artifacts remain pending. | 1.5, 1.6 | Engineering |
+| G6. Declared paid build | #517 adds a declaration/compiled-flag consistency guard. Merge and verify it before packaging; do not bypass the guard through manual upload. | 6.4 | Engineering |
+| G7. Modern sync build | Configured V3 builds require `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`. The one-way shipped marker and final production package configuration belong in the release build change. | 1.3 | Owner, Engineering |
+| G8. Apple review access | #522 adds isolated device-only sandbox review access, migration 0027 and a separate default-off switch. It grants no production account rights or revenue. Final native review flow and sales admission must both be verified. | 5.9 | Engineering, Owner approval |
+| G9. V3 entitlement | Owner/provider read-back confirms `still_pro_v3`; retain historical `still_sync` mappings. No rename or replacement of legacy products. | 3.4 | Done |
+| G10. Production evidence | #522 integrates PROD-01 sales/cutoff summary via 0025. PROD-02 remains a proposed closed purchase check, not an executable existing check. Do not substitute arbitrary production SQL; retain protected deployment/provider evidence and label missing fulfilment evidence. | V17, V66–V69 | Engineering |
 
 ## Phase 0 — Prerequisites on main
 
@@ -180,40 +185,39 @@ project, **Edge Functions** (each route's version and last deploy time), **Edge 
 (names only; never reveal a value), **Project Settings, API, Exposed schemas** (`net` must not be
 listed).
 
-**2.1 Inventory production** · Owner approval
+**2.1 Inventory production** · Engineering (standing read-only authorization)
 - Where: `gh workflow run supabase-readonly-checks.yml --ref main -f check=DB-01 -f account=none -f account_b=none`
   ([read-only checks](qa-readonly-database-checks.md)), plus the dashboard read above.
-- V10: DB-01 reports the hosted migration tail (last recorded 0021, 10 October).
+- V10: DB-01 reports the hosted migration tail. Fresh run `39704032899` on 21 October found 0024;
+  verify again before deployment rather than replaying 0022–0024.
 - V11: the owner lists, from Edge Functions, which production routes predate the 7 to 20 October
   merges (scoped purchase ownership #353/#354, sandbox ledger boundary #362, payment records kept on
   deletion #395, sandbox sync fixes #440/#441, Apple OCSP verification, the QA reconcile/link
-  "unavailable" answers). None has a production deploy record.
+  "unavailable" answers). Compare exact deployed source with the selected commit; do not infer deployment from merge status.
 
 **2.2 Apply pending migrations** · Owner approval
-- Where: `operation=migrations`, `migrations=<exact comma-separated names from V10's gap>` (on
-  21 October, `main` holds 0022 to 0024 past the recorded tail), `policy_mode=none`, `commit=<sha>`.
+- Where: `operation=migrations`, `migrations=<exact comma-separated names from V10's gap>` (
+  the verified 0024 baseline requires 0025–0027 before the foundation routes), `policy_mode=none`, `commit=<sha>`.
 - V12: closing record passes; DB-01 re-run shows the new tail.
 - Undo: fix forward with a reviewed migration.
 
-**2.3 Deploy production paid routes** · Owner approval (blocked by G3)
-- Where: the production-routes operation G3 adds, from the frozen commit.
+**2.3 Deploy production paid routes** · Owner approval
+- Run 2.4 first. Then use `operation=purchase-functions` from the frozen commit. Deploy
+  `purchase-functions-sync-settings` separately with its own approval. Each operation verifies
+  all migrations at its pinned commit and exact uploaded bundle bytes. See [route gates](purchase-routes-and-secrets.md).
 - V13: each route reads back at the planned source; the dashboard shows the new versions.
 - Undo: redeploy the previous reviewed commit through the same operation.
 
-**2.4 Production function secrets** · Owner approval (blocked by G3, G4, G5)
-- Names only: `ACCESS_PROOF_ENVIRONMENT`, `ACCESS_PROOF_KEY_ID`, `ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64`,
-  `ACCESS_PROOF_PUBLIC_KEY_HEX`, `ACCESS_APPLE_PRODUCTS_JSON`, `ACCESS_PROVIDER_PRODUCTS_JSON`,
-  `APP_STORE_SERVER_ISSUER_ID`, `APP_STORE_SERVER_KEY_ID`, `APP_STORE_SERVER_PRIVATE_KEY`,
-  `REVENUECAT_PROJECT_ID`, `REVENUECAT_ACCESS_SECRET_API_KEY`, `REVENUECAT_SECRET_API_KEY`,
-  `REVENUECAT_WEBHOOK_TOKEN` (set in July), `PRODUCT_POLICY_READER_DB_URL`,
-  `PRODUCT_POLICY_ADMIN_DB_URL`, and the live Stripe names G4 defines (the QA lane's equivalents:
-  Stripe secret key, account id, webhook signing secret, API version, price id, product id, the
-  RevenueCat Stripe public key, return origin and return paths).
-- `ACCESS_PROVIDER_PRODUCTS_JSON` is built by engineering from the RevenueCat read-back (V30): one
-  entry per RevenueCat product, with that product's RevenueCat id, app id, store identifier,
-  entitlement lookup key and store.
-- V14: every name appears in Edge Functions, Secrets; the routes answer without `unavailable`.
-- Undo: rotate through the same operation; a leaked value is rotated at its provider first.
+**2.4 Production function secrets** · Owner approval
+- Run before 2.3 using `operation=purchase-secrets`. The [secret-name table and gates](purchase-routes-and-secrets.md)
+  are authoritative. Stage values privately; `apply` installs absent names and refuses conflicts;
+  `rotate` is a separately reviewed replacement, never a blind retry after a partial result.
+- Preserve the existing RevenueCat webhook URL, authorization and filters. The authorized server
+  handler update does not change those portal settings.
+- Database writer URLs must match actual role passwords and are not copied from QA or staged as
+  arbitrary purchase secrets. Existing legacy configuration remains intact.
+- V14: inspect names and the closing receipt, then verify runtime configuration without printing secrets.
+- Undo: reviewed rotation; leaked credentials are rotated at their provider first.
 
 **2.5 Signed-in analytics switch-on** · Owner approval
 - Where: the four steps in [analytics subjects switch-on](analytics-subjects-switch-on.md). Step 4
@@ -222,11 +226,11 @@ listed).
   account's person is removed after the next worker run.
 - Undo: `operation=analytics-subjects-switch policy_mode=disable mode=apply`.
 
-**2.6 Paid cutoff and production sales on** · Owner, Owner approval (blocked by G1, G2)
+**2.6 Paid cutoff and production sales on** · Owner, Owner approval
 - Order: after Phases 3 and 4 and the cross-system check (V50 to V55), after QA purchase tests are
   finished, and before the Apple submission (reviewers must see Get Still Pro).
-- Where: the production path G1 lands (plan D1; by default a protected production sales operation,
-  plan PR-G). Body: `salesEnabled: true`; channels `apple` and `web`
+- Where: `operation=production-sales-policy policy_mode=on` with the verified current
+  `policy_expected_revision` and reviewed exact build strings; [procedure](production-sales-policy.md). Body: `salesEnabled: true`; channels `apple` and `web`
   enabled with offer `still-pro-v3`; approved builds only the 3.0 builds (plan D9). The first
   activation writes the one write-once cutoff with the content the owner chose (G2, plan D2).
 - V16: engineering posts `{"namespace":"sales","environment":"production"}` to the public
@@ -235,7 +239,7 @@ listed).
 - V17 (needs G10's PROD-01): the production cutoff is present with the approved product id.
 - V18: DB-35 reports "production unchanged since baseline: no", as expected after this step.
 - V19: a released 2.1 app still shows no Still Pro.
-- Undo: publish `salesEnabled: false` (owner page "Undo last change", or the G1 operation). New
+- Undo: protected `production-sales-policy policy_mode=off` with the current revision. New
   sales stop on every build; free blocking and existing Pro rights are untouched. The cutoff stays.
 - Note: once production has a cutoff, `qa-sandbox-sales-policy` refuses both directions; stop QA
   purchases with `pause-qa-sandbox`.
@@ -331,30 +335,30 @@ payouts enabled.
 
 4.2 **Turn on Managed Payments.** **Settings**, **Managed Payments** (or **Payments**, **Managed
 Payments**), **Get started**, accept the terms, choose the digital software category. It should look
-like: Managed Payments shows Active. If the product or country is ineligible, stop: G4 changes.
+like: Managed Payments is ready for use; the owner observed that Active follows the first transaction. If the product or country is ineligible, stop: G4 changes.
 
-4.3 **Create the product and price.** **Product catalog**, **+ Add product**. Name: `Still Pro`.
+4.3 **Verify the separate V3 product and price.** The owner already created it; inspect it before creating anything. If absent, use **Product catalog**, **+ Add product**. Name: `Still Pro`.
 Description: owner-approved one line. Pricing: **One-off**, `9.99`, `USD`. Open **More pricing
-options**, set **Lookup key** to `still_pro_v3` (must match the product id elsewhere). Tax: as
+options** only if needed; a lookup key is optional and does not have to equal the Apple product identifier. Tax: as
 Managed Payments requires for digital software. **Add product**. Copy the price id (`price_...`) for
 3.3 and 2.4, privately.
 
-4.4 **Add the live webhook.** (Blocked by G4.) **Developers**, **Webhooks**, **+ Add endpoint** (or
-**Add destination**). Endpoint URL: `https://<production project>.supabase.co/functions/v1/<production Stripe route from G4>`
+4.4 **Verify the separate live webhook.** A disabled endpoint has already been created and its signing secret saved privately. Reuse it; enable only after the hosted handler and signature configuration are verified. If absent, **Developers**, **Webhooks**, **+ Add endpoint** (or
+**Add destination**). Endpoint URL: `https://<production project>.supabase.co/functions/v1/stripe-webhook`
 (the project is the one in the `SUPABASE_PRODUCTION_PROJECT_REF` repository variable). API version:
 the one G4 pins. Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
 `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded` (the QA
 route's set; adjust only if G4 changes it). **Add endpoint**, then **Reveal** the signing secret and
 hand it to the 2.4 run. Do not send a test event to production.
 
-4.5 **Create the server key.** (Blocked by G4.) **Developers**, **API keys**, **Create restricted
+4.5 **Verify the existing server key.** A live restricted key is already saved privately. Create a replacement only if needed: **Developers**, **API keys**, **Create restricted
 key**, with only the permissions G4 lists. Hand it to the 2.4 run privately.
 
-4.6 **Connect RevenueCat.** (Blocked by G4.) Install the RevenueCat app from the Stripe App
+4.6 **Verify RevenueCat connection.** The production Stripe app is already linked and its product attached to the V3 entitlement/offering. If absent, Install the RevenueCat app from the Stripe App
 Marketplace on the live account and link it to the production RevenueCat project, as G4 requires.
 It should look like: RevenueCat, Apps & providers, the Stripe app shows the live account connected.
 
-4.7 **Create the read-back key.** **Developers**, **API keys**, **Create restricted key**. Name:
+4.7 **Read-back permissions.** Reuse an existing approved restricted key with sufficient read permissions. If a separate key is needed: **Developers**, **API keys**, **Create restricted key**. Name:
 `Still read-only verification`. **Read** on Products, Prices, Checkout Sessions, Charges, Refunds and
 Webhook Endpoints; **None** on everything else. Hand it to engineering privately.
 
@@ -362,20 +366,20 @@ Webhook Endpoints; **None** on everything else. Hand it to engineering privately
 by customer", **Refund**. Under Managed Payments, confirm on screen whether refunds run through
 Stripe's managed flow. Write the result into the support page (7.3).
 
-**It should look like:** live mode active with payouts; Managed Payments Active; one product "Still
-Pro" with one active one-off USD 9.99 price whose lookup key is `still_pro_v3`; one enabled live
-webhook endpoint pointing at the production route with the five events.
+**It should look like:** live mode active with payouts; Managed Payments ready; a distinct V3
+product with its active one-off USD 9.99 tax-exclusive price, alongside the preserved legacy product.
+The separate webhook stays disabled during staging and is enabled only after hosted verification.
 
 **Read-back** (engineering, with the 4.7 key, `Stripe-Version` set to G4's pinned version):
 
 | # | Request | Expect |
 |---|---|---|
-| V31 | `GET /v1/prices?lookup_keys[]=still_pro_v3&expand[]=data.product` | One active price: `unit_amount` 999, `currency` usd, `type` one_time; product name "Still Pro", active; `livemode` true |
-| V32 | `GET /v1/products?active=true` | No second "Still Pro" product or stray live price |
+| V31 | `GET /v1/prices/{configured_price_id}?expand[]=product` | One active price: `unit_amount` 999, `currency` usd, `type` one_time; product name "Still Pro", active; `livemode` true |
+| V32 | `GET /v1/products?active=true` | The configured V3 product is active and distinct from the preserved legacy product; identical display names are valid |
 | V33 | `GET /v1/webhook_endpoints` | One enabled endpoint at the production route path, `enabled_events` exactly the five, `livemode` true |
-| V34 | Owner reads Managed Payments status on screen (no read-only API for it) | Active |
-| V35 | After 8.4's purchase: `GET /v1/checkout/sessions/{id}` | `livemode` true, `managed_payments.enabled` true, `amount_total` 999, `currency` usd, `payment_status` paid |
-| V36 | After 8.4's refund: `GET /v1/refunds?charge={charge}` | One full refund, `status` succeeded |
+| V34 | Owner reads Managed Payments status on screen | Ready to use before the first genuine transaction; record actual status |
+| V35 | After a genuine purchase: `GET /v1/checkout/sessions/{id}` | `livemode` true, `managed_payments.enabled` true, configured USD999 base price and quantity, tax/currency treatment reconciled to actual total, `payment_status` paid |
+| V36 | After a genuine full refund: `GET /v1/refunds?charge={charge}` | One full refund, `status` succeeded |
 
 Undo: archive the price (an amount cannot be edited; create a new price), disable the endpoint, roll
 or delete keys. A charged customer can only be refunded.
@@ -465,10 +469,10 @@ Engineering compares the read-backs side by side; the owner ticks each.
 
 | # | Check | Sources |
 |---|---|---|
-| V50 | Product id `still_pro_v3` identical in App Store Connect, RevenueCat (each Apple app) and the Stripe lookup key | V40, V22, V31 |
+| V50 | Apple product `still_pro_v3` and its RevenueCat mapping agree; the separate live Stripe price ID matches its RevenueCat production mapping and server configuration | V40, V22, V31 |
 | V51 | The RevenueCat Stripe product's store identifier equals the live Stripe price id, and the server's price-id secret holds the same value (compared by engineering privately) | V22, V31, 2.4 |
 | V52 | Entitlement and offering ids in RevenueCat equal those in `ApplePurchaseCatalog.swift` and `ACCESS_PROVIDER_PRODUCTS_JSON` | V23, V26, V30 |
-| V53 | Price: Apple US base 9.99, Stripe 999 USD, and the amount the 3.0 builds show before purchase (Apple sheet in the US storefront; the web checkout page) all read $9.99 | V42, V31, TestFlight and the 1.5 package |
+| V53 | Apple US base 9.99 and Stripe base 999 USD match the offer; displayed total accounts for applicable tax and local currency | V42, V31, TestFlight and the 1.5 package |
 | V54 | Production sales body offers `still-pro-v3` on both channels and lists only the 3.0 builds | V16 |
 | V55 | Webhook destinations point at production routes, not `qa-sandbox-*` | V27, V33 |
 
@@ -482,7 +486,7 @@ Engineering compares the read-backs side by side; the owner ticks each.
 | 6.4 Upload | `release-chrome.yml`: `package-only`, test the zip, then `upload-and-submit` with `confirm_submit` `submit <version>` (after G6); or **Package**, **Upload new package** in the dashboard | Developer Hub, Still, **Upload New Version**: the Firefox zip, then the source zip and build instructions | Owner approval (Chrome); Owner (AMO) | Owner |
 | 6.5 Compatibility | Desktop only by nature | On the upload's platform step, **untick Firefox for Android**; the build has no `gecko_android` | Owner | Owner |
 | 6.6 Reviewer notes | Free blocking signed out; Pro optional; no purchase needed to review; private access only in private fields | Same, plus reproducible-source instructions | Owner | Owner |
-| 6.7 Publication | Goes live to everyone on approval | **Continue** after validation can publish before **Submit Version**; have everything ready first ([AMO lesson](../solutions/conventions/amo-continue-can-publish-an-update.md)) | Owner | Owner |
+| 6.7 Publication | Choose deferred publication before submission; approval then waits for the owner to publish | **Continue** after validation can publish before **Submit Version**; have everything ready first ([AMO lesson](../solutions/conventions/amo-continue-can-publish-an-update.md)) | Owner | Owner |
 
 - V56: Chrome `release-chrome.yml` in `status` mode (or the dashboard) shows 3.0 in review, then published.
 - V57: the AMO version page lists Firefox only, no Android; the public AMO API shows the version once public.
@@ -509,10 +513,11 @@ reverting the `gh-pages` commit.
 **8.1 Order** · Owner decides (0.3). Recommended:
 1. Phases 2 to 5 and 7.1 done; V50 to V55 ticked; production sales on for 3.0 builds only (2.6).
 2. Submit Apple iOS and macOS with the IAP, manual release (5.9).
-3. When Apple approves, submit Chrome and Firefox (Chrome goes live on approval; AMO can publish on
-   Continue).
-4. Release Apple manually when Chrome and Firefox are public. Do not announce yet: real-money
-   purchases need public store builds, so the proof below runs between release and announcement.
+3. Use Chrome deferred publication to hold an approved submission; verify the current portal setting
+   ([Chrome publication controls](https://developer.chrome.com/docs/webstore/publish#deferred-publishing-option)).
+   AMO can publish on Continue, so its submission remains a separate owner-controlled step.
+4. Coordinate manual publication after final artifact, backend and analytics gates. Record readiness,
+   store approval, public availability and genuine customer delivery as separate facts.
 
 **8.2 Per-surface smoke test (store-installed 3.0 builds)** · Owner
 
@@ -525,31 +530,38 @@ reverting the `gh-pages` commit.
 
 Physical iPad stays owner-accepted skipped/unverified.
 
-**8.3 Apple real-money purchase and refund** · Owner (Engineering reads results)
-1. On iPhone (or Mac), signed in to Still, buy Still Pro for $9.99 with the owner's own Apple
-   Account.
-2. V65: the extras unlock on that device; on a second device (Mac Safari, or Chrome) signed in to the
-   same Still account, they unlock too.
-3. V66: RevenueCat customer read (`GET /v2/projects/{project_id}/customers/{customer_id}/active_entitlements`,
-   with the customer id held privately) shows `still_pro_v3` active from the App Store; the
-   `revenuecat-webhook` delivery succeeded; PROD-02 (G10) shows one active Apple right for the owner
-   label.
-4. Request a refund at Apple's reportaproblem.apple.com. Apple decides, and it can take up to two
-   days or be declined; record the outcome.
-5. V67: when Apple refunds, RevenueCat records the refund, the entitlement is inactive, PROD-02 shows
-   the right revoked, the extras switch off on both devices, and free blocking still works.
+**8.3 Apple purchase and refund evidence** · Engineering, Owner
+- Credit completed sandbox purchase, restore, duplicate and refund tests. Verify isolated production-bound
+  review/TestFlight access with the final build; sandbox proofs must not become live rights or revenue.
+- V65: record final-device purchase/restore behavior and account linking under the approved test scope.
+- V66: when a genuine production purchase is available, compare provider entitlement, successful webhook
+  and permitted backend evidence. PROD-02 is not implemented yet; do not invent its output.
+- V67: observe genuine full refunds/revocations when available, preserve unrelated rights, and verify
+  free blocking still works. Label production transaction evidence pending until observed.
 
-**8.4 Stripe real-money purchase and refund** · Owner (Engineering reads results)
-1. On the store Chrome build, signed in, buy Still Pro for $9.99 with the owner's own card.
-2. V68: the extras unlock on Chrome; on Firefox or iPhone signed in to the same account, they unlock
-   too. V35 passes for the session. The live webhook delivery succeeded. RevenueCat shows
-   `still_pro_v3` active from Stripe. PROD-02 shows one active web right.
-3. Refund it in Stripe (4.8) within the seven-day window.
-4. V69: V36 passes; `charge.refunded` delivered; RevenueCat entitlement inactive; PROD-02 shows the
-   right revoked; extras off on every surface; free blocking still works.
+**8.4 Stripe purchase and refund evidence** · Engineering, Owner
+- Do not create a live charge/refund solely to test: [Stripe prohibits live-mode testing with real
+  payment details](https://docs.stripe.com/testing). Use sandbox evidence and live configuration read-back.
+- V68: observe a genuine sale when available: V35 reconciles the actual amount, the live webhook
+  succeeds, RevenueCat has the expected entitlement, and permitted backend evidence confirms ownership.
+- V69: observe a genuine requested full refund when available: V36, webhook, canonical rights and
+  access removal agree while free blocking and unrelated valid rights remain intact.
+- Provider configuration, synthetic tests and an HTTP success do not prove customer fulfilment.
 
-V70: only after V61 to V69 pass does the owner announce. If either path fails, switch sales off (2.6
-Undo) and fix before announcing.
+V70: the owner decides publication/announcement after reviewing readiness and explicitly recorded
+pending customer-delivery evidence. Do not mark V66–V69 passed because sales are enabled. Any observed
+fulfilment failure triggers the reviewed stop-sales procedure (2.6) and investigation.
+
+**8.4a Final production analytics acceptance** · Engineering, Owner
+- Use the final edited production packages on Chrome, Firefox desktop, Apple app iPhone/Mac and
+  Safari extension iPhone/Mac. Physical iPad remains explicitly unverified.
+- Verify offer view/start/outcome delivery, original-device canonical sale/refund attribution, stable
+  deduplication, production project/version/channel and internal/test exclusions.
+- Verify consent off, Firefox optional permission, sign-in/out and deletion through actual worker/provider
+  completion. An active subject or queued deletion is not proof of current consent or completed erasure.
+- Canonical conversion is a consented subset with documented delivery/retention limits, not a financial
+  ledger or an account-deduplicated funnel. Supabase holds payments/entitlements; PostHog holds usage.
+- See the [production evidence matrix](../plans/2026-10-21-002-production-activation-and-verification.md#production-evidence-matrix).
 
 **8.5 48-hour monitoring** · Engineering, Owner
 
@@ -581,7 +593,7 @@ Pro, switch sales off first (2.6 Undo), then investigate.
 | Stripe price, webhook, keys | Partly | Archive the price, disable the endpoint, roll keys | A charged customer can only be refunded |
 | Submitted IAP | No, once approved | Remove from sale | It cannot be deleted, and its product id cannot be reused |
 | Apple version | Before review only | Remove from review; after release, pause phased release and ship a new build | A released version cannot be withdrawn to the old one |
-| Chrome listing | Before approval only | Cancel review; afterwards ship a higher version | A published version reached users |
+| Chrome listing | Before publication | Cancel review or retain deferred publication; after publication ship a higher version | A published version reached users |
 | AMO version | Partly | Disable the version; ship a higher one | Users who updated keep it until the next update |
 | Website pages | Yes | Revert the `gh-pages` commit | Cached copies and search snippets |
 
