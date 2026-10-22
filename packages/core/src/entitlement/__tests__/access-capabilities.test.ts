@@ -16,7 +16,8 @@ import {
 import parity from "../../../../shared-types/fixtures/access-capabilities.json";
 
 // The dormancy gate (owner decision 6): a Still Pro feature is a host capability only while the
-// paid tier is on and the host implements it. No module mock: this runs against the shipped flag.
+// paid tier is on and the host implements it. No module mock: this runs against the shipped flag (on for 3.x);
+// the paid-off cases pass paidMode: false explicitly.
 
 const PRO = FEATURE_REGISTRY.filter((feature) => feature.tier === "pro").map((feature) => feature.id);
 const FREE: BenefitId[] = [...FEATURE_REGISTRY.filter((feature) => feature.tier === "free").map((feature) => feature.id), "tiktok.all"];
@@ -24,12 +25,16 @@ const sorted = (set: ReadonlySet<BenefitId>) => [...set].sort();
 const everyPro: Record<AccessHost, readonly BenefitId[]> = { chromium: PRO, firefox: PRO, safari: PRO };
 
 describe("accessCapabilities dormancy gate", () => {
-  it("ships with the paid tier off, so the packaged context holds exactly the free features", () => {
-    expect(PAID_TIER_ENABLED).toBe(false);
+  it("ships with the paid tier on (3.x), so the packaged context holds the free features plus each host's implemented extras", () => {
+    expect(PAID_TIER_ENABLED).toBe(true);
     const context = packagedAccessContext();
-    expect(context.paidMode).toBe(false);
-    expect(sorted(context.supported)).toEqual(parity.paidOffSupported);
-    for (const host of ACCESS_HOSTS) expect(sorted(packagedAccessContext(host).supported)).toEqual(parity.paidOffSupported);
+    expect(context.paidMode).toBe(true);
+    expect(sorted(context.supported)).toEqual(sorted(accessCapabilities({ paidMode: true })));
+    for (const host of ACCESS_HOSTS) {
+      const supported = sorted(packagedAccessContext(host).supported);
+      expect(supported).toEqual(sorted(accessCapabilities({ paidMode: true, host })));
+      for (const id of parity.paidOffSupported) expect(supported, `${host}:${id}`).toContain(id);
+    }
   });
 
   it("with paid off, never lists a Pro feature, even when every host implements all 12", () => {
@@ -41,12 +46,13 @@ describe("accessCapabilities dormancy gate", () => {
   });
 
   it("with paid off, every Pro feature resolves unsupported and no saved On is effective", () => {
-    const access = initialAccessSnapshot();
+    const paidOff = { paidMode: false, supported: accessCapabilities({ paidMode: false }) };
+    const access = initialAccessSnapshot(paidOff);
     const settings = { globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true },
       sites: Object.fromEntries(FEATURE_REGISTRY.map((feature) => [feature.id, true])) } as unknown as SettingsV2;
     for (const id of PRO) {
       expect(access.states[id], id).toBe("unsupported");
-      expect(isBenefitEffective(settings, id, access.states[id], packagedAccessContext().supported.has(id)), id).toBe(false);
+      expect(isBenefitEffective(settings, id, access.states[id], paidOff.supported.has(id)), id).toBe(false);
     }
     for (const id of FREE) expect(access.states[id], id).toBe("free");
   });
@@ -137,8 +143,7 @@ describe("runtime platform rule (Firefox for Android, Safari on iPhone and iPad)
   it("paid off, the platform changes nothing: exactly the free features on every host", () => {
     for (const host of [undefined, ...ACCESS_HOSTS])
       for (const platform of [undefined, "android", "ios", "desktop", "unknown"] as const) {
-        expect(sorted(packagedAccessContext(host, platform).supported), `${host}:${platform}`).toEqual(parity.paidOffSupported);
-        expect(sorted(accessCapabilities({ paidMode: PAID_TIER_ENABLED, host, platform }))).toEqual(parity.paidOffSupported);
+        expect(sorted(accessCapabilities({ paidMode: false, host, platform })), `${host}:${platform}`).toEqual(parity.paidOffSupported);
         expect(sorted(accessCapabilitiesForTest({ paidMode: false, host, platform }, everyPro))).toEqual(parity.paidOffSupported);
       }
   });

@@ -2,6 +2,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// Pinned to the dormant configuration (paid tier compiled off). The 3.x release ships the paid tier on;
+// these cases keep the free-only fallback covered, and the *.paid-on suites cover the shipped value.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: false,
+}));
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import {
   PRODUCT_POLICY_STORAGE_KEYS, PRODUCT_POLICY_TIMEOUT_MS, createProductPolicyRuntime, extensionPolicySurface,

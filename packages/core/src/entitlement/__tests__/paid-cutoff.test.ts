@@ -4,21 +4,21 @@ import vectors from "../../../../../tests/access-proof/local-protection-vectors.
 import { paidCutoffForLocalProtection, type VerifiedPaidCutoff } from "../paid-cutoff.js";
 import { mutateLocalProtection } from "../local-protection.js";
 
-// The shipped compiled switch. paid-cutoff-compiled-on.test.ts covers the mapping itself.
+// The shipped compiled switch (on for 3.x). paid-cutoff-compiled-on.test.ts covers the mapping in detail.
 const verified: VerifiedPaidCutoff = Object.freeze({
   product: vectors.cutoff.product, benefits: vectors.cutoff.benefits as BenefitId[], activatedAt: vectors.cutoff.activatedAt,
 });
 
 describe("paid cutoff adapter with the shipped compiled switch", () => {
-  it("is off in this build", () => {
-    expect(PAID_TIER_ENABLED).toBe(false);
+  it("is on in this build (the 3.x release line)", () => {
+    expect(PAID_TIER_ENABLED).toBe(true);
   });
 
-  it("turns a verified cutoff into nothing, so no protection grant can be written", () => {
+  it("turns a verified cutoff into the protection grant the writer records", () => {
     const cutoff = paidCutoffForLocalProtection(verified);
-    expect(cutoff).toBeNull();
-    // The writer's own path: with no cutoff, a declaration records no grant.
-    expect(mutateLocalProtection(null, { kind: "declare", confirmed: true, priorEvidence: "absent", cutoff })?.grant).toBeNull();
+    expect(cutoff).toEqual({ product: verified.product, benefits: verified.benefits, activatedAt: verified.activatedAt });
+    expect(mutateLocalProtection(null, { kind: "declare", confirmed: true, priorEvidence: "absent", cutoff })?.grant)
+      .toEqual({ product: verified.product, benefits: verified.benefits, activatedAt: verified.activatedAt });
   });
 
   it("ignores missing and malformed input without throwing", () => {

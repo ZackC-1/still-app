@@ -32,20 +32,20 @@ final class ProductPolicyTests: XCTestCase {
 
   // MARK: Two keys (SEC-1)
 
-  func testShippedSwitchIgnoresAHandBuiltContextClaimingPaidOn() {
-    XCTAssertFalse(MonetizationConfig.paidTierEnabled)
+  func testShippedSwitchStillRefusesAContextThatSaysPaidOff() {
+    XCTAssertTrue(MonetizationConfig.paidTierEnabled)
     for surface in ProductPolicy.surfaces {
-      let context = ProductPolicy.Context(paidTierEnabled: true, environment: "sandbox", surface: surface, build: build)
+      let context = ProductPolicy.Context(paidTierEnabled: false, environment: "sandbox", surface: surface, build: build)
       XCTAssertEqual(ProductPolicy.evaluateSales(context, fresh(salesBody()), highestSeenRevision: 0, now: clock),
                      ProductPolicy.Verdict(.compiledOff), surface)
     }
   }
 
-  func testShippedSwitchKeepsEverySharedSalesVectorOff() throws {
+  func testShippedSwitchKeepsEverySharedSalesVectorOffWhenTheContextSaysPaidOff() throws {
     let sales = try ProductPolicyVectorTests.fixture().cases.filter { $0.namespace == "sales" }
     XCTAssertGreaterThan(sales.count, 100)
     for vector in sales {
-      let context = ProductPolicy.Context(paidTierEnabled: true, environment: vector.context.environment,
+      let context = ProductPolicy.Context(paidTierEnabled: false, environment: vector.context.environment,
                                           surface: vector.context.surface, build: vector.context.build)
       let verdict = ProductPolicy.evaluateSales(context, try vector.policyResponse(),
                                                 highestSeenRevision: vector.highestSeenRevision, now: { vector.now })
@@ -63,7 +63,7 @@ final class ProductPolicyTests: XCTestCase {
   func testPublicContextAlwaysUsesTheCompiledSwitch() {
     let packaged = ProductPolicy.Context(environment: "sandbox", surface: "apple_mobile_host", build: build)
     XCTAssertEqual(packaged.paidTierEnabled, MonetizationConfig.paidTierEnabled)
-    XCTAssertEqual(ProductPolicy.evaluateSales(packaged, fresh(salesBody()), highestSeenRevision: 0, now: clock).reason, .compiledOff)
+    XCTAssertNotEqual(ProductPolicy.evaluateSales(packaged, fresh(salesBody()), highestSeenRevision: 0, now: clock).reason, .compiledOff)
     // Access mode stays compiled: evaluating policy has no path into NativeAccessContext.
     XCTAssertEqual(NativeAccessContext().paidMode, MonetizationConfig.paidTierEnabled)
   }

@@ -2,9 +2,10 @@
 // server-side by the RevenueCat webhook / reconcile functions (U14) — never by the client.
 
 /**
- * The paid tier is intentionally dormant while Still includes every supported blocking surface.
- * Keep the entitlement, purchase, and paywall paths healthy: changing this literal to `true` is
- * the single TypeScript switch that restores their authority in a rebuilt release.
+ * The paid tier is declared on for the 3.x release line (Still Pro: optional extras sold once). The
+ * four free protections and optional sync stay free; nothing is sold until the server's remote
+ * `salesEnabled` also says so, because the evaluator ANDs the two. Setting this literal back to
+ * `false` makes the paid tier dormant again in a rebuilt release.
  *
  * Every read path that decides what a user may block, or whether the purchase UI is reachable,
  * checks this before it reads an entitlement, so full access is answered synchronously and offline
@@ -12,7 +13,7 @@
  * .paidTierEnabled` in StillKit, which governs the native purchase and restore actions; the two
  * must always hold the same value and a StillKit test fails if they drift.
  */
-export const PAID_TIER_ENABLED = false;
+export const PAID_TIER_ENABLED = true;
 
 /** How the entitlement row was last written, for audit/debug. */
 export type EntitlementSource = "webhook" | "reconcile" | null;

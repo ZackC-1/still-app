@@ -281,7 +281,8 @@ final class AccessProofTests: XCTestCase {
     XCTAssertEqual(bridge.handle(.getBenefitAccess), "{\"ok\":false}")
     XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("entitlement.json")), before)
     let unavailable = SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false)
-    let free = try unavailable.observeBenefits(wall: 1000).1
+    let paidOff = NativeAccessContext(paidMode: false, supported: NativeAppleAccessCapabilities.supported(paidMode: false))
+    let free = try unavailable.observeBenefits(wall: 1000, context: paidOff).1
     XCTAssertEqual(free.states["youtube.shorts"], "free")
     XCTAssertEqual(free.states["tiktok.all"], "free")
     XCTAssertEqual(free.states["youtube.comments"], "unsupported")

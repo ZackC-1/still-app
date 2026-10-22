@@ -8,7 +8,7 @@ to a store; it only prepares local files for the owner's separately authorized s
 | `extension` | Chrome and Firefox manifest version (through `packages/ext-chromium/package.json`, which WXT reads) |
 | `apple` | Apple app `MARKETING_VERSION` (every Xcode target) and the Safari extension version (`packages/ext-safari/package.json`) |
 | `appleBuild` | Apple `CURRENT_PROJECT_VERSION` (every Xcode target) |
-| `paidTier` | Whether the Chrome and Firefox release line ships with the paid tier on. `false` for every 2.x line |
+| `paidTier` | Whether the Chrome and Firefox release line ships with the paid tier on. `false` for every 2.x line, `true` for 3.x |
 
 `extension` and `apple` are separate because the stores move independently (for example Chrome and
 Firefox 2.1.1 with Apple 2.1.0). Set them equal when a release ships everywhere together.

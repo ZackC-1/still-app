@@ -37,10 +37,16 @@ export function buildEnvironment(input = process.env) {
   return { ...env, NODE_ENV: "production", VITE_MODERN_SETTINGS_SYNC_ENABLED: "true", VITE_APPLE_ATOMIC_SETTINGS: "true" };
 }
 
-/** The flag module with the paid tier on. Refuses anything but exactly one original `false` literal. */
+/**
+ * The flag module with the paid tier on. Accepts exactly one `false` literal (flipped) or, once a release
+ * line ships the paid tier, exactly one `true` literal (returned unchanged). Anything else refuses.
+ */
 export function flipPaidFlag(source) {
-  if (source.split(FLAG_OFF).length !== 2) throw new Error(`The paid flag module must hold exactly one "${FLAG_OFF}"`);
-  return source.replace(FLAG_OFF, FLAG_ON);
+  const off = source.split(FLAG_OFF).length - 1;
+  const on = source.split(FLAG_ON).length - 1;
+  if (off === 1 && on === 0) return source.replace(FLAG_OFF, FLAG_ON);
+  if (off === 0 && on === 1) return source;
+  throw new Error(`The paid flag module must hold exactly one "${FLAG_OFF}" or exactly one "${FLAG_ON}"`);
 }
 
 /** A module id or file path in one comparable form: forward slashes, no query, no virtual prefix. */

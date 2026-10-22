@@ -568,9 +568,9 @@ test("a store package must have the paid tier exactly as its release line declar
   assert.throws(() => assertPaidTierDeclared(on, false), (e) => e.code === "paid-flag-mismatch" && /declares paidTier false/.test(e.message));
   assert.throws(() => assertPaidTierDeclared(off, true), (e) => e.code === "paid-flag-mismatch" && /declares paidTier true/.test(e.message));
   assert.throws(() => assertPaidTierDeclared("export const SOMETHING = false;\n", false), (e) => e.code === "paid-flag-unknown");
-  // Every current 2.x line declares false, and the committed flag agrees.
+  // The 3.x release line declares true, and the committed flag agrees.
   const declared = JSON.parse(readFileSync(new URL("../../version.json", HERE), "utf8")).paidTier;
-  assert.equal(declared, false);
+  assert.equal(declared, true);
   assertPaidTierDeclared(readFileSync(new URL("../../packages/shared-types/src/entitlement.ts", HERE), "utf8"), declared);
 });
 

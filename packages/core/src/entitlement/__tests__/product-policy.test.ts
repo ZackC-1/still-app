@@ -40,22 +40,22 @@ const vectorBody = (raw: RawVector["response"]): Uint8Array | null => !raw ? nul
   typeof raw.body === "string" ? encode(raw.body) : null;
 
 describe("two-key sales activation against the real compiled constant", () => {
-  it("ships with the compiled switch off", () => {
-    expect(PAID_TIER_ENABLED).toBe(false);
+  it("ships with the compiled switch on for the 3.x release line", () => {
+    expect(PAID_TIER_ENABLED).toBe(true);
   });
 
-  it("ignores a hand-built context that claims the paid tier is on", () => {
+  it("still refuses a context that says the paid tier is off, whatever the remote says", () => {
     for (const surface of PRODUCT_POLICY_SURFACES) {
-      const verdict = evaluateSalesPolicy({ ...handBuiltOn, surface }, response(salesBody()), 0, clock());
+      const verdict = evaluateSalesPolicy({ ...handBuiltOn, paidTierEnabled: false, surface }, response(salesBody()), 0, clock());
       expect(verdict).toEqual({ allowed: false, reason: "compiled_off", revision: null });
     }
   });
 
-  it("keeps every shared sales vector Off, whatever the remote or context says", () => {
+  it("keeps every shared sales vector Off when the context says the paid tier is off", () => {
     const sales = vectorCases.filter(c => c.namespace === "sales");
     expect(sales.length).toBeGreaterThan(100);
     for (const vector of sales) {
-      const verdict = evaluateSalesPolicy({ ...vector.context, paidTierEnabled: true },
+      const verdict = evaluateSalesPolicy({ ...vector.context, paidTierEnabled: false },
         vector.response && { body: vectorBody(vector.response), requestStartedAt: vector.response.requestStartedAt },
         vector.highestSeenRevision, () => vector.now);
       expect(verdict.allowed).toBe(false);
@@ -63,11 +63,17 @@ describe("two-key sales activation against the real compiled constant", () => {
     }
   });
 
+  it("leaves the decision to the remote policy once both keys are on", () => {
+    expect(evaluateSalesPolicy(handBuiltOn, response(salesBody()), 0, clock())).toEqual({ allowed: true, reason: "on", revision: 3 });
+    expect(evaluateSalesPolicy(handBuiltOn, response(salesBody({ salesEnabled: false })), 0, clock()).allowed).toBe(false);
+    expect(evaluateSalesPolicy(handBuiltOn, response(null), 0, clock()).allowed).toBe(false);
+  });
+
   it("builds the packaged context from the compiled constant", () => {
     const packaged = packagedPolicyContext("sandbox", "chrome_desktop", BUILD);
     expect(packaged.paidTierEnabled).toBe(PAID_TIER_ENABLED);
     expect(Object.isFrozen(packaged)).toBe(true);
-    expect(evaluateSalesPolicy(packaged, response(salesBody()), 0, clock()).reason).toBe("compiled_off");
+    expect(evaluateSalesPolicy(packaged, response(salesBody()), 0, clock()).allowed).toBe(true);
   });
 
   it("never yields an access mode: the verdict carries no paidMode and access stays compiled", () => {

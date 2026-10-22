@@ -3,5 +3,5 @@
   "extension": "2.1.1",
   "apple": "2.1.0",
   "appleBuild": 10,
-  "paidTier": false
+  "paidTier": true
 }

@@ -238,12 +238,13 @@ final class FreePeriodRestoreTests: XCTestCase {
   /// decide what it blocks and which controls it shows must be identical before and after a past
   /// buyer's purchase is restored: free features free, Pro-only controls unavailable.
   func testARestoredPurchaseWhilePaidIsOffChangesNothingTheSafariExtensionReads() throws {
-    XCTAssertFalse(MonetizationConfig.paidTierEnabled)
+    // The 3.x line compiles the paid tier on, so the paid-off case is a supplied paid-off context.
+    let paidOff = NativeAccessContext(paidMode: false, supported: NativeAppleAccessCapabilities.supported(paidMode: false))
     let store = SharedEntitlementStore(backing: InMemoryBacking())
     let app = EntitlementBridge(
       store: store, now: { 1_000 }, installId: { "install-A" }, receiptStatus: { .entitled })
     let safariExtension = EntitlementBridge(
-      store: store, now: { 1_000 }, installId: { "install-A" }, readOnly: true)
+      store: store, now: { 1_000 }, installId: { "install-A" }, readOnly: true, accessContext: { paidOff })
 
     let before = try XCTUnwrap(safariExtension.handle(rawBody: ["kind": "getBenefitAccess"]))
     let stamp = app.applyReceipt(.entitled)

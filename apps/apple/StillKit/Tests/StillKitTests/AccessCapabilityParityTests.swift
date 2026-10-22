@@ -22,16 +22,17 @@ final class AccessCapabilityParityTests: XCTestCase {
     return try JSONDecoder().decode(Fixture.self, from: raw)
   }
 
-  func testDefaultSupportedSetEqualsTheSharedPaidOffSet() throws {
+  func testDefaultSupportedSetFollowsTheShippedPaidSwitch() throws {
     let fixture = try Self.fixture()
     XCTAssertEqual(fixture.schema, 1)
-    XCTAssertFalse(MonetizationConfig.paidTierEnabled)
+    XCTAssertTrue(MonetizationConfig.paidTierEnabled)
     let expected = Set(fixture.paidOffSupported)
     XCTAssertEqual(expected.count, fixture.paidOffSupported.count)
-    XCTAssertEqual(NativeAccessContext().supported, expected)
-    XCTAssertEqual(NativeAccessContext(paidMode: false).supported, expected)
-    // The default stays free-only even in paid mode: a host must supply implemented Pro features.
-    XCTAssertEqual(NativeAccessContext(paidMode: true).supported, expected)
+    // Shipped paid on: the default context holds the free features plus this platform's extras.
+    XCTAssertEqual(NativeAccessContext().supported, NativeAppleAccessCapabilities.supported(paidMode: true))
+    XCTAssertTrue(expected.isSubset(of: NativeAccessContext().supported))
+    // Paid off: exactly the shared free set.
+    XCTAssertEqual(NativeAppleAccessCapabilities.supported(paidMode: false), expected)
     let free = PackagedFeatureRegistry.features.filter { $0.tier == "free" }.map(\.id) + [PackagedFeatureRegistry.tiktokAlias]
     XCTAssertEqual(Set(free), expected)
   }
@@ -58,10 +59,11 @@ final class AccessCapabilityParityTests: XCTestCase {
                    ["youtube.endscreen", "youtube.livechat", "facebook.sponsored"])
   }
 
-  func testEveryProFeatureResolvesUnsupportedFromTheDefaultContext() {
+  func testEveryProFeatureResolvesUnsupportedFromAPaidOffContext() {
     let pro = PackagedFeatureRegistry.features.filter { $0.tier == "pro" }.map(\.id)
     XCTAssertEqual(pro.count, 12)
-    let snapshot = resolveAccessSnapshot(AccessCacheRecord(), evidence: [], context: NativeAccessContext())
+    let paidOff = NativeAccessContext(paidMode: false, supported: NativeAppleAccessCapabilities.supported(paidMode: false))
+    let snapshot = resolveAccessSnapshot(AccessCacheRecord(), evidence: [], context: paidOff)
     for id in pro { XCTAssertEqual(snapshot.states[id], "unsupported", id) }
     for id in PackagedFeatureRegistry.features.filter({ $0.tier == "free" }).map(\.id) + [PackagedFeatureRegistry.tiktokAlias] {
       XCTAssertEqual(snapshot.states[id], "free", id)

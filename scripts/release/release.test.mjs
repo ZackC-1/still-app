@@ -292,6 +292,21 @@ function committedClone(base, edit, message) {
 
 /** A fresh Ed25519 public key; the private half is never exported or kept. */
 const freshPublicKeyHex = () => generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
+/** Digests a server signing with `row` reports (all three are digests of public values). */
+const serverDigestsFor = (row) => [
+  { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256(row.environment) },
+  { name: "ACCESS_PROOF_KEY_ID", value: sha256(row.kid) },
+  { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(row.publicKeyHex) },
+];
+/** Rewrite a clone to the free (paid-off) declarations, whatever the committed release line declares. */
+function asPaidOff(clone) {
+  const edits = [
+    ["packages/shared-types/src/entitlement.ts", "export const PAID_TIER_ENABLED = true;", "export const PAID_TIER_ENABLED = false;"],
+    ["apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", "public static let paidTierEnabled = true", "public static let paidTierEnabled = false"],
+    ["version.json", '"paidTier": true', '"paidTier": false'],
+  ];
+  for (const [path, on, off] of edits) writeFileSync(join(clone, path), readFileSync(join(clone, path), "utf8").replace(on, off));
+}
 const pinKeys = (clone, keys) => writeFileSync(join(clone, TRUST_FILE), JSON.stringify({ about: "release test keys", keys }, null, 2) + "\n");
 
 test("a committed non-production trust row, a paid release without a matching key, or an unreadable paid switch stops the build before anything is installed", () => {
@@ -321,7 +336,7 @@ test("a committed non-production trust row, a paid release without a matching ke
   for (const [name, edit, refusal] of cases) {
     const base = mkdtempSync(join(tmpdir(), "still-trust-refusal-"));
     try {
-      const clone = committedClone(base, edit, name);
+      const clone = committedClone(base, (c) => { asPaidOff(c); edit(c); }, name);
       const out = join(base, "out");
       withFakePnpm("process.exit(1);", (calls) => {
         assert.throws(() => buildPackages({ out, root: clone }), refusal, name);
@@ -345,6 +360,7 @@ test("the shared package build (Chrome and Firefox) refuses a paid flag that dif
     const flagPath = join(clone, "packages/shared-types/src/entitlement.ts");
     const versionPath = join(clone, "version.json");
     const out = join(base, "out");
+    asPaidOff(clone);
     const refused = (expected) =>
       withFakePnpm("process.exit(1);", (calls) => {
         assert.throws(() => buildPackages({ out, root: clone }), (e) => e.code === "paid-flag-mismatch" && expected.test(e.message));
@@ -367,11 +383,7 @@ test("the shared package build (Chrome and Firefox) refuses a paid flag that dif
     withFakePnpm("process.exit(1);", (calls) => {
       assert.throws(() => buildPackages({ out, root: clone }), /needs the server's secret digests/);
       assert.equal(calls(), "", "matching declarations cannot bypass the server trust gate");
-      const serverDigests = [
-        { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256(key.environment) },
-        { name: "ACCESS_PROOF_KEY_ID", value: sha256(key.kid) },
-        { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(key.publicKeyHex) },
-      ];
+      const serverDigests = serverDigestsFor(key);
       assert.throws(() => buildPackages({ out, root: clone, serverDigests }), /pnpm install --frozen-lockfile failed/);
       assert.notEqual(calls(), "", "matching declarations and server trust reach the install step");
     });
@@ -392,7 +404,10 @@ if (script === "build" || script === "build:firefox") {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(dir + "/manifest.json", JSON.stringify({ version: script === "build" ? ${JSON.stringify(version)} : "0.0.0" }));
 }`;
-    withFakePnpm(body, () => assert.throws(() => buildPackages({ out, root: ROOT, allowDirty: true }), /firefox manifest version 0\.0\.0/));
+    // A paid release line needs matching server digests to reach the build at all.
+    const [current] = readStoreTrust(ROOT).rows;
+    const serverDigests = current ? serverDigestsFor(current) : undefined;
+    withFakePnpm(body, () => assert.throws(() => buildPackages({ out, root: ROOT, allowDirty: true, serverDigests }), /firefox manifest version 0\.0\.0/));
     assert.equal(existsSync(out) ? readdirSync(out).length : 0, 0, "no zip may be written when a later check fails");
   } finally {
     rmSync(base, { recursive: true, force: true });
@@ -427,9 +442,10 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
   try {
     const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" };
     plant();
-    const a = buildPackages({ out: join(base, "a"), root: clone, env, allowDirty: true });
+    const serverDigests = serverDigestsFor(trustKeys[0]);
+    const a = buildPackages({ out: join(base, "a"), root: clone, env, allowDirty: true, serverDigests });
     unplant();
-    const b = buildPackages({ out: join(base, "b"), root: clone, env, allowDirty: true });
+    const b = buildPackages({ out: join(base, "b"), root: clone, env, allowDirty: true, serverDigests });
     assert.deepEqual(a, b);
     const versions = readVersions();
     assert.deepEqual(Object.keys(a.files), [`still-chrome-${versions.extension}.zip`, `still-firefox-${versions.extension}.zip`, `still-source-${versions.extension}.zip`]);

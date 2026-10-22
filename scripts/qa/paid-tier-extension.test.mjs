@@ -16,11 +16,13 @@ test("the checked-in flag module flips to exactly one paid-on literal", async ()
   assert.ok(!flipped.includes("export const PAID_TIER_ENABLED = false;"));
 });
 
-test("refuses a flag module that is already on, missing or ambiguous", () => {
-  assert.throws(() => flipPaidFlag("export const PAID_TIER_ENABLED = true;\n"), /exactly one/);
+test("keeps a flag module that is already on; refuses one that is missing or ambiguous", () => {
+  assert.equal(flipPaidFlag("export const PAID_TIER_ENABLED = true;\n"), "export const PAID_TIER_ENABLED = true;\n");
   assert.throws(() => flipPaidFlag(""), /exactly one/);
   const twice = "export const PAID_TIER_ENABLED = false;\n".repeat(2);
   assert.throws(() => flipPaidFlag(twice), /exactly one/);
+  assert.throws(() => flipPaidFlag("export const PAID_TIER_ENABLED = true;\n".repeat(2)), /exactly one/);
+  assert.throws(() => flipPaidFlag("export const PAID_TIER_ENABLED = false;\nexport const PAID_TIER_ENABLED = true;\n"), /exactly one/);
 });
 
 test("the transform touches only the flag module and records that it ran", () => {
