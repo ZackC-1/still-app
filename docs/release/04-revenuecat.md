@@ -6,7 +6,12 @@ identity and historical entitlements remain active; purchases are dormant. Follo
 below differ. Do not create billing products, buy a test product, connect Stripe, grant entitlements
 or upgrade a RevenueCat plan solely to release free 2.0.
 
-## Current release checklist
+For V3, use the [purchase identifier table](../monetization-design.md#purchase-identifiers)
+and the [production activation plan](../plans/2026-10-21-002-production-activation-and-verification.md).
+The procedures below describe the 2.x checkpoint and earlier paid-launch history; they are not
+instructions for configuring V3 products or checkout.
+
+## Free 2.x release checklist
 
 **September 14 checkpoint:** the owner reviewed credentials and the existing Supabase webhook,
 with successful delivery evidence. The provider inventory and current-practice retention decision
@@ -67,9 +72,9 @@ Future deployment/source verification remains a separate Supabase action under t
 
 ## Retained paid-launch reference
 
-The sections below preserve prior setup, purchase and validation procedures for an explicitly
-approved future paid release or a demonstrated maintenance issue. Their unchecked items are not
-free 2.0 release requirements. Re-verify provider requirements and pricing before using them.
+The sections below preserve prior setup, purchase and validation procedures as history.
+Their unchecked items are not current release requirements. The V3 references above supersede
+these product, offering and Purchase Link instructions.
 Do not run configuration, secret, purchase, migration or deployment commands as part of a read-only
 readiness check.
 
@@ -77,7 +82,7 @@ The prior $1.99 model used the same project-wide `still_sync` entitlement and Su
 for Apple and web purchases. RevenueCat documents webhooks as a Pro-plan feature; confirm actual
 plan availability before proposing any change. This is retained purchase infrastructure.
 
-> **Exact ids for this app:** entitlement **`still_sync`** · Apple product **`still_sync`** · Web
+> **Historical catalog only:** entitlement **`still_sync`** · Apple product **`still_sync`** · Web
 > Billing product **`still_sync_web`** · prior price **$1.99** one-time (non-consumable) ·
 > `app_user_id` = the Supabase user UUID.
 
@@ -125,7 +130,7 @@ Docs: [Entitlements](https://www.revenuecat.com/docs/getting-started/entitlement
 
 ### 3. Web Billing → the Web Purchase Link → `REVENUECAT_WEB_BILLING_CHECKOUT_URL`
 
-This is what powers Pro on the Chrome/Firefox extensions via `create-web-checkout`.
+This was the earlier browser checkout design. Current V3 checkout does not use this Purchase Link.
 
 1. [ ] **Connect Stripe** (project **owner** only): RC → [account settings](https://app.revenuecat.com/settings/account)
        → **Connect Stripe account** → install the
@@ -217,7 +222,7 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
 
 ### 6. Sandbox test, then the Supabase Go/No-Go
 
-#### Sandbox (future paid launch)
+#### Sandbox (historical paid-launch procedure)
 
 - [ ] **Apple:** buy `still_sync` with a sandbox tester → webhook event has `environment: SANDBOX` →
       entitlement recorded.

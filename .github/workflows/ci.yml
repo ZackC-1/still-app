@@ -44,6 +44,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Public website crawl and publication contracts
+        run: |
+          pnpm build:website
+          pnpm test:website
+
       - name: Lint
         run: pnpm lint
 

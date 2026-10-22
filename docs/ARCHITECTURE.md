@@ -73,7 +73,9 @@ profiles.
    offline continuity uses signed 30-day deadlines with revocation/expiry latches and
    clock-rollback safeguards (D519); no DRM or fingerprinting.
 
-The paid tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
+The paid tier is Still Pro. New V3 purchases and historical purchases use separate identifiers;
+the [purchase identifier table](monetization-design.md#purchase-identifiers) records their mapping
+and compatibility rules.
 
 ## Settings and account flow
 
