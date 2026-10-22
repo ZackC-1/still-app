@@ -378,7 +378,7 @@ approves the production sales operation (runbook 2.6).
 | D4 App Review and TestFlight sandbox purchases in production | Open. Recommended: accept as device-only rights behind a server switch | Owner |
 | D5 entitlement | Open. Recommended: `still_pro_v3` (the code) | Owner and engineering |
 | D6 production public keys in the repository | Open. Recommended: commit public keys (current and standby); private key only in the secrets run | Owner |
-| D7 modern-sync marker flip to `shipped` in the release commit | Open. Recommended: yes; V3 screens need modern sync in configured builds | Owner |
+| D7 modern-sync marker flip to `shipped` in the release commit | Approved by the owner for the 3.0 release; relayed to the release branch (PR #544) on 22 October 2026. The ruling's own date is not recorded in the repository | Owner |
 | D8 PROD-02 privacy | Open. Recommended: one owner-registered label for the owner's own account, keyed reference only, age-encrypted report | Owner |
 | D9 exact 3.0 build strings in the sales body | Open (runbook 0.3). Recommended: `chrome_desktop` and `firefox_desktop` `3.0.0`, `apple_mobile_host` and `apple_macos_host` `3.0`; no `firefox_android` | Owner |
 | Production `sync-settings` already serves modern sync | Unknown | V11 owner read of Edge Functions; DB-01 |
@@ -502,3 +502,5 @@ portal and QA time, and they will move once D3 and D4 are answered.
 |---|---|---|
 | 2026-10-21 | Plan drafted; recommends the protected-operation path for sales and cutoff | The sandbox pair already proves the pattern, and it removes the need for a cutoff migration and the owner allowlist |
 | 2026-10-21 | D2 precondition verified: no Still Pro extra existed in any released tree (tag v2.0.0, the 2.1.0 and 2.1.1 extension releases, Apple 2.1.0 build 9); with the paid tier off every packaged surface applied, and every surface was a YouTube Shorts, Instagram Reels, Facebook Reels or TikTok surface, so the four free ids are exactly what shipped free | Git read of the release commits and the packaged rule sets (seed 1.1.9 to 1.1.11); the hosted rule sets could not be read from Git but carried the same surface ids |
+| 2026-10-22 | D7 applied in the release branch (PR #544): `modern-sync-shipped` says `shipped` | Owner approval relayed with the release-branch brief; the ruling's own date is not recorded here |
+| 2026-10-22 | Firefox data collection: the sign-in email address and the Still Pro purchase status become optional data collection, requested at runtime (at sign-in and at purchase), in a separate pull request. Until it lands, the manifest keeps main's declaration (required `authenticationInfo`, optional `technicalAndInteraction`) | Owner ruling on 22 October, reversing an earlier same-day choice of "required"; the required declaration was reverted from PR #544 |
