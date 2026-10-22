@@ -96,9 +96,11 @@ begin
  -- Global lock bounds anonymous allocation even across different IPs/origins. Maintenance is
  -- performed on every preparation, including requests refused by the global allocation ceiling.
  perform pg_advisory_xact_lock(170029,1);
+ -- Acquire this origin before cleanup can take attribution row locks. A concurrent erasure
+ -- already owns that origin before retiring rows; reversing this order would deadlock.
+ subject:=private.apple_analytics_scope(p_origin,p_holder,p_index);
  perform private.apple_analytics_cleanup();
  if (select count(*) from private.apple_purchase_analytics where transaction_key is null)>=2048 then return false; end if;
- subject:=private.apple_analytics_scope(p_origin,p_holder,p_index);
  k:=private.analytics_origin_key(decode(p_origin,'hex'));
  if (select count(*) from private.apple_purchase_analytics where origin_key=k and transaction_key is null)>=2 then return false; end if;
  insert into private.apple_purchase_analytics(capability_hash,origin_key,subject_id,anon_index,project_hash,surface,app_version)

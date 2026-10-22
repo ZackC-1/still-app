@@ -138,6 +138,36 @@ Deno.test({
       await assertRejects(() =>
         store.prepare(hash(5), scope, "app-ios", "3.0.0")
       );
+      // Real second-session lock ordering: erasure owns the origin while prepare starts.
+      // Preparation must wait before taking expired attribution rows, so erasure can retire them.
+      const racing = { ...scope, originProof: hash(108) };
+      assert(await store.prepare(hash(9), racing, "app-ios", "3.0.0"));
+      await admin`update private.apple_purchase_analytics set expires_at=clock_timestamp()-interval '1 second' where capability_hash=${
+        hash(9)
+      }`;
+      let pending: Promise<unknown> | undefined;
+      await admin.begin(async (lock) => {
+        await lock`select pg_advisory_xact_lock(hashtextextended(encode(private.analytics_origin_key(decode(${racing.originProof},'hex')),'hex'),170017))`;
+        pending = store.prepare(hash(10), racing, "app-ios", "3.0.0").catch(
+          () => false,
+        );
+        let waiting = false;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const rows =
+            await admin`select 1 from pg_stat_activity where query like '%apple_analytics_prepare%' and wait_event='advisory'`;
+          if (rows.length) {
+            waiting = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert(waiting, "preparation did not reach the held origin");
+        // Under the old row-before-origin ordering this insert and prepare deadlock.
+        await lock`set local statement_timeout='750ms'`;
+        await lock`insert into private.analytics_erasure_jobs(job_id,scope,scope_key,stage,sweeps,attempts,priority,next_attempt_at,created_at)
+        values(${crypto.randomUUID()}::uuid,'device',private.analytics_origin_key(decode(${racing.originProof},'hex')),'stop_recorded',0,0,1,clock_timestamp(),clock_timestamp())`;
+      });
+      assertEquals(await pending, false);
       // Signed-in capability is tied to the original active subject, with cascade on deletion.
       const user = crypto.randomUUID(), subject = crypto.randomUUID();
       const signed = {
@@ -171,7 +201,7 @@ Deno.test({
       await admin`update private.apple_purchase_analytics set transaction_key=${
         hash(207)
       },transaction=${
-        admin.json(tx)
+        admin.json({...tx})
       },purchased_at=extract(epoch from clock_timestamp()-interval '91 days')*1000 where capability_hash=${
         hash(7)
       }`;
