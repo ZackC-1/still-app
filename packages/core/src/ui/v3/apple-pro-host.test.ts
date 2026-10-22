@@ -93,6 +93,14 @@ const user = {
   confirmed: true,
 };
 describe("real Apple Pro host composition", () => {
+  it("a throwing canonical measurement completion cannot replace native purchase success", async () => {
+    const h = await harness({purchaseAnalytics:{begin:async()=>()=>{throw new Error("optional measurement failed");}}});
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(()=>expect(h.host.props([]).purchase.state).toBe("success"));
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    h.host.stop();
+  });
+
   it("rechecks account and stopped scope after optional analytics preparation before charging", async () => {
     for (const change of ["account", "stop"] as const) {
       let finish!: (value: null) => void;

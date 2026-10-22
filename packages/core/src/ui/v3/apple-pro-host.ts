@@ -461,7 +461,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
-      purchaseObserved?.(result);
+      try { purchaseObserved?.(result); }
+      catch { /* Optional measurement cannot change a completed purchase outcome. */ }
       if (nativeAcquisitionGeneration === generation)
         nativeAcquisitionGeneration = undefined;
       if (stopped) return;
