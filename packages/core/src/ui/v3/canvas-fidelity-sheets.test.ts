@@ -67,9 +67,9 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
     expect(panel).toContain("padding: 10px 20px calc(28px + env(safe-area-inset-bottom));");
     expect(panel).toContain("color: var(--ink);");
     expect(panel).toContain("box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);");
-    expect(rule(style(), ".sheet h2")).toContain("font-size: 20px;");
+    expect(rule(style(), ".sheet h2")).toContain("font-size: calc(20px * var(--text-scale, 1));");
     expect(rule(style(), ".sheet h2")).toContain("letter-spacing: normal;");
-    expect(rule(style(), ".body")).toContain("font-size: 15px;");
+    expect(rule(style(), ".body")).toContain("font-size: calc(15px * var(--text-scale, 1));");
     expect(rule(style(), ".grip")).toContain("block-size: 5px;");
     expect(rule(style(), ".grip")).toContain("background: var(--border-strong);");
     expect(rule(style(), ".grip")).not.toContain("margin");
@@ -80,12 +80,14 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
     );
   });
 
-  it("draws the fields 48px tall with the stronger border; the code field at 20px", () => {
+  // The fields keep PR #549's --input-border (3:1 against the panel) rather than the canvas's
+  // fainter --border-strong; see R15 in the lane D report.
+  it("draws the fields 48px tall with the contrasting border; the code field at 20px", () => {
     expect(rule(style(), ".email,\n  .code")).toContain("min-block-size: 48px;");
-    expect(rule(style(), ".email,\n  .code")).toContain("border: 1px solid var(--border-strong);");
+    expect(rule(style(), ".email,\n  .code")).toContain("border: 1px solid var(--input-border);");
     expect(rule(style(), ".email,\n  .code")).toContain("padding: 10px 14px;");
-    expect(style()).toMatch(/\.code \{\s*font-size: 20px;\s*letter-spacing: 0\.3em;/);
-    expect(rule(style(), ".sent")).toContain("font-size: 14px;");
+    expect(style()).toMatch(/\.code \{\s*font-size: calc\(20px \* var\(--text-scale, 1\)\);\s*letter-spacing: 0\.3em;/);
+    expect(rule(style(), ".sent")).toContain("font-size: calc(14px * var(--text-scale, 1));");
   });
 
   it("centres the secondary actions in blue: 44px, and 36px at 15px on the code step", () => {
@@ -94,7 +96,7 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
     expect(links).toContain("min-block-size: 44px;");
     expect(links).toContain("color: var(--link, var(--still-blue));");
     expect(rule(style(), ".link.code-step")).toContain("min-block-size: 36px;");
-    expect(rule(style(), ".link.code-step")).toContain("font-size: 15px;");
+    expect(rule(style(), ".link.code-step")).toContain("font-size: calc(15px * var(--text-scale, 1));");
     render(SignInSheet, { controller: controller("code"), onDismiss: vi.fn() });
     expect(screen.getByRole("button", { name: "Send a new code" })).toHaveClass("code-step");
     expect(screen.getByRole("button", { name: "Use a different email" })).toHaveClass("code-step");
@@ -102,7 +104,7 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
 
   it("gives Firefox's agreement a 20px box and 15px words, and a disabled Continue at half strength", () => {
     expect(rule(style(), ".agree")).toContain("gap: 10px;");
-    expect(rule(style(), ".agree")).toContain("font-size: 15px;");
+    expect(rule(style(), ".agree")).toContain("font-size: calc(15px * var(--text-scale, 1));");
     expect(rule(style(), ".agree input")).toContain("inline-size: 20px;");
     expect(rule(style(), "button:disabled")).toContain("opacity: 0.5;");
   });

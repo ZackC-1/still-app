@@ -7,6 +7,7 @@ module: packages/core/src/ui/v3
 tags: [accessibility, dynamic-type, text-size, wkwebview, safari, chrome, firefox, extension-popup, bundle-identity]
 applies_when: A web UI (extension page, popup, or app web view) whose type is px times a scale variable must follow the person's browser font size or Apple Dynamic Type
 date: 2026-10-05
+last_updated: 2026-10-22
 status: active
 ---
 
@@ -111,6 +112,15 @@ Why it works:
   and `bringToFront()` each page you measure.
 - **Hosts bind; components never do.** The visual harness sets `--text-scale` itself, and a binder
   inside a component would fight it.
+- **Sibling dialogs need their own scaled font base.** `AppleSettingsHost` mounts the shared
+  `SignInSheet` outside `.still-ui`. Its body-text class scaled, while its inherited inputs/buttons
+  and fixed heading/labels stayed at their original sizes. The sheet now sets
+  `font-size: calc(16px * var(--text-scale, 1))` with a unitless line height and scales its explicit
+  22px/14px roles. Inputs use `min-inline-size: 0` and `inline-size: 100%`; recipient text uses
+  `overflow-wrap: anywhere`. Chromium and WebKit checks at 320px, in both themes and at
+  1×/1.35×/1.5×/2×, verified the computed font sizes and no horizontal sheet or recipient overflow.
+  Test the mounted dialog as well as its host screen: inheriting the scale variable does not
+  automatically scale a font that never uses it.
 - **On macOS, `-apple-system-body` is a fixed 13px.** The Sonoma Text size setting applies only to
   some Apple apps, and `NSFont.preferredFont` returns fixed sizes. Detect the Mac (desktop user agent
   with no touch points; an iPad web view reports "Macintosh" with touch points) and keep 1.

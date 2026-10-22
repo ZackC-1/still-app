@@ -38,6 +38,14 @@
   // leaves the button disabled without nagging.
   const emailValid = $derived(isValidEmail(email));
   const showEmailHint = $derived(email.trim().length > 0 && !emailValid);
+  const sendDisabled = $derived(
+    !emailValid || c.authFlow === "sending" || c.sendBlockRemaining > 0,
+  );
+  const verifyDisabled = $derived(
+    code.length !== 6 ||
+      c.authFlow === "verifying" ||
+      c.verifyBlockRemaining > 0,
+  );
 
   $effect(() =>
     trapFocus({
@@ -75,7 +83,8 @@
     if (c.codeErrorKind === "expired") return STRINGS.codeAuth.expiredCode;
     // The rate-limited kinds outrank suggestNewCode (R3): "send a new code" is the worst advice
     // during a lockout. Both self-clear when their lock elapses (the controller nulls the kind).
-    if (c.codeErrorKind === "verify-rate-limited") return STRINGS.codeAuth.verifyError; // lock already elapsed; kind lingering
+    if (c.codeErrorKind === "verify-rate-limited")
+      return STRINGS.codeAuth.verifyError; // lock already elapsed; kind lingering
     if (c.codeErrorKind === "resend-rate-limited")
       return STRINGS.codeAuth.resendBlocked;
     if (c.suggestNewCode) return STRINGS.codeAuth.requestNew;
@@ -128,7 +137,8 @@
     releaseOnLayer = event.target === event.currentTarget;
   }}
   onclick={(event) => {
-    const outside = pressOnLayer && releaseOnLayer && event.target === event.currentTarget;
+    const outside =
+      pressOnLayer && releaseOnLayer && event.target === event.currentTarget;
     pressOnLayer = false;
     releaseOnLayer = false;
     if (outside) onDismiss();
@@ -153,12 +163,16 @@
     <!-- The dialog is named by its own heading rather than by a fixed string, because the heading
          changes on the consent step. A screen reader must not announce "sign in" on the one screen
          that is asking a question about an email address. -->
-    <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}</h2>
+    <h2 id="still-signin-title">
+      {c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}
+    </h2>
     <p class="body">
       {#if c.needsEmailConsent}
         {STRINGS.emailConsent.body}
       {:else}
-        {inCodeEntry ? STRINGS.codeAuth.prompt : (prompt ?? STRINGS.auth.prompt)}
+        {inCodeEntry
+          ? STRINGS.codeAuth.prompt
+          : (prompt ?? STRINGS.auth.prompt)}
       {/if}
     </p>
     {#if note}<p class="body">{note}</p>{/if}
@@ -180,107 +194,122 @@
         {STRINGS.emailConsent.proceed}
       </button>
     {:else if inCodeEntry}
-      <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
-      <label class="field-label" for="still-code"
-        >{STRINGS.codeAuth.codeLabel}</label
+      <form
+        class="auth-form"
+        novalidate
+        onsubmit={(event) => {
+          event.preventDefault();
+          if (!verifyDisabled) void c.verifyCode(code);
+        }}
       >
-      <input
-        id="still-code"
-        class="code"
-        name="code"
-        type="text"
-        inputmode="numeric"
-        pattern="[0-9]*"
-        autocomplete="one-time-code"
-        spellcheck="false"
-        maxlength="6"
-        bind:value={code}
-        oninput={onCodeInput}
-        aria-label={STRINGS.codeAuth.codeLabel}
-      />
-      <button
-        class="primary"
-        disabled={code.length !== 6 ||
-          c.authFlow === "verifying" ||
-          c.verifyBlockRemaining > 0}
-        onclick={() => c.verifyCode(code)}
-      >
-        {c.authFlow === "verifying"
-          ? STRINGS.codeAuth.verifying
-          : STRINGS.codeAuth.verify}
-      </button>
-      {#if codeErrorLine}<p class="error" role="status">{codeErrorLine}</p>{/if}
-      <button
-        class="link code-step"
-        disabled={resendWaitSeconds > 0}
-        onclick={() => c.resendCode()}
-      >
-        {resendWaitSeconds > 0
-          ? `${STRINGS.codeAuth.resendWait} ${resendWaitSeconds}s`
-          : STRINGS.codeAuth.resend}
-      </button>
-      <button class="link code-step" onclick={() => c.useDifferentEmail()}>
-        {STRINGS.codeAuth.differentEmail}
-      </button>
+        <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
+        <label class="field-label" for="still-code"
+          >{STRINGS.codeAuth.codeLabel}</label
+        >
+        <input
+          id="still-code"
+          class="code"
+          name="code"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          autocomplete="one-time-code"
+          spellcheck="false"
+          maxlength="6"
+          bind:value={code}
+          oninput={onCodeInput}
+          aria-label={STRINGS.codeAuth.codeLabel}
+        />
+        <button type="submit" class="primary" disabled={verifyDisabled}>
+          {c.authFlow === "verifying"
+            ? STRINGS.codeAuth.verifying
+            : STRINGS.codeAuth.verify}
+        </button>
+        {#if codeErrorLine}<p class="error" role="status">
+            {codeErrorLine}
+          </p>{/if}
+        <button
+          type="button"
+          class="link code-step"
+          disabled={resendWaitSeconds > 0}
+          onclick={() => c.resendCode()}
+        >
+          {resendWaitSeconds > 0
+            ? `${STRINGS.codeAuth.resendWait} ${resendWaitSeconds}s`
+            : STRINGS.codeAuth.resend}
+        </button>
+        <button
+          type="button"
+          class="link code-step"
+          onclick={() => c.useDifferentEmail()}
+        >
+          {STRINGS.codeAuth.differentEmail}
+        </button>
+      </form>
     {:else if c.authFlow === "sent"}
       <p class="sent">{STRINGS.auth.sent}</p>
       <button class="link" onclick={() => c.signIn(email)}
         >{STRINGS.auth.resend}</button
       >
     {:else}
-      <label class="field-label" for="still-email"
-        >{STRINGS.auth.emailLabel}</label
+      <form
+        class="auth-form"
+        novalidate
+        onsubmit={(event) => {
+          event.preventDefault();
+          if (!sendDisabled) void c.signIn(email);
+        }}
       >
-      <input
-        id="still-email"
-        class="email"
-        type="email"
-        name="email"
-        autocomplete="email"
-        autocapitalize="none"
-        spellcheck="false"
-        bind:value={email}
-        placeholder={STRINGS.auth.emailPlaceholder}
-        aria-invalid={showEmailHint}
-        aria-describedby={showEmailHint ? "still-email-hint" : undefined}
-      />
-      <button
-        class="primary"
-        disabled={!emailValid ||
-          c.authFlow === "sending" ||
-          c.sendBlockRemaining > 0}
-        onclick={() => c.signIn(email)}
-      >
-        {c.authFlow === "sending"
-          ? STRINGS.auth.sending
-          : c.canUseCode
-            ? STRINGS.codeAuth.send
-            : STRINGS.auth.send}
-      </button>
-      {#if showEmailHint}
-        <p id="still-email-hint" class="hint" role="status">
-          {STRINGS.auth.invalidEmail}
-        </p>
-      {/if}
-      {#if c.authFlow === "error"}
-        <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
+        <label class="field-label" for="still-email"
+          >{STRINGS.auth.emailLabel}</label
+        >
+        <input
+          id="still-email"
+          class="email"
+          type="email"
+          name="email"
+          autocomplete="email"
+          autocapitalize="none"
+          spellcheck="false"
+          bind:value={email}
+          placeholder={STRINGS.auth.emailPlaceholder}
+          aria-invalid={showEmailHint}
+          aria-describedby={showEmailHint ? "still-email-hint" : undefined}
+        />
+        <button type="submit" class="primary" disabled={sendDisabled}>
+          {c.authFlow === "sending"
+            ? STRINGS.auth.sending
+            : c.canUseCode
+              ? STRINGS.codeAuth.send
+              : STRINGS.auth.send}
+        </button>
+        {#if showEmailHint}
+          <p id="still-email-hint" class="hint" role="status">
+            {STRINGS.auth.invalidEmail}
+          </p>
+        {/if}
+        {#if c.authFlow === "error"}
+          <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
              A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
              because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
-        <p class="error" role="status">
-          {c.sendBlockRemaining > 0
-            ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
-            : c.canUseCode
-              ? STRINGS.codeAuth.sendError
-              : (c.authError ?? STRINGS.auth.error)}
-        </p>
-      {/if}
+          <p class="error" role="status">
+            {c.sendBlockRemaining > 0
+              ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+              : c.canUseCode
+                ? STRINGS.codeAuth.sendError
+                : (c.authError ?? STRINGS.auth.error)}
+          </p>
+        {/if}
+      </form>
     {/if}
 
     {#if skip}
-      <button class="link" onclick={skip.onSkip}>{skip.label}</button>
+      <button type="button" class="link" onclick={skip.onSkip}
+        >{skip.label}</button
+      >
     {/if}
 
-    <button class="dismiss" onclick={onDismiss}>
+    <button type="button" class="dismiss" onclick={onDismiss}>
       {c.needsEmailConsent && c.emailConsent === "opt-in"
         ? STRINGS.emailConsent.notNow
         : STRINGS.auth.cancel}
@@ -317,6 +346,8 @@
     outline-offset: -4px;
   }
   .sheet {
+    font-size: calc(16px * var(--text-scale, 1));
+    line-height: 1.4;
     position: relative;
     inset: auto;
     z-index: auto;
@@ -331,8 +362,6 @@
     --sheet-surface: var(--surface);
     background: var(--sheet-surface);
     color: var(--ink);
-    font-size: 16px;
-    line-height: 1.4;
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
     /* The owner's canvas (22 Oct 2026): 10 px above the grip, 20 px at the sides, 28 px below the
@@ -343,6 +372,12 @@
     gap: var(--space-3);
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-inline-size: 0;
   }
   @media (prefers-color-scheme: dark) {
     :global(:root:not([data-theme="light"])) .sheet {
@@ -362,21 +397,22 @@
   .sheet h2 {
     text-wrap: wrap;
     margin: 0;
-    font-size: 20px;
+    font-size: calc(20px * var(--text-scale, 1));
     font-weight: 700;
     /* The design system's global .sheet h2 tightens its letters; the canvas title does not. */
     letter-spacing: normal;
   }
   .body {
     margin: 0;
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale, 1));
     color: var(--ink-secondary);
   }
   .agree {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale, 1));
+    line-height: 1.4;
     color: var(--ink);
   }
   .agree input {
@@ -387,7 +423,7 @@
   }
   .field-label {
     color: var(--ink);
-    font-size: 14px;
+    font-size: calc(14px * var(--text-scale, 1));
     font-weight: 600;
   }
   .primary {
@@ -407,8 +443,10 @@
   }
   .email,
   .code {
+    min-inline-size: 0;
+    inline-size: 100%;
     min-block-size: 48px;
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--input-border);
     border-radius: var(--radius-control);
     padding: 10px 14px;
     font: inherit;
@@ -421,15 +459,16 @@
     border-color: var(--still-blue);
   }
   .code {
-    font-size: 20px;
+    font-size: calc(20px * var(--text-scale, 1));
     letter-spacing: 0.3em;
     text-align: center;
   }
   .sent {
     color: var(--ink);
-    font-size: 14px;
-    overflow-wrap: anywhere;
+    font-size: calc(14px * var(--text-scale, 1));
     margin: 0;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
   }
   .error {
     color: var(--danger);
@@ -437,7 +476,7 @@
   }
   .hint {
     color: var(--ink-secondary);
-    font-size: 14px;
+    font-size: calc(14px * var(--text-scale, 1));
     margin: 0;
   }
   /* The secondary actions sit centred under the main button, as on the owner's canvas. */
@@ -458,7 +497,7 @@
   /* The code step's "Send a new code" and "Use a different email" are a size smaller. */
   .link.code-step {
     min-block-size: 36px;
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale, 1));
   }
   :global(.toggle:disabled) {
     opacity: 0.6;
