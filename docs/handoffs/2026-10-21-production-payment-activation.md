@@ -76,6 +76,19 @@ incomplete refreshes and skips sandbox notifications for both production account
 
 ## Remaining engineering and operational gates
 
+Owner update (October 21): final screen edits and images are still pending. Zack plans to finish
+them with Claude Code on the morning of October 22, 2026 (America/Los_Angeles). Preserve that
+session's UI and build work. Backend preparation can continue independently; final release
+artifact/version checks and device acceptance must use builds containing the completed visuals.
+Backend readiness does not establish release readiness.
+
+After the backend/payment/analytics work and final screen/image edits are complete, the owner
+requests a deep final-build audit for unused legacy code and obsolete tests, with subagents where
+helpful. Prove obsolescence before removal, including platform, dynamic-entry and compatibility
+uses. Fix genuine bugs instead of hiding failures; preserve meaningful coverage, run relevant
+checks, and report changes and remaining blockers. Recheck affected final release artifacts after
+cleanup. Do not claim runtime or size improvements without measurements.
+
 1. Keep the new Stripe endpoint disabled until the production handler is deployed and verified.
 2. Complete the RevenueCat handler source review and CI; verify real delivery after deployment.
 3. Implement canonical `purchase_recorded` / `purchase_refunded` attribution and deduplication.
@@ -88,7 +101,9 @@ incomplete refreshes and skips sandbox notifications for both production account
    Owner environment approval is required for hosted apply; agents must not self-approve it.
 5. Verify hosted analytics erasure scheduling and subject activation. Historical secret/function
    deployments were found, but a successful schedule/switch activation was not established.
-6. Publish and verify the checkout return pages, complete public-key/build alignment, and run
+6. Checkout return pages are published through PR #523 (gh-pages merge
+   `b4e095d2358ac41018d687e416826ff107bd9b76`); both extensionless and `.html` success/cancel
+   paths returned HTTPS 200 with exact source-byte matches. Complete public-key/build alignment and run
    final-device purchase, restore, account-switch/deletion and analytics-consent verification.
    Genuine payment/refund evidence remains outstanding. Do not manufacture live test charges.
 7. Enable sales only after the release gates clear, preserving the approved free outcome.
@@ -103,7 +118,25 @@ financial accounting or deduplicated account-level conversion.
 
 ## Next safe action
 
-Inspect PR 522's current checks and the owner-approved webhook changes. Continue in the owned worktree;
+Latest read-only DB-01 run `39704032899` completed and its encrypted report was privately read:
+the migration tail remains `0024`, `0023`, `0022`. Pending migrations at PR #522 are exactly
+`0025`, `0026`, `0027`. Its `needs-review` verdict is interpreted migration evidence, not a
+production readiness pass. Independent deployment review found no source blocker for staged
+deployment with sales off; dispatch protected operations sequentially because they share one
+concurrency group. Mem0 retrieval is quota-exhausted; repository records remain authoritative.
+
+The owner authorized parallel agents. Canonical analytics implementation is in its own worktree.
+A separate build review found that PR #520's Apple trust writer omits the code-signed public
+Supabase URL/key required by native account access; a focused isolated build-tooling fix is underway.
+
+PR #522 merged at `bac1539f382798fa2ca812dd782beabc76c47b69` with all 32 checks passed.
+Plan-only migration run `39704528557` refused in its disposable rehearsal, before any write:
+0026/0027 preservation queries returned issue arrays instead of count/fingerprint objects.
+The correction on `codex/production-activation-ops-20261021` retains strict validation and adds
+real pre/post-query CI coverage. All 76 offline deployment tests pass; a reviewed merge and a new
+protected plan must precede any hosted apply. No production rollback is needed.
+
+Continue in the owned worktree;
 preserve the build session's branches. Follow the active
 [plan](../plans/2026-10-21-002-production-activation-and-verification.md) and
 [sales procedure](../release/production-sales-policy.md). These V3 changes remain undeployed and

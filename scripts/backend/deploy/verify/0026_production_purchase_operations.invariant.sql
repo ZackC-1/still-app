@@ -1,38 +1,53 @@
--- Read-only structural and source gate; returns issue categories only, never customer data.
-with expected(signature,body_md5,is_definer,writer_allowed) as (values
- ('private.production_checkout_session()','73116c33ade474eef03ae34cf1ea84b1',false,false),
- ('private.production_checkout_account(uuid,boolean)','3ced652dde9ab5b077f6b1212d7e7772',false,false),
- ('private.production_checkout_admission(text,text)','ec987c037788c9538145b3156f933db6',false,false),
- ('public.production_prepare_checkout_operation(uuid,uuid,text,text,text)','7b578eabab3c3d2bd0fe5598cf8c614c',true,true),
- ('public.production_claim_checkout_creation(uuid,uuid,text,text,text)','936ddcc137f101c8464b4f9e510d062d',true,true),
- ('public.production_bind_checkout_session(uuid,uuid,text,text)','d549a016ddb2981d4592d50d036d71cc',true,true),
- ('public.production_read_checkout_operation(uuid,uuid)','381e90dc15fff01d55acad2d639982c1',true,true),
- ('public.production_record_checkout_status(uuid,text,text)','6a0f483d39e7a02ac2b27194040aa788',true,true)
-), routines as (
- select e.*,p.* from expected e left join pg_catalog.pg_proc p on p.oid=pg_catalog.to_regprocedure(e.signature)
-), issues(code) as (
- select 'routine_missing_or_changed' from routines where oid is null or md5(prosrc)<>body_md5
-  or prosecdef is distinct from is_definer or proconfig is distinct from array['search_path=pg_catalog, pg_temp']::text[]
-  or proowner is distinct from (select oid from pg_catalog.pg_roles where rolname='postgres' and not rolsuper)
-  or prolang is distinct from (select oid from pg_catalog.pg_language where lanname='plpgsql')
- union all select 'unexpected_routine_grant' from routines r cross join lateral pg_catalog.aclexplode(coalesce(r.proacl,pg_catalog.acldefault('f',r.proowner))) a
-  where a.grantee<>r.proowner and not (r.writer_allowed and a.grantee=(select oid from pg_catalog.pg_roles where rolname='still_entitlement_writer') and a.privilege_type='EXECUTE' and not a.is_grantable)
- union all select 'writer_grant_missing' from routines where writer_allowed and not coalesce(pg_catalog.has_function_privilege('still_entitlement_writer',oid,'execute'),false)
- union all select 'table_missing_or_unprotected' where not exists(select 1 from pg_catalog.pg_class where oid=to_regclass('private.production_purchase_operations') and relrowsecurity
-  and relowner=(select oid from pg_catalog.pg_roles where rolname='postgres'))
- union all select 'unexpected_table_grant' from pg_catalog.pg_class c cross join lateral pg_catalog.aclexplode(coalesce(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
-  where c.oid=to_regclass('private.production_purchase_operations') and a.grantee<>c.relowner
- union all select 'unexpected_table_policy' where exists(select 1 from pg_catalog.pg_policy where polrelid=to_regclass('private.production_purchase_operations'))
- union all select 'account_retention' where not exists(select 1 from pg_catalog.pg_constraint c where c.conrelid=to_regclass('private.production_purchase_operations')
-  and c.contype='f' and c.confrelid=to_regclass('auth.users') and c.confdeltype='n' and c.convalidated
-  and c.conkey=array[(select attnum from pg_catalog.pg_attribute where attrelid=to_regclass('private.production_purchase_operations') and attname='holder' and not attnotnull)]::int2[])
- union all select 'environment_constraint' where not exists(select 1 from pg_catalog.pg_constraint where conrelid=to_regclass('private.production_purchase_operations')
-  and conname='production_purchase_operations_environment_check' and convalidated and pg_get_constraintdef(oid)=$check$CHECK ((environment = 'production'::text))$check$)
- union all select 'session_constraint' where not exists(select 1 from pg_catalog.pg_constraint where conrelid=to_regclass('private.production_purchase_operations')
-  and conname='production_purchase_operations_stripe_session_id_check' and convalidated and pg_get_constraintdef(oid)=$check$CHECK ((stripe_session_id ~ '^cs_live_[A-Za-z0-9_]{1,240}$'::text))$check$)
- union all select 'one_open_operation_index' where not exists(select 1 from pg_catalog.pg_index where indexrelid=to_regclass('private.production_one_open_checkout')
-  and indrelid=to_regclass('private.production_purchase_operations') and indisunique and indisvalid and indnkeyatts=1 and indnatts=1
-  and pg_get_indexdef(indexrelid,1,true)='holder'
-  and pg_get_expr(indpred,indrelid)=$predicate$(status <> ALL (ARRAY['refunded'::text, 'closed_unpaid'::text]))$predicate$)
-)
-select coalesce(json_agg(distinct code order by code),'[]'::json) as issues from issues;
+-- Additive migration: preserve the complete pre-existing application and QA rows.
+-- Both invariants run before the grouped 0025-0027 deployment, when the new tables do not exist.
+-- Counts and fingerprints stay private; structural checks live in the separate verification SQL.
+select pg_catalog.jsonb_build_object(
+  'auth.users', (select pg_catalog.count(*) from auth.users),
+  'auth.users.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from auth.users r),
+  'private.analytics_erasure_jobs', (select pg_catalog.count(*) from private.analytics_erasure_jobs),
+  'private.analytics_erasure_jobs.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.analytics_erasure_jobs r),
+  'private.analytics_erasure_targets', (select pg_catalog.count(*) from private.analytics_erasure_targets),
+  'private.analytics_erasure_targets.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.analytics_erasure_targets r),
+  'private.analytics_subjects', (select pg_catalog.count(*) from private.analytics_subjects),
+  'private.analytics_subjects.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.analytics_subjects r),
+  'private.paid_cutoff', (select pg_catalog.count(*) from private.paid_cutoff),
+  'private.paid_cutoff.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.paid_cutoff r),
+  'private.product_policy_owners', (select pg_catalog.count(*) from private.product_policy_owners),
+  'private.product_policy_owners.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.product_policy_owners r),
+  'private.product_policy_operations', (select pg_catalog.count(*) from private.product_policy_operations),
+  'private.product_policy_operations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.product_policy_operations r),
+  'private.product_policy_revisions', (select pg_catalog.count(*) from private.product_policy_revisions),
+  'private.product_policy_revisions.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.product_policy_revisions r),
+  'private.settings_anchors', (select pg_catalog.count(*) from private.settings_anchors),
+  'private.settings_anchors.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.settings_anchors r),
+  'private.settings_writes', (select pg_catalog.count(*) from private.settings_writes),
+  'private.settings_writes.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.settings_writes r),
+  'public.canary_state', (select pg_catalog.count(*) from public.canary_state),
+  'public.canary_state.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from public.canary_state r),
+  'public.entitlements', (select pg_catalog.count(*) from public.entitlements),
+  'public.entitlements.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from public.entitlements r),
+  'public.profiles', (select pg_catalog.count(*) from public.profiles),
+  'public.profiles.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from public.profiles r),
+  'public.revenuecat_events', (select pg_catalog.count(*) from public.revenuecat_events),
+  'public.revenuecat_events.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from public.revenuecat_events r),
+  'public.rule_sets', (select pg_catalog.count(*) from public.rule_sets),
+  'public.rule_sets.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from public.rule_sets r),
+  'private.access_observations', (select pg_catalog.count(*) from private.access_observations),
+  'private.access_observations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.access_observations r),
+  'private.access_rights', (select pg_catalog.count(*) from private.access_rights),
+  'private.access_rights.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.access_rights r),
+  'private.access_revocations', (select pg_catalog.count(*) from private.access_revocations),
+  'private.access_revocations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.access_revocations r),
+  'private.access_transfer_operations', (select pg_catalog.count(*) from private.access_transfer_operations),
+  'private.access_transfer_operations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.access_transfer_operations r),
+  'private.apple_access_observations', (select pg_catalog.count(*) from private.apple_access_observations),
+  'private.apple_access_observations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.apple_access_observations r),
+  'private.apple_access_link_operations', (select pg_catalog.count(*) from private.apple_access_link_operations),
+  'private.apple_access_link_operations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.apple_access_link_operations r),
+  'private.qa_sandbox_subjects', (select pg_catalog.count(*) from private.qa_sandbox_subjects),
+  'private.qa_sandbox_subjects.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.qa_sandbox_subjects r),
+  'private.qa_sandbox_negative_rights', (select pg_catalog.count(*) from private.qa_sandbox_negative_rights),
+  'private.qa_sandbox_negative_rights.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.qa_sandbox_negative_rights r),
+  'private.qa_sandbox_purchase_operations', (select pg_catalog.count(*) from private.qa_sandbox_purchase_operations),
+  'private.qa_sandbox_purchase_operations.fingerprint', (select pg_catalog.md5(coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) order by pg_catalog.to_jsonb(r)::text)::text,'[]')) from private.qa_sandbox_purchase_operations r)
+)::text;
