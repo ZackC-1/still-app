@@ -263,21 +263,20 @@ everything named `still_sync` exactly as it is. Steps 3.2 to 3.5 follow G9 (enti
 `com.chartash.still`; **In-app purchase key configuration** reads valid. Note whether a separate Mac
 App Store app is listed; if so, repeat 3.2 for it. State: Owner (confirm).
 
-3.2 **Add the Apple product.** **Product catalog**, **Products** tab, **+ New product**. App: the App
+3.2 **Verify the existing Apple product.** Inspect the existing product first. Only if absent: **Product catalog**, **Products** tab, **+ New product**. App: the App
 Store app. Identifier: `still_pro_v3` (must match App Store Connect). Type: Non-consumable. Display
 name: `Still Pro`. **Save**. State: Owner.
 
-3.3 **Add the web product.** (Blocked by G4 and 4.3.) If G4 keeps the QA design (Stripe app import):
+3.3 **Verify the imported web product.** The owner already imported the production price. Confirm its exact live mapping; do not create a duplicate. Only if absent, after G4 and 4.3:
 **Apps & providers**, confirm the Stripe app is connected to the live Stripe account; then
 **Products**, **+ New product**, App: the Stripe app, Identifier: the live Stripe price id from 4.3
 (must match Stripe), Type: Non-consumable, Display name `Still Pro`, **Save**. State: Owner.
 
-3.4 **Create the entitlement and attach.** **Product catalog**, **Entitlements** tab, **+ New
-entitlement**. Identifier: `still_pro_v3`. Description: `Still Pro`. **Save**. Open it, **Attach**,
+3.4 **Verify the entitlement and attachments.** The owner already attached the production product to `still_pro_v3`. Inspect it first. Only if absent: **Product catalog**, **Entitlements** tab, **+ New entitlement**. Identifier: `still_pro_v3`. Description: `Still Pro`. **Save**. Open it, **Attach**,
 tick the App Store `still_pro_v3` (and Mac, if listed) and the Stripe product, **Attach**. Do not open
 or change `still_sync`. State: Owner.
 
-3.5 **Create the offering.** **Product catalog**, **Offerings** tab, **+ New offering**. Identifier:
+3.5 **Verify the offering.** The owner already saved the production product in the Lifetime package. Inspect it first. Only if absent: **Product catalog**, **Offerings** tab, **+ New offering**. Identifier:
 `still_pro_v3`. Display name: `Still Pro`. **Save**. Open it, **+ New package**, Identifier
 **Lifetime** (`$rc_lifetime`), Description `Still Pro lifetime`, attach the same products as 3.4,
 **Save**. The current offering was already selected by the owner; preserve that setting and verify explicit app lookup by identifier. State: Owner.
