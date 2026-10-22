@@ -19,6 +19,7 @@ import {
   assertCompiledSandboxTrust,
   assertFreePaidFlags,
   backendRouteProfile,
+  gitEnvironment,
 } from "../../apps/apple/scripts/paid-sandbox-qa.mjs";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -320,30 +321,38 @@ export const INTEGRATION_SEQUENCE_OFFSET = 1000;
 /** When built, that number must be more than this far above origin/main's current count. */
 export const INTEGRATION_SEQUENCE_MARGIN = 500;
 const SHA = /^[0-9a-f]{40}$/;
+const RECUT = branch => `recreate ${branch} from current origin/main and merge each PR branch with git merge --no-ff`;
 
 /**
  * Integration package: origin/main plus approved PR branches merged locally on one branch, built
  * before those PRs reach main. The revision must be that branch's head or on its first-parent line.
- * Its base is the first commit on that line that is also on origin/main's first-parent line; the
- * merged heads are the first-parent commits above the base, oldest first. The fourth version number
- * is the base's count on main plus 1000, and must be more than 500 above main's current count, so
- * main cannot reach a number an integration package used. Returns undefined, without running git,
- * when STILL_QA_INTEGRATION_BRANCH is unset or empty.
+ * Its base is the first commit on that line that is also on origin/main's first-parent line; every
+ * first-parent commit above the base must be a merge (git merge --no-ff <pr-branch>), and these are
+ * recorded oldest first. The package may not contain main beyond its base (a PR branch that merged
+ * a newer main, or main merged into the branch), or its number would understate what it contains.
+ *
+ * The fourth version number is the base's count on main plus 1000 and must be more than 500 above
+ * main's current count, so main needs more than 500 further merges to reach it. Main keeps growing,
+ * so the store version must change before main's count reaches the lowest integration number used
+ * while the current version string is in use. Returns undefined, without running git, when
+ * STILL_QA_INTEGRATION_BRANCH is unset or empty.
  */
 export function qaIntegrationBuild(root, { revision, dirty }, input = process.env, run = spawnSync) {
   const branch = input[INTEGRATION_BRANCH_INPUT] ?? "";
   if (branch === "") return undefined;
   if (!SHA.test(String(revision ?? ""))) throw new Error("QA build sequence needs an exact revision");
   if (dirty !== false) throw new Error("Sandbox QA packages are built only from a clean checkout (commit or stash local changes)");
-  const git = args => run("git", args, { cwd: root, encoding: "utf8" });
+  if (!/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/.test(branch))
+    throw new Error(`${branch} is not a usable branch name (set ${INTEGRATION_BRANCH_INPUT} to the local integration branch, for example qa/integration-20261022)`);
+  // The same Git environment as the source snapshot: no inherited GIT_* overrides.
+  const git = args => run("git", args, { cwd: root, encoding: "utf8", env: gitEnvironment() });
   const lines = result => String(result.stdout ?? "").split("\n").filter(Boolean);
-  const validName = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/.test(branch);
-  const log = validName ? git(["log", "--no-show-signature", "--first-parent", "--format=%H%x09%s", `refs/heads/${branch}`, "--"]) : { status: 1 };
+  const log = git(["log", "--no-show-signature", "--first-parent", "--format=%H%x09%P%x09%s", `refs/heads/${branch}`, "--"]);
   if (log.status !== 0)
-    throw new Error(`Integration QA packages need a local branch named ${branch} (create it from origin/main and merge the approved PR branches into it, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
+    throw new Error(`Integration QA packages need a local branch named ${branch} (create it from origin/main and merge the approved PR branches into it with git merge --no-ff, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
   const branchLine = lines(log).map(row => {
-    const tab = row.indexOf("\t");
-    return tab < 0 ? { revision: row, subject: "" } : { revision: row.slice(0, tab), subject: row.slice(tab + 1) };
+    const [sha = "", parents = "", ...subject] = row.split("\t");
+    return { revision: sha, parents: parents.split(" ").filter(Boolean).length, subject: subject.join("\t") };
   });
   const at = branchLine.findIndex(commit => commit.revision === revision);
   if (at < 0)
@@ -355,16 +364,29 @@ export function qaIntegrationBuild(root, { revision, dirty }, input = process.en
   const line = branchLine.slice(at);
   const baseAt = line.findIndex(commit => position.has(commit.revision));
   if (baseAt < 0)
-    throw new Error(`Integration QA packages need ${branch} to start from a commit on main's own line (fetch, recreate ${branch} from origin/main and merge the PR branches again)`);
+    throw new Error(`Integration QA packages need ${branch} to start from a commit on main's own line (fetch, then ${RECUT(branch)})`);
   if (baseAt === 0)
-    throw new Error(`Integration branch ${branch} has nothing merged above main, so there is nothing to integrate (merge the approved PR branches into it, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
+    throw new Error(`Integration branch ${branch} has nothing merged above main, so there is nothing to integrate (merge the approved PR branches into it with git merge --no-ff, or unset ${INTEGRATION_BRANCH_INPUT} to build from main)`);
   const base = line[baseAt].revision;
+  // The main commit right after the base: if the package contains it, it contains newer main than its number says.
+  const next = mainLine[position.get(base) - 1];
+  if (next !== undefined) {
+    const newer = git(["merge-base", "--is-ancestor", next, revision]);
+    if (newer.status === 0)
+      throw new Error(`Integration branch ${branch} contains main commits newer than its base, so its number would understate what it contains (a PR branch merged a newer main, or main was merged into ${branch}); ${RECUT(branch)}`);
+    if (newer.status !== 1) throw new Error("Integration QA packages could not compare the branch with origin/main (fetch origin and try again)");
+  }
+  const merged = line.slice(0, baseAt).reverse();
+  const plain = merged.find(commit => commit.parents < 2);
+  if (plain)
+    throw new Error(`Integration branch ${branch} has a commit above main that is not a merge (${plain.revision.slice(0, 12)} ${plain.subject}); ${RECUT(branch)}`);
   const count = mainLine.length - position.get(base);
   const sequence = count + INTEGRATION_SEQUENCE_OFFSET;
-  if (sequence > 65535) throw new Error("QA build sequence could not be derived from the revision");
+  if (sequence > 65535)
+    throw new Error(`Integration QA package number ${sequence} is above 65535, the largest a browser version part allows (bump the store version and change the QA numbering before building more integration packages)`);
   if (sequence <= mainLine.length + INTEGRATION_SEQUENCE_MARGIN)
-    throw new Error(`Integration QA package number ${sequence} is too close to main, which is already at ${mainLine.length}; it must stay more than ${INTEGRATION_SEQUENCE_MARGIN} ahead so main can never reuse it (recreate ${branch} from current origin/main and merge the PR branches again)`);
-  const mergedHeads = line.slice(0, baseAt).reverse().map(({ revision: sha, subject }) => ({ revision: sha, subject }));
+    throw new Error(`Integration QA package number ${sequence} is too close to main, which is already at ${mainLine.length}; it must be more than ${INTEGRATION_SEQUENCE_MARGIN} ahead of main's count (recreate ${branch} from current origin/main and merge the PR branches again with git merge --no-ff)`);
+  const mergedHeads = merged.map(({ revision: sha, subject }) => ({ revision: sha, subject }));
   return { branch, base: { revision: base, count }, originMainCount: mainLine.length, sequence, mergedHeads };
 }
 

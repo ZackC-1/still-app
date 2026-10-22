@@ -31,7 +31,7 @@ export const APPLE_TARGETS = Object.freeze({
 const APP_GROUP = "group.com.chartash.still";
 export const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const refusal = message => { throw new Error(`Paid sandbox QA: ${message}`); };
-const gitEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+export const gitEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
 
 /** Routing is a separate compiled choice from access-proof trust and backend hosting. */
 export function backendRouteProfile(input, { requireSandbox = false } = {}) {
