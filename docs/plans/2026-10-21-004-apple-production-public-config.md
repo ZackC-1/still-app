@@ -26,8 +26,9 @@ mutation is part of this fix. Public key pinning still depends on hosted signer 
 Verified against main `bac1539f` plus PR 520: 72 Node trust/Chrome tooling tests passed; after integration,
 17 focused trust tests and 33 Swift plist/binding tests passed. The latter execute the actual Node
 plist writer and initialize both native consumers for all four targets. Targeted ESLint, Bash syntax
-and whitespace checks passed. Reproducible packaging verification is recorded separately once its
-long-running suite completes. No signed archive, deployment or live purchase is claimed.
+and whitespace checks passed. The separate reproducible packaging suite passed all 20 tests,
+including two byte-identical Chrome/Firefox builds and refusal paths. No signed Apple archive,
+deployment or live purchase is claimed.
 
 Independent review also reproduced two issues in the incorporated trust tooling. Restoration now
 preflights all current plist bytes against their recorded original/generated hashes and preserves
