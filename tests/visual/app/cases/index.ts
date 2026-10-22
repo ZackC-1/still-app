@@ -8,18 +8,20 @@ import { D14 } from "./d14.js";
 import { D18 } from "./d18.js";
 import { D28 } from "./d28.js";
 import { GALLERY } from "./gallery.js";
-import { OWNER_COPY_AUDIT, OWNER_SUCCESS_GREEN } from "./shared.js";
+import { copyAuditFor, OWNER_SUCCESS_GREEN } from "./shared.js";
 
 /** Light frames all carry the darker success green (owner, 21 Oct); see OWNER_SUCCESS_GREEN.
- * Every frame carries the 22 Oct copy audit's text regions; see OWNER_COPY_AUDIT. */
+ * Each screen's frames carry the 22 Oct copy audit's lines that screen can show; see
+ * copyAuditFor. */
 function withSuccessGreen(screen: ScreenCases): ScreenCases {
+  const audit = copyAuditFor(screen.screen);
   return {
     ...screen,
     cases: screen.cases.map((c) => ({
       ...c,
       deviations: [
         ...(c.deviations ?? []),
-        ...OWNER_COPY_AUDIT,
+        ...audit,
         ...(c.theme === "light" ? [OWNER_SUCCESS_GREEN] : []),
       ],
     })),

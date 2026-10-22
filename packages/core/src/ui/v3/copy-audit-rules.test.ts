@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import PurchaseView from "./PurchaseView.svelte";
 import PopupInvitation from "./PopupInvitation.svelte";
+import PopupProCard from "./PopupProCard.svelte";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
 import type { PopupInvitationPresentation } from "./invitation-presentation.js";
 import { POPUP_PRO_VALUE, proValueBySite } from "./presentation.js";
@@ -70,25 +71,66 @@ function admitted(
 const here = dirname(fileURLToPath(import.meta.url));
 const source = (file: string) => readFileSync(join(here, file), "utf8");
 
-describe("house rule: curly apostrophes in V3 copy", () => {
-  // A contraction with a straight apostrophe on a line that is not a comment. SharingCard is not
-  // drawn by any shipped host and keeps its wording until the owner rules on it.
-  const CONTRACTION = /\b(?:can|couldn|didn|doesn|don|isn|wasn|hasn|won|you|we|it|that|I)'(?:t|re|ll|s|ve|m)\b/i;
+describe("house rule: curly apostrophes in user-visible copy", () => {
+  // A contraction or a possessive with a straight apostrophe, on a line that is not a comment.
+  const CONTRACTION =
+    /\b(?:can|couldn|didn|doesn|don|isn|wasn|hasn|haven|won|wouldn|aren|you|we|it|that|I|there|what|let)'(?:t|re|ll|s|ve|m|d)\b/i;
+  const POSSESSIVE = /\b[A-Z][A-Za-z]*'s\b/; // Still's, Safari's, Firefox's
   const commentLine = /^\s*(?:\/\/|\*|\/\*|<!--)/;
-  const files = readdirSync(here).filter(
-    (file) =>
-      /\.(svelte|ts)$/.test(file) &&
-      !/\.test\.ts$|test-fixtures|fixtures\.ts$/.test(file) &&
-      file !== "SharingCard.svelte",
-  );
+  // Strings only the 2.x screens show; they keep their wording while 2.x bundles ship.
+  const LEGACY_2X_ONLY = [
+    "Nothing here. That's the point.",
+    "Waiting for approval — we'll unlock Pro as soon as it's confirmed.",
+    "Still Pro isn't available right now. Try again in a moment.",
+    "We couldn't start the purchase. Try again.",
+    "I didn't finish checkout — start over",
+    "We haven't seen your purchase yet. If you paid, we'll find it together.",
+    "You've been signed out. Sign in again to check your purchase.",
+    "You're Pro",
+  ];
+  const packages = join(here, "../../../..");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory())
+        return entry.name === "__tests__" || entry.name === "node_modules" ? [] : walk(path);
+      return /\.(svelte|ts)$/.test(entry.name) ? [path] : [];
+    });
+  const files = [
+    join(packages, "core/src/ui/strings.ts"),
+    ...readdirSync(join(packages, "core/src/ui"))
+      .filter((name) => name.endsWith(".svelte"))
+      .map((name) => join(packages, "core/src/ui", name)),
+    ...walk(join(packages, "core/src/ui/components")),
+    ...walk(here),
+    ...walk(join(packages, "ext-safari/entrypoints")),
+    ...walk(join(packages, "ext-chromium/entrypoints")),
+    ...walk(join(packages, "app-webview/src")),
+  ]
+    .filter(
+      (path) =>
+        !/\.test\.ts$|test-fixtures|fixtures\.ts$/.test(path) &&
+        // Not drawn by any shipped host; its wording waits for the owner.
+        !path.endsWith("SharingCard.svelte"),
+    )
+    .map((path) => path.slice(packages.length + 1));
 
   it.each(files)("%s", (file) => {
-    const offending = source(file)
+    const offending = readFileSync(join(packages, file), "utf8")
       .split("\n")
       .filter((line) => !commentLine.test(line))
-      .map((line) => line.replace(/\/\/.*$/, "").replace(/<!--.*?-->/g, ""))
-      .filter((line) => CONTRACTION.test(line));
+      .map((line) =>
+        line.replace(/(?<![:"'])\/\/.*$/, "").replace(/<!--.*?-->/g, ""),
+      )
+      .filter((line) => !LEGACY_2X_ONLY.some((legacy) => line.includes(legacy)))
+      .filter((line) => CONTRACTION.test(line) || POSSESSIVE.test(line));
     expect(offending).toEqual([]);
+  });
+
+  it("catches a shared sign-in line going back to a straight apostrophe", () => {
+    expect(CONTRACTION.test(`error: "We couldn't sign you in. Try again.",`)).toBe(true);
+    expect(STRINGS.auth.error).toBe("We couldn’t sign you in. Try again.");
+    expect(POSSESSIVE.test(`"Back in Safari, click Still's toolbar button."`)).toBe(true);
   });
 });
 
@@ -175,6 +217,23 @@ describe("owner rulings, 22 Oct 2026", () => {
     expect(screen.getByRole("region", { name: "Settings sync" })).toBeInTheDocument();
     expect(screen.getByText("Sync settings across devices and browsers. Free.")).toBeInTheDocument();
     expect(source("PopupInvitation.svelte")).not.toContain("every browser");
+  });
+});
+
+describe("checking lines name the free controls (P3-10)", () => {
+  it("the popups' Still Pro card while checking", () => {
+    render(PopupProCard, { props: { checking: true } });
+    const line = screen.getByRole("status");
+    expect(line).toHaveTextContent("Checking your Still Pro access…");
+    expect(line).toHaveTextContent("Your free controls keep working while this finishes.");
+  });
+});
+
+describe("popup footer (P2-8)", () => {
+  it("every popup's footer button reads “Still settings”", () => {
+    for (const file of ["DesktopPopup.svelte", "MobilePopup.svelte", "../App.svelte"])
+      expect(source(file), file).toMatch(/>Still settings<\/button/);
+    expect(source("MobilePopup.svelte")).toContain('"Still settings. Opens Still settings."');
   });
 });
 

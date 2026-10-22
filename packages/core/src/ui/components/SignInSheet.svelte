@@ -259,15 +259,14 @@
         </p>
       {/if}
       {#if c.authFlow === "error"}
-        <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
+        <!-- Every host gets the written line; the raw reason (authError) goes to the console only
+             (copy audit, 22 Oct 2026), as a failed account deletion does.
              A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
              because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
         <p class="error" role="status">
           {c.sendBlockRemaining > 0
             ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s.`
-            : c.canUseCode
-              ? STRINGS.codeAuth.sendError
-              : (c.authError ?? STRINGS.auth.error)}
+            : STRINGS.codeAuth.sendError}
         </p>
       {/if}
     {/if}

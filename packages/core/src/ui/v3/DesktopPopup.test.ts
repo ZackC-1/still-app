@@ -110,12 +110,12 @@ describe("controlled D01 presentation", () => {
     }
     const { props } = await fixture();
     const view = render(DesktopPopup, {
-      props: { ...props, settingsLabel: "Settings. Opens Still settings." },
+      props: { ...props, settingsLabel: "Still settings. Opens Still settings." },
     });
     const settings = screen.getByRole("button", {
-      name: "Settings. Opens Still settings.",
+      name: "Still settings. Opens Still settings.",
     });
-    expect(settings).toHaveTextContent("Settings");
+    expect(settings).toHaveTextContent("Still settings");
     expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
     await fireEvent.click(settings);
     expect(props.onSettings).toHaveBeenCalledOnce();

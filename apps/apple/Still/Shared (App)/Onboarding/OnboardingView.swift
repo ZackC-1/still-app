@@ -142,9 +142,15 @@ struct OnboardingView: View {
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
 
-      // Hidden while the state is unknown (an iPhone before iOS 26.2, or not read yet): its line
-      // would only repeat the heading (owner, 22 Oct 2026).
+      // iPhone: hidden while the state is unknown (before iOS 26.2 it always is), where its line
+      // would only repeat the heading (owner, 22 Oct 2026). The Mac keeps the badge from the first
+      // frame: its status also starts unknown until the first read, and hiding it there would
+      // make the badge appear late and move the steps down.
+      #if os(iOS)
       if status != .unknown { statusBadge }
+      #else
+      statusBadge
+      #endif
 
       VStack(alignment: .leading, spacing: 12) {
         ForEach(Array(enableSteps.enumerated()), id: \.offset) { index, line in

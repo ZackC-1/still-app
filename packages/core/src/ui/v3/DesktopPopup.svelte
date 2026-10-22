@@ -369,7 +369,7 @@
       type="button"
       class="open-options"
       aria-label={settingsLabel ?? "Still settings"}
-      onclick={onSettings}>Settings</button
+      onclick={onSettings}>Still settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
 </div>

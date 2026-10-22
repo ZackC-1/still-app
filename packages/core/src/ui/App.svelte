@@ -914,7 +914,7 @@
         type="button"
         class="open-options"
         aria-label="Still settings"
-        onclick={desktopPresentation.onSettings}>Settings</button
+        onclick={desktopPresentation.onSettings}>Still settings</button
       >
       <a class="link" href={PRIVACY_POLICY_URL}>Privacy policy</a>
     </footer>

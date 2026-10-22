@@ -162,7 +162,7 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "Instagram Blocker" }),
     ).toHaveAttribute("aria-expanded", "true");
     await fireEvent.click(
-      screen.getByRole("button", { name: "Settings. Opens Still settings." }),
+      screen.getByRole("button", { name: "Still settings. Opens Still settings." }),
     );
     expect(props.onSettings).toHaveBeenCalledOnce();
     props.commandsDisabled = false;
@@ -555,7 +555,7 @@ describe("controlled D02 mobile presentation", () => {
         screen.getByRole("button", {
           name:
             host === "safari"
-              ? "Settings. Opens Still settings."
+              ? "Still settings. Opens Still settings."
               : "Still settings",
         }),
       );

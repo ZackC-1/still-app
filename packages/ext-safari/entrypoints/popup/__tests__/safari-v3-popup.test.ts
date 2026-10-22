@@ -91,13 +91,13 @@ describe("Safari V3 popup: surfaces", () => {
     const { f, mode } = await open("atomic");
     expect(mode).toBe("v3");
     const before = structuredClone(await f.nativeRecord());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings. Opens Still settings." })).toBeTruthy());
     expect(screen.getByRole("switch", { name: "TikTok website" }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByRole("switch", { name: "Still on YouTube" }).getAttribute("aria-checked")).toBe("true");
     for (let i = 0; i < 5; i++) await flush();
     expect(writes(f.nativeKinds())).toEqual([]);
     expect(await f.nativeRecord()).toEqual(before);
-    await fireEvent.click(screen.getByRole("button", { name: "Settings. Opens Still settings." }));
+    await fireEvent.click(screen.getByRole("button", { name: "Still settings. Opens Still settings." }));
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
   });
 
@@ -112,7 +112,7 @@ describe("Safari V3 popup: surfaces", () => {
     const f = await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';
     await startSafariV3Popup({ env: ENV, platform: () => Promise.reject(new Error("no")) });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings. Opens Still settings." })).toBeTruthy());
     expect(writes(f.nativeKinds())).toEqual([]);
   });
 });
@@ -124,9 +124,9 @@ describe("Safari V3 popup: a platform answer after the bound", () => {
     const f = await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';
     expect(await startSafariV3Popup({ env: ENV, platform: late("mac") })).toBe("v3");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings. Opens Still settings." })).toBeTruthy());
     await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy(), { timeout: 2_000 });
-    expect(screen.queryByRole("button", { name: "Settings. Opens Still settings." })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Still settings. Opens Still settings." })).toBeNull();
     expect(f.messages.filter((m) => m.action === "track" && m.name === "opened")).toHaveLength(1);
     expect(writes(f.nativeKinds())).toEqual([]);
   });
@@ -136,7 +136,7 @@ describe("Safari V3 popup: a platform answer after the bound", () => {
     document.body.innerHTML = '<div id="app"></div>';
     await startSafariV3Popup({ env: ENV, platform: late("ios") });
     await new Promise((resolve) => setTimeout(resolve, 1_500));
-    expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Still settings. Opens Still settings." })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Still settings" })).toBeNull();
   });
 });
