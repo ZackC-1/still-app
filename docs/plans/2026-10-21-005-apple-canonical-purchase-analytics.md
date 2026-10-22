@@ -220,6 +220,20 @@ Independent deployment review passed after correcting the initial predecessor-ta
 Combined Apple/web analytics: 437 tests passed. Protected lifecycle tests: 20 passed. Sealed
 purchase, sync, analytics and switch bundles built twice at different paths and started 12 handlers
 without authority; 14 bundle tests passed, two unrelated QA integrations skipped. Full web fixture
-suite: 367 passed, 37 intentional skips. Hosted SQL concurrency/fault-injection and final integration
-CI remain pending; these source checks do not establish production delivery or store declaration
-completion.
+suite: 367 passed, 37 intentional skips.
+
+Hosted disposable SQL run 39709063821 passed at integration commit 118a4cd2: both migration
+snapshots, web and Apple attribution, genuine concurrent erasure/preparation, lease/CAS, expiry,
+and structural-gate fault injection. Analytics switch rehearsal 39709063834 passed all eleven
+operation proofs, including enable, disable and repeated runtime refresh. The integrated Deno
+suite passed 649 tests and 147 steps (one database-only skip); lint passed 154 files. These are
+rehearsals, not production delivery or completed store declarations.
+
+The broader extension tests exposed two full analytics mocks missing the new helpers. They now
+retain real helper exports and explicitly represent their existing disabled analytics host; all
+assertions remain. Chromium passed 855 tests, Safari 405, and app webview 19. The macOS native
+sales extraction fixture now compiles the maintained executor with its actual catalog and
+provenance dependencies plus synthetic SDK ports; its charge, identity and sandbox assertions
+remain, with a missing-verified-transaction analytics negative control. The full shared-core suite
+passed 5,726 tests across 224 files, with 39 intentional skips. Final integration CI and
+release-package delivery proof remain pending.
