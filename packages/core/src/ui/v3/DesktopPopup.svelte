@@ -378,7 +378,10 @@
   /* ISS-0098 (owner, 21 Oct, option B): the popup grows to fit an expanded site; the site list is
      never a scroll box of its own. Past the browser's popup height limit (about 600px) the whole
      popup scrolls: the document, never a box inside it. The Safari popup already scrolls its page
-     the same way (SafariV3Popup). The phone popup (MobilePopup) is unchanged. */
+     the same way (SafariV3Popup). The phone popup (MobilePopup) is unchanged.
+     Lead ruling, 22 Oct: at 1.5x text size and larger the browser's popup frame may scroll (Chrome
+     caps popups at 600px), as the shipped popup with sign-in and Still Pro does; nothing inside the
+     popup ever scrolls, and at 1x the option B growth holds. */
   .app[data-density="compact"] {
     max-block-size: none;
   }

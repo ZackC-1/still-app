@@ -125,8 +125,10 @@ async function expectNoSidewaysOverflow(page: Page): Promise<void> {
 }
 
 /** ISS-0098 (owner, 21 Oct): nothing inside the popup scrolls on its own; when it is taller than
- * the browser's cap the document scrolls. */
-async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean): Promise<void> {
+ * the browser's cap the document scrolls. Lead ruling, 22 Oct: at 1.5× text size and larger the
+ * browser's own popup frame may scroll (Chrome caps popups at 600px), so "may" accepts either; the
+ * inner layout still never scrolls, and at 1× the option B growth holds (nothing scrolls). */
+async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean | "may"): Promise<void> {
   const scrollers = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>(".still-ui, .still-ui *")]
       .filter((element) => element.scrollHeight > element.clientHeight + 1 &&
@@ -138,7 +140,7 @@ async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean
     height: document.scrollingElement!.scrollHeight,
     view: document.scrollingElement!.clientHeight,
   }));
-  expect(scroll.height > scroll.view).toBe(documentScrolls);
+  if (documentScrolls !== "may") expect(scroll.height > scroll.view).toBe(documentScrolls);
 }
 
 /** Every button, link and switch in the V3 screen can be scrolled into view and seen. */
@@ -343,14 +345,15 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     }
   });
 
-  test("at 1.5× the popup keeps its approved layout; above it the whole popup scrolls", async () => {
-    // The approved 1.5× layout is the popup without sign-in. The shipped 3.x popup (sign-in and the
-    // paid tier on) is taller and scrolls at 1.5×; that needs an owner ruling (release review F3).
-    test.skip(MODERN_SIGN_IN && PAID_TIER_ENABLED, "1.5× layout with sign-in and the paid tier on awaits an owner ruling");
-    for (const [fontSize, documentScrolls] of [
-      [24, false],
-      [32, true],
-    ] as const) {
+  test("at large text only the document scrolls, never a box inside the popup (ISS-0098, lead ruling 22 Oct)", async () => {
+    // The shipped 3.x popup (sign-in and the paid tier on) is taller than the approved layout without
+    // sign-in. Lead ruling, 22 Oct: at 1.5× and larger its document may scroll; nothing inside it
+    // scrolls; at 1× (16px) nothing scrolls at all.
+    const shipped = MODERN_SIGN_IN && PAID_TIER_ENABLED;
+    const cases: ReadonlyArray<readonly [number, boolean | "may"]> = shipped
+      ? [[16, false], [24, "may"], [32, "may"]]
+      : [[24, false], [32, true]];
+    for (const [fontSize, documentScrolls] of cases) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);
