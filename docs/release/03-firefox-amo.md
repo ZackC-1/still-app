@@ -24,12 +24,17 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `manifest_version` | 3 |
 | `gecko.id` | `still@chartash.com` — permanent identifier, not a contact mailbox |
 | `gecko.strict_min_version` | `140.0` |
-| `gecko.data_collection_permissions` | `required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"]`, `optional: ["technicalAndInteraction"]` (3.0 adds the email address and the Still Pro purchase status; existing users are asked to accept the two new types on update) |
+| `gecko.data_collection_permissions` | `required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"]`, `optional: ["technicalAndInteraction"]` — sign-in, the sign-in email address and the Still Pro purchase status are required; usage sharing is optional |
 | `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; QA sandbox packages only until Firefox on Android ships in a later update |
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
-there is no purchase requirement. Do not lower the Android floor or change the stable identifier
+Still Pro is an optional one-time purchase and never gates blocking or sync. The manifest declares
+the sign-in, email address and purchase-status data as required (owner decision for 3.0), so new
+installs see all three in Firefox's install prompt, with usage sharing offered as an optional
+choice. Existing users updating from 2.x are asked to accept the two types 3.0 added (personally
+identifying information and financial and payment information). The AMO data-collection answers
+must match this declaration. Do not lower the Android floor or change the stable identifier
 as metadata housekeeping. The first V3 store upload must not list Firefox for Android; when Android
 ships in a later update, confirm AMO lists that version as compatible with Firefox for Android.
 
