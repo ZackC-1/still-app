@@ -217,6 +217,9 @@
     if (!c.userId) return undefined;
     return {
       address: c.accountEmail ?? undefined,
+      // ISS-0105: Chrome and Firefox only ever grant Still Pro from the signed-in account's own
+      // signed proof (chrome-adapter), so a purchased Still Pro here is always the account's.
+      holdsPro: true,
       lastSyncedAt: c.lastSyncedAt,
       status: !c.cloudReachable
         ? {
@@ -353,6 +356,8 @@
         identity,
         revision: optionsAccountRevision,
         confirmed: controller.accountConfirmed,
+        // ISS-0105: as the popup's account above, Still Pro here is always this account's own.
+        holdsPro: true,
         // The time sits on the synced line ("Synced · Today at 2:10 PM", owner, 19 Oct), the same
         // line the Apple app and the popup show; there is no separate "Last synced" line below.
         lastSyncedAt: controller.lastSyncedAt,

@@ -225,7 +225,7 @@ describe("ruling 11: no divider above Sign out in the app's sync card", () => {
 
   it("signed in with Still Pro, the same", () => {
     render(SyncCard, {
-      props: { stillPro: true, account: { address: ACCOUNT.address, confirmed: true, onSignOut: vi.fn() } },
+      props: { stillPro: "account", account: { address: ACCOUNT.address, confirmed: true, holdsPro: true, onSignOut: vi.fn() } },
     });
     const group = screen.getByRole("button", { name: "Sign out" }).parentElement!;
     expect(group).not.toHaveClass("account");

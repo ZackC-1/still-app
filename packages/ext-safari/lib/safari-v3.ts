@@ -121,6 +121,12 @@ function statusFor(source: AppManagedAccountSource, text: AccountStatusText): Po
  * deletion and sync retry on Safari, so no action callback is ever produced here. Signed out is
  * `undefined`: the popup's own signed-out line, whose Sign in hands off to the Still app
  * (lib/app-handoff) rather than signing in here.
+ *
+ * ISS-0105: no `holdsPro` here or on the settings card, so a purchased Still Pro reads "Still Pro
+ * on this device". The App Group gives Safari no positive account provenance: the benefit snapshot
+ * (`getBenefitAccess`) carries per-benefit states only and the account record carries identity and
+ * sync status only. Showing "Still Pro User" here needs native to publish that fact (an owner-
+ * decided follow-up).
  */
 export function appManagedPopupAccount(
   source: AppManagedAccountSource,

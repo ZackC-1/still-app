@@ -98,6 +98,9 @@ async function compose(
      * holds that proof only once the signed-in account's reconcile has installed it (a new session
      * starts with none), so it names the account only after that. */
     linkedAccount?: string | null;
+    /** ISS-0105: the authority's positive account provenance read (a verified account proof for
+     * the signed-in account in native's record). Absent, the host has no such read. */
+    accountHeldPro?: boolean;
     verificationFails?: boolean;
     verificationHeld?: boolean;
     purchasePending?: boolean;
@@ -303,6 +306,9 @@ async function compose(
             ? null
             : { ownershipRevision: 0, linkedAccount: controller.userId && proofInstalled ? (options.linkedAccount ?? null) : null };
         },
+        ...(options.accountHeldPro !== undefined
+          ? { readAccountHeldPro: async (id: string) => options.accountHeldPro === true && id === controller.userId }
+          : {}),
         linkPurchase,
       },
       appRoutes: native,
@@ -1457,11 +1463,18 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
   const ACCOUNT = "account@still.test";
   const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
   const syncCard = () => document.querySelector('[data-still-card="sync"]') as HTMLElement;
+  // ISS-0105 (owner, 21 Oct): "Still Pro User" only when the signed-in account holds Still Pro.
+  const DEVICE_TAG = "Still Pro on this device";
+  const expectDeviceTag = () => {
+    expect(within(syncCard()).getByText(DEVICE_TAG)).toBeVisible();
+    expect(within(syncCard()).queryByText("Still Pro User")).toBeNull();
+  };
   it("on launch, linked to the signed-in account: the sync card's Still Pro User tag and nothing else", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
     await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
     await settled();
     expect(within(syncCard()).getByText("Still Pro User")).toBeVisible();
+    expect(within(syncCard()).queryByText(DEVICE_TAG)).toBeNull();
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(screen.queryByRole("region", { name: "Link Still Pro" })).toBeNull();
@@ -1485,11 +1498,52 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     await settled();
     expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
     expect(f.linkPurchase).toHaveBeenCalledOnce();
+    // The account signed in here does not hold the purchase: the tag is the device's (ISS-0105).
+    expectDeviceTag();
   });
   it("an accountless right, signed in: the offer shows", async () => {
     const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", linkedAccount: null });
     expect(await screen.findByRole("region", { name: OFFER })).toBeVisible();
     expect(f.linkPurchase).not.toHaveBeenCalled();
+    await settled();
+    expectDeviceTag();
+  });
+  it("no Apple purchase read on this device is not proof the account holds Still Pro: on this device (ISS-0105)", async () => {
+    // The account holds nothing, the device keeps its own right, and the link read answers null
+    // (another Apple ID in the App Store, an unverified or family-shared transaction, a review
+    // binding): absence of device evidence never reads as the account's.
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "none", eligible: false, accountHeldPro: false });
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    await settled();
+    expectDeviceTag();
+  });
+  it("the account's own verified proof (bought on the web): Still Pro User (ISS-0105)", async () => {
+    const f = await compose({ accountOnly: true, initial: "purchased", accountState: "purchased", eligible: false, accountHeldPro: true });
+    await waitFor(() => expect(f.accountRequests.length).toBeGreaterThan(0));
+    await waitFor(() => expect(within(syncCard()).getByText("Still Pro User")).toBeVisible());
+    expect(within(syncCard()).queryByText(DEVICE_TAG)).toBeNull();
+  });
+  it.each(["pending", "refused"] as const)(
+    "after a refund and a rebuy, a %s link read never shows the old answer's Still Pro User (ISS-0105)",
+    async (read) => {
+      const f = await compose({ accountOnly: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+      await waitFor(() => expect(within(syncCard()).getByText("Still Pro User")).toBeVisible());
+      await f.setAccess("locked");
+      await settled();
+      expect(within(syncCard()).queryByText("Still Pro User")).toBeNull();
+      const held = read === "pending" ? f.holdEligibility() : undefined;
+      if (read === "refused") f.refuseEligibility(100);
+      await f.setAccess("purchased");
+      await settled();
+      expectDeviceTag();
+      held?.releaseAll();
+    },
+  );
+  it("signed out, the device's own purchase reads Still Pro on this device (ISS-0105)", async () => {
+    await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });
+    await screen.findByText(INVITE);
+    await settled();
+    expectDeviceTag();
   });
   it("signed out, a linked right keeps the in-card invitation; signing in as its account says it is linked once the proof arrives", async () => {
     const f = await compose({ accountAccess: true, initial: "purchased", linkedAccount: ACCOUNT_ID });

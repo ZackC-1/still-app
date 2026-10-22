@@ -1,5 +1,25 @@
 # Architecture deepening — context dossiers index (2026-07-14)
 
+Status: historical review, retained at this path for existing references. Reviewed October 22, 2026.
+The original findings and proposed sequence below describe commit `5470713`, not current work.
+
+Current implementation references:
+
+- [Shared content entry construction](../../packages/core/src/content/extension-entry.ts).
+- [Prepared engine page sessions](../../packages/core/src/rules/engine.ts).
+- [Session capability registry](../../packages/ext-chromium/lib/session-messages.ts).
+
+These replace the corresponding July proposals as implementation evidence. This status note does
+not claim every historical bug was independently retested. Use [the architecture reference](../ARCHITECTURE.md)
+for the current runtime map.
+
+The fifth candidate, consolidating purchase downgrade rules across Apple and browser sessions,
+remains deferred. [ADR 0003](../adr/0003-entitlement-authority-receipt-and-server.md) subsequently
+recorded the Apple authority decision and explicitly retained that deferral. Revisit it only as
+separately scoped work.
+
+## Original July review
+
 Output of an `/improve-codebase-architecture` review run against main at commit `5470713`,
 with the stated goal: **pre-release hardening — the app as functional and as efficient as
 possible before public release.** Four deepening candidates were selected by the user; each has
@@ -10,8 +30,8 @@ plans — resolve their open questions (some need the user) before implementing.
 
 A fifth candidate (one shared home for the never-downgrade entitlement rules across the two
 session orchestrators) was surfaced and explicitly deferred by the user as too risky before
-release. No ADR was recorded — the reason is timing, not a permanent rejection; a post-release
-architecture review should re-surface it.
+release. No ADR had been recorded at the time of this review — the reason was timing, not a
+permanent rejection; a post-release architecture review should re-surface it.
 
 ## The dossiers
 

@@ -39,14 +39,6 @@ import {
   type LastSyncedIdentityStore,
 } from "@still/core/sync";
 
-// Entry for the Apple app's WKWebView settings screen — THIN WIRING ONLY. Settings persist through
-// the native App-Group bridge (U17); the auth/purchase/entitlement orchestration (U19) lives in
-// core's tested AppleSession module: the user signs in with an emailed 6-digit code (the SAME flow
-// as the browser extensions — one identity story on every surface, 2026-07-06; the native Sign in
-// with Apple path is retired and unreached pending full excision), then buy/restore run natively
-// (StoreKit/RevenueCat) keyed to the Supabase UUID (KTD5); the UI gates on the Supabase
-// entitlement surfaced through SyncService.
-
 // D04 settings (committed atomic authority) needs an explicit build opt-in, and the tested core rule
 // then also requires the native port:
 //   - atomic-cloud: Supabase configured and VITE_MODERN_SETTINGS_SYNC_ENABLED=true (the modern sync
@@ -138,11 +130,12 @@ let applePurchaseAuthority: {
   refreshAccountAccess: NonNullable<AppleProHostDeps["refreshAccountAccess"]>;
   verifyLocalPurchase: AppleProHostDeps["verifyLocalPurchase"];
   readLinkEligibility: AppleProHostDeps["readLinkEligibility"];
+  readAccountHeldPro: NonNullable<AppleProHostDeps["readAccountHeldPro"]>;
   ownershipRevision: AppleProHostDeps["ownershipRevision"];
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "readAccountHeldPro" | "ownershipRevision" | "linkPurchase"
   | "heldElsewhereMemory" | "purchaseAnalytics"> | undefined;
 /** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
 const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
@@ -342,6 +335,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
       verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
+      readAccountHeldPro: applePurchaseAuthority.readAccountHeldPro,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,
       linkPurchase: intent => session.linkPurchase(intent),
       heldElsewhereMemory: {
