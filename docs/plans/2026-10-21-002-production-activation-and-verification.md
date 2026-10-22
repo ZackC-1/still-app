@@ -5,20 +5,24 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: protected migration rehearsal
+## Latest checkpoint: production approval pending
 
-PR #522 merged as `bac1539f382798fa2ca812dd782beabc76c47b69` after all 32 checks passed.
-Fresh DB-01 run `39704032899` privately confirmed the hosted migration tail is still 0024.
-Plan-only run `39704528557` bound exactly 0025–0027, but its disposable rehearsal refused before
-any write: the new 0026 and 0027 `.invariant.sql` files mistakenly returned structural issue
-arrays rather than private row-count/fingerprint objects. No hosted apply was dispatched.
+PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
+merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
+revision. The failed earlier plan39704528557 performed no hosted write.
 
-The correction preserves the existing strict parser and independent structural verification
-queries, replaces both preservation queries with complete snapshots of pre-existing application
-and QA rows, and exercises actual SQL output before/after migration in the checkout rehearsal.
-Both queries must work before the grouped deployment, when the new tables do not exist.
-All 76 offline deployment tests pass; reviewed correction and protected replay remain separate
-gates before owner approval. A new merged SHA will be pinned for the next deployment plan.
+[Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) now passes for exactly
+0025–0027: disposable history 24→27, clean structural checks, unchanged existing row snapshots.
+Matching [apply39707838333](https://github.com/ZackC-1/still-app/actions/runs/39707838333) has passed
+its plan and waits for the owner's protected-environment approval. No sales activation is included.
+Read its latest closing receipt before starting any later operation.
+
+Web and Apple canonical analytics plus build trust/declaration changes are being combined in a
+reviewed integration branch. Their source tests do not establish hosted deployment or final-device
+delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
+[current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
+verification and remaining gates. Final screen/image edits, signed packages and device acceptance
+remain owner-dependent; the requested obsolete-code/test audit follows backend and visual completion.
 
 # V3 production activation and verification
 
