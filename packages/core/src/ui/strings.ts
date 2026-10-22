@@ -268,6 +268,15 @@ export const STRINGS = {
     noticeTurnOff: "Turn off",
   },
 
+  // The green tag on the "Settings sync" heading while Still Pro is purchased (ISS-0073). ISS-0105
+  // (owner, 21 Oct, option B): "Still Pro User" only when the signed-in account itself holds Still
+  // Pro; a device that holds it while signed out, or for an account that does not (including one
+  // linked to another account), says so instead.
+  proTag: {
+    account: "Still Pro User",
+    device: "Still Pro on this device",
+  },
+
   account: {
     privacyPolicy: "Privacy policy",
     delete: "Delete account",
