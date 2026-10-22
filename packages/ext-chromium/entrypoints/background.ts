@@ -21,8 +21,8 @@ import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage, persist
 import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
-import { EMAIL_GRANT_ACCOUNT_KEY, EMAIL_PERMISSION_WITHDRAWN_KEY, FIREFOX_DATA_TYPES, firefoxDataGranted, type FirefoxDataCollectionApi } from "../lib/data-permission.js";
-import { createAccountEmailWatch, guardFirefoxDataFetch, withAccountEmailWatch, type AccountEmailWatch } from "../lib/firefox-data-guard.js";
+import { firefoxDataGranted, type FirefoxDataCollectionApi } from "../lib/data-permission.js";
+import { guardFirefoxDataFetch, requireEmailGrant, watchFirefoxAccountEmail, type AccountEmailBrowser } from "../lib/firefox-data-guard.js";
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
@@ -322,17 +322,19 @@ export default defineBackground(() => {
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       requestQuietFlush: () => requestQuietFlush(chrome.alarms),
       reportPurchases: () => reportPurchaseAnalytics?.(),
+      // The server attaches the account's email to the analytics person (and below, to the
+      // device's subject): on Firefox only with the email grant (firefoxEmailGated).
       identifyOnServer: spine
-        ? async () => {
+        ? firefoxEmailGated(async () => {
             const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
             if (error) throw error;
-          }
+          })
         : undefined,
       // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
       // Folds away in 2.x builds, byte-for-byte.
       ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
         ? {
-            issueSubject: supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined),
+            issueSubject: firefoxEmailGated(supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined)),
           }
         : {}),
     },
@@ -652,7 +654,7 @@ function createSessionSpine(
   let capturePurchaseAnalytics: () => Promise<PurchaseAnalyticsContext | null> = () => Promise.resolve(null);
   const paymentFetch = PAID_TIER_ENABLED && routeProfile === "production"
     ? withCheckoutAnalytics(fetch, `${config.url.replace(/\/$/, "")}/functions/v1/create-web-checkout`, () => capturePurchaseAnalytics()) : fetch;
-  // Firefox: the email address and the purchase status leave only with their optional
+  // Firefox: the email address (as personal data) and purchase data leave only with their optional
   // data-collection permission, read again for every request (lib/firefox-data-guard.ts). Never on
   // the blocking path; the Chrome build folds this away.
   const firefoxPermissions = (): FirefoxDataCollectionApi | undefined =>
@@ -780,7 +782,12 @@ function createSessionSpine(
   });
   // Firefox: an account signed in here with the email permission is signed out of sync if that
   // permission is withdrawn in about:addons (local settings stay); the pages then say why.
-  const session = import.meta.env.FIREFOX ? watchFirefoxAccountEmail(created, auth.currentUserId, firefoxPermissions) : created;
+  const session = import.meta.env.FIREFOX
+    ? watchFirefoxAccountEmail(created, auth.currentUserId, {
+        permissions: chrome.permissions as unknown as AccountEmailBrowser["permissions"],
+        storage: chrome.storage.local as unknown as AccountEmailBrowser["storage"],
+      })
+    : created;
   return { session, client,
     setPurchaseAnalytics: capture => { capturePurchaseAnalytics = capture; },
     preparePurchaseAnalytics: async () => {
@@ -798,34 +805,14 @@ function createSessionSpine(
 }
 
 /**
- * Firefox only: the session the background and its pages use, with the withdrawal check before the
- * account's reads and the start-up resume (lib/firefox-data-guard.ts). Firefox reports a removed
- * permission too; that runs the same check. Nothing here asks for a permission.
+ * Firefox only: analytics calls whose server attaches the account's email address run only while
+ * Firefox's optional email permission is granted (lib/firefox-data-guard.ts requireEmailGrant). A
+ * Firefox account signed in before that permission existed, with usage sharing on, therefore never
+ * has its email attached until a sign-in here grants it. Chrome folds this to the call itself.
  */
-function watchFirefoxAccountEmail(
-  session: ExtensionSession,
-  currentUserId: () => Promise<string | null>,
-  permissions: () => FirefoxDataCollectionApi | undefined,
-): ExtensionSession {
-  const stored = <T>(key: string) => ({
-    get: async (): Promise<T | null> => ((await chrome.storage.local.get(key))[key] as T | undefined) ?? null,
-    set: async (value: T | null): Promise<void> => {
-      if (value === null) await chrome.storage.local.remove(key);
-      else await chrome.storage.local.set({ [key]: value });
-    },
-  });
-  const watch: AccountEmailWatch = createAccountEmailWatch({
-    granted: () => firefoxDataGranted(permissions, "email"),
-    currentUserId,
-    signedInWithGrant: stored<string>(EMAIL_GRANT_ACCOUNT_KEY),
-    withdrawn: stored<true>(EMAIL_PERMISSION_WITHDRAWN_KEY),
-    signOut: () => session.signOut(),
-  });
-  const removed = (chrome.permissions as unknown as {
-    onRemoved?: { addListener(listener: (permissions: { data_collection?: string[] }) => void): void };
-  }).onRemoved;
-  removed?.addListener((permissions) => {
-    if (permissions.data_collection?.includes(FIREFOX_DATA_TYPES.email)) void watch.check();
-  });
-  return withAccountEmailWatch(session, watch);
+function firefoxEmailGated<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  return import.meta.env.FIREFOX
+    ? requireEmailGrant(call, () =>
+        firefoxDataGranted(() => chrome.permissions as unknown as FirefoxDataCollectionApi, "email"))
+    : call;
 }

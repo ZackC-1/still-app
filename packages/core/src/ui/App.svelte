@@ -353,8 +353,9 @@
     if (!identity)
       return {
         onSignIn: operations.onSignIn,
-        // Firefox: the email permission was declined or withdrawn (data-permission.ts).
-        ...(controller.dataPermissionNotice === "email" ? { notice: DATA_PERMISSION_COPY.email } : {}),
+        // Firefox: the email permission was withdrawn and the account signed out (data-permission.ts).
+        // A plain decline at Send code stays in the sign-in sheet.
+        ...(controller.emailPermissionWithdrawn ? { notice: DATA_PERMISSION_COPY.email } : {}),
       };
     return {
       account: {

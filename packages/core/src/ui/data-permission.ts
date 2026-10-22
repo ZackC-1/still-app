@@ -1,10 +1,11 @@
 // Firefox's optional data-collection permissions, as the Chrome/Firefox host hands them to the UI.
 //
 // Firefox lists the data an add-on sends in its manifest (`data_collection_permissions`). Still
-// marks the sign-in email address and the Still Pro purchase status as optional, so installing
-// Still never asks for them. Firefox asks the person instead, from their own click, the first time
-// Still would send one of them (Sign in's Send code; Get Still Pro and Restore purchase). Free
-// blocking, local settings and the free controls never touch any of this.
+// marks the sign-in email address and purchase data as optional, so installing Still never asks for
+// them. Firefox asks the person instead, from their own click, the first time Still would send one
+// of them (Sign in's Send code; Get Still Pro, which starts a checkout). Receiving the account's
+// Still Pro status sends no purchase data and never needs a grant. Free blocking, local settings and
+// the free controls never touch any of this.
 //
 // Only the Firefox build supplies a DataPermission (ext-chromium lib/data-permission.ts). Chrome,
 // Safari and the Apple apps supply none, so nothing here asks or checks anything there.
@@ -12,7 +13,7 @@
 // Its own module, beside email-consent.ts and for the same reason: the extension packages need the
 // type and the copy in node-environment tests, where the rune-based controller cannot be loaded.
 
-/** What is about to leave the device: the sign-in email address, or the Still Pro purchase status. */
+/** What is about to leave the device: the sign-in email address, or purchase data (a checkout). */
 export type DataPermissionKind = "email" | "purchase";
 
 export interface DataPermission {

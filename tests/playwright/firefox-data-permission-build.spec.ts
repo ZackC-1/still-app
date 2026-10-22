@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 // purchase-wiring.permission.test.ts, browser-pro.permission.test.ts and core's
 // controller-data-permission.test.ts) and by the real-Firefox lane (tests/firefox). This spec reads
 // the build output, so it runs identically in both CI lanes:
-//   * the Firefox manifest declares the email address and purchase status as optional;
+//   * the Firefox manifest declares the email address and purchase data as optional;
 //   * Chrome and Safari carry none of Firefox's permission code;
 //   * no content script (the blocking path) and no background code asks for a permission.
 

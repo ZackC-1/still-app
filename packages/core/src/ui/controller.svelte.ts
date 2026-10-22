@@ -152,8 +152,8 @@ export interface UiHost {
    */
   readonly emailConsent?: EmailConsent;
   /**
-   * Firefox only: the optional data-collection permissions for the sign-in email address and the
-   * Still Pro purchase status (data-permission.ts). Asked for inside the click that would first send
+   * Firefox only: the optional data-collection permissions for the sign-in email address and
+   * purchase data, which a Still Pro checkout sends (data-permission.ts). Asked for inside the click that would first send
    * one, and checked again before every later send. Absent everywhere else, where nothing is asked.
    */
   readonly dataPermission?: DataPermission;
@@ -366,8 +366,12 @@ export class UiController {
    * the conservative reading of "before the email is collected", and it costs one tap. */
   emailConsentGiven = $state(false);
   /** Firefox: the permission the person declined (or withdrew) for the last send they tried. The
-   * sign-in sheet and the signed-out sync card show its one line; a granted send clears it. */
+   * sign-in sheet shows its one line; a granted send clears it. */
   dataPermissionNotice = $state<DataPermissionKind | null>(null);
+  /** Firefox: the email permission was withdrawn in about:addons and the background signed this
+   * account out of sync. Only then does the signed-out sync card carry the sign-in line (a plain
+   * decline at Send code stays in the sheet). Cleared once the permission is granted again. */
+  emailPermissionWithdrawn = $state(false);
   paywallOpen = $state(false);
   /** Localized store price for the buy CTA (e.g. "$1.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
@@ -729,10 +733,17 @@ export class UiController {
     return this.emailConsent !== "none" && !this.emailConsentGiven;
   }
 
-  /** The host learned that a permission was withdrawn (Firefox's add-on manager): say so where the
-   * person will next look. Cleared by the next send that has the permission. */
-  showDataPermissionNotice(kind: DataPermissionKind): void {
-    this.dataPermissionNotice = kind;
+  /** The host learned that the email permission was withdrawn (Firefox's add-on manager) and the
+   * account signed out of sync: say so on the sync card and in the sheet. */
+  showEmailPermissionWithdrawn(): void {
+    this.emailPermissionWithdrawn = true;
+    this.dataPermissionNotice = "email";
+  }
+
+  /** The email permission is granted again (about:addons, or a granted Send code): drop the lines. */
+  clearEmailPermissionWithdrawn(): void {
+    this.emailPermissionWithdrawn = false;
+    if (this.dataPermissionNotice === "email") this.dataPermissionNotice = null;
   }
 
   /**
@@ -747,6 +758,7 @@ export class UiController {
       () => false,
     );
     if (!granted) this.dataPermissionNotice = kind;
+    else if (kind === "email") this.clearEmailPermissionWithdrawn();
     else if (this.dataPermissionNotice === kind) this.dataPermissionNotice = null;
     return granted;
   }
@@ -957,8 +969,8 @@ export class UiController {
    * trap the buyer for 24h. */
   async startWebCheckout(): Promise<void> {
     if (!this.checkout || this.purchaseBusy) return;
-    // Firefox: a checkout reads and records the account's Still Pro purchase status, an optional
-    // data-collection permission there. Asked inside this tap, before anything is awaited.
+    // Firefox: starting a checkout sends purchase data, an optional data-collection permission
+    // there. Asked inside this tap, before anything is awaited.
     const asked = this.host.dataPermission?.ask("purchase");
     // A fresh checkout supersedes any pending presentation/poll window (replace, not block).
     this.stopPollTimer();

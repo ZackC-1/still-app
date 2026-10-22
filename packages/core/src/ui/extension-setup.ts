@@ -54,8 +54,8 @@ export interface ExtensionPurchaseDeps {
   readonly getState: () => Promise<ExtensionSessionState>;
   readonly readAccountStatus?: () => Promise<AccountStatusSnapshot | null>;
   readonly retrySync?: () => Promise<void>;
-  /** Firefox only: the optional data-collection permissions for the email address and the Still
-   * Pro purchase status, asked for inside the click that first sends one (data-permission.ts). */
+  /** Firefox only: the optional data-collection permissions for the email address and purchase
+   * data (a checkout), asked for inside the click that first sends one (data-permission.ts). */
   readonly dataPermission?: DataPermission;
 }
 

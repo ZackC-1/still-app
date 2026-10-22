@@ -6,10 +6,11 @@ import type { DataPermission, DataPermissionKind } from "@still/core/ui/data-per
 import type { WebCheckoutOutcome } from "@still/core/sync";
 import { createBrowserPro, type BrowserProDeps, type BrowserProState, type ProOwnership } from "../browser-pro.js";
 
-// Firefox: the Still Pro card's Get Still Pro and Restore purchase send the account's purchase
-// status, an optional data-collection permission there. Each tap asks first, synchronously and
-// before anything is awaited; declined sends nothing and the card says why; the page's own
-// re-checks (page shown, signed in, renewals) never ask and are not made without the grant.
+// Firefox: Get Still Pro starts a checkout for the account, which sends purchase data, an optional
+// data-collection permission there. Its tap (and Try again's) asks first, synchronously and before
+// anything is awaited; declined starts nothing and the card says why. Restore purchase and the page's
+// own re-checks (page shown, signed in, renewals) only receive the account's Still Pro status, so
+// they never ask and never wait on the grant: Still Pro cannot lock for want of it.
 
 const ACCOUNT = "11111111-1111-4111-8111-111111111111";
 
@@ -92,6 +93,8 @@ function harness(initiallyGranted: boolean) {
   return {
     flow,
     log,
+    page,
+    listeners,
     permission,
     controller,
     checkout,
@@ -157,51 +160,85 @@ describe("Get Still Pro on Firefox", () => {
   });
 });
 
-describe("Restore purchase on Firefox", () => {
-  it("asks inside the tap first, then re-checks the grant before the check", async () => {
+describe("the declined line on the Pro card", () => {
+  it("goes with the account: a sign-out or an account switch clears it", async () => {
+    const h = harness(false);
+    h.observe("none");
+    await settle();
+    h.flow.buy();
+    await settle();
+    expect(h.state.restore).toEqual({ state: "permission" });
+    h.observe("none", null); // signed out
+    await settle();
+    expect(h.state.restore).toBeUndefined();
+    h.observe("none", "22222222-2222-4222-8222-222222222222");
+    await settle(); // the new account's "may I offer Buy?" answer
+    h.flow.buy();
+    await settle();
+    expect(h.state.restore).toEqual({ state: "permission" });
+    h.observe("none", ACCOUNT); // another account
+    await settle();
+    expect(h.state.restore).toBeUndefined();
+    h.flow.stop();
+  });
+});
+
+describe("a purchase waiting in its checkout tab", () => {
+  it("still settles when the purchase grant is withdrawn meanwhile (re-checks never wait on it)", async () => {
     const h = harness(true);
+    h.observe("none");
+    await settle();
+    h.flow.buy();
+    await settle();
+    expect(h.state.purchase).toBe("waiting");
+    h.grant(false); // withdrawn in about:addons while the checkout tab is open
+    h.page.visibilityState = "hidden";
+    for (const listener of [...h.listeners]) listener();
+    h.page.visibilityState = "visible";
+    for (const listener of [...h.listeners]) listener();
+    await settle();
+    expect(h.controller.recheckAccess).toHaveBeenCalled();
+    expect(h.state.purchase).toBe("idle");
+    h.flow.stop();
+  });
+});
+
+describe("Restore purchase on Firefox", () => {
+  it("checks without the purchase grant and without asking", async () => {
+    const h = harness(false);
     h.observe("none");
     await settle();
     h.log.length = 0;
     h.flow.restore();
-    expect(h.log).toEqual(["ask:purchase"]);
     await settle();
-    expect(h.log).toEqual(["ask:purchase", "granted:purchase", "granted:purchase", "recheck"]);
+    expect(h.log).toEqual(["recheck"]);
     expect(h.state.restore).toEqual({ state: "nothing" });
     h.flow.stop();
   });
 
-  it("declined: nothing is checked, no sign-in is opened, and the card says why", async () => {
+  it("signed out, opens the normal sign-in, then checks, still without asking", async () => {
     const h = harness(false);
     h.observe("none", null);
     await settle();
     h.flow.restore();
+    expect(h.controller.openSignIn).toHaveBeenCalledOnce();
+    h.observe("none");
     await settle();
-    expect(h.controller.recheckAccess).not.toHaveBeenCalled();
-    expect(h.controller.openSignIn).not.toHaveBeenCalled();
-    expect(h.state.restore).toEqual({ state: "permission" });
+    expect(h.controller.recheckAccess).toHaveBeenCalled();
+    expect(h.permission.ask).not.toHaveBeenCalled();
     h.flow.stop();
   });
 });
 
 describe("the page's own re-checks on Firefox", () => {
-  it("never ask, and are not made without the grant", async () => {
+  it("run without the purchase grant, never ask and never read the grant (Still Pro never locks for want of it)", async () => {
     const h = harness(false);
     h.observe("none", null);
-    h.observe("verify"); // signed in on this page: a re-check would normally run now
+    h.observe("verify"); // signed in on this page: a re-check runs now
     await settle();
-    expect(h.permission.ask).not.toHaveBeenCalled();
-    expect(h.controller.recheckAccess).not.toHaveBeenCalled();
-    h.flow.stop();
-  });
-
-  it("are made once the grant is there", async () => {
-    const h = harness(true);
-    h.observe("none", null);
-    h.observe("none");
-    await settle();
-    expect(h.permission.ask).not.toHaveBeenCalled();
     expect(h.controller.recheckAccess).toHaveBeenCalled();
+    expect(h.permission.ask).not.toHaveBeenCalled();
+    expect(h.permission.granted).not.toHaveBeenCalled();
     h.flow.stop();
   });
 });

@@ -183,8 +183,8 @@ describe("Firefox manifest compatibility", () => {
   });
 
   it("never makes installing the free blocker accept the email address or the purchase status", () => {
-    // Owner decision, 22 Oct 2026: Firefox asks for these at Sign in and at Get Still Pro or
-    // Restore purchase (lib/data-permission.ts), never at install or update.
+    // Owner decision, 22 Oct 2026: Firefox asks for these at Sign in and at Get Still Pro
+    // (lib/data-permission.ts), never at install or update.
     const { required, optional } = firefoxBrowserSpecificSettings.gecko.data_collection_permissions;
     expect(required).toEqual(["authenticationInfo"]);
     for (const type of ["personallyIdentifyingInfo", "financialAndPaymentInfo"]) {

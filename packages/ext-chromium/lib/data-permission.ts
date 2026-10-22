@@ -6,8 +6,10 @@ import type { DataPermission, DataPermissionKind } from "@still/core/ui/data-per
 // person asks for an account feature (wxt.config.ts `data_collection_permissions.optional`):
 //
 //   * "personallyIdentifyingInfo": the email address that Sign in sends to get a code.
-//   * "financialAndPaymentInfo":   the Still Pro purchase status that Get Still Pro and Restore
-//                                  purchase read and record.
+//   * "financialAndPaymentInfo":   purchase data, sent only to start a Still Pro checkout (Get
+//                                  Still Pro, Try again). Receiving the account's Still Pro
+//                                  status (Restore purchase, re-checks) sends none and needs no
+//                                  grant: Mozilla's data types describe what an add-on transmits.
 //
 // Mozilla's rules this follows (Extension Workshop, "Firefox built-in consent for data collection
 // and transmission"; MDN permissions.request and "User actions"):
@@ -41,7 +43,7 @@ export interface FirefoxDataCollectionApi {
 
 /** Whether `kind` is granted now, from Firefox's own list. Any failure reads as not granted. */
 export async function firefoxDataGranted(
-  api: () => FirefoxDataCollectionApi | undefined,
+  api: () => Pick<FirefoxDataCollectionApi, "getAll"> | undefined,
   kind: DataPermissionKind,
 ): Promise<boolean> {
   try {
@@ -109,30 +111,68 @@ export interface NoticeStorage {
   };
 }
 
+/** The permission reads and the grant event the notice needs. */
+export interface NoticePermissions {
+  granted(kind: DataPermissionKind): Promise<boolean>;
+  readonly onAdded?: {
+    addListener(listener: (permissions: { data_collection?: string[] }) => void): void;
+    removeListener(listener: (permissions: { data_collection?: string[] }) => void): void;
+  };
+}
+
 /**
  * Firefox pages: when the background signed the account out because its email permission was
- * withdrawn, show the sign-in line (the settings page's sync card and the sign-in sheet) until the
- * next sign-in clears the flag. Returns the stop function.
+ * withdrawn, show the sign-in line (the settings page's sync card and the sign-in sheet) while the
+ * permission is still missing. Granted again (about:addons, or a granted Send code) the line goes,
+ * whether or not the person has signed in yet. Returns the stop function.
  */
 export function watchEmailPermissionNotice(
-  controller: { showDataPermissionNotice(kind: DataPermissionKind): void },
+  controller: { showEmailPermissionWithdrawn(): void; clearEmailPermissionWithdrawn(): void },
   storage: NoticeStorage,
+  permissions: NoticePermissions,
 ): () => void {
   let stopped = false;
-  void storage
-    .get(EMAIL_PERMISSION_WITHDRAWN_KEY)
-    .then((items) => {
-      if (!stopped && items[EMAIL_PERMISSION_WITHDRAWN_KEY] === true) controller.showDataPermissionNotice("email");
-    })
-    .catch(() => {});
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    if (area === "local" && changes[EMAIL_PERMISSION_WITHDRAWN_KEY]?.newValue === true)
-      controller.showDataPermissionNotice("email");
+  let shown = false;
+  let reading = 0;
+  const refresh = async (): Promise<void> => {
+    const ticket = ++reading;
+    try {
+      const withdrawn = (await storage.get(EMAIL_PERMISSION_WITHDRAWN_KEY))[EMAIL_PERMISSION_WITHDRAWN_KEY] === true;
+      const granted = withdrawn && (await permissions.granted("email").catch(() => false));
+      if (stopped || ticket !== reading) return;
+      if (withdrawn && !granted) {
+        shown = true;
+        controller.showEmailPermissionWithdrawn();
+      } else if (shown || withdrawn) {
+        // Only this watcher's own line: a decline at Send code is the sheet's to clear.
+        shown = false;
+        controller.clearEmailPermissionWithdrawn();
+      }
+    } catch {
+      /* Unreadable storage: leave the page as it is. */
+    }
   };
-  storage.onChanged?.addListener(listener);
+  void refresh();
+  const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+    if (area === "local" && EMAIL_PERMISSION_WITHDRAWN_KEY in changes) void refresh();
+  };
+  const added = (granted: { data_collection?: string[] }) => {
+    if (granted.data_collection?.includes(FIREFOX_DATA_TYPES.email)) void refresh();
+  };
+  storage.onChanged?.addListener(changed);
+  permissions.onAdded?.addListener(added);
   return () => {
     stopped = true;
-    storage.onChanged?.removeListener(listener);
+    storage.onChanged?.removeListener(changed);
+    permissions.onAdded?.removeListener(added);
+  };
+}
+
+/** Firefox's grant reads and its permission-added event, as the notice reads them. */
+export function extensionNoticePermissions(): NoticePermissions {
+  return {
+    granted: (kind) => firefoxDataGranted(firefoxPermissions, kind),
+    onAdded: (firefoxPermissions() as unknown as { onAdded?: NoticePermissions["onAdded"] } | undefined)?.onAdded,
   };
 }
 

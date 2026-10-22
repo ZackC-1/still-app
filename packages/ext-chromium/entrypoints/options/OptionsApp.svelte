@@ -17,7 +17,7 @@
     restoreHandler,
   } from "../../lib/purchase-wiring.js";
   import { emailConsent } from "../../lib/email-consent.js";
-  import { extensionNoticeStorage, watchEmailPermissionNotice } from "../../lib/data-permission.js";
+  import { extensionNoticePermissions, extensionNoticeStorage, watchEmailPermissionNotice } from "../../lib/data-permission.js";
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
@@ -70,7 +70,7 @@
   });
   // Firefox: a withdrawn email permission signed the account out of sync; say so (data-permission.ts).
   if (import.meta.env.FIREFOX)
-    controller.addTeardown(watchEmailPermissionNotice(controller, extensionNoticeStorage()));
+    controller.addTeardown(watchEmailPermissionNotice(controller, extensionNoticeStorage(), extensionNoticePermissions()));
   // This page owns its controller: stop the account poll when the page's view is destroyed.
   onDestroy(() => controller.dispose());
   // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
@@ -124,7 +124,7 @@
     : v3Settings
     ? () =>
         import("./RestoreSettings.svelte").then((module) => {
-          module.bindSettingsRestore(purchase ? controller : undefined, purchase?.dataPermission);
+          module.bindSettingsRestore(purchase ? controller : undefined);
           return module;
         })
     : () => import("@still/core/ui/v3/ExtensionSettings.svelte");

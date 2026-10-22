@@ -1,6 +1,6 @@
 // Firefox's optional data-collection permissions, as the UI controller uses them.
 //
-// The email address and the Still Pro purchase status are optional in Firefox's manifest, so
+// The email address and purchase data (a Still Pro checkout) are optional in Firefox's manifest, so
 // Firefox asks the person the first time Still would send them. The rules pinned here:
 //   * the ask is made synchronously, inside the click, before anything is awaited (Firefox only
 //     prompts from a user action, and a handler that awaited has stopped being one);
@@ -148,16 +148,35 @@ describe("sign-in: the email address is sent only with Firefox's permission", ()
     c.dispose();
   });
 
-  it("a withdrawn grant reported by the host shows the line; signing in again clears it", async () => {
+  it("a withdrawal reported by the host shows the sheet and sync-card lines; a granted send clears both", async () => {
     const { permission: dataPermission } = permission();
     const { c } = makeController({ auth: codeAuth(), host: { dataPermission } });
-    c.showDataPermissionNotice("email");
+    c.showEmailPermissionWithdrawn();
     expect(c.dataPermissionNotice).toBe("email");
+    expect(c.emailPermissionWithdrawn).toBe(true);
     await c.signIn("me@example.com");
+    expect(c.dataPermissionNotice).toBeNull();
+    expect(c.emailPermissionWithdrawn).toBe(false);
     await c.verifyCode("123456");
     expect(c.userId).toBe("user-1");
-    expect(c.dataPermissionNotice).toBeNull();
     c.dispose();
+  });
+
+  it("granted again in about:addons: the host clears the withdrawal lines", () => {
+    const { permission: dataPermission } = permission();
+    const { c } = makeController({ auth: codeAuth(), host: { dataPermission } });
+    c.showEmailPermissionWithdrawn();
+    c.clearEmailPermissionWithdrawn();
+    expect(c.emailPermissionWithdrawn).toBe(false);
+    expect(c.dataPermissionNotice).toBeNull();
+  });
+
+  it("a plain decline at Send code shows the sheet line only, never the sync card's", async () => {
+    const { permission: dataPermission } = permission({ email: false });
+    const { c } = makeController({ auth: codeAuth(), host: { dataPermission } });
+    await c.signIn("me@example.com");
+    expect(c.dataPermissionNotice).toBe("email");
+    expect(c.emailPermissionWithdrawn).toBe(false);
   });
 
   it("Chrome, Safari and the Apple app (no DataPermission) send without asking anything", async () => {
@@ -170,7 +189,7 @@ describe("sign-in: the email address is sent only with Firefox's permission", ()
   });
 });
 
-describe("purchase: Still Pro's purchase status is checked only with Firefox's permission", () => {
+describe("purchase: a Still Pro checkout starts only with Firefox's permission", () => {
   it("Get Still Pro asks inside the tap first; declined starts no checkout", async () => {
     const { permission: dataPermission, log } = permission({ purchase: false });
     const { seam } = checkoutSeam();

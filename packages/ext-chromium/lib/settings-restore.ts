@@ -1,6 +1,5 @@
 import type { UiController } from "@still/core/ui";
 import type { BrowserRestoreAnswer } from "@still/core/ui/v3/browser-settings-restore";
-import type { DataPermission } from "@still/core/ui/data-permission";
 
 // The Chrome/Firefox settings page's free-period "Restore purchase" (owner decisions 62 and 73,
 // option A). Imported only by the lazily loaded options wrapper (RestoreSettings.svelte), which
@@ -31,9 +30,6 @@ export interface RestoreRuntime {
 export interface SettingsRestoreHost {
   readonly controller: Pick<UiController, "userId" | "signInOpen" | "canSignIn" | "openSignIn">;
   readonly check: () => Promise<BrowserRestoreAnswer>;
-  /** Firefox only: the purchase-status permission (lib/data-permission.ts), handed over by the
-   * options page so this module still takes no value from the shared modules. */
-  readonly permission?: DataPermission;
 }
 
 /** The same choice wxt's `browser` makes: Firefox's `browser`, else Chrome's `chrome`. */
@@ -55,11 +51,9 @@ function extensionRuntime(): RestoreRuntime {
 export function settingsRestoreHost(
   controller: SettingsRestoreHost["controller"],
   runtime: RestoreRuntime = extensionRuntime(),
-  permission?: DataPermission,
 ): SettingsRestoreHost {
   return {
     controller,
-    ...(permission ? { permission } : {}),
     async check(): Promise<BrowserRestoreAnswer> {
       try {
         const answer = await runtime.sendMessage({ kind: RESTORE_SESSION_KIND, action: "restore" });

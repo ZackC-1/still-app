@@ -6,8 +6,8 @@ import { EXTENSION_UUID, findFirefox } from "./_bidi.js";
 import { FIREFOX_EXTENSION, StillFirefox, fixture, type Tab } from "./_session.js";
 
 // Firefox's optional data-collection permissions in a real Firefox (owner decision, 22 Oct 2026):
-// installing Still never grants the email address ("personallyIdentifyingInfo") or the Still Pro
-// purchase status ("financialAndPaymentInfo"), and free blocking works with neither.
+// installing Still never grants the email address ("personallyIdentifyingInfo") or Still Pro
+// purchase data ("financialAndPaymentInfo"), and free blocking works with neither.
 //
 // It also pins the Firefox rule the click handlers are built on: permissions.request for a data
 // type is refused outside the handling of a user action, so the ask has to be the first thing a
@@ -19,8 +19,8 @@ import { FIREFOX_EXTENSION, StillFirefox, fixture, type Tab } from "./_session.j
 // off), so there is no trusted click that could raise it. This lane's build also has
 // no server, so it has no Sign in or Get Still Pro. The click handlers (ask first, nothing sent when
 // declined, re-check before each send, withdrawn grant) are covered by the unit tests with a mocked
-// permissions API: core controller-data-permission.test.ts and browser-settings-restore.permission
-// .test.ts; ext-chromium data-permission.test.ts, purchase-wiring.permission.test.ts,
+// permissions API: core controller-data-permission.test.ts; ext-chromium data-permission.test.ts,
+// purchase-wiring.permission.test.ts,
 // browser-pro.permission.test.ts, firefox-data-guard.test.ts and free-blocking-data-permission.test.ts.
 
 const firefoxBinary = findFirefox();
@@ -45,7 +45,7 @@ test.afterAll(async () => {
 const granted = (page: Tab) =>
   page.evaluate<string[] | null>("browser.permissions.getAll().then((all) => all.data_collection ?? null)");
 
-test("installing grants neither the email address nor the purchase status", async () => {
+test("installing grants neither the email address nor purchase data", async () => {
   const page = await firefox.openExtensionPage("options.html");
   try {
     const list = await granted(page);

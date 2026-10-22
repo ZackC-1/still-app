@@ -15,8 +15,9 @@ export const firefoxBrowserSpecificSettings = {
     // rest is optional; Firefox does not show optional types at install and asks the person at run
     // time instead, from their own click (lib/data-permission.ts):
     //   * "personallyIdentifyingInfo": the email address Sign in sends for its code.
-    //   * "financialAndPaymentInfo": the Still Pro purchase status that Get Still Pro and Restore
-    //     purchase read and record.
+    //   * "financialAndPaymentInfo": purchase data, which Still sends only to start a Still Pro
+    //     checkout (Get Still Pro). Receiving the account's Still Pro status sends none, so
+    //     Restore purchase and Still Pro's re-checks never need it.
     //   * "technicalAndInteraction": usage analytics, which Firefox only allows as optional and
     //     offers in its install prompt; also switched from Still's settings (lib/analytics.ts).
     // Nothing optional is sent until it is granted (lib/firefox-data-guard.ts).

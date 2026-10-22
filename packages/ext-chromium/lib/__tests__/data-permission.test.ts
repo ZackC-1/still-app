@@ -8,6 +8,7 @@ import {
   pickDataPermission,
   watchEmailPermissionNotice,
   type FirefoxDataCollectionApi,
+  type NoticePermissions,
   type NoticeStorage,
 } from "../data-permission.js";
 import { firefoxBrowserSpecificSettings } from "../../wxt.config.js";
@@ -111,40 +112,71 @@ describe("Chrome and Safari never touch Firefox's permission API", () => {
 });
 
 describe("the withdrawn notice on Firefox pages", () => {
-  function storage(initial: Record<string, unknown> = {}) {
-    let listener: ((changes: Record<string, { newValue?: unknown }>, area: string) => void) | null = null;
-    const value: NoticeStorage = {
-      get: async (key) => (key in initial ? { [key]: initial[key] } : {}),
-      onChanged: {
-        addListener: (l) => {
-          listener = l;
-        },
-        removeListener: () => {
-          listener = null;
-        },
+  type Listener = (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+  function harness(options: { withdrawn: boolean; granted: boolean }) {
+    const items: Record<string, unknown> = options.withdrawn ? { [EMAIL_PERMISSION_WITHDRAWN_KEY]: true } : {};
+    let changed: Listener | null = null;
+    let added: ((permissions: { data_collection?: string[] }) => void) | null = null;
+    let granted = options.granted;
+    const storage: NoticeStorage = {
+      get: async (key) => (key in items ? { [key]: items[key] } : {}),
+      onChanged: { addListener: (l) => void (changed = l), removeListener: () => void (changed = null) },
+    };
+    const permissions: NoticePermissions = {
+      granted: async () => granted,
+      onAdded: { addListener: (l) => void (added = l), removeListener: () => void (added = null) },
+    };
+    const controller = { showEmailPermissionWithdrawn: vi.fn(), clearEmailPermissionWithdrawn: vi.fn() };
+    const stop = watchEmailPermissionNotice(controller, storage, permissions);
+    return {
+      controller,
+      stop,
+      grant(next: boolean) {
+        granted = next;
+      },
+      setFlag(value: boolean) {
+        if (value) items[EMAIL_PERMISSION_WITHDRAWN_KEY] = true;
+        else delete items[EMAIL_PERMISSION_WITHDRAWN_KEY];
+        changed?.({ [EMAIL_PERMISSION_WITHDRAWN_KEY]: { newValue: value ? true : undefined } }, "local");
+      },
+      add(types: string[]) {
+        added?.({ data_collection: types });
+      },
+      get listening() {
+        return changed !== null || added !== null;
       },
     };
-    return { value, fire: (changes: Record<string, { newValue?: unknown }>, area = "local") => listener?.(changes, area), get listening() { return listener !== null; } };
   }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it("shows the sign-in line when the background signed the account out", async () => {
-    const controller = { showDataPermissionNotice: vi.fn() };
-    watchEmailPermissionNotice(controller, storage({ [EMAIL_PERMISSION_WITHDRAWN_KEY]: true }).value);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(controller.showDataPermissionNotice).toHaveBeenCalledWith("email");
+  it("shows the sign-in line when the background signed the account out and the grant is still missing", async () => {
+    const h = harness({ withdrawn: true, granted: false });
+    await settle();
+    expect(h.controller.showEmailPermissionWithdrawn).toHaveBeenCalledOnce();
   });
 
-  it("follows a withdrawal while the page is open, and stops with the page", async () => {
-    const controller = { showDataPermissionNotice: vi.fn() };
-    const store = storage();
-    const stop = watchEmailPermissionNotice(controller, store.value);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(controller.showDataPermissionNotice).not.toHaveBeenCalled();
-    store.fire({ [EMAIL_PERMISSION_WITHDRAWN_KEY]: { newValue: true } }, "sync");
-    expect(controller.showDataPermissionNotice).not.toHaveBeenCalled();
-    store.fire({ [EMAIL_PERMISSION_WITHDRAWN_KEY]: { newValue: true } });
-    expect(controller.showDataPermissionNotice).toHaveBeenCalledWith("email");
-    stop();
-    expect(store.listening).toBe(false);
+  it("does not show it once the permission is granted again (about:addons or Send code)", async () => {
+    const h = harness({ withdrawn: true, granted: true });
+    await settle();
+    expect(h.controller.showEmailPermissionWithdrawn).not.toHaveBeenCalled();
+    expect(h.controller.clearEmailPermissionWithdrawn).toHaveBeenCalled();
+  });
+
+  it("follows a withdrawal while the page is open, and clears when Firefox reports the grant added", async () => {
+    const h = harness({ withdrawn: false, granted: false });
+    await settle();
+    expect(h.controller.showEmailPermissionWithdrawn).not.toHaveBeenCalled();
+    h.setFlag(true);
+    await settle();
+    expect(h.controller.showEmailPermissionWithdrawn).toHaveBeenCalledOnce();
+    h.grant(true);
+    h.add(["technicalAndInteraction"]);
+    await settle();
+    expect(h.controller.clearEmailPermissionWithdrawn).not.toHaveBeenCalled();
+    h.add(["personallyIdentifyingInfo"]);
+    await settle();
+    expect(h.controller.clearEmailPermissionWithdrawn).toHaveBeenCalled();
+    h.stop();
+    expect(h.listening).toBe(false);
   });
 });

@@ -54,7 +54,7 @@ describe("the background", () => {
 
   /** The source with one top-level function's declaration removed. */
   function without(text: string, name: string): string {
-    const start = text.indexOf(`\nfunction ${name}(`);
+    const start = text.search(new RegExp(`\\nfunction ${name}[(<]`));
     expect(start, name).toBeGreaterThan(-1);
     const end = text.indexOf("\n}\n", start);
     return text.slice(0, start) + text.slice(end === -1 ? text.length : end + 3);
@@ -68,8 +68,8 @@ describe("the background", () => {
     }
   });
 
-  it("reads grants only inside the account session, never in start-up, install, settings or blocking wiring", () => {
-    const outsideSession = without(without(source, "createSessionSpine"), "watchFirefoxAccountEmail")
+  it("reads grants only inside the account session and account analytics, never in start-up, install, settings or blocking wiring", () => {
+    const outsideSession = without(without(source, "createSessionSpine"), "firefoxEmailGated")
       .split("\n")
       .filter((line) => !line.startsWith("import "))
       .join("\n");
@@ -80,7 +80,7 @@ describe("the background", () => {
 
   it("guards account requests only in the Firefox build", () => {
     expect(source).toContain("const accountFetch = import.meta.env.FIREFOX");
-    expect(source).toContain("const session = import.meta.env.FIREFOX ? watchFirefoxAccountEmail(");
+    expect(source).toMatch(/const session = import\.meta\.env\.FIREFOX\s*\?\s*watchFirefoxAccountEmail\(/);
   });
 });
 

@@ -217,10 +217,12 @@ export interface BrowserProDeps {
   readonly network?: Pick<Window, "addEventListener" | "removeEventListener">;
   readonly now?: () => number;
   /**
-   * Firefox only (lib/data-permission.ts): the optional permission to read and record the Still
-   * Pro purchase status. Get Still Pro, Try again and Restore purchase ask for it first, inside
-   * their tap; every re-check reads it again and is not made without it; declined, the card says
-   * "Still Pro needs permission to check your purchase." and nothing is sent.
+   * Firefox only (lib/data-permission.ts): the optional permission for purchase data. Get Still Pro
+   * and Try again start a checkout for the account, so they ask for it first, inside their tap;
+   * declined, the card says "Still Pro needs permission to check your purchase." and no checkout
+   * starts. Restore purchase and the page's re-checks only receive the account's Still Pro status,
+   * which sends no purchase data (Mozilla's data types describe what an add-on transmits), so they
+   * never ask or wait on it and Still Pro cannot lock for want of it.
    */
   readonly permission?: DataPermission;
 }
@@ -417,9 +419,6 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (stopped || !run || seen?.userId == null) return null;
     lastRecheckAt = now();
     const ticket = generation;
-    // Firefox: read the grant again before every check; without it nothing is sent.
-    if (deps.permission && !(await deps.permission.granted("purchase").catch(() => false))) return null;
-    if (stopped || ticket !== generation) return null;
     const returning = state.purchase === "waiting";
     let result: AccessRecheck;
     try {
@@ -444,21 +443,12 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   // request. One check at a time; an account change forgets a running or shown result.
   let restoreFlight = false;
   let restoreAwaitingSignIn = false;
-  let restoreAsking = false;
   let restoreFor: string | null = null;
   async function runRestore(userId: string): Promise<void> {
     restoreFlight = true;
     restoreFor = userId;
     const ticket = generation;
     set({ restore: { state: "checking" } });
-    if (deps.permission && !(await deps.permission.granted("purchase").catch(() => false))) {
-      // Withdrawn since the tap: nothing is checked.
-      if (stopped || ticket !== generation) return;
-      restoreFlight = false;
-      set({ restore: { state: "permission" } });
-      return;
-    }
-    if (stopped || ticket !== generation) return;
     track("restore_started", { purchase_origin: "web" });
     const result = await recheck();
     if (stopped || ticket !== generation) return;
@@ -474,28 +464,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     else set({ restore: { state: "failed", onAction: () => requestRestore() } });
   }
   function requestRestore(): void {
-    if (stopped || restoreFlight || restoreAwaitingSignIn || restoreAsking) return;
-    // Firefox: asked inside the tap, before anything is awaited (Firefox prompts only then).
-    const asked = deps.permission?.ask("purchase");
-    if (asked === undefined) {
-      proceedRestore();
-      return;
-    }
-    restoreAsking = true;
-    const ticket = generation;
-    void asked
-      .catch(() => false)
-      .then((granted) => {
-        restoreAsking = false;
-        if (stopped || ticket !== generation) return;
-        if (granted !== true) {
-          set({ restore: { state: "permission" } });
-          return;
-        }
-        proceedRestore();
-      });
-  }
-  function proceedRestore(): void {
+    if (stopped || restoreFlight || restoreAwaitingSignIn) return;
     const userId = seen?.userId ?? null;
     if (userId !== null) {
       void runRestore(userId);
@@ -670,7 +639,14 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         knownNone = false;
         knownOwned = false;
         clearKeepAlive();
-        set({ channel: "unknown", purchase: "idle", renewing: false, offlineNone: false });
+        set({
+          channel: "unknown",
+          purchase: "idle",
+          renewing: false,
+          offlineNone: false,
+          // A declined Get Still Pro belonged to the previous account (or none).
+          ...(state.restore?.state === "permission" ? { restore: undefined } : {}),
+        });
       }
       // A Restore waiting on this sign-in runs its re-check now (shared with the one below).
       observeRestore(previous, next);

@@ -40,8 +40,8 @@
       detail: undefined,
       action: "Verify now",
     },
-    // Firefox: the person declined the permission, so nothing was checked. Not an error; asking
-    // again is the card's own Restore purchase or Get Still Pro.
+    // Firefox: the person declined the permission at Get Still Pro, so no checkout started. Not an
+    // error; asking again is the card's own Get Still Pro.
     permission: {
       tone: "info",
       text: DATA_PERMISSION_COPY.purchase,

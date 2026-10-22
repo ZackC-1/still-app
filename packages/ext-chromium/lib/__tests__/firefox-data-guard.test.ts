@@ -4,12 +4,18 @@ import {
   createAccountEmailWatch,
   dataKindForRequest,
   guardFirefoxDataFetch,
+  requireEmailGrant,
+  watchFirefoxAccountEmail,
   withAccountEmailWatch,
 } from "../firefox-data-guard.js";
+import { EMAIL_GRANT_ACCOUNT_KEY, EMAIL_PERMISSION_WITHDRAWN_KEY } from "../data-permission.js";
 import type { DataPermissionKind } from "@still/core/ui/data-permission";
 
-// The Firefox background's guard: whatever path asks, a request carrying the email address or the
-// Still Pro purchase status leaves only while Firefox lists that permission as granted.
+// The Firefox background's guard: whatever path asks, a request that sends the email address as
+// personal data (a code request, or attaching it to analytics) or sends purchase data (starting a
+// checkout, purchase analytics, an Apple receipt) leaves only while Firefox lists that permission as
+// granted. Requests that only receive the account's Still Pro status send no purchase data and are
+// never held back, so Still Pro cannot lock for want of a grant.
 
 const SUPABASE = "https://project.supabase.co";
 
@@ -19,13 +25,13 @@ describe("which requests carry what", () => {
     ["/auth/v1/otp?redirect_to=x", "email"],
     ["/auth/v1/verify", "email"],
     ["/functions/v1/review-signin", "email"],
-    ["/functions/v1/reconcile-entitlement", "purchase"],
+    // The server attaches the account's email to the analytics person or subject.
+    ["/functions/v1/analytics-identify", "email"],
     ["/functions/v1/create-web-checkout", "purchase"],
-    ["/functions/v1/complete-web-checkout", "purchase"],
-    ["/functions/v1/qa-sandbox-reconcile-entitlement", "purchase"],
     ["/functions/v1/qa-sandbox-create-web-checkout", "purchase"],
     ["/functions/v1/analytics-purchase", "purchase"],
-    ["/rest/v1/entitlements?select=still_sync", "purchase"],
+    ["/functions/v1/verify-apple-access", "purchase"],
+    ["/functions/v1/link-apple-access", "purchase"],
   ] as const)("%s needs %s", (path, kind) => {
     expect(dataKindForRequest(`${SUPABASE}${path}`, SUPABASE)).toBe(kind);
   });
@@ -39,7 +45,12 @@ describe("which requests carry what", () => {
     "/functions/v1/delete-user",
     "/rest/v1/profiles",
     "/rest/v1/rpc/write_settings",
-  ])("%s carries neither (settings sync and the session itself)", (path) => {
+    // Receiving the account's Still Pro status sends no purchase data: never held back.
+    "/functions/v1/reconcile-entitlement",
+    "/functions/v1/qa-sandbox-reconcile-entitlement",
+    "/functions/v1/complete-web-checkout",
+    "/rest/v1/entitlements?select=still_sync",
+  ])("%s sends neither (settings sync, the session, Still Pro status reads)", (path) => {
     expect(dataKindForRequest(`${SUPABASE}${path}`, SUPABASE)).toBeNull();
   });
 
@@ -63,11 +74,27 @@ describe("guardFirefoxDataFetch", () => {
     expect(h.base).not.toHaveBeenCalled();
   });
 
-  it("without the purchase permission, no purchase status is read or recorded", async () => {
-    const h = setup({ email: true });
-    await expect(h.guarded(new Request(`${SUPABASE}/functions/v1/reconcile-entitlement`))).rejects.toBeInstanceOf(TypeError);
-    await expect(h.guarded(new URL(`${SUPABASE}/rest/v1/entitlements`))).rejects.toBeInstanceOf(TypeError);
+  it("without the email permission, analytics-identify never leaves, in either body shape", async () => {
+    const h = setup({ purchase: true });
+    // The account-level identify (body {}) and the per-device subject request.
+    for (const body of ["{}", '{"originProof":"proof","projectKeySha256":"digest"}'])
+      await expect(h.guarded(`${SUPABASE}/functions/v1/analytics-identify`, { method: "POST", body })).rejects.toBeInstanceOf(TypeError);
     expect(h.base).not.toHaveBeenCalled();
+  });
+
+  it("without the purchase permission, no checkout starts and no purchase analytics leave", async () => {
+    const h = setup({ email: true });
+    await expect(h.guarded(new Request(`${SUPABASE}/functions/v1/create-web-checkout`))).rejects.toBeInstanceOf(TypeError);
+    await expect(h.guarded(new URL(`${SUPABASE}/functions/v1/analytics-purchase`))).rejects.toBeInstanceOf(TypeError);
+    expect(h.base).not.toHaveBeenCalled();
+  });
+
+  it("without the purchase permission, Still Pro status is still received (it never locks for want of a grant)", async () => {
+    const h = setup({});
+    await h.guarded(`${SUPABASE}/functions/v1/reconcile-entitlement`);
+    await h.guarded(`${SUPABASE}/rest/v1/entitlements?select=still_sync`);
+    expect(h.base).toHaveBeenCalledTimes(2);
+    expect(h.granted).not.toHaveBeenCalled();
   });
 
   it("with the permission, the request goes out unchanged", async () => {
@@ -81,9 +108,9 @@ describe("guardFirefoxDataFetch", () => {
 
   it("reads the grant again for every request: a withdrawal stops the next one", async () => {
     const h = setup({ purchase: true });
-    await h.guarded(`${SUPABASE}/functions/v1/reconcile-entitlement`);
+    await h.guarded(`${SUPABASE}/functions/v1/create-web-checkout`);
     h.grants.purchase = false;
-    await expect(h.guarded(`${SUPABASE}/functions/v1/reconcile-entitlement`)).rejects.toBeInstanceOf(TypeError);
+    await expect(h.guarded(`${SUPABASE}/functions/v1/create-web-checkout`)).rejects.toBeInstanceOf(TypeError);
     expect(h.granted).toHaveBeenCalledTimes(2);
   });
 
@@ -99,16 +126,22 @@ describe("guardFirefoxDataFetch", () => {
 describe("a withdrawn email permission", () => {
   function setup(options: { userId: string | null; recorded: string | null; granted: boolean }) {
     const values: { account: string | null; withdrawn: true | null } = { account: options.recorded, withdrawn: null };
-    const signOut = vi.fn(async () => "signed-out");
+    let userId = options.userId;
+    const signOut = vi.fn(async () => {
+      userId = null;
+      return "signed-out";
+    });
     let granted = options.granted;
+    const timers: (() => void)[] = [];
     const watch = createAccountEmailWatch({
       granted: async () => granted,
-      currentUserId: async () => options.userId,
+      currentUserId: async () => userId,
       signedInWithGrant: { get: async () => values.account, set: async (v) => void (values.account = v) },
       withdrawn: { get: async () => values.withdrawn, set: async (v) => void (values.withdrawn = v) },
       signOut,
+      retryLater: (run) => void timers.push(run),
     });
-    return { watch, signOut, values, grant: (next: boolean) => void (granted = next) };
+    return { watch, signOut, values, timers, grant: (next: boolean) => void (granted = next) };
   }
 
   it("signs an account that signed in with it out of sync, and flags the line for the pages", async () => {
@@ -141,6 +174,18 @@ describe("a withdrawn email permission", () => {
     expect(h.signOut).toHaveBeenCalledOnce();
   });
 
+  it("a sign-out that fails is retried, never taken as kept", async () => {
+    const h = setup({ userId: "u1", recorded: "u1", granted: false });
+    h.signOut.mockRejectedValueOnce(new Error("storage busy"));
+    expect(await h.watch.check()).toBe("retrying");
+    expect(h.values.withdrawn).toBeNull();
+    expect(h.timers).toHaveLength(1);
+    h.timers.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.signOut).toHaveBeenCalledTimes(2);
+    expect(h.values).toEqual({ account: null, withdrawn: true });
+  });
+
   it("a new sign-in records the account and clears the line", async () => {
     const h = setup({ userId: "u1", recorded: null, granted: true });
     h.values.withdrawn = true;
@@ -158,17 +203,18 @@ describe("the watched session", () => {
       getSyncStatus: vi.fn(async () => (calls.push("getSyncStatus"), null)),
       resume: vi.fn(async () => (calls.push("resume"), "resumed-free" as const)),
       verifyCode: vi.fn(async () => ({ kind: "verified", userId: "u1" }) as const),
-      onNudge: vi.fn(async () => "no-op" as const),
+      onNudge: vi.fn(async () => (calls.push("onNudge"), "no-op" as const)),
     };
     return s as unknown as ExtensionSession & { calls: string[] };
   }
 
-  it("checks before the account reads and the start-up resume; records a verified sign-in", async () => {
+  it("checks before the account reads, the start-up resume and the supported-site nudge; records a verified sign-in", async () => {
     const inner = session();
     const order: string[] = inner.calls;
     const watch = {
       check: vi.fn(async () => (order.push("check"), "kept" as const)),
       signedIn: vi.fn(async () => {}),
+      granted: vi.fn(async () => {}),
     };
     const wrapped = withAccountEmailWatch(inner, watch);
     await wrapped.resume();
@@ -177,8 +223,130 @@ describe("the watched session", () => {
     expect(order).toEqual(["check", "resume", "check", "getState", "check", "getSyncStatus"]);
     await wrapped.verifyCode("me@example.com", "123456");
     expect(watch.signedIn).toHaveBeenCalledWith("u1");
-    // The content-script nudge is untouched: no permission read on that path.
+    // The content-script nudge (a supported site opened) checks too. The content script never
+    // waits for it: the background answers the nudge without a reply.
+    order.length = 0;
     await wrapped.onNudge();
-    expect(watch.check).toHaveBeenCalledTimes(3);
+    expect(order).toEqual(["check", "onNudge"]);
+  });
+});
+
+describe("account analytics on Firefox: the email is attached only with the email grant", () => {
+  it("a legacy signed-in account with usage sharing on and no grant: no identify, no subject", async () => {
+    // Signed in before this change (no recorded grant), usage sharing on, email not granted.
+    let granted = false;
+    const identifyOnServer = vi.fn(async (_signal?: AbortSignal) => {});
+    const issueSubject = vi.fn(async (_body: unknown, _signal: AbortSignal, _account: string) => ({ subject: "s" }));
+    const gatedIdentify = requireEmailGrant(identifyOnServer, async () => granted);
+    const gatedIssue = requireEmailGrant(issueSubject, async () => granted);
+    // Both refuse (the analytics host retries later; nothing is marked as done).
+    await expect(gatedIdentify()).rejects.toThrow();
+    await expect(gatedIssue({ originProof: "p" }, new AbortController().signal, "u1")).rejects.toThrow();
+    expect(identifyOnServer).not.toHaveBeenCalled();
+    expect(issueSubject).not.toHaveBeenCalled();
+    // And the background's fetch refuses the request itself, whoever calls it.
+    const base = vi.fn(async () => new Response("{}"));
+    const guarded = guardFirefoxDataFetch(base as unknown as typeof fetch, { supabaseUrl: SUPABASE, granted: async () => granted });
+    await expect(guarded(`${SUPABASE}/functions/v1/analytics-identify`, { method: "POST", body: "{}" })).rejects.toBeInstanceOf(TypeError);
+    expect(base).not.toHaveBeenCalled();
+    // With the grant (a sign-in on Firefox asked for it), both go through.
+    granted = true;
+    await gatedIdentify();
+    const signal = new AbortController().signal;
+    await gatedIssue({ originProof: "p" }, signal, "u1");
+    expect(identifyOnServer).toHaveBeenCalledOnce();
+    expect(issueSubject).toHaveBeenCalledWith({ originProof: "p" }, signal, "u1");
+  });
+});
+
+describe("the background wiring (watchFirefoxAccountEmail)", () => {
+  function fakeChrome(initial: { granted: string[]; items?: Record<string, unknown> }) {
+    const items: Record<string, unknown> = { ...(initial.items ?? {}) };
+    const held = new Set(initial.granted);
+    let removed: ((p: { data_collection?: string[] }) => void) | null = null;
+    let added: ((p: { data_collection?: string[] }) => void) | null = null;
+    return {
+      items,
+      held,
+      api: {
+        permissions: {
+          getAll: async () => ({ data_collection: [...held] }),
+          onRemoved: { addListener: (l: (p: { data_collection?: string[] }) => void) => void (removed = l) },
+          onAdded: { addListener: (l: (p: { data_collection?: string[] }) => void) => void (added = l) },
+        },
+        storage: {
+          get: async (key: string) => (key in items ? { [key]: items[key] } : {}),
+          set: async (values: Record<string, unknown>) => void Object.assign(items, values),
+          remove: async (key: string) => void delete items[key],
+        },
+      },
+      remove(types: string[]) {
+        for (const type of types) held.delete(type);
+        removed?.({ data_collection: types });
+      },
+      add(types: string[]) {
+        for (const type of types) held.add(type);
+        added?.({ data_collection: types });
+      },
+      get listening() {
+        return removed !== null && added !== null;
+      },
+    };
+  }
+  function innerSession() {
+    let userId: string | null = "u1";
+    const s = {
+      getState: vi.fn(async () => ({ userId, entitled: false, checkoutPending: null, pendingOtp: null })),
+      getSyncStatus: vi.fn(async () => null),
+      resume: vi.fn(async () => "resumed-free" as const),
+      onNudge: vi.fn(async () => "no-op" as const),
+      verifyCode: vi.fn(async () => ({ kind: "verified", userId: "u1" }) as const),
+      signOut: vi.fn(async () => {
+        userId = null;
+        return "signed-out" as const;
+      }),
+    };
+    return { s, currentUserId: async () => userId };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("registers Firefox's permission events and records a sign-in under its storage key", async () => {
+    const chromeLike = fakeChrome({ granted: ["authenticationInfo", "personallyIdentifyingInfo"] });
+    const { s, currentUserId } = innerSession();
+    const session = watchFirefoxAccountEmail(s as unknown as ExtensionSession, currentUserId, chromeLike.api);
+    expect(chromeLike.listening).toBe(true);
+    await session.verifyCode("me@example.com", "123456");
+    expect(chromeLike.items[EMAIL_GRANT_ACCOUNT_KEY]).toBe("u1");
+  });
+
+  it("a withdrawal reported by Firefox signs the account out of sync and flags the line", async () => {
+    const chromeLike = fakeChrome({ granted: ["personallyIdentifyingInfo"], items: { [EMAIL_GRANT_ACCOUNT_KEY]: "u1" } });
+    const { s, currentUserId } = innerSession();
+    watchFirefoxAccountEmail(s as unknown as ExtensionSession, currentUserId, chromeLike.api);
+    chromeLike.remove(["technicalAndInteraction"]);
+    await settle();
+    expect(s.signOut).not.toHaveBeenCalled();
+    chromeLike.remove(["personallyIdentifyingInfo"]);
+    await settle();
+    expect(s.signOut).toHaveBeenCalledOnce();
+    expect(chromeLike.items).toEqual({ [EMAIL_PERMISSION_WITHDRAWN_KEY]: true });
+  });
+
+  it("the account reads run the check (a withdrawal while the background slept)", async () => {
+    const chromeLike = fakeChrome({ granted: [], items: { [EMAIL_GRANT_ACCOUNT_KEY]: "u1" } });
+    const { s, currentUserId } = innerSession();
+    const session = watchFirefoxAccountEmail(s as unknown as ExtensionSession, currentUserId, chromeLike.api);
+    const state = await session.getState();
+    expect(s.signOut).toHaveBeenCalledOnce();
+    expect(state.userId).toBeNull();
+  });
+
+  it("granted again: the withdrawn flag is cleared even before the next sign-in", async () => {
+    const chromeLike = fakeChrome({ granted: [], items: { [EMAIL_PERMISSION_WITHDRAWN_KEY]: true } });
+    const { s, currentUserId } = innerSession();
+    watchFirefoxAccountEmail(s as unknown as ExtensionSession, currentUserId, chromeLike.api);
+    chromeLike.add(["personallyIdentifyingInfo"]);
+    await settle();
+    expect(chromeLike.items[EMAIL_PERMISSION_WITHDRAWN_KEY]).toBeUndefined();
   });
 });
