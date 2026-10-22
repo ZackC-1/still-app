@@ -867,7 +867,7 @@ export function renderPurchasePlan(plan) {
   if (plan.bundles) {
     lines.push(
       `- Routes, in order: ${plan.bundles.functions.map((f) => `\`${f.name}\` (verify_jwt ${f.verifyJwt}) \`${f.sha256.slice(0, 12)}…\``).join(", ")} (${plan.bundles.sources.length} bound source files).`,
-      `- Refuses before any write unless the hosted migration history holds all ${plan.migrations.length} migrations at this commit (last \`${plan.migrations.at(-1)}\`; sync-settings needs \`${SYNC_GUARD_MIGRATION}\`) and these secrets exist: ${plan.requiredSecrets.map((name) => `\`${name}\``).join(", ")}.`,
+      `- Refuses before any write unless the hosted migration history holds all ${plan.migrations.length} migrations at this commit (last \`${plan.migrations.at(-1)}\`${plan.operation === SYNC_OP ? `; sync-settings needs \`${SYNC_GUARD_MIGRATION}\`` : ""}) and these secrets exist: ${plan.requiredSecrets.map((name) => `\`${name}\``).join(", ")}.`,
     );
     if (PURCHASE_OPERATIONS[plan.operation]?.secretNamesOnly) {
       lines.push("- Those secrets are checked by name only. Their values never reach the runner and are never changed; the Management API still sends a digest of each secret over TLS, and the run drops those digests in memory without recording or comparing them. It compares secret names before and after the upload.");

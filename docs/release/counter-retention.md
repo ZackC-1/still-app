@@ -195,6 +195,12 @@ from this runbook correction; the current invocation remains a legacy compatibil
 
 ## Approved deployment sequence
 
+This sequence is historical: it records how migration 0013 and its Edge revisions were deployed
+with the Supabase CLI. Production Edge Functions are now deployed only through the protected
+**Supabase production deploy** operations: `reconcile-entitlement` and `create-web-checkout`
+through `purchase-functions`, `delete-user` through `analytics-subjects-functions`, and
+`review-signin` through `review-signin-function` ([procedure](purchase-routes-and-secrets.md)).
+
 1. Obtain explicit approval for enabling cron if needed, the migration's one-time legacy purge,
    Edge deployment and later privacy publication. Record target and exact reviewed commit.
 2. Apply only approved migration 0013 using the established migration runner (`supabase db push`

@@ -34,9 +34,9 @@ Each function step refuses before any write unless:
   `review-signin` deployment. This check is by name only. The Management API's secret list carries
   each name and a digest of its value (sent to the runner over TLS); the operation keeps the names,
   drops the digests in memory without recording or comparing them, and compares secret names before
-  and after the upload. It never sees a value. A missing name stops the run with `missing_secret:<NAME>`. The
-  `REVIEW_SIGNIN_*` values are set on the project outside these operations, and no operation here
-  can write them.
+  and after the upload. It never sees a value. A missing name stops the run with
+  `missing_secret:<NAME>`. No operation here can write the `REVIEW_SIGNIN_*` values; see
+  [Review sign-in secrets](#review-sign-in-secrets).
 
 Apply the reviewed production purchase secrets before deploying purchase functions. The gate checks
 presence; a complete offline runtime-configuration check and provider read-back remain required
@@ -115,9 +115,33 @@ The unused RevenueCat Web Billing checkout URL is no longer staged. Existing hos
 preserved; this operation never deletes an unrelated secret. The existing RevenueCat webhook
 portal settings remain unchanged.
 
+## Review sign-in secrets
+
+The owner sets and replaces `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase
+dashboard: the production project, **Edge Functions**, **Secrets**, then add or edit the secret by
+name and paste the value from the private App Review record. Never type or paste a value into a
+terminal, a file in this repository, a chat, an issue or a workflow input. Then check the reviewer
+sign-in (runbook V20): the approved address with the new code signs in, and a wrong code or an
+unrelated address is refused. Supabase documents that a changed secret is read on the next request
+without a redeploy. If the old code still works, stop and ask engineering: `review-signin-function`
+leaves a route already at the planned source alone, so it cannot force a redeploy of the same commit.
+
+While `REVIEW_SIGNIN_EMAIL` or `REVIEW_SIGNIN_CODE` is unset (for example after the reviewer path is
+retired), `review-signin-function` refuses with `missing_secret:<NAME>`, so a fix to `review-signin`
+cannot be deployed through the operation until both are set again. With either unset, the deployed
+route refuses every review sign-in.
+
+The earlier way, `supabase secrets set` with a private env file followed by a Supabase CLI deploy, is
+historical and is no longer used for production.
+
 ## Before the first run
 
-1. Merge the release commit to `main` and note it. Every run below uses that one commit.
+1. Merge the release commit to `main` and note it. Every run below uses that one commit. The plan
+   binds that commit to the current bytes on `main` of the purchase tooling files
+   (`purchase-operations.mjs`, `qa-function-bundles.mjs`, `deploy.mjs` and the production deploy
+   workflow, among others). After any merge that changes one of them, note a new release commit at or
+   after that merge and plan again. An apply still waiting for approval across such a merge stops at
+   the freshness check before writing anything; plan it again from the new commit.
 2. Confirm the hosted migration tail with DB-01 (read-only, no approval):
    `gh workflow run supabase-readonly-checks.yml --ref main -f check=DB-01 -f account=none -f account_b=none`
    ([read-only checks](qa-readonly-database-checks.md)). The tail must include `0024` and every

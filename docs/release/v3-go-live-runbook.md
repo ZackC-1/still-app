@@ -259,6 +259,11 @@ listed).
   applied, and checks that `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and
   `ENTITLEMENT_WRITER_DB_URL` are set, by name only. It never sets, rotates or sees those values; the
   digests the Management API sends with the secret list are dropped in memory, not recorded or compared.
+- Setting and rotating: the owner sets `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase
+  dashboard (production project, **Edge Functions**, **Secrets**, by name), never echoing a value
+  anywhere ([details](purchase-routes-and-secrets.md#review-sign-in-secrets)).
+- Once those secrets are unset, a fix to `review-signin` cannot be deployed through the operation
+  until they are set again: it refuses with `missing_secret:<NAME>`.
 - V20: `review-signin` and its `REVIEW_SIGNIN_*` secrets match the private App Review fields and the
   Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it. After the
   operation, its closing record lists `review-signin` as `deployed` or `unchanged`, and a request of
@@ -416,7 +421,7 @@ Active; tax forms: Active; bank account: Active. Nothing expiring. State: Owner 
   **$9.99** (Apple retired numbered tiers in 2023; this is the old Tier 10 price point), **Next**,
   keep Apple's equalized prices for other regions, **Next**, **Confirm**.
 - c. **App Store Localization**, **+**: English (U.S.); Display Name `Still Pro`; Description (55
-  characters at most, owner-approved; draft: `Twelve extra controls. One-time purchase.`); **Add**.
+  characters at most, owner-approved; draft: `Fewer distractions. One-time purchase.`); **Add**.
 - d. **Review Information**: Screenshot, upload the Get Still Pro screen from the 3.0 build. Review
   Notes: `One-time, non-consumable purchase. Open Still and tap Get Still Pro. Sign-in is offered
   first and can be skipped with "Buy without an account". Restore purchase works without signing in.`

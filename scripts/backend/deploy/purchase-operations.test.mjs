@@ -775,7 +775,10 @@ test("plan and closing records name routes, secret names and fixed codes only", 
   const functions = renderPurchasePlan((await plan(t, root, head)).plan);
   for (const name of PURCHASE_FUNCTIONS.map((f) => f.name)) assert.ok(functions.includes(`\`${name}\``), name);
   assert.ok(!functions.includes(REF), "the project ref is bound, not printed");
-  assert.match(functions, /sync-settings needs `0024`/);
+  // The released-app settings guard is named only on the sync-settings plan.
+  assert.doesNotMatch(functions, /sync-settings needs/);
+  assert.match(renderPurchasePlan((await plan(t, root, head, { operation: SYNC_OP })).plan), /sync-settings needs `0024`/);
+  assert.doesNotMatch(renderPurchasePlan((await plan(t, root, head, { operation: REVIEW_OP })).plan), /sync-settings needs/);
   const secrets = renderPurchasePlan((await plan(t, root, head, { operation: SECRETS_OP, mode: "rotate" })).plan);
   assert.match(secrets, /ACCESS_PROOF_ENVIRONMENT=production/);
   assert.match(secrets, /STRIPE_SECRET_API_KEY/);
