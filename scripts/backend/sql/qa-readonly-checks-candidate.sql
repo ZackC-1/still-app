@@ -2,6 +2,9 @@
 -- Owner review and an explicit install decision are required (docs/release/qa-readonly-database-checks.md).
 -- It is deliberately not in supabase/migrations: a numbered file on main that hosted history lacks
 -- would block the fixed qa-sandbox-functions operation, and it would move the QA baseline (DB-01).
+-- Views added after this candidate was installed arrive as reviewed numbered migrations through the
+-- protected migration operation instead (0025: still_qa_checks.production_sales_summary for
+-- PROD-01). Re-running this file keeps their SELECT grant: it grants each one that exists.
 --
 -- What it creates (nothing else changes; no existing row, role, grant or policy is altered):
 --   role   still_qa_readonly_checker  NOLOGIN until the owner sets a password; no membership,
@@ -283,17 +286,27 @@ grant select on still_qa_checks.account_status, still_qa_checks.qa_subjects, sti
   still_qa_checks.rights_summary, still_qa_checks.isolation_summary, still_qa_checks.retention_summary,
   still_qa_checks.privacy_summary, still_qa_checks.erasure_jobs_last_hour
   to still_qa_readonly_checker;
+-- Views installed by numbered migrations (0025). Not created here; granted only when present.
+do $$
+begin
+  if pg_catalog.to_regclass('still_qa_checks.production_sales_summary') is not null then
+    execute 'grant select on still_qa_checks.production_sales_summary to still_qa_readonly_checker';
+  end if;
+end;
+$$;
 
--- End-state check: the role's own grants are exactly SELECT on these views, and it can neither
--- write nor directly read any Still, Auth, Storage or migration relation. (Platform grants to
--- PUBLIC, such as pg_cron's row-filtered job tables, apply to every role and are out of scope.)
+-- End-state check: the role's own grants are exactly SELECT on these views (plus each migration
+-- view that exists), and it can neither write nor directly read any Still, Auth, Storage or
+-- migration relation. (Platform grants to PUBLIC, such as pg_cron's row-filtered job tables, apply
+-- to every role and are out of scope.)
 do $$
 declare
   checker oid := (select oid from pg_catalog.pg_roles where rolname = 'still_qa_readonly_checker');
+  migration_views integer := (case when pg_catalog.to_regclass('still_qa_checks.production_sales_summary') is null then 0 else 1 end);
 begin
   if (select pg_catalog.count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace,
         lateral pg_catalog.aclexplode(c.relacl) a
-      where a.grantee = checker) <> 25
+      where a.grantee = checker) <> 25 + migration_views
      or exists (select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace,
         lateral pg_catalog.aclexplode(c.relacl) a
       where a.grantee = checker and (n.nspname <> 'still_qa_checks' or c.relkind <> 'v'

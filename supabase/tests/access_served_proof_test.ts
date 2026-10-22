@@ -9,7 +9,7 @@ const publicHex =
   "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 Deno.test("served proof check accepts the actual issuer and refuses casing, signature and identity drift", async () => {
   const signer = (await createAccessSigner({
-    environment: "sandbox",
+    environment: "production",
     kid: "synthetic-access",
     publicKeyHex: publicHex,
     privateKeyPkcs8Base64: btoa(

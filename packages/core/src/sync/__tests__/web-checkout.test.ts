@@ -14,18 +14,19 @@ function portWith(result: { data?: unknown; error?: unknown }) {
     Promise.resolve({ data: result.data ?? null, error: result.error ?? null }),
   );
   const client = { functions: { invoke } } as unknown as SupabaseClient;
-  return { port: new SupabaseBackendPort(client), invoke };
+  return { port: new SupabaseBackendPort(client, { checkoutAdmission: { surface: "chrome_desktop", build: "3.0.0.1" } }), invoke };
 }
 
 describe("SupabaseBackendPort.createWebCheckout (plan U4)", () => {
-  it("200 with an https checkout_url → checkout-url, with a client-side timeout signal (F5)", async () => {
-    const url = "https://pay.rev.cat/token/user-uuid";
-    const { port, invoke } = portWith({ data: { checkout_url: url } });
-    await expect(port.createWebCheckout()).resolves.toEqual({ kind: "checkout-url", url });
+  it("200 with a bound live checkout returns its durable operation and a deadline", async () => {
+    const url = "https://checkout.stripe.com/c/pay/cs_live_synthetic";
+    const operationId = "11111111-1111-4111-8111-111111111111";
+    const { port, invoke } = portWith({ data: { checkout_url: url, operation_id: operationId, status: "session_bound" } });
+    await expect(port.createWebCheckout()).resolves.toEqual({ kind: "checkout-url", url, operationId });
     // The invoke carries a body AND an AbortSignal deadline so a hung fetch can't strand the popup.
     expect(invoke).toHaveBeenCalledWith(
       "create-web-checkout",
-      expect.objectContaining({ body: {}, signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ body: { access_schema: 1, surface: "chrome_desktop", build: "3.0.0.1" }, signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -166,7 +167,7 @@ describe("fixed QA checkout transport", () => {
     }
     const { port, invoke } = portWith({ data: success() });
     expect(await port.completeWebCheckout(operationId)).toEqual({ kind: "unavailable" });
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("complete-web-checkout",expect.objectContaining({ body: { access_schema: 1, surface: "chrome_desktop", build: "3.0.0.1", operation_id: operationId } }));
   });
   it("routes QA reconcile and settings through the same namespace without reading live entitlements", async () => {
     const { port, invoke, client } = qa({ data: null });
@@ -176,5 +177,79 @@ describe("fixed QA checkout transport", () => {
     expect(invoke).toHaveBeenLastCalledWith("qa-sandbox-sync-settings", expect.objectContaining({ body: { protocol: 2, action: "read" } }));
     expect(await port.readEntitlement()).toBe("unknown");
     expect(client.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("production Managed Payments transport", () => {
+  const operationId = "11111111-1111-4111-8111-111111111111";
+  const url = "https://checkout.stripe.com/c/pay/cs_live_synthetic";
+  const admission = { surface: "chrome_desktop" as const, build: "3.0.0.1" };
+  it("requires valid compiled release metadata before create or complete", async () => {
+    const invoke = vi.fn();
+    const client = { functions: { invoke } } as unknown as SupabaseClient;
+    for (const checkoutAdmission of [undefined, { ...admission,build: "../other" }, { ...admission,surface: "safari_ios" }]) {
+      const port = new SupabaseBackendPort(client,{ checkoutAdmission: checkoutAdmission as typeof admission | undefined });
+      expect(await port.createWebCheckout()).toEqual({ kind: "unavailable" });
+      expect(await port.completeWebCheckout(operationId)).toEqual({ kind: "unavailable" });
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+  it("freezes admission and binds create/recovery/completion to the same operation", async () => {
+    const metadata = { ...admission };
+    const invoke = vi.fn().mockResolvedValue({ data: { operation_id:operationId,status:"session_bound",checkout_url:url } });
+    const port = new SupabaseBackendPort({ functions: { invoke } } as unknown as SupabaseClient,{ checkoutAdmission: metadata });
+    metadata.build = "other";
+    expect(await port.createWebCheckout(operationId)).toEqual({ kind:"checkout-url",url,operationId });
+    expect(invoke).toHaveBeenLastCalledWith("create-web-checkout",expect.objectContaining({ body: { access_schema:1,...admission,operation_id:operationId } }));
+    invoke.mockResolvedValue({ data: { operation_id:operationId,status:"import_pending" } });
+    expect(await port.completeWebCheckout(operationId)).toEqual({ kind:"observed",operationId,terminal:false });
+    expect(invoke).toHaveBeenLastCalledWith("complete-web-checkout",expect.objectContaining({ body: { access_schema:1,...admission,operation_id:operationId } }));
+  });
+  it("rejects test, legacy and lookalike URLs even with a valid operation", async () => {
+    for (const checkout_url of ["https://checkout.stripe.com/c/pay/cs_test_synthetic", "https://pay.rev.cat/legacy",
+      "https://checkout.stripe.com.evil.test/c/pay/cs_live_fake", url+"?redirect=other", "http://checkout.stripe.com/c/pay/cs_live_fake"]) {
+      const { port } = portWith({ data: { operation_id:operationId,status:"session_bound",checkout_url } });
+      expect(await port.createWebCheckout()).toEqual({ kind:"unavailable" });
+    }
+  });
+  it("waits for browser platform metadata without holding free settings reads", async () => {
+    let resolve!: (value: typeof admission | null) => void;
+    const checkoutAdmission = new Promise<typeof admission | null>(done => { resolve = done; });
+    const invoke = vi.fn().mockResolvedValue({ data:{ operation_id:operationId,status:"session_bound",checkout_url:url } });
+    const from = vi.fn(() => ({ select: () => ({ maybeSingle: async () => ({ data:null,error:null }) }) }));
+    const port = new SupabaseBackendPort({ functions:{ invoke },from } as unknown as SupabaseClient,{ checkoutAdmission });
+    const purchase = port.createWebCheckout();
+    expect(await port.readProfile()).toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
+    resolve(admission);
+    expect(await purchase).toEqual({ kind:"checkout-url",url,operationId });
+    const held = new SupabaseBackendPort({ functions:{ invoke } } as unknown as SupabaseClient,
+      { checkoutAdmission: Promise.reject(new Error("platform unavailable")) });
+    expect(await held.createWebCheckout()).toEqual({ kind:"unavailable" });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+  it("retains uncertain paid/imported operations without treating their text as proof", async () => {
+    for (const status of ["paid_verified","import_pending","imported","recovery_required"]) {
+      const { port } = portWith({ data: { operation_id:operationId,status,access:{ still_sync:true } } });
+      expect(await port.createWebCheckout()).toEqual({ kind:"unavailable",operationId });
+      expect(await port.completeWebCheckout(operationId)).toEqual({ kind:"observed",operationId,terminal:false });
+    }
+  });
+  it("does not change production free-sync storage or realtime selection", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data:null,error:null });
+    const from = vi.fn(() => ({ select: () => ({ maybeSingle }) }));
+    const unsubscribe = vi.fn();
+    const channel = vi.fn(() => ({ on: () => ({ subscribe: () => ({ unsubscribe }) }) }));
+    const invoke = vi.fn().mockResolvedValue({ data:null,error:null });
+    const client = { from,channel,functions:{ invoke } } as unknown as SupabaseClient;
+    const port = new SupabaseBackendPort(client,{ modernSettings:true,checkoutAdmission:admission });
+    expect(port.managedCheckout).toBe(true);
+    expect(await port.readProfile()).toBeNull();
+    expect(from).toHaveBeenCalledWith("profiles");
+    await expect(port.readCanonicalSettings()).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledWith("sync-settings",expect.objectContaining({ body:{ protocol:2,action:"read" } }));
+    port.subscribeToSettingsChanges(operationId,() => {})();
+    expect(channel).toHaveBeenCalledWith(`profile-settings:${operationId}`);
+    expect(unsubscribe).toHaveBeenCalled();
   });
 });

@@ -52,13 +52,14 @@ export interface AccessSigner {
   signAppleBinding?(binding: AppleRightBinding): Promise<string>;
 }
 
-export interface AppleRightBinding {
-  readonly schema: 1; readonly environment: AccessEnvironment; readonly appBundleId: string;
+export type AppleRightBinding = {
+  readonly environment: AccessEnvironment; readonly appBundleId: string;
   readonly productId: "still_pro_v3"; readonly originalTransactionId: string; readonly right: string;
   readonly ownershipRevision: number; readonly verifiedAt: number; readonly expiresAt: number;
-}
+} & ({ readonly schema: 1 } | { readonly schema: 2; readonly transactionEnvironment: "sandbox" });
 export function canonicalAppleRightBinding(binding: AppleRightBinding): string {
-  return JSON.stringify({ schema: binding.schema, environment: binding.environment, appBundleId: binding.appBundleId,
+  return JSON.stringify({ schema: binding.schema, environment: binding.environment,
+    ...(binding.schema === 2 ? { transactionEnvironment: binding.transactionEnvironment } : {}), appBundleId: binding.appBundleId,
     productId: binding.productId, originalTransactionId: binding.originalTransactionId, right: binding.right,
     ownershipRevision: binding.ownershipRevision, verifiedAt: binding.verifiedAt, expiresAt: binding.expiresAt });
 }
@@ -100,13 +101,15 @@ export async function createAccessSigner(config: {
           alg: "ed25519", signature: encodeAccessBase64(new Uint8Array(signature)) });
       },
       async signAppleBinding(binding) {
-        if (binding.schema !== 1 || binding.environment !== environment || !UUID.test(binding.right) ||
+        if ((binding.schema !== 1 && binding.schema !== 2) ||
+          (binding.schema === 2 && (environment !== "production" || binding.transactionEnvironment !== "sandbox")) ||
+          binding.environment !== environment || !UUID.test(binding.right) ||
           !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(binding.appBundleId) || binding.appBundleId.length > 160 ||
           binding.productId !== "still_pro_v3" || !/^[1-9][0-9]{0,39}$/.test(binding.originalTransactionId) ||
           !safe(binding.ownershipRevision) || !safe(binding.verifiedAt) || !safe(binding.expiresAt) ||
           binding.expiresAt !== binding.verifiedAt + PAID_ACCESS_WINDOW_MS) throw new Error("Invalid Apple binding");
         const payload = canonicalAppleRightBinding(binding);
-        const bytes = new TextEncoder().encode("still-apple-right-binding-v1\n" + payload);
+        const bytes = new TextEncoder().encode(`still-apple-right-binding-v${binding.schema}\n` + payload);
         const signature = await crypto.subtle.sign("Ed25519", privateKey, bytes);
         return JSON.stringify({ payload: encodeAccessBase64(new TextEncoder().encode(payload)), kid,
           alg: "ed25519", signature: encodeAccessBase64(new Uint8Array(signature)) });

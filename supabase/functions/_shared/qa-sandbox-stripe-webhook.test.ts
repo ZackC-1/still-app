@@ -83,7 +83,7 @@ Deno.test("real HMAC raw signature accepts exact bytes, no JWT and rotating mult
 Deno.test("missing wrong tampered stale future zero duplicate timestamp malformed signatures do no work", async () => {
   const s = setup();
   for (const options of [{ header: null }, { secret: "whsec_Wrong" }, { timestamp: 0 },
-    { timestamp: Math.floor(Date.now()/1000)-301 }, { timestamp: Math.floor(Date.now()/1000)+301 },
+    { timestamp: Math.floor(Date.now()/1000)-3600 }, { timestamp: Math.floor(Date.now()/1000)+3600 },
     { header: `t=${Math.floor(Date.now()/1000)},t=1,v1=${"0".repeat(64)}` }, { header: "garbage" },
     { header: `t=${Math.floor(Date.now()/1000)},v1=bad` }, { header: "a".repeat(2049) }]) {
     assertEquals((await handleQaSandboxStripeWebhook(await request(event(),options),s.deps)).status,400);

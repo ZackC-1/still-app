@@ -8,7 +8,7 @@ describe("compiled backend route profile", () => {
     expect(backendRoutes("production")).toEqual({
       policy: "product-policy", settings: "sync-settings", reconcile: "reconcile-entitlement",
       verifyApple: "verify-apple-access", linkApple: "link-apple-access",
-      createCheckout: "create-web-checkout", completeCheckout: null,
+      createCheckout: "create-web-checkout", completeCheckout: "complete-web-checkout",
     });
   });
   it("resolves the complete immutable seven-route QA namespace", () => {
