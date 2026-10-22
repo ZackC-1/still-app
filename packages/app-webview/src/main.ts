@@ -138,11 +138,12 @@ let applePurchaseAuthority: {
   refreshAccountAccess: NonNullable<AppleProHostDeps["refreshAccountAccess"]>;
   verifyLocalPurchase: AppleProHostDeps["verifyLocalPurchase"];
   readLinkEligibility: AppleProHostDeps["readLinkEligibility"];
+  readAccountHeldPro: NonNullable<AppleProHostDeps["readAccountHeldPro"]>;
   ownershipRevision: AppleProHostDeps["ownershipRevision"];
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "readAccountHeldPro" | "ownershipRevision" | "linkPurchase"
   | "heldElsewhereMemory" | "purchaseAnalytics"> | undefined;
 /** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
 const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
@@ -342,6 +343,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
       verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,
+      readAccountHeldPro: applePurchaseAuthority.readAccountHeldPro,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,
       linkPurchase: intent => session.linkPurchase(intent),
       heldElsewhereMemory: {

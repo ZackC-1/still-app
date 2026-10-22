@@ -370,3 +370,57 @@ describe("revoked session in the production SDK order", () => {
     expect(endSession).not.toHaveBeenCalled();
   });
 });
+
+// ISS-0105: positive provenance for the "Still Pro User" tag. Only the account's own verified
+// paid_account proof in native's committed record counts; device-only proof or any doubt is false.
+describe("readAccountHeldPro (display only)", () => {
+  const ACCOUNT = vectors.account as string;
+  async function proofs() {
+    const sign = async (c: AccessClaims) => {
+      const payload = canonicalAccessClaims(c);
+      return JSON.stringify({payload: encodeAccessBase64(new TextEncoder().encode(payload)), kid: "synthetic-access", alg: "ed25519",
+        signature: encodeAccessBase64(await ed.signAsync(accessSigningBytes(payload), new Uint8Array(32).fill(7)))});
+    };
+    return { account: await sign({...claims, kind: "paid_account", holder: ACCOUNT}), local: localText,
+      otherHolder: await sign({...claims, kind: "paid_account", holder: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"}) };
+  }
+  const clock = (overrides: Partial<{ revoked: boolean; expired: boolean; paused: boolean }> = {}) => ({
+    proofIdentity: "x", verifiedAt: claims.verified_at, expiresAt: claims.expires_at!, issuerTimeAtReceipt: claims.verified_at,
+    wallAtReceipt: 1, highWater: claims.verified_at, lastWall: 1, expired: false, revoked: false, paused: false, ...overrides,
+  });
+  async function read(record: unknown, account = ACCOUNT) {
+    const h = await setup();
+    const bridge = { ...h.bridge, observeAccess: vi.fn(async () => record as never) };
+    return createApplePurchaseAuthority({ ...h.deps, bridge }).readAccountHeldPro(account);
+  }
+  const record = (rights: unknown[], extra: Record<string, unknown> = {}) =>
+    ({ schema: 1, accountId: ACCOUNT, generation: 4, rights, revocations: [], ...extra });
+
+  it("is true for the account's own verified proof in its current generation", async () => {
+    const p = await proofs();
+    expect(await read(record([{ envelope: p.account, clock: clock(), accountGeneration: 4 }]))).toBe(true);
+  });
+
+  it("is false for a device-only (paid_apple_local) proof", async () => {
+    const p = await proofs();
+    expect(await read(record([{ envelope: p.local, clock: clock(), accountGeneration: null }]))).toBe(false);
+  });
+
+  it.each([
+    ["another holder's proof", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.otherHolder, clock: clock(), accountGeneration: 4 }])],
+    ["a record scoped to another account", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.account, clock: clock(), accountGeneration: 4 }], { accountId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" })],
+    ["an earlier session generation", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.account, clock: clock(), accountGeneration: 3 }])],
+    ["a revoked clock", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.account, clock: clock({ revoked: true }), accountGeneration: 4 }])],
+    ["an expired clock", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.account, clock: clock({ expired: true }), accountGeneration: 4 }])],
+    ["a revoked right", async (p: Awaited<ReturnType<typeof proofs>>) => record([{ envelope: p.account, clock: clock(), accountGeneration: 4 }], { revocations: [{ right: claims.right, revision: claims.ownership_revision }] })],
+  ])("is false for %s", async (_name, make) => {
+    expect(await read(await make(await proofs()))).toBe(false);
+  });
+
+  it("is false when native cannot answer or the bridge has no record read", async () => {
+    const h = await setup();
+    const failing = { ...h.bridge, observeAccess: vi.fn(async () => { throw new Error("unavailable"); }) };
+    expect(await createApplePurchaseAuthority({ ...h.deps, bridge: failing }).readAccountHeldPro(ACCOUNT)).toBe(false);
+    expect(await h.authority.readAccountHeldPro(ACCOUNT)).toBe(false);
+  });
+});

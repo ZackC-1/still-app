@@ -60,6 +60,7 @@
       | "verifyLocalPurchase"
       | "ownershipRevision"
       | "readLinkEligibility"
+      | "readAccountHeldPro"
       | "linkPurchase"
     >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
