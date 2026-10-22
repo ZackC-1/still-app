@@ -127,6 +127,20 @@ describe("root cause: the 2.x wrapper supplies no permission or policy, so nothi
 });
 
 describe("V3 Chrome: on by default, with the switch as the one control", () => {
+  it("delivers offer and purchase actions through the actual V3 wrapper, then stops after withdrawal", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    await install(t);
+    await t.send({ action: "track", name: "paywall_viewed", props: { trigger: "settings_card", where: "options" } });
+    await t.send({ action: "track", name: "purchase_started", props: { purchase_origin: "web", product: "still-pro-v3" } });
+    await t.bg.flushWhenReady();
+    expect(t.sent()).toEqual(expect.arrayContaining(["paywall_viewed", "purchase_started"]));
+    await t.send({ action: "setSharing", enabled: false });
+    t.fetch.mockClear();
+    await t.send({ action: "track", name: "purchase_started", props: { purchase_origin: "web", product: "still-pro-v3" } });
+    await t.bg.flushWhenReady();
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
   it.each([0, 10])("reports from install with %i ms storage reads, even when the start's account answer lands right after onInstalled, and asks for no notice", async (readDelayMs) => {
     const t = setup(createDefaultOnBackgroundAnalytics, { local: memory({}, readDelayMs) });
     await install(t);

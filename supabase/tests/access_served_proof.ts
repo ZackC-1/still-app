@@ -36,7 +36,7 @@ export async function verifyServedAccessProof(
   const claims: unknown = JSON.parse(payload);
   assert(
     plain(claims) &&
-      claims.environment === "sandbox" &&
+      claims.environment === "production" &&
       claims.kind === kind &&
       claims.holder === holder,
   );

@@ -110,7 +110,7 @@
         import("./InformationalProSettings.svelte").then((module) => {
           // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
           // Restore and re-checks over this page's controller and the existing checkout seam.
-          module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout } : undefined);
+          module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout, analytics } : undefined);
           return module;
         })
     : v3Settings

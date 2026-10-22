@@ -898,7 +898,7 @@
         disabled={!settingsHost.help.onSupport}
         onclick={settingsHost.help.onSupport}>Contact support</button
       >
-      <p class="muted syncrow-sub">{SUPPORT_EMAIL}</p>
+      <p class="muted syncrow-sub support-address">{SUPPORT_EMAIL}</p>
       <button
         type="button"
         class="link"
@@ -1123,6 +1123,11 @@
   .syncrow-sub {
     font-size: 13.5px;
     color: var(--ink-secondary);
+  }
+  /* ISS-0112: the support address is one selectable unit (see v3/design/tokens/components.css). */
+  .support-address {
+    -webkit-user-select: all;
+    user-select: all;
   }
   .muted {
     color: var(--ink-secondary);

@@ -1016,7 +1016,7 @@ describe("D04 host", () => {
     await renderHost(f);
     expect(
       await screen.findByText(
-        "Free. Keep your settings the same across every supported device and browser.",
+        "Sync settings across devices and browsers. Free.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/without an account/)).toBeNull();

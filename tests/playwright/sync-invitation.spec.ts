@@ -92,7 +92,7 @@ test.describe("V3 build with sign-in", () => {
     const later = await openPopup(context, extensionId);
     const card = later.getByRole("region", { name: CARD });
     await expect(card).toBeVisible();
-    await expect(card.getByText("Free. Keep your settings the same across every supported device and browser.")).toBeVisible();
+    await expect(card.getByText("Sync settings across devices and browsers. Free.")).toBeVisible();
     // Consumed the moment it became visible, before anyone chose anything.
     expect(await ledger(context)).toMatchObject({ sync: "consumed", shown: 1, reservation: null });
     await card.getByRole("button", { name: "Not now" }).click();

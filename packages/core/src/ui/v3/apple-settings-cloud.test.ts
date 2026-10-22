@@ -193,7 +193,7 @@ async function composeCloud(options: { modernSettings: boolean; start?: "upgrade
   };
 }
 
-const SYNC_LINE = "Free. Keep your settings the same across every supported device and browser.";
+const SYNC_LINE = "Sync settings across devices and browsers. Free.";
 
 async function renderHost(f: Awaited<ReturnType<typeof composeCloud>>, platform?: "ios" | "mac") {
   const Host = await loadHost();

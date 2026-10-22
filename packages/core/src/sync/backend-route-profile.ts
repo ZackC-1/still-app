@@ -20,7 +20,7 @@ export interface BackendRoutes {
 const PRODUCTION: BackendRoutes = Object.freeze({
   policy: "product-policy", settings: "sync-settings", reconcile: "reconcile-entitlement",
   verifyApple: "verify-apple-access", linkApple: "link-apple-access",
-  createCheckout: "create-web-checkout", completeCheckout: null,
+  createCheckout: "create-web-checkout", completeCheckout: "complete-web-checkout",
 });
 const SANDBOX: BackendRoutes = Object.freeze({
   policy: "qa-sandbox-product-policy", settings: "qa-sandbox-sync-settings",

@@ -59,6 +59,10 @@ const secretsOperation = () => import("./qa-secrets-operation.mjs");
 const ANALYTICS_KIND = "supabase-analytics-subjects";
 const isAnalyticsName = (operation) => /^analytics-/.test(operation);
 const analyticsOperations = () => import("./analytics-subjects.mjs");
+/** Plan kind of the three purchase operations (purchase-operations.mjs, loaded on demand). */
+const PURCHASE_KIND = "supabase-purchase-operations";
+const isPurchaseName = (operation) => /^purchase-/.test(operation);
+const purchaseOperations = () => import("./purchase-operations.mjs");
 /** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
 const operations = () => import("./operations.mjs");
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
@@ -520,6 +524,8 @@ export function boundFiles(plan) {
   if (plan?.kind === "supabase-exact-qa-functions") return plan.files;
   // The analytics operations bind their tooling, pinned SQL and bundled sources in one list.
   if (plan?.kind === ANALYTICS_KIND) return plan.files;
+  // The purchase operations bind their tooling and bundled sources in one list.
+  if (plan?.kind === PURCHASE_KIND) return plan.files;
   // The secrets operation binds its pinned SQL, role facts and its tooling.
   if (plan?.kind === SECRETS_KIND) return [...plan.files, ...plan.tooling];
   // An operation's apply uses only the deploy tooling and its own SQL and check.
@@ -573,7 +579,10 @@ export async function checkFreshness({ git, plan, tipRef }) {
     }
   }
   // An operation adds nothing to migration history, so newer migrations on main do not matter.
-  if (isOperation(plan) || plan.kind === SECRETS_KIND || plan.kind === ANALYTICS_KIND)
+  if (
+    isOperation(plan) || plan.kind === SECRETS_KIND || plan.kind === ANALYTICS_KIND ||
+    plan.kind === PURCHASE_KIND
+  )
     return { tip, mode: "files-identical" };
   if (plan.kind === "supabase-exact-qa-functions") {
     const history = (await migrationsAt(git, tip)).map(({ version, name }) => ({ version, name }));
@@ -1887,9 +1896,10 @@ export async function main(
       throw new Refusal("mode-invalid", "baseline-only is reserved for the fixed QA function operation");
     if (
       ["rotate", "disable"].includes(env.DEPLOY_MODE) && operation !== SECRETS_OPERATION &&
-      !(env.DEPLOY_MODE === "rotate" && operation === "analytics-subjects-secrets")
+      !(env.DEPLOY_MODE === "rotate" &&
+        ["analytics-subjects-secrets", "purchase-secrets"].includes(operation))
     )
-      throw new Refusal("mode-invalid", "rotate and disable are modes of qa-sandbox-secrets (and rotate of analytics-subjects-secrets) only");
+      throw new Refusal("mode-invalid", "rotate and disable are modes of qa-sandbox-secrets (and rotate of analytics-subjects-secrets and purchase-secrets) only");
     if (operation === SECRETS_OPERATION && String(env.DEPLOY_BASELINE_SHA256 ?? "").trim() !== "")
       throw new Refusal("operation-input-invalid", "qa-sandbox-secrets takes no baseline_sha256");
     const request = {
@@ -1899,6 +1909,24 @@ export async function main(
       functions: env.DEPLOY_FUNCTIONS,
       mainRef: option(args, "--main-ref") ?? "HEAD",
     };
+    if (isPurchaseName(operation)) {
+      const purchase = await purchaseOperations();
+      if (!purchase.isPurchaseOperation(operation))
+        throw new Refusal("operation-unknown", "Unknown purchase operation");
+      const plan = await purchase.createPurchasePlan({ ...request, cwd, exec, operation,
+        sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+        projectRef: env.SUPABASE_PRODUCTION_PROJECT_REF, mode: env.DEPLOY_MODE ?? "plan-only",
+        policyMode: env.DEPLOY_POLICY_MODE, expectedRevision: env.DEPLOY_POLICY_EXPECTED_REVISION,
+        subjectsSha256: env.DEPLOY_SUBJECTS_SHA256, baselineSha256: env.DEPLOY_BASELINE_SHA256 });
+      const expect = option(args, "--expect-digest");
+      if (expect !== undefined) assertSamePlan(plan, expect);
+      if (option(args, "--out"))
+        await writeFile(option(args, "--out"), `${JSON.stringify(plan, null, 2)}\n`);
+      if (args.includes("--summary")) await writeSummary(purchase.renderPurchasePlan(plan), env);
+      if (env.GITHUB_OUTPUT) await appendFile(env.GITHUB_OUTPUT, `plan-digest=${plan.digest}\n`);
+      say(args.includes("--print") ? purchase.renderPurchasePlan(plan) : plan.digest);
+      return 0;
+    }
     if (isAnalyticsName(operation)) {
       const analytics = await analyticsOperations();
       if (!analytics.isAnalyticsOperation(operation))
@@ -1999,6 +2027,12 @@ export async function main(
       say(`deploy directory ready (${option(args, "--stage")})`);
       return 0;
     }
+    if (plan.kind === PURCHASE_KIND) {
+      await (await purchaseOperations()).preparePurchaseWorkdir({
+        exec, cwd, plan, dir: option(args, "--dir") });
+      say(`deploy directory ready (${option(args, "--stage")})`);
+      return 0;
+    }
     if (plan.kind === ANALYTICS_KIND) {
       await (await analyticsOperations()).prepareAnalyticsWorkdir({
         exec, cwd, plan, dir: option(args, "--dir") });
@@ -2042,6 +2076,15 @@ export async function main(
       const text = (await secretsOperation()).renderQaSecretsFinal(
         receipt?.kind === SECRETS_KIND ? receipt : null,
         { applyOutcome: env.APPLY_OUTCOME },
+      );
+      await writeSummary(text, env);
+      say(text);
+      return 0;
+    }
+    if (receipt?.kind === PURCHASE_KIND || (!receipt && isPurchaseName(operation))) {
+      const text = (await purchaseOperations()).renderPurchaseFinal(
+        receipt?.kind === PURCHASE_KIND ? receipt : null,
+        { applyOutcome: env.APPLY_OUTCOME, operation },
       );
       await writeSummary(text, env);
       say(text);
@@ -2093,6 +2136,20 @@ export async function main(
       await writeSummary(text, env);
       say(text);
       return ["verified", "baseline-read-only"].includes(receipt.status) ? 0 : 1;
+    }
+    if (plan.kind === PURCHASE_KIND) {
+      // The module re-checks the approval, digest, mode, target, every bound file and every gate.
+      const mod = await purchaseOperations();
+      const receipt = await mod.runPurchaseOperation({ plan, env, platform, cwd, exec,
+        sourceDir: option(args, "--source-dir"), artifactDir: option(args, "--artifact-dir"),
+        onProgress: async (r) => {
+          if (option(args, "--receipt"))
+            await writeFile(option(args, "--receipt"), JSON.stringify(r));
+        } });
+      const text = mod.renderPurchaseFinal(receipt);
+      await writeSummary(text, env);
+      say(text);
+      return ["verified", "no-change"].includes(receipt.status) ? 0 : 1;
     }
     if (plan.kind === ANALYTICS_KIND) {
       // The module re-checks the approval, digest, mode, target, every bound file and every gate.
@@ -2190,6 +2247,14 @@ export async function main(
     requireRunner(env, platform);
     const plan = await readPlan();
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
+    if (plan.kind === PURCHASE_KIND) {
+      const mod = await purchaseOperations();
+      const result = await mod.runPurchaseReplay({ exec, plan, dir: option(args, "--dir"),
+        conn, cwd, log: say });
+      await writeSummary(mod.renderPurchaseReplay(result), env);
+      say(JSON.stringify({ status: result.status, proofs: result.proofs }));
+      return result.status === "verified" ? 0 : 1;
+    }
     if (plan.kind === ANALYTICS_KIND) {
       const mod = await analyticsOperations();
       const result = await mod.runAnalyticsReplay({ exec, plan, dir: option(args, "--dir"),

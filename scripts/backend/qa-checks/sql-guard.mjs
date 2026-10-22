@@ -10,7 +10,17 @@
 // The database enforces the same boundary independently (read-only role and transaction, server
 // binds that refuse more than one statement); this guard keeps reviewed source honest.
 
-/** The only relations a catalogue query may read (each is granted SELECT in the candidate SQL). */
+/**
+ * Views a numbered migration installs (view -> migration version). They are not in the candidate
+ * SQL; the role holds SELECT on them only once that migration is applied, and the candidate
+ * re-grants each one that exists.
+ */
+export const MIGRATION_VIEWS = Object.freeze({ production_sales_summary: "0025" });
+
+/**
+ * The only relations a catalogue query may read: the candidate SQL's 25 views, each granted SELECT
+ * there, plus the migration views above.
+ */
 export const CHECK_VIEWS = Object.freeze([
   "account_status",
   "qa_subjects",
@@ -37,6 +47,7 @@ export const CHECK_VIEWS = Object.freeze([
   "retention_summary",
   "privacy_summary",
   "erasure_jobs_last_hour",
+  ...Object.keys(MIGRATION_VIEWS),
 ]);
 const CATALOG_RELATIONS = new Set([
   "pg_class",
@@ -55,6 +66,7 @@ const FUNCTIONS = new Set([
   "to_timestamp",
   "now",
   "jsonb_each",
+  "jsonb_array_elements",
   "aclexplode",
   "acldefault",
   "pg_get_userbyid",

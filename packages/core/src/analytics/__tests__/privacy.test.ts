@@ -967,6 +967,10 @@ describe("closed V3 catalogue", () => {
     },
   );
   it("requires the locked switch to belong to its declared site", () => {
+    const inline = { trigger: "settings_card", where: "options" };
+    expect(validateEvent("paywall_viewed", inline)).toEqual(inline);
+    expect(validateEvent("paywall_viewed", { ...inline, url: "https://private.invalid" })).toBeNull();
+    expect(validateEvent("paywall_dismissed", inline)).toBeNull();
     const valid = {
       trigger: "locked_switch",
       where: "options",

@@ -16,7 +16,7 @@ import type { MobilePopupProps } from "./mobile-presentation.js";
 
 afterEach(cleanup);
 
-const ENTRY = /Get Still Pro|Hide more on|One-time purchase|Lifetime access|price is shown/;
+const ENTRY = /Get Still Pro|Even fewer distractions|One-time purchase|Lifetime access|price is shown/;
 const HANDOFF = "Opens the Still app";
 
 /** The popup's top-level parts, in order, by their identifying class or element. */
@@ -147,7 +147,7 @@ describe("Still Pro copy states no number of extras (owner rule)", () => {
   it("the popup line and every by-site value line contain no digits", () => {
     expect(POPUP_PRO_VALUE).not.toMatch(COUNT);
     expect(POPUP_PRO_VALUE).toBe(
-      "Hide more on Instagram, Facebook and YouTube. One-time purchase.",
+      "Even fewer distractions on Instagram, Facebook, and YouTube. One-time purchase.",
     );
     for (const row of proValueBySite()) {
       expect(row.what).not.toMatch(COUNT);

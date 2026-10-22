@@ -69,6 +69,35 @@ final class AppleRightBindingTests: XCTestCase {
     let r = try request()
     XCTAssertThrowsError(try store.installAppleAccess(.init(nativeBinding: r.nativeBinding, localProof: r.localProof, issuerTime: now + 1, accountProof: nil, accessToken: nil), nativePurchase: native(), wall: now))
   }
+  func testProductionReviewBindingIsDeviceOnlyAndRequiresNativeSandboxIdentity() throws {
+    let production = AccessTrust(environment: "production", keys: [.init(kid: "synthetic-access", publicKey: key.publicKey.rawRepresentation, environment: "production")])
+    let payload = binding().canonical().replacingOccurrences(of: "\"schema\":1,\"environment\":\"sandbox\"",
+      with: "\"schema\":2,\"environment\":\"production\",\"transactionEnvironment\":\"sandbox\"")
+    let signed = try envelope(payload, domain: "still-apple-right-binding-v2\n")
+    let verified = try VerifiedAppleRightBinding.verify(signed, trust: production)
+    XCTAssertTrue(verified.matches(native()))
+    XCTAssertFalse(verified.matches(native(environment: "production")))
+    XCTAssertThrowsError(try VerifiedAppleRightBinding.verify(signed, trust: trust))
+    for malformed in [payload.replacingOccurrences(of: "\"transactionEnvironment\":\"sandbox\"", with: "\"transactionEnvironment\":\"production\""),
+      payload.replacingOccurrences(of: "\"schema\":2", with: "\"schema\":1")] {
+      XCTAssertThrowsError(try VerifiedAppleRightBinding.verify(envelope(malformed, domain: "still-apple-right-binding-v2\n"), trust: production))
+    }
+    XCTAssertThrowsError(try VerifiedAppleRightBinding.verify(envelope(payload, domain: "still-apple-right-binding-v1\n"), trust: production))
+    let local = try envelope(claims().canonical().replacingOccurrences(of: "\"environment\":\"sandbox\"", with: "\"environment\":\"production\""))
+    let request = AppleAccessInstallRequest(nativeBinding: signed, localProof: local, issuerTime: now, accountProof: nil, accessToken: nil)
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: production)
+    XCTAssertThrowsError(try store.installAppleAccess(request, nativePurchase: native(environment: "production"), wall: now))
+    _ = try store.installAppleAccess(request, nativePurchase: native(), wall: now)
+    XCTAssertEqual(try store.observeAppleAccess(wall: now).rights.first?.status, "purchased")
+    XCTAssertTrue(try store.observeAppleLinkAccess(nativePurchase: native(), wall: now).rights.isEmpty)
+    let accountProof = try envelope(claims(holder: account).canonical().replacingOccurrences(of: "\"environment\":\"sandbox\"", with: "\"environment\":\"production\""))
+    let linked = AppleAccessInstallRequest(nativeBinding: signed, localProof: local, issuerTime: now, accountProof: accountProof, accessToken: try token())
+    XCTAssertThrowsError(try store.installAppleAccess(linked, nativePurchase: native(), session: verifiedSession(), expectedGeneration: 0, wall: now))
+    XCTAssertEqual(try store.observeAccess(wall: now).0.rights.count, 1)
+    _ = try store.revokeAppleAccess(.init(identity: native(), revokedAt: now + 1), wall: now + 1)
+    XCTAssertTrue(try store.observeAppleAccess(wall: now + 1).rights.isEmpty)
+    XCTAssertThrowsError(try store.installAppleAccess(request, nativePurchase: native(), wall: now + 2))
+  }
   func testBindingAndBothProofClocksMustMatchAndInitialSkewHasABoundedNativePolicy() throws {
     for offset in [-300_000, 300_000] {
       let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust)

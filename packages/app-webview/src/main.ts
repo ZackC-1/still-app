@@ -140,7 +140,7 @@ let applePurchaseAuthority: {
   purchaseLink: ApplePurchaseLinkAuthority;
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
-  "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
+  "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "ownershipRevision" | "linkPurchase"
   | "heldElsewhereMemory"> | undefined;
 /** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
 const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
@@ -321,6 +321,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
     const heldElsewhereStore = safeStorage();
     appleProServices = {
       bridge,
+      analytics: analytics.ui,
       refreshAccountAccess: applePurchaseAuthority.refreshAccountAccess,
       verifyLocalPurchase: applePurchaseAuthority.verifyLocalPurchase,
       readLinkEligibility: applePurchaseAuthority.readLinkEligibility,

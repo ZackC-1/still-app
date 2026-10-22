@@ -426,3 +426,73 @@ Deno.test("skipping a deleted user logs a fixed reason, not the user or event id
   assertEquals(logged, "revenuecat-webhook skipped reason=deleted_user");
   noLeak(logged);
 });
+
+function productionAccessFixture() {
+  const holders: string[] = [];
+  const observations: unknown[] = [];
+  const access: import("./access.ts").ProductionWebhookAccess = {
+    rights: {
+      begin: (holder, environment) => { assertEquals(environment, "production"); holders.push(holder); return Promise.resolve("token"); },
+      commit: (_holder, _environment, _token, rights) => { observations.push(rights); return Promise.resolve({ status: "committed", rights: [], revocations: [], issuer_time: 100 }); },
+      confirm: () => Promise.resolve(true),
+    },
+    provider: { getRights: () => Promise.resolve({ status: "verified", rights: [{ key: "a".repeat(64), product: "still_pro_v3" }] }) },
+    apple: { refresh: () => Promise.resolve(true) },
+  };
+  return { access, holders, observations };
+}
+
+Deno.test("production webhook refreshes V3 once; event claims still deduplicate", async () => {
+  const { store } = mockStore();
+  const { access, holders, observations } = productionAccessFixture();
+  const deps = { token: TOKEN, store, rc: mockRc({ [A]: activeV3Sub }), productionAccess: access };
+  const body = { event: { id: "v3-live", type: "NON_RENEWING_PURCHASE", app_user_id: A, environment: "PRODUCTION" } };
+  assertEquals((await handleWebhook(req(body), deps)).status, 200);
+  assertEquals((await (await handleWebhook(req(body), deps)).json()).status, "duplicate");
+  assertEquals(holders, [A]); assertEquals(observations.length, 1);
+});
+
+Deno.test("production webhook ignores sandbox for both legacy and V3 account rights", async () => {
+  const { store, writes } = mockStore();
+  const { access, holders } = productionAccessFixture();
+  const body = { event: { id: "v3-sandbox", type: "NON_RENEWING_PURCHASE", app_user_id: A, environment: "SANDBOX" } };
+  const deps = { token: TOKEN, store, rc: mockRc({ [A]: activeV3Sub }), productionAccess: access };
+  assertEquals(await (await handleWebhook(req(body), deps)).json(), { status: "ok", reconciled: 0 });
+  assertEquals(writes, []); assertEquals(holders, []);
+});
+
+Deno.test("production transfer refreshes surviving UUIDs without using payload entitlement claims", async () => {
+  const { store } = mockStore({ missingUsers: [A] });
+  const { access, holders } = productionAccessFixture();
+  const body = { event: { id: "v3-transfer", type: "TRANSFER", transferred_from: [A], transferred_to: [B] } };
+  const deps = { token: TOKEN, store, rc: mockRc({ [B]: activeV3Sub }), productionAccess: access };
+  assertEquals((await handleWebhook(req(body), deps)).status, 200);
+  assertEquals(holders, [B]);
+});
+
+Deno.test("production access failure releases event claim, and retry repairs scoped rights", async () => {
+  const { store, released } = mockStore();
+  const { access, holders } = productionAccessFixture();
+  const body = { event: { id: "v3-retry", type: "CANCELLATION", app_user_id: A, environment: "PRODUCTION" } };
+  const deps = { token: TOKEN, store, rc: mockRc({ [A]: inactiveSub }) };
+  const failed = { ...access, provider: { getRights: () => Promise.resolve({ status: "unavailable" as const }) } };
+  assertEquals((await handleWebhook(req(body), { ...deps, productionAccess: failed })).status, 500);
+  assertEquals(released, ["v3-retry"]);
+  assertEquals((await handleWebhook(req(body), { ...deps, productionAccess: access })).status, 200);
+  assertEquals(holders, [A, A]);
+});
+
+Deno.test("missing configured V3 composition cannot acknowledge production event as complete", async () => {
+  const { store, released } = mockStore();
+  const body = { event: { id: "v3-config", type: "NON_RENEWING_PURCHASE", app_user_id: A, environment: "PRODUCTION" } };
+  assertEquals((await handleWebhook(req(body), { token: TOKEN, store, rc: mockRc({ [A]: activeV3Sub }), productionAccess: null })).status, 500);
+  assertEquals(released, ["v3-config"]);
+});
+
+Deno.test("unauthorized production webhook cannot trigger canonical provider reads", async () => {
+  const { store } = mockStore();
+  const { access, holders } = productionAccessFixture();
+  const body = { event: { id: "v3-forged", type: "NON_RENEWING_PURCHASE", app_user_id: A, environment: "PRODUCTION" } };
+  assertEquals((await handleWebhook(req(body, "invalid"), { token: TOKEN, store, rc: mockRc({}), productionAccess: access })).status, 401);
+  assertEquals(holders, []);
+});
