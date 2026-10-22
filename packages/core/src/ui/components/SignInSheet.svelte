@@ -259,14 +259,17 @@
         </p>
       {/if}
       {#if c.authFlow === "error"}
-        <!-- Every host gets the written line; the raw reason (authError) goes to the console only
-             (copy audit, 22 Oct 2026), as a failed account deletion does.
+        <!-- Every host gets a written line, the code or the email by its sign-in mode; the raw
+             reason (authError) goes to the console only (copy audit, 22 Oct 2026), as a failed
+             account deletion does.
              A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
              because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
         <p class="error" role="status">
           {c.sendBlockRemaining > 0
             ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s.`
-            : STRINGS.codeAuth.sendError}
+            : c.canUseCode
+              ? STRINGS.codeAuth.sendError
+              : STRINGS.auth.sendError}
         </p>
       {/if}
     {/if}

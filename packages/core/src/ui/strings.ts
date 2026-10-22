@@ -176,6 +176,8 @@ export const STRINGS = {
     sending: "Sending…",
     sent: "Check your email for a sign-in link.",
     error: "We couldn’t sign you in. Try again.",
+    // A host that sends a sign-in link could not send it (owner, 22 Oct 2026).
+    sendError: "We couldn’t send the email. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
     signInCta: "Sign in to sync",
