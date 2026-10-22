@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: nine purchase routes deployed; parser repair and analytics approval pending
+## Latest checkpoint: analytics routes deployed; erasure schedule approval ready, checkout repair pending
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -57,7 +57,8 @@ after all three required checks passed and independent final-head review found n
 preserves main `c24a246d`, PR530 `08a37fc2`, PR515 and PR477 ancestry; GitHub marked all three
 component PRs merged. Combined privacy source `55f09c43` remains byte-identical (SHA256
 `991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). This merged main SHA
-is the current rollout pin; the deployed foundation receipts above retain their original revision.
+was the initial rollout pin; repaired main `26bf5a947de9fef70102c9be87f1e69806cbce46` now controls
+new operations. Existing deployment receipts above retain their original revisions.
 
 Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
 18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
@@ -113,22 +114,32 @@ Repair [PR531](https://github.com/ZackC-1/still-app/pull/531), head
 Seventeen focused tests, 651 Deno tests/147 steps (one gated test ignored), lint and checks pass;
 independent final review found no blockers. Actual private writer configuration plus all 21 prepared
 values compose the runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
-passed all required checks. PR531 merged at `26bf5a947de9fef70102c9be87f1e69806cbce46`,
+passed all 12 checks. PR531 merged at `26bf5a947de9fef70102c9be87f1e69806cbce46`,
 05:07:50 UTC October 22. Only `create-web-checkout`, `complete-web-checkout` and `stripe-webhook`
 upload bundles change; the other six purchase and five analytics bundles are unchanged. A separately
 approved protected fix deployment remains pending; hosted signature rejection is not yet verified.
-New exact-revision settings/GoTrue rehearsal39726287757 is preparing at the repaired main revision.
+New exact-revision [settings/GoTrue rehearsal39726287757](https://github.com/ZackC-1/still-app/actions/runs/39726287757)
+passed at repaired main `26bf5a947de9fef70102c9be87f1e69806cbce46` on disposable infrastructure;
+hosted repair and final-device acceptance remain separate.
 
 Five-route [analytics functions apply39722863701](https://github.com/ZackC-1/still-app/actions/runs/39722863701)
-passed its built-in plan/rehearsal and is waiting for personal approval, digest
-`3ffd97b1b88638bfa779cffebb4201d7f713d4d918a25f1cc041a07992dfd9d7`. No analytics write has
-occurred. Verify the actual receipt, then prepare a direct protected erasure-schedule apply. Reuse
-existing analytics secrets when readiness gates pass; rotate only for an observed problem. The owner
-wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of duplicate plan-only
-runs, preserving global sequential concurrency and every personal approval gate.
+completed after personal approval, with actual closing status verified: `analytics-purchase` and
+`analytics-apple-purchase` created; `analytics-erasure`, `analytics-identify` and `delete-user`
+deployed; all five source/JWT read-backs passed, no issues or recovery needed. Plan digest:
+`3ffd97b1b88638bfa779cffebb4201d7f713d4d918a25f1cc041a07992dfd9d7`. Existing secret, eraser
+and Vault readiness gates passed, so no secret rotation or replay is needed. Private closing record:
+`/tmp/still-analytics-functions-39722863701/production-closing-record.md`.
+
+Direct [erasure-schedule apply39728922800](https://github.com/ZackC-1/still-app/actions/runs/39728922800)
+was dispatched immediately on `26bf5a947de9fef70102c9be87f1e69806cbce46`, policy `enable`.
+Its built-in plan/rehearsal passed and the protected apply is waiting for personal approval; no cron write has occurred. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
+After verifying its actual receipt, immediately stage the checkout-repair purchase-functions apply
+at that repaired pin, then repeat Stripe 400-response probes before conditional endpoint enablement.
+The owner wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of
+duplicate plan-only runs, preserving global sequential concurrency and every personal approval gate.
 
 The future analytics-subjects switch must pin the merged PR531 repair SHA, not `2bad3028`, because
-it refreshes checkout. A new settings/GoTrue rehearsal must pass at that exact merged revision;
+it refreshes checkout. Settings/GoTrue rehearsal39726287757 passed at exact repaired main `26bf5a94`;
 the earlier `2bad3028` rehearsal does not satisfy the new pin. Analytics
 subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
 packages satisfy client-configuration gates; source and privacy publication do not satisfy them.

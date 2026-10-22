@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T21:42:00-07:00
+updated: 2026-10-21T22:36:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -16,7 +16,7 @@ Foundation [PR522](https://github.com/ZackC-1/still-app/pull/522) merged at
 [PR525](https://github.com/ZackC-1/still-app/pull/525) merged at
 `bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. That revision remains the
 verified foundation deployment revision. The current rollout source is merged main
-`2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`.
+`26bf5a947de9fef70102c9be87f1e69806cbce46`; existing deployment receipts retain their original pins.
 
 [Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
 0025, 0026 and 0027. Its disposable receipt verified history 24→27, clean structural checks and
@@ -100,10 +100,12 @@ Narrow parser repair [PR531](https://github.com/ZackC-1/still-app/pull/531), hea
 plan 006. Seventeen focused tests, 651 Deno tests/147 steps (one gated test ignored), lint and checks
 passed; independent final-head review found no blockers. Actual private writer configuration and
 all 21 prepared values compose the full runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
-passed all required checks. Only the `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles
+passed all 12 checks. Only the `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles
 change; the other six purchase bundles and all five analytics bundles are unchanged. A separately
 approved protected deployment remains necessary at that merged revision; this repair is not yet hosted.
-New exact-revision settings/GoTrue rehearsal39726287757 is preparing on the merged repair revision.
+New exact-revision [settings/GoTrue rehearsal39726287757](https://github.com/ZackC-1/still-app/actions/runs/39726287757)
+passed on `26bf5a947de9fef70102c9be87f1e69806cbce46` using disposable infrastructure. This
+establishes the rehearsal prerequisite at the repair pin, not hosted repair or final-device acceptance.
 
 A fresh read-only Stripe endpoint inventory confirms live mode, disabled status, the correct
 production URL, pinned API version and exact five-event set. No provider change was made;
@@ -118,7 +120,7 @@ The main checkout belongs to the separate visual/build session and was not edite
 
 | Worktree | Branch / source | Responsibility |
 |---|---|---|
-| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, fast-forwarded to `2bad3028` | Protected deployment commands and evidence; current checkpoint |
+| `/private/tmp/still-production-activation-20261021` | `codex/production-activation-ops-20261021`, incorporates main `26bf5a94` and existing checkpoint commits | Protected deployment commands and evidence; current checkpoint |
 | `/private/tmp/still-production-readiness-docs-20261021` | `codex/production-readiness-docs-20261021`, PR527 head `8c425aaa`, merged `2bad3028` | Runbook, PR515/477 ancestry, merged main and reviewed PR530 public pin |
 | `/private/tmp/still-apple-production-public-config-20261021` | `codex/apple-production-public-config-20261021`, PR524 | Preserves PR520 and PR517 ancestry; public native configuration and trust packaging |
 | `/private/tmp/still-canonical-analytics-20261021` | `codex/canonical-analytics-20261021`, PR526 | Web canonical analytics and integration tooling |
@@ -136,8 +138,8 @@ passed 367 unconfigured (37 skips), 212 configured (192 conditional skips), and 
 cases (one skip), with no failures or flaky cases. GitHub also marked component PR517/520/524/526 merged.
 Disposable PostgreSQL CI is separate from
 production verification. Migrations through 0029, purchase secrets and sync-settings are verified in
-production, including source/JWT read-back for all nine purchase routes. The Stripe runtime repair
-and final analytics deployment remain pending.
+production, including source/JWT read-back for all nine purchase routes and all five analytics
+routes. The Stripe runtime repair, erasure schedule and subjects switch remain pending.
 The optional preview could not complete because dependency installation timed out twice; no
 successful preview verification is claimed.
 
@@ -236,18 +238,25 @@ was found in retained runs. Fresh read-only hosted metadata confirms `ANALYTICS_
 is absent; no value or secret digest was printed and no analytics switch was activated.
 
 Five-route [analytics functions apply39722863701](https://github.com/ZackC-1/still-app/actions/runs/39722863701)
-passed its built-in plan/rehearsal and is waiting for the owner's personal approval. Its exact plan
-digest is `3ffd97b1b88638bfa779cffebb4201d7f713d4d918a25f1cc041a07992dfd9d7`; no analytics
-write has occurred. Reuse existing analytics secrets when readiness checks pass; rotate only for
-an observed problem. Once the actual functions receipt is verified, prepare the erasure schedule
-through a direct protected apply with its built-in plan/rehearsal. The owner asked for approvals
-sooner: avoid duplicate plan-only runs when the apply already supplies the same gate. Global
-production concurrency and sequential operation requirements remain unchanged.
+completed after the owner's personal approval. Its actual closing status is verified: two routes
+created (`analytics-purchase`, `analytics-apple-purchase`), three deployed (`analytics-erasure`,
+`analytics-identify`, `delete-user`), all five source/JWT read-backs passed, no issues and no recovery
+needed. Exact plan digest: `3ffd97b1b88638bfa779cffebb4201d7f713d4d918a25f1cc041a07992dfd9d7`.
+The existing secret, eraser and Vault readiness gates passed; no secret rotation or replay is needed.
+Private closing record: `/tmp/still-analytics-functions-39722863701/production-closing-record.md`.
 
-The future analytics-subjects switch must pin the merged PR531 repair revision, not `2bad3028`,
-because that operation refreshes checkout too. Run a new settings/GoTrue rehearsal at that exact
-merged revision before its protected operation. The previously passed `2bad3028` rehearsal cannot
-satisfy a later source pin. Final production-channel package gates still apply before switch-on.
+Direct [erasure-schedule apply39728922800](https://github.com/ZackC-1/still-app/actions/runs/39728922800)
+was dispatched immediately at `26bf5a947de9fef70102c9be87f1e69806cbce46` with policy `enable`.
+Its built-in plan/rehearsal passed and the protected apply is waiting for personal approval; no cron write has occurred. Exact plan digest: `be45dff44dbf23babddd30a9c8a46881733348031379ab587e7b8d035ac33df6`.
+After its actual closing receipt, stage the checkout-repair purchase-functions apply at that same
+repair pin. The owner asked for approvals sooner: avoid duplicate plan-only runs when the apply
+already supplies the same gate. Global production concurrency and sequential operation requirements
+remain unchanged. Reuse the verified existing analytics secrets unless a new problem is observed.
+
+The future analytics-subjects switch must pin merged PR531 repair `26bf5a947de9fef70102c9be87f1e69806cbce46`,
+not `2bad3028`, because that operation refreshes checkout too. Exact-revision settings/GoTrue
+rehearsal39726287757 has passed at this pin. Final production-channel package gates still apply
+before switch-on, alongside the actual successful scheduled-worker run and provider proof.
 
 Owner screenshots confirm the active PostHog account-deletion key has **person: write** and
 **project: read**, restricted to the intended Still project. The 19:37 PT Supabase screenshot
@@ -269,30 +278,32 @@ repository evidence and the work-state list remain the active durable record.
 ## Next actions and blockers
 
 1. Use reviewed main `26bf5a947de9fef70102c9be87f1e69806cbce46` for the checkout repair and future
-   subjects switch. The pending analytics plan remains bound to `2bad3028`; its five uploads and
+   subjects switch. The completed analytics deployment remains bound to `2bad3028`; its five uploads and
    bound files are unaffected by the repair. PR527 and component
    PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Migrations
    through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
    as recorded above.
-2. PR531 is merged with all required checks green. After the currently waiting analytics run finishes,
-   prepare the protected purchase-functions repair apply at `26bf5a94` for personal approval. Only three purchase
+2. PR531 is merged with all 12 checks green, and the new exact-revision settings rehearsal passed.
+   After erasure-schedule apply39728922800 has an actual verified closing receipt, prepare the
+   protected purchase-functions repair apply at `26bf5a94` for personal approval. Only three purchase
    upload bundles change. Re-run safe negative cases after actual deployment, including both Stripe
    signature cases. Keep the Stripe endpoint disabled until hosted handler/signature verification
    is ready, and preserve existing RevenueCat settings.
-3. Analytics functions apply39722863701 is waiting for personal approval after its built-in plan and
-   rehearsal. Verify its actual closing receipt before preparing a direct erasure-schedule apply.
-   Reuse existing analytics secrets if readiness gates pass; do not rotate without an actual problem.
+3. Analytics functions apply39722863701 is verified complete. Direct erasure-schedule apply39728922800
+   passed its built-in plan/rehearsal and is waiting for personal approval; no cron write is established. Verify its
+   closing receipt and then an actual successful scheduled-worker run before later switch gates.
+   Existing analytics secret/eraser/Vault readiness passed; no rotation or replay is needed.
    Avoid duplicate plan-only workflows when the direct apply already includes plan/rehearsal.
    Keep operations sequential under the global concurrency group. Each apply needs personal approval;
    never bypass protection with direct production CLI/SQL or self-approval. Handle partial/unknown
    outcomes before retrying.
 4. Do not replay migrations through 0029 or unchanged settings sync. Preserve all previous receipts.
-   Before the analytics switch, pin the merged PR531 repair SHA and pass a new exact-revision
-   settings/GoTrue rehearsal; the switch refreshes checkout and must not restore `2bad3028` code.
+   Before the analytics switch, pin the merged PR531 repair SHA with passed exact-revision rehearsal
+   39726287757; the switch refreshes checkout and must not restore `2bad3028` code.
 5. Retain completed native compilation, disposable SQL/deployment evidence and actual production
    migration receipts. Any new migration requires a new exact plan; do not replay completed 0025–29.
-6. Prepare protected analytics deployment, reconcile existing secrets, deploy the five routes and
-   enable the erasure schedule through their exact gates. Wait for an actual successful worker run
+6. Preserve the completed five-route analytics deployment and enable the erasure schedule through
+   its exact gate. Wait for an actual successful worker run
    and hosted project/deletion permission proof. Keep the subjects switch deferred until the owner's
    final production-channel packages satisfy the client-configuration gates. Then prove consent, identity, production event delivery and
    erasure with designated final-package checks. Genuine production customer fulfilment/refunds remain
