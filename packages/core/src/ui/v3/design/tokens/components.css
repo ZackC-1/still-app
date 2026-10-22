@@ -240,6 +240,12 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .lock-pro:hover { color: var(--ink); }
 .service-row .toggle-slot { flex: none; display: flex; }
 .app[data-density="compact"] .option-row { min-block-size: 40px; font-size: calc(14px * var(--text-scale, 1)); }
+/* Owner canvas (P-Sites, 22 Oct): an open site's option rows are 46px on the app and the Settings page
+   (the popups keep 40px, above, which outranks this) with 6px under the last row on every surface.
+   Kept apart from the two base rules above so this lands beside the Safari lane's edit of the list's
+   padding without a merge conflict; fold the three together once both are merged. */
+.option-row { min-block-size: 46px; }
+.service-options .list { padding-block-end: 6px; }
 .toggle.small { inline-size: 40px; block-size: 24px; }
 .toggle.small::before { inset-block: calc((24px - var(--switch-hit, 44px)) / 2); }
 .toggle.small .knob { inline-size: 20px; block-size: 20px; transform: translateX(2px); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
@@ -283,7 +289,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .status-line[data-tone="failed"] .glyph { color: var(--status-failed); }
 .status-line[data-tone="caution"] .glyph { color: var(--status-caution); }
 .status-line .status-body { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
-.status-line .status-action { align-self: flex-start; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; }
+/* "Try again" and the other status actions are plain 13px links (owner canvas, every status line). */
+.status-line .status-action { align-self: flex-start; font-size: calc(13px * var(--text-scale, 1)); }
 .status-line[data-tone="pending"] .glyph { animation: still-spin 900ms linear infinite; }
 @keyframes still-spin { to { transform: rotate(360deg); } }
 
