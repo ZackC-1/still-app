@@ -199,7 +199,7 @@ Fill the private fields in the portal only:
 | Password | `<review code>` (the fixed six-digit review sign-in code) |
 | Contact | The owner's details (portal only) |
 
-**Notes** (App Review Information, Notes; replaces every earlier 2.1 and V3 paragraph in section 3
+**Notes** (1966/4000; App Review Information, Notes; replaces every earlier 2.1 and V3 paragraph in section 3
 of the 2.1 copy below):
 
 ```
