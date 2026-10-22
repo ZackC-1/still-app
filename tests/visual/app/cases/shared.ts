@@ -65,3 +65,20 @@ export const STILL_PRO_TAG: Deviation = {
     'owner-approved "Still Pro" tag in the sync card account row (ISS-0073); later content may move',
   selector: ".card:has(.still-pro-tag), .card:has(.still-pro-tag) ~ *",
 };
+
+/**
+ * Owner's canvas review, 21 Oct 2026: the light-mode success green is darker (#145a38; the
+ * references use #1a7046) so the small "Still Pro User" tag text reads at 4.5:1 or better on
+ * screen. Every success-coloured element changes colour: the boxed Still Pro tags, success status
+ * glyphs and the finished first-run step numbers. Dark mode is unchanged. Declared on every light
+ * frame (index.ts); a frame without such an element measures 0 px here. The design source under
+ * docs/design stays the owner's 3.0.1 archive the references were rendered from (its hashes are
+ * pinned in latest-gallery-references.json), so its tokens keep #1a7046 until the references are
+ * regenerated and reviewed.
+ */
+export const OWNER_SUCCESS_GREEN: Deviation = {
+  reason:
+    "owner-approved darker light-mode success green (#145a38; reference #1a7046) on Still Pro tags, success glyphs and finished first-run steps",
+  selector:
+    '.access-tag.boxed.success, .status-line[data-tone="success"] .glyph, .step[data-done="true"] .num',
+};
