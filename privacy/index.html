@@ -17,6 +17,7 @@
 </head>
 <body>
   <h1>Still — Privacy Policy</h1>
+  <!-- Draft publication date: confirm this matches the actual publication day before publishing. -->
   <p class="updated">Last updated: October 21, 2026</p>
   <p>Still is made by Cadmus Labs LLC. This policy covers our apps, browser extensions, website
   and support service.</p>
@@ -48,16 +49,21 @@
     and Mac apps it is bought through Apple, which holds the purchase record under your Apple ID.
     RevenueCat maintains the app's app-user identity, purchase history and entitlement information,
     starting from a generated anonymous app-user ID; signing in associates it with your Still account
-    ID. In Chrome and Firefox, Still Pro is bought on RevenueCat's web checkout, where Stripe
-    processes the payment: the checkout collects your email address and payment details, and Still
+    ID. In Chrome and Firefox, Still Pro is bought through a web checkout processed by Stripe:
+    the checkout collects your email address and payment details, and Still
     never sees your card. Our server keeps only what it needs to know that your account holds Still
-    Pro: your account ID, the product, when it was verified and a hashed reference to the provider's
-    transaction (for an Apple purchase linked to your account, the transaction identifier Apple
-    assigns). RevenueCat also records connections and customer country information and provides
+    Pro and resolve payment problems: your account ID, the product, verification and payment status,
+    and provider transaction and checkout references (including the transaction identifier Apple
+    assigns for an Apple purchase linked to your account). RevenueCat also records connections and
+    customer country information and provides
     purchase analytics. No purchase is needed for Still's free blocking or settings sync.</li>
     <li><strong>Usage analytics:</strong> while <strong>Share usage data</strong> is on, PostHog
     processes events about how you use Still: installs and updates, which store you downloaded from,
     opening Still, turning services on or off, setup and sign-in steps, and the days you use Still.
+    V3 also measures verified Still Pro purchases and full refunds when sharing was allowed for the
+    original purchase and is still allowed on that device. These events identify the product and
+    purchase store; payment card details and purchase receipt identifiers are not sent to PostHog.
+    A purchase made while signed out is not later reassigned to a signed-in analytics account.
     Usage events carry Still's own random
     install and person identifiers, the Still version and the kind of device (iPhone, iPad or Mac, and
     whether it is Chrome, Firefox, Safari or the Still app). Still asks PostHog not to work out your location from your connection, and our PostHog
@@ -148,11 +154,18 @@
   are signed in, the device's new identifier still carries your account email on our server. In
   Firefox, sharing follows Firefox's "technical and interaction data" permission, which Firefox
   offers when you install Still; you can also change it in Firefox's add-on settings. The Safari
-  extension follows the Still app's setting. If what Still shares changes, we update this policy and the date at the top. Your Share usage data switch stays as you set it, and in Firefox its permission is unchanged. Deleting your Still account
+  extension follows the Still app's setting. Version 3 uses the <strong>Share usage data</strong>
+  control without a separate notice prompt; Firefox's own permission controls sharing there.
+  If what Still shares changes, we update this policy and the date at the top. Your sharing choice
+  stays as you set it. Deleting your Still account
   asks PostHog to delete the records linked to that account, including each device's identifier for
   it, along with their events. PostHog
   processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage
   from a device that was never signed in is not linked to an account; contact us to have it removed.</p>
+
+  <p>Optional Apple purchase analytics uses separate preparation and attribution records on our server.
+  Preparation expires after ten minutes; attribution expires after 90 days and is removed by
+  scheduled cleanup. This does not change how long financial purchase records remain.</p>
 
   <h3>Purchase records</h3>
   <p>Deleting a Still account does not automatically delete its RevenueCat customer identity, aliases,
@@ -181,7 +194,10 @@
   account, synced settings, account entitlement record and account-linked security counters from our
   active application database, and to ask PostHog to delete the usage record linked to the account. Temporary connection counters may finish their existing short security
   window so deleting an account does not reset protection for other people using the same connection.</p>
-  <p>Deleting your account ends any Still Pro access linked to it and removes your account from our records. Apple, Stripe and RevenueCat keep the purchase and payment records their rules require, and we keep only the non-personal references needed to match a later refund or dispute.</p>
+  <p>Deleting your account ends Still Pro access linked to that account and removes the account
+  association from retained purchase records. Apple, Stripe and RevenueCat keep their own purchase
+  and payment records. We retain purchase references needed to match later refunds or disputes;
+  removing the account association does not erase those records or make them anonymous.</p>
   <p>Local settings and the account-safety marker can remain on your device. Provider logs, database
   audit records, backups, email correspondence, RevenueCat history and underlying store records have
   the separate handling described above. Account deletion does not make all these records disappear
