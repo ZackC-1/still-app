@@ -32,6 +32,9 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: "2.8.3"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
       - name: Install pinned Supabase CLI
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
@@ -49,7 +52,21 @@ jobs:
           supabase db reset --local --no-seed --version 0024 >/dev/null
           prior="$(psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 --file=scripts/backend/deploy/verify/0026_production_purchase_operations.sql)"
           test "$(printf '%s' "$prior" | jq 'index("routine_missing_or_changed") != null and index("migration_version") != null')" = true
+          # Exercise the real deploy runner's invariant contract before the grouped migration.
+          # An issue-array query is valid SQL but is not a preservation snapshot.
+          umask 077
+          for stem in 0026_production_purchase_operations 0027_apple_sandbox_review_access; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.before"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.before"
+          done
           supabase migration up --local >/dev/null
+          for stem in 0026_production_purchase_operations 0027_apple_sandbox_review_access; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.after"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.after"
+            cmp -s "$RUNNER_TEMP/$stem.before" "$RUNNER_TEMP/$stem.after" || { echo 'Migration changed existing application rows.' >&2; exit 1; }
+          done
           STILL_PRODUCTION_CHECKOUT_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
             deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322 \
               --allow-read=scripts/backend/deploy/verify/ \
