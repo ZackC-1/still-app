@@ -61,7 +61,7 @@ What changes, and only this:
 | F11 | AMO reviewer notes: "All blocking and optional settings sync are free. No account or purchase is needed for blocking." | Same as F6 | X4 |
 | F12 | AMO caption for `firefox-05-switches`: "One switch per site, from Still's button in Firefox's toolbar." | Same as F2 | X5 |
 | F13 | Image headlines "One switch per site" in `iphone-03-switches`, `mac-05-app`, `chrome-05-switches` (and the Apple caption list item 4) | Same as F2, and they picture the 2.1 interface | Screenshot findings below; the images are kept by owner ruling |
-| F14 | Support reply "Earlier Pro purchase: Update to Still 2.0 to use all blocking and optional settings sync for free. No purchase restore is needed." (not a store field) | Verified earlier purchases map to Still Pro in 3.0 | Needs owner wording before the support page update (runbook 7.3); not part of any store upload |
+| F14 | Support reply "Earlier Pro purchase: Update to Still 2.0 to use all blocking and optional settings sync for free. No purchase restore is needed." (not a store field) | Verified earlier purchases map to Still Pro in 3.0 | [3.0 support replies](#30-support-replies); not part of any store upload |
 
 Checked and still true in 3.0, so unchanged: the Apple name, subtitle and both promotional texts
 (the closing "Free." describes the free download and free core; Apple shows "In-App Purchases"
@@ -395,6 +395,65 @@ the Instagram feed posts. The 2.0 archive under `screenshots/archive/` is histor
 candidate. Keeping pictures of an older interface risks Apple's screenshot rule (they should show
 the app in use) and Chrome's listing-accuracy review; the owner may want to recapture at least the
 four "switches" images before submission.
+
+### 3.0 support replies
+
+These replace the 2.1 "Customer support responses" (they are not store fields). The native-app and
+privacy replies are unchanged; the earlier-purchase reply is new for 3.0 (F14).
+
+Native-app question:
+
+> On iPhone and iPad, Still works on websites opened in Safari. It cannot change the native YouTube, Instagram, Facebook, or TikTok apps. Setup help: https://stillapp.fit/setup/
+
+Earlier purchase (3.0):
+
+> Thanks for buying Still Pro early. In Still 3.0, removing YouTube Shorts and Instagram and Facebook Reels, blocking the TikTok website, and settings sync are all free, with no purchase or account needed.
+>
+> A paid Still Pro purchase from before 3.0 carries over to the new Still Pro extras when it is linked to your Still account. Sign in to Still with the email address you used when you bought it. The extras then appear in Still's settings, switched off until you turn them on, and you don't need to buy Still Pro again.
+>
+> If you don't see them, choose Restore purchase while signed in: in the Still app on iPhone or Mac, or in Still's settings in Chrome or Firefox. If Still still doesn't find your purchase, email support@stillapp.fit from the address you used, with the date you bought it (for an App Store purchase, it's on your Apple receipt), and we'll look into it.
+>
+> Apple handles refunds for App Store purchases.
+
+Privacy or data request:
+
+> Email privacy@stillapp.fit for help with your Still account data.
+
+**Facts behind the earlier-purchase reply (for the owner, read from code on 22 October 2026).** A
+verified paid 2.x purchase (`still_sync` on Apple, or `still_sync_web` from RevenueCat's web billing)
+gets the full V3 Still Pro extras, not the old benefits, but only through the Still account.
+On a signed-in reconcile, RevenueCat's purchase list for the account is read and each mapped
+`still_sync` purchase becomes a right whose benefit stays `still_sync`
+(`supabase/functions/_shared/revenuecat-access.ts:60`, `:174`, `:177`). Only owned, directly
+purchased, unrefunded purchases with positive USD revenue count, so the 2.0 era's $0 acquisitions
+grant nothing (`revenuecat-access.ts:195`). The ledger accepts `still_sync` rights
+(`supabase/migrations/0020_apple_scoped_access.sql:192`, `:237`), and the reconcile signs every
+observed right (`supabase/functions/reconcile-entitlement/handler.ts:110`, `:141`) as product
+`still-pro-v3` with `STILL_PRO_V3_BENEFITS` (`supabase/functions/_shared/access-issuer.ts:96`;
+`packages/shared-types/src/access.ts:11`). That matches the V3 rule "verified legacy payments map to
+frozen Pro" (`docs/release/history/v3/README.md:25`). Restore finds it when signed in: the Apple
+app checks the account first (`packages/core/src/ui/v3/apple-pro-host.ts:415`) and Chrome and
+Firefox send Restore through sign-in (`packages/core/src/ui/v3/PurchaseView.svelte:105`). Four limits:
+(1) **an Apple purchase never linked to an account is not recognised in 3.0.** The Apple verifiers
+accept only `still_pro_v3` (`supabase/functions/_shared/apple-access.ts:35`, `:43`), the
+historical product's local grant is nil (`apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift:38`),
+and V3 builds use the explicit link mode (`packages/app-webview/src/main.ts:311`), which skips the
+2.x attach-on-sign-in (`packages/core/src/sync/apple-session.ts:279`) and never re-keys the purchase
+SDK on sign-in (`apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift:443`). Restore does
+read the historical receipt (`PurchaseManager.swift:522`), but local verification
+(`apple-pro-host.ts:527`) cannot grant it, so the app shows the purchase as still being checked.
+Support has no tool to grant these by hand: clients accept an `owner_attested_legacy_paid` proof
+(`packages/core/src/entitlement/access-proof.ts:17`), but nothing on the server issues one. This
+needs an owner decision. (2) The production `ACCESS_PROVIDER_PRODUCTS_JSON` must keep the
+historical `still_sync` and `still_sync_web` mappings (production activation plan, step 2); without
+them nobody's earlier purchase is found. (3) Deleting a Still account deactivates its RevenueCat
+rights (`supabase/migrations/0022_account_deletion_keeps_payment_records.sql`, header item 2), so a
+buyer who deleted their account cannot recover the purchase with a new account. (4) The 2.x
+`Restore purchase` rule in [04-revenuecat.md](04-revenuecat.md) and
+[ADR 0003](../adr/0003-entitlement-authority-receipt-and-server.md) describes the retired
+`still_sync = true` entitlement flag, not 3.0's signed access rights. The reply promises none of
+these: it says the purchase carries over "when it is linked to your Still account" and points
+everyone else to support.
 
 ## Later listing experiment (not for the 3.0 submission)
 
@@ -1196,16 +1255,8 @@ The complete source archive includes the pnpm workspace, frozen lockfile, public
 
 ## Customer support responses
 
-Native-app question:
-
-> On iPhone and iPad, Still works on websites opened in Safari. It cannot change the native YouTube, Instagram, Facebook, or TikTok apps. Setup help: https://stillapp.fit/setup/
-
-Earlier Pro purchase:
-
-> Update to Still 2.0 to use all blocking and optional settings sync for free. No purchase restore is needed. For help with an earlier receipt or refund, email support@stillapp.fit. Apple reviews Apple purchase refunds; earlier web purchases have a 14-day refund window. Details: https://stillapp.fit/support/
-
-Privacy or data request:
-
-> Email privacy@stillapp.fit for help with your Still account data.
+Moved and updated: see [3.0 support replies](#30-support-replies). The 2.1 earlier-purchase reply
+("Update to Still 2.0 ... No purchase restore is needed.") is false in 3.0 and is kept only in Git
+history.
 
 </details>
