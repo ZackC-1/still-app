@@ -478,10 +478,10 @@ test("paid sandbox selects matching public trust and rejects hostile public conf
   assert.equal(clean.SUPABASE_SERVICE_ROLE_KEY, undefined); assert.equal(clean.NPM_TOKEN, undefined); assert.equal(clean.REVENUECAT_SECRET_API_KEY, undefined);
 });
 
-async function fixture() {
+async function fixture({ paidOn = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "still-paid-profile-test-"));
-  const files = { [paid.PAID_FLAGS.js]: "export const PAID_TIER_ENABLED = false;\n",
-    [paid.PAID_FLAGS.native]: "public enum MonetizationConfig { public static let paidTierEnabled = false }\n" };
+  const files = { [paid.PAID_FLAGS.js]: `export const PAID_TIER_ENABLED = ${paidOn};\n`,
+    [paid.PAID_FLAGS.native]: `public enum MonetizationConfig { public static let paidTierEnabled = ${paidOn} }\n` };
   for (const part of ["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"])
     files[`apps/apple/Still/${part}/Info.plist`] = '<?xml version="1.0"?><plist version="1.0"><dict><key>Existing</key><string>preserved</string></dict></plist>\n';
   for (const [path, bytes] of Object.entries(files)) { await mkdir(join(root, path, ".."), { recursive: true }); await writeFile(join(root, path), bytes); }
@@ -535,6 +535,28 @@ test("isolation enables both constants and typed app/extension trust while sourc
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "chrome", sourceSha256: before.sha256, backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: "0".repeat(64), backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
     await assert.rejects(paid.isolatedSandboxSource(root, config, async () => { throw new Error("fixture build failed"); }), /fixture build failed/);
+    assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a 3.x source whose paid constants are already on builds the sandbox overlay as is", async () => {
+  const root = await fixture({ paidOn: true });
+  try {
+    const before = await paid.sourceSnapshot(root), config = paid.sandboxConfiguration(paidInputs);
+    const build = await paid.isolatedSandboxSource(root, config, async ({ clone, snapshot, overlay }) => {
+      assert.match(await readFile(join(clone, paid.PAID_FLAGS.js), "utf8"), /PAID_TIER_ENABLED = true/);
+      assert.match(await readFile(join(clone, paid.PAID_FLAGS.native), "utf8"), /paidTierEnabled = true/);
+      // The flag files are still part of the overlay, so a change during the build is caught; they are unchanged here.
+      assert.equal(overlay.overlayFiles.length, 6);
+      for (const flag of Object.values(paid.PAID_FLAGS)) {
+        const file = overlay.overlayFiles.find((f) => f.path === flag);
+        assert.equal(file.beforeSha256, file.sha256);
+      }
+      for (const file of overlay.overlayFiles.filter((f) => f.path.endsWith("Info.plist"))) assert.notEqual(file.beforeSha256, file.sha256);
+      return paid.candidateIdentity(snapshot, overlay, ["safari", "apple-webview", "apple-ios-sim"]);
+    });
+    assert.equal(build.flags.jsPaid, true);
+    assert.equal(build.flags.nativePaid, true);
     assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

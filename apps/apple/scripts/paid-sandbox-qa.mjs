@@ -16,6 +16,20 @@ export function assertFreePaidFlags(files) {
   if (originals.some((text, i) => typeof text !== "string" || text.split(PAID_FALSE_NEEDLES[i]).length !== 2))
     refusal("both original paid constants must be exactly false");
 }
+const PAID_TRUE_NEEDLES = PAID_FALSE_NEEDLES.map(needle => needle.replace("false", "true"));
+/** The paid sandbox overlay's source rule: both constants appear exactly once and agree. "off" (a 2.x tree)
+ * is flipped on in the isolated clone; "on" (a 3.x release-line tree) is used as is. Anything else refuses. */
+export function paidSandboxFlagState(files) {
+  const originals = Object.values(PAID_FLAGS).map(path => files.find(file => file.path === path)?.bytes?.toString("utf8"));
+  const count = (text, needle) => text.split(needle).length - 1;
+  const state = (text, i) => typeof text !== "string" ? null
+    : count(text, PAID_FALSE_NEEDLES[i]) === 1 && count(text, PAID_TRUE_NEEDLES[i]) === 0 ? "off"
+    : count(text, PAID_TRUE_NEEDLES[i]) === 1 && count(text, PAID_FALSE_NEEDLES[i]) === 0 ? "on" : null;
+  const states = originals.map(state);
+  if (states.some(value => value === null) || states[0] !== states[1])
+    refusal("both original paid constants must agree: exactly false (flipped in the sandbox clone) or exactly true");
+  return states[0];
+}
 const PLISTS = ["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"].map(part => `apps/apple/Still/${part}/Info.plist`);
 const REVIEWED_SIGNING_TEAM = "UM9HVDH3P3";
 export const APPLE_TARGETS = Object.freeze({
@@ -130,10 +144,12 @@ export async function applySandboxOverlay(clone, config) {
   try { marker = JSON.parse(await readFile(join(dirname(clone), ".still-paid-sandbox-source"), "utf8")); } catch { refusal("overlay requires this runner's isolated source clone"); }
   if (marker.clone !== clone || marker.mode !== "paid-sandbox") refusal("overlay requires this runner's isolated source clone");
   const originals = await Promise.all(Object.values(PAID_FLAGS).map(path => readFile(join(clone, path), "utf8")));
-  assertFreePaidFlags(Object.values(PAID_FLAGS).map((path, i) => ({ path, bytes: originals[i] })));
+  const flagState = paidSandboxFlagState(Object.values(PAID_FLAGS).map((path, i) => ({ path, bytes: originals[i] })));
   const prepared = [];
   const before = new Map(Object.values(PAID_FLAGS).map((path, i) => [path, hash(originals[i])]));
-  for (const [i, path] of Object.values(PAID_FLAGS).entries()) prepared.push([path, originals[i].replace(PAID_FALSE_NEEDLES[i], PAID_FALSE_NEEDLES[i].replace("false", "true"))]);
+  // Flag files stay in the overlay either way, so assertSandboxOverlay still catches a change during the build.
+  for (const [i, path] of Object.values(PAID_FLAGS).entries())
+    prepared.push([path, flagState === "on" ? originals[i] : originals[i].replace(PAID_FALSE_NEEDLES[i], PAID_TRUE_NEEDLES[i])]);
   const fields = plistConfiguration(config);
   for (const path of PLISTS) {
     let text = await readFile(join(clone, path), "utf8");
