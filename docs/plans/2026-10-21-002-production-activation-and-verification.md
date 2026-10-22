@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: migrations through 0029 deployed; nine-route apply awaits personal approval
+## Latest checkpoint: nine purchase routes deployed; parser repair and analytics approval pending
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -92,14 +92,42 @@ passed on `2bad3028`, digest `8f7ccf06e1a627a7c73fa85e68ca8ced2d17d59c4a5d81f9ce
 It pins all nine routes, JWT settings, fixed order and all 29 migration prerequisites; eight rehearsal
 proofs passed, including negative cases, source read-back, repeat application and settings-sync
 isolation. Evidence is under `/tmp/still-purchase-functions-39718857548/`. Matching
-[apply39719229501](https://github.com/ZackC-1/still-app/actions/runs/39719229501) is dispatched
-waiting at the owner's personal approval gate after its successful plan job. The plans match in
-source, bundles, JWT settings and prerequisites; only mode and its bound digest differ. The apply
-digest is `75b14af991dd1c0844555d724ac4068ab3d4b1279e5f3f4755709e93ea7ee0b5`.
-No hosted nine-route write is established. A fresh read-only Stripe endpoint check confirms live mode,
-disabled status, the correct production URL, pinned API version and exact five-event set; no provider change was made.
-Settings sync is already deployed with unchanged source and needs no repeated deployment. Each new production apply
-retains its personal approval gate. Analytics
+[apply39719229501](https://github.com/ZackC-1/still-app/actions/runs/39719229501) completed
+successfully after personal approval: five routes created, four deployed, source/JWT
+read-back for all nine, no issues or recovery needed, settings sync untouched. The plans match in
+source, bundles, JWT settings and prerequisites; only mode and its bound digest differ. Apply digest:
+`75b14af991dd1c0844555d724ac4068ab3d4b1279e5f3f4755709e93ea7ee0b5`. Private closing record:
+`/tmp/still-purchase-functions-39718857548/production-closing-record.md`. Settings sync remains
+deployed with unchanged source and needs no repeated deployment.
+
+Safe HTTP probes passed eleven of thirteen cases: Stripe unsigned and invalid-signature POSTs
+returned 503 instead of 400; GET returned the expected 405. Read-only diagnosis confirmed hosted
+configuration matches the existing local writer configuration and all 21 prepared payment values.
+The strict parser rejects the valid pooler username form containing the role and project suffix.
+Boolean-only evidence is in `/tmp/still-purchase-functions-39718857548/runtime-config-readonly-proof.json`;
+no SQL or provider write was used for diagnosis. Fresh Stripe inventory still confirms the disabled
+endpoint's intended URL, pinned API version and five events; no provider change was made.
+
+Repair [PR531](https://github.com/ZackC-1/still-app/pull/531), head
+`55e12172de053139a8ac9b02a1f33d464d3b7089`, contains the narrow parser/security tests and plan 006.
+Seventeen focused tests, 651 Deno tests/147 steps (one gated test ignored), lint and checks pass;
+independent final review found no blockers. Actual private writer configuration plus all 21 prepared
+values compose the runtime with zero SQL. [CI39723705611](https://github.com/ZackC-1/still-app/actions/runs/39723705611)
+is running. Only `create-web-checkout`, `complete-web-checkout` and `stripe-webhook` upload bundles change;
+the other six purchase and five analytics bundles are unchanged. Merge and a separately approved
+protected fix deployment remain pending; hosted signature rejection is not yet verified.
+
+Five-route [analytics functions apply39722863701](https://github.com/ZackC-1/still-app/actions/runs/39722863701)
+passed its built-in plan/rehearsal and is waiting for personal approval, digest
+`3ffd97b1b88638bfa779cffebb4201d7f713d4d918a25f1cc041a07992dfd9d7`. No analytics write has
+occurred. Verify the actual receipt, then prepare a direct protected erasure-schedule apply. Reuse
+existing analytics secrets when readiness gates pass; rotate only for an observed problem. The owner
+wants earlier approvals: use the direct apply's built-in plan/rehearsal instead of duplicate plan-only
+runs, preserving global sequential concurrency and every personal approval gate.
+
+The future analytics-subjects switch must pin the merged PR531 repair SHA, not `2bad3028`, because
+it refreshes checkout. A new settings/GoTrue rehearsal must pass at that exact merged revision;
+the earlier `2bad3028` rehearsal does not satisfy the new pin. Analytics
 subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
 packages satisfy client-configuration gates; source and privacy publication do not satisfy them.
 
