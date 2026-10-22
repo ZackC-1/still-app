@@ -5,7 +5,7 @@ status: active
 owner: "Codex production session; owner performs provider account actions and protected approvals"
 ---
 
-## Latest checkpoint: privacy published; exact migration plan passed, apply approval pending
+## Latest checkpoint: migrations through 0029 deployed; nine-route apply awaits personal approval
 
 PR522 merged after all 32 checks passed. PR525 corrected the preservation-output contract and
 merged after all 30 checks at `bc728bcabad9ef383906571206becd3f46b1377f`. This is the pinned foundation
@@ -42,7 +42,7 @@ Web and Apple canonical analytics plus build trust/declaration changes merged th
 Required main, Deno and Playwright checks passed, including all three browser fixture phases.
 The optional preview remained unverified after dependency installation timed out twice.
 Disposable PostgreSQL CI is separate from production verification; a source merge does not prove deployment. Their source tests do not establish hosted deployment or final-device
-delivery. Later 0028/0029 analytics migrations require separate exact plans. Use the
+delivery. Later 0028/0029 analytics migrations were applied through the separate exact plan recorded below. Use the
 [current handoff](../handoffs/2026-10-21-production-payment-activation.md) for source ownership,
 verification and remaining gates. Final screen/image edits, signed packages and device acceptance
 remain owner-dependent; the requested obsolete-code/test audit follows backend and visual completion.
@@ -57,7 +57,7 @@ after all three required checks passed and independent final-head review found n
 preserves main `c24a246d`, PR530 `08a37fc2`, PR515 and PR477 ancestry; GitHub marked all three
 component PRs merged. Combined privacy source `55f09c43` remains byte-identical (SHA256
 `991671790232ac4cccfdec37a64d2ff21c3910f1b85702a2f9b2d8cf0c9e4154`). This merged main SHA
-is the next rollout pin; the deployed foundation receipts above retain their original revision.
+is the current rollout pin; the deployed foundation receipts above retain their original revision.
 
 Combined local validation passed: lint, workspace typecheck, all 137 release tooling/package tests,
 18 final public-trust tests, 96 local documentation links, privacy HTML nesting and exact approved
@@ -73,14 +73,33 @@ passed for only 0028/0029 at `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`. Downloa
 disposable replay match digest `264438fba4729a8e962e3ab73d9c37fac92508d5dbacf87287b9152cf033cb9b`:
 history 27→29, all 14 checks clean, both preservation snapshots unchanged, no issues or warnings.
 Private evidence is under `/tmp/still-rollout-39718015533/`. Matching
-[apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) has a successful
-plan job and is waiting at the owner's personal `supabase-production` approval gate. Its downloaded
-plan JSON exactly matches plan39718015533, including SHA, scope and digest. No hosted write or
-successful apply is established. Exact-revision
+[apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) completed after
+the owner's personal approval. Its actual production receipt was verified at 03:47:24 UTC October 22
+(20:47:24 PDT October 21): exact source and digest, production history 27→29, all 14 checks clean,
+both preservation snapshots unchanged, no issues or warnings, no recovery needed. The closing
+`/tmp/still-rollout-39718015533/production-receipt.json` targets `production`; the earlier log
+envelope is disposable replay evidence and does not prove the hosted apply. Fresh
+[DB-01 run39718854455](https://github.com/ZackC-1/still-app/actions/runs/39718854455) succeeded;
+its private report confirms hosted tail 0029/0028/0027, narrow read-only transaction/rollback proof
+and nothing withheld, with the expected `needs-review` catalogue verdict. Private evidence is under
+`/tmp/still-db01-39718854455/`; no identity details were output. Exact-revision
 [settings/GoTrue rehearsal39717958292](https://github.com/ZackC-1/still-app/actions/runs/39717958292)
 passed on the pinned revision using disposable infrastructure; it is not hosted deployment or
-final-device acceptance. Each new production apply needs the owner's personal
-protected approval. Analytics
+final-device acceptance.
+
+The exact nine-route [purchase-functions plan39718857548](https://github.com/ZackC-1/still-app/actions/runs/39718857548)
+passed on `2bad3028`, digest `8f7ccf06e1a627a7c73fa85e68ca8ced2d17d59c4a5d81f9ce7902f682b51f9f`.
+It pins all nine routes, JWT settings, fixed order and all 29 migration prerequisites; eight rehearsal
+proofs passed, including negative cases, source read-back, repeat application and settings-sync
+isolation. Evidence is under `/tmp/still-purchase-functions-39718857548/`. Matching
+[apply39719229501](https://github.com/ZackC-1/still-app/actions/runs/39719229501) is dispatched
+waiting at the owner's personal approval gate after its successful plan job. The plans match in
+source, bundles, JWT settings and prerequisites; only mode and its bound digest differ. The apply
+digest is `75b14af991dd1c0844555d724ac4068ab3d4b1279e5f3f4755709e93ea7ee0b5`.
+No hosted nine-route write is established. A fresh read-only Stripe endpoint check confirms live mode,
+disabled status, the correct production URL, pinned API version and exact five-event set; no provider change was made.
+Settings sync is already deployed with unchanged source and needs no repeated deployment. Each new production apply
+retains its personal approval gate. Analytics
 subjects switch-on and final-device acceptance remain deferred until the owner's final production-channel
 packages satisfy client-configuration gates; source and privacy publication do not satisfy them.
 

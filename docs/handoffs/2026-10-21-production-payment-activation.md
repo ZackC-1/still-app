@@ -2,7 +2,7 @@
 title: "Production payment activation checkpoint"
 status: active
 created: 2026-10-21T17:35:00-07:00
-updated: 2026-10-21T20:45:00-07:00
+updated: 2026-10-21T20:56:00-07:00
 source: codex-personal
 intended_receiver: production backend session and build owner
 ---
@@ -15,7 +15,7 @@ Foundation [PR522](https://github.com/ZackC-1/still-app/pull/522) merged at
 `bac1539f382798fa2ca812dd782beabc76c47b69` after 32 checks. Deployment preservation fix
 [PR525](https://github.com/ZackC-1/still-app/pull/525) merged at
 `bc728bcabad9ef383906571206becd3f46b1377f` after all 30 checks passed. That revision remains the
-verified foundation deployment revision. The next rollout source is merged main
+verified foundation deployment revision. The current rollout source is merged main
 `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`.
 
 [Plan39707517059](https://github.com/ZackC-1/still-app/actions/runs/39707517059) passed for exactly
@@ -56,10 +56,37 @@ plan and disposable replay receipt match digest
 all 14 checks clean, both preservation snapshots unchanged, no issues or warnings. Private evidence
 is under `/tmp/still-rollout-39718015533/`.
 
-Matching [apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) has a
-successful plan job and is waiting at the owner's personal `supabase-production` approval gate.
-Its downloaded plan JSON exactly matches plan39718015533, including SHA, scope and digest.
-No hosted write or successful apply is established.
+Matching [apply39718256847](https://github.com/ZackC-1/still-app/actions/runs/39718256847) completed
+after the owner's personal approval, with the actual production receipt verified at 03:47:24 UTC
+October 22 (20:47:24 PDT October 21). It confirms exact source `2bad3028` and the digest above,
+production history 27→29, all 14 checks clean, both preservation snapshots unchanged, no issues or
+warnings and no recovery needed. The closing receipt at
+`/tmp/still-rollout-39718015533/production-receipt.json` explicitly targets `production`; the earlier
+envelope in the log is disposable replay evidence and must not be substituted for it.
+
+Fresh [DB-01 run39718854455](https://github.com/ZackC-1/still-app/actions/runs/39718854455)
+succeeded. Its privately decrypted report confirms hosted tail 0029/0028/0027, a narrow read-only
+transaction and rollback proof, and nothing withheld. `needs-review` remains the expected catalogue
+verdict. Private evidence is under `/tmp/still-db01-39718854455/`; no identity details were output.
+
+The exact nine-route [purchase-functions plan39718857548](https://github.com/ZackC-1/still-app/actions/runs/39718857548)
+passed at `2bad3028`, with digest
+`8f7ccf06e1a627a7c73fa85e68ca8ced2d17d59c4a5d81f9ce7902f682b51f9f`. It pins all nine routes,
+JWT settings, fixed deployment order and all 29 migration prerequisites. All eight rehearsal proofs
+passed, including negative cases, source read-back, repeat application and settings-sync isolation.
+Private evidence is under `/tmp/still-purchase-functions-39718857548/`.
+
+Matching [purchase-functions apply39719229501](https://github.com/ZackC-1/still-app/actions/runs/39719229501)
+passed its own plan job and is waiting at the owner's personal `supabase-production` approval gate.
+The downloaded plans match in source, bundles, JWT settings and prerequisites. Their only differences
+are mode and its bound digest: the apply digest is
+`75b14af991dd1c0844555d724ac4068ab3d4b1279e5f3f4755709e93ea7ee0b5`.
+No hosted nine-route write is established. Settings sync is already deployed and its source has not changed;
+no repeated sync deployment is planned.
+
+A fresh read-only Stripe endpoint inventory confirms live mode, disabled status, the correct
+production URL, pinned API version and exact five-event set. No provider change was made;
+hosted handler and signature verification remain pending.
 Exact-revision [settings/GoTrue rehearsal39717958292](https://github.com/ZackC-1/still-app/actions/runs/39717958292)
 passed on the pinned revision using disposable infrastructure. It does not establish hosted
 deployment or final-device acceptance.
@@ -87,7 +114,7 @@ Required main, Deno and Playwright checks passed: 30 successful checks. Browser 
 passed 367 unconfigured (37 skips), 212 configured (192 conditional skips), and 96 paid-tier free-outcome
 cases (one skip), with no failures or flaky cases. GitHub also marked component PR517/520/524/526 merged.
 Disposable PostgreSQL CI is separate from
-production verification. Foundation migrations, purchase secrets and sync-settings are verified in
+production verification. Migrations through 0029, purchase secrets and sync-settings are verified in
 production; the nine purchase routes and final analytics deployment remain pending.
 The optional preview could not complete because dependency installation timed out twice; no
 successful preview verification is claimed.
@@ -206,22 +233,23 @@ repository evidence and the work-state list remain the active durable record.
 ## Next actions and blockers
 
 1. Continue from reviewed main `2bad3028d8b9d8c6fd403c8ae5fd2327534ec4f3`. PR527 and component
-   PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Foundation
-   migrations, purchase secrets, sync-settings, DB-01 and PROD-01 remain complete as recorded above.
-2. Migration plan39718015533 passed with the exact receipt above. Matching apply39718256847 is
-   waiting for owner approval after its successful, exactly matching plan job; await that personal protected approval, then inspect
-   the closing receipt before claiming 0028/0029 applied. Settings/GoTrue rehearsal39717958292 is
-   passed on the pinned revision. Keep production operations sequential under their global concurrency group.
-3. Preserve the exact 0028/0029 scope and pinned merged SHA; do not
-   replay or expand the completed foundation scope. Deploy the fixed nine purchase routes from the
-   final selected SHA, whose gate requires every migration at that SHA. Handle sync-settings through
-   its separate operation and verify whether its source changed before planning any further deploy.
+   PR530/515/477 are merged; PR529 is published and both live privacy paths match source. Migrations
+   through 0029, purchase secrets, sync-settings, fresh DB-01 and PROD-01 remain complete
+   as recorded above.
+2. Nine-route purchase-functions plan39718857548 passed with the exact digest and eight rehearsal
+   proofs above. Apply39719229501 passed its plan job and is waiting for the owner's personal approval;
+   its deployment content matches, with only mode and its bound digest differing as recorded above. No hosted
+   purchase-functions write is established. Settings/GoTrue rehearsal39717958292 passed on the pinned revision.
+   Keep production operations sequential under their global concurrency group.
+3. Deploy only the fixed nine purchase routes from the pinned merged SHA after their reviewed plan
+   and personal approval. Do not replay migrations through 0029. Settings sync is already deployed
+   with unchanged source and needs no repeated deployment.
    Each apply needs its own owner approval. Never bypass protection
    with direct Supabase CLI/SQL or self-approval. Handle partial/unknown outcomes before retrying.
 4. Verify hosted source/configuration and negative routes; keep the new Stripe endpoint disabled
    until its hosted handler/signature verification is ready. Preserve existing RevenueCat settings.
-5. Retain completed native compilation and disposable SQL/deployment evidence. Apply 0028/0029
-   only through new exact migration plans; do not replay the completed 0025–27 scope.
+5. Retain completed native compilation, disposable SQL/deployment evidence and actual production
+   migration receipts. Any new migration requires a new exact plan; do not replay completed 0025–29.
 6. Prepare protected analytics deployment, reconcile existing secrets, deploy the five routes and
    enable the erasure schedule through their exact gates. Wait for an actual successful worker run
    and hosted project/deletion permission proof. Keep the subjects switch deferred until the owner's
