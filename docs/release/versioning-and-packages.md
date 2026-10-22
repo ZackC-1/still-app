@@ -98,13 +98,6 @@ Supplied by the owner at build time:
 | `REVENUECAT_PUBLIC_API_KEY` (production Apple app, not Test Store) | n/a | n/a | `apps/apple/Still/Config/Secrets.local.xcconfig` (gitignored); the committed `Secrets.xcconfig` keeps it empty |
 | `VITE_REVIEW_SIGNIN_EMAIL` | never | never | exported or `packages/app-webview/.env` only |
 
-Firefox data collection: 3.0's manifest declares `personallyIdentifyingInfo` (the sign-in email) and
-`financialAndPaymentInfo` (the Still Pro purchase status) as required, next to the existing required
-`authenticationInfo` and optional `technicalAndInteraction`. New installs see all three required types in
-Firefox's install prompt. Existing Firefox users see the two new types on update: Firefox shows only the
-added required data types and asks them to accept before the update applies. The Chrome manifest is
-unchanged.
-
 A paid release line's Chrome and Firefox packages must be configured with
 `VITE_MODERN_SETTINGS_SYNC_ENABLED=true`: `package.mjs` (and so the Chrome workflow) refuses otherwise
 (`paid-needs-modern-sync`), because a configured build without it loads the 2.x screens, whose paid-on

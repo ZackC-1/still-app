@@ -189,12 +189,11 @@ test("J11.FD the built Firefox manifest asks for exactly storage and alarms, on 
   expect(manifest.optional_host_permissions).toBeUndefined();
   // Settings open in their own tab (ISS-0097); the embedded Add-ons Manager panel hid the sheets.
   expect(manifest.options_ui).toEqual({ open_in_tab: true, page: "options.html" });
-  // Firefox's own data-collection declaration: sign-in needs an identity and an email address,
-  // Still Pro reads purchase status, and analytics is optional.
+  // Firefox's own data-collection declaration: sign-in needs an identity, analytics is optional.
   expect(
     manifest.browser_specific_settings.gecko.data_collection_permissions,
   ).toEqual({
-    required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"],
+    required: ["authenticationInfo"],
     optional: ["technicalAndInteraction"],
   });
   expect(manifest.browser_specific_settings.gecko.strict_min_version).toBe(
