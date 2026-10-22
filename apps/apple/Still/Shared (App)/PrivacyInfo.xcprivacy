@@ -46,8 +46,8 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Account user ID (the Supabase UUID), to sync settings across the user's devices, and
-			     the id analytics reports a signed-in person under. -->
+			<!-- Account user ID supports optional settings sync and purchase identity. V3 analytics
+			     uses a server-issued per-device subject, not the raw Supabase account UUID. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeUserID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
@@ -61,8 +61,9 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Still's own random install and person ids (AnalyticsIdentity.swift), linked to the
-			     account once someone signs in. Not the advertising identifier. -->
+			<!-- V3 uses per-device pseudonymous analytics identifiers under the current permission.
+			     Signed-in events can be associated with the issued account subject; anonymous
+			     history is not merged at sign-in. Not the advertising identifier. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
@@ -88,7 +89,8 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Purchase history (Still Pro entitlement, via StoreKit/RevenueCat). -->
+			<!-- StoreKit/RevenueCat purchase rights serve App Functionality. Canonically verified
+			     purchase/refund events also serve Analytics while Share usage data permits it. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
@@ -98,11 +100,12 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<dict>
-			<!-- Synced Still settings (Pro sync): the user's service toggles are uploaded to and
-			     retained in Supabase profiles.settings, keyed to the account — user-linked retained
+			<!-- Optional free settings sync: the user's service toggles are uploaded to and
+			     retained in Supabase, keyed to the account — user-linked retained
 			     data, so it must be declared. Apple has no "app preferences" type; Other Data is the
 			     catch-all. Web addresses, pages and videos are never collected. -->
 			<key>NSPrivacyCollectedDataType</key>

@@ -42,10 +42,18 @@ export const ANALYTICS_FUNCTIONS = Object.freeze([
   ["analytics-erasure", false],
   ["analytics-identify", true],
   ["delete-user", true],
+  ["analytics-purchase", true],
+  ["analytics-apple-purchase", false],
 ].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
 export const ANALYTICS_BUNDLE_SET = routeSet(
   "still-analytics-function-bundles",
   ANALYTICS_FUNCTIONS,
+  false,
+);
+/** Switch refresh also re-creates checkout, whose optional attribution config is cached. */
+export const ANALYTICS_SWITCH_BUNDLE_SET = routeSet(
+  "still-analytics-switch-function-bundles",
+  Object.freeze([...ANALYTICS_FUNCTIONS, Object.freeze({ name: "create-web-checkout", verifyJwt: true })]),
   false,
 );
 /**

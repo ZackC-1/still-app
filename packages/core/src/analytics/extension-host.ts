@@ -105,6 +105,8 @@ export interface ExtensionAnalyticsHostDeps {
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
+  /** Optional canonical purchase reporting, triggered only by an ordinary trusted Still screen. */
+  readonly reportPurchases?: () => void;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -674,6 +676,7 @@ export function createExtensionAnalyticsHost(
         // A Still screen is an ordinary moment: finish a server email attach that a background
         // start deferred, or that failed earlier. It never changes the account (see attach).
         await accounts.attach(captured);
+        if (await client.observationCurrent(captured)) deps.reportPurchases?.();
         // Also the moment to send or follow up a device erasure (never a background start).
         void deps.erasure?.kick();
         return true;

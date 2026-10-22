@@ -12,6 +12,9 @@ export interface VerifiedAppleTransaction {
   readonly active: boolean;
   /** Family Sharing establishes native local possession only; it cannot link/transfer an account. */
   readonly localOnly?: true;
+  /** Canonical Apple facts for optional analytics; absent on older persisted access observations. */
+  readonly purchasedAt?: number;
+  readonly fullRefundAt?: number;
 }
 export interface AppleAccessVerifier {
   authenticate(evidence: AppleEvidence): Promise<VerifiedAppleTransaction | null>;
@@ -74,6 +77,9 @@ export class VerifiedAppleAccessClient implements AppleAccessVerifier {
       return { key: Array.from(hash, b => b.toString(16).padStart(2, "0")).join(""), environment: this.environment,
         bundleId: product.bundleId, productId: product.productId, originalTransactionId: decoded.originalTransactionId,
         transactionId: decoded.transactionId, ...(decoded.inAppOwnershipType === "FAMILY_SHARED" ? { localOnly: true as const } : {}),
+        purchasedAt: decoded.purchaseDate,
+        ...(decoded.inAppOwnershipType === "PURCHASED" && decoded.revocationType === "REFUND_FULL" &&
+          integer(decoded.revocationDate) ? { fullRefundAt: decoded.revocationDate } : {}),
         active: decoded.revocationDate === undefined && decoded.revocationReason === undefined &&
           decoded.revocationType === undefined && decoded.revocationPercentage === undefined };
     } catch { return null; }

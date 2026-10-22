@@ -164,15 +164,25 @@ Data used to track you: **none**. Data linked to you, all collected for the purp
 | Identifiers → User ID | App Functionality, Analytics | Yes | No |
 | Identifiers → Device ID | Analytics | Yes | No |
 | Usage Data → Product Interaction | Analytics | Yes | No |
-| Purchases → Purchase History | App Functionality (earlier Still Pro purchases and entitlements, kept via StoreKit/RevenueCat) | Yes | No |
+| Purchases → Purchase History | App Functionality (purchase rights and entitlements), Analytics (purchase/refund measurement) | Yes | No |
 | Other Data → Other Data Types | App Functionality (the synced Still settings: which sites are switched on) | Yes | No |
 
 Not collected: Browsing History, Search History, Location, Contacts, Diagnostics beyond the above.
 This table matches `Shared (App)/PrivacyInfo.xcprivacy` exactly (six types); the Safari extension's
 manifest declares a subset (Product Interaction, Device ID, User ID).
-Purchase History stays declared even though 2.1 sells nothing: the app keeps historical entitlements,
-and `Shared (App)/PrivacyInfo.xcprivacy` declares it. The label must match the privacy manifests and the
-privacy policy.
+Purchase History stays declared for historical entitlements as well as V3 purchases. Before the
+V3 Apple analytics build is submitted, confirm **Analytics** and **App Functionality** are both
+selected for Purchase History in App Store Connect, with **Linked to you: Yes** and **Tracking: No**.
+This remains linked data even for pseudonymous device identifiers; it is not a claim of anonymized
+collection. The canonical events are sent only from the originating Apple app under original and
+current sharing permission. The Safari extension does not send purchase/refund events, so its
+manifest keeps the three-type subset above. No card details, browsing history or additional data
+type is introduced by this change.
+
+The label must match the final app privacy manifest and published notice. Apple's
+[privacy details guidance](https://developer.apple.com/app-store/app-privacy-details/) requires all
+applicable uses to be declared and distinguishes purchase history, analytics and advertising tracking.
+Repository edits do not update the portal label; record the owner-confirmed portal change separately.
 
 ## 5. Apple — screenshots (images, not text boxes; captions to put on them)
 

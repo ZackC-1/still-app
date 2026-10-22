@@ -6,7 +6,7 @@ import { authenticatedClaims, signHs256 } from "./jwt.ts";
 
 const HOLDER="11111111-1111-4111-8111-111111111111", OP="22222222-2222-4222-8222-222222222222";
 const HASH="a".repeat(64), SESSION="cs_live_Synthetic", SECRET="synthetic-jwt", URL="https://project.example.test";
-const ADMISSION={ surface:"chrome_desktop",build:"3.0.0.1" };
+const ADMISSION={ surface:"chrome_desktop",build:"3.0.0.1" } as const;
 function b64(value: ArrayBuffer): string { return btoa(String.fromCharCode(...new Uint8Array(value))); }
 async function request(body: unknown = { access_schema:1,...ADMISSION }) {
   const token=await signHs256({ sub:HOLDER,...authenticatedClaims(URL),exp:Math.floor(Date.now()/1000)+600 },SECRET);
@@ -209,4 +209,46 @@ Deno.test("actual composed runtime uses fixed production RPCs, live readback, RC
     assert(await crypto.subtle.verify("Ed25519",publicKey,decode(envelope.signature),new TextEncoder().encode("still-access-proof-v1\n"+canonical)));
     assertEquals(rpcCalls.some(rpc => rpc === "set_entitlement" || rpc.startsWith("qa_sandbox_")),false);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+Deno.test("optional checkout attribution is closed and malformed analytics never prevents functional checkout",async () => {
+  const origin = "d".repeat(64), project = "e".repeat(64);
+  for (const analytics of [null,{ originProof: origin,projectKeySha256: project },{ originProof: origin,projectKeySha256: project,event: "purchase_recorded" },{ originProof: "bad",projectKeySha256: project }]) {
+    const s = setup(); let captured: unknown;
+    const baseStore = s.deps.operationStore;
+    const deps = { ...s.deps,operationStore: (admission: Parameters<typeof baseStore>[0],attribution: Parameters<typeof baseStore>[1]) => {
+      captured=attribution; return baseStore(admission);
+    } };
+    const response=await handleProductionCheckout(await request({ access_schema:1,...ADMISSION,analytics }),deps,false);
+    assertEquals(response.status,200); assertEquals(s.state.creates,1);
+    assertEquals(captured,analytics && Object.keys(analytics).length===2 && analytics.originProof===origin ? analytics : undefined);
+  }
+});
+
+Deno.test("switch redeployment refreshes a warmed checkout attribution gate in both directions",async () => {
+  const values=await configurationInputs(); values.POSTHOG_PROJECT_KEY="synthetic-project";
+  values.ANALYTICS_SUBJECTS_ENABLED="false";
+  const projectKeySha256=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(values.POSTHOG_PROJECT_KEY))),b=>b.toString(16).padStart(2,"0")).join("");
+  const calls:{ rpc:string; parameters:unknown[] }[]=[];
+  const sql=Object.assign((strings:TemplateStringsArray,...parameters:unknown[])=>{
+    calls.push({ rpc:/public\.([a-z_]+)\(/.exec(strings.join("?"))?.[1] ?? "",parameters });
+    return Promise.resolve([{ result:null }]);
+  },{ json:(value:unknown)=>value }) as unknown as ReturnType<NonNullable<Parameters<typeof readProductionCheckoutRuntime>[1]>>;
+  const compose=()=>readProductionCheckoutRuntime(name=>values[name],()=>sql);
+  const warmed=await compose(); assert(warmed);
+  const probe=async (runtime:NonNullable<Awaited<ReturnType<typeof compose>>>)=>{
+    await runtime.operationStore(ADMISSION,{ originProof:"d".repeat(64),projectKeySha256 }).claimCreation(OP,HOLDER,HASH).catch(()=>{});
+    return calls.at(-1)!;
+  };
+  assertEquals((await probe(warmed)).rpc,"production_claim_checkout_creation");
+  values.ANALYTICS_SUBJECTS_ENABLED="true";
+  assertEquals((await probe(warmed)).rpc,"production_claim_checkout_creation","secret alone cannot refresh a cached runtime");
+  const enabled=await compose(); assert(enabled);
+  assertEquals((await probe(enabled)).rpc,"production_claim_checkout_with_analytics");
+  assertEquals(calls.at(-1)!.parameters.at(-1),"d".repeat(64));
+  values.ANALYTICS_SUBJECTS_ENABLED="false";
+  assertEquals((await probe(enabled)).rpc,"production_claim_checkout_with_analytics","disable must also refresh checkout");
+  const disabled=await compose(); assert(disabled);
+  assertEquals((await probe(disabled)).rpc,"production_claim_checkout_creation");
+  assertEquals(disabled.configurationHash,enabled.configurationHash,"optional analytics does not change functional payment binding");
 });

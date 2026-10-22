@@ -20,11 +20,33 @@ it.runIf(process.platform === "darwin")("native executor holds unknown/off sales
   const method = source.slice(start, end);
   const decision = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/PurchaseDecision.swift"), "utf8");
   const boundary = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/NativeSalesPurchaseBoundary.swift"), "utf8");
+  const catalog = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift"), "utf8");
   const harness = `import Foundation
 struct NativeVerifiedAppleRevocation {}
-struct AppleLifetimeOffering: Equatable {}
 struct Package {}
-enum ReceiptStatus { case entitled, noSignal }
+public enum ReceiptStatus: String, Sendable { case entitled, noSignal }
+// Synthetic StoreKit ports never contact a store. The real catalog/provenance rule is compiled below.
+enum StoreKit {
+  struct Transaction {
+    enum Ownership { case purchased }
+    let id: UInt64
+    let productID: String
+    let ownershipType = Ownership.purchased
+    let revocationDate: Date? = nil
+    static func latest(for product: String) async -> VerificationResult<Transaction>? { nil }
+  }
+  enum VerificationResult<T> {
+    case verified(T), unverified
+    var jwsRepresentation: String { "synthetic-jws" }
+  }
+}
+typealias Transaction = StoreKit.Transaction
+struct NativeIdentity { let environment = "production"; let appBundleId = "com.chartash.still" }
+${catalog}
+func fixtureOffer() -> AppleLifetimeOffering {
+  ApplePurchaseCatalog.lifetimeOffering(offeringID: "still_pro_v3", packageID: "$rc_lifetime",
+    productID: "still_pro_v3", isLifetime: true, isNonConsumable: true, price: "$9.99", currencyCode: "USD")!
+}
 enum RevenueCat { enum ErrorCode: Error { case paymentPendingError } }
 public final class ProductPolicyRuntime {
   enum Namespace { case sales }
@@ -41,7 +63,8 @@ public final class ProductPolicyRuntime {
 final class Purchases {
   static let shared = Purchases()
   var charges = 0
-  struct Reply { let userCancelled = false; let customerInfo = true }
+  struct SDKTransaction { let transactionIdentifier: String }
+  struct Reply { let userCancelled = false; let customerInfo = true; let transaction: SDKTransaction? = nil }
   func purchase(package: Package) async throws -> Reply { charges += 1; return Reply() }
 }
 ${decision}
@@ -56,8 +79,11 @@ ${boundary}
   func ensureAnonymousIdentity() async -> Bool { true }
   func hasStillPro() async -> Bool { false }
   func stillProPackage() async -> Package? { Package() }
-  func offering(for package: Package) -> AppleLifetimeOffering? { AppleLifetimeOffering() }
+  func offering(for package: Package) -> AppleLifetimeOffering? { fixtureOffer() }
   static func proEntitlementIsActive(in value: Bool) -> Bool { value }
+  static func bounded<T>(_ deadline: UInt64, fallback: T, cancelOnTimeout: Bool,
+    _ operation: @escaping @MainActor () async -> T) async -> T { await operation() }
+  static func verifiedNativeIdentity(_ transaction: Transaction, jws: String) -> NativeIdentity? { NativeIdentity() }
   func freshSalesPolicy() -> ProductPolicyRuntime? { policy }
   static var installEnvironment = AppleInstallEnvironment.unavailable
   static func verifiedInstallEnvironment() async -> AppleInstallEnvironment { installEnvironment }
@@ -75,7 +101,9 @@ ${method}
       executor.receiptOwned = state == "owned"
       if state == "identity" { executor.policy?.onCheck = { executor.currentAppUserID = "replacement" } }
       Purchases.shared.charges = 0
-      let result = await executor.purchaseStillPro(expectedOffer: AppleLifetimeOffering())
+      var newPurchases = 0
+      let result = await executor.purchaseStillPro(expectedOffer: fixtureOffer(), onNewPurchase: { _ in newPurchases += 1 })
+      guard newPurchases == 0 else { fatalError("missing verified transaction manufactured analytics: " + state) }
       let expected = state == "on" || state == "sandbox-installed" ? 1 : 0
       guard Purchases.shared.charges == expected else { fatalError("charge escaped sales/receipt/session gate: " + state) }
       if state == "unknown" || state == "off" || state == "sandbox-app-store-install" { guard result == .unavailable else { fatalError("unknown/off/production-install result: " + state) } }

@@ -57,9 +57,14 @@ export async function readProductionCheckoutRuntime(read: (name: string) => stri
   const appleStore = new PgAppleAccessStore(sql,"production");
   const apple = await createAppleFulfillmentRuntimeFromConfig(config.apple,{ limiter,createStore: () => appleStore });
   if (!apple.accounts || !apple.access || apple.access.signer.environment !== "production") return null;
+  // Optional analytics configuration is deliberately outside the payment configuration hash.
+  const key = read("POSTHOG_PROJECT_KEY")?.trim();
+  const analyticsDigest = key && read("ANALYTICS_SUBJECTS_ENABLED") === "true"
+    ? bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(key)))) : null;
   return { jwtSecret: apple.jwtSecret,jwksUrl: apple.jwksUrl,expected: apple.expected,accounts: apple.accounts,limiter,
     environment: "production",configurationHash: config.configurationHash,
-    operationStore: admission => new PgPurchaseOperationStore(sql,"production",admission),
+    operationStore: (admission,analytics) => new PgPurchaseOperationStore(sql,"production",admission,
+      analyticsDigest && analytics?.projectKeySha256 === analyticsDigest ? analytics.originProof : undefined),
     billing: new ManagedCheckout(config.billing),
     // Stopped sales blocks new SQL admission, not fulfilment of already-paid purchases.
     // Confirmed Auth, canonical provider evidence and SQL observations still fence every proof.

@@ -125,9 +125,10 @@ public struct ApplePurchaseActionResult: Sendable {
   public let outcome: ApplePurchaseActionOutcome
   public let receipt: ReceiptStatus
   public let productId: String?
+  public let newPurchaseEvidence: [String: String]?
 
   public init(_ outcome: ApplePurchaseActionOutcome, receipt: ReceiptStatus = .noSignal,
-    productId: String? = nil) {
+    productId: String? = nil, newPurchaseEvidence: [String: String]? = nil) {
     let known = productId.flatMap { ApplePurchaseCatalog.product(forProductID: $0) } != nil
     let validSuccess = receipt == .entitled && known &&
       (outcome != .purchased || productId == ApplePurchaseCatalog.stillProV3.productID)
@@ -135,11 +136,22 @@ public struct ApplePurchaseActionResult: Sendable {
       (outcome == .nothing && receipt == .entitled ? .failed : outcome)
     self.receipt = receipt
     self.productId = known ? productId : nil
+    self.newPurchaseEvidence = self.outcome == .purchased && validSuccess ? newPurchaseEvidence : nil
   }
 
   public var payload: [String: Any] {
     var value: [String: Any] = ["outcome": outcome.rawValue, "receipt": receipt.rawValue]
     if let productId { value["productId"] = productId }
+    if let newPurchaseEvidence { value["newPurchaseEvidence"] = newPurchaseEvidence }
     return value
+  }
+}
+
+/// Facts only from the actual SDK completion plus locally verified StoreKit reads.
+public enum AppleNewPurchaseProvenance {
+  public static func eligible(preflightKnown: Bool, preflightID: String?, sdkID: String,
+    verifiedID: String, environment: String, purchased: Bool, revoked: Bool) -> Bool {
+    preflightKnown && !sdkID.isEmpty && sdkID == verifiedID && preflightID != verifiedID &&
+      environment == "production" && purchased && !revoked
   }
 }

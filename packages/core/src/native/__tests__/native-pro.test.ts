@@ -26,6 +26,21 @@ function host(
 }
 
 describe("native scoped Pro feedback", () => {
+  it("retains closed new-purchase evidence only on verified purchase outcomes", async () => {
+    const evidence = {productId:"still_pro_v3",bundleId:"com.chartash.still",signedTransaction:"a.b.c"};
+    const base = {outcome:"purchased",receipt:"entitled",productId:"still_pro_v3"};
+    const valid = host(async () => ({...base,newPurchaseEvidence:evidence}));
+    expect((await valid.bridge.purchasePro(offer)).newPurchaseEvidence).toEqual(evidence);
+    for (const value of [{...evidence,extra:"untrusted"},{...evidence,productId:"still_sync"},{...evidence,signedTransaction:"x".repeat(24_001)}]) {
+      const bad = host(async () => ({...base,newPurchaseEvidence:value}));
+      const result = await bad.bridge.purchasePro(offer);
+      expect(result.outcome).toBe("purchased");
+      expect(result.newPurchaseEvidence).toBeUndefined();
+    }
+    const restored=host(async()=>({...base,outcome:"restored",newPurchaseEvidence:evidence}));
+    expect((await restored.bridge.restorePro()).newPurchaseEvidence).toBeUndefined();
+  });
+
   it("preserves the exact localized lifetime tuple and posts that displayed offer", async () => {
     const { bridge, post } = host(async (message) =>
       message.kind === "proOffering"

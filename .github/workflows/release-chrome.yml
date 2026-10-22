@@ -104,6 +104,9 @@ jobs:
           VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
           VITE_MODERN_SETTINGS_SYNC_ENABLED: ${{ vars.VITE_MODERN_SETTINGS_SYNC_ENABLED }}
+          # Digests (never values) of the server's three public-side access-proof settings; required
+          # once the release declares the paid tier (see docs/release/versioning-and-packages.md).
+          ACCESS_PROOF_SERVER_DIGESTS_JSON: ${{ vars.ACCESS_PROOF_SERVER_DIGESTS_JSON }}
         run: node scripts/release/chrome-package.mjs --out "$RUNNER_TEMP/chrome-package"
       - name: Keep the package for the store job and for testing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

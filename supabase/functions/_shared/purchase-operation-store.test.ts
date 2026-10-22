@@ -63,3 +63,10 @@ Deno.test("production admission refuses unsupported surfaces and malformed build
     assertThrows(() => new PgPurchaseOperationStore(sql, "production", { surface: "chrome_desktop", build }));
   }
 });
+
+Deno.test("original analytics is attached through the single atomic creation claim RPC",async () => {
+  const f=fixture({ operation: { ...base,creation_started_at: TIME },claimed:true });
+  const store=new PgPurchaseOperationStore(f.sql,"production",{ surface:"chrome_desktop",build:"3.0.0.1" },"b".repeat(64));
+  assertEquals((await store.claimCreation(OP,HOLDER,HASH)).claimed,true);
+  assertEquals(f.calls,[{ text:"select public.production_claim_checkout_with_analytics(?::uuid, ?::uuid, ?, ?, ?, ?) as result",values:[OP,HOLDER,HASH,"chrome_desktop","3.0.0.1","b".repeat(64)] }]);
+});

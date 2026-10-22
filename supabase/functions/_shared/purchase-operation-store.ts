@@ -109,7 +109,7 @@ function scope(value: PurchaseOperation, operation: string | null, holder: strin
 /** Closed environment selects fixed RPCs. SQL owns admission, locks and transitions; no retry/release is inferred here. */
 export class PgPurchaseOperationStore<E extends CheckoutEnvironment> implements PurchaseOperationStore<E> {
   private readonly admission: Readonly<CheckoutAdmission> | undefined;
-  constructor(private readonly sql: Sql, private readonly environment: E, admission?: CheckoutAdmission) {
+  constructor(private readonly sql: Sql, private readonly environment: E, admission?: CheckoutAdmission, private readonly analyticsOrigin?: string) {
     if (environment !== "sandbox" && environment !== "production") throw unavailable();
     if (admission && (!["chrome_desktop", "firefox_desktop"].includes(admission.surface) || !/^[a-z0-9][a-z0-9._-]{0,95}$/.test(admission.build))) throw unavailable();
     this.admission = admission ? Object.freeze({ ...admission }) : undefined;
@@ -131,7 +131,9 @@ export class PgPurchaseOperationStore<E extends CheckoutEnvironment> implements 
   async claimCreation(operation: string, holder: string, configurationHash: string): Promise<{ operation: PurchaseOperation<E>; claimed: boolean }> {
     try {
       operation = uuid(operation); holder = uuid(holder); configuration(configurationHash);
-      const rows = this.environment === "production" ? await this.sql`select public.production_claim_checkout_creation(${operation}::uuid, ${holder}::uuid, ${configurationHash}, ${this.admission?.surface ?? null}, ${this.admission?.build ?? null}) as result` :
+      const rows = this.environment === "production" && this.analyticsOrigin
+        ? await this.sql`select public.production_claim_checkout_with_analytics(${operation}::uuid, ${holder}::uuid, ${configurationHash}, ${this.admission?.surface ?? null}, ${this.admission?.build ?? null}, ${this.analyticsOrigin}) as result`
+        : this.environment === "production" ? await this.sql`select public.production_claim_checkout_creation(${operation}::uuid, ${holder}::uuid, ${configurationHash}, ${this.admission?.surface ?? null}, ${this.admission?.build ?? null}) as result` :
         await this.sql`select public.qa_sandbox_claim_checkout_creation(${operation}::uuid, ${holder}::uuid, ${configurationHash}) as result`;
       const value = result(rows);
       if (!object(value) || !exactKeys(value, ["operation", "claimed"]) || typeof value.claimed !== "boolean") throw unavailable();

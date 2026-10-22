@@ -9,6 +9,12 @@ on:
       - "supabase/functions/_shared/*purchase-operation*"
       - "supabase/tests/production_purchase_operations_test.ts"
       - "supabase/tests/apple_sandbox_review_access_test.ts"
+      - "supabase/tests/purchase_analytics_test.ts"
+      - "supabase/functions/analytics-purchase/**"
+      - "scripts/backend/deploy/verify/0028*"
+      - "supabase/functions/analytics-apple-purchase/**"
+      - "supabase/tests/apple_purchase_analytics_test.ts"
+      - "scripts/backend/deploy/verify/0029*"
       - "supabase/functions/_shared/apple-review-access-store.ts"
       - "scripts/backend/deploy/verify/0026*"
       - "scripts/backend/deploy/verify/0027*"
@@ -67,10 +73,25 @@ jobs:
             node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.after"
             cmp -s "$RUNNER_TEMP/$stem.before" "$RUNNER_TEMP/$stem.after" || { echo 'Migration changed existing application rows.' >&2; exit 1; }
           done
+          # The protected runner captures ALL pending snapshots before either migration applies.
+          # Both analytics invariants must therefore work on their shared 0027 baseline.
+          supabase db reset --local --no-seed --version 0027 >/dev/null
+          for stem in 0028_purchase_analytics 0029_apple_purchase_analytics; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.before"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.before"
+          done
+          supabase migration up --local >/dev/null
+          for stem in 0028_purchase_analytics 0029_apple_purchase_analytics; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -At -v ON_ERROR_STOP=1 \
+              --file="scripts/backend/deploy/verify/$stem.invariant.sql" > "$RUNNER_TEMP/$stem.after"
+            node --input-type=module -e 'import {readFileSync} from "node:fs"; import {parseRowCounts} from "./scripts/backend/deploy/deploy.mjs"; parseRowCounts(readFileSync(process.argv[1], "utf8").trim());' "$RUNNER_TEMP/$stem.after"
+            cmp -s "$RUNNER_TEMP/$stem.before" "$RUNNER_TEMP/$stem.after" || { echo 'Analytics migration changed existing rows.' >&2; exit 1; }
+          done
           STILL_PRODUCTION_CHECKOUT_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
             deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54322 \
               --allow-read=scripts/backend/deploy/verify/ \
-              supabase/tests/production_purchase_operations_test.ts supabase/tests/apple_sandbox_review_access_test.ts
+              supabase/tests/production_purchase_operations_test.ts supabase/tests/apple_sandbox_review_access_test.ts supabase/tests/purchase_analytics_test.ts supabase/tests/apple_purchase_analytics_test.ts
       - name: Failure or cancellation cleanup
         if: always()
         run: supabase stop --project-id still-app --no-backup

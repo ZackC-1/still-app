@@ -217,3 +217,11 @@ code would report nothing; the shipped 2.1.x packages predate that change and fo
 first built.
 
 See the plan: [2026-09-23 usage analytics](../plans/2026-09-23-001-feat-usage-analytics-plan.md).
+
+## Canonical Apple purchase transport (2026-10-21)
+
+The approved `purchase_recorded` and `purchase_refunded` events remain authored from canonical server verification. For Apple purchases only, the originating app may immediately transport a closed server-authored descriptor through the existing serial consent and identity fences. Ordinary `track`, content scripts, arbitrary event producers and the persisted generic queue continue rejecting both events. This clarification changes transport, not event authority or schema.
+
+A preparation made under the original permitted scope, actual new native purchase provenance, and verified production transaction within the ten-minute preparation interval establish attribution. Restores, already-owned shortcuts, sandbox, family access, later opt-in and later account linking cannot establish it. Signed-out transport uses the existing anonymous distinct ID; neither that ID nor the private erasure key is sent to the new backend. No payment identifier, receipt, capability or private permission origin reaches PostHog.
+
+Retries require another ordinary foreground on the original device, fresh permission, and the exact original identity scope. Stable server UUIDs and original timestamps are reused; events older than 30 days are omitted. Off, identity changes and erasure cannot reattribute or revive delivery. Optional server attribution and local capability expire after 90 days, with bounded cleanup through existing protected erasure maintenance. Late refunds, users who do not return, failed initial binding and other unproven cases are deliberately undercounted. Financial and entitlement truth remain independent of this optional analytics subset. See [plan 005](../plans/2026-10-21-005-apple-canonical-purchase-analytics.md).

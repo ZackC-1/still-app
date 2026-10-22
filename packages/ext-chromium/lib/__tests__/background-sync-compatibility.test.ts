@@ -61,6 +61,7 @@ vi.mock("@still/core/sync", async (importOriginal) => {
 vi.mock("../analytics.js", () => ({
   storageKeyValue: () => ({}),
   createBackgroundAnalytics: () => ({
+    client: { enabled: false },
     onInstalled: vi.fn(),
     onStart: vi.fn(),
     onActivity: vi.fn(),
@@ -72,7 +73,8 @@ vi.mock("../analytics.js", () => ({
 vi.mock("../default-on-analytics.js", async () => ({
   createDefaultOnBackgroundAnalytics: (await import("../analytics.js")).createBackgroundAnalytics,
 }));
-vi.mock("@still/core/analytics", () => ({
+vi.mock("@still/core/analytics", async (original) => ({
+  ...(await original<typeof import("@still/core/analytics")>()),
   supabaseSubjectIssuer: () => async () => null,
   buildChannelEnvelope: () => undefined,
   createIndexedDbKeyValue: () => ({}),

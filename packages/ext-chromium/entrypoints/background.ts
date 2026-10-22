@@ -1,3 +1,4 @@
+import { purchaseAnalyticsContext, purchaseAnalyticsReporter, withCheckoutAnalytics, type PurchaseAnalyticsContext } from "@still/core/analytics";
 import { createClient, FunctionsHttpError, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter, SettingsStorageRecovery } from "@still/core/storage";
@@ -298,6 +299,7 @@ export default defineBackground(() => {
   // V3 builds share usage data on by default with the settings switch as the off path (Firefox:
   // the optional data-collection permission), per ADR 0004 (lib/default-on-analytics.ts). The
   // inline build-time check folds this to the 2.x factory in every 2.x build, byte-for-byte.
+  let reportPurchaseAnalytics: (() => void) | undefined;
   const analytics = (
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
       ? createDefaultOnBackgroundAnalytics
@@ -317,6 +319,7 @@ export default defineBackground(() => {
       queue: createIndexedDbKeyValue(),
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       requestQuietFlush: () => requestQuietFlush(chrome.alarms),
+      reportPurchases: () => reportPurchaseAnalytics?.(),
       identifyOnServer: spine
         ? async () => {
             const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
@@ -418,6 +421,14 @@ export default defineBackground(() => {
   chrome.alarms?.onAlarm.addListener((alarm) => {
     if (alarm.name === QUIET_FLUSH_ALARM) void analytics.flushWhenReady();
   });
+  if (PAID_TIER_ENABLED && import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine) {
+    const capture = purchaseAnalyticsContext(analytics.client, {
+      key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+      host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+    }, import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL === "test" ? "test" : import.meta.env.VITE_ANALYTICS_BUILD_CHANNEL === "dev" ? "dev" : undefined);
+    spine.setPurchaseAnalytics(capture);
+    reportPurchaseAnalytics = purchaseAnalyticsReporter({ capture, prepare: spine.preparePurchaseAnalytics });
+  }
   chrome.runtime.onMessage.addListener(analytics.listener);
 
   // Content-script nudge — the ONLY handler a content-script sender may reach (plan KTD sender
@@ -624,7 +635,10 @@ function createSessionSpine(
   settingsRuntime: ReturnType<typeof modernSettingsRuntime>,
   accessTrust: import("@still/core/entitlement").AccessTrust,
 ): { session: ExtensionSession; client: SupabaseClient; accessEvidence: (session: TrustedAccessContext["session"]) => "absent" | "unknown";
-  accessEvidenceDeadline: () => number | null } | null {
+  accessEvidenceDeadline: () => number | null;
+  setPurchaseAnalytics: (capture: () => Promise<PurchaseAnalyticsContext | null>) => void;
+  preparePurchaseAnalytics: () => Promise<{ account: string; send: (body: PurchaseAnalyticsContext["body"], signal: AbortSignal) => Promise<unknown> } | null>;
+} | null {
   const config = settingsRuntime.supabase;
   if (config === null) return null;
   const routeProfile = readBackendRouteProfile(import.meta.env.VITE_BACKEND_ROUTE_PROFILE);
@@ -633,7 +647,11 @@ function createSessionSpine(
   // through to the production profile table, RPC or realtime subscription.
   if (routeProfile === "shared-hosted-sandbox" && !settingsRuntime.modernCloud) return null;
 
+  let capturePurchaseAnalytics: () => Promise<PurchaseAnalyticsContext | null> = () => Promise.resolve(null);
+  const paymentFetch = PAID_TIER_ENABLED && routeProfile === "production"
+    ? withCheckoutAnalytics(fetch, `${config.url.replace(/\/$/, "")}/functions/v1/create-web-checkout`, () => capturePurchaseAnalytics()) : fetch;
   const client = createClient(config.url, config.anonKey, {
+    ...(PAID_TIER_ENABLED ? { global: { fetch: paymentFetch } } : {}),
     auth: {
       persistSession: true,
       autoRefreshToken: false,
@@ -750,6 +768,18 @@ function createSessionSpine(
     // it on disk for the next wake to resurrect.
     clearAuthStorage: () => { authBoundary(); return clearExtensionAuthStorage(order); },
   });
-  return { session, client, accessEvidence: verified => scoped?.evidenceStatus(verified) ?? "unknown",
+  return { session, client,
+    setPurchaseAnalytics: capture => { capturePurchaseAnalytics = capture; },
+    preparePurchaseAnalytics: async () => {
+      if (routeProfile !== "production") return null;
+      const { data, error } = await client.auth.getSession();
+      const current = data.session;
+      if (error || !current) return null;
+      return { account: current.user.id, send: (body, signal) => fetch(`${config.url.replace(/\/$/, "")}/functions/v1/analytics-purchase`, {
+        method: "POST", headers: { Authorization: `Bearer ${current.access_token}`, apikey: config.anonKey, "content-type": "application/json" },
+        body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
+      }) };
+    },
+    accessEvidence: verified => scoped?.evidenceStatus(verified) ?? "unknown",
     accessEvidenceDeadline: () => scoped?.evidenceDeadline() ?? null };
 }

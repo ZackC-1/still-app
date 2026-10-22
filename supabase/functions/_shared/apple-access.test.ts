@@ -95,6 +95,18 @@ Deno.test({ name: "Apple JWS actual certificate/signature boundary and fresh can
         assertEquals((await client.refresh(verified!))?.active, false);
       }
     });
+    await t.step("analytics retains canonical purchase time and only explicit purchased full refunds", async () => {
+      assertEquals(verified?.purchasedAt,payload.purchaseDate);
+      for (const revocationType of [undefined,"REFUND_PRORATED","FAMILY_REVOKE"]) {
+        canonical=chain.jws({...payload,revocationDate:now,revocationType});
+        assertEquals((await client.refresh(verified!))?.fullRefundAt,undefined);
+      }
+      canonical=chain.jws({...payload,revocationDate:now,revocationType:"REFUND_FULL"});
+      const full=await client.refresh(verified!);
+      assertEquals(full?.active,false);assertEquals(full?.fullRefundAt,now);
+      const familyProof={...evidence,signedTransaction:chain.jws({...payload,inAppOwnershipType:"FAMILY_SHARED",revocationDate:now,revocationType:"REFUND_FULL"})};
+      assertEquals((await client.authenticate(familyProof))?.fullRefundAt,undefined);
+    });
     await t.step("actual verified family receipt establishes only local possession", async () => {
       const familyEvidence = { ...evidence, signedTransaction: chain.jws({ ...payload, inAppOwnershipType: "FAMILY_SHARED" }) };
       const family = await client.authenticate(familyEvidence);
