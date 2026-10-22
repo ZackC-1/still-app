@@ -82,4 +82,10 @@ export interface BenefitAccessSnapshot {
    * which means false.
    */
   readonly accountHoldsPro?: boolean;
+  /**
+   * The account `accountHoldsPro` is about, or null when it is false. A reader shows "Still Pro
+   * User" only for the account it displays right now, so a snapshot kept across an account switch
+   * can never put one account's tag beside another's address.
+   */
+  readonly accountHoldsProFor?: string | null;
 }

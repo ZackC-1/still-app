@@ -17,11 +17,11 @@ function trust(name: string): AccessTrust {
   };
 }
 
-function authority(name: string, record: unknown) {
+function authority(name: string, record: unknown, wall: number) {
   const unused = () => { throw new Error("not part of this read"); };
   const deps = {
     trust: trust(name),
-    now: () => shared.wall,
+    now: () => wall,
     bridge: {
       appleLocalPurchaseEvidence: vi.fn(unused), installAppleAccess: vi.fn(unused), observeAppleAccess: vi.fn(unused),
       observeAppleLinkAccess: vi.fn(unused), observeBenefits: vi.fn(unused),
@@ -41,6 +41,12 @@ describe("account-holds-pro shared vectors (TypeScript side)", () => {
   it.each(shared.cases.map(c => [c.name, c] as const))("%s", async (_name, c) => {
     // The app asks for its own signed-in account; a signed-out record is asked about the vectors' account.
     const account = (c.record.accountId as string | null) ?? proofs.account;
-    expect(await authority(c.trust, c.record).readAccountHeldPro(account)).toBe(c.accountHoldsPro);
+    expect(await authority(c.trust, c.record, (c as { wall?: number }).wall ?? shared.wall).readAccountHeldPro(account)).toBe(c.accountHoldsPro);
+  });
+
+  it("the deadline cases sit exactly at the boundary with every clock flag false", () => {
+    const timed = shared.cases.filter(c => "wall" in c) as unknown as { record: { rights: { clock: Record<string, unknown> }[] }; wall: number; accountHoldsPro: boolean }[];
+    expect(timed.map(c => [c.wall - (c.record.rights[0]!.clock.expiresAt as number), c.accountHoldsPro])).toEqual([[-1, true], [0, false]]);
+    for (const c of timed) for (const flag of ["expired", "revoked", "paused"]) expect(c.record.rights[0]!.clock[flag]).toBe(false);
   });
 });

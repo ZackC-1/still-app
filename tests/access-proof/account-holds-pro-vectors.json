@@ -2,6 +2,7 @@
   "notice": "Synthetic. Envelopes are the public test vectors in vectors.json (seed byte07 repeated 32); no production key, customer or provider record. Regenerate with generate-account-holds-pro-vectors.py.",
   "snapshotKeys": [
     "accountHoldsPro",
+    "accountHoldsProFor",
     "generation",
     "independentProtection",
     "refreshAfterMs",
@@ -485,6 +486,68 @@
         "revocations": []
       },
       "accountHoldsPro": false
+    },
+    {
+      "name": "one millisecond before the proof deadline",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1702591999998,
+              "highWater": 1700000000000,
+              "lastWall": 1702591999998,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": true,
+      "wall": 1702591999999
+    },
+    {
+      "name": "at the proof deadline",
+      "trust": "synthetic",
+      "record": {
+        "schema": 1,
+        "accountId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "generation": 4,
+        "sessionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "rights": [
+          {
+            "envelope": "{\"payload\":\"eyJzY2hlbWEiOjEsImlzc3VlciI6InN0aWxsLWFjY2VzcyIsImVudmlyb25tZW50Ijoic2FuZGJveCIsImF1ZGllbmNlIjoic3RpbGwtYXBwIiwia2luZCI6InBhaWRfYWNjb3VudCIsInByb3ZlbmFuY2UiOiJwcm92aWRlcl92ZXJpZmllZCIsInJpZ2h0IjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaG9sZGVyIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvZHVjdCI6InN0aWxsLXByby12MyIsImJlbmVmaXRzIjpbInlvdXR1YmUuY29tbWVudHMiXSwib3duZXJzaGlwX3JldmlzaW9uIjoxLCJ2ZXJpZmllZF9hdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTcwMjU5MjAwMDAwMH0\",\"kid\":\"synthetic-access\",\"alg\":\"ed25519\",\"signature\":\"EIV0LEiEpZp00BnGiW-tAaE1z8ETgqEx-uOnjrCVvvCc-zi6veckayZpgJBJJUbDlcMfFvaxYa7pS2NxtLURCA\"}",
+            "clock": {
+              "proofIdentity": "synthetic-access:1085742c4884a59a74d019c6896fad01a135cfc11382a131fae3a78eb095bef09cfb38babde7246b26698090492546c395c31f16f6b161aee94b6371b4b51108",
+              "verifiedAt": 1700000000000,
+              "expiresAt": 1702592000000,
+              "issuerTimeAtReceipt": 1700000000000,
+              "wallAtReceipt": 1702591999998,
+              "highWater": 1700000000000,
+              "lastWall": 1702591999998,
+              "expired": false,
+              "revoked": false,
+              "paused": false
+            },
+            "accountGeneration": 4
+          }
+        ],
+        "revocations": []
+      },
+      "accountHoldsPro": false,
+      "wall": 1702592000000
     }
   ]
 }

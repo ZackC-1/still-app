@@ -19,9 +19,14 @@ const SIGNED_IN: AppManagedAccountSource = { userId: "00000000-0000-4000-8000-00
   cloudReachable: true, pendingUpload: false, lastSyncedAt: 5, accountRevision: 1 };
 const SIGNED_OUT: AppManagedAccountSource = { ...SIGNED_IN, userId: null, accountEmail: null };
 
-type Held = boolean | "absent";
+// Native's answer: held by the signed-in account, by another account (a snapshot kept across an
+// account switch in the app), not held, or absent (an older app).
+type Held = boolean | "other-account" | "absent";
+const OTHER_ACCOUNT = "00000000-0000-4000-8000-0000000000bb";
 const withHeld = (access: BenefitAccessSnapshot, held: Held): BenefitAccessSnapshot =>
-  held === "absent" ? access : { ...access, accountHoldsPro: held };
+  held === "absent" ? access
+    : held === "other-account" ? { ...access, accountHoldsPro: true, accountHoldsProFor: OTHER_ACCOUNT }
+    : { ...access, accountHoldsPro: held, accountHoldsProFor: held ? SIGNED_IN.userId : null };
 
 function expectTag(expected: string | null) {
   const card = screen.getByRole("heading", { name: "Settings sync" }).closest("section") as HTMLElement;
@@ -36,6 +41,7 @@ const CASES: [string, AppManagedAccountSource, Held, AccessState, string | null]
   ["signed in, the account holds Still Pro", SIGNED_IN, true, "purchased", ACCOUNT_TAG],
   ["signed in, only this device holds Still Pro", SIGNED_IN, false, "purchased", DEVICE_TAG],
   ["signed in, an older native snapshot without the field", SIGNED_IN, "absent", "purchased", DEVICE_TAG],
+  ["signed in, native's answer is about the previous account", SIGNED_IN, "other-account", "purchased", DEVICE_TAG],
   ["signed out with Still Pro on this device", SIGNED_OUT, true, "purchased", DEVICE_TAG],
   ["signed in, the account's answer but Still Pro is not verified here", SIGNED_IN, true, "verification_required", null],
   ["signed in, Still Pro locked", SIGNED_IN, false, "locked", null],

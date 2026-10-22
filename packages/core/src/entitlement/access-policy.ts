@@ -1,7 +1,7 @@
 import type { AccessCacheRecord } from "./access-record.js";
 import { parseLocalProtection } from "./local-protection.js";
 import { PAID_ACCESS_WINDOW_MS, type AccessState, type BenefitAccessSnapshot, type SettingsV2, FEATURE_IDS, FEATURE_REGISTRY, PAID_TIER_ENABLED, type LocalProtectionRecord, type BenefitId, type FeatureId, type PaidAccessClock } from "@still/shared-types";
-import { isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, type VerifiedAccessProof } from "./access-proof.js";
+import { isAccessUUID, isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, type VerifiedAccessProof } from "./access-proof.js";
 
 export interface AccessObservation {
   readonly wall: number;
@@ -238,10 +238,15 @@ export function initialAccessSnapshot(context: Pick<TrustedAccessContext, "paidM
 export function parseBenefitAccessSnapshot(value: unknown): BenefitAccessSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Unreadable benefit snapshot");
   const snapshot = value as Record<string, unknown>;
-  // Five keys, or six with native's display-only `accountHoldsPro` Boolean (ISS-0105). An older
-  // record without it reads as "not the account's".
+  // Native's display-only account answer (ISS-0105): five keys without it (an older app), six with
+  // only the Boolean (an earlier QA build), seven with the Boolean and the account it is about.
+  // Only the seven-key form can say "the account's": a true without its account, or one whose
+  // account is malformed or disagrees with the Boolean, is unreadable or reads as false.
   const keys = Object.keys(snapshot).length;
-  if (keys === 6 ? !Object.hasOwn(snapshot, "accountHoldsPro") || typeof snapshot.accountHoldsPro !== "boolean" : keys !== 5) throw new Error("Unreadable benefit snapshot");
+  const held = snapshot.accountHoldsPro, holder = snapshot.accountHoldsProFor;
+  if (keys < 5 || keys > 7 ||
+      (keys >= 6 && (!Object.hasOwn(snapshot, "accountHoldsPro") || typeof held !== "boolean")) ||
+      (keys === 7 && (!Object.hasOwn(snapshot, "accountHoldsProFor") || !(holder === null || isAccessUUID(holder)) || held !== (holder !== null)))) throw new Error("Unreadable benefit snapshot");
   if (snapshot.schema !== 1 || !isSafeAccessInteger(snapshot.generation) ||
       !(snapshot.refreshAfterMs === null || (isSafeAccessInteger(snapshot.refreshAfterMs) && snapshot.refreshAfterMs >= 1 && snapshot.refreshAfterMs <= 60_000)) ||
       !snapshot.states || typeof snapshot.states !== "object" || Array.isArray(snapshot.states)) throw new Error("Unreadable benefit snapshot");
@@ -253,7 +258,7 @@ export function parseBenefitAccessSnapshot(value: unknown): BenefitAccessSnapsho
       !snapshot.independentProtection.every(benefit => ACCESS_BENEFITS.includes(benefit) && ["purchased", "protected"].includes(states[benefit] as string))) throw new Error("Unreadable independent protection");
   return Object.freeze({ schema: 1, generation: snapshot.generation,
     states: Object.freeze({ ...states }) as Readonly<Record<BenefitId, AccessState>>, refreshAfterMs: snapshot.refreshAfterMs as number | null, independentProtection: Object.freeze([...snapshot.independentProtection]),
-    accountHoldsPro: snapshot.accountHoldsPro === true });
+    accountHoldsPro: keys === 7 && held === true, accountHoldsProFor: keys === 7 && held === true ? holder as string : null });
 }
 
 /** Resolve exactly once per committed host observation. Never interpret a raw envelope as

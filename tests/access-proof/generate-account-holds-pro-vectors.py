@@ -37,14 +37,22 @@ cases = [
   ("untrusted signing key", "other-key", record([right("paid-account")]), False),
   ("other environment", "production", record([right("paid-account")]), False),
 ]
+# The proof deadline, read at the reader's wall clock with every clock flag false and a clock that
+# has not reached it either, so `wall < expires_at` alone decides (catches a `<` / `<=` drift).
+boundary = dict(wallAtReceipt=E - 2, lastWall=E - 2)
+timed = [
+  ("one millisecond before the proof deadline", "synthetic", record([right("paid-account", **boundary)]), True, E - 1),
+  ("at the proof deadline", "synthetic", record([right("paid-account", **boundary)]), False, E),
+]
 out = {
   "notice": "Synthetic. Envelopes are the public test vectors in vectors.json (seed byte07 repeated 32); no production key, customer or provider record. Regenerate with generate-account-holds-pro-vectors.py.",
-  "snapshotKeys": ["accountHoldsPro", "generation", "independentProtection", "refreshAfterMs", "schema", "states"],
+  "snapshotKeys": ["accountHoldsPro", "accountHoldsProFor", "generation", "independentProtection", "refreshAfterMs", "schema", "states"],
   "legacySnapshotKeys": ["generation", "independentProtection", "refreshAfterMs", "schema", "states"],
   "wall": 2000,
   "sessionId": SESSION,
   # A valid Ed25519 public key that did not sign any vector (RFC 8032 test 1).
   "otherPublicKeyHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-  "cases": [{"name": n, "trust": t, "record": r, "accountHoldsPro": x} for n, t, r, x in cases],
+  "cases": [{"name": n, "trust": t, "record": r, "accountHoldsPro": x} for n, t, r, x in cases] +
+           [{"name": n, "trust": t, "record": r, "accountHoldsPro": x, "wall": w} for n, t, r, x, w in timed],
 }
 json.dump(out, open(out_path, "w"), indent=2); open(out_path, "a").write("\n")

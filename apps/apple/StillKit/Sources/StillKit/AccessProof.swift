@@ -337,21 +337,28 @@ public struct BenefitAccessSnapshot: Encodable {
   /// signed-in account itself holds Still Pro (`accountHoldsStillPro`), so the Safari popup and
   /// Settings page read "Still Pro User" rather than "Still Pro on this device".
   public let accountHoldsPro: Bool
-  init(generation: Int, states: [String: String], refreshAfterMs: Int?, independentProtection: [String], accountHoldsPro: Bool = false) {
+  /// The account that answer is about (the record's signed-in account), or nil when it is false.
+  /// Safari keeps a snapshot for up to `refreshAfterMs` while the account line is read fresh, so a
+  /// reader shows the tag only when this equals the account it displays: the answer can never
+  /// outlive its account.
+  public let accountHoldsProFor: String?
+  init(generation: Int, states: [String: String], refreshAfterMs: Int?, independentProtection: [String], heldBy holder: String? = nil) {
     self.generation = generation; self.states = states; self.refreshAfterMs = refreshAfterMs
-    self.independentProtection = independentProtection; self.accountHoldsPro = accountHoldsPro
+    self.independentProtection = independentProtection
+    self.accountHoldsPro = holder != nil; self.accountHoldsProFor = holder
   }
   /// The same answer without account provenance (for a reader showing a different account).
   func withoutAccountProvenance() -> BenefitAccessSnapshot {
     BenefitAccessSnapshot(generation: generation, states: states, refreshAfterMs: refreshAfterMs, independentProtection: independentProtection)
   }
-  private enum CodingKeys: String, CodingKey { case schema, generation, states, refreshAfterMs, independentProtection, accountHoldsPro }
+  private enum CodingKeys: String, CodingKey { case schema, generation, states, refreshAfterMs, independentProtection, accountHoldsPro, accountHoldsProFor }
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(schema, forKey: .schema); try c.encode(generation, forKey: .generation)
     try c.encode(states, forKey: .states); try c.encode(refreshAfterMs, forKey: .refreshAfterMs)
     try c.encode(independentProtection, forKey: .independentProtection)
     try c.encode(accountHoldsPro, forKey: .accountHoldsPro)
+    try c.encode(accountHoldsProFor, forKey: .accountHoldsProFor)
   }
 }
 
@@ -410,5 +417,5 @@ func resolveAccessSnapshot(_ record: AccessCacheRecord, evidence: [ScopedAccessE
   let accountHoldsPro = context.paidMode && matchingSession &&
     wall.map { accountHoldsStillPro(record, evidence: evidence, wall: $0) } == true
   return BenefitAccessSnapshot(generation: record.generation, states: states, refreshAfterMs: delay,
-    independentProtection: independent, accountHoldsPro: accountHoldsPro)
+    independentProtection: independent, heldBy: accountHoldsPro ? record.accountId : nil)
 }

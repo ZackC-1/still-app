@@ -228,6 +228,7 @@ export class EntitlementCache {
       independentProtection: preserveIndependent ? this.accessSnapshot.independentProtection : [],
       // A held answer is not an observation: whose Still Pro it is waits for the next one.
       accountHoldsPro: false,
+      accountHoldsProFor: null,
     });
   }
   private applyAccess(snapshot: BenefitAccessSnapshot): void {

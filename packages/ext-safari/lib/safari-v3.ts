@@ -116,11 +116,17 @@ export interface PopupAccountDisplay {
  * ISS-0105 (owner, 22 Oct): whether the signed-in account itself holds Still Pro, from native's
  * benefit snapshot only. StillKit sets `accountHoldsPro` from the same conditions as the Apple app's
  * own `readAccountHeldPro` (a verified account proof for the account the app shows, in its current
- * session), never from this device's purchase. Absent (an older app, or no answer yet) is false, so
- * a purchased Still Pro reads "Still Pro on this device". Display only: it unlocks nothing.
+ * session), never from this device's purchase. The snapshot also names that account
+ * (`accountHoldsProFor`): the background may keep a snapshot for up to a minute while the account
+ * line is read fresh, so the answer counts only for the account displayed now. Absent (an older
+ * app, or no answer yet) is false, so a purchased Still Pro reads "Still Pro on this device".
+ * Display only: it unlocks nothing.
  */
-function accountHoldsPro(access: Pick<BenefitAccessSnapshot, "accountHoldsPro"> | undefined): boolean {
-  return access?.accountHoldsPro === true;
+function accountHoldsPro(
+  access: Pick<BenefitAccessSnapshot, "accountHoldsPro" | "accountHoldsProFor"> | undefined,
+  account: string,
+): boolean {
+  return access?.accountHoldsPro === true && access.accountHoldsProFor === account;
 }
 
 function statusFor(source: AppManagedAccountSource, text: AccountStatusText): PopupAccountDisplay["status"] {
@@ -143,12 +149,12 @@ function statusFor(source: AppManagedAccountSource, text: AccountStatusText): Po
 export function appManagedPopupAccount(
   source: AppManagedAccountSource,
   text: AccountStatusText,
-  access?: Pick<BenefitAccessSnapshot, "accountHoldsPro">,
+  access?: Pick<BenefitAccessSnapshot, "accountHoldsPro" | "accountHoldsProFor">,
 ): PopupAccountDisplay | undefined {
   if (!source.userId) return undefined;
   return {
     address: source.accountEmail ?? undefined,
-    holdsPro: accountHoldsPro(access),
+    holdsPro: accountHoldsPro(access, source.userId),
     lastSyncedAt: source.lastSyncedAt,
     status: statusFor(source, text),
   };
@@ -185,7 +191,7 @@ export function appManagedSettingsSync(
   source: AppManagedAccountSource,
   text: AccountStatusText,
   openApp?: () => void,
-  access?: Pick<BenefitAccessSnapshot, "accountHoldsPro">,
+  access?: Pick<BenefitAccessSnapshot, "accountHoldsPro" | "accountHoldsProFor">,
 ): SettingsSyncDisplay {
   if (!source.userId) return openApp ? { onSignIn: openApp, appHandoff: true } : { account: { confirmed: false } };
   return {
@@ -194,7 +200,7 @@ export function appManagedSettingsSync(
       identity: source.userId,
       revision: source.accountRevision,
       confirmed: false,
-      holdsPro: accountHoldsPro(access),
+      holdsPro: accountHoldsPro(access, source.userId),
       // The same synced line as the popup and the Chrome and Firefox Settings page.
       lastSyncedAt: source.lastSyncedAt,
       status: statusFor(source, text),

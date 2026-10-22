@@ -217,17 +217,21 @@ describe("the Apple app owns the account on Safari", () => {
 });
 
 describe("ISS-0105 follow-up (owner, 22 Oct): Safari's tag follows native's account provenance", () => {
-  const source = { userId: "u1", accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const source = { userId: A, accountEmail: "a@still.test", cloudReachable: true, pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 };
   const text = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
+  const heldBy = (account: string) => ({ accountHoldsPro: true, accountHoldsProFor: account });
 
-  it("marks the app's account as holding Still Pro only when native's snapshot says so", () => {
-    expect(appManagedPopupAccount(source, text, { accountHoldsPro: true })?.holdsPro).toBe(true);
-    expect(appManagedSettingsSync(source, text, undefined, { accountHoldsPro: true }).account?.holdsPro).toBe(true);
+  it("marks the app's account as holding Still Pro only when native's snapshot says so for that account", () => {
+    expect(appManagedPopupAccount(source, text, heldBy(A))?.holdsPro).toBe(true);
+    expect(appManagedSettingsSync(source, text, undefined, heldBy(A)).account?.holdsPro).toBe(true);
   });
 
   it.each([
-    ["native says no", { accountHoldsPro: false }],
-    ["an older snapshot without the field", {}],
+    ["native says no", { accountHoldsPro: false, accountHoldsProFor: null }],
+    ["native's yes is about another account (a snapshot kept across an account switch)", heldBy(B)],
+    ["a yes that names no account (an earlier build)", { accountHoldsPro: true }],
+    ["an older snapshot without the fields", {}],
     ["no snapshot yet", undefined],
   ] as const)("%s: not the account's, so the tag reads Still Pro on this device", (_name, access) => {
     expect(appManagedPopupAccount(source, text, access)?.holdsPro).toBe(false);
@@ -235,15 +239,15 @@ describe("ISS-0105 follow-up (owner, 22 Oct): Safari's tag follows native's acco
   });
 
   it("signed out never carries account provenance, whatever the snapshot says", () => {
-    expect(appManagedPopupAccount({ ...source, userId: null }, text, { accountHoldsPro: true })).toBeUndefined();
-    expect(appManagedSettingsSync({ ...source, userId: null }, text, undefined, { accountHoldsPro: true })).toEqual({ account: { confirmed: false } });
+    expect(appManagedPopupAccount({ ...source, userId: null }, text, heldBy(A))).toBeUndefined();
+    expect(appManagedSettingsSync({ ...source, userId: null }, text, undefined, heldBy(A))).toEqual({ account: { confirmed: false } });
     // With the app hand-off (#539), signed out is still only Sign in: no account, so no provenance.
     const openSync = () => {};
-    expect(appManagedSettingsSync({ ...source, userId: null }, text, openSync, { accountHoldsPro: true })).toEqual({ onSignIn: openSync, appHandoff: true });
+    expect(appManagedSettingsSync({ ...source, userId: null }, text, openSync, heldBy(A))).toEqual({ onSignIn: openSync, appHandoff: true });
   });
 
   it("signed in with the app hand-off available still carries native's answer", () => {
-    expect(appManagedSettingsSync(source, text, () => {}, { accountHoldsPro: true }).account?.holdsPro).toBe(true);
-    expect(appManagedSettingsSync(source, text, () => {}, { accountHoldsPro: false }).account?.holdsPro).toBe(false);
+    expect(appManagedSettingsSync(source, text, () => {}, heldBy(A)).account?.holdsPro).toBe(true);
+    expect(appManagedSettingsSync(source, text, () => {}, heldBy(B)).account?.holdsPro).toBe(false);
   });
 });

@@ -11,7 +11,7 @@ import XCTest
 @available(macOS 10.15, *)
 final class AccountHoldsProTests: XCTestCase {
   struct Vectors: Decodable {
-    struct Case: Decodable { let name: String; let trust: String; let record: AccessCacheRecord; let accountHoldsPro: Bool }
+    struct Case: Decodable { let name: String; let trust: String; let record: AccessCacheRecord; let accountHoldsPro: Bool; let wall: Int? }
     let snapshotKeys: [String]
     let legacySnapshotKeys: [String]
     let wall: Int
@@ -51,20 +51,22 @@ final class AccountHoldsProTests: XCTestCase {
 
   func testSharedVectorsAgreeWithTheAppsAccountProvenance() throws {
     let v = try vectors()
-    XCTAssertGreaterThanOrEqual(v.cases.count, 15)
+    XCTAssertGreaterThanOrEqual(v.cases.count, 17)
     XCTAssertTrue(v.cases.contains { $0.accountHoldsPro })
     XCTAssertTrue(v.cases.contains { !$0.accountHoldsPro })
     for c in v.cases {
       let context = NativeAccessContext(paidMode: true, supported: all, accountId: c.record.accountId,
         sessionId: c.record.sessionId, sessionKnown: true)
-      let snapshot = try store(c.record, trust: trust(c.trust, v)).observeBenefits(wall: v.wall, context: context).1
+      let snapshot = try store(c.record, trust: trust(c.trust, v)).observeBenefits(wall: c.wall ?? v.wall, context: context).1
       XCTAssertEqual(snapshot.accountHoldsPro, c.accountHoldsPro, c.name)
+      // The answer names its account, and only when it is true.
+      XCTAssertEqual(snapshot.accountHoldsProFor, c.accountHoldsPro ? c.record.accountId : nil, c.name)
     }
   }
 
   func testTheWireSnapshotHasExactlyTheSharedSixKeys() throws {
     let v = try vectors()
-    XCTAssertEqual(Set(v.snapshotKeys), Set(v.legacySnapshotKeys + ["accountHoldsPro"]))
+    XCTAssertEqual(Set(v.snapshotKeys), Set(v.legacySnapshotKeys + ["accountHoldsPro", "accountHoldsProFor"]))
     let account = try XCTUnwrap(v.cases.first { $0.accountHoldsPro })
     let context = NativeAccessContext(paidMode: true, supported: all, accountId: account.record.accountId,
       sessionId: account.record.sessionId, sessionKnown: true)
@@ -73,6 +75,7 @@ final class AccountHoldsProTests: XCTestCase {
     let snapshot = try XCTUnwrap(reply["snapshot"] as? [String: Any])
     XCTAssertEqual(Set(snapshot.keys), Set(v.snapshotKeys))
     XCTAssertEqual(snapshot["accountHoldsPro"] as? Bool, true)
+    XCTAssertEqual(snapshot["accountHoldsProFor"] as? String, account.record.accountId)
     // A JSON Boolean, never 1/0.
     XCTAssertTrue((snapshot["accountHoldsPro"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false)
     // Paid off: the free snapshot carries the field too, always false.
@@ -80,6 +83,21 @@ final class AccountHoldsProTests: XCTestCase {
     XCTAssertFalse(free.accountHoldsPro)
     let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(free)) as? [String: Any])
     XCTAssertEqual(Set(encoded.keys), Set(v.snapshotKeys))
+    XCTAssertTrue(encoded["accountHoldsProFor"] is NSNull)
+  }
+
+  func testTheProofDeadlineDecidesAtTheReadersWallClock() throws {
+    let v = try vectors()
+    let before = try XCTUnwrap(v.cases.first { $0.name == "one millisecond before the proof deadline" })
+    let at = try XCTUnwrap(v.cases.first { $0.name == "at the proof deadline" })
+    for c in [before, at] {
+      let right = try XCTUnwrap(c.record.rights.first)
+      let clock = try XCTUnwrap(right.clock)
+      XCTAssertFalse(clock.expired || clock.revoked || clock.paused)
+      XCTAssertEqual((c.wall ?? 0) - clock.expiresAt, c.name == before.name ? -1 : 0)
+    }
+    XCTAssertTrue(before.accountHoldsPro)
+    XCTAssertFalse(at.accountHoldsPro)
   }
 
   // MARK: Real flows through the Safari extension's read-only lane
@@ -94,7 +112,12 @@ final class AccountHoldsProTests: XCTestCase {
     return try XCTUnwrap(body["snapshot"] as? [String: Any])
   }
   func holds(_ store: SharedEntitlementStore, displayed: AccountSyncStatusStore.DisplayedAccount, at wall: Int? = nil) throws -> Bool {
-    try XCTUnwrap(safari(store, displayed: displayed, at: wall)["accountHoldsPro"] as? Bool)
+    let snapshot = try safari(store, displayed: displayed, at: wall)
+    let held = try XCTUnwrap(snapshot["accountHoldsPro"] as? Bool)
+    // Whenever it is true it names the account the app displays; otherwise it names nobody.
+    if held, case .account(let shown) = displayed { XCTAssertEqual(snapshot["accountHoldsProFor"] as? String, shown) }
+    else { XCTAssertTrue(snapshot["accountHoldsProFor"] is NSNull) }
+    return held
   }
   func linkedStore() throws -> SharedEntitlementStore {
     let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: f.trust)
