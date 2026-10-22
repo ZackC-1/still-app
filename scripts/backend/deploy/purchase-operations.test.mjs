@@ -551,7 +551,7 @@ test("review-signin-function deploys review-signin alone (verify_jwt false), rea
   }
   assert.match(renderPurchasePlan(p), /`review-signin` \(verify_jwt false\)/);
   assert.match(renderPurchasePlan(p), /REVIEW_SIGNIN_EMAIL/);
-  assert.match(renderPurchasePlan(p), /never read, compared or changed/);
+  assert.match(renderPurchasePlan(p), /drops those digests in memory without recording or comparing them/);
 });
 
 test("review-signin-function checks its secrets by name only: it runs with no value in the listing", async (t) => {

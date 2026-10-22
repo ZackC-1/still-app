@@ -257,7 +257,8 @@ listed).
   ([route gates](purchase-routes-and-secrets.md)). It deploys `review-signin` alone (verify_jwt
   false) as a sealed bundle read back byte for byte, refuses unless every migration at the commit is
   applied, and checks that `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and
-  `ENTITLEMENT_WRITER_DB_URL` are set, by name only. It never sets, rotates or reads those values.
+  `ENTITLEMENT_WRITER_DB_URL` are set, by name only. It never sets, rotates or sees those values; the
+  digests the Management API sends with the secret list are dropped in memory, not recorded or compared.
 - V20: `review-signin` and its `REVIEW_SIGNIN_*` secrets match the private App Review fields and the
   Apple build's `VITE_REVIEW_SIGNIN_EMAIL`. Do not rotate while any review references it. After the
   operation, its closing record lists `review-signin` as `deployed` or `unchanged`, and a request of

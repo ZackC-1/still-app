@@ -31,9 +31,10 @@ Each function step refuses before any write unless:
   plus `ENTITLEMENT_WRITER_DB_URL` and `PRODUCT_POLICY_READER_DB_URL`;
 - `SETTINGS_WRITER_DB_URL` exists for the separate `sync-settings` deployment;
 - `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and `ENTITLEMENT_WRITER_DB_URL` exist for the separate
-  `review-signin` deployment. This check is by name only: the operation reads only the names in the
-  project's secret list, never a value or a digest of one, and it compares secret names (not digests)
-  before and after the upload. A missing name stops the run with `missing_secret:<NAME>`. The
+  `review-signin` deployment. This check is by name only. The Management API's secret list carries
+  each name and a digest of its value (sent to the runner over TLS); the operation keeps the names,
+  drops the digests in memory without recording or comparing them, and compares secret names before
+  and after the upload. It never sees a value. A missing name stops the run with `missing_secret:<NAME>`. The
   `REVIEW_SIGNIN_*` values are set on the project outside these operations, and no operation here
   can write them.
 

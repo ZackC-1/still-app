@@ -22,8 +22,10 @@
 //      Deploys review-signin alone (verify_jwt false), the same way as sync-settings: a sealed
 //      single-file bundle from the planned commit, read back byte for byte, left alone if already at
 //      that source. Its own owner approval. It checks that REVIEW_SIGNIN_EMAIL, REVIEW_SIGNIN_CODE and
-//      ENTITLEMENT_WRITER_DB_URL are set by name only: it never reads, digests, compares, prints or
-//      writes their values, and its preservation check compares secret names only.
+//      ENTITLEMENT_WRITER_DB_URL are set by name only. The Management API still sends a digest of
+//      every secret to the runner (over TLS); this operation drops those digests in memory without
+//      recording or comparing them, never sees or writes a value, and its preservation check
+//      compares secret names only.
 //
 // Hard gates, all checked read-only before the first write (any failure stops the run and names
 // fixed codes only):
@@ -732,8 +734,8 @@ async function deployFunctions({
 }
 
 /**
- * The names in a secret listing, sorted, as `{ name }` rows. Any other field (the API also sends a
- * digest of each value) is dropped without being read, validated or kept.
+ * The names in a secret listing, sorted, as `{ name }` rows. The Management API also sends a digest
+ * of each value; it is dropped here in memory, without being recorded, validated or compared.
  */
 export function secretNames(value) {
   if (!Array.isArray(value)) refuse("purchase-secret-inventory-invalid");
@@ -868,7 +870,7 @@ export function renderPurchasePlan(plan) {
       `- Refuses before any write unless the hosted migration history holds all ${plan.migrations.length} migrations at this commit (last \`${plan.migrations.at(-1)}\`; sync-settings needs \`${SYNC_GUARD_MIGRATION}\`) and these secrets exist: ${plan.requiredSecrets.map((name) => `\`${name}\``).join(", ")}.`,
     );
     if (PURCHASE_OPERATIONS[plan.operation]?.secretNamesOnly) {
-      lines.push("- Those secrets are checked by name only: their values are never read, compared or changed, and the run compares secret names (not digests) before and after the upload.");
+      lines.push("- Those secrets are checked by name only. Their values never reach the runner and are never changed; the Management API still sends a digest of each secret over TLS, and the run drops those digests in memory without recording or comparing them. It compares secret names before and after the upload.");
     }
   } else {
     lines.push(
@@ -1131,10 +1133,10 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
     ...extra,
   });
   const receipts = [];
-  const operate = async (p, extra) => {
+  const operate = async (p, extra, fetchImpl = api.fetchImpl) => {
     const receipt = await runPurchaseOperation({
       plan: p, env: envFor(p, extra), platform: "linux", cwd, sourceDir: dir, artifactDir,
-      exec: run, fetchImpl: api.fetchImpl, verifyBundles: async () => true,
+      exec: run, fetchImpl, verifyBundles: async () => true,
     });
     receipts.push(receipt);
     return receipt;
@@ -1278,23 +1280,32 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
   );
   const secretsBeforeReview = new Map(api.secrets);
   const reviewVersion = version("review-signin");
+  // The first run sees the stub's full listing (names and the digests the Management API also
+  // sends); the repeat sees names only, which works only while the operation reads names alone.
+  const namesOnlyListing = async (url, init = {}) => {
+    const response = await api.fetchImpl(url, init);
+    if (!/\/secrets$/.test(url) || (init.method ?? "GET") !== "GET") return response;
+    const names = (await response.json()).map(({ name }) => ({ name }));
+    return new Response(JSON.stringify(names), { status: 200, headers: { "content-type": "application/json" } });
+  };
   const reviewed = await operate(reviewPlan);
-  const reviewedAgain = await operate(reviewPlan);
+  const reviewedAgain = await operate(reviewPlan, {}, namesOnlyListing);
   const reviewPrinted = JSON.stringify(receipts.slice(reviewStart)) +
     receipts.slice(reviewStart).map((r) => renderPurchaseFinal(r)).join("\n") + renderPurchasePlan(reviewPlan);
   prove(
-    "review-signin-function: only review-signin deploys (verify_jwt false) and reads back; no secret is written or changed and no review value appears in any record; a repeat changes nothing",
+    "review-signin-function: only review-signin deploys (verify_jwt false) and reads back; no secret is written or changed; no review value or digest of one appears in any record; a repeat that sees secret names only changes nothing",
     reviewed.status === "verified" && reviewed.steps.length === 1 && reviewed.steps[0].name === "review-signin" &&
       version("review-signin") === reviewVersion + 1 && api.functions.get("review-signin").verify_jwt === false &&
       version("sync-settings") === 8 && api.calls.deploys === reviewDeploysBefore + 1 &&
       reviewedAgain.status === "no-change" && api.calls.secretPosts === 2 &&
       canonical([...api.secrets]) === canonical([...secretsBeforeReview]) &&
-      Object.values(reviewValues).every((value) => !reviewPrinted.includes(value)),
-    issues(reviewed),
+      Object.values(reviewValues).every((value) =>
+        !reviewPrinted.includes(value) && !reviewPrinted.includes(sha256(value))),
+    `${issues(reviewed)}; repeat ${issues(reviewedAgain)}`,
   );
 
   const printed = JSON.stringify(receipts);
-  // The review values are covered by the review proof above (by value only, never hashed).
+  // The review values (and their digests) are covered by the review proof above.
   const values = [...Object.values(stagedValues), ...Object.values(fresh),
     ...[...api.secrets].filter(([name]) => !PRESENCE_ONLY_SECRETS.includes(name)).map(([, value]) => value)]
     .filter((value) => value && value !== "production");
