@@ -406,8 +406,9 @@ export async function requireIntegratedPaidCandidate(root) {
   if (!/public static let stillProV3 = ApplePurchaseProduct\([\s\S]*?productID: "still_pro_v3",[\s\S]*?entitlementID: "still_pro_v3",[\s\S]*?offeringID: "still_pro_v3",[\s\S]*?packageID: "\$rc_lifetime"/.test(catalog) || !/public static let historicalStillSync = ApplePurchaseProduct\([\s\S]*?productID: "still_sync"/.test(catalog)) refusal("canonical Apple purchase mapping missing");
 }
 
-export function candidateIdentity(snapshot, overlay, targets) {
-  const data = { ...overlay, sourceSha256: snapshot.sha256, targets, buildId: randomUUID() };
+/** `integration` is set only for an integration package (scripts/qa/v3-profile.mjs qaIntegrationBuild). */
+export function candidateIdentity(snapshot, overlay, targets, integration) {
+  const data = { ...overlay, sourceSha256: snapshot.sha256, targets, buildId: randomUUID(), ...(integration !== undefined ? { integration } : {}) };
   assertPaidBuild(data);
   return { ...data, candidateSha256: hash(JSON.stringify(data)) };
 }
