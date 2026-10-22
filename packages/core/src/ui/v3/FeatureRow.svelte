@@ -59,7 +59,7 @@
   data-access={state === "verification_required" ? "verify" : state}
   data-inactive={inactive ||
     state === "unsupported" ||
-    state === "locked" ||
+    (state === "locked" && !savedShown) ||
     undefined}
 >
   <div class="row-main">
@@ -85,7 +85,16 @@
     {#if savedShown}<span class="sr-only" id={`${key}-locked`}
         >Included in Still Pro. Your choice is saved.</span
       >{/if}
+    <!-- Owner canvas (P-Sites, 22 Oct): the dimmed saved switch first, then the bordered Still Pro
+      chip at the row's end. The label keeps its normal ink; only the switch is dimmed. -->
     <span class="locked-controls">
+    {#if savedShown}<Toggle
+        small
+        {checked}
+        disabled
+        labelledBy={`${key}-l`}
+        describedBy={`${key}-locked`}
+      />{/if}
     <button
       type="button"
       class="lock-pro"
@@ -99,13 +108,6 @@
         : undefined}
       ><Glyph name="lock" size={14} /><span>Still Pro</span></button
     >
-    {#if savedShown}<Toggle
-        small
-        {checked}
-        disabled
-        labelledBy={`${key}-l`}
-        describedBy={`${key}-locked`}
-      />{/if}
     </span>
   {/if}
 </div>
@@ -115,6 +117,10 @@
     flex: none;
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    gap: var(--space-3, 12px);
+  }
+  /* The saved switch behind the lock is drawn at 45% (owner canvas, CH-96 option C). */
+  .locked-controls :global(.toggle[aria-disabled="true"]) {
+    opacity: 0.45;
   }
 </style>

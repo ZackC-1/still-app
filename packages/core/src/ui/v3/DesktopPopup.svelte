@@ -403,11 +403,10 @@
     );
   }
   /* "Settings sync" uses the shared card heading (15px, semibold, ink), the same as the Still Pro
-     and Share usage data headings on every surface (owner, 12 Oct); only its spacing stays. */
+     and Share usage data headings on every surface (owner, 12 Oct). No extra space under it: the
+     line below sits 2px under the heading, as on the canvas (P-PopupSync) and in MobilePopup. Only
+     the Safari Mac popup still had a 4px margin here; Chrome and Firefox (d28) had none. */
   .sync-row-title {
-    margin: 0 0 4px;
-  }
-  .d28-invitation .sync-row-title {
     margin: 0;
   }
 </style>

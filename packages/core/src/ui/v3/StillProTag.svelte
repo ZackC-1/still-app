@@ -9,4 +9,8 @@
   card. The same boxed tag as the settings card's "Purchased", as plain text so it is read with
   the account row. Hosts render it only while proPurchased(access) is true. ISS-0105: "Still Pro
   User" only for the signed-in account's own Still Pro, otherwise "Still Pro on this device". -->
-<span class="access-tag boxed success still-pro-tag">{STRINGS.proTag[kind]}</span>
+<!-- Owner canvas (P-AppSync, P-PopupSync): "Still Pro User" is green; "Still Pro on this device" is
+  the neutral boxed tag (secondary ink, strong border). -->
+<span class="access-tag boxed still-pro-tag" class:success={kind === "account"}
+  >{STRINGS.proTag[kind]}</span
+>
