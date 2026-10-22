@@ -11,14 +11,14 @@ import { reconcileScopedAccess } from "../reconcile-entitlement/handler.ts";
 export interface ManagedCheckoutRequestDeps extends AuthDeps, Omit<ManagedCheckoutProcessingDeps, "operations"> {
   readonly accounts: ConfirmedAppleAccountPort;
   readonly limiter: RateLimiter;
-  readonly operationStore: (admission?: CheckoutAdmission) => PurchaseOperationStore;
+  readonly operationStore: (admission?: CheckoutAdmission, analytics?: { originProof: string; projectKeySha256: string }) => PurchaseOperationStore;
   readonly canGrant: (holder: string) => Promise<boolean>;
   readonly admissionError: "qa_membership_required" | "sales_unavailable";
 }
 const CHECKOUT_RATE = { maxPerUser: 5, maxPerIp: 20, windowSeconds: 60 };
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 
-async function body(req: Request, complete: boolean, environment: CheckoutEnvironment): Promise<{ operation?: string; admission?: CheckoutAdmission } | null> {
+async function body(req: Request, complete: boolean, environment: CheckoutEnvironment): Promise<{ operation?: string; admission?: CheckoutAdmission; analytics?: { originProof: string; projectKeySha256: string } } | null> {
   const reader = req.body?.getReader();
   if (!reader) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -39,7 +39,7 @@ async function body(req: Request, complete: boolean, environment: CheckoutEnviro
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.byteLength; }
     const value: unknown = JSON.parse(new TextDecoder("utf-8",{ fatal: true }).decode(bytes));
-    if (!object(value) || value.access_schema !== 1 || Object.keys(value).some(key => !(environment === "production" ? ["access_schema","operation_id","surface","build"] : ["access_schema","operation_id"]).includes(key)) ||
+    if (!object(value) || value.access_schema !== 1 || Object.keys(value).some(key => !(environment === "production" ? ["access_schema","operation_id","surface","build","analytics"] : ["access_schema","operation_id"]).includes(key)) ||
       (complete && !Object.hasOwn(value,"operation_id")) ||
       (Object.hasOwn(value,"operation_id") && (typeof value.operation_id !== "string" || !isUuid(value.operation_id)))) return null;
     let admission: CheckoutAdmission | undefined;
@@ -48,7 +48,14 @@ async function body(req: Request, complete: boolean, environment: CheckoutEnviro
         typeof value.build !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}$/.test(value.build)) return null;
       admission = { surface: value.surface, build: value.build };
     }
-    return { ...(admission ? { admission } : {}), ...(typeof value.operation_id === "string" ? { operation: value.operation_id.toLowerCase() } : {}) };
+    // An invalid optional analytics value is ignored, never a reason to refuse payment.
+    const a = value.analytics;
+    const analytics = environment === "production" && !complete && object(a) &&
+      Object.keys(a).sort().join(",") === "originProof,projectKeySha256" &&
+      typeof a.originProof === "string" && /^[0-9a-f]{64}$/.test(a.originProof) &&
+      typeof a.projectKeySha256 === "string" && /^[0-9a-f]{64}$/.test(a.projectKeySha256)
+      ? { originProof: a.originProof, projectKeySha256: a.projectKeySha256 } : undefined;
+    return { ...(analytics ? { analytics } : {}), ...(admission ? { admission } : {}), ...(typeof value.operation_id === "string" ? { operation: value.operation_id.toLowerCase() } : {}) };
   } catch { return null; }
   finally { clearTimeout(timer); reader.releaseLock(); }
 }
@@ -67,7 +74,7 @@ export function handleManagedCheckout(req: Request, runtime: ManagedCheckoutRequ
     if (limited) return limited;
     const input = await body(req,complete,runtime.environment);
     if (!input) return jsonResponse(400,{ error: "invalid_checkout_request" });
-    const deps = { ...runtime,operations: runtime.operationStore(input.admission) };
+    const deps = { ...runtime,operations: runtime.operationStore(input.admission,input.analytics) };
     const bearer = req.headers.get("Authorization")!.slice(7);
     let validUntil = 0;
     const authorize = async () => { validUntil = await authorized(bearer,holder,deps) ?? 0; return validUntil > Date.now(); };

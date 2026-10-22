@@ -529,3 +529,6 @@ import_map = "./functions/qa-sandbox-complete-web-checkout/deno.json"
 [functions.qa-sandbox-stripe-webhook]
 verify_jwt = false
 import_map = "./functions/qa-sandbox-stripe-webhook/deno.json"
+
+[functions.analytics-purchase]
+verify_jwt = true

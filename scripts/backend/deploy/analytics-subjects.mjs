@@ -9,7 +9,7 @@
 //      ANALYTICS_EVENT_ID_SECRET, gives the eraser LOGIN with a SCRAM-SHA-256 verifier, and stores the
 //      worker token in Supabase Vault for the schedule. Nobody ever sees a value.
 //   2. analytics-subjects-functions (mode apply)
-//      Deploys exactly analytics-erasure, analytics-identify and delete-user, in that order, as sealed
+//      Deploys exactly analytics-erasure, analytics-identify, delete-user and analytics-purchase, in that order, as sealed
 //      single-file bundles built from the planned commit, and reads each one back byte for byte.
 //      delete-user is included because the hard gate needs the current delete-user (it records an
 //      account's device identities for deletion before the account goes), and no other protected
@@ -18,7 +18,7 @@
 //      A pg_cron job (Supabase Cron, with pg_net) that POSTs {"action":"work"} to analytics-erasure
 //      every 15 minutes with the token read from Vault. Disable removes only that job.
 //   4. analytics-subjects-switch    (policy_mode enable / disable)
-//      Sets ANALYTICS_SUBJECTS_ENABLED to "true" or "false", then redeploys analytics-identify from
+//      Sets ANALYTICS_SUBJECTS_ENABLED to "true" or "false", then redeploys analytics-identify and analytics-purchase from
 //      the planned commit so every running copy picks the setting up.
 //
 // Hard gates, all checked read-only before the first write (any failure stops the run and names
@@ -30,7 +30,7 @@
 //   - functions: the three analytics secrets and the five POSTHOG_* secrets exist, the eraser can
 //     sign in, and the Vault token matches the function secret (digests only);
 //   - schedule enable: analytics-erasure is deployed at the planned source;
-//   - switch enable: all three functions are deployed at the planned source, the schedule is present
+//   - switch enable: all four functions are deployed at the planned source, the schedule is present
 //     with the exact planned command, pg_cron ran it in the last 35 minutes, a worker run in that
 //     window answered 200 with a report that skipped nothing and has failed = 0 and lost = 0, and,
 //     last, the PostHog provider proof passes inside analytics-erasure (the personal key reads the
@@ -183,6 +183,8 @@ export const ANALYTICS_SQL = Object.freeze({
   }),
 });
 /** 0018's post-apply check: covers 0018, 0017's snapshot trigger and routes, and the eraser role. */
+export const PURCHASE_ANALYTICS_GATE = `${VERIFY_DIR}/0028_purchase_analytics.sql`;
+export const SWITCH_ROUTES = Object.freeze(["analytics-identify", "analytics-purchase"]);
 export const MIGRATION_GATE = `${VERIFY_DIR}/0018_analytics_account_erasure.sql`;
 /**
  * Codes 0018's check reports only because a LATER reviewed migration changed that object on
@@ -211,6 +213,7 @@ export const ANALYTICS_TOOLING = Object.freeze(
       "scripts/backend/plan.mjs",
       REHEARSAL_WORKFLOW,
       MIGRATION_GATE,
+      PURCHASE_ANALYTICS_GATE,
       HISTORY_SQL,
       ROLE_FACTS,
     ]),
@@ -402,7 +405,7 @@ export async function createAnalyticsPlan({
     if (!source || !current || sha256(source) !== sha256(current)) {
       refuse("analytics-bound-file-differs");
     }
-    if (path === MIGRATION_GATE) lintVerificationSql(source.toString());
+    if (path === MIGRATION_GATE || path === PURCHASE_ANALYTICS_GATE) lintVerificationSql(source.toString());
     files.push({ path, sha256: sha256(source) });
   }
   const manifest = {
@@ -867,6 +870,11 @@ export async function runAnalyticsOperation({
           codes.push(`history_missing:${version}`);
         }
       }
+      if (operation === FUNCTIONS_OP || (operation === SWITCH_OP && enable)) {
+        if (!history.some(item => item.version === "0028")) codes.push("history_missing:0028");
+        const purchaseGate = parseJsonArray(await read(join(sourceDir,PURCHASE_ANALYTICS_GATE)),"analytics-gate-unreadable");
+        if (purchaseGate.length) codes.push(...gateCodes(purchaseGate,"purchase_analytics_gate"));
+      }
       const gate = parseJsonArray(
         await read(join(sourceDir, MIGRATION_GATE)),
         "analytics-gate-unreadable",
@@ -1028,7 +1036,7 @@ export async function runAnalyticsOperation({
     } else {
       const value = enable ? "true" : "false";
       const current = digest.get(SWITCH_SECRET);
-      if (enable ? current === sha256(value) : current === undefined || current === sha256(value)) {
+      if (!enable && current === undefined) {
         step(SWITCH_SECRET, enable ? "already-on" : "already-off");
         receipt.status = "no-change";
         await progress();
@@ -1036,7 +1044,7 @@ export async function runAnalyticsOperation({
       }
       assertWritableSecret(SWITCH_SECRET);
       step(SWITCH_SECRET, OUTCOME_UNKNOWN);
-      step("analytics-identify", "pending");
+      for (const name of SWITCH_ROUTES) step(name, "pending");
       receipt.status = "writing-secret";
       receipt.writeAttempted = true;
       await progress();
@@ -1046,11 +1054,15 @@ export async function runAnalyticsOperation({
       await verifySecrets(listSecrets, expected);
       step(SWITCH_SECRET, enable ? "set-true" : "set-false");
       await progress();
-      const upload = plan.bundles.functions.find((item) => item.name === "analytics-identify");
-      await deployRoute({
-        api: functionsApi, upload, bytes: await bundleBytes(upload), plan, receipt,
-        step, progress, listFunctions, listSecrets, current: await listFunctions(),
-      });
+      // Reapply even when the secret matches: a previous run may have failed mid-rollout.
+      // Both workers must load the current setting; byte-identical source cannot prove that.
+      for (const name of SWITCH_ROUTES) {
+        const upload = plan.bundles.functions.find((item) => item.name === name);
+        await deployRoute({
+          api: functionsApi, upload, bytes: await bundleBytes(upload), plan, receipt,
+          step, progress, listFunctions, listSecrets, current: await listFunctions(),
+        });
+      }
     }
     if (receipt.status !== "no-change") receipt.status = "verified";
     await progress();
@@ -1282,7 +1294,7 @@ const DESCRIPTIONS = {
   },
   [FUNCTIONS_OP]: {
     none:
-      "Deploy exactly `analytics-erasure`, `analytics-identify`, then `delete-user` as sealed single-file bundles from this commit, each read back byte for byte. A route already at this source is left alone.",
+      "Deploy exactly `analytics-erasure`, `analytics-identify`, `delete-user`, then `analytics-purchase` as sealed single-file bundles from this commit, each read back byte for byte. A route already at this source is left alone.",
   },
   [SCHEDULE_OP]: {
     enable:
@@ -1292,9 +1304,9 @@ const DESCRIPTIONS = {
   },
   [SWITCH_OP]: {
     enable:
-      "Set `ANALYTICS_SUBJECTS_ENABLED=true`, then redeploy `analytics-identify` from this commit.",
+      "Set `ANALYTICS_SUBJECTS_ENABLED=true`, then redeploy `analytics-identify` and `analytics-purchase` from this commit.",
     disable:
-      "Set `ANALYTICS_SUBJECTS_ENABLED=false`, then redeploy `analytics-identify` from this commit. No other gate: this is the way back.",
+      "Set `ANALYTICS_SUBJECTS_ENABLED=false`, then redeploy `analytics-identify` and `analytics-purchase` from this commit. No other gate: this is the way back.",
   },
 };
 
@@ -1349,7 +1361,7 @@ export function renderAnalyticsFinal(receipt, { applyOutcome, operation } = {}) 
 // ── Rehearsal on the runner's throwaway database (plan job; no secret, no network) ─────────────
 
 export const REHEARSAL_REPOSITORY = "still-rehearsal/still-app";
-const ROUTE_NAMES = ["analytics-erasure", "analytics-identify", "delete-user"];
+const ROUTE_NAMES = ["analytics-erasure", "analytics-identify", "delete-user", "analytics-purchase"];
 
 /** In-memory Management API (secrets and functions) and GitHub reads. Synthetic values only. */
 export function rehearsalApi(projectRef) {
@@ -1608,11 +1620,11 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   const functionsRun = await operate(planFor(FUNCTIONS_OP, "apply"));
   const functionsAgain = await operate(planFor(FUNCTIONS_OP, "apply"));
   prove(
-    "functions: the schedule refuses before analytics-erasure is at source; then exactly the three routes deploy in order and read back; a repeat changes nothing",
+    "functions: the schedule refuses before analytics-erasure is at source; then exactly the four routes deploy in order and read back; a repeat changes nothing",
     scheduleEarly.status === "stopped-before-write" && scheduleEarly.issues.includes("function_not_at_source:analytics-erasure") &&
       functionsRun.status === "verified" && functionsAgain.status === "no-change" &&
       version("analytics-erasure") === 1 && version("analytics-identify") === 2 && version("delete-user") === 19 &&
-      api.calls.deploys === 3 && functionsRun.steps.map((s) => s.name).join(",") === ROUTE_NAMES.join(","),
+      api.calls.deploys === 4 && functionsRun.steps.map((s) => s.name).join(",") === ROUTE_NAMES.join(","),
     `${issues(functionsRun)}; again ${functionsAgain.status}`,
   );
 
@@ -1674,7 +1686,7 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
   prove(
     "switch disable: sets the switch to false and redeploys analytics-identify; a repeat changes nothing",
     disabled.status === "verified" && api.secrets.get(SWITCH_SECRET) === "false" &&
-      version("analytics-identify") === identifyBefore + 2 && disabledAgain.status === "no-change",
+      version("analytics-identify") === identifyBefore + 2 && disabledAgain.status === "verified",
     issues(disabled),
   );
 

@@ -5,7 +5,8 @@
 //   1. purchase-functions                (mode apply)
 //      Deploys exactly the routes in PURCHASE_FUNCTIONS (qa-function-bundles.mjs), in that order:
 //      product-policy, export-user-data, verify-apple-access, link-apple-access,
-//      reconcile-entitlement, create-web-checkout, then revenuecat-webhook. Each is a sealed
+//      reconcile-entitlement, create-web-checkout, complete-web-checkout, revenuecat-webhook,
+//      then stripe-webhook. Each is a sealed
 //      single-file bundle built from the planned commit and read back byte for byte; a route
 //      already at that source is left alone.
 //   2. purchase-functions-sync-settings  (mode apply)
@@ -21,8 +22,8 @@
 // fixed codes only):
 //   - functions: every migration in supabase/migrations at the planned commit is recorded in the
 //     hosted history (no pending migration); for sync-settings that includes 0024. The secrets the
-//     step's already-live routes read exist (names only). The new purchase secrets are NOT required
-//     here: without them the routes answer "unavailable", which is the safe default.
+//     routes read must exist, including the configured production purchase credentials and
+//     webhook secrets (names only). Runtime configuration still fails closed if values are invalid.
 //   - secrets: the Secrets-only token must be refused by GET /functions; every PROD_* variable is a
 //     known name; values have no stray whitespace; grouped values arrive together; the access-proof
 //     private key matches its public key; the JSON product lists parse.

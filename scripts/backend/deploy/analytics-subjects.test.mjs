@@ -40,6 +40,7 @@ import {
   gateCodes,
   LATER_MIGRATION_CODES,
   MIGRATION_GATE,
+  PURCHASE_ANALYTICS_GATE,
   parseFacts,
   POSTHOG_SECRETS,
   rehearsalApi,
@@ -139,7 +140,7 @@ async function refuses(promise, category) {
 
 // ── In-memory database: the facts the pinned SQL reads and the effects it has ──────────────────
 
-function world({ gate = [], history = ["0017", "0018"] } = {}) {
+function world({ gate = [], history = ["0017", "0018", "0028"] } = {}) {
   const state = {
     gate,
     history,
@@ -202,6 +203,8 @@ function world({ gate = [], history = ["0017", "0018"] } = {}) {
         return ok(`${JSON.stringify(facts())}\n`);
       case "migration-history.sql":
         return ok(`${JSON.stringify(state.history.map((version) => ({ version, name: "m" })))}\n`);
+      case basename(PURCHASE_ANALYTICS_GATE):
+        return ok(`${JSON.stringify(state.purchaseGate ?? [])}\n`);
       case basename(MIGRATION_GATE):
         return ok(`${JSON.stringify(state.gate)}\n`);
       case "role-facts.sql":
@@ -345,6 +348,7 @@ test("the plan binds the operation, the commit on main, the pinned SQL and the b
     ["analytics-erasure", false],
     ["analytics-identify", true],
     ["delete-user", true],
+    ["analytics-purchase", true],
   ]);
   assert.notEqual(
     (await plan(root, head, { operation: SCHEDULE_OP, policyMode: "disable" })).plan.digest,
@@ -583,7 +587,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal(h.api.calls.secretPosts, 0);
   // Exact codes explained by later reviewed migrations are accepted; other grants still stop.
   h.api.setRehearsalGreen(true);
-  h.db.state.history = ["0017", "0018"];
+  h.db.state.history = ["0017", "0018", "0028"];
   h.db.state.gate = [...LATER_MIGRATION_CODES];
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "verified");
   // A plan the owner did not approve, or a different operation, mode or target, never runs.
@@ -615,7 +619,7 @@ test("every writing run first proves the migrations, the GoTrue rehearsal and ow
   assert.equal((await h.run(h.planFor(SECRETS_OP))).status, "stopped-before-write", "apply keeps every gate");
 });
 
-test("functions deploy exactly three routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
+test("functions deploy exactly four routes in order after the secrets exist; a repeat changes nothing; a bad readback stops before delete-user", async (t) => {
   const h = await harness(t);
   const early = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(early.status, "stopped-before-write");
@@ -631,13 +635,14 @@ test("functions deploy exactly three routes in order after the secrets exist; a 
     ["analytics-erasure", "created"],
     ["analytics-identify", "deployed"],
     ["delete-user", "deployed"],
+    ["analytics-purchase", "created"],
   ]);
   assert.equal(h.api.functions.get("analytics-identify").version, 2);
   assert.equal(h.api.functions.get("delete-user").version, 19);
   assert.equal(h.api.functions.get("analytics-erasure").verify_jwt, false);
   const again = await h.run(h.planFor(FUNCTIONS_OP));
   assert.equal(again.status, "no-change");
-  assert.equal(h.api.calls.deploys, 3);
+  assert.equal(h.api.calls.deploys, 4);
 
   // A route whose stored body does not read back stops the run; delete-user is never attempted.
   const g = await harness(t);
@@ -658,7 +663,7 @@ test("functions deploy exactly three routes in order after the secrets exist; a 
     verifyBundles: async () => true,
   });
   assert.equal(receipt.status, "outcome-unknown");
-  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted"]);
+  assert.deepEqual(receipt.steps.map((s) => s.outcome), ["created", "outcome-unknown", "not-attempted", "not-attempted"]);
   assert.equal(g.api.functions.get("delete-user").version, 18);
   assert.match(receipt.recovery, /never blindly retry/);
   assert.match(renderAnalyticsFinal(receipt), /status: outcome-unknown/);
@@ -762,7 +767,8 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(on.status, "verified", on.issues.join(" "));
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "true");
   assert.equal(h.api.functions.get("analytics-identify").version, identify + 1);
-  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "no-change");
+  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "enable"))).status, "verified");
+  assert.equal(h.api.functions.get("analytics-purchase").version, 3);
   // Emergency off: no schedule, no worker evidence, no provider proof, no token probe needed.
   h.db.state.command = null;
   h.db.state.ok = 0;
@@ -772,8 +778,9 @@ test("the switch turns on only with a running schedule and a worker that deletes
   assert.equal(h.db.state.providerQueued, queued);
   assert.equal(off.status, "verified");
   assert.equal(h.api.secrets.get(SWITCH_SECRET), "false");
-  assert.equal(h.api.functions.get("analytics-identify").version, identify + 2);
-  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "disable"))).status, "no-change");
+  assert.equal(h.api.functions.get("analytics-identify").version, identify + 3);
+  assert.equal(h.api.functions.get("analytics-purchase").version, 4);
+  assert.equal((await h.run(h.planFor(SWITCH_OP, "apply", "disable"))).status, "verified");
 });
 
 // ── Records and CLI ──────────────────────────────────────────────────────────────────────────

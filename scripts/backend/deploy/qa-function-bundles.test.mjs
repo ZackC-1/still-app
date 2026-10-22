@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { defaultExec } from "./deploy.mjs";
 import {
   ANALYTICS_FUNCTIONS,
+  ANALYTICS_BUNDLE_SET,
   buildFunctionBundles,
   buildQaFunctionBundles,
   PURCHASE_BUNDLE_SET,
@@ -606,7 +607,7 @@ test("the purchase set builds and verifies like the QA set, and refuses JWT or i
 
 // Explicitly enabled by the purchase function rehearsal workflow, which installs Deno 2.8.3.
 test(
-  "actual purchase and sync-settings bundles are portable, closed, and start without authority",
+  "actual purchase, sync-settings and canonical analytics bundles are portable, closed, and start without authority",
   { skip: process.env.STILL_PURCHASE_BUNDLE_INTEGRATION !== "1" },
   async (t) => {
     const sourceDir = await realpath(REPO);
@@ -615,7 +616,7 @@ test(
     );
     t.after(() => rm(root, { recursive: true, force: true }));
     const uploads = [];
-    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET].entries()) {
+    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, ANALYTICS_BUNDLE_SET].entries()) {
       const artifactDir = join(root, `uploads-${index}`);
       const manifest = await buildFunctionBundles(set, { sourceDir, artifactDir });
       assert.equal(manifest.functions.length, set.routes.length);
@@ -634,6 +635,7 @@ test(
         "source/upload hashes must not depend on checkout or artifact paths",
       );
       for (const route of manifest.functions) {
+        if (set === ANALYTICS_BUNDLE_SET && route.name !== "analytics-purchase") continue;
         uploads.push({ ...route, url: pathToFileURL(join(artifactDir, route.file)).href });
       }
     }
@@ -677,7 +679,7 @@ test(
       }
     }
     assert.equal(networkCalls, 0);
-    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 1} isolated handlers passed`)});
+    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 2} isolated handlers passed`)});
   `,
     );
     const result = await defaultExec("deno", [
@@ -692,6 +694,6 @@ test(
       probe,
     ], { cwd: root });
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /10 isolated handlers passed/);
+    assert.match(result.stdout, /11 isolated handlers passed/);
   },
 );

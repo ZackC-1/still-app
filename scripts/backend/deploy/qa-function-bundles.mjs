@@ -42,6 +42,7 @@ export const ANALYTICS_FUNCTIONS = Object.freeze([
   ["analytics-erasure", false],
   ["analytics-identify", true],
   ["delete-user", true],
+  ["analytics-purchase", true],
 ].map(([name, verifyJwt]) => Object.freeze({ name, verifyJwt })));
 export const ANALYTICS_BUNDLE_SET = routeSet(
   "still-analytics-function-bundles",

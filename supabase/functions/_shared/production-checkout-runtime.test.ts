@@ -210,3 +210,17 @@ Deno.test("actual composed runtime uses fixed production RPCs, live readback, RC
     assertEquals(rpcCalls.some(rpc => rpc === "set_entitlement" || rpc.startsWith("qa_sandbox_")),false);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+Deno.test("optional checkout attribution is closed and malformed analytics never prevents functional checkout",async () => {
+  const origin = "d".repeat(64), project = "e".repeat(64);
+  for (const analytics of [null,{ originProof: origin,projectKeySha256: project },{ originProof: origin,projectKeySha256: project,event: "purchase_recorded" },{ originProof: "bad",projectKeySha256: project }]) {
+    const s = setup(); let captured: unknown;
+    const baseStore = s.deps.operationStore;
+    const deps = { ...s.deps,operationStore: (admission: Parameters<typeof baseStore>[0],attribution: Parameters<typeof baseStore>[1]) => {
+      captured=attribution; return baseStore(admission);
+    } };
+    const response=await handleProductionCheckout(await request({ access_schema:1,...ADMISSION,analytics }),deps,false);
+    assertEquals(response.status,200); assertEquals(s.state.creates,1);
+    assertEquals(captured,analytics && Object.keys(analytics).length===2 && analytics.originProof===origin ? analytics : undefined);
+  }
+});

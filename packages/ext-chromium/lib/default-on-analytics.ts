@@ -100,6 +100,7 @@ export function createDefaultOnBackgroundAnalytics(
     // server attaches the account's email to it. A stop from the server ends sharing here.
     subjects: deps.issueSubject ? { issue: deps.issueSubject, onStopped: () => usage.commit(false) } : undefined,
     requestQuietFlush: deps.requestQuietFlush,
+    reportPurchases: deps.reportPurchases,
     fetch: deps.fetch,
     now: deps.now,
     uuid,
