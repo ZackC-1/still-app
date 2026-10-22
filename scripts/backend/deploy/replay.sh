@@ -27,6 +27,14 @@ supabase start --workdir "$dir" \
   --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor \
   >/dev/null
 
+# Synthetic analytics evidence must not race a quarter-hour scheduler tick. This changes only
+# the disposable container's launcher, using its admin (postgres is deliberately not a superuser).
+# The active schedule/command and the ordinary-role operation gates are still tested unchanged.
+if [[ $(node -e 'const p = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(p.operation?.startsWith("analytics-") === true))' "$plan") == true ]]; then
+  docker exec supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 \
+    -c "alter system set cron.launch_active_jobs = 'off'" -c 'select pg_catalog.pg_reload_conf()' >/dev/null
+fi
+
 # The exact production code path (dry run, history checks, db push or operation SQL, read-only verification),
 # pointed at the runner's own database as the ordinary non-superuser `postgres` role.
 SUPABASE_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \

@@ -1561,21 +1561,6 @@ export async function runAnalyticsReplay({ exec, plan, dir, conn, cwd, log = () 
     });
     return result.code === 0 && String(result.stdout).trim() === decodeURIComponent(parsed.username);
   };
-  // This runner database is disposable. Keep wall-clock cron execution from supplying evidence
-  // during the negative controls (a rehearsal crossing :00/:15/:30/:45 otherwise races itself).
-  // The exact active schedule is still verified; worker answers and run history below are fixtures.
-  // https://github.com/citusdata/pg_cron#extension-settings
-  await sql("alter system set cron.launch_active_jobs = 'off'");
-  await sql("select pg_catalog.pg_reload_conf()");
-  let cronStopped = false;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    if (await sql("select pg_catalog.current_setting('cron.launch_active_jobs')") === "off") {
-      cronStopped = true;
-      break;
-    }
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  if (!cronStopped) throw new Refusal("rehearsal-setup-failed", "The disposable cron launcher did not stop");
   const login = async () => (await sql(`select rolcanlogin from pg_roles where rolname = '${ERASER_ROLE}'`)) === "t";
   const vaultDigest = async () =>
     sql(`select coalesce(string_agg(encode(sha256(convert_to(decrypted_secret, 'UTF8')), 'hex'), ','), '') from vault.decrypted_secrets where name = '${VAULT_TOKEN_NAME}'`);
