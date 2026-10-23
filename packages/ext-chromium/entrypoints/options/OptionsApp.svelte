@@ -17,6 +17,7 @@
     restoreHandler,
   } from "../../lib/purchase-wiring.js";
   import { emailConsent } from "../../lib/email-consent.js";
+  import { extensionNoticePermissions, extensionNoticeStorage, watchEmailPermissionNotice } from "../../lib/data-permission.js";
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
@@ -67,6 +68,9 @@
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
     accessPlatform: platform,
   });
+  // Firefox: a withdrawn email permission signed the account out of sync; say so (data-permission.ts).
+  if (import.meta.env.FIREFOX)
+    controller.addTeardown(watchEmailPermissionNotice(controller, extensionNoticeStorage(), extensionNoticePermissions()));
   // This page owns its controller: stop the account poll when the page's view is destroyed.
   onDestroy(() => controller.dispose());
   // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
@@ -110,7 +114,11 @@
         import("./InformationalProSettings.svelte").then((module) => {
           // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
           // Restore and re-checks over this page's controller and the existing checkout seam.
-          module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout, analytics } : undefined);
+          module.bindBrowserPro(
+            purchase
+              ? { controller, checkout: purchase.checkout, analytics, permission: purchase.dataPermission }
+              : undefined,
+          );
           return module;
         })
     : v3Settings

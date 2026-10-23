@@ -11,6 +11,7 @@
   let {
     account,
     onSignIn,
+    notice,
     accountActions,
     stillPro,
     invitation,
@@ -188,8 +189,8 @@
       >
         Opens the Still app
       </p>{/if}
-    <p class="card-body">
-      Sync settings across devices and browsers. Free.
+    <p class="card-body" role={notice ? "status" : undefined}>
+      {notice ?? "Sync settings across devices and browsers. Free."}
     </p>
   {/if}
   {#if accountActions}{@render accountActions()}{/if}

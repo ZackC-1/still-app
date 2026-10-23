@@ -167,6 +167,12 @@ export interface ExtensionSessionDeps {
   /** Fresh sales allowance, required only when a managed QA checkout is about to open. Restore
    * and completion never consult this policy. Missing/offline policy holds new purchases. */
   readonly canCreateCheckout?: () => Promise<boolean>;
+  /** Firefox only: whether a stored checkout may be completed now. Completion sends the checkout's
+   * operation id (a transaction reference), which needs Firefox's optional purchase-data
+   * permission. Without it the reconcile skips that step and still asks for the account's Still Pro
+   * status, which sends no purchase data; the stored operation waits for a later completion.
+   * Absent (every other host): always. */
+  readonly mayCompleteCheckout?: () => Promise<boolean>;
   /** Best-effort chrome.tabs.remove: teardown closes a recorded checkout tab — an open
    * pay.rev.cat tab still carries the previous identity. */
   readonly closeTab: (tabId: number) => Promise<void>;
@@ -406,7 +412,8 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
           if (!await current()) return "unknown" as const;
           const operation = parseCheckoutOperation(await stores.checkoutOperation!.get());
           if (!await current()) return "unknown" as const;
-          if (operation?.accountId === userId) {
+          if (operation?.accountId === userId && (!deps.mayCompleteCheckout || await deps.mayCompleteCheckout().catch(() => false))) {
+            if (!await current()) return "unknown" as const;
             const completion = await backend.completeWebCheckout!(operation.operationId);
             if (!await current()) return "unknown" as const;
             if (completion.kind === "auth-required") return "auth-required" as const;

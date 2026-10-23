@@ -1,6 +1,7 @@
 import { FEATURE_REGISTRY, type BenefitAccessSnapshot } from "@still/shared-types";
 import type { AccessRecheck, UiAnalytics, UiCheckout, UiController } from "@still/core/ui";
 import type { RestoreStatusCardProps } from "@still/core/ui/v3/extension-settings-presentation";
+import type { DataPermission } from "@still/core/ui/data-permission";
 
 // The Chrome and Firefox settings page's Still Pro card in paid-tier builds (owner decisions,
 // 10 October 2026): Buy without a price on this surface (the checkout page shows it), a working
@@ -215,6 +216,15 @@ export interface BrowserProDeps {
   /** Receives the browser's "online" event. Defaults to the page's own window. */
   readonly network?: Pick<Window, "addEventListener" | "removeEventListener">;
   readonly now?: () => number;
+  /**
+   * Firefox only (lib/data-permission.ts): the optional permission for purchase data. Get Still Pro
+   * and Try again start a checkout for the account, so they ask for it first, inside their tap;
+   * declined, the card says "Still Pro needs permission to start your purchase." and no checkout
+   * starts. Restore purchase and the page's re-checks only receive the account's Still Pro status,
+   * which sends no purchase data (Mozilla's data types describe what an add-on transmits), so they
+   * never ask or wait on it and Still Pro cannot lock for want of it.
+   */
+  readonly permission?: DataPermission;
 }
 
 export interface BrowserProState {
@@ -439,12 +449,16 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     restoreFor = userId;
     const ticket = generation;
     set({ restore: { state: "checking" } });
-    track("restore_started", { purchase_origin: "web" });
+    // Firefox: a restore's outcome ("restored") reveals Still Pro ownership, so its events go only
+    // with the purchase-data grant. The restore itself never waits on it.
+    const measured = deps.permission ? await deps.permission.granted("purchase").catch(() => false) : true;
+    if (stopped || ticket !== generation) return;
+    if (measured) track("restore_started", { purchase_origin: "web" });
     const result = await recheck();
     if (stopped || ticket !== generation) return;
     restoreFlight = false;
     const ownership = result ? proOwnership(result.access) : null;
-    track("restore_completed", {
+    if (measured) track("restore_completed", {
       purchase_origin: "web",
       outcome: ownership === "owned" ? "restored"
         : result?.outcome === "not-entitled" && ownership === "none" ? "nothing_to_restore" : "failed",
@@ -477,12 +491,25 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     } else if (!next.signInOpen && previous?.signInOpen) restoreAwaitingSignIn = false;
   }
 
-  async function buy(): Promise<void> {
+  /** `asked`: Try again already asked inside its own tap. */
+  async function buy(asked?: Promise<boolean>): Promise<void> {
     if (stopped || state.channel !== "ready" || state.purchase === "opening" || state.purchase === "waiting") return;
     if (seen?.userId == null || seen.ownership !== "none") return;
+    // Firefox: asked inside the tap, before anything is awaited (Firefox prompts only then).
+    const permitted = asked ?? deps.permission?.ask("purchase");
     const ticket = generation;
     const live = () => !stopped && ticket === generation;
     set({ purchase: "opening" });
+    if (permitted !== undefined) {
+      const granted = await permitted.catch(() => false);
+      if (!live()) return;
+      if (granted !== true) {
+        // Declined: nothing is sent; the card says why. Buy stays offered to ask again.
+        set({ purchase: "idle", restore: { state: "permission" } });
+        return;
+      }
+      if (state.restore?.state === "permission") set({ restore: undefined });
+    }
     // A checkout tab from an earlier Buy (here or on another settings page) is brought forward
     // rather than joined by a second one, which a later sign-out would not know to close.
     const existing = await pendingStore.read();
@@ -617,7 +644,14 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         knownNone = false;
         knownOwned = false;
         clearKeepAlive();
-        set({ channel: "unknown", purchase: "idle", renewing: false, offlineNone: false });
+        set({
+          channel: "unknown",
+          purchase: "idle",
+          renewing: false,
+          offlineNone: false,
+          // A declined Get Still Pro belonged to the previous account (or none).
+          ...(state.restore?.state === "permission" ? { restore: undefined } : {}),
+        });
       }
       // A Restore waiting on this sign-in runs its re-check now (shared with the one below).
       observeRestore(previous, next);
@@ -647,9 +681,11 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     /** The failed state's "Try again": ask the background again, then Buy if it still may. */
     retry(): void {
       if (stopped || state.purchase !== "failed") return;
+      // Firefox: this tap is the one that may ask; the checkout below runs after awaits.
+      const asked = deps.permission?.ask("purchase");
       set({ purchase: "idle", channel: "unknown" });
       void askChannel().then(() => {
-        if (state.channel === "ready") void buy();
+        if (state.channel === "ready") void buy(asked);
       });
     },
     restore(): void {

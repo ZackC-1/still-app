@@ -2,6 +2,7 @@
   import type { PurchaseViewProps } from "./purchase-presentation.js";
   import type { OperationStatus } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
+  import { DATA_PERMISSION_COPY } from "../data-permission.js";
   import StaticProControlList from "./StaticProControlList.svelte";
   import "./design/styles.css";
 
@@ -105,6 +106,8 @@
       text: "Still Pro needs to be verified again.",
       actionLabel: "Verify purchase",
     },
+    // Firefox: the purchase-data permission was declined at Get Still Pro; no checkout started.
+    permission: { tone: "info", text: DATA_PERMISSION_COPY.purchase },
   } satisfies Record<string, OperationStatus>);
   function acquire() {
     if (!canAcquire) return;

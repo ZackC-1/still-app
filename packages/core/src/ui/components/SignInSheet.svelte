@@ -3,6 +3,7 @@
   import { isValidEmail } from "../email.js";
   import { trapFocus } from "../focus-trap.js";
   import { STRINGS } from "../strings.js";
+  import { DATA_PERMISSION_COPY } from "../data-permission.js";
 
   interface Props {
     controller: UiController;
@@ -335,6 +336,12 @@
           </p>
         {/if}
       </form>
+    {/if}
+
+    {#if c.dataPermissionNotice === "email" && !c.needsEmailConsent}
+      <!-- Firefox: the person declined (or withdrew) the permission to send their email address,
+           so nothing was sent. One line, where they clicked. -->
+      <p class="hint" role="status">{DATA_PERMISSION_COPY.email}</p>
     {/if}
 
     {#if skip && !inCodeEntry}
