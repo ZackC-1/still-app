@@ -263,19 +263,30 @@ export function productionDigest(rows: Rows[], refKey: string): string {
   return createHmac("sha256", Buffer.from(refKey, "hex")).update(text).digest("hex");
 }
 
-export type ProductionStatus = "recorded" | "unchanged" | "changed" | "no-baseline";
+export type ProductionStatus = "recorded" | "unchanged" | "changed" | "no-baseline" | "baseline-invalid";
 
-/** Compares a digest with the recorded baseline file content ({"v":1,"digest":"..."}). */
+/**
+ * Compares a digest with the recorded baseline file content ({"v":1,"digest":"..."}). No file is
+ * "no-baseline"; a file that is present but empty, not JSON, another version or a malformed
+ * digest is "baseline-invalid", which fails the comparing check (verdictFor).
+ */
 export function compareProduction(digest: string, baselineText: string | undefined): ProductionStatus {
-  if (!baselineText) return "no-baseline";
+  if (baselineText === undefined) return "no-baseline";
   try {
     const baseline = JSON.parse(baselineText);
-    if (baseline?.v !== 1 || !/^[0-9a-f]{64}$/.test(baseline?.digest ?? "")) return "no-baseline";
+    if (baseline?.v !== 1 || typeof baseline?.digest !== "string" || !/^[0-9a-f]{64}$/.test(baseline.digest)) {
+      return "baseline-invalid";
+    }
     return baseline.digest === digest ? "unchanged" : "changed";
   } catch {
-    return "no-baseline";
+    return "baseline-invalid";
   }
 }
+
+/** Fixed, value-free reasons for the public log line, keyed by production status. */
+export const PRODUCTION_FAILURES: Partial<Record<ProductionStatus, string>> = {
+  "baseline-invalid": "baseline-invalid: the downloaded DB-01 baseline file is malformed; run DB-01 again",
+};
 
 export type Verdict = "pass" | "fail" | "needs-review" | "unavailable";
 
@@ -285,6 +296,8 @@ export function notesFor(request: Request, run: CheckRun): string[] {
 }
 
 export function verdictFor(request: Request, run: CheckRun, production?: ProductionStatus): Verdict {
+  // A present but malformed baseline is a broken comparison, never a quiet needs-review.
+  if (request.check.production === "compare" && production === "baseline-invalid") return "fail";
   const decided = request.check.verdict?.(run.results.map((r) => r.rows), production);
   return decided ?? "needs-review";
 }
@@ -357,7 +370,8 @@ if (import.meta.main) {
       outFile: `${env("STILL_QA_CHECKS_REPORT_DIR")}/report.age`,
     });
     // Notes are fixed catalogue text (label names only), safe for the public log.
-    line = `Read-only QA check ${programId}: ${verdict} (full report: encrypted artifact)${notes.map((n) => ` Note: ${n}`).join("")}`;
+    const reason = production && verdict === "fail" ? PRODUCTION_FAILURES[production] : undefined;
+    line = `Read-only QA check ${programId}: ${verdict}${reason ? ` (${reason})` : ""} (full report: encrypted artifact)${notes.map((n) => ` Note: ${n}`).join("")}`;
     if (verdict === "fail") Deno.exitCode = 1;
   } catch (error) {
     if (error instanceof UnavailableError) {
