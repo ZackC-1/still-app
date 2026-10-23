@@ -548,4 +548,9 @@ test("the Safari extension build carries the Apple version", { timeout: 300_000 
   assert.equal(run.status, 0);
   const manifest = JSON.parse(readFileSync(join(ROOT, "packages/ext-safari/dist/safari-mv3/manifest.json"), "utf8"));
   assert.equal(manifest.version, packageVersion(readVersions().apple));
+  // App Store Connect rejects the upload (ITMS-90849) unless the Safari web extension's description
+  // is a non-empty string of at most 112 characters.
+  assert.equal(typeof manifest.description, "string");
+  assert.ok(manifest.description.trim().length > 0, "the Safari manifest has a description");
+  assert.ok([...manifest.description].length <= 112, `Safari description is ${[...manifest.description].length} characters; Apple allows 112`);
 });
