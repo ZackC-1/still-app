@@ -1,8 +1,8 @@
 // Canvas fidelity, Safari popups (22 Oct 2026). The owner's screens canvas is the visual truth; these
 // pin the build fixes that bring the shared popup parts onto it, measured board by board:
-//  - P-Sites, locked Still Pro row (Safari-Popup-Locked, MacPopup-Locked; CH-96 option C): the
-//    dimmed saved switch comes first, then a bordered "Still Pro" pill 32px tall; the label keeps its
-//    normal ink and the row keeps the 40px compact height.
+//  - P-Sites, locked Still Pro row (Safari-Popup-Locked, MacPopup-Locked; ISS-0122, owner, 22 Oct,
+//    superseding CH-96 option C): no switch, only the name and a bordered "Still Pro" pill 32px tall;
+//    the label keeps its normal ink and the row keeps the 40px compact height.
 //  - P-Sites, open site: 6px under the last option row.
 //  - P-PopupSync / P-AppSync (owner canvas ruling, 22 Oct): "Still Pro on this device" is grey on
 //    every surface, only "Still Pro User" is green; the tag's line height is 1.4 (a 20.8px box),
@@ -45,23 +45,24 @@ function lockedRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe("canvas: the locked Still Pro row", () => {
-  it("draws the saved switch before the Still Pro chip", () => {
-    render(FeatureRow, { props: lockedRow() });
-    const control = screen.getByRole("switch", { name: "Comments" });
+  it("draws the name and the Still Pro chip, with no switch (ISS-0122)", () => {
+    const { container } = render(FeatureRow, { props: lockedRow() });
+    expect(screen.queryByRole("switch")).toBeNull();
     const chip = screen.getByRole("button", { name: /^Comments\. Included in Still Pro\./ });
-    expect(control.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(control.parentElement).toBe(chip.parentElement);
-    expect(control.parentElement).toHaveClass("locked-controls");
+    // The chip is the row's own flex item, after the name; no wrapper is left from the switch.
+    expect(chip.parentElement).toBe(container.querySelector(".option-row"));
+    expect(container.querySelector(".row-main")!.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector(".locked-controls")).toBeNull();
   });
 
-  it("keeps the label in normal ink while only the switch is dimmed", () => {
+  it("keeps the label in normal ink", () => {
     const { container } = render(FeatureRow, { props: lockedRow() });
     const row = container.querySelector(".option-row");
     expect(row).toHaveAttribute("data-access", "locked");
     expect(row).not.toHaveAttribute("data-inactive");
-    expect(styleBlock("FeatureRow.svelte")).toMatch(
-      /\.locked-controls :global\(\.toggle\[aria-disabled="true"\]\) \{\s*opacity: 0\.45;\s*\}/,
-    );
+    // The switch-plus-pill styles are gone with the switch.
+    expect(source("FeatureRow.svelte")).not.toMatch(/<style>|locked-controls/);
+    expect(css).not.toMatch(/locked-controls/);
   });
 
   it("still mutes a locked row that is otherwise inactive, and the dormant lock-only row", () => {
@@ -94,7 +95,6 @@ describe("canvas: the locked Still Pro row", () => {
       "inset-block: max(calc(-1 * var(--hit-reach, 22px)), min(0px, calc((var(--tap-target) - 100%) / -2)));",
     );
     expect(chip).toContain("--hit-reach: 7px;");
-    expect(styleBlock("FeatureRow.svelte")).toMatch(/\.locked-controls \{[^}]*gap: var\(--space-3, 12px\);/);
   });
 });
 
@@ -138,13 +138,14 @@ describe("canvas: the desktop popup's sync heading", () => {
 });
 
 describe("canvas: locked rows at large text (review F-1)", () => {
-  it("lets the saved switch and pill wrap under a name that would get less than 120px", () => {
+  it("lets the pill wrap under a name that would get less than 120px", () => {
     expect(rule('.option-row[data-access="locked"]')).toContain("flex-wrap: wrap;");
     expect(rule('.option-row[data-access="locked"] .row-main')).toContain("flex: 1 1 120px;");
-    const row = styleBlock("FeatureRow.svelte");
-    expect(row).toMatch(/\.locked-controls \{[^}]*margin-inline-start: auto;/);
+    expect(rule('.option-row[data-access="locked"] .lock-pro')).toContain("margin-inline-start: auto;");
     // 32px pill + 3px above and below fits inside the 40px compact row (39px inside its border).
-    expect(row).toMatch(/\.locked-controls \{[^}]*margin-block: 3px;/);
+    expect(rule('.app[data-density="compact"] .option-row[data-access="locked"] .lock-pro')).toContain(
+      "margin-block: 3px;",
+    );
   });
 });
 

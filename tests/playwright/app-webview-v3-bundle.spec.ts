@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DEFAULT_SETTINGS } from "../../packages/shared-types/src/index.js";
 import { SUPPORT_EMAIL } from "../../packages/core/src/ui/config.js";
 import { helpHitAreas } from "./_help-hit-areas.js";
+import { expectLockedRowsOnOneLine, measureOptionRows } from "./_locked-rows.js";
 import { AtomicSettingsWriter } from "../../packages/core/src/storage/atomic-settings.js";
 import type { StorageAdapter, StoredSettingsRecord } from "../../packages/core/src/storage/adapter.js";
 
@@ -145,8 +146,9 @@ test.describe("the V3 bundle in WebKit over file://", () => {
     showOnboarding: boolean,
     platform: "ios" | "macos" = "ios",
     settingsUnavailable = false,
+    width?: number,
   ): Promise<{ page: Page; errors: string[] }> {
-    const viewport = platform === "ios" ? { width: 393, height: 759 } : { width: 480, height: 900 };
+    const viewport = platform === "ios" ? { width: width ?? 393, height: 759 } : { width: width ?? 480, height: 900 };
     const context = await browser.newContext({ viewport });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -220,6 +222,25 @@ test.describe("the V3 bundle in WebKit over file://", () => {
       await page.context().close();
     });
   }
+
+  // ISS-0122 (owner, 22 Oct): a locked Still Pro row is its name and the Still Pro chip, no switch,
+  // on one line and as tall as a free row (46px), on the iPhone at 375pt and 393pt and on the Mac
+  // (480px window). This bundle has the paid tier off, so its Still Pro rows are the dormant locked
+  // rows. On a phone a name wider than the space the canvas chip leaves (on macOS at 375pt only
+  // "Explore recommendations", which already carries "Search stays." under it) wraps beside the chip.
+  for (const [platform, width, allFit] of [
+    ["ios", 375, false],
+    ["ios", 393, false],
+    ["macos", 480, true],
+  ] as const)
+    test(`D04 settings on ${platform} at ${width}px: locked rows are one 46px line with no switch`, async () => {
+      const { page, errors } = await open(false, platform, false, width);
+      await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      expectLockedRowsOnOneLine(await measureOptionRows(page), 46, `${platform} ${width}px`, allFit);
+      expect(errors).toEqual([]);
+      await page.context().close();
+    });
 
   // Full-width buttons are 54px tall in the Apple apps and 44px in Chrome and Firefox (owner ruling;
   // the browser side is block-button-heights.spec.ts). In the apps the height comes from the default

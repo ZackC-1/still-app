@@ -886,10 +886,10 @@ describe("informational Firefox destination without a payment channel", () => {
       expect(screen.getByRole("button", { name: "Get Still Pro" })).toBeTruthy();
       await fireEvent.click(screen.getByRole("button", { name: /^.+\. Included in Still Pro\. See Still Pro$/, description: "Comments" }));
       expect(props.onSeePro).toHaveBeenCalledOnce();
-      // CH-96: the locked row's saved switch shows, dimmed; clicking it changes nothing.
-      const savedSwitch = screen.getByRole("switch", { name: "Comments" });
-      expect(savedSwitch).toHaveAttribute("aria-disabled", "true");
-      await fireEvent.click(savedSwitch);
+      // ISS-0122 (supersedes CH-96): the held locked row shows no switch; clicking its name
+      // changes nothing.
+      expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
+      await fireEvent.click(screen.getByText("Comments"));
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(await storage.get()).toEqual(saved);
     },
