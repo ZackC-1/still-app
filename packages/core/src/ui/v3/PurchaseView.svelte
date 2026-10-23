@@ -162,7 +162,7 @@
   </div>
 {/snippet}
 
-<main class="still-ui ob">
+<main class="still-ui ob" data-host={props.host}>
   <div class="ob-col">
     <div class="ob-top">
       <button

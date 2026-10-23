@@ -88,7 +88,7 @@
   }
 </script>
 
-<section class="card card-stack">
+<section class="card card-stack restore-card">
   <span class="restore-focus" tabindex="-1" bind:this={anchor}></span>
   <div
     class="status-line"

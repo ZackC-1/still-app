@@ -44,8 +44,12 @@
   // locked, as what the extras hide on each site, then the one-time terms. No counts, no price.
   // The one-time terms sit only beside a live Get Still Pro, so the card never states purchase terms
   // it is not offering (a closed channel, a Restore check in progress, a finished purchase).
+  // Offline, and while checkout is open, the card is the heading, its one line or busy button and
+  // Restore purchase only (owner, 22 Oct 2026, as drawn on the canvas).
   let valueLed = $derived(
     ownership === "none" &&
+      channel !== "offline" &&
+      state !== "pending" &&
       knownMissing &&
       !accessHeld &&
       !accessChecking &&
@@ -124,7 +128,7 @@
       </button>
       <!-- The configured price line (owner, 21 Oct), in the apps' "One-time purchase. Lifetime
         access." style; nothing at all when the host could not read a configured price. -->
-      {#if checkoutPriced && offer?.priceLine?.trim()}<p class="card-body">{offer.priceLine}</p>{/if}
+      {#if checkoutPriced && offer?.priceLine?.trim() && state !== "pending"}<p class="card-body">{offer.priceLine}</p>{/if}
     {:else if channel === "offline" && ownership === "none" && state !== "failed" && state !== "success"}
       <!-- Offline (ISS-0090): neither "can't be bought here" nor "verify again" is known. It stays
         through a Restore, which cannot change it. -->

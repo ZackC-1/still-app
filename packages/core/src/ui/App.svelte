@@ -1238,6 +1238,11 @@
   .v3-popup-host .account .link.plain:not(:disabled) {
     color: var(--ink);
   }
+  /* The owner's canvas draws the popup's Sign out at 14px (Chrome-Popup-SignedIn, 21 Oct). */
+  .v3-popup-host .account .link.plain {
+    font-size: calc(14px * var(--text-scale, 1));
+    line-height: normal;
+  }
   .v3-popup-host .account .link.plain:not(:disabled):hover {
     color: var(--ink);
     text-decoration: none;

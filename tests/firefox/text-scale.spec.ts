@@ -64,3 +64,20 @@ test("a minimum font size does not change it: font size 24 with a 20px minimum g
 test("Firefox font size 32 gives 2×", async () => {
   expect((await settingsPage({ "font.size.variable.x-western": 32 })).scale).toBe("2");
 });
+
+// Full-width buttons are 44px tall on the Firefox Settings page, as on Chrome (owner ruling: 54px in
+// the Apple apps, 44px in the browsers; tests/playwright/block-button-heights.spec.ts for Chrome).
+test("the Settings page's full-width buttons are 44px tall", async () => {
+  const firefox = await StillFirefox.start({});
+  try {
+    const page = await firefox.openExtensionPage("options.html");
+    await page.waitForCount(".still-ui .primary.block, .still-ui .secondary.block", (n) => n > 0, 15_000);
+    const heights = await page.evaluate<string[]>(
+      `[...document.querySelectorAll(".primary.block, .secondary.block")].filter((el) => el.offsetParent).map((el) => el.textContent.trim() + ": " + Math.round(el.getBoundingClientRect().height))`,
+    );
+    expect(heights.length).toBeGreaterThan(0);
+    for (const entry of heights) expect(entry).toMatch(/: 44$/);
+  } finally {
+    await firefox.stop();
+  }
+});

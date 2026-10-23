@@ -61,6 +61,9 @@
 }
 .hero.off { background: var(--surface-raised); color: var(--ink); }
 .hero.compact { --hero-padding: var(--space-3); --hero-title-size: 18px; }
+/* Owner ruling R1 (22 Oct, canvas P-Hero): in the popups the hero's title and switch sit 16px inside the
+   blue card (12px above and below). The Settings page and the Apple app keep their own hero. */
+.app[data-density="compact"] .hero.compact { padding-inline: var(--space-4); }
 .hero.compact h1 { margin: 0; }
 .hero-text { flex: 1; min-inline-size: 0; }
 .hero h1 { margin: 0 0 4px; font-size: calc(var(--hero-title-size, 25px) * var(--text-scale, 1)); font-weight: 700; letter-spacing: -0.02em; }
@@ -118,18 +121,28 @@
 .split-actions > button { min-block-size: var(--tap-target); }
 /* The Help card is condensed (owner, 19 Oct): tighter gap and padding, link-sized text. */
 /* Help (owner, 21 Oct): two columns of links. Each host places its cells with data-help-column and
-   data-help-row, so the markup keeps Delete account last in Tab order. Every link is a 44px target;
-   the card's block padding is small because the targets carry the space. Above 1.5x text the cells
-   stack in one column, in markup order. */
-.card-stack.help { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 0 var(--space-4); padding: var(--space-1) var(--space-4); }
+   data-help-row, so the markup keeps Delete account last in Tab order. Above 1.5x text the cells
+   stack in one column, in markup order. The canvas rhythm (owner, 22 Oct): 12px above and below,
+   10px between rows, link-sized rows and the address 2px under Contact support. Each link's hit
+   area is the shared invisible ::before (below), reaching 5px, half the row gap, past the link, so
+   no link takes a click on its neighbour's label. */
+.card-stack.help { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 10px var(--space-4); padding: var(--space-3) var(--space-4); --hit-reach: 5px; }
 .card-stack.help > [data-help-column="left"] { grid-column: 1; }
 .card-stack.help > [data-help-column="right"] { grid-column: 2; }
 .card-stack.help > [data-help-row="1"] { grid-row: 1; }
 .card-stack.help > [data-help-row="2"] { grid-row: 2; }
 .card-stack.help > [data-help-row="3"] { grid-row: 3; }
-.card-stack.help .link { display: inline-flex; align-items: center; justify-self: start; min-block-size: var(--tap-target); max-inline-size: 100%; text-align: start; font-size: calc(14px * var(--text-scale, 1)); }
-.help-contact { display: flex; flex-direction: column; min-inline-size: 0; }
-.help-contact > .sync-row-sub { margin: 0; padding-block-end: var(--space-2); overflow-wrap: anywhere; }
+.card-stack.help .link { position: relative; display: inline-flex; align-items: center; justify-self: start; max-inline-size: 100%; text-align: start; font-size: calc(14px * var(--text-scale, 1)); }
+/* Invisible hit areas, one pattern for every control drawn smaller than a tap target (the Help links
+   and a locked row's Still Pro pill): the ::before grows the control's box toward a 44px tap target,
+   centred, but never more than --hit-reach past either edge, so it never covers a neighbour's label.
+   A control already taller than the target gets no extra area. */
+:is(.card-stack.help .link, .option-row .lock-pro)::before { content: ""; position: absolute; inset-block: max(calc(-1 * var(--hit-reach, 22px)), min(0px, calc((var(--tap-target) - 100%) / -2))); }
+.card-stack.help .link::before { inset-inline: calc(-1 * var(--space-1)); }
+.help-contact { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+/* position: relative paints the address above Contact support's hit area, so a click on the address
+   selects it (ISS-0112, owner, 20 Oct) instead of opening email. */
+.help-contact > .sync-row-sub { position: relative; margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
 html[data-still-text-scale="large"] .card-stack.help { grid-template-columns: minmax(0, 1fr); }
 html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; grid-row: auto; }
 .section-label { margin: 0; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; letter-spacing: 0.01em; color: var(--ink-secondary); }
@@ -155,7 +168,21 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .primary:active { transform: translateY(1px); }
 .secondary { background: transparent; color: var(--link); border: 1px solid var(--border); }
 .secondary:hover { background: var(--surface); border-color: var(--border-strong); }
+/* Full-width button heights (owner ruling): 54px in the Apple apps, 44px in Chrome and Firefox. Two
+   mechanisms, by where the button lives:
+   - In a page, height comes from padding. The default 16px padding gives 54px (the apps; an
+     outlined button's border comes out of its padding under data-host="apple"). Browser
+     frames narrow it with --block-button-padding so the 44px minimum sets the height: the popups'
+     compact density (above) and the Settings page's .options frame (ext-chromium OptionsApp.svelte,
+     which also covers the legacy 2.x Settings page of builds without modern sync).
+   - Overlays that size their buttons by a fixed minimum instead (the confirmation dialog below,
+     SignInSheet.svelte) take 44px and raise it to 54px under data-host="apple", which the Apple
+     app's settings root and its sign-in sheet carry.
+   Guarded by app-webview-v3-bundle.spec.ts (54px) and block-button-heights.spec.ts (44px). */
 .primary.block, .secondary.block { inline-size: 100%; min-block-size: 44px; padding: var(--block-button-padding, var(--space-4)); font-size: calc(16px * var(--text-scale, 1)); }
+/* An outlined block button's 1px border comes out of its padding in the Apple apps, so it is 54px
+   like a filled one (review F2, 22 Oct). */
+[data-host="apple"] .secondary.block { padding-block: calc(var(--space-4) - 1px); }
 .danger-solid { background: #c2261e; color: #fff; border: none; align-self: flex-start; }
 .link { background: transparent; border: none; color: var(--link); font: inherit; cursor: pointer; padding: 0; align-self: flex-start; text-decoration: none; }
 .link.center { align-self: center; }
@@ -176,10 +203,10 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .hint { color: var(--ink-secondary); font-size: calc(14px * var(--text-scale, 1)); margin: 0; }
 
 /* Bottom sheet */
-.scrim { position: fixed; inset: 0; background: rgba(11, 20, 48, 0.45); border: 0; padding: 0; z-index: 100; }
+.scrim { position: fixed; inset: 0; background: rgba(11, 20, 48, 0.5); border: 0; padding: 0; z-index: 100; }
 .sheet {
   position: fixed; inset-block-end: 0; inset-inline: 0; margin-inline: auto;
-  inline-size: min(100%, var(--sheet-max-inline-size, 420px));
+  inline-size: min(100%, var(--sheet-max-inline-size, 480px));
   background: var(--surface);
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   padding: var(--space-3) var(--space-6) var(--space-6);
@@ -206,7 +233,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .primary.inline { white-space: nowrap; min-inline-size: max-content; flex: none; min-block-size: 36px; padding: var(--space-2) var(--space-3); font-size: calc(14px * var(--text-scale, 1)); }
 /* Footer links sit well inside the popup's edges so a sheet's rounded corners (iPhone Safari) never
    clip them (owner, 12 Oct): 16px on each side, plus the popup's own 12px. */
-.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-inline: var(--space-4); font-size: calc(13px * var(--text-scale, 1)); }
+/* Owner ruling R2 (22 Oct, canvas P-PopupFooter): 14px links with 4px above and below. */
+.popup-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block: var(--space-1); padding-inline: var(--space-4); font-size: calc(14px * var(--text-scale, 1)); }
 .open-options { background: transparent; border: none; color: var(--link); font: inherit; padding: 0; cursor: pointer; text-align: start; }
 .open-options:hover { color: var(--link-pressed); text-decoration: underline; text-underline-offset: 2px; }
 
@@ -222,13 +250,16 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .service-row .text { display: flex; flex-direction: column; min-inline-size: 0; }
 .service-row .name { font-size: calc(var(--service-name-size, 17px) * var(--text-scale, 1)); font-weight: 600; letter-spacing: -0.01em; }
 .service-row .status { font-size: calc(var(--service-status-size, 14px) * var(--text-scale, 1)); color: var(--ink-secondary); }
-.service-row .chevron { flex: none; color: var(--ink-secondary); transition: transform 200ms ease; }
+/* 14px on every site expander, as drawn (owner, 22 Oct); the glyph's own size is 16. */
+.service-row .chevron { flex: none; inline-size: 14px; block-size: 14px; color: var(--ink-secondary); transition: transform 200ms ease; }
 .service-row .expander[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .service-options { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1), visibility 220ms; }
 .service-options.open { grid-template-rows: 1fr; visibility: visible; }
 .service-options > .inner { overflow: hidden; min-block-size: 0; }
-.service-options .list { display: flex; flex-direction: column; padding: 0 var(--service-card-padding-inline, var(--space-4)) 4px calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
-.option-row { display: flex; align-items: center; gap: var(--space-3); min-block-size: 44px; border-block-start: 1px solid var(--border); font-size: calc(15px * var(--text-scale, 1)); }
+/* Owner canvas (P-Sites, 22 Oct): 6px under an open site's last option row on every surface; option
+   rows are 46px on the app and the Settings page (the popups keep 40px, compact rule below). */
+.service-options .list { display: flex; flex-direction: column; padding: 0 var(--service-card-padding-inline, var(--space-4)) 6px calc(var(--service-card-padding-inline, 16px) + var(--service-icon-size, 42px) + var(--space-3)); }
+.option-row { display: flex; align-items: center; gap: var(--space-3); min-block-size: 46px; border-block-start: 1px solid var(--border); font-size: calc(15px * var(--text-scale, 1)); }
 .option-row .row-main { flex: 1; min-inline-size: 0; display: flex; flex-direction: column; gap: 1px; padding-block: var(--space-2); }
 .option-row .label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); row-gap: 2px; }
 .option-row .sub { font-size: calc(12.5px * var(--text-scale, 1)); line-height: 1.35; color: var(--ink-secondary); }
@@ -236,8 +267,31 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .row-action { align-self: flex-start; font-size: calc(12.5px * var(--text-scale, 1)); }
 .option-row .lock { flex: none; display: inline-flex; align-items: center; justify-content: center; min-inline-size: var(--tap-target); min-block-size: var(--tap-target); margin-inline-end: -12px; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--ink-secondary); }
 .option-row .lock:hover { color: var(--ink); }
-.option-row .lock-pro { flex: none; display: inline-flex; align-items: center; gap: 4px; min-block-size: var(--tap-target); padding: 0; background: transparent; border: none; font: inherit; font-size: calc(12.5px * var(--text-scale, 1)); font-weight: 600; color: var(--ink-secondary); cursor: pointer; white-space: nowrap; }
-.option-row .lock-pro:hover { color: var(--ink); }
+/* A locked row keeps at least 120px for its name (review F-1, 22 Oct): when the saved switch and
+   the Still Pro pill leave less (a narrow phone, or large text), they wrap onto their own line under
+   the name, right-aligned, instead of squeezing the name to a few letters per line. */
+.option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
+.option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
+/* On the app and the Settings page the saved switch and pill keep 8px above and below them (owner
+   canvas, P-Sites since 10:22, 22 Oct), so a locked row is 49px as drawn. The name keeps its own 8px
+   too, so when the controls wrap under it (a 375pt iPhone wraps at 1x) the two hit areas reaching
+   past the switch and the pill stay inside that 8px and never cover the name. The popups keep the
+   pill group's 3px and their 40px row (FeatureRow.svelte). */
+.option-row[data-access="locked"] .locked-controls { margin-block: var(--space-2); }
+.app[data-density="compact"] .option-row[data-access="locked"] .locked-controls { margin-block: 3px; }
+/* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
+   locked row keeps the 40px compact row height. Its hit area is the shared ::before (Help card,
+   above), reaching 7px past its 30px padding box (the box the ::before is laid out in): a 44px
+   target at normal text without growing the row. scroll-margin: a
+   pill scrolled into view (keyboard focus, larger text) is never left a fraction of a pixel under
+   the page's edge. */
+.option-row .lock-pro { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; min-block-size: 32px; padding: 4px 10px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; font: inherit; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; scroll-margin-block: var(--space-1); --hit-reach: 7px; }
+.option-row .lock-pro::before { inset-inline: 0; }
+.option-row .lock-pro:hover { border-color: var(--ink-secondary); }
+/* A dormant row's pill (paid tier off: aria-disabled, no destination) is inert, so it must not look
+   clickable (review F-3, 22 Oct): no pointer and no hover change. */
+.option-row .lock-pro[aria-disabled="true"] { cursor: default; }
+.option-row .lock-pro[aria-disabled="true"]:hover { border-color: var(--border-strong); }
 .service-row .toggle-slot { flex: none; display: flex; }
 .app[data-density="compact"] .option-row { min-block-size: 40px; font-size: calc(14px * var(--text-scale, 1)); }
 .toggle.small { inline-size: 40px; block-size: 24px; }
@@ -254,6 +308,12 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
   padding-block-start: max(var(--app-padding, var(--space-4)), env(safe-area-inset-top));
   padding-block-end: max(var(--app-padding, var(--space-4)), env(safe-area-inset-bottom));
   padding-inline: max(var(--app-padding, var(--space-4)), env(safe-area-inset-left)) max(var(--app-padding, var(--space-4)), env(safe-area-inset-right));
+}
+/* A6 (owner, 22 Oct, canvas page "mac"): the Mac app's settings and the host's own containers beside
+   them take 24px side padding and 432px cards in the 480px window. The iPhone keeps its 16px. */
+.app[data-host="apple"][data-platform="mac"] {
+  max-inline-size: calc(var(--content-max-inline-size, 432px) + 2 * var(--space-6));
+  padding-inline: max(var(--space-6), env(safe-area-inset-left)) max(var(--space-6), env(safe-area-inset-right));
 }
 .app[data-density="compact"] { max-block-size: var(--popup-max-block-size, 600px); }
 .app[data-density="compact"] > :not(.site-scroll) { flex-shrink: 0; }
@@ -272,7 +332,10 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
    Sign in when signed out. A long address wraps under its own line; the tag never shrinks. */
 .account-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .account-line > .account-address { min-inline-size: 0; overflow-wrap: anywhere; }
-.still-pro-tag { flex: none; }
+/* Line height 1.4 as on the canvas (the tag box is 20.8px tall at 12px), so the heading row it sits
+   on keeps the canvas height. "Still Pro on this device" is the neutral boxed tag; only "Still Pro
+   User" (StillProTag kind "account") is green. */
+.still-pro-tag { flex: none; line-height: 1.4; }
 .account-signin { display: flex; align-items: center; gap: var(--space-3); }
 .account-signin > .primary.block { flex: 1; inline-size: auto; min-inline-size: 0; }
 
@@ -283,7 +346,8 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .status-line[data-tone="failed"] .glyph { color: var(--status-failed); }
 .status-line[data-tone="caution"] .glyph { color: var(--status-caution); }
 .status-line .status-body { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
-.status-line .status-action { align-self: flex-start; font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; }
+/* "Try again" and the other status actions are plain 13px links (owner canvas, every status line). */
+.status-line .status-action { align-self: flex-start; font-size: calc(13px * var(--text-scale, 1)); }
 .status-line[data-tone="pending"] .glyph { animation: still-spin 900ms linear infinite; }
 @keyframes still-spin { to { transform: rotate(360deg); } }
 
@@ -322,18 +386,26 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .handoff { display: flex; align-items: center; gap: 6px; margin: 0; font-size: calc(12px * var(--text-scale, 1)); color: var(--ink-secondary); }
 .handoff svg { flex: none; }
 
-/* Dialog: centered, modal, focus-trapped */
+/* Dialog: centered, modal, focus-trapped. Sizes from the owner's canvas (Delete your account?,
+   22 Oct 2026): 24px from the screen edges, 20px padding, 14px between parts, 19px title, a
+   lighter panel than the page in dark mode, and buttons 54px tall in the Apple apps, 44px in the
+   browsers (owner ruling). The 16px radius is the owner's rule for every container. */
 .dialog {
+  --dialog-surface: var(--surface);
   position: fixed; inset: 0; margin: auto; z-index: 101;
-  inline-size: min(calc(100% - 32px), var(--dialog-max-inline-size, 360px)); block-size: fit-content; max-block-size: calc(100% - 32px); overflow-y: auto;
-  background: var(--surface); color: var(--ink); border-radius: var(--radius-sheet);
-  padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3);
+  inline-size: min(calc(100% - 48px), var(--dialog-max-inline-size, 360px)); block-size: fit-content; max-block-size: calc(100% - 32px); overflow-y: auto;
+  background: var(--dialog-surface); color: var(--ink); border-radius: var(--radius-sheet);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 20px; display: flex; flex-direction: column; gap: 14px; line-height: 1.4;
 }
-[data-theme="dark"] .dialog { box-shadow: 0 0 0 1px var(--border); }
-.dialog h2 { margin: 0; font-size: calc(20px * var(--text-scale, 1)); font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dialog { --dialog-surface: var(--surface-raised); } }
+[data-theme="dark"] .dialog { --dialog-surface: var(--surface-raised); }
+.dialog h2 { margin: 0; font-size: calc(19px * var(--text-scale, 1)); font-weight: 700; line-height: 1.4; }
 .dialog .body { margin: 0; color: var(--ink-secondary); font-size: calc(15px * var(--text-scale, 1)); }
-.dialog-actions { display: flex; flex-direction: column; gap: var(--space-2); margin-block-start: var(--space-1); }
-.dialog-actions .secondary, .dialog-actions .primary { min-block-size: var(--tap-target); }
+.dialog-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.dialog-actions > button { min-block-size: var(--tap-target); padding-block: 0; line-height: normal; }
+[data-host="apple"] .dialog-actions > button { min-block-size: 54px; }
+.dialog-actions .secondary { border-color: var(--border-strong); }
 
 /* TikTok blocked page (D29), extension-owned top-level page */
 .blocked { min-block-size: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: var(--space-4); padding: max(var(--space-8), env(safe-area-inset-top)) max(var(--space-6), env(safe-area-inset-right)) max(var(--space-8), env(safe-area-inset-bottom)) max(var(--space-6), env(safe-area-inset-left)); background: var(--surface); }
@@ -377,7 +449,6 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .sync-row.pro-signed-out { display: grid; grid-template-columns: minmax(0, 1fr) var(--popup-action-inline-size, auto); align-items: center; gap: 4px var(--space-3); }
 .sync-row.pro-signed-out > .sync-row-text, .sync-row.pro-signed-out > .popup-action { display: contents; }
 .sync-row.pro-signed-out .offer-head { grid-column: 1; grid-row: 1; }
-.sync-row.pro-signed-out .sync-row-title { margin: 0; }
 .sync-row.pro-signed-out .sync-row-sub { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
 .sync-row.pro-signed-out .still-pro-tag { grid-column: 2; grid-row: 1; justify-self: center; }
 .sync-row.pro-signed-out .popup-action > button { grid-column: 2; grid-row: 2; align-self: start; }

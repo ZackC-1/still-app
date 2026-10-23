@@ -207,11 +207,33 @@
     max-block-size: none;
     overflow: visible;
   }
+  /* The iPhone and iPad popup grows to fit an open site, as the Mac popup does (owner canvas,
+     Safari-Popup-Locked and -ProOpen; ISS-0098 option B): the site list is never a scroll box of
+     its own (MobilePopup caps it at 312px and the page at 600px), and past the sheet's height the
+     page itself scrolls. Nothing here takes a size from the viewport, so the popover's own
+     content-sizing pass (iPad) cannot feed back into it. */
+  .popup:not(.desktop-popup) :global(.app[data-density="compact"]) {
+    max-block-size: none;
+  }
+  .popup:not(.desktop-popup) :global(.app[data-density="compact"] .site-scroll) {
+    flex: none;
+    max-block-size: none;
+    overflow-x: visible;
+    overflow-y: visible;
+  }
+  /* "Open the Still app to continue." (owner canvas, MacPopup-Offline): a raised 12px-radius note
+     inside the popup's 12px inset, 8px above the hero. */
   .handoff-failed {
-    margin: 0;
-    padding: 12px 16px 0;
-    font-size: calc(14px * var(--text-scale, 1));
-    color: var(--text-secondary, inherit);
+    margin: var(--space-3, 12px) var(--space-3, 12px) 0;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    border-radius: 12px;
+    background: var(--surface-raised);
+    font-size: calc(13px * var(--text-scale, 1));
+    line-height: 1.4;
+    color: var(--ink, inherit);
+  }
+  .handoff-failed + :global(.app) {
+    padding-block-start: var(--space-2, 8px);
   }
   .popup.edge-to-edge {
     /* The iPhone sheet only: fill the width Safari gives the sheet, edge to edge as designed. A

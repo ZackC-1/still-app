@@ -338,9 +338,6 @@
     <button
       type="button"
       class="open-options"
-      aria-label={host === "safari"
-        ? "Still settings. Opens Still settings."
-        : "Still settings"}
       onclick={onSettings}>Still settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>

@@ -453,7 +453,7 @@
   <div bind:this={purchaseScreen}>
     <PurchaseView {...purchaseProps} onBack={platform === "mac" ? closePurchase : purchaseProps.onBack} phone={platformKnown && platform === "ios"} />
   </div>
-  {#if canLink && c.userId !== null}<div class="still-ui app">
+  {#if canLink && c.userId !== null}<div class="still-ui app" data-host="apple" data-platform={platform}>
       <button
         type="button"
         class="secondary block"
@@ -495,7 +495,7 @@
     {help}
   />
   {#if proState?.pro?.verificationRequired}
-    <div class="still-ui app">
+    <div class="still-ui app" data-host="apple" data-platform={platform}>
       <button
         type="button"
         class="secondary block"
@@ -504,13 +504,13 @@
     </div>
   {/if}
   {#if view.settingsUnavailable && !reading}
-    <div class="still-ui app" data-host="apple">
+    <div class="still-ui app" data-host="apple" data-platform={platform}>
       {@render settingsRecovery()}
     </div>
   {/if}
 {:else}
   <!-- Held: no accepted committed choices yet. Never startup defaults or a saved Off. -->
-  <div class="still-ui app" data-host="apple" data-settings-held="">
+  <div class="still-ui app" data-host="apple" data-platform={platform} data-settings-held="">
     {#if view.settingsUnavailable && !reading}
       {@render settingsRecovery()}
     {:else}
@@ -526,6 +526,7 @@
 {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
   <SignInSheet
     controller={c}
+    host="apple"
     onDismiss={() => c.dismissSignIn()}
     title={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.title : undefined}
     prompt={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.prompt : undefined}
