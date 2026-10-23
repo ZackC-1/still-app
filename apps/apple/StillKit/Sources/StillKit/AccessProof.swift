@@ -333,15 +333,60 @@ public struct BenefitAccessSnapshot: Encodable {
   public let states: [String: String]
   public let refreshAfterMs: Int?
   public let independentProtection: [String]
-  private enum CodingKeys: String, CodingKey { case schema, generation, states, refreshAfterMs, independentProtection }
+  /// ISS-0105 (owner, 22 Oct), display only: it authorizes nothing. True only when the record's
+  /// signed-in account itself holds Still Pro (`accountHoldsStillPro`), so the Safari popup and
+  /// Settings page read "Still Pro User" rather than "Still Pro on this device".
+  public let accountHoldsPro: Bool
+  /// The account that answer is about (the record's signed-in account), or nil when it is false.
+  /// Safari keeps a snapshot for up to `refreshAfterMs` while the account line is read fresh, so a
+  /// reader shows the tag only when this equals the account it displays: the answer can never
+  /// outlive its account.
+  public let accountHoldsProFor: String?
+  init(generation: Int, states: [String: String], refreshAfterMs: Int?, independentProtection: [String], heldBy holder: String? = nil) {
+    self.generation = generation; self.states = states; self.refreshAfterMs = refreshAfterMs
+    self.independentProtection = independentProtection
+    self.accountHoldsPro = holder != nil; self.accountHoldsProFor = holder
+  }
+  /// The same answer without account provenance (for a reader showing a different account).
+  func withoutAccountProvenance() -> BenefitAccessSnapshot {
+    BenefitAccessSnapshot(generation: generation, states: states, refreshAfterMs: refreshAfterMs, independentProtection: independentProtection)
+  }
+  private enum CodingKeys: String, CodingKey { case schema, generation, states, refreshAfterMs, independentProtection, accountHoldsPro, accountHoldsProFor }
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(schema, forKey: .schema); try c.encode(generation, forKey: .generation)
     try c.encode(states, forKey: .states); try c.encode(refreshAfterMs, forKey: .refreshAfterMs)
     try c.encode(independentProtection, forKey: .independentProtection)
+    try c.encode(accountHoldsPro, forKey: .accountHoldsPro)
+    try c.encode(accountHoldsProFor, forKey: .accountHoldsProFor)
   }
 }
-func resolveAccessSnapshot(_ record: AccessCacheRecord, evidence: [ScopedAccessEvidence], context: NativeAccessContext) -> BenefitAccessSnapshot {
+
+/// ISS-0105, display only. The Swift twin of the app's `readAccountHeldPro`
+/// (packages/core/src/native/apple-purchase-authority.ts); keep the two identical, the shared cases
+/// in tests/access-proof/account-holds-pro-vectors.json hold them together. True only for a proof
+/// in the observed record that verified under this build's trust (`evidence`) as `paid_account` for
+/// exactly the record's signed-in account, installed under the record's current session
+/// generation, whose clock is present and not revoked, expired or paused, which carries a Still
+/// Pro benefit, has not reached its deadline at `wall`, and is on neither revocation list. That
+/// covers an Apple purchase linked to the account and one bought on the web. A device-only
+/// (`paid_apple_local`) proof, including a sandbox-review purchase, never counts.
+func accountHoldsStillPro(_ record: AccessCacheRecord, evidence: [ScopedAccessEvidence], wall: Int) -> Bool {
+  guard let account = record.accountId, accessUUID(account) else { return false }
+  return record.rights.contains { cached in
+    guard cached.accountGeneration == record.generation, let clock = cached.clock,
+      !clock.revoked, !clock.expired, !clock.paused,
+      let proof = evidence.first(where: { $0.proof.envelope == cached.envelope })?.proof else { return false }
+    let c = proof.claims
+    guard c.kind == "paid_account", c.holder == account, c.benefits.contains(where: { stillProV3Benefits.contains($0) }),
+      let expiry = c.expires_at, wall < expiry else { return false }
+    return !record.revocations.contains { $0.right == c.right && $0.revision >= c.ownership_revision } &&
+      !record.accountRevocations.contains { $0.holder == c.holder && $0.right == c.right && $0.revision >= c.ownership_revision }
+  }
+}
+
+/// `wall` is the observation's wall clock; without it there is no account provenance.
+func resolveAccessSnapshot(_ record: AccessCacheRecord, evidence: [ScopedAccessEvidence], context: NativeAccessContext, wall: Int? = nil) -> BenefitAccessSnapshot {
   let matchingSession = context.sessionKnown && context.accountId == record.accountId && context.sessionId == record.sessionId
   let status = record.localProtectionUnavailable || evidence.count != record.rights.count ? "unknown" : context.evidenceStatus
   var states: [String: String] = [:]
@@ -369,5 +414,8 @@ func resolveAccessSnapshot(_ record: AccessCacheRecord, evidence: [ScopedAccessE
       paidMode: true, supported: context.supported.contains(benefit), free: false, accountId: nil,
       localRights: context.localRights, evidenceStatus: "unknown", localProtection: record.localProtection) == .protected
   }
-  return BenefitAccessSnapshot(generation: record.generation, states: states, refreshAfterMs: delay, independentProtection: independent)
+  let accountHoldsPro = context.paidMode && matchingSession &&
+    wall.map { accountHoldsStillPro(record, evidence: evidence, wall: $0) } == true
+  return BenefitAccessSnapshot(generation: record.generation, states: states, refreshAfterMs: delay,
+    independentProtection: independent, heldBy: accountHoldsPro ? record.accountId : nil)
 }
