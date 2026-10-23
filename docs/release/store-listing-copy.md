@@ -274,7 +274,7 @@ C1 to C4 apply to the Firefox description as well (the same sentences). Firefox-
 | X2 | Summary (from the manifest) | Unchanged, 219/250. The store build uses `FIREFOX_2X_DESCRIPTION`, which says nothing about Android. |
 | X3 | Release notes: New in 2.1: a “Share usage data” switch in settings. ... On Firefox it stays off unless you allow it. | Release notes: the C5 text. |
 | X4 | Notes to reviewer: All blocking and optional settings sync are free. No account or purchase is needed for blocking. | Notes to reviewer: Removing Shorts and Reels, blocking the TikTok website and optional settings sync are free. No account or purchase is needed for them. |
-| X4b | Notes to reviewer: New in 2.1: optional usage analytics declared as the optional “technicalAndInteraction” data collection permission. | Notes to reviewer: Usage analytics is declared as the optional “technicalAndInteraction” data collection permission. Then add the Still Pro paragraph from the [V3 AMO reviewer notes](#v3-firefox-add-ons) (“Still Pro is optional. To see its purchase flow ...”; no fixed code). |
+| X4b | Notes to reviewer: New in 2.1: optional usage analytics declared as the optional “technicalAndInteraction” data collection permission. | Notes to reviewer: replace the whole field with the [V3 AMO reviewer notes](#v3-firefox-add-ons). They carry X4, the Still Pro paragraph (“Still Pro is optional. To see its purchase flow ...”; no fixed code) and the data paragraph: the session token under the required “authenticationInfo”, the email address only with the optional “personallyIdentifyingInfo” (asked at Send code), purchase and checkout data only with the optional “financialAndPaymentInfo” (asked at Get Still Pro) and usage data only with the optional “technicalAndInteraction”. |
 | X5 | Caption `firefox-05-switches`: One switch per site, from Still’s button in Firefox’s toolbar. | Caption `firefox-05-switches`: A switch for each site, from Still’s button in Firefox’s toolbar. |
 | X6 | Platform: desktop | On the upload’s platform step, untick Firefox for Android (runbook 6.5). |
 
@@ -287,7 +287,7 @@ so it is unchanged.
 | Name | 44/45 (unchanged) |
 | Summary | 219/250 (unchanged) |
 | Description | 2208/15000 |
-| Notes to reviewer (with X4, X4b and the Still Pro paragraph) | 1187 |
+| Notes to reviewer (the full V3 AMO reviewer notes) | 2193 |
 
 <details>
 <summary>Full 3.0 Firefox description, ready to paste</summary>
