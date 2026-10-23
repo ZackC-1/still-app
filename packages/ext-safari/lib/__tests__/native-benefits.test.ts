@@ -11,6 +11,8 @@ import {
 } from "@still/core/entitlement";
 import { FEATURE_REGISTRY, type BenefitId } from "@still/shared-types";
 import { parseNativeBenefitReply } from "../native-benefits.js";
+import { appManagedPopupAccount, appManagedSettingsSync } from "../safari-v3.js";
+import { stillProTag } from "../../../core/src/ui/v3/presentation.js";
 
 // A purchased snapshot as the native handler commits it (shape only; values are synthetic).
 const base = initialAccessSnapshot(packagedAccessContext("safari", "desktop"));
@@ -110,5 +112,55 @@ describe("Safari popup cache passes the native benefit answer through unchanged"
     await expect(cache.refreshAccess()).resolves.toBeDefined();
     expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
     expect(cache.currentAccess("youtube.shorts")).toBe("free");
+  });
+});
+
+// ISS-0105 follow-up: the background keeps native's snapshot for up to refreshAfterMs, and nothing
+// on Safari invalidates it when the app changes account, while the popup reads the account line
+// fresh. The snapshot therefore names the account its "Still Pro User" answer is about, and the
+// popup shows that tag only beside that account.
+describe("a kept snapshot never puts one account's Still Pro User tag beside another account", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const TEXT = { unreachable: "u", syncing: "s", synced: "y", checking: "c" };
+  const signedIn = (userId: string) => ({ userId, accountEmail: `${userId.slice(0, 1)}@example.invalid`, cloudReachable: true,
+    pendingUpload: false, lastSyncedAt: 1, accountRevision: 1 });
+
+  it("A holds Still Pro, the app switches to B within refreshAfterMs: the popup says Still Pro on this device", async () => {
+    vi.stubGlobal("chrome", { storage: { local: {} } });
+    const supported = accessCapabilities({ paidMode: true, host: "safari", platform: "desktop" });
+    const seed = initialAccessSnapshot({ paidMode: true, supported });
+    const states = Object.fromEntries(Object.entries(seed.states).map(([benefit, state]) => [benefit, state === "checking" ? "purchased" : state]));
+    // What native answers while A is signed in, then after the app switched to B (this device's purchase).
+    let reply = lane({ ok: true, snapshot: { ...seed, states, accountHoldsPro: true, accountHoldsProFor: A } });
+    const nativeObservation = vi.fn(async () => parseNativeBenefitReply(reply));
+    // Wired as entrypoints/background.ts wires it: the authority adapter over the native answer.
+    const background = new ChromeEntitlementAdapter(Date.now, {
+      authority: true,
+      context: () => ({ paidMode: true, supported, localRights: new Set(), evidenceStatus: "unknown" }),
+      nativeObservation,
+    });
+
+    // The popup opens while A is signed in.
+    const first = new EntitlementCache(background, { access: { paidMode: true, supported } });
+    await first.refreshAccess();
+    const before = first.currentAccessSnapshot();
+    const accountA = appManagedPopupAccount(signedIn(A), TEXT, before);
+    expect(accountA?.holdsPro).toBe(true);
+    expect(stillProTag(before, accountA)).toBe("account");
+
+    // In the app: sign out, sign in as B (who holds no Still Pro). The popup reopens at once.
+    reply = lane({ ok: true, snapshot: { ...seed, states, accountHoldsPro: false, accountHoldsProFor: null } });
+    const second = new EntitlementCache(background, { access: { paidMode: true, supported } });
+    await second.refreshAccess();
+    const kept = second.currentAccessSnapshot();
+    // The background served its kept snapshot (still A's answer), not a fresh native read...
+    expect(nativeObservation).toHaveBeenCalledOnce();
+    expect(kept.accountHoldsProFor).toBe(A);
+    // ...and B's line still reads "Still Pro on this device".
+    const accountB = appManagedPopupAccount(signedIn(B), TEXT, kept);
+    expect(accountB?.holdsPro).toBe(false);
+    expect(stillProTag(kept, accountB)).toBe("device");
+    expect(stillProTag(kept, appManagedSettingsSync(signedIn(B), TEXT, undefined, kept).account)).toBe("device");
   });
 });

@@ -1,20 +1,23 @@
 # Production purchase routes and secrets: protected operations
 
 This puts the production purchase routes and their function secrets on the hosted project (V3
-go-live runbook steps 2.3 and 2.4, gap G3). Every change goes through the protected **Supabase
+go-live runbook steps 2.3 and 2.4, gap G3), and redeploys the App Review sign-in route
+`review-signin` (runbook step 2.7). Every change goes through the protected **Supabase
 production deploy** workflow and waits for the owner's approval. Nothing here is done with the
 Supabase CLI, in the Supabase dashboard or in the SQL editor.
 
 The code is `scripts/backend/deploy/purchase-operations.mjs`. The closed route lists are
-`PURCHASE_FUNCTIONS` and `SYNC_SETTINGS_FUNCTIONS` in `scripts/backend/deploy/qa-function-bundles.mjs`.
+`PURCHASE_FUNCTIONS`, `SYNC_SETTINGS_FUNCTIONS` and `REVIEW_SIGNIN_FUNCTIONS` in
+`scripts/backend/deploy/qa-function-bundles.mjs`.
 
-## The three operations
+## The operations
 
 | Operation | What it does | Modes |
 |---|---|---|
 | `purchase-functions` | Deploys exactly these routes, in this order, as sealed single-file bundles built from the planned commit, each read back byte for byte: `product-policy` (verify_jwt false), `export-user-data` (true), `verify-apple-access` (false), `link-apple-access` (true), `reconcile-entitlement` (true), `create-web-checkout` (true), `complete-web-checkout` (true), `revenuecat-webhook` (false), `stripe-webhook` (false). Read-only routes first, provider webhooks last. A route already at the planned source is left alone. | `plan-only`, `apply` |
 | `purchase-functions-sync-settings` | Deploys `sync-settings` (verify_jwt true) alone. It serves the released 2.x apps' free sync, so it is a separate run with its own approval. | `plan-only`, `apply` |
 | `purchase-secrets` | Copies each GitHub environment secret `PROD_<NAME>` to the function secret `<NAME>`, and sets `ACCESS_PROOF_ENVIRONMENT` to `production` itself. `apply` installs absent names and refuses if a name already holds a different value. `rotate` replaces only names that already hold a value. | `plan-only`, `apply`, `rotate` |
+| `review-signin-function` | Deploys `review-signin` (verify_jwt false) alone, the same way as `sync-settings`: a sealed single-file bundle built from the planned commit and read back byte for byte, left alone if already at that source. It serves the App Review sign-in, so it is a separate run with its own approval. It never sets, rotates or changes a secret. | `plan-only`, `apply` |
 
 `policy_mode` is always `none`; `migrations`, `functions`, `policy_expected_revision`,
 `subjects_sha256` and `baseline_sha256` stay empty.
@@ -26,7 +29,14 @@ Each function step refuses before any write unless:
 - the purchase configuration names in `ROUTE_SECRETS[purchase-functions]` all exist, including
   the live Stripe bindings, production access signer, Apple verification and RevenueCat mappings,
   plus `ENTITLEMENT_WRITER_DB_URL` and `PRODUCT_POLICY_READER_DB_URL`;
-- `SETTINGS_WRITER_DB_URL` exists for the separate `sync-settings` deployment.
+- `SETTINGS_WRITER_DB_URL` exists for the separate `sync-settings` deployment;
+- `REVIEW_SIGNIN_EMAIL`, `REVIEW_SIGNIN_CODE` and `ENTITLEMENT_WRITER_DB_URL` exist for the separate
+  `review-signin` deployment. This check is by name only. The Management API's secret list carries
+  each name and a digest of its value (sent to the runner over TLS); the operation keeps the names,
+  drops the digests in memory without recording or comparing them, and compares secret names before
+  and after the upload. It never sees a value. A missing name stops the run with
+  `missing_secret:<NAME>`. No operation here can write the `REVIEW_SIGNIN_*` values; see
+  [Review sign-in secrets](#review-sign-in-secrets).
 
 Apply the reviewed production purchase secrets before deploying purchase functions. The gate checks
 presence; a complete offline runtime-configuration check and provider read-back remain required
@@ -48,7 +58,7 @@ come from the providers and never enter Git, a chat or a document.
 | `PROD_ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64` | `ACCESS_PROOF_PRIVATE_KEY_PKCS8_BASE64` | Required (group: access-proof key) |
 | `PROD_ACCESS_PROOF_PUBLIC_KEY_HEX` | `ACCESS_PROOF_PUBLIC_KEY_HEX` | Required (group: access-proof key) |
 | `PROD_ACCESS_APPLE_PRODUCTS_JSON` | `ACCESS_APPLE_PRODUCTS_JSON` | Required |
-| `PROD_ACCESS_PROVIDER_PRODUCTS_JSON` | `ACCESS_PROVIDER_PRODUCTS_JSON` | Required (engineering builds it from the RevenueCat read-back, runbook V30) |
+| `PROD_ACCESS_PROVIDER_PRODUCTS_JSON` | `ACCESS_PROVIDER_PRODUCTS_JSON` | Required (engineering builds it from the RevenueCat read-back, runbook V30; keep the legacy entries, see below) |
 | `PROD_APP_STORE_SERVER_ISSUER_ID` | `APP_STORE_SERVER_ISSUER_ID` | Required |
 | `PROD_APP_STORE_SERVER_KEY_ID` | `APP_STORE_SERVER_KEY_ID` | Required (group: App Store key) |
 | `PROD_APP_STORE_SERVER_PRIVATE_KEY` | `APP_STORE_SERVER_PRIVATE_KEY` | Required (group: App Store key) |
@@ -70,6 +80,15 @@ come from the providers and never enter Git, a chat or a document.
 "Required" means the name must hold a value after an `apply`: either staged now or already present.
 A group's names are staged together or not at all. `ACCESS_PROOF_ENVIRONMENT` is not staged; the
 operation writes `production`.
+
+**`ACCESS_PROVIDER_PRODUCTS_JSON` keeps the legacy products.** The server recognises a RevenueCat
+purchase only when its product has an entry in this list (`supabase/functions/_shared/revenuecat-access.ts`
+skips every other product). Besides the 3.0 entries (`still_pro_v3` on the Apple apps and the live
+Stripe price), the list must keep the legacy entries with store identifiers `still_sync` (the Apple
+products, entitlement `still_sync`) and `still_sync_web` (RevenueCat Web Billing, entitlement
+`still_sync`). Without them, no pre-3.0 paid purchase is recognised for anyone. Check this whenever
+the list is built (runbook V30) and at the production read-back after `purchase-secrets` (runbook
+V14), by product identifier only; never copy the setting's value into a document.
 
 Apple review access requires migration 0027 and the matching native binding verifier. Enable the
 separate review switch only after those gates pass. Apple sandbox transactions then issue local
@@ -96,9 +115,33 @@ The unused RevenueCat Web Billing checkout URL is no longer staged. Existing hos
 preserved; this operation never deletes an unrelated secret. The existing RevenueCat webhook
 portal settings remain unchanged.
 
+## Review sign-in secrets
+
+The owner sets and replaces `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase
+dashboard: the production project, **Edge Functions**, **Secrets**, then add or edit the secret by
+name and paste the value from the private App Review record. Never type or paste a value into a
+terminal, a file in this repository, a chat, an issue or a workflow input. Then check the reviewer
+sign-in (runbook V20): the approved address with the new code signs in, and a wrong code or an
+unrelated address is refused. Supabase documents that a changed secret is read on the next request
+without a redeploy. If the old code still works, stop and ask engineering: `review-signin-function`
+leaves a route already at the planned source alone, so it cannot force a redeploy of the same commit.
+
+While `REVIEW_SIGNIN_EMAIL` or `REVIEW_SIGNIN_CODE` is unset (for example after the reviewer path is
+retired), `review-signin-function` refuses with `missing_secret:<NAME>`, so a fix to `review-signin`
+cannot be deployed through the operation until both are set again. With either unset, the deployed
+route refuses every review sign-in.
+
+The earlier way, `supabase secrets set` with a private env file followed by a Supabase CLI deploy, is
+historical and is no longer used for production.
+
 ## Before the first run
 
-1. Merge the release commit to `main` and note it. Every run below uses that one commit.
+1. Merge the release commit to `main` and note it. Every run below uses that one commit. The plan
+   binds that commit to the current bytes on `main` of the purchase tooling files
+   (`purchase-operations.mjs`, `qa-function-bundles.mjs`, `deploy.mjs` and the production deploy
+   workflow, among others). After any merge that changes one of them, note a new release commit at or
+   after that merge and plan again. An apply still waiting for approval across such a merge stops at
+   the freshness check before writing anything; plan it again from the new commit.
 2. Confirm the hosted migration tail with DB-01 (read-only, no approval):
    `gh workflow run supabase-readonly-checks.yml --ref main -f check=DB-01 -f account=none -f account_b=none`
    ([read-only checks](qa-readonly-database-checks.md)). The tail must include `0024` and every
@@ -129,10 +172,12 @@ Every operation follows the same three moves. Replace `<sha>` with the release c
 | 2.3 sync-settings (separate) | `... -f operation=purchase-functions-sync-settings -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | DB-01 matches all migrations at the pinned commit (foundation through 0027; final analytics integration also 0028/0029); a released 2.1 app still syncs settings |
 | 2.4 secrets | `... -f operation=purchase-secrets -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | V14: every name appears in Edge Functions, Secrets (names only); the routes answer without `unavailable` |
 | Replace a value later | `... -f operation=purchase-secrets -f policy_mode=none -f mode=plan-only` | the same with `-f mode=rotate`, with only the new `PROD_*` values staged | the closing record shows `replaced` for exactly those names |
+| 2.7 review sign-in route (separate) | `... -f operation=review-signin-function -f policy_mode=none -f mode=plan-only` | the same with `-f mode=apply` | the closing record lists `review-signin` as `deployed` or `unchanged`; a request of about 3,000 bytes for an address that is not the review address gets 400 (not 404) |
 
 Run the `sync-settings` step only when the route on production predates the commit (runbook V11) and
 `0024` is applied. If its production version already equals the commit, the step reports `unchanged`
-and writes nothing.
+and writes nothing. The same holds for `review-signin-function`: if the deployed `review-signin`
+already matches the commit, it reports `unchanged`.
 
 ## Undo and recovery
 
@@ -145,9 +190,12 @@ and writes nothing.
 ## How CI rehearses it
 
 - Every plan job (and the pull-request **Supabase operation rehearsal**) compiles the real bundles,
-  then rehearses all three operations on a throwaway database with the Management API and GitHub
-  stubbed: refusals first, then routes, sync-settings, secrets apply, repeat, rotate, and a check
-  that no value reaches any record.
-- The pull-request **Supabase purchase function rehearsal** compiles the real routes through the same
-  compiler boundary and starts every sealed upload with no environment, no network and no write
-  access.
+  then rehearses all four operations on a throwaway database with the Management API and GitHub
+  stubbed: refusals first, then routes, sync-settings, secrets apply, repeat, rotate, and
+  review-signin (a pending migration, each missing review secret and an added route are refused;
+  then only `review-signin` deploys and no secret changes), and a check that no value reaches any
+  record.
+- The pull-request **Supabase purchase function rehearsal** compiles the real routes, including
+  `review-signin`, through the same compiler boundary and starts every sealed upload with no
+  environment, no network and no write access. The `review-signin` upload must answer an oversized
+  request with 400.

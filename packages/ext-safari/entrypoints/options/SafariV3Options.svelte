@@ -80,7 +80,7 @@
     };
   });
   let unavailable = $derived(!reading && view.settingsUnavailable);
-  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync, openApp ? openSync : undefined));
+  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync, openApp ? openSync : undefined, view.state?.access));
   let ready = $derived(
     view.settings && view.state && view.commands
       ? {

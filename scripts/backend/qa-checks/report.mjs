@@ -132,7 +132,8 @@ const PRODUCTION_TEXT = {
   recorded: "baseline recorded (keyed digest only; production values are never printed)",
   unchanged: "yes",
   changed: "NO: production rights, policy revisions or cutoff changed since the DB-01 baseline",
-  "no-baseline": "unknown: no successful DB-01 baseline run was found",
+  "no-baseline": "unknown: no DB-01 baseline file was provided to this run",
+  "baseline-invalid": "unknown: the DB-01 baseline file is present but malformed (baseline-invalid), so this check fails; run DB-01 again",
 };
 
 /**

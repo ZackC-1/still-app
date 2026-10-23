@@ -74,4 +74,18 @@ export interface BenefitAccessSnapshot {
   readonly refreshAfterMs: number | null;
   /** Only independently verified permanent local protection, never account-scoped grants. */
   readonly independentProtection: readonly BenefitId[];
+  /**
+   * ISS-0105 (owner, 22 Oct), display only: it authorizes nothing. True only when native verified
+   * the signed-in account's own Still Pro proof (StillKit `accountHoldsStillPro`, the twin of the
+   * app's `readAccountHeldPro`), so a Safari surface may say "Still Pro User". A parsed snapshot
+   * always carries it; snapshots resolved in TypeScript and older native records leave it out,
+   * which means false.
+   */
+  readonly accountHoldsPro?: boolean;
+  /**
+   * The account `accountHoldsPro` is about, or null when it is false. A reader shows "Still Pro
+   * User" only for the account it displays right now, so a snapshot kept across an account switch
+   * can never put one account's tag beside another's address.
+   */
+  readonly accountHoldsProFor?: string | null;
 }
