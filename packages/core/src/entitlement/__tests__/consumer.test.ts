@@ -132,14 +132,18 @@ describe("committed per-benefit consumer", () => {
     expect(isBenefitEffective({ ...enabled, globalOn: false }, "youtube.comments", "purchased")).toBe(false);
     expect(isBenefitEffective({ ...enabled, services: { ...enabled.services, youtube: false } }, "youtube.comments", "purchased")).toBe(false);
   });
-  it("drops an old native observation after host context changes", async () => {
+  it("drops an old native observation after host context changes and answers from a fresh one", async () => {
     const h = harness(); let release!: (value: ReturnType<typeof initialAccessSnapshot>) => void;
     const native = new Promise<ReturnType<typeof initialAccessSnapshot>>(resolve => { release = resolve; });
-    const nativeObservation = vi.fn(() => native);
+    const superseded = initialAccessSnapshot({ paidMode: true, supported: benefits });
+    const fresh = initialAccessSnapshot({ paidMode: false, supported: benefits });
+    const nativeObservation = vi.fn(() => native).mockImplementationOnce(() => native).mockImplementationOnce(async () => fresh);
     const adapter = new ChromeEntitlementAdapter(() => 1000, { authority: true, context: () => h.context, nativeObservation });
     const pending = adapter.observeBenefits(); await vi.waitFor(() => expect(nativeObservation).toHaveBeenCalledTimes(1));
-    adapter.invalidateAccessContext(); release(initialAccessSnapshot({ paidMode: false, supported: benefits }));
-    await expect(pending).rejects.toThrow("Stale access context");
+    adapter.invalidateAccessContext(); release(superseded);
+    expect(superseded.states["youtube.comments"]).not.toBe("free");
+    expect((await pending).states["youtube.comments"]).toBe("free");
+    expect(nativeObservation).toHaveBeenCalledTimes(2);
   });
   it("never accepts a raw record, unknown state or incomplete transport as resolved authority", () => {
     const valid = initialAccessSnapshot({ paidMode: false, supported: benefits });
@@ -423,4 +427,59 @@ describe("committed per-benefit consumer", () => {
     expect(h.changed.size).toBe(0); expect(vi.getTimerCount()).toBe(0); reads.mockRestore();
   });
 
+});
+
+// A woken MV3 worker creates its auth client while the popup's first request is already being
+// answered; the client's INITIAL_SESSION (or a TOKEN_REFRESHED) invalidates the access context
+// mid-read. The background must answer with the current context, not leak the race as {ok:false}.
+describe("access context invalidated while a page request is being answered", () => {
+  const pageSender = { id: "still", url: "chrome-extension://still/popup/index.html" } as chrome.runtime.MessageSender;
+  function ask(h: ReturnType<typeof harness>): Promise<{ ok: boolean; snapshot?: ReturnType<typeof initialAccessSnapshot> }> {
+    return new Promise(resolve => { expect(h.router({ kind: "observeBenefits" }, pageSender, resolve as (value: unknown) => void)).toBe(true); });
+  }
+  it("signed out: the first reply after a wake-time INITIAL_SESSION is ok with the current context", async () => {
+    const h = harness(); h.context.session = null; h.context.evidenceStatus = "absent";
+    // The auth client's INITIAL_SESSION lands while the first context is being read.
+    h.contextRead.mockImplementationOnce(() => { h.authority.invalidateAccessContext(); return h.context; });
+    const reply = await ask(h);
+    expect(reply.ok).toBe(true);
+    expect(reply.snapshot!.states["youtube.comments"]).toBe("locked");
+    expect(reply.snapshot!.states["youtube.shorts"]).toBe("free");
+    expect(h.contextRead).toHaveBeenCalledTimes(2);
+  });
+  it("signed in: a same-holder token refresh mid-read still answers the first request with the purchase", async () => {
+    const h = harness(); await h.authority.observeBenefits(); const current = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: current.generation, issuerNow: vectors.verifiedAt, wall: 1000, localRights: new Set() });
+    h.authority.invalidateAccessContext(); h.local.get.mockClear();
+    // TOKEN_REFRESHED arrives after the context was read, while the record is being observed.
+    h.local.get.mockImplementationOnce(async (key: string) => { h.authority.invalidateAccessContext(); return { [key]: structuredClone(h.store[key]) }; });
+    const reply = await ask(h);
+    expect(reply.ok).toBe(true);
+    expect(reply.snapshot!.states["youtube.comments"]).toBe("purchased");
+  });
+  it("an account switch mid-read never returns the previous holder's benefits", async () => {
+    const h = harness(); await h.authority.observeBenefits(); const current = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: current.generation, issuerNow: vectors.verifiedAt, wall: 1000, localRights: new Set() });
+    h.authority.invalidateAccessContext(); h.local.get.mockClear();
+    const other = { userId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", sessionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" };
+    // The old holder's context was already read; the switch lands during that holder's observation.
+    h.local.get.mockImplementationOnce(async (key: string) => {
+      h.context.session = other; h.authority.invalidateAccessContext();
+      return { [key]: structuredClone(h.store[key]) };
+    });
+    const reply = await ask(h);
+    expect(reply.ok).toBe(true);
+    expect(reply.snapshot!.states["youtube.comments"]).not.toBe("purchased");
+    expect(reply.snapshot!.states["youtube.comments"]).toBe("verification_required");
+    expect(parseAccessCacheRecord((h.store["still:entitlement"] as { access: unknown }).access).accountId).toBe(other.userId);
+    // A later read for the new holder stays without the previous holder's purchase.
+    expect((await h.authority.observeBenefits()).states["youtube.comments"]).not.toBe("purchased");
+  });
+  it("a context that keeps changing ends in {ok:false} after a bounded number of attempts", async () => {
+    const h = harness(); h.context.session = null; h.context.evidenceStatus = "absent";
+    h.contextRead.mockImplementation(() => { h.authority.invalidateAccessContext(); return h.context; });
+    const reply = await ask(h);
+    expect(reply).toEqual({ ok: false });
+    expect(h.contextRead).toHaveBeenCalledTimes(3);
+  });
 });
