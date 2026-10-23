@@ -49,7 +49,9 @@ export type CheckoutRecovered = {
 };
 export type CheckoutUnknown = { readonly status: "unknown"; readonly sessionId?: string };
 export type CheckoutRecovery = CheckoutCreated | CheckoutRecovered | CheckoutUnknown;
-export type ChargeRefund = { readonly status: "unknown" } | {
+// "foreign": canonically readable and provably not a Still purchase. The live account is shared with
+// another product, so its Charges reach this endpoint too and must be acknowledged, never retried.
+export type ChargeRefund = { readonly status: "unknown" } | { readonly status: "foreign" } | {
   readonly status: "full_refund" | "partial_refund" | "not_refunded";
   readonly operationId: string; readonly holderId: string; readonly sessionId: string;
   readonly paymentIntentId: string; readonly createdAtMs: number;
@@ -103,6 +105,22 @@ function lineItems(value: unknown, config: Readonly<ManagedCheckoutConfig>, row:
     price?.object === "price" && price.id === config.priceId && price.currency === "usd" && price.livemode === MODES[config.environment].live &&
     price.type === "one_time" && price.recurring === null && price.unit_amount === OFFER_AMOUNT_USD_CENTS &&
     product?.object === "product" && product.id === config.productId && product.livemode === MODES[config.environment].live;
+}
+
+export type SessionOwnership = "still" | "foreign" | "unknown";
+/** Ownership only, never a purchase binding. A Session is Still's when any line carries Still's Price
+ * or product. Still creates exactly one such line, so a Session whose visible lines carry neither can
+ * never be a Still purchase (the strict lineItems check would refuse it anyway). An unreadable list is
+ * unknown, so a transient provider failure is retried instead of being acknowledged. */
+function ownership(value: unknown, config: Readonly<ManagedCheckoutConfig>): SessionOwnership {
+  const list = object(value);
+  if (list?.object !== "list" || typeof list.has_more !== "boolean" || !Array.isArray(list.data)) return "unknown";
+  for (const entry of list.data) {
+    const price = object(object(entry)?.price);
+    const product = typeof price?.product === "string" ? price.product : object(price?.product)?.id;
+    if (price?.id === config.priceId || product === config.productId) return "still";
+  }
+  return "foreign";
 }
 
 export class ManagedCheckout {
@@ -177,13 +195,23 @@ export class ManagedCheckout {
     return { Authorization: `Bearer ${this.config.stripeSecretKey}`, "Stripe-Version": STRIPE_API_VERSION };
   }
 
-  private async readSession(operation: CheckoutOperation, id: string, accountVerified = false, deadline?: number): Promise<JsonObject | null> {
+  private lineItems(id: string, deadline?: number): Promise<unknown> {
+    return this.request(`${STRIPE}/${id}/line_items?limit=2&expand%5B%5D=data.price.product`, { headers: this.stripeHeaders() }, false, deadline);
+  }
+
+  // `items` reuses a line-item list this request already read for ownership instead of reading it twice.
+  private async readSession(operation: CheckoutOperation, id: string, accountVerified = false, deadline?: number, items?: unknown): Promise<JsonObject | null> {
     if (!accountVerified && !await this.accountMatches(deadline)) return null;
     const row = session(await this.request(`${STRIPE}/${id}`, { headers: this.stripeHeaders() }, false, deadline), operation, this.mode, id);
-    if (!row || !lineItems(await this.request(`${STRIPE}/${id}/line_items?limit=2&expand%5B%5D=data.price.product`, {
-      headers: this.stripeHeaders(),
-    }, false, deadline), this.config, row)) return null;
+    if (!row || !lineItems(items !== undefined ? items : await this.lineItems(id, deadline), this.config, row)) return null;
     return row;
+  }
+
+  /** One GET of the Session's line items. Decides only whether a webhook Session can be Still's;
+   * fulfilment still re-reads and strictly verifies the Session before anything is recorded. */
+  async readSessionOwnership(sessionId: string): Promise<SessionOwnership> {
+    if (!this.mode.sessionId.test(sessionId)) return "unknown";
+    return ownership(await this.lineItems(sessionId, performance.now() + this.timeoutMs), this.config);
   }
 
   private async accountMatches(deadline?: number): Promise<boolean> {
@@ -252,29 +280,39 @@ export class ManagedCheckout {
   }
 
   /** Canonical Charge -> PaymentIntent -> unique managed Session. Snapshot metadata is
-   * never a purchase binding; refunds do not import receipts or authorize access. */
+   * never a purchase binding; refunds do not import receipts or authorize access. Ownership is
+   * decided first, from canonical reads only: a Charge with no PaymentIntent, a PaymentIntent with
+   * no Checkout Session, or a Session without Still's Price or product is "foreign". A Still-priced
+   * Session that lacks Still's operation binding stays "unknown" (retried), never dropped. */
   async readChargeRefund(chargeId: string): Promise<ChargeRefund> {
-    const unknown = { status: "unknown" } as const;
+    const unknown = { status: "unknown" } as const, foreign = { status: "foreign" } as const;
     if (!/^ch_[A-Za-z0-9]{1,200}$/.test(chargeId)) return unknown;
     const deadline = performance.now() + this.timeoutMs;
     if (!await this.accountMatches(deadline)) return unknown;
     const charge = object(await this.request(`https://api.stripe.com/v1/charges/${chargeId}`, { headers: this.stripeHeaders() }, false, deadline));
-    if (!charge || charge.object !== "charge" || charge.id !== chargeId || charge.livemode !== this.mode.live || charge.currency !== "usd" ||
-      charge.paid !== true || charge.status !== "succeeded" || !positiveAmount(charge.amount) ||
-      typeof charge.amount_refunded !== "number" || !Number.isSafeInteger(charge.amount_refunded) || charge.amount_refunded < 0 ||
-      charge.amount_refunded > (charge.amount as number) || typeof charge.refunded !== "boolean" ||
-      charge.refunded !== (charge.amount_refunded === charge.amount) || typeof charge.payment_intent !== "string" ||
-      !/^pi_[A-Za-z0-9]{1,200}$/.test(charge.payment_intent)) return unknown;
+    if (!charge || charge.object !== "charge" || charge.id !== chargeId || charge.livemode !== this.mode.live) return unknown;
+    // Every Still purchase is a Checkout Session payment, which always has a PaymentIntent.
+    if (charge.payment_intent === null) return foreign;
+    if (typeof charge.payment_intent !== "string" || !/^pi_[A-Za-z0-9]{1,200}$/.test(charge.payment_intent)) return unknown;
     const query = new URLSearchParams({ payment_intent: charge.payment_intent, limit: "2" });
     const list = object(await this.request(`${STRIPE}?${query}`, { headers: this.stripeHeaders() }, false, deadline));
-    if (list?.object !== "list" || list.url !== "/v1/checkout/sessions" || list.has_more !== false ||
-      !Array.isArray(list.data) || list.data.length !== 1) return unknown;
+    if (list?.object !== "list" || list.url !== "/v1/checkout/sessions" || list.has_more !== false || !Array.isArray(list.data)) return unknown;
+    if (list.data.length === 0) return foreign;
+    if (list.data.length !== 1) return unknown;
     const hint = object(list.data[0]);
-    const operationId = object(hint?.metadata)?.operation_id, holderId = hint?.client_reference_id;
-    if (typeof operationId !== "string" || !UUID.test(operationId) || typeof holderId !== "string" || !UUID.test(holderId) ||
-      typeof hint?.id !== "string" || !this.mode.sessionId.test(hint.id) || hint.object !== "checkout.session" || hint.livemode !== this.mode.live ||
+    if (typeof hint?.id !== "string" || !this.mode.sessionId.test(hint.id) || hint.object !== "checkout.session" || hint.livemode !== this.mode.live ||
       hint.payment_intent !== charge.payment_intent) return unknown;
-    const row = await this.readSession({ operationId, holderId }, hint.id, true, deadline);
+    const items = await this.lineItems(hint.id, deadline);
+    const owner = ownership(items, this.config);
+    if (owner === "foreign") return foreign;
+    if (owner !== "still") return unknown;
+    const operationId = object(hint.metadata)?.operation_id, holderId = hint.client_reference_id;
+    if (typeof operationId !== "string" || !UUID.test(operationId) || typeof holderId !== "string" || !UUID.test(holderId)) return unknown;
+    if (charge.currency !== "usd" || charge.paid !== true || charge.status !== "succeeded" || !positiveAmount(charge.amount) ||
+      typeof charge.amount_refunded !== "number" || !Number.isSafeInteger(charge.amount_refunded) || charge.amount_refunded < 0 ||
+      charge.amount_refunded > (charge.amount as number) || typeof charge.refunded !== "boolean" ||
+      charge.refunded !== (charge.amount_refunded === charge.amount)) return unknown;
+    const row = await this.readSession({ operationId, holderId }, hint.id, true, deadline, items);
     if (!row || row.payment_intent !== charge.payment_intent || row.status !== "complete" || row.payment_status !== "paid" ||
       row.amount_total !== charge.amount || typeof row.created !== "number" || !Number.isSafeInteger(row.created) || row.created <= 0 ||
       !Number.isSafeInteger(row.created * 1000)) return unknown;

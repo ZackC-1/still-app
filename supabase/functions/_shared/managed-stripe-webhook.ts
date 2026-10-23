@@ -11,9 +11,17 @@ export interface ManagedStripeWebhookDeps {
   readonly secret: string;
   readonly checkout: ManagedCheckoutProcessingDeps;
   readonly refunds: Pick<ManagedCheckout, "readChargeRefund">;
+  readonly ownership: Pick<ManagedCheckout, "readSessionOwnership">;
 }
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 const reply = (status: number) => jsonResponse(status, status === 200 ? { received: true } : { error: status === 400 ? "invalid_webhook" : "webhook_unavailable" });
+/** The Stripe account is shared with another product whose events reach this endpoint too. A signed
+ * event that is provably not Still's is acknowledged so Stripe never retries or disables the endpoint.
+ * Only the event id and type are logged: no customer, Session or Charge data. */
+function ignored(event: { readonly id: string; readonly type: string }): Response {
+  console.info("stripe webhook ignored another product's event", { event: event.id, type: event.type });
+  return reply(200);
+}
 export const validManagedWebhookSecret = (secret: string) => /^whsec_[A-Za-z0-9]{1,240}$/.test(secret);
 
 async function rawBody(req: Request): Promise<Uint8Array | null> {
@@ -81,14 +89,15 @@ function scoped(operation: PurchaseOperation | null, operationId: string, holder
  * a live account's operation here, the (true) refunded status is kept, the acknowledgement is
  * refused, and Stripe's retry completes the ordinary scoped path below.
  */
-async function deletedAccountRefund(canonical: Exclude<ChargeRefund, { status: "unknown" }>, checkout: ManagedStripeWebhookDeps["checkout"]): Promise<Response> {
+async function deletedAccountRefund(canonical: Extract<ChargeRefund, { operationId: string }>, checkout: ManagedStripeWebhookDeps["checkout"]): Promise<Response> {
   const settled = await checkout.operations.recordDeletedAccountRefund(canonical.operationId, canonical.sessionId);
   if (settled.configuration_hash !== checkout.configurationHash || settled.creation_started_at === null ||
     Math.abs(Date.parse(settled.creation_started_at) - canonical.createdAtMs) > 300_000) return reply(502);
   return reply(200);
 }
-async function refund(chargeId: string, deps: ManagedStripeWebhookDeps): Promise<Response> {
+async function refund(event: { readonly id: string; readonly type: string }, chargeId: string, deps: ManagedStripeWebhookDeps): Promise<Response> {
   const canonical: ChargeRefund = await deps.refunds.readChargeRefund(chargeId);
+  if (canonical.status === "foreign") return ignored(event);
   if (canonical.status === "unknown") return reply(502);
   if (canonical.status !== "full_refund") return reply(200);
   const checkout = deps.checkout;
@@ -139,12 +148,20 @@ export async function handleManagedStripeWebhook(req: Request, deps: ManagedStri
     const hint = event.data.object;
     if (event.type === "charge.refunded") {
       if (hint.object !== "charge" || hint.livemode !== live || typeof hint.id !== "string" || !/^ch_[A-Za-z0-9]{1,200}$/.test(hint.id)) return reply(400);
-      return await refund(hint.id, deps);
+      return await refund({ id: event.id, type: event.type }, hint.id, deps);
     }
     if (!TYPES.has(event.type)) return reply(200);
+    if (hint.object !== "checkout.session" || hint.livemode !== live || typeof hint.id !== "string" || !sessionPattern.test(hint.id)) return reply(400);
+    // Ownership before any ledger read: Still's Price or product on the Session's canonical line items.
+    const owner = await deps.ownership.readSessionOwnership(hint.id);
+    if (owner === "foreign") return ignored({ id: event.id, type: event.type });
+    if (owner !== "still") return reply(502);
     const operationId = object(hint.metadata) ? hint.metadata.operation_id : null, holder = hint.client_reference_id;
-    if (hint.object !== "checkout.session" || hint.livemode !== live || typeof hint.id !== "string" || !sessionPattern.test(hint.id) ||
-      typeof operationId !== "string" || !UUID.test(operationId) || typeof holder !== "string" || !UUID.test(holder)) return reply(400);
+    if (typeof operationId !== "string" || !UUID.test(operationId) || typeof holder !== "string" || !UUID.test(holder)) {
+      // Still's Price without Still's binding: a Still bug or a hand-made Session. Never drop it silently.
+      console.error("stripe webhook received a Still-priced Session without its operation binding", { event: event.id, type: event.type });
+      return reply(502);
+    }
     const checkout = deps.checkout;
     const operation = await checkout.operations.read(operationId, holder);
     if (!scoped(operation, operationId, holder, checkout.configurationHash, hint.id,checkout.environment)) return reply(502);
