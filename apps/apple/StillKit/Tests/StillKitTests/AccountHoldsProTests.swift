@@ -78,8 +78,11 @@ final class AccountHoldsProTests: XCTestCase {
     XCTAssertEqual(snapshot["accountHoldsProFor"] as? String, account.record.accountId)
     // A JSON Boolean, never 1/0.
     XCTAssertTrue((snapshot["accountHoldsPro"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false)
-    // Paid off: the free snapshot carries the field too, always false.
-    let free = try SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false).observeBenefits(wall: 1).1
+    // Paid off: the free snapshot carries the field too, always false. The 3.x line compiles the paid
+    // tier on, so the paid-off world is a supplied paid-off context (the default context is paid on,
+    // and a paid-on read of a store without coordination fails closed with verificationRequired).
+    let paidOff = NativeAccessContext(paidMode: false, supported: NativeAppleAccessCapabilities.supported(paidMode: false))
+    let free = try SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false).observeBenefits(wall: 1, context: paidOff).1
     XCTAssertFalse(free.accountHoldsPro)
     let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(free)) as? [String: Any])
     XCTAssertEqual(Set(encoded.keys), Set(v.snapshotKeys))
