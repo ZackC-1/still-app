@@ -444,14 +444,4 @@
     padding: 10px 20px;
     font-size: calc(15px * var(--text-scale, 1));
   }
-  /* Owner canvas (P-AppPro, P-Restore, 22 Oct): the Still Pro and restore cards' status lines are
-     body-sized (14px), with the glyph centred on the first line; detail lines stay 12.5px. */
-  .pro-slot :global(.status-line),
-  .app :global(.restore-card .status-line) {
-    font-size: calc(14px * var(--text-scale, 1));
-  }
-  .pro-slot :global(.status-line .glyph),
-  .app :global(.restore-card .status-line .glyph) {
-    margin-block-start: 2px;
-  }
 </style>
