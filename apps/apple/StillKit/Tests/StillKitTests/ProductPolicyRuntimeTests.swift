@@ -188,11 +188,15 @@ final class ProductPolicyRuntimeTests: XCTestCase {
     }
   }
 
-  func testShippedSwitchKeepsSalesOffWithoutARequest() async {
-    XCTAssertFalse(MonetizationConfig.paidTierEnabled)
-    let transport = Transport { _ in (200, self.salesBody()) }
-    do { let verdict = await runtime(transport).freshCheck(.sales); XCTAssertEqual(verdict, ProductPolicy.Verdict(.compiledOff)) }
-    XCTAssertTrue(transport.requests.isEmpty)
+  /// The 3.x line compiles the paid tier on, so sales follow the server's answer: on only when it
+  /// says so for this exact build, off when it says off.
+  func testShippedSwitchAsksTheServerAndFollowsItsSalesAnswer() async {
+    XCTAssertTrue(MonetizationConfig.paidTierEnabled)
+    let on = Transport { _ in (200, self.salesBody()) }
+    do { let verdict = await runtime(on).freshCheck(.sales); XCTAssertTrue(verdict.allowed); XCTAssertEqual(verdict.reason, .on) }
+    XCTAssertEqual(on.requests.count, 1)
+    let off = Transport { _ in (200, self.salesBody(revision: 6, salesEnabled: false)) }
+    do { let verdict = await runtime(off).freshCheck(.sales); XCTAssertFalse(verdict.allowed) }
   }
 
   func testLateAnswerIsOff() async {

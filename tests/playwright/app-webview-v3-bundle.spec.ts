@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { DEFAULT_SETTINGS } from "../../packages/shared-types/src/index.js";
+import { DEFAULT_SETTINGS, FEATURE_REGISTRY } from "../../packages/shared-types/src/index.js";
 import { SUPPORT_EMAIL } from "../../packages/core/src/ui/config.js";
 import { helpHitAreas } from "./_help-hit-areas.js";
 import { expectLockedRowsOnOneLine, measureOptionRows } from "./_locked-rows.js";
@@ -93,6 +93,15 @@ class MemoryAppGroup implements StorageAdapter {
   }
 }
 
+const DESKTOP_LAYOUT_ONLY = new Set(["youtube.endscreen", "youtube.livechat", "facebook.sponsored"]);
+/** The benefit snapshot for a person who owns no Still Pro, as the native access read shapes it. */
+function noProSnapshot(platform: "ios" | "macos") {
+  const states: Record<string, string> = { "tiktok.all": "free" };
+  for (const feature of FEATURE_REGISTRY)
+    states[feature.id] = feature.tier === "free" ? "free" : platform === "ios" && DESKTOP_LAYOUT_ONLY.has(feature.id) ? "unsupported" : "locked";
+  return { schema: 1, generation: 1, states, refreshAfterMs: 60_000, independentProtection: [] };
+}
+
 /** Answers window.webkit.messageHandlers.still the way WebBridgeRouter.swift shapes its replies. */
 function nativeHost(
   showOnboarding: boolean,
@@ -126,6 +135,11 @@ function nativeHost(
         return { receipt: "noSignal" };
       case "setAccountSyncStatus":
         return { ok: true };
+      case "getBenefitAccess":
+        // Only a paid-on bundle (the 3.x line) asks. Answer as the app does when StoreKit and the
+        // account both say no Still Pro is owned: every Still Pro row the platform supports is
+        // "locked" (the desktop-layout extras are unsupported on iPhone and iPad).
+        return { ok: true, snapshot: noProSnapshot(platform) };
       default:
         // analyticsContext and anything else: the reply a native host gives a message it refuses.
         throw new Error(`still: unrecognized message ${String(m.kind)}`);
@@ -225,8 +239,9 @@ test.describe("the V3 bundle in WebKit over file://", () => {
 
   // ISS-0122 (owner, 22 Oct): a locked Still Pro row is its name and the Still Pro chip, no switch,
   // on one line and as tall as a free row (46px), on the iPhone at 375pt and 393pt and on the Mac
-  // (480px window). This bundle has the paid tier off, so its Still Pro rows are the dormant locked
-  // rows. On a phone a name wider than the space the canvas chip leaves (on macOS at 375pt only
+  // (480px window). The bundle follows the compiled paid flag: paid off, its Still Pro rows are the
+  // dormant locked rows; paid on (the 3.x line), the fake host answers that no Still Pro is owned, so
+  // they are the live locked rows (data-access="locked", chip that opens Still Pro). On a phone a name wider than the space the canvas chip leaves (on macOS at 375pt only
   // "Explore recommendations", which already carries "Search stays." under it) wraps beside the chip.
   for (const [platform, width, allFit] of [
     ["ios", 375, false],
@@ -237,7 +252,11 @@ test.describe("the V3 bundle in WebKit over file://", () => {
       const { page, errors } = await open(false, platform, false, width);
       await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
-      expectLockedRowsOnOneLine(await measureOptionRows(page), 46, `${platform} ${width}px`, allFit);
+      const rows = await measureOptionRows(page);
+      // Every Still Pro row has a settled answer (locked, or unsupported on a phone): none is left
+      // checking or asking to verify, paid tier on or off.
+      expect(rows.filter((row) => row.access === "verify" || row.access === "checking").map((row) => row.name)).toEqual([]);
+      expectLockedRowsOnOneLine(rows, 46, `${platform} ${width}px`, allFit);
       expect(errors).toEqual([]);
       await page.context().close();
     });

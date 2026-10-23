@@ -6,9 +6,9 @@ to a store; it only prepares local files for the owner's separately authorized s
 | Key | Feeds |
 |---|---|
 | `extension` | Chrome and Firefox manifest version (through `packages/ext-chromium/package.json`, which WXT reads) |
-| `apple` | Apple app `MARKETING_VERSION` (every Xcode target) and the Safari extension version (`packages/ext-safari/package.json`) |
+| `apple` | Apple app `MARKETING_VERSION` (every Xcode target; `x.y` or `x.y.z`, so 3.0 stays 3.0) and the Safari extension version (`packages/ext-safari/package.json`, always `x.y.z`, so 3.0 is written 3.0.0) |
 | `appleBuild` | Apple `CURRENT_PROJECT_VERSION` (every Xcode target) |
-| `paidTier` | Whether the Chrome and Firefox release line ships with the paid tier on. `false` for every 2.x line |
+| `paidTier` | Whether the Chrome and Firefox release line ships with the paid tier on. `false` for every 2.x line, `true` for 3.x |
 
 `extension` and `apple` are separate because the stores move independently (for example Chrome and
 Firefox 2.1.1 with Apple 2.1.0). Set them equal when a release ships everywhere together.
@@ -22,7 +22,7 @@ on for a release line means changing both, in the same reviewed commit. A commit
 
 ```bash
 node scripts/release/version.mjs set extension 2.2.0    # refuses to go backwards, then syncs
-node scripts/release/version.mjs set apple 2.2.0
+node scripts/release/version.mjs set apple 2.2           # x.y or x.y.z
 node scripts/release/version.mjs bump-build             # appleBuild + 1, then syncs
 node scripts/release/version.mjs check                  # exits 1 if any consumer disagrees
 node scripts/release/version.mjs sync                   # rewrite consumers from version.json
@@ -69,6 +69,42 @@ all set a Svelte `cssHash` that hashes only the CSS text (see the comment in eac
 scoped class names (`svelte-xxxxxxx`) do not change with the path. To check: build the same commit in two
 different folders with the same `VITE_*` values and run `diff -r` on the two `dist` folders (for Safari,
 `packages/ext-safari/dist`; for the Apple web view, `packages/app-webview/dist`); it must print nothing.
+
+## 3.0 release configuration (runbook step 1.3)
+
+What the 3.0 store builds need, and where each value comes from. Only names appear here; values
+stay outside Git and chat.
+
+Committed in the release branch (nothing to supply):
+
+- `PAID_TIER_ENABLED`, StillKit `paidTierEnabled` and `version.json` `paidTier` are `true`.
+- `apps/apple/scripts/modern-sync-shipped` says `shipped` (D7: owner, 21 Oct 2026). From now on every
+  Apple release archive must be configured for sync with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` in
+  both web bundles, or the release env guard refuses it.
+- `scripts/release/production-access-keys.json` pins the current production public key
+  (`still-access-production-20261021`); there is no standby row yet. Store builds derive
+  `VITE_ACCESS_ENVIRONMENT=production` and `VITE_ACCESS_PUBLIC_KEYS` from it; they cannot be passed by hand.
+- `archive.sh` exports `VITE_BACKEND_ROUTE_PROFILE=production` itself. Never set `VITE_PACKAGE_IDENTITY`,
+  `VITE_QA_BUILD_SEQUENCE`, `VITE_ANALYTICS_BUILD_CHANNEL` or a non-production route profile for a store build.
+
+Supplied by the owner at build time:
+
+| Name | Chrome workflow (`release-chrome.yml`) | Firefox and Chrome by hand (`package.mjs`) | Apple (`archive.sh`, raw macOS archive) |
+|---|---|---|---|
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | repository variables | `--env` | exported (required once trust is pinned) |
+| `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | repository variables | `--env` | exported or `packages/app-webview/.env` and `packages/ext-safari/.env` |
+| `VITE_MODERN_SETTINGS_SYNC_ENABLED` = `true` | repository variable (owner setting; today it may be unset) | `--env VITE_MODERN_SETTINGS_SYNC_ENABLED=true` | exported, or in both packages' `.env`; the guard refuses anything else |
+| Server digests (`ACCESS_PROOF_ENVIRONMENT`, `ACCESS_PROOF_KEY_ID`, `ACCESS_PROOF_PUBLIC_KEY_HEX` entries of `supabase secrets list -o json`) | `chrome-release` environment variable `ACCESS_PROOF_SERVER_DIGESTS_JSON` | `--server-secrets-json <file>` | `ACCESS_SERVER_DIGESTS_FILE=<file>` |
+| `REVENUECAT_PUBLIC_API_KEY` (production Apple app, not Test Store) | n/a | n/a | `apps/apple/Still/Config/Secrets.local.xcconfig` (gitignored); the committed `Secrets.xcconfig` keeps it empty |
+| `VITE_REVIEW_SIGNIN_EMAIL` | never | never | exported or `packages/app-webview/.env` only |
+
+A paid release line's Chrome and Firefox packages must be configured with
+`VITE_MODERN_SETTINGS_SYNC_ENABLED=true`: `package.mjs` (and so the Chrome workflow) refuses otherwise
+(`paid-needs-modern-sync`), because a configured build without it loads the 2.x screens, whose paid-on
+copy offers Still Pro for the free protections.
+
+Because the release declares the paid tier, `node scripts/release/access-trust.mjs check` now refuses
+without the server digests; run it as `check --server-secrets-json <file>` once the owner has saved them.
 
 ## Production access trust (Still Pro verification keys)
 
@@ -122,6 +158,15 @@ these fields, native purchase policy and account-access verification cannot init
 public signing key is correct. `apple-config-check` refuses missing or incorrect public configuration
 before archive compilation; `apple-apply` validates again before changing any plist. For a raw archive,
 export the same inputs before building either web bundle and running `apple-apply`.
+
+Apple archives also refuse without `VITE_REVIEW_SIGNIN_EMAIL` (the App Review sign-in address,
+owner-supplied, never committed). `archive.sh` runs `apps/apple/scripts/review-email-check.mjs env`
+before building and `review-email-check.mjs bundle` after the web build, which requires the address
+exactly once in `packages/app-webview/dist/index.html`. Both print only "set", "missing" or a count.
+A raw `xcodebuild archive` (the macOS path) runs the same `bundle` check itself: the Release branch
+of both "Copy Safari Web Extension Resources" phases calls it next to the release env guard, against
+the prebuilt `packages/app-webview/dist`. So build the web bundle with the address set (exported or in
+`packages/app-webview/.env`) before archiving; a Release build without it fails at that phase.
 
 After archiving, inspect the **signed archive's** app and extension plists and web resources for the
 matching production project, trust key IDs and environment. Source overlay tests do not establish

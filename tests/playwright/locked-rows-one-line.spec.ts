@@ -1,6 +1,7 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { test, expect } from "./_extension.js";
 import { expectLockedRowsOnOneLine, measureOptionRows } from "./_locked-rows.js";
+import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 
 // ISS-0122 (owner, 22 Oct; evidence: the Chrome popup signed out without Still Pro, every locked
 // YouTube row wrapped to two lines): a locked row shows no switch, only its name and the Still Pro
@@ -16,7 +17,8 @@ import { expectLockedRowsOnOneLine, measureOptionRows } from "./_locked-rows.js"
 // V3 only: a configured 2.x build shows the legacy popup.
 
 const configured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
-const paidOn = process.env.STILL_TEST_PAID_TIER === "true";
+// The build's own compiled flag decides (on for the 3.x line); the paid-tier step's QA build is on too.
+const paidOn = PAID_TIER_ENABLED || process.env.STILL_TEST_PAID_TIER === "true";
 test.use({ settingsProfile: "modern" });
 
 async function open(context: BrowserContext, extensionId: string, path: string, width: number): Promise<Page> {

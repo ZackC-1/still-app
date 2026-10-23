@@ -156,7 +156,7 @@ test("backend route profile is closed and paid sandbox requires an explicit isol
   assert.equal(env.VITE_BACKEND_ROUTE_PROFILE, "shared-hosted-sandbox");
 });
 
-test("local and test profiles refuse a paid-enabled source before building or issuing receipts", async () => {
+test("local and test profiles refuse a source with mixed paid constants before building or issuing receipts", async () => {
   for (const profile of ["local", "test"]) {
     for (const flag of Object.values(paid.PAID_FLAGS)) {
       const root = await fixture();
@@ -422,6 +422,59 @@ test("candidate parser receives no operator environment and cannot modify verifi
   }
 });
 
+for (const [profile, input] of [["local", {}], ["test", inputs]])
+  test(`${profile} profile refuses a paid-on source unless it is aimed at the sandbox route`, async () => {
+    for (const route of [undefined, "production"]) {
+      const root = await fixture({ paidOn: true });
+      try {
+        await writeFile(join(root, ".gitignore"), ".output/\n");
+        let calls = 0;
+        await assert.rejects(main([profile, "chrome"], { ...input, ...(route ? { STILL_QA_BACKEND_ROUTE_PROFILE: route } : {}) }, root,
+          () => { calls += 1; return { status: 1 }; }), /shared-hosted-sandbox/);
+        assert.equal(calls, 0, "nothing is built");
+        await assert.rejects(readFile(join(root, `.output/v3-qa/${profile}/chrome/artifact-manifest.json`)), /ENOENT/);
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  });
+
+for (const [profile, input] of [["local", { STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" }],
+  ["test", { ...inputs, STILL_QA_BACKEND_ROUTE_PROFILE: "shared-hosted-sandbox" }]])
+  test(`${profile} profile builds from a 3.x source whose paid constants are already on, and says so in its receipt`, async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const root = await fixture({ paidOn: true });
+    try {
+      await writeFile(join(root, ".gitignore"), ".output/\n");
+      let calls = 0;
+      const runner = (_command, args) => {
+        calls += 1;
+        const output = join(args[2], "artifact");
+        mkdirSync(output, { recursive: true });
+        writeFileSync(join(output, "compiled.js"), "fixture result");
+        return { status: 0 };
+      };
+      await main([profile, "chrome"], input, root, runner);
+      assert.equal(calls, 1);
+      const manifest = JSON.parse(await readFile(join(root, `.output/v3-qa/${profile}/chrome/artifact-manifest.json`), "utf8"));
+      assert.equal(manifest.runtime.paidTierEnabled, true);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+for (const profile of ["local", "test"])
+  test(`${profile} profile still refuses missing or repeated paid constants before building`, async () => {
+    for (const bytes of ["export const OTHER = 1;\n", "export const PAID_TIER_ENABLED = true;\nexport const PAID_TIER_ENABLED = true;\n",
+      "export const PAID_TIER_ENABLED = false;\nexport const PAID_TIER_ENABLED = true;\n"]) {
+      const root = await fixture({ paidOn: true });
+      try {
+        await writeFile(join(root, ".gitignore"), ".output/\n");
+        await writeFile(join(root, paid.PAID_FLAGS.js), bytes);
+        let calls = 0;
+        await assert.rejects(main([profile, "chrome"], profile === "test" ? inputs : {}, root, () => { calls += 1; return { status: 1 }; }),
+          /both original paid constants/);
+        assert.equal(calls, 0);
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  });
+
 test("local all-target receipts refuse source edits during a build and retain coherent healthy results", async () => {
   const { mkdirSync, writeFileSync } = await import("node:fs");
   const root = await fixture();
@@ -478,10 +531,10 @@ test("paid sandbox selects matching public trust and rejects hostile public conf
   assert.equal(clean.SUPABASE_SERVICE_ROLE_KEY, undefined); assert.equal(clean.NPM_TOKEN, undefined); assert.equal(clean.REVENUECAT_SECRET_API_KEY, undefined);
 });
 
-async function fixture() {
+async function fixture({ paidOn = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "still-paid-profile-test-"));
-  const files = { [paid.PAID_FLAGS.js]: "export const PAID_TIER_ENABLED = false;\n",
-    [paid.PAID_FLAGS.native]: "public enum MonetizationConfig { public static let paidTierEnabled = false }\n" };
+  const files = { [paid.PAID_FLAGS.js]: `export const PAID_TIER_ENABLED = ${paidOn};\n`,
+    [paid.PAID_FLAGS.native]: `public enum MonetizationConfig { public static let paidTierEnabled = ${paidOn} }\n` };
   for (const part of ["iOS (App)", "iOS (Extension)", "macOS (App)", "macOS (Extension)"])
     files[`apps/apple/Still/${part}/Info.plist`] = '<?xml version="1.0"?><plist version="1.0"><dict><key>Existing</key><string>preserved</string></dict></plist>\n';
   for (const [path, bytes] of Object.entries(files)) { await mkdir(join(root, path, ".."), { recursive: true }); await writeFile(join(root, path), bytes); }
@@ -535,6 +588,28 @@ test("isolation enables both constants and typed app/extension trust while sourc
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "chrome", sourceSha256: before.sha256, backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
     assert.throws(() => artifactManifest({ profile: "paid-sandbox", surface: "safari", sourceSha256: "0".repeat(64), backendRouteProfile: "shared-hosted-sandbox", paidBuild: build }), /identity/);
     await assert.rejects(paid.isolatedSandboxSource(root, config, async () => { throw new Error("fixture build failed"); }), /fixture build failed/);
+    assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a 3.x source whose paid constants are already on builds the sandbox overlay as is", async () => {
+  const root = await fixture({ paidOn: true });
+  try {
+    const before = await paid.sourceSnapshot(root), config = paid.sandboxConfiguration(paidInputs);
+    const build = await paid.isolatedSandboxSource(root, config, async ({ clone, snapshot, overlay }) => {
+      assert.match(await readFile(join(clone, paid.PAID_FLAGS.js), "utf8"), /PAID_TIER_ENABLED = true/);
+      assert.match(await readFile(join(clone, paid.PAID_FLAGS.native), "utf8"), /paidTierEnabled = true/);
+      // The flag files are still part of the overlay, so a change during the build is caught; they are unchanged here.
+      assert.equal(overlay.overlayFiles.length, 6);
+      for (const flag of Object.values(paid.PAID_FLAGS)) {
+        const file = overlay.overlayFiles.find((f) => f.path === flag);
+        assert.equal(file.beforeSha256, file.sha256);
+      }
+      for (const file of overlay.overlayFiles.filter((f) => f.path.endsWith("Info.plist"))) assert.notEqual(file.beforeSha256, file.sha256);
+      return paid.candidateIdentity(snapshot, overlay, ["safari", "apple-webview", "apple-ios-sim"]);
+    });
+    assert.equal(build.flags.jsPaid, true);
+    assert.equal(build.flags.nativePaid, true);
     assert.equal((await paid.sourceSnapshot(root)).sha256, before.sha256);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

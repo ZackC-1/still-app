@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// Pinned to the dormant configuration (paid tier compiled off). The 3.x release ships the paid tier on;
+// these cases keep the free-only fallback covered, and the *.paid-on suites cover the shipped value.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: false,
+}));
 import { tiktokBlockedPageEnabled } from "../../entrypoints/tiktok-blocked/gate.js";
 import { modernSettingsRuntime } from "../modern-settings-runtime.js";
 

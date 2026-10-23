@@ -1,4 +1,10 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+// Pinned to the dormant configuration (paid tier compiled off). The 3.x release ships the paid tier on;
+// these cases keep the free-only fallback covered, and the *.paid-on suites cover the shipped value.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: false,
+}));
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { A, B, drain, harness, row } from "./support/sync-lifecycle-harness.js";

@@ -190,6 +190,29 @@ jobs:
           STILL_TEST_SYNC_CONFIGURED: "true"
         run: pnpm exec playwright test --project=fixtures
 
+      # The combination 3.0 ships: configured for sign-in, modern settings sync on, and the paid tier
+      # as committed (on for 3.x). Synthetic public values only. The lanes above build either no
+      # sign-in or the 2.x screens, so this is the one place the shipped V3 popup and Settings run.
+      - name: Build configured modern-sync extensions with synthetic public configuration
+        if: steps.detect.outputs.present == 'true'
+        env:
+          VITE_SUPABASE_URL: https://still-audit.invalid
+          VITE_SUPABASE_ANON_KEY: public-audit-placeholder
+          VITE_MODERN_SETTINGS_SYNC_ENABLED: "true"
+        run: |
+          rm -rf packages/ext-chromium/dist packages/ext-safari/dist
+          pnpm build
+
+      - name: Run configured modern-sync Playwright tests (gating)
+        if: steps.detect.outputs.present == 'true'
+        env:
+          STILL_EXPECT_MODERN_SIGN_IN: "1"
+        run: >-
+          pnpm exec playwright test --project=fixtures
+          tests/playwright/settings-restore.spec.ts tests/playwright/sync-invitation.spec.ts
+          tests/playwright/sign-in-sheet-dismiss.spec.ts tests/playwright/text-scale.spec.ts
+          tests/playwright/pro-access-signed-out.spec.ts
+
       # Third pass: the paid tier compiled on (V3 Pro and paid sandbox QA builds). Every shipped 2.x
       # build keeps it off, so the two lanes above never run the paid tier gate; a free outcome
       # broken only there (ISS-0036: TikTok left open without Still Pro) needs this guard. The

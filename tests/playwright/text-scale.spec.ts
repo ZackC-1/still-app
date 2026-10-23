@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 import { helpHitAreas } from "./_help-hit-areas.js";
 
 // Text size (owner decision 51): the V3 screens follow Chrome's own "Font size" setting. The
@@ -125,8 +126,10 @@ async function expectNoSidewaysOverflow(page: Page): Promise<void> {
 }
 
 /** ISS-0098 (owner, 21 Oct): nothing inside the popup scrolls on its own; when it is taller than
- * the browser's cap the document scrolls. */
-async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean): Promise<void> {
+ * the browser's cap the document scrolls. Lead ruling, 22 Oct: at 1.5× text size and larger the
+ * browser's own popup frame may scroll (Chrome caps popups at 600px), so "may" accepts either; the
+ * inner layout still never scrolls, and at 1× the option B growth holds (nothing scrolls). */
+async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean | "may"): Promise<void> {
   const scrollers = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>(".still-ui, .still-ui *")]
       .filter((element) => element.scrollHeight > element.clientHeight + 1 &&
@@ -138,7 +141,7 @@ async function expectOnlyTheDocumentScrolls(page: Page, documentScrolls: boolean
     height: document.scrollingElement!.scrollHeight,
     view: document.scrollingElement!.clientHeight,
   }));
-  expect(scroll.height > scroll.view).toBe(documentScrolls);
+  if (documentScrolls !== "may") expect(scroll.height > scroll.view).toBe(documentScrolls);
 }
 
 /** Every button, link and switch in the V3 screen can be scrolled into view and seen. */
@@ -159,6 +162,9 @@ async function expectEveryControlReachable(page: Page): Promise<void> {
  * "Still Pro" row is whole (on screen, not cut short). Returns how many locked rows were seen. */
 async function sweepEverySection(page: Page, where: string): Promise<number> {
   const expanders = page.locator(".still-ui button.expander");
+  // The sections appear once the first settings read answers ("Checking sync…" until then); with
+  // sign-in configured that read can take a moment longer, so wait for them before counting.
+  await expect(expanders.first(), where).toBeVisible({ timeout: 15_000 });
   const sections = await expanders.count();
   expect(sections, where).toBeGreaterThan(0);
   let locked = 0;
@@ -349,11 +355,15 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     }
   });
 
-  test("at 1.5× the popup keeps its approved layout; above it the whole popup scrolls", async () => {
-    for (const [fontSize, documentScrolls] of [
-      [24, false],
-      [32, true],
-    ] as const) {
+  test("at large text only the document scrolls, never a box inside the popup (ISS-0098, lead ruling 22 Oct)", async () => {
+    // The shipped 3.x popup (sign-in and the paid tier on) is taller than the approved layout without
+    // sign-in. Lead ruling, 22 Oct: at 1.5× and larger its document may scroll; nothing inside it
+    // scrolls; at 1× (16px) nothing scrolls at all.
+    const shipped = MODERN_SIGN_IN && PAID_TIER_ENABLED;
+    const cases: ReadonlyArray<readonly [number, boolean | "may"]> = shipped
+      ? [[16, false], [24, "may"], [32, "may"]]
+      : [[24, false], [32, true]];
+    for (const [fontSize, documentScrolls] of cases) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);

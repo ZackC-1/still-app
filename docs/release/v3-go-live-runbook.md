@@ -174,6 +174,11 @@ cross-references, but do not repeat completed provider setup or treat an open PR
   Install from TestFlight on iPhone and Mac for free blocking, sign-in and sales-off refusal checks.
   The positive sandbox purchase follows 2.6 sales admission plus the verified separate review switch;
   review-proof issuance alone does not open the purchase flow.
+  With the paid tier on, the app asks the App Store for its app transaction at launch (at most
+  three launches per device; `OriginalInstall.maxVerifiedAttempts`). On a device with no Apple
+  Account signed in to the App Store this can show an App Store sign-in sheet. On the TestFlight
+  installs, look for that sheet at first launch and record whether it appears and how it can be
+  dismissed (also once on a device signed out of the App Store).
 - Undo: TestFlight, the build, Expire Build. The build number stays used.
 
 ## Phase 2 — Backend production (Supabase)

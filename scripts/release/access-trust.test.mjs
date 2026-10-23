@@ -49,6 +49,16 @@ function scratchRoot(keys) {
   return root;
 }
 
+/** The scratch root with both paid constants written off (the committed 3.x tree declares them on). */
+function paidOff(root) {
+  const flags = [
+    ["packages/shared-types/src/entitlement.ts", "export const PAID_TIER_ENABLED = true;", "export const PAID_TIER_ENABLED = false;"],
+    ["apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift", "public static let paidTierEnabled = true", "public static let paidTierEnabled = false"],
+  ];
+  for (const [path, on, off] of flags) writeFileSync(join(root, path), readFileSync(join(root, path), "utf8").replace(on, off));
+  return root;
+}
+
 test("the committed pinned file passes the store rules", () => {
   const trust = readStoreTrust(ROOT);
   assert.ok(trust.rows.length <= MAX_TRUST_KEYS);
@@ -109,15 +119,17 @@ test("once the release declares the paid tier, an empty key list is refused", ()
 });
 
 test("paid is declared by either paid constant in the source (PR-B adds the release-line hook)", () => {
-  const root = scratchRoot([]);
+  const root = paidOff(scratchRoot([]));
   try {
     assert.equal(paidDeclared(root), false);
     assert.equal(readStoreTrust(root).paid, false);
     const js = join(root, "packages/shared-types/src/entitlement.ts");
-    writeFileSync(js, readFileSync(js, "utf8").replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
+    const jsOff = readFileSync(js, "utf8");
+    writeFileSync(js, jsOff.replace("export const PAID_TIER_ENABLED = false;", "export const PAID_TIER_ENABLED = true;"));
     assert.equal(paidDeclared(root), true);
     assert.throws(() => readStoreTrust(root), /declares the paid tier/);
-    cpSync(join(ROOT, "packages/shared-types/src/entitlement.ts"), js);
+    writeFileSync(js, jsOff);
+    assert.equal(paidDeclared(root), false);
     const native = join(root, "apps/apple/StillKit/Sources/StillKit/MonetizationConfig.swift");
     writeFileSync(native, readFileSync(native, "utf8").replace("public static let paidTierEnabled = false", "public static let paidTierEnabled = true"));
     assert.equal(paidDeclared(root), true);
@@ -297,7 +309,7 @@ test("plist restore preserves concurrent edits and backup without partially rest
 
 test("with no keys pinned the Apple plists are left untouched; refused rows touch nothing", () => {
   for (const keys of [[], [row("still-qa", { environment: "sandbox" })]]) {
-    const root = scratchRoot(keys);
+    const root = paidOff(scratchRoot(keys));
     try {
       const originals = APPLE_PLISTS.map((path) => readFileSync(join(root, path)));
       if (keys.length) assert.throws(() => applyApplePlists(root, join(root, "backup")), /production/);
@@ -329,9 +341,29 @@ test("the server comparison passes only when the server's public key, kid and en
 });
 
 test("the CLI checks the committed file and prints only public values", () => {
-  const check = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "check"], { encoding: "utf8" });
-  assert.equal(check.status, 0, check.stderr);
-  assert.match(check.stdout, /^production access trust: \d key\(s\)/);
+  // The committed 3.x tree declares the paid tier, so `check` needs server digests. These are digests of the
+  // committed public row (what a matching server reports), which exercises the CLI, not real server agreement.
+  const trust = readStoreTrust(ROOT);
+  const dir = mkdtempSync(join(tmpdir(), "still-trust-cli-"));
+  try {
+    const digests = join(dir, "digests.json");
+    if (trust.paid) {
+      const [current] = trust.rows;
+      writeFileSync(digests, JSON.stringify([
+        { name: "ACCESS_PROOF_ENVIRONMENT", value: sha256("production") },
+        { name: "ACCESS_PROOF_KEY_ID", value: sha256(current.kid) },
+        { name: "ACCESS_PROOF_PUBLIC_KEY_HEX", value: sha256(current.publicKeyHex) },
+      ]));
+      const bare = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "check"], { encoding: "utf8" });
+      assert.equal(bare.status, 1);
+      assert.match(bare.stderr, /declares the paid tier, so the build needs the server's secret digests/);
+    }
+    const check = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "check", ...(trust.paid ? ["--server-secrets-json", digests] : [])], { encoding: "utf8" });
+    assert.equal(check.status, 0, check.stderr);
+    assert.match(check.stdout, /^production access trust: \d key\(s\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
   const env = spawnSync(process.execPath, [join(ROOT, "scripts/release/access-trust.mjs"), "env"], { encoding: "utf8" });
   assert.equal(env.status, 0, env.stderr);
   const lines = env.stdout.trim().split("\n");

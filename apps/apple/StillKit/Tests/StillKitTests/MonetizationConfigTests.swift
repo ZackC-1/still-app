@@ -16,13 +16,13 @@ final class MonetizationConfigTests: XCTestCase {
       .deletingLastPathComponent()
   }
 
-  /// A deliberate tripwire, not a mistake if it fails. The paid tier is dormant, so this build
-  /// must ship with the switch off; anyone turning it back on changes this expectation in the same
-  /// commit and thereby says out loud that the change was intended.
-  func testPaidTierShipsDormant() {
-    XCTAssertFalse(
+  /// A deliberate tripwire, not a mistake if it fails. The 3.x release line ships the paid tier
+  /// on; anyone turning it off again changes this expectation in the same commit and thereby says
+  /// out loud that the change was intended.
+  func testPaidTierShipsOnForThe3xReleaseLine() {
+    XCTAssertTrue(
       MonetizationConfig.paidTierEnabled,
-      "the paid tier is dormant: update this expectation in the commit that turns it back on"
+      "the 3.x release line ships the paid tier on: update this expectation in the commit that turns it off"
     )
   }
 

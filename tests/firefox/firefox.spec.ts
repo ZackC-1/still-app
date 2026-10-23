@@ -1,11 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 import {
   expectInstagramLeftAlone,
   expectYoutubeLeftAlone,
-  noStillMarker,
   stillIsWorking,
   type Format2Service,
 } from "./_assertions.js";
@@ -184,7 +182,6 @@ for (const alias of ["reel", "reels"]) {
 }
 
 test("facebook: the top-menu Reels tab and the sidebar shortcut are hidden; other entries stay (ISS-0035)", async () => {
-  test.skip(PAID_TIER_ENABLED, "Mirrors the Chromium fixtures: with the paid tier on, this lane's profile is not blocking");
   const tab = await firefox.openTab("https://www.facebook.com/groups/chosen/");
   await waitWorking(tab, "facebook");
   await waitHiddenPresent(tab, "#top-reels-item");
@@ -194,17 +191,13 @@ test("facebook: the top-menu Reels tab and the sidebar shortcut are hidden; othe
   await tab.close();
 });
 
-// With the paid tier off every surface is blocked for everyone; the branch mirrors the Chromium
-// fixtures so flipping the switch later changes both lanes the same way.
-test("instagram: a Reel post and the Reels link follow the paid-tier switch, an ordinary post stays", async () => {
+// The four protections are free whether the paid tier is on or off (3.x product truth, ISS-0036),
+// as in the Chromium fixtures' paid-tier lane.
+test("instagram: a Reel post and the Reels link go with or without the paid tier, an ordinary post stays", async () => {
   const tab = await firefox.openTab("https://www.instagram.com/someuser/");
-  if (PAID_TIER_ENABLED) {
-    await expectInstagramLeftAlone(tab);
-  } else {
-    await waitWorking(tab, "instagram");
-    await waitHiddenPresent(tab, "#reel-post");
-    await waitHiddenPresent(tab, "#reels-link");
-  }
+  await waitWorking(tab, "instagram");
+  await waitHiddenPresent(tab, "#reel-post");
+  await waitHiddenPresent(tab, "#reels-link");
   expect(await tab.isVisible("#keep-post")).toBe(true);
   await tab.close();
 });
@@ -314,21 +307,11 @@ for (const [loader, viewport] of [["io", null], ["scroll", null], ["io", { width
     }
   });
 
-test("facebook: a Reel article and the Reels shortcut follow the paid-tier switch, an ordinary post stays", async () => {
+test("facebook: a Reel article and the Reels shortcut go with or without the paid tier, an ordinary post stays", async () => {
   const tab = await firefox.openTab("https://www.facebook.com/");
-  if (PAID_TIER_ENABLED) {
-    await tab.holdsFor(
-      "Facebook left alone",
-      async () =>
-        (await tab.isVisible("#reel-article")) &&
-        (await tab.isVisible("#reels-shortcut")) &&
-        (await noStillMarker(tab)),
-    );
-  } else {
-    await waitWorking(tab, "facebook");
-    await waitHiddenPresent(tab, "#reel-article");
-    await waitHiddenPresent(tab, "#reels-shortcut");
-  }
+  await waitWorking(tab, "facebook");
+  await waitHiddenPresent(tab, "#reel-article");
+  await waitHiddenPresent(tab, "#reels-shortcut");
   expect(await tab.isVisible("#keep-article")).toBe(true);
   expect(await tab.isVisible("#keep-lookalike-article")).toBe(true);
   await tab.close();
@@ -364,23 +347,13 @@ async function expectTiktokBlockedPage(tab: Tab): Promise<void> {
   expect(await tab.count("#tiktok-feed")).toBe(0);
 }
 
-test("tiktok: the website follows the paid-tier switch", async () => {
+test("tiktok: the website is blocked with or without the paid tier", async () => {
   const tab = await firefox.openTab("https://www.tiktok.com/foryou");
-  if (PAID_TIER_ENABLED) {
-    await tab.holdsFor(
-      "TikTok left alone",
-      async () =>
-        (await tab.isVisible("#tiktok-feed")) &&
-        (await tab.count("#still-placeholder")) === 0,
-    );
-  } else {
-    await expectTiktokBlockedPage(tab);
-  }
+  await expectTiktokBlockedPage(tab);
   await tab.close();
 });
 
 test("tiktok: Open TikTok this time allows only this tab after the confirmation", async () => {
-  test.skip(PAID_TIER_ENABLED, "TikTok is left alone for free users while the paid tier is on");
   // documentId, which proves the exact blocked page, arrived in Firefox 153.
   // firefoxVersion is the raw "Mozilla Firefox 156.0.1" line; an unreadable version skips too.
   const major = Number.parseInt(/(\d+)\./.exec(firefox.firefoxVersion)?.[1] ?? "", 10);
@@ -498,7 +471,6 @@ test("the master switch: Off restores every page, On blocks again", async () => 
 // measures its tab row again. Checked in real Firefox, where the event crosses from the content
 // script into the page.
 test("facebook: switching Facebook off live shows the Page's Reels tab and asks the page to measure again", async () => {
-  test.skip(PAID_TIER_ENABLED, "with the paid tier on, free Facebook is not blocked, so there is nothing to switch off");
   const popup = await firefox.openExtensionPage("popup.html");
   try {
     const page = await firefox.openTab("https://www.facebook.com/stillapp");
@@ -517,10 +489,6 @@ test("facebook: switching Facebook off live shows the Page's Reels tab and asks 
 });
 
 test("one service switch Off restores only that service", async () => {
-  test.skip(
-    PAID_TIER_ENABLED,
-    "with the paid tier on, free Instagram is not blocked, so there is nothing to switch off",
-  );
   const popup = await firefox.openExtensionPage("popup.html");
   try {
     const url = "https://www.instagram.com/someuser/";

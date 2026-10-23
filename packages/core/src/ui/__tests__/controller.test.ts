@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// Pinned to the dormant configuration (paid tier compiled off). The 3.x release ships the paid tier on;
+// these cases keep the free-only fallback covered, and the *.paid-on suites cover the shipped value.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: false,
+}));
 import { OTP_TTL_MS, type UiAuth, type UiController } from "../controller.svelte.js";
 import type {
   RequestCodeOutcome,
@@ -768,11 +774,9 @@ describe("ratified paywall copy (plan U3/D6/R10)", () => {
     expect(STRINGS.paywall.openingCheckout).toBe("Opening checkout…");
   });
 
-  it("names the three unlocks plainly and keeps sync a named benefit", () => {
-    expect(STRINGS.paywall.body).toContain("Instagram Reels");
-    expect(STRINGS.paywall.body).toContain("TikTok");
-    expect(STRINGS.paywall.body).toContain("Facebook Reels");
-    expect(STRINGS.paywall.body).toMatch(/synced/);
+  it("never sells the free protections or sync (they are free in 3.x)", () => {
+    for (const line of [STRINGS.paywall.headline, STRINGS.paywall.body])
+      expect(line).not.toMatch(/Reels|TikTok|Shorts|sync/i);
   });
 
   it("no 'on the way' promise survives anywhere — the web purchase path is real now", () => {

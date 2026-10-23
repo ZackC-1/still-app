@@ -16,8 +16,8 @@
 #
 # One-way guard: once a release has shipped with the modern flag, conversion of saved settings is
 # one-way, so every later release archive must keep it (and be configured). The committed marker file
-# records that: "not-shipped" today. Flipping it to "shipped" is a separate, owner-approved change
-# made in the commit that ships the flag. A missing or unreadable marker refuses (fail closed).
+# records that. It says "shipped" from the 3.0 release on (D7: owner, 21 Oct 2026; applied
+# in the 3.0 release branch), so no later release archive may turn the flag off. A missing or unreadable marker refuses (fail closed).
 
 _GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

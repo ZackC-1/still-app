@@ -430,7 +430,11 @@ public final class SharedEntitlementStore {
   private func observeAppleBenefits(wall: () -> Int, ownership: NativeAppleOwnershipObservation,
                                     recorded: AccountSyncStatusStore.DisplayedAccount?,
                                     paidMode: Bool, platform: SafariAccessPlatform) throws -> BenefitAccessSnapshot {
-    if !paidMode { return try observeBenefits(wall: wall()).1 }
+    if !paidMode {
+      // Paid off is the free snapshot whatever the compiled switch says, so the parameter is honest.
+      let paidOff = NativeAccessContext(paidMode: false, supported: NativeAppleAccessCapabilities.supported(paidMode: false, platform: platform))
+      return try observeBenefits(wall: wall(), context: paidOff).1
+    }
     return try transactionAccess { record in
       let wall = wall()
       if case .verifiedRevocations(let revocations) = ownership {

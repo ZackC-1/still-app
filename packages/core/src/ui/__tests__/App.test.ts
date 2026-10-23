@@ -1,4 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+// Pinned to the dormant configuration (paid tier compiled off). The 3.x release ships the paid tier on;
+// these cases keep the free-only fallback covered, and the *.paid-on suites cover the shipped value.
+vi.mock("@still/shared-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@still/shared-types")>()),
+  PAID_TIER_ENABLED: false,
+}));
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
@@ -140,7 +146,7 @@ describe("App", () => {
 
   paidTierIt("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
-    expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
     expect(document.querySelectorAll(".card.locked .lock svg").length).toBe(3);
     expect(
@@ -168,8 +174,9 @@ describe("App", () => {
     render(App, {
       props: { controller: controller({ services: { youtube: false } }) },
     });
-    expect(screen.getByText(STRINGS.global.onFreeYoutubeOff)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
+    // One free line for everyone; "on enabled sites" already covers a row that is off.
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+    expect(document.querySelector(".hero")?.textContent ?? "").not.toMatch(/Still Pro/);
   });
 
   includedAccessIt("one hero line covers everyone, whichever rows are on", () => {

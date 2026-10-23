@@ -73,6 +73,12 @@ surface; the phone-feed sponsored behavior is blocked on the owner's Facebook se
 Owner decision, 20 Oct 2026: the first V3 release ships Chrome, Firefox desktop and the Apple apps.
 Firefox on Android is deferred to a later update; its Pro parity work stays in the code.
 
+Owner decision, 22 Oct 2026: on Firefox, the sign-in email address and the Still Pro purchase status
+are declared as optional data collection and requested at runtime (at sign-in and at purchase), in a
+separate pull request. This reverses an earlier same-day choice to declare them required. Until that
+change lands, the manifest declares required `authenticationInfo` and optional
+`technicalAndInteraction`, and the AMO data-collection answers must match what the package declares.
+
 ## Design
 
 - Existing Claude Design system update approved; D01 desktop popup approved
