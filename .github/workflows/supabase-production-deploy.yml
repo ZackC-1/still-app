@@ -11,7 +11,9 @@ name: Supabase production deploy
 # erasure schedule and switch, or one of the three purchase operations
 # (scripts/backend/deploy/purchase-operations.mjs): purchase-functions, the separately approved
 # purchase-functions-sync-settings, and purchase-secrets, whose PROD_* environment secrets reach
-# only its apply step. policy_expected_revision and subjects_sha256 belong only to the two
+# only its apply step, or the separately approved review-signin-function (same module), which
+# deploys review-signin alone and checks its sign-in secrets on the project by name only.
+# policy_expected_revision and subjects_sha256 belong only to the two
 # QA sandbox operations; policy_mode also selects enable or disable for analytics-erasure-schedule
 # and analytics-subjects-switch; every other run leaves them at none and empty.
 # The QA_SANDBOX_SUBJECT_EMAILS_JSON environment secret reaches only the apply step, and only for
@@ -60,6 +62,7 @@ on:
           - purchase-functions
           - purchase-functions-sync-settings
           - purchase-secrets
+          - review-signin-function
       policy_mode:
         description: "sales policies: off or on; qa-sandbox-subjects, analytics-erasure-schedule and analytics-subjects-switch: enable or disable; none for every other operation"
         required: true
@@ -147,7 +150,7 @@ jobs:
         with:
           node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions')
+        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions') || inputs.operation == 'review-signin-function'
         with:
           deno-version: "2.8.3"
       - name: Bind the exact change (commit on main, file hashes, expected history)
@@ -228,7 +231,7 @@ jobs:
         with:
           node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions')
+        if: inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions') || inputs.operation == 'review-signin-function'
         with:
           deno-version: "2.8.3"
       - name: Confirm owner approval and environment protection (read-only)

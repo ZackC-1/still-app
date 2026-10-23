@@ -91,6 +91,18 @@ export const SYNC_SETTINGS_BUNDLE_SET = routeSet(
   SYNC_SETTINGS_FUNCTIONS,
   true,
 );
+/**
+ * review-signin serves the App Review sign-in, so it is its own separately approved step too. It
+ * is outside JWT (its gate is in the function) and bundled with the shared import map.
+ */
+export const REVIEW_SIGNIN_FUNCTIONS = Object.freeze([
+  Object.freeze({ name: "review-signin", verifyJwt: false }),
+]);
+export const REVIEW_SIGNIN_BUNDLE_SET = routeSet(
+  "still-review-signin-function-bundles",
+  REVIEW_SIGNIN_FUNCTIONS,
+  false,
+);
 
 const CONFIG = "supabase/functions/deno.json";
 const LOCK = "supabase/functions/deno.lock";

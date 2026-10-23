@@ -166,10 +166,11 @@ test("the popup keeps every primary control visible without scaling or overflow"
   expect(layout.scrollHeight).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
   expect(layout.contentBottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
 
-  // Substring match on the stable visible label: the surface-specific aria-label suffix may change.
+  // The Settings button's name is its visible label, "Still settings" (#539 copy rulings; the
+  // configured 2.x popup keeps its longer name).
   // No scrolling first, so this asserts the control is wholly visible in the popup as it opens.
   await expect(
-    page.getByRole("button", { name: /^(Settings\. Find Still in Chrome\.|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true }),
+    page.getByRole("button", { name: /^(Still settings|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true }),
   ).toBeInViewport({ ratio: 1 });
 });
 
@@ -300,7 +301,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(fit.width).toBeLessThanOrEqual(POPUP_INLINE_SIZE);
     expect(fit.height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
     expect(fit.bottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
-    await expect(page.getByRole("button", { name: /^(Settings\. Find Still in Chrome\.|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: /^(Still settings|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true })).toBeInViewport({ ratio: 1 });
   });
 }
 
