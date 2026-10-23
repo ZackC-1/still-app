@@ -1,5 +1,12 @@
 import { defineConfig } from "wxt";
 
+// Shown in Settings → Apps → Safari → Extensions → Still and in Safari's extension settings. App
+// Store Connect rejects the upload (ITMS-90849) unless it is a non-empty string of at most 112
+// characters (lib/__tests__/manifest-description.test.ts). Edit the wording here; the full list of
+// Still Pro extras lives in the App Store listing and the in-app Still Pro screen.
+export const SAFARI_DESCRIPTION =
+  "Removes YouTube Shorts and Instagram and Facebook Reels and blocks the TikTok website. Still Pro hides more.";
+
 // Safari Web Extension build. WXT defaults Safari to MV2; we force MV3 (KTD3) so the manifest
 // shape matches Chromium. The produced web resources are referenced (not copied) by the Xcode
 // project in U17 via `xcrun safari-web-extension-packager`. Building these resources does NOT
@@ -38,8 +45,7 @@ export default defineConfig({
   outDir: "dist",
   manifest: {
     name: "Still",
-    description:
-      "Removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website. Free, no account needed. Still Pro adds optional extras: hide YouTube related videos, end-of-video suggestions, comments and live chat, and stop autoplay; Instagram Stories and Highlights, Explore recommendations, suggested accounts and Threads links; Facebook Stories, the Video tab and desktop sidebar ads.",
+    description: SAFARI_DESCRIPTION,
     // `nativeMessaging` lets the background bridge talk to the app's SafariWebExtensionHandler /
     // App-Group container (KTD4). No tab-access permission: the pause-on-this-site control (and
     // its activeTab grant) was removed 2026-07-06.
