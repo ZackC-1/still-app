@@ -161,6 +161,9 @@ async function expectEveryControlReachable(page: Page): Promise<void> {
  * "Still Pro" row is whole (on screen, not cut short). Returns how many locked rows were seen. */
 async function sweepEverySection(page: Page, where: string): Promise<number> {
   const expanders = page.locator(".still-ui button.expander");
+  // The sections appear once the first settings read answers ("Checking sync…" until then); with
+  // sign-in configured that read can take a moment longer, so wait for them before counting.
+  await expect(expanders.first(), where).toBeVisible({ timeout: 15_000 });
   const sections = await expanders.count();
   expect(sections, where).toBeGreaterThan(0);
   let locked = 0;
