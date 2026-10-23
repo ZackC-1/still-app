@@ -9,7 +9,8 @@ import { HttpRevenueCatAccessClient } from "./revenuecat-access.ts";
 
 const HOLDER = "11111111-1111-1111-1111-111111111111", OP = "22222222-2222-2222-2222-222222222222";
 const HASH = "a".repeat(64), SESSION = "cs_test_Fixture", INTENT = "pi_Fixture", CHARGE = "ch_Fixture", SECRET = "whsec_SyntheticOnly";
-const KEY = "b".repeat(64), NOW = new Date().toISOString();
+const KEY = "b".repeat(64), LEGACY_KEY = "c".repeat(64), SECOND_KEY = "d".repeat(64), STRANGER_KEY = "e".repeat(64);
+const UNRELATED = "33333333-3333-3333-3333-333333333333", SECOND = "44444444-4444-4444-4444-444444444444", NOW = new Date().toISOString();
 const CREATED = Math.floor(Date.parse(NOW)/1000);
 function event(type = "checkout.session.completed", patch: Record<string, unknown> = {}) {
   return { object: "event", id: "evt_Fixture", type, livemode: false, data: { object: type === "charge.refunded" ?
@@ -32,7 +33,7 @@ function setup() {
     status: "session_bound", creation_started_at: NOW, paid_at: null, created_at: NOW, updated_at: NOW } as QaPurchaseOperation,
     reads: 0, creates: 0, imports: 0, recoveries: 0, begins: 0, commits: 0, signs: 0, refunds: 0, enabled: false, confirmed: false,
     paid: true, pending: false, expired: false, unknown: false, importFails: false, rcUnavailable: false, customerMissing: false, active: false,
-    negative: true, complete: true, known: true, stale: false, full: true, partial: false, deleted: false, readFails: false, mutations: [] as string[], snapshots: [] as unknown[] };
+    negative: true, complete: true, known: true, stale: false, legacy: false, unrelated: false, mismatch: false, secondOwned: false, full: true, partial: false, deleted: false, readFails: false, mutations: [] as string[], snapshots: [] as unknown[] };
   const deps: QaSandboxStripeWebhookDeps = { secret: SECRET, checkout: { configurationHash: HASH, jwtSecret: "",
     accounts: { confirmed: () => Promise.resolve(state.confirmed) }, membership: { enabled: () => Promise.resolve(state.enabled) },
     limiter: { consume: () => { throw Error("webhooks do not use user/IP limiter"); } },
@@ -61,13 +62,22 @@ function setup() {
     }, access: {
       signer: { environment: "sandbox",sign: () => { state.signs++; throw Error("must never sign"); } },
       provider: { getRights: () => Promise.resolve(state.rcUnavailable ? { status: "unavailable" } : state.customerMissing ? { status: "verified",complete: true,rights: [],customerMissing: true } : { status: "verified",complete: state.complete,
-        rights: state.active ? [{ key: KEY,product: "still_pro_v3" }] : state.negative ? [{ key: KEY,product: "still_pro_v3",state: "revoked" }] : [] }) },
+        rights: [
+          // Legacy: an owned still_sync purchase plus a refunded still_sync key this holder's ledger never held.
+          ...(state.legacy ? [{ key: LEGACY_KEY,product: "still_sync" as const },{ key: STRANGER_KEY,product: "still_sync" as const,state: "revoked" as const }] : []),
+          ...(state.secondOwned ? [{ key: SECOND_KEY,product: "still_pro_v3" as const }] : []),
+          ...(state.active ? [{ key: KEY,product: "still_pro_v3" as const }] : state.negative ? [{ key: KEY,product: "still_pro_v3" as const,state: "revoked" as const }] : [])] }) },
       rights: {
         begin: () => { state.begins++; return Promise.resolve(OP); },
         commit: (_holder,_env,_token,rights) => { state.commits++; state.snapshots.push(rights);
           if (!state.known && rights.length) throw Error("unknown negative key");
-          return Promise.resolve(state.stale ? { status: "stale" } : { status: "committed",rights: state.active || (state.known && !rights.length) ?
-            [{ right: OP,holder: HOLDER,revision: 1,verified_at: Date.now() }] : [],revocations: [],issuer_time: Date.now() }); },
+          // Like qa_sandbox_commit_access_observation (0021): a negative the holder's ledger never held is
+          // dropped, and a known key stored under another product raises instead of committing.
+          if (state.mismatch && rights.some(right => right.key === KEY)) throw Error("unknown QA negative transaction");
+          const ledger = [...(state.active || (state.known && !rights.some(right => right.product === "still_pro_v3")) ? [{ right: OP,holder: HOLDER,revision: 1,verified_at: Date.now() }] : []),
+            ...(state.unrelated ? [{ right: UNRELATED,holder: HOLDER,revision: 1,verified_at: Date.now() }] : []),
+            ...(state.secondOwned ? [{ right: SECOND,holder: HOLDER,revision: 1,verified_at: Date.now() }] : [])];
+          return Promise.resolve(state.stale ? { status: "stale" } : { status: "committed",rights: ledger,revocations: [],issuer_time: Date.now() }); },
         confirm: () => { throw Error("must not confirm positive"); },
       },
     } }, refunds: { readChargeRefund: (id) => { assertEquals(id,CHARGE); state.refunds++; return Promise.resolve({
@@ -285,4 +295,19 @@ Deno.test("paid notification for a deleted account never imports, grants or recr
   const s = setup(); s.state.deleted = true; s.state.readFails = true;
   assertEquals((await handleQaSandboxStripeWebhook(await request(),s.deps)).status,502);
   assertEquals([s.state.imports,s.state.creates,s.state.begins,s.state.signs,s.state.mutations.length],[0,0,0,0,0]);
+});
+Deno.test("refund acknowledges once its own purchase is revoked, whatever unrelated QA rights remain", async () => {
+  for (const patch of [{ legacy: true },{ unrelated: true },{ legacy: true,unrelated: true }]) {
+    const s = setup(); Object.assign(s.state,patch);
+    assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200,JSON.stringify(patch));
+    assertEquals([s.state.row.status,s.state.commits,s.state.signs],["refunded",1,0]);
+    assertEquals(s.state.snapshots.every(value => (value as { state?: string }[]).every(right => right.state === "revoked")),true);
+  }
+});
+Deno.test("refund retries on a QA product mismatch or another owned Pro purchase, unrelated rights or not", async () => {
+  for (const patch of [{ mismatch: true },{ mismatch: true,unrelated: true,legacy: true },{ secondOwned: true },{ secondOwned: true,legacy: true }]) {
+    const s = setup(); Object.assign(s.state,patch);
+    assertEquals((await handleQaSandboxStripeWebhook(await request(event("charge.refunded")),s.deps)).status,502,JSON.stringify(patch));
+    assertEquals([s.state.row.status,s.state.signs],["refunded",0]);
+  }
 });
