@@ -43,6 +43,10 @@ describe("the email-consent step", () => {
 
     expect(screen.getByText(STRINGS.emailConsent.disclosureTitle)).toBeTruthy();
     expect(screen.getByText(STRINGS.emailConsent.body)).toBeTruthy();
+    // P3-24 (ruling D6): the consent line names the 6-digit sign-in code.
+    expect(STRINGS.emailConsent.body).toBe(
+      "Still uses your email address to send a 6-digit sign-in code and sync your settings across devices. Still does not collect your browsing history.",
+    );
     expect(emailField()).toBeNull();
 
     await fireEvent.click(screen.getByText(STRINGS.emailConsent.proceed));

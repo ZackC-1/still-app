@@ -179,7 +179,7 @@
     c.dismissSignIn();
   }
   // Accountless holders: signed out, "Sign in to keep Still Pro with your account."; signed in,
-  // "Link Still Pro to your account." (ISS-0076). Both run the existing explicit link, which ends in
+  // "Link Still Pro to your account" (ISS-0076). Both run the existing explicit link, which ends in
   // the "Link Still Pro to this account?" confirmation. Not now hides the card until the app is
   // next opened.
   let linkInviteDismissed = $state(false);
@@ -453,14 +453,14 @@
   <div bind:this={purchaseScreen}>
     <PurchaseView {...purchaseProps} onBack={platform === "mac" ? closePurchase : purchaseProps.onBack} phone={platformKnown && platform === "ios"} />
   </div>
-  {#if canLink && c.userId !== null}<div class="still-ui app">
+  {#if canLink && c.userId !== null}<div class="still-ui app" data-host="apple" data-platform={platform}>
       <button
         type="button"
         class="secondary block"
         onclick={() => {
           proHost?.close();
           proHost?.requestLink();
-        }}>Link Still Pro to an account</button
+        }}>Link Still Pro to your account</button
       >
     </div>{/if}
 {/if}
@@ -495,7 +495,7 @@
     {help}
   />
   {#if proState?.pro?.verificationRequired}
-    <div class="still-ui app">
+    <div class="still-ui app" data-host="apple" data-platform={platform}>
       <button
         type="button"
         class="secondary block"
@@ -504,17 +504,17 @@
     </div>
   {/if}
   {#if view.settingsUnavailable && !reading}
-    <div class="still-ui app" data-host="apple">
+    <div class="still-ui app" data-host="apple" data-platform={platform}>
       {@render settingsRecovery()}
     </div>
   {/if}
 {:else}
   <!-- Held: no accepted committed choices yet. Never startup defaults or a saved Off. -->
-  <div class="still-ui app" data-host="apple" data-settings-held="">
+  <div class="still-ui app" data-host="apple" data-platform={platform} data-settings-held="">
     {#if view.settingsUnavailable && !reading}
       {@render settingsRecovery()}
     {:else}
-      <p class="muted" role="status">{STRINGS.sync.checking}</p>
+      <p class="muted" role="status">{STRINGS.sync.loading}</p>
     {/if}
     {@render usageActions()}
   </div>
@@ -526,6 +526,7 @@
 {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
   <SignInSheet
     controller={c}
+    host="apple"
     onDismiss={() => c.dismissSignIn()}
     title={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.title : undefined}
     prompt={purchaseSignIn ? APPLE_PURCHASE_SIGN_IN_COPY.prompt : undefined}

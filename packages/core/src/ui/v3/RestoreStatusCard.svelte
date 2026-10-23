@@ -12,7 +12,7 @@
     checking: {
       tone: "pending",
       text: "Checking for Still Pro purchases…",
-      detail: undefined,
+      detail: "Your free controls keep working while this finishes.",
       action: undefined,
     },
     restored: {
@@ -25,12 +25,12 @@
       tone: "info",
       text: "No Still Pro purchase was found for this account.",
       detail:
-        "Bought it with another account or Apple ID? Sign in with that one and try again.",
+        "Bought it with another account? Sign in with that one and try again.",
       action: undefined,
     },
     failed: {
       tone: "failed",
-      text: "We couldn't finish checking. Nothing changed.",
+      text: "We couldn’t finish checking. Nothing changed.",
       detail: "Your free controls and saved choices are unaffected.",
       action: "Try again",
     },
@@ -38,7 +38,7 @@
       tone: "caution",
       text: "Still Pro needs to be verified again.",
       detail: undefined,
-      action: "Verify now",
+      action: "Verify purchase",
     },
     // Firefox: the person declined the permission at Get Still Pro, so no checkout started. Not an
     // error; asking again is the card's own Get Still Pro.
@@ -97,7 +97,7 @@
   }
 </script>
 
-<section class="card card-stack">
+<section class="card card-stack restore-card">
   <span class="restore-focus" tabindex="-1" bind:this={anchor}></span>
   <div
     class="status-line"

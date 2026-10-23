@@ -125,7 +125,7 @@ final class OnboardingTests: XCTestCase {
   }
 
   func testStatusHeadlinesMatchBrainstormCopy() {
-    XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You're all set")
+    XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You’re all set")
     XCTAssertEqual(SafariExtensionStatus.disabled.headline, "Not on yet")
     XCTAssertEqual(SafariExtensionStatus.unknown.headline, "Turn it on in Safari")
   }
@@ -173,10 +173,10 @@ final class OnboardingTests: XCTestCase {
   func testIOSSettingsPathMatchesEachOSGeneration() {
     XCTAssertEqual(
       walkThroughs[0][1],
-      "Go to Apps → Safari → Extensions → Still",
+      "Go to Apps → Safari → Extensions → Still.",
       "iOS 18 moved Safari's settings under Apps"
     )
-    XCTAssertEqual(walkThroughs[1][1], "Go to Safari → Extensions → Still")
+    XCTAssertEqual(walkThroughs[1][1], "Go to Safari → Extensions → Still.")
   }
 
   func testTheWalkThroughNeverQuotesABackButtonLabel() {
@@ -184,7 +184,7 @@ final class OnboardingTests: XCTestCase {
     // label it "Settings". A step quoting either label is wrong for the other, so step 1 says to go
     // back without naming the control.
     for steps in walkThroughs {
-      XCTAssertEqual(steps[0], "Tap “Open Settings” below, then go back")
+      XCTAssertEqual(steps[0], "Tap “Open Settings” below, then go back.")
       XCTAssertFalse(steps[0].contains("‹"), steps[0])
       XCTAssertFalse(steps[0].contains("tap Settings"), steps[0])
     }
@@ -195,9 +195,9 @@ final class OnboardingTests: XCTestCase {
     XCTAssertEqual(
       directPage,
       [
-        "Tap “Open Settings” below",
-        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-        "Close Safari, then reopen it",
+        "Tap “Open Settings” below.",
+        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+        "Close Safari, then reopen it.",
       ])
   }
 

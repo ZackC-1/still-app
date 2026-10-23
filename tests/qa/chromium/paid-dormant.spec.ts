@@ -70,7 +70,7 @@ test("J12.CH no popup, options, first-run or TikTok page state offers a purchase
     const tiktok = await context.newPage();
     await tiktok.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
     await tiktok.waitForURL(/tiktok-blocked\.html/, { waitUntil: "commit" });
-    await expect(tiktok.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+    await expect(tiktok.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
     await expectNoOffer(tiktok, "tiktok blocked page");
     await ev.shot(tiktok, "tiktok-blocked");
     await tiktok.getByRole("button", { name: "Open TikTok this time" }).click();
@@ -106,7 +106,7 @@ test("J12.CH locked Pro rows show the lock and Still Pro, and offer nothing when
   const rows = {
     YouTube: ["Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat"],
     Instagram: ["Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links"],
-    Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
+    Facebook: ["Stories", "Video tab", "Desktop sidebar ads"],
   };
   let tapped = 0;
   for (const [service, names] of Object.entries(rows)) {

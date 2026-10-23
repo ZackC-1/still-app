@@ -21,7 +21,7 @@ public enum SafariExtensionStatus: Equatable, Sendable {
   /// The headline screen 3 shows for each state (brainstorm copy: "Not on yet" → "You're all set").
   public var headline: String {
     switch self {
-    case .enabled: return "You're all set"
+    case .enabled: return "You’re all set"
     case .disabled: return "Not on yet"
     case .unknown: return "Turn it on in Safari"
     }
@@ -148,18 +148,18 @@ public enum OnboardingCopy {
       return macOSEnableSteps
     case .settingsAppSafariExtensionPage:
       return [
-        "Tap “\(open)” below",
-        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-        "Close Safari, then reopen it",
+        "Tap “\(open)” below.",
+        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+        "Close Safari, then reopen it.",
       ]
     case .settingsAppStillPage:
       return [
-        "Tap “\(open)” below, then go back",
+        "Tap “\(open)” below, then go back.",
         iOS18OrLater
-          ? "Go to Apps → Safari → Extensions → Still"
-          : "Go to Safari → Extensions → Still",
-        "Turn on Still, then allow Instagram, Facebook, YouTube, and TikTok",
-        "Close Safari, then reopen it",
+          ? "Go to Apps → Safari → Extensions → Still."
+          : "Go to Safari → Extensions → Still.",
+        "Turn on Still, then allow Instagram, Facebook, YouTube and TikTok.",
+        "Close Safari, then reopen it.",
       ]
     }
   }
@@ -167,10 +167,10 @@ public enum OnboardingCopy {
   /// The macOS enable steps: one static list, because Safari's extension settings have one path on
   /// macOS. There is no walk to Safari here, because the button already made it.
   public static let macOSEnableSteps: [String] = [
-    "Click “\(openButtonTitle(for: .safariExtensionSettings))” below",
-    "In Extensions, switch on Still",
-    "Allow Still on Instagram, Facebook, YouTube, and TikTok",
-    "Quit Safari (⌘Q) and reopen it",
+    "Click “\(openButtonTitle(for: .safariExtensionSettings))” below.",
+    "In Extensions, switch on Still.",
+    "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+    "Quit Safari (⌘Q) and reopen it.",
   ]
 }
 

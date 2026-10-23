@@ -4,8 +4,9 @@
   // (lib/safari-v3-runtime). Reached only through a dynamic import that default builds fold away.
   //
   // The Apple app owns the account on Safari, so the sync card gets a read-only account
-  // (appManagedSettingsSync): no sign-in, sign-out, delete-account or retry callback exists here,
-  // and the card hides every action whose callback is absent. No Restore, account-link or sharing
+  // (appManagedSettingsSync): no sign-out, delete-account or retry callback exists here, and the
+  // card hides every action whose callback is absent. Signed out, its Sign in opens the Still app
+  // (route "sync"), as the Safari popups' Sign in does. No Restore, account-link or sharing
   // card is supplied, and no price, purchase or paywall appears on this surface. Like the Safari
   // popup, where access is conclusively locked the page shows the compact Still Pro card and its
   // Get Still Pro and lock chips open the Still app (proHandoff, ISS-0032).
@@ -37,17 +38,18 @@
   let { composition, features, phone = false, openApp }: Props = $props();
   // When Safari refuses the hand-off, say so plainly (as the popup does). Cleared by the next try.
   let handoffFailed = $state(false);
-  async function openPro(): Promise<void> {
+  async function openAppAt(route: SafariAppRoute): Promise<void> {
     if (!openApp) return;
     handoffFailed = false;
     let result: SafariAppHandoffResult;
     try {
-      result = await openApp("pro");
+      result = await openApp(route);
     } catch {
       result = "failed";
     }
     handoffFailed = result === "failed";
   }
+  const openSync = (): void => void openAppAt("sync");
   // One composition per mount; it never changes for this view's lifetime.
   const {
     controller: c,
@@ -78,7 +80,7 @@
     };
   });
   let unavailable = $derived(!reading && view.settingsUnavailable);
-  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync));
+  let sync = $derived(appManagedSettingsSync(c, STRINGS.sync, openApp ? openSync : undefined, view.state?.access));
   let ready = $derived(
     view.settings && view.state && view.commands
       ? {
@@ -152,18 +154,21 @@
         accountActions: unavailable ? recovery : undefined,
       }}
       {help}
-      proHandoff={openApp ? () => void openPro() : undefined}
+      unsupportedText="Not available in Safari. Your choice is saved."
+      proHandoff={openApp ? () => void openAppAt("pro") : undefined}
     />
   {:else if unavailable}
     {@render recovery()}
   {:else}
-    <p class="muted" role="status">{STRINGS.sync.checking}</p>
+    <p class="muted" role="status">{STRINGS.sync.loading}</p>
   {/if}
 </main>
 
 <style>
   .options {
-    /* Same frame as OptionsApp.svelte: the shared content width token. */
+    /* The same content width token as OptionsApp.svelte, but not its other frame rules: Safari's own
+       Settings page keeps this vertical padding and the default block-button padding, and is not
+       covered by the 22 Oct canvas rulings (32px top and bottom, 44px buttons on Chrome/Firefox). */
     max-inline-size: var(--content-max-inline-size, 432px);
     margin-inline: auto;
     padding-block: clamp(var(--space-3), 5vh, var(--space-8));

@@ -2,9 +2,10 @@ name: Supabase purchase function rehearsal
 
 # Disposable Linux runner only. No protected environment, hosted credentials,
 # provider calls, uploaded hosted artifacts or production deployments.
-# Compiles the real purchase routes and sync-settings through the same sealed
-# compiler boundary the protected purchase-functions operations use, then starts
-# every sealed upload with no environment, no network and no write access.
+# Compiles the real purchase routes, sync-settings and review-signin through the
+# same sealed compiler boundary the protected purchase-functions and
+# review-signin-function operations use, then starts every sealed upload with no
+# environment, no network and no write access.
 on:
   pull_request:
     paths:
@@ -38,7 +39,7 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: "2.8.3"
-      - name: Compile, seal and start the actual purchase and sync-settings uploads
+      - name: Compile, seal and start the actual purchase, sync-settings and review-signin uploads
         env:
           STILL_PURCHASE_BUNDLE_INTEGRATION: "1"
         run: node --test scripts/backend/deploy/qa-function-bundles.test.mjs scripts/backend/deploy/purchase-operations.test.mjs

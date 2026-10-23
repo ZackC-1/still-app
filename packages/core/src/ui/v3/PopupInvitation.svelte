@@ -9,9 +9,8 @@
   } from "./invitation-presentation.js";
   import "./design/styles.css";
 
-  let { presentation, canonicalSync = false }: {
+  let { presentation }: {
     presentation?: PopupInvitationPresentation;
-    canonicalSync?: boolean;
   } = $props();
   // A local current-request fence; caller observations alone control visibility.
   let current = $derived(
@@ -57,26 +56,24 @@
   });
   const copy = {
     rating: [
-      "Rate Still",
+      "Enjoying Still?",
       "A rating helps other people find Still.",
       "Rate Still",
     ],
+    // The sync invitation reads as the popups' Settings sync card (owner, 21 Oct 2026).
     sync: [
-      "Use the same settings in every browser",
-      "Sign in for free settings sync. Optional.",
+      "Settings sync",
+      "Sync settings across devices and browsers. Free.",
       "Sign in",
     ],
     link: [
-      "Link Still Pro to an account",
+      "Link Still Pro to your account",
       "So you can restore it in other browsers. Optional.",
       "Link",
     ],
   } as const;
-  let title = $derived(presentation?.kind === "sync" && canonicalSync
-    ? "Settings sync" : presentation ? copy[presentation.kind][0] : "");
-  let detail = $derived(presentation?.kind === "sync" && canonicalSync
-    ? "Sync settings across devices and browsers. Free."
-    : presentation ? copy[presentation.kind][1] : "");
+  let title = $derived(presentation ? copy[presentation.kind][0] : "");
+  let detail = $derived(presentation ? copy[presentation.kind][1] : "");
   function intent(
     observation: PopupInvitationPresentation,
     port: InvitationIntentPort | undefined,
@@ -149,3 +146,25 @@
     </section>
   {/key}
 {/if}
+
+<style>
+  /* The owner's canvas (Chrome-Popup-Invite and Chrome-Popup-Rating, 21 Oct 2026): 10px between
+     the text and the buttons, the detail at 1.4 line height, the main button 14px from its label
+     on each side, 16px between the two buttons and "Not now" at 14px. */
+  section.card-stack {
+    gap: 10px;
+  }
+  .sync-row-sub {
+    line-height: 1.4;
+  }
+  .inline-actions {
+    column-gap: var(--space-4);
+  }
+  .inline-actions > .primary.inline {
+    padding-inline: 14px;
+  }
+  .inline-actions > .link {
+    font-size: calc(14px * var(--text-scale, 1));
+    line-height: normal;
+  }
+</style>

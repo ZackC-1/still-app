@@ -36,8 +36,10 @@ test("J4.SI the popup renders the app's saved choices and opening it writes noth
   for (const service of ["YouTube", "Instagram", "Facebook"])
     await expect(page.getByRole("switch", { name: `Still on ${service}` })).toBeChecked();
   await expect(page.getByRole("switch", { name: "TikTok website" })).toBeChecked();
-  // iOS gets the mobile popup: its Settings button carries the mobile accessible name.
-  await expect(page.getByRole("button", { name: "Settings. Opens Still settings." })).toBeVisible();
+  // iOS gets the mobile popup (not the Mac's desktop frame); its Settings button is named by its
+  // label on every popup (P3-23).
+  await expect(page.getByRole("button", { name: "Still settings" })).toBeVisible();
+  await expect(page.locator(".popup.desktop-popup")).toHaveCount(0);
   await page.waitForTimeout(500);
   expect(writes(lane)).toEqual([]);
 });
@@ -57,7 +59,7 @@ test("J4.SM macOS gets the desktop popup with the approved Settings label", asyn
   const { page } = await open("mac-fresh", "popup", { width: 380, height: 600 });
   await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Still settings" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Settings. Opens Still settings." })).toHaveCount(0);
+  await expect(page.locator(".popup.desktop-popup")).toHaveCount(1);
 });
 
 test("J4.SI one switch commits exactly one settings intent to the App Group, never a snapshot", async () => {
@@ -113,7 +115,6 @@ test("J7.SI a 2.1.x record the app never converted keeps the legacy popup (no V3
   await expect(page.getByText("Still is on", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Still is active" })).toHaveCount(0);
   expect(await page.locator('link[href*="v3-mount"]').count()).toBe(0);
-  await expect(page.getByRole("button", { name: "Settings. Opens Still settings." })).toHaveCount(0);
   expect(writes(lane)).toEqual([]);
 });
 

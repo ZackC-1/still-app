@@ -16,10 +16,13 @@ dashboard, which stays available as the fallback for any problem.
   stops. There is no other way in.
 - It never cancels a review, never changes a rollout percentage, never tries to skip review and never
   repeats an upload or a submission on its own. Cancelling a review is done in the dashboard.
-- A submitted update goes live to everyone once Google approves it. Still is too small for Chrome's
-  partial rollouts (that needs more than 10,000 weekly users), and by owner decision staged holds are not used.
-  To undo a bad release, ship a higher version with the earlier code, or cancel in the dashboard while
-  it is still in review.
+- Chrome is submitted with automatic publishing turned off: after `upload`, the update is submitted
+  for review in the dashboard with automatic publication unchecked (`upload-and-submit` asks for
+  automatic publication, so it is not used for a held release). Once Google approves it, the item
+  is held (Chrome keeps an approved item for up to 30 days) until the owner publishes all stores
+  together. When published it goes to everyone: Still is too small for Chrome's partial rollouts
+  (that needs more than 10,000 weekly users). To undo a bad release, ship a higher version with the
+  earlier code, or cancel in the dashboard while it is still in review or held.
 
 ## Modes
 
@@ -41,13 +44,17 @@ mode), `confirm_submit`.
    summary and download the `chrome-package` artifact.
 3. Test that exact zip (load it unpacked). The fingerprint names exactly what you tested; the build uses a
    fixed Node version, so a zip built on your own computer may have a different fingerprint.
-4. Run `upload-and-submit` with the same commit, version and fingerprint, and `confirm_submit` set to
-   `submit <version>`. Approve the build, then approve the store step.
+4. Run `upload` with the same commit, version and fingerprint. Approve the build, then approve the store
+   step. The package becomes a dashboard draft; nothing is sent for review.
+5. In the Chrome Developer Dashboard, check the draft, then submit it for review with automatic
+   publication unchecked.
+6. Once Google approves it, the item is held. The owner publishes it in the dashboard together with the
+   other stores (go-live runbook 6.4 and 8.1).
 
-   `upload` on its own is for checking the draft in the dashboard first. A later `upload-and-submit` uploads
-   again before submitting, because the store does not report a draft's version. Whether the store accepts
-   the same version over an existing draft has not been observed yet; if it refuses, submit that draft in
-   the dashboard instead.
+   `upload-and-submit` submits with automatic publication, so the update goes live as soon as Google
+   approves it. Use it only for a release that is not held. It uploads again before submitting, because
+   the store does not report a draft's version. Whether the store accepts the same version over an
+   existing draft has not been observed yet; if it refuses, submit that draft in the dashboard instead.
 
 **While a run is in progress, nobody changes a draft by hand in the dashboard** (no manual package upload,
 no discarding the draft). The store keeps only one draft and reports only the state of the most recent

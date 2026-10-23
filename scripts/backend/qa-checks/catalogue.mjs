@@ -201,7 +201,7 @@ const BASELINE_QUERIES = [
  * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | "id" | "ids" | { type: "state", values: string[] }} FieldType
  * @typedef {{ name: string, sql: string, params?: number[], fields: Record<string, FieldType> }} CheckQuery
  * @typedef {"pass" | "fail" | undefined} Verdict
- * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline") => Verdict, notes?: (rows: Record<string, unknown>[][]) => string[], queries: CheckQuery[] }} Check
+ * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline" | "baseline-invalid") => Verdict, notes?: (rows: Record<string, unknown>[][]) => string[], queries: CheckQuery[] }} Check
  */
 
 /**

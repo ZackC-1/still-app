@@ -18,6 +18,7 @@
     labels = {},
     onProAction,
     host = "browser",
+    unsupportedText = "Not available in this browser. Your choice is saved.",
     commandsDisabled = false,
   }: SettingsSiteListProps = $props();
   let open = $state<ServiceId | null>(
@@ -114,7 +115,7 @@
                   dormant={dormant && row.tier === "pro"}
                   checked={settings.sites[row.id]}
                   {inactive}
-                  unsupportedText="Not available in this browser. Your choice is saved."
+                  {unsupportedText}
                   note={row.id === "instagram.explore"
                     ? "Search stays."
                     : undefined}

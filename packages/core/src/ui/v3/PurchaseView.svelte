@@ -69,32 +69,46 @@
   let restoreAllowed = $derived(
     !completed && props.purchase.state !== "success" && !restoreHeld,
   );
-  const restoreMessages = {
-    checking: { tone: "pending", text: "Checking for Still Pro purchases…" },
+  // Owner (22 Oct 2026): the Apple app says "Apple Account" (Apple's name since 2023); the
+  // browsers say "account".
+  let restoreMessages = $derived({
+    checking: {
+      tone: "pending",
+      text: "Checking for Still Pro purchases…",
+      detail: "Your free controls keep working while this finishes.",
+    },
     restored: {
       tone: "success",
       text: "Still Pro is restored on this device.",
     },
-    nothing: {
-      tone: "info",
-      text: "No Still Pro purchase was found for this account.",
-      detail:
-        "Bought it with another account or Apple ID? Sign in with that one and try again.",
-    },
+    nothing:
+      props.host === "apple"
+        ? {
+            tone: "info",
+            text: "No Still Pro purchase was found for this Apple Account.",
+            detail:
+              "Bought it with another Apple Account? Sign in with that one and try again.",
+          }
+        : {
+            tone: "info",
+            text: "No Still Pro purchase was found for this account.",
+            detail:
+              "Bought it with another account? Sign in with that one and try again.",
+          },
     failed: {
       tone: "failed",
-      text: "We couldn't finish checking. Nothing changed.",
+      text: "We couldn’t finish checking. Nothing changed.",
       detail: "Your free controls and saved choices are unaffected.",
       actionLabel: "Try again",
     },
     verify: {
       tone: "caution",
       text: "Still Pro needs to be verified again.",
-      actionLabel: "Verify now",
+      actionLabel: "Verify purchase",
     },
-    // Firefox: the purchase-status permission was declined; nothing was checked.
+    // Firefox: the purchase-data permission was declined at Get Still Pro; no checkout started.
     permission: { tone: "info", text: DATA_PERMISSION_COPY.purchase },
-  } satisfies Record<string, OperationStatus>;
+  } satisfies Record<string, OperationStatus>);
   function acquire() {
     if (!canAcquire) return;
     if (props.host === "apple") props.native.onBuy?.();
@@ -151,7 +165,7 @@
   </div>
 {/snippet}
 
-<main class="still-ui ob">
+<main class="still-ui ob" data-host={props.host}>
   <div class="ob-col">
     <div class="ob-top">
       <button
@@ -159,14 +173,14 @@
         class="link"
         disabled={!props.onBack}
         onclick={() => props.onBack?.()}
-        >{props.host === "apple" ? "Close" : "Back to settings"}</button
+        >{props.host === "apple" ? "Close" : "Back to Still settings"}</button
       ><span></span>
     </div>
     <div class="ob-main" style="justify-content:flex-start;gap:16px;">
       <h1>Still Pro</h1>
       <p class="lede">
-        More control over Instagram, Facebook and YouTube. One payment. Access
-        forever. No subscription
+        More control over Instagram, Facebook and YouTube. One-time purchase.
+        Lifetime access. No subscription.
       </p>
       <section class="card card-stack">
         <StaticProControlList controls={props.controls} gap={10} />
@@ -176,13 +190,13 @@
           props.host === "apple" && props.purchase.notCharged
             ? {
                 tone: "failed",
-                text: "Still Pro couldn't be bought right now.",
+                text: "Still Pro couldn’t be bought right now.",
                 detail:
-                  "Nothing was charged. Make sure you're signed in to the App Store, then try again.",
+                  "Nothing was charged. Make sure you’re signed in to the App Store, then try again.",
               }
             : {
                 tone: "failed",
-                text: "The purchase wasn't confirmed.",
+                text: "The purchase wasn’t confirmed.",
                 detail: "If you were charged, Restore purchase will find it.",
               },
         )}{/if}
@@ -200,21 +214,21 @@
         {@render status({
           tone: "caution",
           text: "Your purchase needs to be verified.",
-          actionLabel: "Verify now",
+          actionLabel: "Verify purchase",
           onAction: props.native.verified ? props.native.onVerify : undefined,
         })}
       {:else if owned}
         {@render status({
           tone: "success",
           text: "You have Still Pro.",
-          detail: "New controls start off. Turn on the ones you want.",
+          detail: "New controls start off, so turn on the ones you want.",
         })}
       {:else if !restoreHeld && !completed}
         {#if props.access.verified && props.access.state === "checking"}
           {@render status({
             tone: "pending",
             text: "Checking your Still Pro access…",
-            detail: "Your free controls keep working.",
+            detail: "Your free controls keep working while this finishes.",
           })}
         {:else if props.access.verified && (props.access.state === "verify" || props.access.state === "failed")}
           {@render status(restoreMessages[props.access.state])}
@@ -222,13 +236,13 @@
           {@render status({
             tone: "success",
             text: "Still Pro is ready.",
-            detail: "New controls start off. Turn on the ones you want.",
+            detail: "New controls start off, so turn on the ones you want.",
           })}
         {:else if props.purchase.state !== "success" && props.access.verified && props.access.state !== "unknown"}
           {#if !acquisitionAuthority}
             {@render status({
               tone: "info",
-              text: "Still Pro can't be bought here yet.",
+              text: "Still Pro can’t be bought here yet.",
               detail: "Already bought it somewhere else? Restore it below.",
             })}
           {:else if props.purchase.state === "pending"}
@@ -257,7 +271,10 @@
           type="button"
           class="secondary block"
           disabled={!props.onBack}
-          onclick={() => props.onBack?.()}>Back to settings</button
+          onclick={() => props.onBack?.()}
+          >{props.host === "apple"
+            ? "Back to Settings"
+            : "Back to Still settings"}</button
         >{/if}
       {#if restoreAllowed}<button
           type="button"
@@ -273,7 +290,7 @@
             ? "Payment is handled by Apple."
             : confirmedAccount
               ? "Checkout opens in a new tab."
-              : "You'll sign in first, so you can restore Still Pro in other browsers."}
+              : "You’ll sign in first, so you can restore Still Pro in other browsers."}
         </p>{/if}
     </div>
   </div>

@@ -419,7 +419,7 @@ describe("reviewed sign-in input and background regressions", () => {
     expect(p.background.onSignIn).not.toHaveBeenCalled();
     expect(p.background.onBack).not.toHaveBeenCalled();
   });
-  for (const [state, label] of [["failed", "Try again"], ["verify", "Verify now"]] as const) {
+  for (const [state, label] of [["failed", "Try again"], ["verify", "Verify purchase"]] as const) {
     it(`strips the ${label} callback proven reachable for the same verified restore state`, async () => {
       const p = props();
       p.background.account = { id: "fixture-account-a", confirmed: true };

@@ -22,6 +22,8 @@ import {
   PURCHASE_BUNDLE_SET,
   PURCHASE_FUNCTIONS,
   QA_FUNCTIONS,
+  REVIEW_SIGNIN_BUNDLE_SET,
+  REVIEW_SIGNIN_FUNCTIONS,
   sealQaRuntime,
   SYNC_SETTINGS_BUNDLE_SET,
   SYNC_SETTINGS_FUNCTIONS,
@@ -530,7 +532,15 @@ test("the purchase routes are a closed, ordered set: read-only routes first, the
   assert.equal(PURCHASE_BUNDLE_SET.perRouteConfig, false);
   assert.equal(SYNC_SETTINGS_BUNDLE_SET.routes, SYNC_SETTINGS_FUNCTIONS);
   assert.equal(SYNC_SETTINGS_BUNDLE_SET.perRouteConfig, true);
-  const all = [...PURCHASE_FUNCTIONS, ...SYNC_SETTINGS_FUNCTIONS].map(({ name }) => name);
+  // review-signin is its own one-route step, outside JWT, with the shared import map.
+  assert.deepEqual(
+    REVIEW_SIGNIN_FUNCTIONS.map(({ name, verifyJwt }) => [name, verifyJwt]),
+    [["review-signin", false]],
+  );
+  assert.equal(REVIEW_SIGNIN_BUNDLE_SET.routes, REVIEW_SIGNIN_FUNCTIONS);
+  assert.equal(REVIEW_SIGNIN_BUNDLE_SET.perRouteConfig, false);
+  assert.equal(REVIEW_SIGNIN_BUNDLE_SET.kind, "still-review-signin-function-bundles");
+  const all = [...PURCHASE_FUNCTIONS, ...SYNC_SETTINGS_FUNCTIONS, ...REVIEW_SIGNIN_FUNCTIONS].map(({ name }) => name);
   assert.equal(new Set(all).size, all.length);
   for (const name of all) {
     assert.doesNotMatch(name, /^qa-sandbox-/, name);
@@ -541,7 +551,7 @@ test("the purchase routes are a closed, ordered set: read-only routes first, the
   for (const name of ["product-policy-admin"]) {
     assert.ok(!all.includes(name), name);
   }
-  for (const set of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET]) {
+  for (const set of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, REVIEW_SIGNIN_BUNDLE_SET]) {
     assert.ok(Object.isFrozen(set) && Object.isFrozen(set.routes));
     for (const route of set.routes) assert.ok(Object.isFrozen(route));
   }
@@ -558,6 +568,63 @@ test("every purchase route's verify_jwt and import map equal the real config.tom
     assert.deepEqual(section.verifyJwt, [String(verifyJwt)], name);
     assert.deepEqual(section.importMap, [`./functions/${name}/deno.json`], name);
   }
+  for (const { name, verifyJwt } of REVIEW_SIGNIN_FUNCTIONS) {
+    const section = await configSection(name);
+    assert.deepEqual(section.verifyJwt, [String(verifyJwt)], name);
+    assert.deepEqual(section.importMap, [], `${name} is bundled with the shared import map`);
+  }
+});
+
+test("the review-signin set seals one route, reads it back, and refuses an extra route or JWT drift", async (t) => {
+  const options = await fixture(t, { routes: REVIEW_SIGNIN_FUNCTIONS, perRouteConfig: false });
+  const manifest = await buildFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, options);
+  assert.equal(manifest.kind, "still-review-signin-function-bundles");
+  assert.deepEqual(
+    manifest.functions.map(({ name, verifyJwt, file }) => ({ name, verifyJwt, file })),
+    [{ name: "review-signin", verifyJwt: false, file: "review-signin.js" }],
+  );
+  assert.equal(
+    await verifyFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, { ...options, manifest }),
+    true,
+  );
+  // Another set's manifest, or one with any route beside review-signin, is refused.
+  await assert.rejects(
+    verifyFunctionBundles(PURCHASE_BUNDLE_SET, { ...options, manifest }),
+    /manifest/i,
+  );
+  for (const extra of [
+    { ...manifest.functions[0], name: "sync-settings", file: "sync-settings.js" },
+    { ...manifest.functions[0], name: "product-policy", file: "product-policy.js" },
+  ]) {
+    await assert.rejects(
+      verifyFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, {
+        ...options,
+        manifest: { ...manifest, functions: [...manifest.functions, extra] },
+      }),
+      /manifest/i,
+    );
+  }
+  await assert.rejects(
+    verifyFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, {
+      ...options,
+      manifest: { ...manifest, functions: [{ ...manifest.functions[0], verifyJwt: true }] },
+    }),
+    /manifest/i,
+  );
+  // Read-back: changed upload bytes after sealing are refused.
+  await writeFile(join(options.artifactDir, "review-signin.js"), "// tampered\n");
+  await assert.rejects(
+    verifyFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, { ...options, manifest }),
+    /drift/i,
+  );
+  const config = join(options.sourceDir, "supabase/config.toml");
+  const text = await readFile(config, "utf8");
+  await writeFile(
+    config,
+    text.replace("[functions.review-signin]\nverify_jwt = false", "[functions.review-signin]\nverify_jwt = true"),
+  );
+  await rm(options.artifactDir, { recursive: true });
+  await assert.rejects(buildFunctionBundles(REVIEW_SIGNIN_BUNDLE_SET, options), /JWT/i);
 });
 
 test("the purchase set builds and verifies like the QA set, and refuses JWT or import-map drift", async (t) => {
@@ -608,7 +675,7 @@ test("the purchase set builds and verifies like the QA set, and refuses JWT or i
 
 // Explicitly enabled by the purchase function rehearsal workflow, which installs Deno 2.8.3.
 test(
-  "actual purchase, sync-settings and canonical analytics bundles are portable, closed, and start without authority",
+  "actual purchase, sync-settings, review-signin and canonical analytics bundles are portable, closed, and start without authority",
   { skip: process.env.STILL_PURCHASE_BUNDLE_INTEGRATION !== "1" },
   async (t) => {
     const sourceDir = await realpath(REPO);
@@ -617,7 +684,7 @@ test(
     );
     t.after(() => rm(root, { recursive: true, force: true }));
     const uploads = [];
-    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, ANALYTICS_BUNDLE_SET, ANALYTICS_SWITCH_BUNDLE_SET].entries()) {
+    for (const [index, set] of [PURCHASE_BUNDLE_SET, SYNC_SETTINGS_BUNDLE_SET, REVIEW_SIGNIN_BUNDLE_SET, ANALYTICS_BUNDLE_SET, ANALYTICS_SWITCH_BUNDLE_SET].entries()) {
       const artifactDir = join(root, `uploads-${index}`);
       const manifest = await buildFunctionBundles(set, { sourceDir, artifactDir });
       assert.equal(manifest.functions.length, set.routes.length);
@@ -668,6 +735,17 @@ test(
       const body = await response.text();
       if (route.name === 'product-policy') {
         assert.equal(response.status, 400, route.name);
+      } else if (route.name === 'review-signin') {
+        // A malformed body is refused before the unset review configuration is consulted, and an
+        // oversized body (3,000 bytes, for an unrelated address) is refused as bad input too.
+        assert.equal(response.status, 400, route.name);
+        assert.deepEqual(JSON.parse(body), {error:'bad_request'});
+        const oversized = JSON.stringify({ action:'request', email:'someone@example.invalid', code:'', pad:'x'.repeat(3000) });
+        const large = await handler(new Request('https://purchase.invalid', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: oversized,
+        }));
+        assert.equal(large.status, 400, 'review-signin oversized body');
+        assert.deepEqual(await large.json(), {error:'bad_request'});
       } else if (route.name === 'verify-apple-access') {
         assert.equal(response.status, 200);
         assert.deepEqual(JSON.parse(body), {status:'unavailable'});
@@ -684,7 +762,7 @@ test(
       }
     }
     assert.equal(networkCalls, 0);
-    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 3} isolated handlers passed`)});
+    console.log(${JSON.stringify(`${PURCHASE_FUNCTIONS.length + 4} isolated handlers passed`)});
   `,
     );
     const result = await defaultExec("deno", [
@@ -699,6 +777,6 @@ test(
       probe,
     ], { cwd: root });
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /12 isolated handlers passed/);
+    assert.match(result.stdout, /13 isolated handlers passed/);
   },
 );

@@ -16,8 +16,11 @@
     note?: string;
     /** A host-supplied way to continue without signing in (Apple Get Still Pro, ISS-0071). */
     skip?: { label: string; onSkip: () => void };
+    /** Which kind of surface opened the sheet. The Apple apps' full-width buttons are 54 px tall
+     * and the browsers' 44 px (owner ruling, canvas fidelity check of 22 Oct 2026). */
+    host?: "apple" | "browser";
   }
-  let { controller: c, onDismiss, title, prompt, note, skip }: Props = $props();
+  let { controller: c, onDismiss, title, prompt, note, skip, host = "browser" }: Props = $props();
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
@@ -76,7 +79,7 @@
     // no copy (a resend does NOT lift the server-side per-IP verify throttle, so the button stays
     // disabled — it just needs its reason shown).
     if (c.verifyBlockRemaining > 0)
-      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s`;
+      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s.`;
     if (c.codeErrorKind === null) return null;
     if (c.codeErrorKind === "expired") return STRINGS.codeAuth.expiredCode;
     // The rate-limited kinds outrank suggestNewCode (R3): "send a new code" is the worst advice
@@ -125,6 +128,7 @@
      selecting a typed address by dragging past the panel's edge must not throw it away. -->
 <div
   class="layer"
+  data-host={host}
   role="presentation"
   onpointerdown={(event) => {
     pressOnLayer = event.target === event.currentTarget;
@@ -172,7 +176,9 @@
           : (prompt ?? STRINGS.auth.prompt)}
       {/if}
     </p>
-    {#if note}<p class="body">{note}</p>{/if}
+    <!-- The purchase note and its skip belong to the email step; the code step shows the code
+         field only (owner ruling D5, 22 Oct 2026). Cancel stays on every step. -->
+    {#if note && !inCodeEntry}<p class="body">{note}</p>{/if}
 
     {#if c.needsEmailConsent}
       <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
@@ -227,7 +233,7 @@
           </p>{/if}
         <button
           type="button"
-          class="link"
+          class="link code-step"
           disabled={resendWaitSeconds > 0}
           onclick={() => c.resendCode()}
         >
@@ -237,7 +243,7 @@
         </button>
         <button
           type="button"
-          class="link"
+          class="link code-step"
           onclick={() => c.useDifferentEmail()}
         >
           {STRINGS.codeAuth.differentEmail}
@@ -286,15 +292,18 @@
           </p>
         {/if}
         {#if c.authFlow === "error"}
-          <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
-             A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
-             because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
+          <!-- Every host gets a written line, the code or the email by its sign-in mode; the raw
+               reason (authError) goes to the console only (copy audit, 22 Oct 2026), as a failed
+               account deletion does.
+               A live send lock (R2) shows the wait copy instead — it must never claim a code
+               exists, because under the hourly cap none was ever sent. The lock's elapse clears
+               this state. -->
           <p class="error" role="status">
             {c.sendBlockRemaining > 0
-              ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+              ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s.`
               : c.canUseCode
                 ? STRINGS.codeAuth.sendError
-                : (c.authError ?? STRINGS.auth.error)}
+                : STRINGS.auth.sendError}
           </p>
         {/if}
       </form>
@@ -306,7 +315,7 @@
       <p class="hint" role="status">{DATA_PERMISSION_COPY.email}</p>
     {/if}
 
-    {#if skip}
+    {#if skip && !inCodeEntry}
       <button type="button" class="link" onclick={skip.onSkip}
         >{skip.label}</button
       >
@@ -326,7 +335,7 @@
     inset: 0;
     display: flex;
     flex-direction: column;
-    background: rgba(11, 20, 48, 0.45);
+    background: rgba(11, 20, 48, 0.5);
     z-index: 100;
   }
   /* Grows to fill everything above the panel; the panel's own max-block-size leaves it at least
@@ -357,14 +366,19 @@
     flex: 0 1 auto;
     min-block-size: 0;
     margin-inline: auto;
-    inline-size: min(100%, var(--sheet-max-inline-size, 420px));
+    inline-size: min(100%, var(--sheet-max-inline-size, 480px));
     /* vh fallback for older WebKit (iOS 15.0–15.3) that drops the dvh declaration below. */
     max-block-size: calc(100vh - env(safe-area-inset-top) - var(--space-3));
     max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
-    background: var(--surface);
+    /* A lighter panel than the page in dark mode, as on the owner's canvas. */
+    --sheet-surface: var(--surface);
+    background: var(--sheet-surface);
+    color: var(--ink);
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    padding: var(--space-3) var(--space-6)
-      calc(var(--space-6) + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+    /* The owner's canvas (22 Oct 2026): 10 px above the grip, 20 px at the sides, 28 px below the
+       last control plus the home-indicator inset. */
+    padding: 10px 20px calc(28px + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
@@ -377,39 +391,49 @@
     gap: var(--space-3);
     min-inline-size: 0;
   }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .sheet {
+      --sheet-surface: var(--surface-raised);
+    }
+  }
+  :global([data-theme="dark"]) .sheet {
+    --sheet-surface: var(--surface-raised);
+  }
   .grip {
     align-self: center;
     inline-size: 36px;
-    block-size: 4px;
+    block-size: 5px;
     border-radius: 999px;
-    background: var(--border);
-    margin-block-end: var(--space-2);
+    background: var(--border-strong);
   }
   .sheet h2 {
     text-wrap: wrap;
     margin: 0;
-    font-size: calc(22px * var(--text-scale, 1));
+    font-size: calc(20px * var(--text-scale, 1));
     font-weight: 700;
-    letter-spacing: -0.02em;
+    /* The design system's global .sheet h2 tightens its letters; the canvas title does not. */
+    letter-spacing: normal;
   }
   .body {
     margin: 0;
+    font-size: calc(15px * var(--text-scale, 1));
     color: var(--ink-secondary);
   }
   .agree {
     display: flex;
     align-items: flex-start;
-    gap: var(--space-2);
-    font-size: calc(14px * var(--text-scale, 1));
+    gap: 10px;
+    font-size: calc(15px * var(--text-scale, 1));
     line-height: 1.4;
     color: var(--ink);
   }
   .agree input {
-    margin-block-start: 2px;
+    inline-size: 20px;
+    block-size: 20px;
+    margin: 2px 0 0;
     flex: none;
   }
   .field-label {
-    margin-block-end: calc(var(--space-2) * -1);
     color: var(--ink);
     font-size: calc(14px * var(--text-scale, 1));
     font-weight: 600;
@@ -419,20 +443,27 @@
     color: var(--on-blue);
     border: none;
     border-radius: var(--radius-control);
-    padding: var(--space-4);
+    min-block-size: 44px;
+    padding: var(--space-3) var(--space-4);
     font: inherit;
     font-weight: 600;
+    line-height: normal;
     cursor: pointer;
+  }
+  .layer[data-host="apple"] .primary {
+    min-block-size: 54px;
   }
   .email,
   .code {
     min-inline-size: 0;
     inline-size: 100%;
+    min-block-size: 48px;
     border: 1px solid var(--input-border);
     border-radius: var(--radius-control);
-    padding: var(--space-3) var(--space-4);
+    padding: 10px 14px;
     font: inherit;
-    background: var(--surface);
+    line-height: normal;
+    background: var(--sheet-surface);
     color: var(--ink);
   }
   .email:focus-visible,
@@ -440,11 +471,13 @@
     border-color: var(--still-blue);
   }
   .code {
+    font-size: calc(20px * var(--text-scale, 1));
     letter-spacing: 0.3em;
     text-align: center;
   }
   .sent {
     color: var(--ink);
+    font-size: calc(14px * var(--text-scale, 1));
     margin: 0;
     min-inline-size: 0;
     overflow-wrap: anywhere;
@@ -458,25 +491,30 @@
     font-size: calc(14px * var(--text-scale, 1));
     margin: 0;
   }
-  .link {
-    background: transparent;
-    border: none;
-    color: var(--still-blue);
-    font: inherit;
-    cursor: pointer;
-    align-self: flex-start;
-    padding: 0;
-  }
+  /* The secondary actions sit centred under the main button, as on the owner's canvas. */
+  .link,
   .dismiss {
     background: transparent;
-    color: var(--ink-secondary);
     border: none;
+    /* --link, not --still-blue: on the dark raised panel Still Blue measures 4.4:1, under the
+       4.5:1 text minimum; --link is the same blue in light mode and 5.3:1 in dark. */
+    color: var(--link, var(--still-blue));
     font: inherit;
+    line-height: normal;
     cursor: pointer;
-    padding: var(--space-2);
+    align-self: center;
+    min-block-size: 44px;
+    padding: 0 var(--space-2);
   }
-  :global(.toggle:disabled),
-  button:disabled {
+  /* The code step's "Send a new code" and "Use a different email" are a size smaller. */
+  .link.code-step {
+    min-block-size: 36px;
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+  :global(.toggle:disabled) {
     opacity: 0.6;
+  }
+  button:disabled {
+    opacity: 0.5;
   }
 </style>

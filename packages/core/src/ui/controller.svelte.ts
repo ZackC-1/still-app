@@ -377,6 +377,9 @@ export class UiController {
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
   paywallPrice = $state<string | null>(null);
   deleteFlow = $state<DeleteFlow>("idle");
+  /** The failed deletion's raw reason, for diagnostics only. Screens never show it: they always
+   * show STRINGS.account.deleteError (a raw reason reads as code, e.g. "Account confirmation
+   * unavailable"). */
   deleteError = $state<string | null>(null);
   /** Account completion is distinct from analytics erasure; no completion readback exists yet. */
   accountDeletion = $state.raw<AccountDeletionResult | null>(null);
@@ -1200,7 +1203,9 @@ export class UiController {
     const { error } = await this.auth.signIn(email);
     if (error) {
       this.authFlow = "error";
+      // Diagnostics only: the sheet shows its written line, never this raw reason.
       this.authError = error;
+      console.error("Sign-in request failed:", error);
     } else {
       this.authFlow = "sent";
     }
@@ -1641,6 +1646,8 @@ export class UiController {
       if (deletingUserId) this.analyticsCall((a) => a.identify(deletingUserId));
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
+      // The raw reason goes to the console only; the screen shows the written line.
+      console.error("Account deletion failed:", this.deleteError);
     }
   }
 

@@ -91,19 +91,22 @@ describe("Safari V3 popup: surfaces", () => {
     const { f, mode } = await open("atomic");
     expect(mode).toBe("v3");
     const before = structuredClone(await f.nativeRecord());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy());
+    // The phone popup: not the Mac's desktop frame (P3-23 gave both popups the same button name).
+    expect(document.querySelector(".popup.desktop-popup")).toBeNull();
     expect(screen.getByRole("switch", { name: "TikTok website" }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByRole("switch", { name: "Still on YouTube" }).getAttribute("aria-checked")).toBe("true");
     for (let i = 0; i < 5; i++) await flush();
     expect(writes(f.nativeKinds())).toEqual([]);
     expect(await f.nativeRecord()).toEqual(before);
-    await fireEvent.click(screen.getByRole("button", { name: "Settings. Opens Still settings." }));
+    await fireEvent.click(screen.getByRole("button", { name: "Still settings" }));
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
   });
 
   it("macOS gets DesktopPopup with the owner-approved Settings label \"Still settings\" (decision 27)", async () => {
     await open("atomic", { platform: "mac" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy());
+    expect(document.querySelector(".popup.desktop-popup")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
     expect(screen.getByRole("heading", { name: "Still is active" })).toBeTruthy();
   });
@@ -112,7 +115,8 @@ describe("Safari V3 popup: surfaces", () => {
     const f = await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';
     await startSafariV3Popup({ env: ENV, platform: () => Promise.reject(new Error("no")) });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy());
+    expect(document.querySelector(".popup.desktop-popup")).toBeNull();
     expect(writes(f.nativeKinds())).toEqual([]);
   });
 });
@@ -124,9 +128,10 @@ describe("Safari V3 popup: a platform answer after the bound", () => {
     const f = await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';
     expect(await startSafariV3Popup({ env: ENV, platform: late("mac") })).toBe("v3");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy(), { timeout: 2_000 });
-    expect(screen.queryByRole("button", { name: "Settings. Opens Still settings." })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy());
+    expect(document.querySelector(".popup.desktop-popup")).toBeNull();
+    await waitFor(() => expect(document.querySelector(".popup.desktop-popup")).not.toBeNull(), { timeout: 2_000 });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Still settings" })).toHaveLength(1));
     expect(f.messages.filter((m) => m.action === "track" && m.name === "opened")).toHaveLength(1);
     expect(writes(f.nativeKinds())).toEqual([]);
   });
@@ -136,8 +141,8 @@ describe("Safari V3 popup: a platform answer after the bound", () => {
     document.body.innerHTML = '<div id="app"></div>';
     await startSafariV3Popup({ env: ENV, platform: late("ios") });
     await new Promise((resolve) => setTimeout(resolve, 1_500));
-    expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Still settings" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy();
+    expect(document.querySelector(".popup.desktop-popup")).toBeNull();
   });
 });
 
@@ -390,7 +395,7 @@ describe("Safari V3 popup: stylesheets and the first read", () => {
     expect(links()).toEqual(["v3-components.css"]);
   });
 
-  it("shows \"Checking sync…\" until the first read answers, never \"Settings are unavailable.\"", async () => {
+  it("shows \"Loading your settings…\" until the first read answers, never \"Settings are unavailable.\"", async () => {
     const f = await installSafari({ saved: "atomic" });
     const record = await f.nativeRecord();
     f.holdReads();
@@ -401,13 +406,13 @@ describe("Safari V3 popup: stylesheets and the first read", () => {
       load: () => import("../v3-mount.js"),
     });
     expect(mode).toBe("v3");
-    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    expect(screen.getByText("Loading your settings…")).toBeTruthy();
     expect(screen.queryByText("Settings are unavailable.")).toBeNull();
     for (let i = 0; i < 5; i++) await flush();
-    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    expect(screen.getByText("Loading your settings…")).toBeTruthy();
     f.releaseReads();
     await screen.findByRole("switch", { name: "Still on Instagram" });
-    expect(screen.queryByText("Checking sync…")).toBeNull();
+    expect(screen.queryByText("Loading your settings…")).toBeNull();
   });
 });
 

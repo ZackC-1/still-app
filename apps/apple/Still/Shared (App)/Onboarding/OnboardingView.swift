@@ -51,6 +51,18 @@ struct OnboardingView: View {
   /// The asset-catalog Still Blue (with its dark variant). Named lookup rather than
   /// `Color.accentColor`, which macOS remaps to the user's system accent preference.
   private static let stillBlue = Color("AccentColor")
+  /// The owner's canvas colours (OnboardingLayout), light and dark.
+  private static let secondaryText = Color(onboardingHex: OnboardingLayout.secondaryText)
+  private static let well = Color(onboardingHex: OnboardingLayout.well)
+  private static let confirmedGreen = Color(onboardingHex: OnboardingLayout.confirmedGreen)
+  #if os(macOS)
+  private static let frame = OnboardingLayout.mac
+  private static let tipSize = OnboardingLayout.macTipSize
+  #else
+  private static let frame = OnboardingLayout.phone
+  private static let tipSize = OnboardingLayout.phoneTipSize
+  #endif
+  private static func points(_ value: Double) -> CGFloat { CGFloat(value) }
   private let lastStep = 3
   /// Polls both directions while screen 3 is active — no "Check again" tap needed. Real on macOS
   /// and iOS 26.2+; a no-op on an earlier iPhone (status stays `.unknown`, no API to read it).
@@ -62,7 +74,7 @@ struct OnboardingView: View {
         closeBar(onClose)
       } else {
         progressDots
-          .padding(.top, 24)
+          .padding(.top, Self.points(Self.frame.topInset))
       }
 
       // Centered while the screen fits, scrolling when it does not. Screen 3 is what makes this
@@ -75,7 +87,9 @@ struct OnboardingView: View {
       GeometryReader { available in
         ScrollView {
           VStack(spacing: 0) {
-            Spacer(minLength: 0)
+            // Screen 3 (and the setup sheet) stacks from the top, 16pt under the dots or the Close
+            // row; the other screens centre their content (owner's canvas).
+            if step != Self.enableExtensionStep { Spacer(minLength: 0) }
 
             Group {
               switch step {
@@ -86,7 +100,8 @@ struct OnboardingView: View {
               }
             }
             .frame(maxWidth: 460)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, Self.points(Self.frame.sideInset))
+            .padding(.top, step == Self.enableExtensionStep ? Self.points(OnboardingLayout.enableSpacing) : 0)
 
             Spacer(minLength: 0)
           }
@@ -96,11 +111,11 @@ struct OnboardingView: View {
 
       footer
         .frame(maxWidth: 460)
-        .padding(.horizontal, 32)
-        .padding(.bottom, 32)
+        .padding(.horizontal, Self.points(Self.frame.sideInset))
+        .padding(.bottom, Self.points(Self.frame.bottomInset))
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(Color.primary.opacity(0.03).ignoresSafeArea())
+    .background(Color(onboardingHex: OnboardingLayout.background).ignoresSafeArea())
     .cappedDynamicType()
     .onAppear { if step != initialStep { step = initialStep } }
   }
@@ -111,10 +126,11 @@ struct OnboardingView: View {
     VStack(spacing: 20) {
       brandMark
       Text("Still")
-        .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("Do what you came to do. Remove distractions like short-form video from your favorite websites.")
-        .font(.still(size: 20, relativeTo: .title3))
-        .foregroundColor(.secondary)
+        .font(.still(size: OnboardingLayout.welcomeTitleSize, weight: .bold, relativeTo: .largeTitle))
+        .kerning(Self.tracking(OnboardingLayout.welcomeTitleSize))
+      Text("Do what you came to do. Remove distractions like short-form video from YouTube, Instagram, Facebook and TikTok.")
+        .font(.still(size: OnboardingLayout.subtitleSize, relativeTo: .title3))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
     }
   }
@@ -122,55 +138,74 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("Distractions are gone.")
-        .font(.still(size: 30, weight: .semibold, relativeTo: .title))
+      Text("Distractions are gone")
+        .font(.still(size: OnboardingLayout.outcomeTitleSize, weight: .semibold, relativeTo: .title))
+        .kerning(Self.tracking(OnboardingLayout.outcomeTitleSize))
         .multilineTextAlignment(.center)
-      Text("Keep the best elements of Instagram, Facebook, YouTube, and TikTok. Remove what distracts you.")
-        .font(.still(size: 20, relativeTo: .title3))
-        .foregroundColor(.secondary)
+      Text("Keep the best of Instagram, Facebook and YouTube. Remove what distracts you.")
+        .font(.still(size: OnboardingLayout.subtitleSize, relativeTo: .title3))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
     }
   }
 
   private var enableExtension: some View {
-    VStack(spacing: 18) {
-      glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
+    VStack(spacing: Self.points(OnboardingLayout.enableSpacing)) {
+      glyph(
+        "puzzlepiece.extension.fill",
+        tint: status.isConfirmedEnabled ? Self.confirmedGreen : Self.stillBlue)
       Text("Turn on Still in Safari")
-        .font(.still(size: 28, weight: .semibold, relativeTo: .title))
-      Text("Enable the Still extension to use in Safari.")
-        .font(.still(size: 16, relativeTo: .body))
-        .foregroundColor(.secondary)
+        .font(.still(size: OnboardingLayout.enableTitleSize, weight: .semibold, relativeTo: .title))
+        .kerning(Self.tracking(OnboardingLayout.enableTitleSize))
+        .multilineTextAlignment(.center)
+      Text("Turn on the Still extension in Safari.")
+        .font(.still(size: OnboardingLayout.enableSubtitleSize, relativeTo: .body))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
 
+      // iPhone: hidden while the state is unknown (before iOS 26.2 it always is), where its line
+      // would only repeat the heading (owner, 22 Oct 2026). The Mac keeps the badge from the first
+      // frame: its status also starts unknown until the first read, and hiding it there would
+      // make the badge appear late and move the steps down.
+      #if os(iOS)
+      if status != .unknown { statusBadge }
+      #else
       statusBadge
+      #endif
 
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: Self.points(OnboardingLayout.stepsSpacing)) {
         ForEach(Array(enableSteps.enumerated()), id: \.offset) { index, line in
           HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(index + 1)")
-              .font(.still(size: 13, weight: .bold, relativeTo: .footnote))
+              .font(.still(size: OnboardingLayout.stepNumberFontSize, weight: .semibold, relativeTo: .footnote))
               .foregroundColor(.white)
-              .frame(width: 22, height: 22)
+              .frame(
+                width: Self.points(OnboardingLayout.stepNumberSize),
+                height: Self.points(OnboardingLayout.stepNumberSize))
               .background(Circle().fill(Self.stillBlue))
             Text(line)
-              .font(.still(size: 15, relativeTo: .callout))
+              .font(.still(size: OnboardingLayout.stepsFontSize, relativeTo: .callout))
               .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
           }
         }
       }
-      .padding(16)
-      .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+      .padding(.vertical, Self.points(OnboardingLayout.stepsPaddingVertical))
+      .padding(.horizontal, Self.points(OnboardingLayout.stepsPaddingHorizontal))
+      .background(
+        RoundedRectangle(cornerRadius: Self.points(OnboardingLayout.stepsRadius)).fill(Self.well))
 
       Button(action: openEnableLocation) {
-        HStack(spacing: 8) {
-          Image(systemName: "arrow.up.forward.app.fill")
+        HStack(spacing: Self.points(OnboardingLayout.openSpacing)) {
+          Image(systemName: OnboardingLayout.openIconSymbol)
+            .font(.system(size: Self.points(OnboardingLayout.openIconSize)))
           Text(OnboardingCopy.openButtonTitle(for: enableLocation))
-            .font(.still(size: 16, weight: .semibold, relativeTo: .body))
+            .font(.still(size: OnboardingLayout.openFontSize, weight: .semibold, relativeTo: .body))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 13)
-        .background(RoundedRectangle(cornerRadius: 12).stroke(Self.stillBlue, lineWidth: 1.5))
+        .frame(maxWidth: .infinity, minHeight: Self.points(OnboardingLayout.openMinHeight))
+        .background(
+          RoundedRectangle(cornerRadius: Self.points(OnboardingLayout.openRadius))
+            .strokeBorder(Self.stillBlue, lineWidth: Self.points(OnboardingLayout.openBorderWidth)))
       }
       .buttonStyle(.plain)
       .foregroundColor(Self.stillBlue)
@@ -178,8 +213,8 @@ struct OnboardingView: View {
       // The one reassurance worth spending space on here, because it is what someone is quietly
       // wondering while an app asks them to turn something on in their browser.
       Text("No account or purchase is needed. Still does not collect your browsing history.")
-        .font(.still(size: 12, relativeTo: .caption))
-        .foregroundColor(.secondary)
+        .font(.still(size: OnboardingLayout.captionSize, relativeTo: .caption))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -197,12 +232,15 @@ struct OnboardingView: View {
 
   private var done: some View {
     VStack(spacing: 20) {
-      glyph("checkmark.seal.fill", tint: .green)
-      Text("Still is ready.")
-        .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
+      glyph("checkmark.seal.fill", tint: Color(onboardingHex: OnboardingLayout.readyGreen))
+      Text("Still is ready")
+        .font(.still(
+          size: OnboardingLayout.doneTitleSize,
+          weight: OnboardingLayout.doneTitleIsBold ? .bold : .semibold, relativeTo: .largeTitle))
+        .kerning(Self.tracking(OnboardingLayout.doneTitleSize))
       Text(completionSubtitle)
-        .font(.still(size: 20, relativeTo: .title3))
-        .foregroundColor(.secondary)
+        .font(.still(size: OnboardingLayout.subtitleSize, relativeTo: .title3))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
       #if os(iOS)
       SafariAddressBarButtonIllustration(accent: Self.stillBlue)
@@ -210,8 +248,8 @@ struct OnboardingView: View {
       SafariToolbarStillButtonIllustration(accent: Self.stillBlue)
       #endif
       Text(returnToSafariTip)
-        .font(.still(size: 15, relativeTo: .body))
-        .foregroundColor(.secondary)
+        .font(.still(size: Self.tipSize, relativeTo: .body))
+        .foregroundColor(Self.secondaryText)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -219,7 +257,7 @@ struct OnboardingView: View {
 
   private var completionSubtitle: String {
     #if os(macOS)
-    return "Distractions are removed from enabled websites in Safari"
+    return "Distractions are removed from enabled websites in Safari."
     #else
     return "Short-form video is removed from enabled websites in Safari."
     #endif
@@ -260,16 +298,19 @@ struct OnboardingView: View {
   // MARK: Screen-3 status
 
   private var statusBadge: some View {
-    HStack(spacing: 8) {
+    // Canvas: a grey ring and grey words while off; a green check and ink words once on.
+    HStack(spacing: Self.points(OnboardingLayout.badgeSpacing)) {
       Image(systemName: status.isConfirmedEnabled ? "checkmark.circle.fill" : "circle")
-        .foregroundColor(status.isConfirmedEnabled ? .green : .secondary)
+        .font(.system(size: Self.points(
+          status.isConfirmedEnabled ? OnboardingLayout.badgeOnIconSize : OnboardingLayout.badgeOffIconSize)))
+        .foregroundColor(status.isConfirmedEnabled ? Self.confirmedGreen : Self.secondaryText)
       Text(status.headline)
-        .font(.still(size: 15, weight: .medium, relativeTo: .subheadline))
-        .foregroundColor(status.isConfirmedEnabled ? .green : .secondary)
+        .font(.still(size: OnboardingLayout.badgeFontSize, relativeTo: .subheadline))
+        .foregroundColor(status.isConfirmedEnabled ? .primary : Self.secondaryText)
     }
-    .padding(.vertical, 6)
-    .padding(.horizontal, 14)
-    .background(Capsule().fill(Color.primary.opacity(0.05)))
+    .padding(.vertical, Self.points(OnboardingLayout.badgePaddingVertical))
+    .padding(.horizontal, Self.points(OnboardingLayout.badgePaddingHorizontal))
+    .background(Capsule().fill(Self.well))
   }
 
   /// Guided steps for enabling the extension, written for where the button below them lands. The
@@ -290,22 +331,26 @@ struct OnboardingView: View {
   // MARK: Footer
 
   private var footer: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: Self.points(OnboardingLayout.footerSpacing)) {
       // "Check again" sits above the primary button so that button lands where "Continue" and
       // "Get started" do on the other screens (owner, 19 Oct).
       if step == 2 {
-        Button("Check again", action: checkAgain)
-          .buttonStyle(.plain)
-          .font(.still(size: 13, relativeTo: .footnote))
-          .foregroundColor(.secondary)
+        Button(action: checkAgain) {
+          Text("Check again")
+            .font(.still(size: OnboardingLayout.checkAgainFontSize, relativeTo: .footnote))
+            .frame(minHeight: onClose == nil ? nil : Self.points(OnboardingLayout.sheetCheckAgainMinHeight))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(Self.secondaryText)
       }
 
       Button(action: advance) {
         Text(primaryTitle)
-          .font(.still(size: 16, weight: .semibold, relativeTo: .body))
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 14)
-          .background(RoundedRectangle(cornerRadius: 14).fill(Self.stillBlue))
+          .font(.still(size: OnboardingLayout.primaryFontSize, weight: .semibold, relativeTo: .body))
+          .frame(maxWidth: .infinity, minHeight: Self.points(OnboardingLayout.primaryMinHeight))
+          .background(
+            RoundedRectangle(cornerRadius: Self.points(OnboardingLayout.primaryRadius)).fill(Self.stillBlue))
           .foregroundColor(.white)
       }
       .buttonStyle(.plain)
@@ -320,7 +365,7 @@ struct OnboardingView: View {
     case 2:
       // The Safari setup sheet has no next screen, so its confirmed state reads "Done".
       if status.isConfirmedEnabled { return onClose == nil ? "Continue" : "Done" }
-      return "I've turned it on"
+      return "I’ve turned it on"
     default: return "Get started"
     }
   }
@@ -355,24 +400,36 @@ struct OnboardingView: View {
   private func closeBar(_ close: @escaping () -> Void) -> some View {
     HStack {
       Spacer(minLength: 0)
-      Button("Close", action: close)
-        .buttonStyle(.plain)
-        .font(.still(size: 16, relativeTo: .body))
-        .foregroundColor(Self.stillBlue)
-        .keyboardShortcut(.cancelAction)
+      Button(action: close) {
+        Text("Close")
+          .font(.still(size: OnboardingLayout.closeFontSize, relativeTo: .body))
+          .frame(minHeight: Self.points(Self.frame.closeMinHeight))
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .foregroundColor(Self.stillBlue)
+      .keyboardShortcut(.cancelAction)
     }
-    .padding(.top, 16)
-    .padding(.horizontal, 20)
+    .padding(.top, Self.points(Self.frame.closeTop))
+    .padding(.trailing, Self.points(Self.frame.closeTrailing))
+    .padding(.bottom, Self.points(Self.frame.closeBottom))
   }
 
   private var progressDots: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Self.points(OnboardingLayout.dotSpacing)) {
       ForEach(0...lastStep, id: \.self) { i in
         Capsule()
-          .fill(i == step ? Self.stillBlue : Color.primary.opacity(0.15))
-          .frame(width: i == step ? 22 : 8, height: 8)
+          .fill(i == step ? Self.stillBlue : Color(onboardingHex: OnboardingLayout.inactiveDot))
+          .frame(
+            width: Self.points(i == step ? OnboardingLayout.activeDotWidth : OnboardingLayout.dotSize),
+            height: Self.points(OnboardingLayout.dotSize))
       }
     }
+  }
+
+  /// The canvas headings' -0.02em letter spacing, in points for a heading of this size.
+  private static func tracking(_ size: Double) -> CGFloat {
+    CGFloat(size * OnboardingLayout.headingTracking)
   }
 
   private func glyph(_ name: String, tint: Color) -> some View {
@@ -432,7 +489,7 @@ private struct SafariAddressBarButtonIllustration: View {
     .background(Capsule().fill(Color.primary.opacity(0.06)))
     .overlay(Capsule().stroke(Color.primary.opacity(0.15), lineWidth: 1))
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("The button at the left of Safari's address bar")
+    .accessibilityLabel("The button at the left of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }
@@ -521,7 +578,7 @@ private struct SafariToolbarStillButtonIllustration: View {
     }
     .frame(width: Self.rowWidth, height: 46)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Still's button to the right of Safari's address bar")
+    .accessibilityLabel("Still’s button to the right of Safari’s address bar")
     .accessibilityAddTraits(.isImage)
   }
 }
@@ -529,10 +586,11 @@ private struct SafariToolbarStillButtonIllustration: View {
 
 private extension Font {
   static func still(
-    size: CGFloat,
+    size: Double,
     weight: Font.Weight = .regular,
     relativeTo style: Font.TextStyle
   ) -> Font {
+    let size = CGFloat(size)
     if #available(iOS 16.0, macOS 13.0, *) {
       return .custom("InterVariable", size: size, relativeTo: style).weight(weight)
     } else {
@@ -540,6 +598,27 @@ private extension Font {
       // render Regular. Keep the system face there so the weight hierarchy survives.
       return .system(size: size, weight: weight, design: .default)
     }
+  }
+}
+
+private extension Color {
+  /// A light/dark pair of sRGB hex values from OnboardingLayout, following the system appearance.
+  init(onboardingHex hex: OnboardingLayout.Hex) {
+    func components(_ value: UInt32) -> (CGFloat, CGFloat, CGFloat) {
+      (CGFloat((value >> 16) & 0xFF) / 255, CGFloat((value >> 8) & 0xFF) / 255, CGFloat(value & 0xFF) / 255)
+    }
+    let light = components(hex.light), dark = components(hex.dark)
+    #if os(macOS)
+    self.init(NSColor(name: nil) { appearance in
+      let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+      return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
+    })
+    #else
+    self.init(UIColor { traits in
+      let c = traits.userInterfaceStyle == .dark ? dark : light
+      return UIColor(red: c.0, green: c.1, blue: c.2, alpha: 1)
+    })
+    #endif
   }
 }
 

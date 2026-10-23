@@ -70,3 +70,26 @@ describe("Safari settings page: the Still Pro hand-off", () => {
     expect(close).not.toHaveBeenCalled();
   });
 });
+
+// Copy audit (22 Oct 2026): signed out, the settings page's sync card showed only its heading. It
+// now shows the Safari popups' signed-out pattern, and its Sign in opens the Still app's sync
+// screen (the app owns the account on Safari); nothing signs in here.
+describe("Safari settings page: the signed-out sync card's Sign in", () => {
+  it("Mac: Sign in opens still://sync through the app and keeps the settings tab open", async () => {
+    const { f, close, props } = await settingsPage("mac");
+    const sync = props.sync as { account?: unknown; onSignIn?: () => void; appHandoff?: boolean };
+    expect(sync.account).toBeUndefined();
+    expect(sync.appHandoff).toBe(true);
+    sync.onSignIn?.();
+    await waitFor(() => expect(f.native.filter((m) => m.kind === "openAppRoute")).toEqual([{ kind: "openAppRoute", route: "sync" }]));
+    expect(f.createTab).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("iPhone: Sign in opens the fixed still://sync link in a Safari tab", async () => {
+    const { f, props } = await settingsPage("ios");
+    (props.sync as { onSignIn: () => void }).onSignIn();
+    await waitFor(() => expect(f.createTab).toHaveBeenCalledTimes(1));
+    expect(f.createTab.mock.calls).toEqual([[{ url: "still://sync" }]]);
+  });
+});

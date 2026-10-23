@@ -21,7 +21,7 @@ test.skip(!built, "Firefox build missing: run `pnpm --filter @still/ext-chromium
 test.describe.configure({ mode: "serial" });
 
 // Only youtube.com is turned off, so the card names only YouTube.
-const TITLE = "Still can't block distractions yet.";
+const TITLE = "Still can’t block distractions yet";
 const BODY = "Still needs permission to work on YouTube.";
 
 let firefox: StillFirefox;

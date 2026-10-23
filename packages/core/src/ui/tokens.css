@@ -56,7 +56,7 @@
      was always wider than the content it held and so could never change what anybody saw. */
   --popup-inline-size: 380px;
   --content-max-inline-size: 432px;
-  --sheet-max-inline-size: 420px;
+  --sheet-max-inline-size: 480px;
 
   --font-ui:
     "InterVariable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
