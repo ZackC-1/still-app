@@ -94,7 +94,8 @@ xcodebuild archive \
   -authenticationKeyPath "$ASC_KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-  DEVELOPMENT_TEAM="$TEAM"
+  DEVELOPMENT_TEAM="$TEAM" \
+  STILL_NON_STORE_BUILD=NO
 
 echo "==> Exporting a signed App Store .ipa…"
 xcodebuild -exportArchive \
