@@ -124,7 +124,7 @@ const AUDIT_LINES: [string, string, AuditScreen[]][] = [
   ["Not available on this device.", "unavailable Still Pro row in the Apple app", ["d04-apple-app-settings"]],
   ["Helps improve Still.", "usage switch line", [...SETTINGS, "d14-extension-first-run", "system-gallery"]],
   ["Delete shared data from all your devices", "shared-data link matches its dialog", ["d03-extension-settings", "system-gallery"]],
-  ["6-digit sign-in code", "both sign-in prompts", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
+  ["6\u2011digit sign-in code", "both sign-in prompts", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
   ["Sign in to get Still Pro", "purchase sign-in sheet title", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
   ["Sign in first to keep Still Pro", "purchase sign-in sheet note", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
   ["Checkout was canceled.", "US spelling", ["system-gallery"]],

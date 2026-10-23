@@ -181,6 +181,9 @@ export interface UiAuth {
 export interface PendingOtp {
   readonly email: string;
   readonly requestedAt: number;
+  /** What opened the sheet (ISS-0123), so a restored code entry keeps the purchase sign-in's
+   * words. Kept apart from the purchase intent, which reopens the legacy paywall. */
+  readonly purpose: SignInPurpose;
 }
 
 /** Host-persistence seam for the code flow's cross-popup-death state (plan U2/R1). The controller
@@ -1180,6 +1183,7 @@ export class UiController {
       this.persistence?.setPendingOtp({
         email,
         requestedAt: this.codeRequestedAt!,
+        purpose: this.signInPurpose,
       });
     } else {
       this.track("code_failed", {
@@ -1277,6 +1281,7 @@ export class UiController {
         this.persistence?.setPendingOtp({
           email,
           requestedAt: this.codeRequestedAt!,
+          purpose: this.signInPurpose,
         });
       } else if (outcome.kind === "send-rate-limited") {
         // A throttled resend locks the button (R4) — without this it re-enables instantly and two
@@ -1305,11 +1310,13 @@ export class UiController {
 
   /** Host rehydration input (AE2): called on mount with the persisted pendingOtp so reopening the
    * popup within the OTP TTL lands straight on code entry for that email — countdown restored from
-   * the original request time, purchase intent restored from the persisted flag. */
+   * the original request time, purchase intent restored from the persisted flag, and the sheet's
+   * purpose from its own field (ISS-0123; a legacy purchase intent also means a purchase). */
   rehydrateCodeEntry(pending: {
     email: string;
     requestedAt?: number;
     purchaseIntent?: boolean;
+    purpose?: SignInPurpose;
   }): void {
     if (!this.canUseCode || this.userId) return;
     const at = pending.requestedAt;
@@ -1327,7 +1334,8 @@ export class UiController {
     // Asking again here would be theatre, and it would sit in front of the code the person is
     // holding in their other hand.
     this.emailConsentGiven = true;
-    this.signInPurpose = this.purchaseIntent ? "purchase" : "sync";
+    this.signInPurpose =
+      pending.purpose === "purchase" || this.purchaseIntent ? "purchase" : "sync";
     this.signInOpen = true;
   }
 

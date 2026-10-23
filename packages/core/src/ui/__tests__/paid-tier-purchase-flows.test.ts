@@ -399,6 +399,7 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     c.reSignInFromCheckout();
     expect(c.userId).toBeNull(); // the dead session is mirrored locally — WITHOUT teardown
     expect(c.signInOpen).toBe(true);
+    expect(c.signInPurpose).toBe("purchase"); // ISS-0123: the purchase sign-in's words
     expect(c.purchaseIntent).toBe(true); // sign-in success reopens the paywall (U2 continuation)
     c.dismissSignIn();
   });
@@ -451,8 +452,13 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     });
     c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
     expect(c.signInOpen).toBe(true);
+    // ISS-0123: the purchase sign-in, and its purpose rides the persisted code entry.
+    expect(c.signInPurpose).toBe("purchase");
     expect(c.paywallOpen).toBe(false);
     await c.signIn("a@b.com");
+    expect(persistence.setPendingOtp).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "a@b.com", purpose: "purchase" }),
+    );
     await c.verifyCode("123456");
     expect(c.paywallOpen).toBe(true); // continues to the paywall — no dead-end at the popup root
     expect(c.purchaseFlow).toBe("idle"); // one confirming tap before money moves

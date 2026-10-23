@@ -97,7 +97,13 @@ export interface PendingOtpRecord {
   readonly email: string;
   readonly requestedAt?: number;
   readonly purchaseIntent?: boolean;
+  /** Present only when Get Still Pro opened the sign-in (ISS-0123): a restored code entry keeps the
+   * purchase sign-in's words. Separate from purchaseIntent, which reopens the legacy paywall. */
+  readonly purpose?: "purchase";
 }
+
+/** What the page says opened the sign-in; absent on the background's own requestCode write. */
+export type PendingOtpPurpose = "sync" | "purchase";
 
 /** The persisted checkout-pending record (U4/R3), written by the popup controller BEFORE it opens
  * the checkout tab. `startedAt` is optional only on the read side: a garbage timestamp is dropped
@@ -242,7 +248,9 @@ export interface ExtensionSession {
   resume(): Promise<ResumeOutcome>;
   /** AuthPersistence backing (U6): the controller's deliberate-dismiss clears with null; its
    * post-request write mirrors what requestCode already persisted (idempotent). */
-  setPendingOtp(pending: { readonly email: string; readonly requestedAt: number } | null): Promise<void>;
+  setPendingOtp(
+    pending: { readonly email: string; readonly requestedAt: number; readonly purpose?: PendingOtpPurpose } | null,
+  ): Promise<void>;
   /** AuthPersistence backing (U6): the AE1 continuation flag, persisted onto the pending-OTP
    * record (or staged in-instance until one exists). */
   setPurchaseIntent(active: boolean): Promise<void>;
@@ -309,13 +317,25 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
   const readNudgeStamp = async (): Promise<number | null> =>
     parseStamp(await readSlot(stores.nudgeStamp));
 
-  const persistPendingOtp = async (email: string, requestedAt: number): Promise<void> => {
+  const persistPendingOtp = async (
+    email: string,
+    requestedAt: number,
+    purpose?: PendingOtpPurpose,
+  ): Promise<void> => {
     // The intent flag rides the record: staged in-instance, or already persisted for this email
-    // (a resend must not drop the continuation).
+    // (a resend must not drop the continuation). So does a purchase purpose: the page states it on
+    // its own write; the background's requestCode write (no purpose) keeps the one already there.
     const existing = await readPendingOtp();
-    const intent = stagedIntent || (existing?.email === email && existing.purchaseIntent === true);
+    const sameEmail = existing?.email === email;
+    const intent = stagedIntent || (sameEmail && existing.purchaseIntent === true);
+    const purchase = purpose === undefined ? sameEmail && existing.purpose === "purchase" : purpose === "purchase";
     await attempt(() =>
-      stores.pendingOtp.set(intent ? { email, requestedAt, purchaseIntent: true } : { email, requestedAt }),
+      stores.pendingOtp.set({
+        email,
+        requestedAt,
+        ...(intent ? { purchaseIntent: true } : {}),
+        ...(purchase ? { purpose: "purchase" as const } : {}),
+      }),
     );
   };
 
@@ -701,7 +721,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         await attempt(() => stores.pendingOtp.set(null));
         return;
       }
-      await persistPendingOtp(pending.email, pending.requestedAt);
+      await persistPendingOtp(pending.email, pending.requestedAt, pending.purpose);
     },
 
     async setPurchaseIntent(active): Promise<void> {
@@ -737,6 +757,7 @@ function parsePendingOtp(value: unknown): PendingOtpRecord | null {
     // the resend-cooldown restoration is lost.
     ...(isFiniteNumber(v.requestedAt) ? { requestedAt: v.requestedAt } : {}),
     ...(v.purchaseIntent === true ? { purchaseIntent: true } : {}),
+    ...(v.purpose === "purchase" ? { purpose: "purchase" as const } : {}),
   };
 }
 
@@ -763,8 +784,11 @@ function parseCheckoutOperation(value: unknown): CheckoutOperationRecord | null 
     ? { accountId: row.accountId, operationId: row.operationId } : null;
 }
 
+/** The record without its purchase intent; the sign-in purpose stays (ISS-0123). */
 function stripIntent(record: PendingOtpRecord): PendingOtpRecord {
-  return record.requestedAt === undefined
-    ? { email: record.email }
-    : { email: record.email, requestedAt: record.requestedAt };
+  return {
+    email: record.email,
+    ...(record.requestedAt === undefined ? {} : { requestedAt: record.requestedAt }),
+    ...(record.purpose === "purchase" ? { purpose: "purchase" as const } : {}),
+  };
 }

@@ -890,6 +890,30 @@ describe("ExtensionSession — requestCode + purchase-intent continuation", () =
     });
   });
 
+  it("a purchase sign-in's purpose rides the record, apart from the purchase intent (ISS-0123)", async () => {
+    const h = harness({ sessionUser: null });
+    // The background's own write after sending the code, then the page's mirror with its purpose.
+    await h.session.requestCode("a@still.app");
+    await h.session.setPendingOtp({ email: "a@still.app", requestedAt: T0, purpose: "purchase" });
+    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0, purpose: "purchase" });
+    // A resend's background write keeps it; the intent flag coming and going leaves it alone.
+    await h.session.requestCode("a@still.app");
+    await h.session.setPurchaseIntent(true);
+    await h.session.setPurchaseIntent(false);
+    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0, purpose: "purchase" });
+    expect((await h.session.getState()).pendingOtp).toEqual({
+      email: "a@still.app",
+      requestedAt: T0,
+      purpose: "purchase",
+    });
+    // The page saying sync, or another address, drops it.
+    await h.session.setPendingOtp({ email: "a@still.app", requestedAt: T0, purpose: "sync" });
+    expect(h.pendingOtp.value).toEqual({ email: "a@still.app", requestedAt: T0 });
+    await h.session.setPendingOtp({ email: "a@still.app", requestedAt: T0, purpose: "purchase" });
+    await h.session.requestCode("b@still.app");
+    expect(h.pendingOtp.value).toEqual({ email: "b@still.app", requestedAt: T0 });
+  });
+
   it("setPendingOtp(null) clears the record (deliberate 'Not now' dismiss)", async () => {
     const h = harness({
       sessionUser: null,

@@ -76,6 +76,8 @@ async function host(options: Fixture = {}) {
   let checkout = options.checkout ?? { kind: "checkout-url", url: CHECKOUT_URL };
   const accountId: string | null = options.signedIn === false ? null : ACCOUNT;
   let pending: Record<string, unknown> | null = null;
+  // The persisted code entry, as the background keeps it across page loads (AE2).
+  let pendingOtp: Record<string, unknown> | null = null;
   let lapses = 0;
   const messages: Record<string, unknown>[] = [];
   const original = chrome.runtime.sendMessage.bind(chrome.runtime);
@@ -85,7 +87,7 @@ async function host(options: Fixture = {}) {
     if (message.kind === "still:analytics") return undefined;
     if (message.kind === "still:session") {
       switch (message.action) {
-        case "getState": return { userId: accountId, entitled: false, pendingOtp: null, checkoutPending: pending };
+        case "getState": return { userId: accountId, entitled: false, pendingOtp, checkoutPending: pending };
         case "setCheckoutPending": pending = (message.pending as Record<string, unknown> | null) ?? null; return "ok";
         case "getSyncStatus": return accountId ? { accountId, email: "fixture@still.test", lastSyncedAt: 1, pendingUpload: false, cloudReachable: true, updatedAt: 1 } : null;
         case "getVerifiedAccount": return accountId ? { id: accountId, email: "fixture@still.test", emailConfirmed: true } : null;
@@ -93,7 +95,7 @@ async function host(options: Fixture = {}) {
         case "checkoutAvailable": return available;
         case "createCheckout": return checkout;
         case "requestCode": return { kind: "sent" };
-        case "setPendingOtp": return "ok";
+        case "setPendingOtp": pendingOtp = (message.pending as Record<string, unknown> | null) ?? null; return "ok";
         default: return undefined;
       }
     }
@@ -517,6 +519,32 @@ describe("paid-tier browser Still Pro card", () => {
     expect(f.actions()).not.toContain("createCheckout");
     expect(f.actions()).not.toContain("reconcile");
     expect(intent(f.messages)).toEqual([]);
+  });
+
+  it("a purchase sign-in reloaded at its code step keeps the purchase heading (ISS-0123)", async () => {
+    const f = await host({ signedIn: false, before: "locked" });
+    render(OptionsApp);
+    const card = await region();
+    await fireEvent.click(await within(card).findByRole("button", { name: "Get Still Pro" }));
+    const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
+    await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "fixture@still.test" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await screen.findByLabelText("6\u2011digit code");
+    // The purpose is persisted with the code entry, apart from the legacy purchase intent.
+    expect(f.messages).toContainEqual(expect.objectContaining({
+      action: "setPendingOtp",
+      pending: expect.objectContaining({ email: "fixture@still.test", purpose: "purchase" }),
+    }));
+    expect(intent(f.messages)).toEqual([]);
+    // The page is reloaded (or closed and opened again) while the person reads their email.
+    for (const instance of mounted.instances.splice(0)) await unmount(instance);
+    cleanup();
+    render(OptionsApp);
+    const sheet = await screen.findByRole("dialog", { name: "Sign in to get Still Pro" });
+    expect(within(sheet).getByLabelText("6\u2011digit code")).toBeTruthy();
+    expect(within(sheet).queryByText("Sign in for settings sync")).toBeNull();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
   });
 
   it("signed out on a build that does not sell here, no Get Still Pro is offered", async () => {

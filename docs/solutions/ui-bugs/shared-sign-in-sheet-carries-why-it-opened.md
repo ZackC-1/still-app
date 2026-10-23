@@ -32,8 +32,13 @@ An ordinary hyphen-minus is a line-break opportunity, so "6-digit" may split at 
 
 - `UiController.openSignIn(purpose = "sync")` records `signInPurpose` on every open. Get Still Pro
   (`InformationalProSettings.svelte`), `startUpgrade` and `reSignInFromCheckout` pass `"purchase"`.
-  A restored code entry takes its purpose from the persisted purchase intent. Every other entry
-  (sync card, popup Sign in, invitation, first-run, Restore) stays `"sync"`.
+  Every other entry (sync card, popup Sign in, invitation, first-run, Restore) stays `"sync"`.
+- The purpose is persisted with the pending code entry (`PendingOtp.purpose`, stored by the
+  extension background as `purpose: "purchase"`), so a Settings page reloaded at the code step, or
+  the popup opened meanwhile, restores the purchase heading. It is deliberately not the
+  `purchaseIntent` flag: the V3 Settings card never sets that, because it reopens the legacy
+  paywall after sign-in. The background's own `requestCode` write keeps a purpose already stored
+  for the same address; the page's write states it outright.
 - The sheet uses `STRINGS.purchaseAuth` (owner ruling P2-19) for a purchase, including the email
   consent step's purchase variants, and never the "Sign-in is optional" prompt. Host props still
   override, so the Apple sheet keeps its "Buy without an account"; its copy now spreads
@@ -47,8 +52,12 @@ An ordinary hyphen-minus is a line-break opportunity, so "6-digit" may split at 
 - `packages/core/src/ui/__tests__/signin-purpose.test.ts`: purchase and sync sheets on Chrome
   (disclosure), Firefox (opt-in) and consent-free hosts; a closed purchase sheet does not colour a
   later sync sheet; restored code entry keeps its purpose.
+- `extension-session.test.ts`: the purpose rides the pending-OTP record through a resend and the
+  intent flag, and is dropped for sync or another address. `paid-tier-purchase-flows.test.ts` pins
+  `startUpgrade` and `reSignInFromCheckout` to `"purchase"`.
 - `browser-pro-host.test.ts`: the real options page, signed out, Get Still Pro shows the purchase
-  consent and then "Sign in to get Still Pro" without the optional line. It failed before the fix.
+  consent and then "Sign in to get Still Pro" without the optional line (it failed before the
+  fix); reloaded at the code step, the sheet still reads "Sign in to get Still Pro".
 - `copy-audit-rules.test.ts` fails on a plain "6-digit" in any user-visible source (core UI, both
   extensions, the Apple web view and the owner page) and pins the Apple purchase copy.
 - `tests/playwright/sign-in-six-digit-nowrap.spec.ts` (configured lane) sweeps the Settings page
