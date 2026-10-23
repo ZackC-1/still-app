@@ -21,6 +21,8 @@ export interface MeasuredRow {
   readonly chipOffset: number | null;
   /** The chip starts to the right of the name's text, on the name's own line (not wrapped under it). */
   readonly chipBeside: boolean | null;
+  /** The name, unwrapped, fits in the space the chip and the gap leave it (null: no chip). */
+  readonly nameFits: boolean | null;
 }
 
 /** Opens each site in turn and measures every option row it draws. */
@@ -56,6 +58,14 @@ export async function measureOptionRows(page: Page): Promise<MeasuredRow[]> {
           const chipBox = chip?.getBoundingClientRect();
           const main = row.querySelector<HTMLElement>(".row-main")!.getBoundingClientRect();
           const nameRight = Math.max(...lines.map((rect) => rect.right));
+          // The name's one-line width, from an unwrapped copy in the same font.
+          const probe = document.createElement("span");
+          probe.textContent = label.textContent;
+          probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${getComputedStyle(label).font}`;
+          document.body.append(probe);
+          const natural = probe.getBoundingClientRect().width;
+          probe.remove();
+          const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
           return {
             name: label.textContent!.trim(),
             access: row.getAttribute("data-access") ?? "",
@@ -68,6 +78,7 @@ export async function measureOptionRows(page: Page): Promise<MeasuredRow[]> {
             chipBeside: chipBox
               ? chipBox.left >= nameRight && chipBox.top < lines[0]!.bottom && chipBox.bottom > lines[0]!.top
               : null,
+            nameFits: chipBox ? natural <= box.width - chipBox.width - gap + 0.5 : null,
           };
         }),
       )),
@@ -80,16 +91,17 @@ export async function measureOptionRows(page: Page): Promise<MeasuredRow[]> {
  * Every locked row: no switch, one chip beside the name (never wrapped under it), the name on one
  * line, and (rows without a note) the same height as the free rows on this surface, `height`.
  *
- * `nameWraps` lists the rows whose name alone is wider than the space the canvas chip leaves at
- * this width (for example "Explore recommendations", 184px at 15px, beside the 90px chip in the
- * 257px a 375pt iPhone app row has). Their name wraps inside its own column, the chip stays beside
- * it, and nothing else changes; the list is exact, so any other row that wraps fails.
+ * `allFit` (the popups, the Settings page at its canvas width, the Mac app): every name must fit
+ * beside the chip. Otherwise (a 375pt or 393pt iPhone app, a 375px Settings tab) a name wider than
+ * the space the canvas chip leaves may wrap inside its own column, with the chip still beside it;
+ * which names that is depends on the font (on macOS at 375pt only "Explore recommendations", 184px
+ * at 15px against 155px; Linux's fallback font is wider), so it is measured, never assumed.
  */
 export function expectLockedRowsOnOneLine(
   rows: readonly MeasuredRow[],
   height: number,
   where: string,
-  nameWraps: readonly string[] = [],
+  allFit = true,
 ) {
   const locked = rows.filter((row) => row.access === "locked");
   const free = rows.filter((row) => row.access !== "locked" && !row.note);
@@ -102,10 +114,8 @@ export function expectLockedRowsOnOneLine(
     expect(row.chips, `${label} has one Still Pro chip`).toBe(1);
     expect(row.chipBeside, `${label} chip beside the name`).toBe(true);
     expect(Math.abs(row.chipOffset!), `${label} chip centred on the name`).toBeLessThanOrEqual(1);
-    const wraps = nameWraps.includes(row.name);
-    expect(row.nameLines, `${label} name on ${wraps ? "two lines" : "one line"}`).toBe(wraps ? 2 : 1);
-    if (!row.note && !wraps) expect(row.height, `${label} is a free row's height`).toBeCloseTo(height, 0);
+    if (allFit) expect(row.nameFits, `${label} fits beside the chip`).toBe(true);
+    expect(row.nameLines, `${label} name on ${row.nameFits ? "one line" : "two lines"}`).toBe(row.nameFits ? 1 : 2);
+    if (!row.note && row.nameFits) expect(row.height, `${label} is a free row's height`).toBeCloseTo(height, 0);
   }
-  for (const name of nameWraps)
-    expect(locked.some((row) => row.name === name), `${where}: ${name} is drawn`).toBe(true);
 }

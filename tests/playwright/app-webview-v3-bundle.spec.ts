@@ -226,18 +226,18 @@ test.describe("the V3 bundle in WebKit over file://", () => {
   // ISS-0122 (owner, 22 Oct): a locked Still Pro row is its name and the Still Pro chip, no switch,
   // on one line and as tall as a free row (46px), on the iPhone at 375pt and 393pt and on the Mac
   // (480px window). This bundle has the paid tier off, so its Still Pro rows are the dormant locked
-  // rows. At 375pt "Explore recommendations" (184px) is wider than the 155px the canvas chip leaves
-  // it, so that one name wraps beside the chip (it already carries a second line, "Search stays.").
-  for (const [platform, width, nameWraps] of [
-    ["ios", 375, ["Explore recommendations"]],
-    ["ios", 393, []],
-    ["macos", 480, []],
+  // rows. On a phone a name wider than the space the canvas chip leaves (on macOS at 375pt only
+  // "Explore recommendations", which already carries "Search stays." under it) wraps beside the chip.
+  for (const [platform, width, allFit] of [
+    ["ios", 375, false],
+    ["ios", 393, false],
+    ["macos", 480, true],
   ] as const)
     test(`D04 settings on ${platform} at ${width}px: locked rows are one 46px line with no switch`, async () => {
       const { page, errors } = await open(false, platform, false, width);
       await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
-      expectLockedRowsOnOneLine(await measureOptionRows(page), 46, `${platform} ${width}px`, nameWraps);
+      expectLockedRowsOnOneLine(await measureOptionRows(page), 46, `${platform} ${width}px`, allFit);
       expect(errors).toEqual([]);
       await page.context().close();
     });

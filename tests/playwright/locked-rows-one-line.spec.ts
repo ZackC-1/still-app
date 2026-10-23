@@ -35,16 +35,16 @@ test.describe("ISS-0122: locked rows are one line, as tall as a free row", () =>
 
   // A Chrome or Firefox Settings tab at 375px (narrower than a desktop browser window gets) leaves
   // the two longest names no room beside the chip; at the canvas width (432px) every name fits.
-  for (const [path, width, height, nameWraps] of [
-    ["popup.html", 380, 40, []],
-    ["popup.html", 375, 40, []],
-    ["options.html", 432, 46, []],
-    ["options.html", 375, 46, ["Explore recommendations", "End-of-video suggestions"]],
+  for (const [path, width, height, allFit] of [
+    ["popup.html", 380, 40, true],
+    ["popup.html", 375, 40, true],
+    ["options.html", 432, 46, true],
+    ["options.html", 375, 46, false],
   ] as const)
     test(`Chrome ${path} at ${width}px: no switch, name and chip on one ${height}px line`, async ({ context, extensionId }) => {
       const page = await open(context, extensionId, path, width);
       const rows = await measureOptionRows(page);
-      expectLockedRowsOnOneLine(rows, height, `${path} ${width}px`, nameWraps);
+      expectLockedRowsOnOneLine(rows, height, `${path} ${width}px`, allFit);
       // Paid off, every locked (dormant) chip is inert; paid on, each has its destination.
       for (const chip of await page.locator(".lock-pro").all())
         if (paidOn) await expect(chip).not.toHaveAttribute("aria-disabled");
