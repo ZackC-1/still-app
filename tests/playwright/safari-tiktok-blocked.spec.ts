@@ -32,7 +32,7 @@ test("Safari V3 bundle uses native committed reads and a live document connectio
   const sw = await prepare(safariContext);
   const page = await safariContext.newPage(); await page.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
   await page.waitForURL(blocked);
-  await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open TikTok this time" })).not.toHaveAttribute("aria-disabled", "true");
   expect(await page.evaluate(() => chrome.runtime.sendMessage({ kind: "still:tiktok-confirm" }))).toEqual({ status: "failed" });
   await page.getByRole("button", { name: "Open TikTok this time" }).click();
@@ -71,7 +71,7 @@ test("Safari V3 bundle refuses a stale projection when the native confirmation r
   await page.getByRole("button", { name: "Open TikTok this time" }).click(); await expect(page.getByRole("dialog")).toBeVisible();
   await sw.evaluate(() => { (globalThis as unknown as { __nativeUnavailable: boolean }).__nativeUnavailable = true; });
   await page.getByRole("dialog").getByRole("button", { name: "Open TikTok this time" }).click();
-  await expect(page.getByRole("alert")).toContainText("Couldn't open TikTok.");
+  await expect(page.getByRole("alert")).toContainText("We couldn’t open TikTok.");
   expect(await sw.evaluate(async () => Object.keys(await chrome.storage.session.get(null)).filter(k => k.startsWith("still:tiktok-tab:")))).toEqual([]);
 });
 
@@ -83,7 +83,7 @@ for (const control of ["tiktok", "main"] as const) {
     const original = "https://www.tiktok.com/@fixture/video/1?source=reload";
     await page.goto(original, { waitUntil: "commit" });
     await page.waitForURL(blocked);
-    await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
     await sw.evaluate(async (control) => {
       const { __nativeRecord: record } = globalThis as unknown as { __nativeRecord: {
         settings: { globalOn: boolean; services: { tiktok: boolean }; updatedAt: number };
@@ -107,6 +107,6 @@ for (const control of ["tiktok", "main"] as const) {
     });
     // Existing live settings propagation blocks again without a second manual navigation.
     await page.waitForURL(blocked);
-    await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   });
 }

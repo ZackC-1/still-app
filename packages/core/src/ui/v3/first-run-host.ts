@@ -18,13 +18,10 @@ export function shouldOpenFirstRun(details: { readonly reason: string }): boolea
 export type FirstRunBrowser = FirstRunProps["browser"];
 
 // Approved copy, verbatim from the D14 design reference (FirstRun.babel, approved 2026-10-03;
-// Firefox wording confirmed by the owner 2026-10-05).
-const BROWSER_NAME: Record<FirstRunBrowser, string> = {
-  chrome: "Chrome",
-  firefox: "Firefox",
-};
-export function firstRunPermissionGuidance(browser: FirstRunBrowser): string {
-  return `${BROWSER_NAME[browser]} asks once. Still only runs on these four sites.`;
+// Firefox wording confirmed by the owner 2026-10-05). The permission step's line is the owner's
+// canvas comment of 23 Oct 2026, the same for both browsers.
+export function firstRunPermissionGuidance(_browser: FirstRunBrowser): string {
+  return "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.";
 }
 export const FIRST_RUN_SETUP_DESCRIPTION =
   "Allow Still on the sites it works on, and it starts right away.";
@@ -36,9 +33,9 @@ export const FIRST_RUN_PIN_GUIDANCE: Record<FirstRunBrowser, string> = {
 /** Where the browser did not say whether Still is pinned (a failed or missing report), the step
  * must read true either way (ISS-0031): it never tells someone to pin what is already pinned. */
 export const FIRST_RUN_PIN_GUIDANCE_UNKNOWN: Record<FirstRunBrowser, string> = {
-  chrome: "If Still isn't in your toolbar, click the puzzle piece, then the pin next to Still.",
+  chrome: "If Still isn’t in your toolbar, click the puzzle piece, then the pin next to Still.",
   firefox:
-    "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+    "If Still isn’t in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
 };
 
 /** What the browser says about Still's access to its four declared sites. "unknown" until the

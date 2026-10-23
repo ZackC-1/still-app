@@ -13,7 +13,7 @@ function slot<T>(initial: unknown = null) {
     set: vi.fn(async (value: T | null) => { storage.value = value; }) };
   return storage satisfies PersistedSlot<T> & { value: unknown };
 }
-function harness(initial: unknown = null) {
+function harness(initial: unknown = null, extra: Partial<Parameters<typeof createExtensionSession>[0]> = {}) {
   let identity: { userId: string; sessionId: string } | null = { userId: accountA, sessionId: "session-a" };
   const operation = slot<CheckoutOperationRecord>(initial);
   const invoke = vi.fn(async (name: string) => ({ data: name === "qa-sandbox-create-web-checkout" ? created()
@@ -36,7 +36,7 @@ function harness(initial: unknown = null) {
   const makeSession = () => createExtensionSession({ auth, backend, records, sync, stores,
     canCreateCheckout,
     identity: { get: async () => accountA, set: async () => {} }, closeTab,
-    clearAuthStorage: async () => { identity = null; } });
+    clearAuthStorage: async () => { identity = null; }, ...extra });
   return { makeSession, session: makeSession(), backend, invoke, records, stores, operation, canCreateCheckout, closeTab, auth,
     replaceSession: (next: typeof identity) => { identity = next; } };
 }
@@ -45,6 +45,30 @@ function deferred<T>() {
   const promise = new Promise<T>(r => { resolve = r; });
   return { promise, resolve };
 }
+
+describe("a stored checkout's completion on Firefox without the purchase grant", () => {
+  // complete-web-checkout sends the checkout's operation id (a transaction reference), so on Firefox
+  // it needs the purchase grant. The reconcile ({ access_schema: 1 }) only receives the account's
+  // Still Pro status and runs regardless, so Still Pro cannot lock for want of the grant.
+  it("skips the completion step and still reconciles", async () => {
+    const mayCompleteCheckout = vi.fn(async () => false);
+    const h = harness({ accountId: accountA, operationId }, { mayCompleteCheckout });
+    await h.session.restore();
+    const names = h.invoke.mock.calls.map(([name]) => name);
+    expect(names).not.toContain("qa-sandbox-complete-web-checkout");
+    expect(names).toContain("qa-sandbox-reconcile-entitlement");
+    expect(mayCompleteCheckout).toHaveBeenCalled();
+    // The stored operation is kept for a later completion with the grant.
+    expect(h.operation.value).toEqual({ accountId: accountA, operationId });
+  });
+  it("completes it as before once the grant is there (and on every other host, which passes no check)", async () => {
+    for (const extra of [{ mayCompleteCheckout: async () => true }, {}]) {
+      const h = harness({ accountId: accountA, operationId }, extra);
+      await h.session.restore();
+      expect(h.invoke.mock.calls.map(([name]) => name)).toContain("qa-sandbox-complete-web-checkout");
+    }
+  });
+});
 
 describe("durable sandbox checkout recovery", () => {
   it("holds checkout before code verification settles and releases after authentication failure", async () => {

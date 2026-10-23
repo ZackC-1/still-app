@@ -164,7 +164,7 @@ const cases: VisualCase[] = [
     frame: popover,
     render: desktop({
       desktopSetup: {
-        title: "Still can't block distractions yet.",
+        title: "Still can’t block distractions yet",
         detail: "Allow Still on these websites so it can block there.",
         actionLabel: "Allow",
       },
@@ -183,7 +183,7 @@ const cases: VisualCase[] = [
         address: "sam@example.com",
         status: {
           tone: "failed",
-          text: "Sync didn't finish. Settings are saved on this device.",
+          text: "Sync didn’t finish. Settings are saved on this device.",
           retry: noop,
         },
       },

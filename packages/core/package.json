@@ -16,6 +16,7 @@
     "./native": "./src/native/index.ts",
     "./ui": "./src/ui/index.ts",
     "./ui/email-consent": "./src/ui/email-consent.ts",
+    "./ui/data-permission": "./src/ui/data-permission.ts",
     "./ui/surface-guidance": "./src/ui/surface-guidance.ts",
     "./ui/tokens.css": "./src/ui/tokens.css",
     "./ui/v3/design/styles.css": "./src/ui/v3/design/styles.css",

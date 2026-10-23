@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { trapFocus } from "../focus-trap.js";
+  import { STRINGS } from "../strings.js";
   import PurchaseView from "./PurchaseView.svelte";
   import type {
     PurchaseSignInOperation,
@@ -179,7 +180,7 @@
               class="field-label"
               for={id + "-input"}
               style="margin-block-end:calc(-1 * var(--space-2));"
-              >{field === "code" ? "6-digit code" : "Email address"}</label
+              >{field === "code" ? STRINGS.codeAuth.codeLabel : "Email address"}</label
             >
             <input
               bind:this={input}

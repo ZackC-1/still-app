@@ -49,17 +49,17 @@
       tone: "success",
       text: "Still Pro is ready.",
       detail:
-        "Go back to Still. New blockers start off, so turn on the ones you want.",
+        "Go back to Still. New controls start off, so turn on the ones you want.",
     },
     unconfirmed: {
       tone: "failed",
-      text: "We couldn't confirm your payment yet.",
+      text: "We couldn’t confirm your payment yet.",
       detail:
         "If you were charged, Restore purchase in Still settings will find it.",
     },
     cancelled: {
       tone: "info",
-      text: "Checkout was cancelled.",
+      text: "Checkout was canceled.",
       detail: "Nothing was bought. You can try again from Still settings.",
     },
   } as const;
@@ -80,8 +80,8 @@
   }
 </script>
 
-<main class="still-ui fr">
-  <div class="fr-col" style="padding-top:64px;">
+<main class="still-ui fr checkout-return">
+  <div class="fr-col">
     <div class="still-logo" role="img" aria-label="Still" translate="no">
       <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
         <rect width="48" height="48" rx="13" fill="var(--still-blue)"></rect>

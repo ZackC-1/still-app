@@ -22,7 +22,7 @@ export const APPROVED = Object.freeze({
     applied: "Applied and read back. The server matches.",
     stale: "These changed since you loaded them. Reload to see the current state.",
     reload: "Reload",
-    failed: "Apply didn't finish. Nothing changed.",
+    failed: "Apply didn’t finish. Nothing changed.",
     tryAgain: "Try again",
   },
   // D28 surface names, in the design's order. Edge is remembered but deferred (never live).
@@ -36,19 +36,19 @@ export const APPROVED = Object.freeze({
   },
   // Shipped sign-in copy (strings.ts codeAuth / auth / emailConsent wording reused verbatim).
   signIn: {
-    prompt: "Enter your email to get a 6-digit sign-in code.",
+    prompt: "Enter your email to get a 6\u2011digit sign-in code.",
     emailLabel: "Email address",
     emailPlaceholder: "you@example.com",
     invalidEmail: "Enter a valid email address to continue.",
     send: "Send code",
     sending: "Sending…",
     sentTo: "Sent to",
-    codeLabel: "6-digit code",
+    codeLabel: "6\u2011digit code",
     verify: "Verify code",
     verifying: "Checking…",
-    wrongCode: "That code didn't work. Check it and try again.",
-    verifyError: "We couldn't sign you in. Try again.",
-    sendError: "Couldn't send the code. Try again.",
+    wrongCode: "That code didn’t work. Check it and try again.",
+    verifyError: "We couldn’t sign you in. Try again.",
+    sendError: "We couldn’t send the code. Try again.",
     differentEmail: "Use a different email",
     signOut: "Sign out",
   },
@@ -67,11 +67,11 @@ export const APPROVED = Object.freeze({
   salesSwitch: "Sales allowed",
   salesReadback: "Reading back the saved sales setting…",
   /** Q3: the server refuses to turn sales on before the paid cutoff exists (R4). */
-  salesCutoffRefused: "The server refused: sales can't turn on until the paid cutoff is set up. Nothing changed.",
+  salesCutoffRefused: "The server refused: sales can’t turn on until the paid cutoff is set up. Nothing changed.",
   /** Q4: apply was accepted but the readback could not confirm it either way. */
-  unconfirmed: "Apply was sent but couldn't be read back. Reload to see the current state.",
+  unconfirmed: "Apply was sent but couldn’t be read back. Reload to see the current state.",
   /** Q5: loading the current state failed (network or server). */
-  loadFailed: "Couldn't load the current state. Try again.",
+  loadFailed: "We couldn’t load the current state. Try again.",
   /** Q6: undo the last applied change (rollback publishes the previous values at a new revision). */
   rollback: "Undo last change",
   /** Q8: the policy lists no approved app builds, so no surface can act on it yet. */

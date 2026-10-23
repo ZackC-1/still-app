@@ -11,6 +11,7 @@
   import SignInSheet from "./components/SignInSheet.svelte";
   import Logo from "./components/Logo.svelte";
   import { STRINGS } from "./strings.js";
+  import { DATA_PERMISSION_COPY } from "./data-permission.js";
   import { USAGE_ON_BY_DEFAULT_BUILD } from "../analytics/build-basis.js";
   import { USAGE_SWITCH_COPY } from "./v3/usage-copy.js";
   import {
@@ -349,7 +350,13 @@
     const controller = c;
     const operations = optionsOperations;
     const identity = controller.userId;
-    if (!identity) return { onSignIn: operations.onSignIn };
+    if (!identity)
+      return {
+        onSignIn: operations.onSignIn,
+        // Firefox: the email permission was withdrawn and the account signed out (data-permission.ts).
+        // A plain decline at Send code stays in the sign-in sheet.
+        ...(controller.emailPermissionWithdrawn ? { notice: DATA_PERMISSION_COPY.email } : {}),
+      };
     return {
       account: {
         address: controller.accountEmail ?? undefined,
@@ -546,7 +553,7 @@
         {/each}
       </div>
     {:else if (!desktopPresentation && !settingsHost && !settingsUnavailable) || popupView.reading}
-      <p class="muted" role="status">{STRINGS.sync.checking}</p>
+      <p class="muted" role="status">{STRINGS.sync.loading}</p>
     {/if}
   {/if}
 
@@ -657,7 +664,7 @@
             >{STRINGS.account.delete}</button
           >
           {#if c.deleteFlow === "error"}<p class="error">
-              {c.deleteError ?? STRINGS.account.deleteError}
+              {STRINGS.account.deleteError}
             </p>{/if}
         {/if}
       {/if}
@@ -685,7 +692,7 @@
         {STRINGS.account.deleting}
       </p>{/if}
     {#if c.userId && c.deleteFlow === "error"}<p class="error" role="alert">
-        {c.deleteError ?? STRINGS.account.deleteError}
+        {STRINGS.account.deleteError}
       </p>{/if}
     {@render settingsRecoveryAction()}
   {/snippet}
@@ -910,8 +917,8 @@
       <button
         type="button"
         class="open-options"
-        aria-label={`Settings. Find Still in ${desktopPresentation.browser}.`}
-        onclick={desktopPresentation.onSettings}>Settings</button
+        aria-label="Still settings"
+        onclick={desktopPresentation.onSettings}>Still settings</button
       >
       <a class="link" href={PRIVACY_POLICY_URL}>Privacy policy</a>
     </footer>
@@ -1229,6 +1236,11 @@
      no underline; the shared focus ring still marks it. */
   .v3-popup-host .account .link.plain:not(:disabled) {
     color: var(--ink);
+  }
+  /* The owner's canvas draws the popup's Sign out at 14px (Chrome-Popup-SignedIn, 21 Oct). */
+  .v3-popup-host .account .link.plain {
+    font-size: calc(14px * var(--text-scale, 1));
+    line-height: normal;
   }
   .v3-popup-host .account .link.plain:not(:disabled):hover {
     color: var(--ink);

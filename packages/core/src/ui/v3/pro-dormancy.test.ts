@@ -312,7 +312,12 @@ describe("decision 24: dormant Still Pro rows", () => {
         screen.getByRole("button", { name: TITLES[service] }),
       );
     for (const row of PRO) {
-      const lock = screen.getByRole("button", {
+      // Within the row's own site: Facebook's "Stories" would also match Instagram's "Stories and
+      // Highlights" by description alone.
+      const site = screen.getByRole("group", {
+        name: TITLES[row.service as keyof typeof TITLES],
+      });
+      const lock = within(site).getByRole("button", {
         name: /^.+\. Included in Still Pro\./,
         description: describedBy(row.name),
       });

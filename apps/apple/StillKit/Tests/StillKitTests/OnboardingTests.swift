@@ -125,7 +125,7 @@ final class OnboardingTests: XCTestCase {
   }
 
   func testStatusHeadlinesMatchBrainstormCopy() {
-    XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You're all set")
+    XCTAssertEqual(SafariExtensionStatus.enabled.headline, "You’re all set")
     XCTAssertEqual(SafariExtensionStatus.disabled.headline, "Not on yet")
     XCTAssertEqual(SafariExtensionStatus.unknown.headline, "Turn it on in Safari")
   }
@@ -151,6 +151,17 @@ final class OnboardingTests: XCTestCase {
     XCTAssertEqual(OnboardingCopy.enableSteps(for: .safariExtensionSettings), OnboardingCopy.macOSEnableSteps)
   }
 
+  // ISS-0126 (owner, Mac retest on Safari 27): Safari's Extensions pane has a checkbox, and the
+  // per-site allowance lives in its Permissions section.
+  func testMacOSEnableStepsAreTheOwnerWording() {
+    XCTAssertEqual(OnboardingCopy.macOSEnableSteps, [
+      "Click “Open Safari Settings” below.",
+      "In Extensions, make sure the box next to Still is checked.",
+      "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
+      "Quit Safari (⌘Q) and reopen it.",
+    ])
+  }
+
   func testSiteListsFollowTheOwnerOrderInstagramFacebookYouTubeTikTok() {
     let order = ["Instagram", "Facebook", "YouTube", "TikTok"]
     let lists = walkThroughs.map { $0[2] } + [directPage[1], OnboardingCopy.macOSEnableSteps[2]]
@@ -173,10 +184,10 @@ final class OnboardingTests: XCTestCase {
   func testIOSSettingsPathMatchesEachOSGeneration() {
     XCTAssertEqual(
       walkThroughs[0][1],
-      "Go to Apps → Safari → Extensions → Still",
+      "Go to Apps → Safari → Extensions → Still.",
       "iOS 18 moved Safari's settings under Apps"
     )
-    XCTAssertEqual(walkThroughs[1][1], "Go to Safari → Extensions → Still")
+    XCTAssertEqual(walkThroughs[1][1], "Go to Safari → Extensions → Still.")
   }
 
   func testTheWalkThroughNeverQuotesABackButtonLabel() {
@@ -184,7 +195,7 @@ final class OnboardingTests: XCTestCase {
     // label it "Settings". A step quoting either label is wrong for the other, so step 1 says to go
     // back without naming the control.
     for steps in walkThroughs {
-      XCTAssertEqual(steps[0], "Tap “Open Settings” below, then go back")
+      XCTAssertEqual(steps[0], "Tap “Open Settings” below, then go back.")
       XCTAssertFalse(steps[0].contains("‹"), steps[0])
       XCTAssertFalse(steps[0].contains("tap Settings"), steps[0])
     }
@@ -195,9 +206,9 @@ final class OnboardingTests: XCTestCase {
     XCTAssertEqual(
       directPage,
       [
-        "Tap “Open Settings” below",
-        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-        "Close Safari, then reopen it",
+        "Tap “Open Settings” below.",
+        "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+        "Close Safari, then reopen it.",
       ])
   }
 

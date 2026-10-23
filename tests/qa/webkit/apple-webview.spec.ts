@@ -72,8 +72,8 @@ test("DIAGNOSTIC J1.SI onboarding: three steps from the native gate, completed o
   await expect(page.getByText("Step 1 of 3")).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Turn on Still in Safari" })).toBeVisible();
-  await page.getByRole("button", { name: "I've turned it on", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "You're set" })).toBeVisible();
+  await page.getByRole("button", { name: "I’ve turned it on", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "You’re set" })).toBeVisible();
   // iOS has no public way to open Safari itself: that button stays disabled there.
   await expect(page.getByRole("button", { name: "Open Safari" })).toBeDisabled();
   await page.getByRole("button", { name: "Go to Settings" }).click();

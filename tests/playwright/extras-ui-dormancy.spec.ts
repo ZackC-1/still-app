@@ -22,7 +22,7 @@ const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 const ROWS_BY_SERVICE = {
   YouTube: ["Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat"],
   Instagram: ["Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links"],
-  Facebook: ["Facebook Stories", "Video tab", "Desktop sidebar ads"],
+  Facebook: ["Stories", "Video tab", "Desktop sidebar ads"],
 } as const;
 
 test("purchase matcher: approved copy passes, purchase offers fail", () => {
@@ -118,7 +118,7 @@ for (const surface of ["options", "popup"] as const)
     const all = (await page.locator("body").evaluate((body) => body.textContent ?? "")).replace(/\s+/g, " ");
     for (const copy of [
       "Get Still Pro",
-      "Even fewer distractions on Instagram, Facebook, and YouTube",
+      "Even fewer distractions on Instagram, Facebook and YouTube",
       "Opens the Still app",
       "One-time purchase",
       "Lifetime access",

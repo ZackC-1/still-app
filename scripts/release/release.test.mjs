@@ -245,6 +245,25 @@ test("build environments drop VITE_ and WXT_ variables from the shell", () => {
   }
 });
 
+test("the release builder never reads the QA integration branch setting", () => {
+  // Store versions come only from version.json; no STILL_QA_ input may steer a store package.
+  for (const file of ["package.mjs", "version.mjs", "access-trust.mjs", "zip.mjs", "chrome-package.mjs", "chrome-release.mjs", "chrome-store.mjs"]) {
+    const text = readFileSync(join(ROOT, "scripts/release", file), "utf8");
+    assert.ok(!/STILL_QA_/.test(text), `${file} must not read STILL_QA_ inputs`);
+  }
+  assert.ok(!/STILL_QA_/.test(readFileSync(join(ROOT, "packages/ext-chromium/wxt.config.ts"), "utf8")), "the extension build must not read STILL_QA_ inputs");
+  const saved = process.env.STILL_QA_INTEGRATION_BRANCH;
+  try {
+    delete process.env.STILL_QA_INTEGRATION_BRANCH;
+    const without = { versions: readVersions(), mismatches: findMismatches(ROOT) };
+    process.env.STILL_QA_INTEGRATION_BRANCH = "qa/integration-release-test";
+    assert.deepEqual({ versions: readVersions(), mismatches: findMismatches(ROOT) }, without);
+  } finally {
+    if (saved === undefined) delete process.env.STILL_QA_INTEGRATION_BRANCH;
+    else process.env.STILL_QA_INTEGRATION_BRANCH = saved;
+  }
+});
+
 test("a symlink is refused rather than followed when zipping", () => {
   const dir = mkdtempSync(join(tmpdir(), "still-link-"));
   try {
@@ -440,7 +459,7 @@ if (script === "build" || script === "build:firefox") {
   }
 });
 
-test("building twice gives byte-identical packages, and nothing untracked, stale or ignored in the checkout reaches them", { timeout: 600_000 }, () => {
+test("building twice gives byte-identical packages, and nothing untracked, stale or ignored in the checkout, nor a QA integration branch setting, reaches them", { timeout: 600_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "still-packages-"));
   // Everything is planted inside a throwaway clone, so a developer's own files are never touched and a
   // killed run leaves nothing behind in the real checkout. The clone also does the release PR's
@@ -472,7 +491,17 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
     const serverDigests = serverDigestsFor(trustKeys[0]);
     const a = buildPackages({ out: join(base, "a"), root: clone, env, allowDirty: true, serverDigests });
     unplant();
-    const b = buildPackages({ out: join(base, "b"), root: clone, env, allowDirty: true, serverDigests });
+    // The QA builder's integration mode (scripts/qa/v3-profile.mjs) is selected by this variable. The
+    // release builder ignores it entirely: the second build runs with it set and must match the first.
+    const savedIntegration = process.env.STILL_QA_INTEGRATION_BRANCH;
+    process.env.STILL_QA_INTEGRATION_BRANCH = "qa/integration-release-test";
+    let b;
+    try {
+      b = buildPackages({ out: join(base, "b"), root: clone, env, allowDirty: true, serverDigests });
+    } finally {
+      if (savedIntegration === undefined) delete process.env.STILL_QA_INTEGRATION_BRANCH;
+      else process.env.STILL_QA_INTEGRATION_BRANCH = savedIntegration;
+    }
     assert.deepEqual(a, b);
     const versions = readVersions();
     assert.deepEqual(Object.keys(a.files), [`still-chrome-${versions.extension}.zip`, `still-firefox-${versions.extension}.zip`, `still-source-${versions.extension}.zip`]);

@@ -125,3 +125,29 @@ Every QA package card states the allowlist revision it was checked against:
    Merging that change advances the QA sequence, so list the version of the package already built.
 4. Write `Sandbox sales allowlist revision: <n> (lists <version> for the three web surfaces)` on
    the package card. A card without that line is not ready to deliver.
+
+### Integration packages (main plus unmerged PRs)
+
+A paid-sandbox package is normally built from a clean commit on origin/main's own first-parent line,
+and its fourth version number is that commit's first-parent count, so it never repeats and Mozilla
+can sign it once. To test approved PRs together before they merge, create a local branch from
+current origin/main, run `git merge --no-ff <pr-branch>` for each PR, check the branch out clean, and
+build with `STILL_QA_INTEGRATION_BRANCH=<branch>` set; nothing else turns this mode on, and the
+release builder ignores it. The builder refuses unless the checked-out commit is that branch's head
+(or on its first-parent line), the branch starts from a commit on main's own line (its base), every
+commit above the base is a merge, and the package contains no main commit newer than the base (for
+example a PR branch that merged a newer main). Because only merge commits may sit above the base, a
+fix-up commit cannot live on the integration branch itself: a fix, including the resolution of a
+semantic conflict between two PRs that merge cleanly, has to live in a PR branch or inside the merge
+commit that brings it in. The number is the base's count on main plus 1000 (a
+base at count 438 gives 1438, as in `2.1.1.1438`), and the build refuses unless it is more than 500
+above main's current count, so main needs more than 500 further merges to reach it. Main keeps
+growing, so the store version must change (3.0.0 at release) before main's count reaches the lowest
+integration number used while the current version string is in use. The same base gives the same
+number, and Mozilla signs it only once: to change the merged PRs, re-cut the branch from current
+origin/main, and if origin/main has not moved since the last cut, wait for the next merge to main
+before re-cutting. Every `artifact-manifest.json` then carries an `integration` block (also bound
+into `paidBuild`): the branch name, the base commit and its count, main's count at build time, the
+sequence, and each merged head's full SHA and subject, oldest first. The package card copies that
+block, says plainly that the package is not built from main, and, like every card, names the sales
+allowlist revision that lists the integration version.

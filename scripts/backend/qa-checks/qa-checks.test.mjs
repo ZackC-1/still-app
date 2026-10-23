@@ -5,7 +5,11 @@
 // only the read-only secret.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { parsers } from "prettier/plugins/yaml";
 import {
@@ -24,6 +28,7 @@ import { CHECK_VIEWS, GuardError, MIGRATION_VIEWS, assertSingleSelect } from "./
 import { lintVerificationSql } from "../deploy/deploy.mjs";
 import { WITHHELD, formatValue, ref, renderReport } from "./report.mjs";
 import { READONLY_ENVIRONMENT, main as protectionMain } from "./protection.mjs";
+import { BASELINE_ARTIFACT, BaselineError, WORKFLOW_PATH, findBaselineRun, isEntryPoint, main as baselineMain } from "./baseline.mjs";
 
 const ROOT = new URL("../../../", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
@@ -515,6 +520,137 @@ test("standing authorization permits only the dedicated main workflow without a 
     { GITHUB_WORKFLOW_REF: "ZackC-1/still-app/.github/workflows/other.yml@refs/heads/main" },
     { GITHUB_EVENT_NAME: "push" }, { GITHUB_RUN_ID: "1/approvals" },
   ]) assert.equal(await quietProtection({ ...env, ...override }, f.fake({ environment, approvals: [] })), 1);
+});
+
+function baselineFixture() {
+  const repository = "ZackC-1/still-app";
+  const db01 = (id, created, extra = {}) => ({ id, created_at: created, path: WORKFLOW_PATH, head_branch: "main",
+    event: "workflow_dispatch", status: "completed", conclusion: "success",
+    display_title: "Read-only QA check DB-01 none none",
+    repository: { full_name: repository }, head_repository: { full_name: repository }, ...extra });
+  const artifact = { name: BASELINE_ARTIFACT, expired: false };
+  /** pages: arrays of runs; artifacts: run id -> artifact list. Records every requested URL. */
+  const fake = ({ pages, artifacts = {}, failRuns = false }) => {
+    const urls = [];
+    const fetchImpl = async (url, options) => {
+      urls.push(url);
+      assert.equal(options.method, "GET");
+      const runs = url.match(/\/actions\/workflows\/supabase-readonly-checks\.yml\/runs\?per_page=100&page=(\d+)$/);
+      if (runs) {
+        if (failRuns) return { ok: false, status: 500 };
+        const total = pages.reduce((n, p) => n + p.length, 0);
+        return { ok: true, status: 200, json: async () => ({ total_count: total, workflow_runs: pages[Number(runs[1]) - 1] ?? [] }) };
+      }
+      const art = url.match(/\/actions\/runs\/(\d+)\/artifacts\?name=qa-production-baseline&per_page=100$/);
+      if (art) return { ok: true, status: 200, json: async () => ({ artifacts: artifacts[art[1]] ?? [] }) };
+      return { ok: false, status: 404 };
+    };
+    return { fetchImpl, urls };
+  };
+  return { repository, db01, artifact, fake };
+}
+const findBaseline = (f, options) => findBaselineRun({ repository: f.repository, token: "synthetic", ...options });
+const baselineReason = (promise) => promise.then(() => assert.fail("expected a refusal"), (e) => {
+  assert.ok(e instanceof BaselineError, String(e));
+  return e.message;
+});
+
+test("the baseline lookup lists runs without a branch or status filter (ISS-0120)", async () => {
+  const f = baselineFixture();
+  const { fetchImpl, urls } = f.fake({ pages: [[f.db01(39718854455, "2026-10-21T10:00:00Z")]], artifacts: { 39718854455: [f.artifact] } });
+  assert.equal(await findBaseline(f, { fetchImpl }), 39718854455);
+  for (const url of urls) assert.doesNotMatch(url, /[?&](branch|status|event)=/);
+  const { text } = await loadWorkflow(WORKFLOW);
+  assert.match(text, /node scripts\/backend\/qa-checks\/baseline\.mjs/);
+  assert.doesNotMatch(text, /gh run list|--branch main|--status success/);
+  assert.doesNotMatch(text, /--name qa-production-baseline[^\n]*\|\| true/, "a failed download must not be ignored");
+});
+
+test("the baseline lookup picks the newest successful main DB-01 dispatch that still carries the artifact", async () => {
+  const f = baselineFixture();
+  const skipped = [
+    f.db01(901, "2026-10-22T09:00:00Z", { head_branch: "feature" }),
+    f.db01(902, "2026-10-22T08:00:00Z", { event: "push" }),
+    f.db01(903, "2026-10-22T07:00:00Z", { conclusion: "failure" }),
+    f.db01(904, "2026-10-22T06:00:00Z", { display_title: "Read-only QA check DB-35 none none" }),
+    f.db01(905, "2026-10-22T05:00:00Z", { head_repository: { full_name: "fork/still-app" } }),
+    f.db01(906, "2026-10-22T04:00:00Z"), // right shape, artifact missing
+    f.db01(907, "2026-10-22T03:00:00Z"), // right shape, artifact expired
+  ];
+  const older = f.db01(800, "2026-10-01T00:00:00Z");
+  const newest = f.db01(850, "2026-10-21T00:00:00Z");
+  const artifacts = Object.fromEntries([...skipped, older, newest].map((r) => [r.id, [f.artifact]]));
+  artifacts[906] = [{ name: "qa-report-906", expired: false }];
+  artifacts[907] = [{ ...f.artifact, expired: true }];
+  // Older run listed first and the newest one on the second page: order comes from created_at.
+  const pages = [[older, ...skipped, ...Array.from({ length: 92 }, (_, i) => f.db01(100 + i, "2026-09-01T00:00:00Z", { conclusion: "cancelled" }))], [newest]];
+  const { fetchImpl, urls } = f.fake({ pages, artifacts });
+  assert.equal(await findBaseline(f, { fetchImpl }), 850);
+  assert.ok(urls.some((u) => u.endsWith("page=2")), "paginates past a full first page");
+  for (const id of [901, 902, 903, 904, 905]) assert.ok(!urls.some((u) => u.includes(`/runs/${id}/`)), `run ${id} is not a candidate`);
+  // With the newest gone, the artifact check skips the missing and expired ones.
+  const second = f.fake({ pages: [[older, ...skipped]], artifacts });
+  assert.equal(await findBaseline(f, { fetchImpl: second.fetchImpl }), 800);
+});
+
+test("no baseline is a named failure, never a silent pass-through", async () => {
+  const f = baselineFixture();
+  assert.equal(await baselineReason(findBaseline(f, { fetchImpl: f.fake({ pages: [[]] }).fetchImpl })), "baseline-not-found");
+  assert.equal(await baselineReason(findBaseline(f, { fetchImpl: f.fake({ pages: [[f.db01(1, "2026-10-21T00:00:00Z", { head_branch: "release" })]], artifacts: { 1: [f.artifact] } }).fetchImpl })), "baseline-not-found");
+  assert.equal(await baselineReason(findBaseline(f, { fetchImpl: f.fake({ pages: [[f.db01(2, "2026-10-21T00:00:00Z")]] }).fetchImpl })), "baseline-not-found");
+  assert.equal(await baselineReason(findBaseline(f, { fetchImpl: f.fake({ pages: [], failRuns: true }).fetchImpl })), "github-runs-unreadable");
+  assert.equal(await baselineReason(findBaseline(f, { fetchImpl: async () => { throw new Error("offline"); } })), "github-runs-unreadable");
+  assert.equal(await baselineReason(findBaselineRun({ repository: "bad repo", fetchImpl: f.fake({ pages: [[]] }).fetchImpl })), "repository-invalid");
+  const quiet = { log: console.log, error: console.error };
+  const out = [];
+  console.log = (line) => out.push(line); console.error = () => {};
+  try {
+    const env = { GITHUB_REPOSITORY: f.repository, GH_TOKEN: "synthetic" };
+    assert.equal(await baselineMain(env, f.fake({ pages: [[]] }).fetchImpl), 1);
+    assert.deepEqual(out, [], "nothing on stdout for the workflow to mistake for a run id");
+    assert.equal(await baselineMain(env, f.fake({ pages: [[f.db01(42, "2026-10-21T00:00:00Z")]], artifacts: { 42: [f.artifact] } }).fetchImpl), 0);
+    assert.deepEqual(out, ["42"]);
+  } finally { Object.assign(console, quiet); }
+});
+
+test("the baseline script runs as the entry point through a symlinked, space-containing path", async () => {
+  const moduleUrl = new URL("./baseline.mjs", import.meta.url).href;
+  const real = fileURLToPath(moduleUrl);
+  const dir = await mkdtemp(join(tmpdir(), "still baseline %20 "));
+  try {
+    const link = join(dir, "lookup.mjs");
+    await symlink(real, link);
+    assert.equal(isEntryPoint(moduleUrl, real), true);
+    assert.equal(isEntryPoint(moduleUrl, link), true, "symlinked path");
+    assert.equal(isEntryPoint(moduleUrl, fileURLToPath(new URL("./protection.mjs", import.meta.url))), false);
+    assert.equal(isEntryPoint(moduleUrl, join(dir, "missing.mjs")), false);
+    assert.equal(isEntryPoint(moduleUrl, undefined), false);
+    // End to end: main really runs, and refuses before any network call without a repository.
+    const result = spawnSync(process.execPath, [link], { env: { PATH: process.env.PATH ?? "" }, encoding: "utf8" });
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Production baseline: NOT found \(repository-invalid: /);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("the workflow refuses a lookup result that is not a run id", async () => {
+  const { workflow } = await loadWorkflow(WORKFLOW);
+  const step = workflow.jobs.check.steps.find((s) => /baseline\.mjs/.test(s.run ?? ""));
+  const lines = step.run.split("\n").map((l) => l.trim());
+  const lookup = lines.findIndex((l) => l === "run_id=$(node scripts/backend/qa-checks/baseline.mjs) || exit 1");
+  const guard = lines.findIndex((l) => l.startsWith('[[ "$run_id" =~ ^[0-9]+$ ]] || {') && l.endsWith("exit 1; }"));
+  const download = lines.findIndex((l) => l.startsWith("gh run download "));
+  assert.ok(lookup >= 0 && guard === lookup + 1 && download > guard, step.run);
+});
+
+test("a malformed baseline is reported as baseline-invalid, not as a missing baseline run", () => {
+  const request = resolveRequest({ check: "DB-35" });
+  const render = (production) =>
+    renderReport({ ...request, holders: [], results: [], refKey: "11".repeat(32), production, verdict: "fail" });
+  const invalid = render("baseline-invalid");
+  assert.match(invalid, /Production unchanged since baseline: unknown: the DB-01 baseline file is present but malformed \(baseline-invalid\)/);
+  assert.doesNotMatch(invalid, /no successful DB-01 baseline run was found/);
+  assert.match(render("no-baseline"), /no DB-01 baseline file was provided/);
 });
 
 test("owner setup helpers emit only a verifier, an expiry, a key and digests", async () => {

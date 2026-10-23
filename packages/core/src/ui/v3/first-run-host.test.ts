@@ -45,12 +45,11 @@ describe("first-run install rule", () => {
 
 describe("first-run host mapping", () => {
   it("uses the approved reference wording verbatim", () => {
-    expect(firstRunPermissionGuidance("firefox")).toBe(
-      "Firefox asks once. Still only runs on these four sites.",
-    );
-    expect(firstRunPermissionGuidance("chrome")).toBe(
-      "Chrome asks once. Still only runs on these four sites.",
-    );
+    // The owner's canvas comment (23 Oct 2026): one line for both browsers, naming the four sites.
+    for (const browser of ["firefox", "chrome"] as const)
+      expect(firstRunPermissionGuidance(browser)).toBe(
+        "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.",
+      );
     expect(FIRST_RUN_SETUP_DESCRIPTION).toBe(
       "Allow Still on the sites it works on, and it starts right away.",
     );
@@ -61,9 +60,9 @@ describe("first-run host mapping", () => {
     });
     // ISS-0031: where the browser did not say, the step reads true whether or not Still is pinned.
     expect(FIRST_RUN_PIN_GUIDANCE_UNKNOWN).toEqual({
-      chrome: "If Still isn't in your toolbar, click the puzzle piece, then the pin next to Still.",
+      chrome: "If Still isn’t in your toolbar, click the puzzle piece, then the pin next to Still.",
       firefox:
-        "If Still isn't in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
+        "If Still isn’t in your toolbar, click the puzzle piece, then the gear next to Still, then Pin to toolbar.",
     });
   });
 
@@ -183,7 +182,7 @@ describe("first-run host mapping", () => {
 describe("first-run host mapping rendered by the approved component", () => {
   it("Chrome, just installed: working, pin instructions, optional sign-in, no combined consent card", () => {
     render(FirstRun, { props: firstRunHostProps(host()) });
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Still is on.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Still is on");
     expect(screen.getByText(FIRST_RUN_PIN_GUIDANCE.chrome)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
     expect(screen.queryByText("Share your email and usage data with Still?")).toBeNull();
@@ -196,7 +195,7 @@ describe("first-run host mapping rendered by the approved component", () => {
         host({ browser: "firefox", siteAccess: "needed", pinned: null, requestSiteAccess }),
       ),
     });
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One step to finish setup.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One step to finish setup");
     expect(screen.getByText(FIRST_RUN_SETUP_DESCRIPTION)).toBeInTheDocument();
     expect(screen.getByText(firstRunPermissionGuidance("firefox"))).toBeInTheDocument();
     expect(screen.getByText(FIRST_RUN_PIN_GUIDANCE_UNKNOWN.firefox)).toBeInTheDocument();
@@ -240,6 +239,6 @@ describe("first-run host mapping rendered by the approved component", () => {
     render(FirstRun, {
       props: firstRunHostProps(host({ choices: { ...ALL_ON, globalOn: false } })),
     });
-    expect(screen.queryByText("Still is on.")).toBeNull();
+    expect(screen.queryByText("Still is on")).toBeNull();
   });
 });

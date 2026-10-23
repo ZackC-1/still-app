@@ -142,6 +142,7 @@ describe("the invitation wrapper around the V3 popup", () => {
 
   describe("the rating card (U13-P3)", () => {
     const RATE = "Rate Still";
+    const CARD = "Enjoying Still?";
     const rating: PopupInvitationReservation = {
       installation: "install-1",
       reservation: { kind: "rating", opening: "opening-1", generation: 7 },
@@ -155,17 +156,17 @@ describe("the invitation wrapper around the V3 popup", () => {
       let cardAtCommit: boolean | null = null;
       host({
         present: async () => rating,
-        commit: () => { cardAtCommit = screen.queryByRole("region", { name: RATE }) !== null; return commit.promise; },
+        commit: () => { cardAtCommit = screen.queryByRole("region", { name: CARD }) !== null; return commit.promise; },
       });
       render(InvitedDesktopPopup, { props });
       await waitFor(() => expect(cardAtCommit).toBe(false));
-      expect(screen.queryByRole("region", { name: RATE })).toBeNull();
+      expect(screen.queryByRole("region", { name: CARD })).toBeNull();
       commit.resolve(true);
-      const card = await screen.findByRole("region", { name: RATE });
+      const card = await screen.findByRole("region", { name: CARD });
       expect(within(card).getByText("A rating helps other people find Still.")).toBeTruthy();
       await fireEvent.click(within(card).getByRole("button", { name: RATE }));
       expect(create).toHaveBeenCalledWith({ url: CHROME_WEB_STORE_REVIEW_URL });
-      await waitFor(() => expect(screen.queryByRole("region", { name: RATE })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("region", { name: CARD })).toBeNull());
     });
 
     it("Not now closes it and opens nothing; a rejected commit shows nothing", async () => {
@@ -175,9 +176,9 @@ describe("the invitation wrapper around the V3 popup", () => {
       host({ present: async () => rating, commit: async () => true }, "user-1");
       render(InvitedDesktopPopup, { props });
       // Signed in is fine for rating: it is not the sync card.
-      const card = await screen.findByRole("region", { name: RATE });
+      const card = await screen.findByRole("region", { name: CARD });
       await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
-      await waitFor(() => expect(screen.queryByRole("region", { name: RATE })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("region", { name: CARD })).toBeNull());
       expect(create).not.toHaveBeenCalled();
       cleanup();
       const commit = vi.fn(async () => false);
@@ -185,7 +186,7 @@ describe("the invitation wrapper around the V3 popup", () => {
       render(InvitedDesktopPopup, { props });
       await waitFor(() => expect(commit).toHaveBeenCalledOnce());
       await new Promise(r => setTimeout(r, 20));
-      expect(screen.queryByRole("region", { name: RATE })).toBeNull();
+      expect(screen.queryByRole("region", { name: CARD })).toBeNull();
     });
   });
 
@@ -206,7 +207,7 @@ describe("the invitation wrapper around the V3 popup", () => {
         present.resolve(rating);
         await new Promise(r => setTimeout(r, 30));
         expect(commit).not.toHaveBeenCalled();
-        expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+        expect(screen.queryByRole("region", { name: "Enjoying Still?" })).toBeNull();
       },
     );
     it("still commits and shows when nothing changed meanwhile", async () => {
@@ -217,7 +218,7 @@ describe("the invitation wrapper around the V3 popup", () => {
       host({ present: () => present.promise, commit });
       render(InvitedDesktopPopup, { props });
       present.resolve(rating);
-      expect(await screen.findByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(await screen.findByRole("region", { name: "Enjoying Still?" })).toBeTruthy();
       expect(commit).toHaveBeenCalledOnce();
     });
   });

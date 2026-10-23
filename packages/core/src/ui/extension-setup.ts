@@ -20,6 +20,7 @@ import {
   type UiCheckout,
 } from "./controller.svelte.js";
 import type { EmailConsent } from "./email-consent.js";
+import type { DataPermission } from "./data-permission.js";
 import { createDesktopPopupBinding } from "./v3/desktop-popup-binding.js";
 import type { LegacyPopupAuthority } from "./v3/legacy-popup-view-binding.svelte.js";
 
@@ -53,6 +54,9 @@ export interface ExtensionPurchaseDeps {
   readonly getState: () => Promise<ExtensionSessionState>;
   readonly readAccountStatus?: () => Promise<AccountStatusSnapshot | null>;
   readonly retrySync?: () => Promise<void>;
+  /** Firefox only: the optional data-collection permissions for the email address and purchase
+   * data (a checkout), asked for inside the click that first sends one (data-permission.ts). */
+  readonly dataPermission?: DataPermission;
 }
 
 export interface ExtensionUiOptions {
@@ -117,7 +121,11 @@ export function createExtensionUiController(
   }
   const controller = new UiController({
     cache,
-    host: { canPurchase: purchase !== undefined, emailConsent: options?.emailConsent },
+    host: {
+      canPurchase: purchase !== undefined,
+      emailConsent: options?.emailConsent,
+      ...(purchase?.dataPermission ? { dataPermission: purchase.dataPermission } : {}),
+    },
     auth: purchase?.auth,
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,

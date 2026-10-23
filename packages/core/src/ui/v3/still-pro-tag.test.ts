@@ -6,6 +6,9 @@
 // account itself holds Still Pro; a device that holds Still Pro while signed out, or while signed
 // in to an account that does not hold it (including one linked to another account), reads
 // "Still Pro on this device".
+// Owner canvas ruling (22 Oct; P-AppSync and P-PopupSync): grey for device provenance on every
+// surface, green only for "Still Pro User". "Still Pro on this device" is the grey boxed tag
+// (secondary ink, strong border). This replaces the 19 Oct "green tag" wording.
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, within } from "@testing-library/svelte";
@@ -69,7 +72,7 @@ function expectTagBesideSignIn(safari: boolean) {
   const card = syncCard();
   expect(within(card).queryByText(ACCOUNT_TAG)).toBeNull();
   const tag = within(card).getByText(DEVICE_TAG);
-  expect(tag).toHaveClass("access-tag", "boxed", "success");
+  expectTagTone(tag, DEVICE_TAG);
   expect(tag).toBeVisible();
   const heading = within(card).getByRole("heading", { name: "Settings sync" });
   expect(heading.parentElement).not.toContainElement(tag);
@@ -82,14 +85,22 @@ function expectTagBesideSignIn(safari: boolean) {
   expect(card.querySelector(".sync-row")).toHaveClass("pro-signed-out");
 }
 
-/** The shared sync card (browser Settings, Apple app) carries the tag on its heading row, in the
- * success green (owner, 19 Oct), whether signed in or out. Exactly one of the two wordings shows. */
+/** Owner canvas ruling (22 Oct): "Still Pro User" is the success-green boxed tag; "Still Pro on this
+ * device" is the grey boxed tag, on every surface. */
+function expectTagTone(tag: HTMLElement, text: string) {
+  expect(tag).toHaveClass("access-tag", "boxed", "still-pro-tag");
+  if (text === ACCOUNT_TAG) expect(tag).toHaveClass("success");
+  else expect(tag).not.toHaveClass("success");
+}
+
+/** The shared sync card (browser Settings, Apple app) carries the tag on its heading row (owner,
+ * 19 Oct), whether signed in or out. Exactly one of the two wordings shows. */
 function expectTagOnHeading(text: string) {
   const card = syncCard();
   const other = text === ACCOUNT_TAG ? DEVICE_TAG : ACCOUNT_TAG;
   expect(within(card).queryByText(other)).toBeNull();
   const tag = within(card).getByText(text);
-  expect(tag).toHaveClass("access-tag", "boxed", "success");
+  expectTagTone(tag, text);
   expect(tag).toBeVisible();
   const heading = within(card).getByRole("heading", { name: "Settings sync" });
   expect(tag.parentElement).toContainElement(heading);

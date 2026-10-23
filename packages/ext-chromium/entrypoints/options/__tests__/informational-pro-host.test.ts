@@ -84,7 +84,7 @@ describe("actual paid-V3 informational options destination", () => {
     const f = await host(); const before = structuredClone(f.store);
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
-    expect(await within(region).findByText("Still Pro can't be bought here yet.")).toBeTruthy();
+    expect(await within(region).findByText("Still Pro can’t be bought here yet.")).toBeTruthy();
     expect(within(region).queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(within(region).queryByText("Related videos")).toBeNull();
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
@@ -126,9 +126,12 @@ describe("actual paid-V3 informational options destination", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    // ISS-0123: Sign in on the settings card is the settings-sync sign-in, not the purchase one.
+    const sheet = await screen.findByRole("dialog", { name: "Sign in for settings sync" });
+    expect(within(sheet).queryByText("Sign in first to keep Still Pro with your account.")).toBeNull();
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "fixture@still.test" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await fireEvent.input(await screen.findByLabelText("6-digit code"), { target: { value: "123456" } });
+    await fireEvent.input(await screen.findByLabelText("6\u2011digit code"), { target: { value: "123456" } });
     await fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
     await waitFor(() => expect(screen.getByText("fixture@still.test")).toBeTruthy());
     expect(f.messages.some(message => message.action === "verifyCode")).toBe(true);
@@ -178,7 +181,7 @@ describe("actual paid-V3 informational options destination", () => {
     const f = await host();
     render(OptionsApp);
     const region = await screen.findByRole("region", { name: "Still Pro" });
-    await within(region).findByText("Still Pro can't be bought here yet.");
+    await within(region).findByText("Still Pro can’t be bought here yet.");
     const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
     if (youtube.getAttribute("aria-expanded") !== "true") await fireEvent.click(youtube);
     const lock = screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" });

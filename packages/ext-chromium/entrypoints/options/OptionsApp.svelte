@@ -17,6 +17,7 @@
     restoreHandler,
   } from "../../lib/purchase-wiring.js";
   import { emailConsent } from "../../lib/email-consent.js";
+  import { extensionNoticePermissions, extensionNoticeStorage, watchEmailPermissionNotice } from "../../lib/data-permission.js";
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
@@ -67,6 +68,9 @@
     accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
     accessPlatform: platform,
   });
+  // Firefox: a withdrawn email permission signed the account out of sync; say so (data-permission.ts).
+  if (import.meta.env.FIREFOX)
+    controller.addTeardown(watchEmailPermissionNotice(controller, extensionNoticeStorage(), extensionNoticePermissions()));
   // This page owns its controller: stop the account poll when the page's view is destroyed.
   onDestroy(() => controller.dispose());
   // Phone surfaces hide the switches that cannot act there (lib/settings-features.ts): drawn as
@@ -110,7 +114,11 @@
         import("./InformationalProSettings.svelte").then((module) => {
           // Paid-tier builds only (this branch folds away otherwise): the Still Pro card's Buy,
           // Restore and re-checks over this page's controller and the existing checkout seam.
-          module.bindBrowserPro(purchase ? { controller, checkout: purchase.checkout, analytics } : undefined);
+          module.bindBrowserPro(
+            purchase
+              ? { controller, checkout: purchase.checkout, analytics, permission: purchase.dataPermission }
+              : undefined,
+          );
           return module;
         })
     : v3Settings
@@ -186,6 +194,13 @@
        this reads it rather than offering a second number that changes nothing. */
     max-inline-size: var(--content-max-inline-size, 432px);
     margin-inline: auto;
-    padding-block: clamp(var(--space-3), 5vh, var(--space-8));
+    /* The settings column already pads itself by 16px (.app), so this adds at most 16px more: the
+       first card sits 32px from the top of a normal-height tab, as on the owner's canvas
+       (Chrome-Settings-*, 21 Oct 2026), and closer on a short one. */
+    padding-block: clamp(0px, calc(5vh - var(--space-4)), var(--space-4));
+    /* Full-width buttons are 44px tall on the Chrome and Firefox Settings page (owner ruling; the
+       Apple apps keep 54px): the shared 44px minimum sets the height, with 8px above and below the
+       label so a larger text size still grows the button. */
+    --block-button-padding: var(--space-2) var(--space-4);
   }
 </style>

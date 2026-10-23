@@ -40,7 +40,7 @@ afterEach(() => {
 type Answer = "entitled" | "not-entitled" | "unknown" | "auth-required" | "signed-out";
 const RESTORED = "Still Pro is restored on this device.";
 const NOTHING = "No Still Pro purchase was found for this account.";
-const FAILED = "We couldn't finish checking. Nothing changed.";
+const FAILED = "We couldn’t finish checking. Nothing changed.";
 /** Every purchase-side session action. The Restore flow must never send one. */
 const PURCHASE_ACTIONS = ["createCheckout", "setPurchaseIntent", "setCheckoutPending", "reconcile"];
 /** The normal sign-in flow's existing events; the Restore flow adds none of its own. */
@@ -187,9 +187,13 @@ describe("V3 new-sync settings page: Restore purchase", () => {
     expect(f.restores()).toEqual([]);
     const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    // Owner ruling C (22 Oct): the restore sign-in, without "Sign-in is optional".
+    const sheet = await screen.findByRole("dialog", { name: "Sign in to restore Still Pro" });
+    expect(within(sheet).getByText("Sign in with the account you bought Still Pro with.")).toBeTruthy();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "person@still.test" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    const code = await screen.findByLabelText("6-digit code");
+    const code = await screen.findByLabelText("6\u2011digit code");
     expect(f.restores()).toEqual([]);
     await fireEvent.input(code, { target: { value: "123456" } });
     await fireEvent.click(screen.getByRole("button", { name: "Verify code" }));

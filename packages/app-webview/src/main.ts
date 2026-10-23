@@ -18,6 +18,7 @@ import {
   selectAppleSettingsMode,
   type AppleSettingsMode,
   type AuthPersistence,
+  restoredCodeEntry,
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import {
@@ -359,13 +360,12 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       // SupportedStorage.getItem is async-capable in its type; both real backings here are sync.
       const raw = await sessionStorage.getItem(PENDING_OTP_KEY);
       if (raw === null) return;
-      const pending = JSON.parse(raw) as { email?: unknown; requestedAt?: unknown };
-      if (typeof pending.email !== "string") return;
-      controller.rehydrateCodeEntry({
-        email: pending.email,
-        requestedAt: typeof pending.requestedAt === "number" ? pending.requestedAt : undefined,
-        purchaseIntent: appleSettingsMode === "legacy" && (await sessionStorage.getItem(PURCHASE_INTENT_KEY)) === "1",
-      });
+      // The sheet's purpose rides the saved record (ISS-0123): a relaunch keeps its words.
+      const pending = restoredCodeEntry(
+        raw,
+        appleSettingsMode === "legacy" && (await sessionStorage.getItem(PURCHASE_INTENT_KEY)) === "1",
+      );
+      if (pending) controller.rehydrateCodeEntry(pending);
     } catch {
       /* unreadable record — the user simply starts from the email field */
     }

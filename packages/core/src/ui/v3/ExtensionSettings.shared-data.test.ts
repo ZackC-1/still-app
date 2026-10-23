@@ -1,4 +1,4 @@
-// Account-wide "Delete shared data on all devices" on the V3 settings page (U5-W3 packet B; owner
+// Account-wide "Delete shared data from all your devices" on the V3 settings page (U5-W3 packet B; owner
 // decisions 60, 61 and 74). Every string is decision 74's, verbatim, or a reused approved line.
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -8,17 +8,17 @@ import ExtensionSettings from "./ExtensionSettings.svelte";
 import type { SharedDataProps } from "./extension-settings-presentation.js";
 import { SHARED_DATA_COPY, WITHDRAWAL_OUTCOMES } from "./withdrawal-copy.js";
 
-const LABEL = "Delete shared data on all devices";
+const LABEL = "Delete shared data from all your devices";
 const SUB =
   "Stops sharing on every device signed in to this account and deletes what they shared. Your account, settings and purchases stay.";
 const TITLE = "Delete shared data from all your devices?";
 const BODY =
   "This turns off sharing on every device signed in to this account and deletes the email and usage data shared while signed in. Your account, settings and purchases stay. Anything a device shared while signed out stays until you turn sharing off on that device.";
 const ELSEWHERE = "Sharing was turned off from another device.";
-const REQUESTED = "Deletion requested. Your shared data hasn't been deleted yet.";
+const REQUESTED = "Deletion requested. Your shared data hasn’t been deleted yet.";
 const VERIFYING = "Confirming deletion with our providers…";
 const DELETED = "Your shared data has been deleted.";
-const FAILED = "We couldn't send your deletion request. Sharing stays off on this device.";
+const FAILED = "We couldn’t send your deletion request. Sharing stays off on this device.";
 
 async function setup(shared?: Partial<SharedDataProps>) {
   const { props } = await fixture();
@@ -38,7 +38,7 @@ async function setup(shared?: Partial<SharedDataProps>) {
 
 const dialog = () => screen.queryByRole("dialog", { name: TITLE });
 
-describe("Delete shared data on all devices", () => {
+describe("Delete shared data from all your devices", () => {
   it("uses decision 74's wording verbatim and reuses the approved withdrawal lines", () => {
     expect(SHARED_DATA_COPY).toEqual({
       label: LABEL,

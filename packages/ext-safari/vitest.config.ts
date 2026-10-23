@@ -21,6 +21,19 @@ export default defineConfig({
           environment: "jsdom",
           globals: true,
           include: ["entrypoints/{popup,options,tiktok-blocked}/**/*.{test,spec}.ts"],
+          exclude: ["**/*.css.test.ts", "**/node_modules/**"],
+        },
+      },
+      // Mount tests that read computed styles: the components' and the design system's CSS is
+      // processed and injected into jsdom (plain popup tests skip CSS for speed).
+      {
+        plugins: [svelte(), svelteTesting()],
+        test: {
+          name: "popup-css",
+          environment: "jsdom",
+          globals: true,
+          css: true,
+          include: ["entrypoints/popup/**/*.css.test.ts"],
         },
       },
     ],

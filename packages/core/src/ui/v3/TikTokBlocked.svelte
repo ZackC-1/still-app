@@ -199,7 +199,7 @@
       <circle cx="24" cy="26.4" r="3.6" fill="#fff"></circle>
     </svg>
   </div>
-  <h1 inert={confirming && inertBackground}>TikTok stays closed.</h1>
+  <h1 inert={confirming && inertBackground}>TikTok stays closed</h1>
   <div
     bind:this={background}
     class="blocked-actions"
@@ -234,7 +234,7 @@
               <div class="status-line" data-tone="failed" role="alert">
                 <span class="glyph"><Glyph name="alert" size={16} /></span>
                 <div class="status-body">
-                  <span>Couldn't open TikTok.</span><button
+                  <span>We couldn’t open TikTok.</span><button
                     type="button"
                     class="link status-action"
                     aria-disabled={confirming ||
@@ -279,7 +279,7 @@
         {/key}
         {#if presentation?.host === "ios"}
           <p class="manual">
-            To change this, open the Still app and turn off TikTok website.
+            To change this, open the Still app and turn off TikTok Blocker.
           </p>
         {:else}
           {#key presentation?.settings}
@@ -307,7 +307,7 @@
     <ConfirmationDialog
       open={confirming}
       title="Open TikTok in this tab?"
-      body="TikTok opens in this tab until you close it. Other tabs stay closed, and your setting doesn't change."
+      body="TikTok opens in this tab until you close it. Other tabs stay closed, and your setting doesn’t change."
       confirmLabel="Open TikTok this time"
       tone="primary"
       cancelLabel="Keep it closed"

@@ -57,6 +57,7 @@
     privacyActions,
     setup,
     help,
+    unsupportedText,
   }: Omit<ExtensionSettingsProps, "onRestore" | "siteAccess"> = $props();
   const siteAccess = useSiteAccessCard();
   const host = bound;
@@ -64,7 +65,8 @@
   const flow = host
     ? createBrowserSettingsRestore({
         check: host.check,
-        openSignIn: () => host.controller.openSignIn(),
+        // Signed out, Restore purchase opens the restore sign-in (owner ruling C, 22 Oct 2026).
+        openSignIn: () => host.controller.openSignIn("restore"),
         publish: (next) => {
           card = next;
         },
@@ -109,4 +111,5 @@
   {setup}
   siteAccess={siteAccess.current}
   {help}
+  {unsupportedText}
 />

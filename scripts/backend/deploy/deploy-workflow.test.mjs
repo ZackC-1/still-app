@@ -31,6 +31,7 @@ import {
 import {
   FUNCTIONS_OP as PURCHASE_FUNCTIONS_OP,
   PURCHASE_OPERATIONS,
+  REVIEW_OP as PURCHASE_REVIEW_OP,
   SECRETS_OP as PURCHASE_SECRETS_OP,
   SECRETS_TOKEN_ENV as PURCHASE_SECRETS_TOKEN_ENV,
   STAGED_SECRETS as PURCHASE_STAGED_SECRETS,
@@ -214,6 +215,9 @@ test("only the approved apply job is bound to the environment and sees only the 
   });
   assert.equal(SECRETS_ONLY.length, 20);
   assert.equal(PURCHASE_ONLY.length, 22);
+  // review-signin-function checks its secrets on the hosted project by name; no value of them
+  // (or any REVIEW_SIGNIN_* name) is ever handed to the workflow.
+  assert.doesNotMatch(text, /REVIEW_SIGNIN_/);
   assert.ok(PURCHASE_ONLY.includes("PROD_APPLE_SANDBOX_REVIEW_ENABLED"));
   for (const name of PURCHASE_ONLY) assert.match(name, /^PROD_[A-Z0-9_]+$/);
   assert.equal(ANALYTICS_SECRETS_TOKEN_ENV, QA_SECRETS_TOKEN_ENV);
@@ -394,7 +398,7 @@ test("every operation retains authority checks and uses only its fixed rehearsal
     const expected = new Map([
       [
         "denoland/setup-deno",
-        "inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions')",
+        "inputs.operation == 'qa-sandbox-functions' || startsWith(inputs.operation, 'analytics-') || startsWith(inputs.operation, 'purchase-functions') || inputs.operation == 'review-signin-function'",
       ],
       [
         "Install pinned Supabase CLI (checksum verified)",
@@ -552,15 +556,17 @@ test("the pull-request operation rehearsal has no environment or secret and cove
       [PURCHASE_FUNCTIONS_OP, "none", "apply"],
       [PURCHASE_SYNC_OP, "none", "apply"],
       [PURCHASE_SECRETS_OP, "none", "apply"],
+      [PURCHASE_REVIEW_OP, "none", "apply"],
     ],
   );
   const deno = job.steps.find((s) => s.uses?.startsWith("denoland/setup-deno@"));
   assert.equal(
     deno.if,
-    "startsWith(matrix.operation, 'analytics-') || startsWith(matrix.operation, 'purchase-functions')",
+    "startsWith(matrix.operation, 'analytics-') || startsWith(matrix.operation, 'purchase-functions') || matrix.operation == 'review-signin-function'",
   );
   assert.ok([PURCHASE_FUNCTIONS_OP, PURCHASE_SYNC_OP].every((name) => name.startsWith("purchase-functions")));
   assert.ok(!PURCHASE_SECRETS_OP.startsWith("purchase-functions"));
+  assert.equal(PURCHASE_REVIEW_OP, "review-signin-function");
   assert.equal(deno.with["deno-version"], "2.8.3");
   assert.deepEqual(
     rows

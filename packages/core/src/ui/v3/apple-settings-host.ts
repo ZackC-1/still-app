@@ -172,8 +172,7 @@ export type AppleSetupOpener = (
 ) => void;
 
 const SETUP_TITLE = "Turn on Still in Safari";
-const SETUP_DETAIL =
-  "Still works inside Safari. Your choices are saved and start working once it's on.";
+const SETUP_DETAIL = "Turn on the Still extension in Safari.";
 
 /**
  * The iPhone onboarding's owner-approved steps for Still's Safari extension page (iOS 26.2+):
@@ -181,9 +180,21 @@ const SETUP_DETAIL =
  * Onboarding.swift, so the card and onboarding cannot drift apart.
  */
 export const IOS_EXTENSION_PAGE_ENABLE_STEPS: readonly string[] = [
-  "Tap “Open Settings” below",
-  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube, and TikTok",
-  "Close Safari, then reopen it",
+  "Tap “Open Settings” below.",
+  "Turn on Allow Extension, then allow Instagram, Facebook, YouTube and TikTok.",
+  "Close Safari, then reopen it.",
+];
+
+/**
+ * The Mac onboarding's owner-approved steps: StillKit `OnboardingCopy.macOSEnableSteps` (owner,
+ * 22 Oct 2026; Safari 27 wording, ISS-0126, 23 Oct). A test pins them to Onboarding.swift, as it
+ * does the iPhone steps.
+ */
+export const MAC_ENABLE_STEPS: readonly string[] = [
+  "Click “Open Safari Settings” below.",
+  "In Extensions, make sure the box next to Still is checked.",
+  "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
+  "Quit Safari (⌘Q) and reopen it.",
 ];
 
 /**
@@ -208,12 +219,8 @@ export function appleSettingsSetup(
   return {
     title: SETUP_TITLE,
     detail: SETUP_DETAIL,
-    // Owner-approved macOS steps (2026-10-05); title, detail and label from the D04 reference.
-    steps: [
-      "Open Safari, then Settings, then Extensions.",
-      "Turn on Still.",
-      "Allow it on every website.",
-    ],
+    // The Mac onboarding's steps (owner, 22 Oct 2026); title and label from the D04 reference.
+    steps: MAC_ENABLE_STEPS,
     actionLabel: "Open Safari Settings",
     onAction: open ? () => open("safariExtensionSettings") : undefined,
   };

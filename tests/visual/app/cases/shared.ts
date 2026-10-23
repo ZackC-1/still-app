@@ -14,14 +14,14 @@ export const OWNER_SYNC_COPY: Deviation = {
 };
 
 /**
- * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can't block
- * distractions yet." where the references say "Still can't block on these websites yet." (setup)
- * or "Still can't work on these sites" (site access).
+ * Owner's canvas review, 21 Oct 2026: the setup and site-access headers read "Still can’t block
+ * distractions yet" (no full stop since the 22 Oct copy audit) where the references say "Still
+ * can't block on these websites yet." (setup) or "Still can't work on these sites" (site access).
  */
 export const OWNER_SETUP_HEADER_COPY: Deviation = {
   reason:
-    'owner-approved copy (setup header "Still can\'t block distractions yet."; reference says "Still can\'t block on these websites yet.")',
-  text: "Still can't block distractions yet.",
+    'owner-approved copy (setup header "Still can’t block distractions yet", no full stop since the 22 Oct copy audit; reference says "Still can\'t block on these websites yet.")',
+  text: "Still can’t block distractions yet",
 };
 
 /**
@@ -46,7 +46,7 @@ export const REFERENCE_DEMO_ACCOUNT: Deviation = {
 
 /**
  * ISS-0032 (owner-approved design, 12 Oct 2026): a compact Still Pro card ("Even fewer distractions on
- * Instagram, Facebook, and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
+ * Instagram, Facebook and YouTube. One-time purchase." and Get Still Pro) replaces the reference's
  * plain "Purchase Still Pro" button under the site list, and the cards below it move down.
  */
 export const POPUP_PRO_CARD: Deviation = {
@@ -82,3 +82,113 @@ export const OWNER_SUCCESS_GREEN: Deviation = {
   selector:
     '.access-tag.boxed.success, .status-line[data-tone="success"] .glyph, .step[data-done="true"] .num',
 };
+
+/**
+ * The 22 Oct 2026 copy audit and the owner's rulings on it. Each entry names only the lines this
+ * change rewrote (curly apostrophes, no full stop on headings, no serial comma, "We couldn’t …"
+ * errors and the owner's reworded lines), and the screens that can show it (index.ts attaches it
+ * to those screens' frames only), so a layout change elsewhere in a card is never labelled as
+ * approved copy. A frame that does not show the line measures 0 px.
+ */
+type AuditScreen =
+  | "d01-desktop-popup"
+  | "d02-mobile-popup"
+  | "d03-extension-settings"
+  | "d04-apple-app-settings"
+  | "d12-apple-onboarding"
+  | "d14-extension-first-run"
+  | "d18-d20-d24-d25-purchase-and-restore"
+  | "d28-rating-prompt"
+  | "system-gallery";
+const POPUPS: AuditScreen[] = ["d01-desktop-popup", "d02-mobile-popup", "d28-rating-prompt"];
+const SETTINGS: AuditScreen[] = ["d03-extension-settings", "d04-apple-app-settings"];
+const PRO: AuditScreen[] = [...SETTINGS, "d18-d20-d24-d25-purchase-and-restore", "system-gallery"];
+const AUDIT_LINES: [string, string, AuditScreen[]][] = [
+  ["Turn on the Still extension in Safari.", "extension-off line", ["d04-apple-app-settings", "d12-apple-onboarding"]],
+  ["Tap “Open Settings” below.", "numbered step ends with a full stop", ["d04-apple-app-settings"]],
+  ["then allow Instagram, Facebook, YouTube and TikTok.", "numbered step, no serial comma", ["d04-apple-app-settings"]],
+  ["Close Safari, then reopen it.", "numbered step ends with a full stop", ["d04-apple-app-settings"]],
+  ["Allowed on Instagram, Facebook, YouTube and TikTok.", "no serial comma", ["d14-extension-first-run"]],
+  ["Verify purchase", "\"Verify purchase\" replaces \"Verify now\"", PRO],
+  ["Your free controls keep working while this finishes.", "purchase view checking lines", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Enjoying Still?", "rating invitation heading", ["d28-rating-prompt", "system-gallery"]],
+  ["Link Still Pro to your account", "linking offer heading and button", ["d04-apple-app-settings", "d28-rating-prompt", "system-gallery"]],
+  ["Lifetime access. No subscription.", "purchase view terms", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Back to Still settings", "browser purchase view back link", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Back to Settings", "Apple purchase view back link", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Still Pro is ready. New controls start off, so turn on", "after-purchase line", PRO],
+  ["New controls start off, so turn on the ones you want.", "after-purchase line", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Bought it with another account?", "browser restore not-found line", PRO],
+  ["No Still Pro purchase was found for this Apple Account.", "Apple restore not-found line", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["Not available in Safari.", "unavailable Still Pro row on Safari", ["d01-desktop-popup", "d02-mobile-popup", "system-gallery"]],
+  ["Not available on this device.", "unavailable Still Pro row in the Apple app", ["d04-apple-app-settings"]],
+  ["Helps improve Still.", "usage switch line", [...SETTINGS, "d14-extension-first-run", "system-gallery"]],
+  ["Delete shared data from all your devices", "shared-data link matches its dialog", ["d03-extension-settings", "system-gallery"]],
+  ["6\u2011digit sign-in code", "both sign-in prompts", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
+  ["Sign in to get Still Pro", "purchase sign-in sheet title", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
+  ["Sign in first to keep Still Pro", "purchase sign-in sheet note", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
+  ["Checkout was canceled.", "US spelling", ["system-gallery"]],
+  ["Still is on", "first-run heading without a full stop", ["d14-extension-first-run"]],
+  ["One step to finish setup", "first-run heading without a full stop", ["d14-extension-first-run"]],
+  ["TikTok stays closed", "TikTok page heading without a full stop", ["system-gallery"]],
+  ["We couldn’t open TikTok.", "error line starts \"We couldn’t\"", ["system-gallery"]],
+  ["Still settings", "popup footer button label", POPUPS],
+  // Curly apostrophes, line by line.
+  ["We couldn’t finish checking. Nothing changed.", "curly apostrophe", PRO],
+  ["Still Pro can’t be bought here yet.", "curly apostrophe", PRO],
+  ["Still Pro couldn’t be bought right now.", "curly apostrophe", PRO],
+  ["Make sure you’re signed in to the App Store", "curly apostrophe", PRO],
+  ["The purchase wasn’t confirmed.", "curly apostrophe", PRO],
+  ["Still can’t check right now.", "curly apostrophe", ["d03-extension-settings"]],
+  ["Try again when you’re online.", "curly apostrophe", ["d03-extension-settings"]],
+  ["You’ll use this account to restore Still Pro", "curly apostrophe", PRO],
+  ["It’s linked to another account.", "curly apostrophe", PRO],
+  ["Linking didn’t finish.", "curly apostrophe", PRO],
+  ["You’ll sign in first", "curly apostrophe", ["d18-d20-d24-d25-purchase-and-restore"]],
+  ["We couldn’t confirm your payment yet.", "curly apostrophe", ["system-gallery"]],
+  ["your setting doesn’t change.", "curly apostrophe", ["system-gallery"]],
+  ["didn’t allow it.", "curly apostrophe", [...POPUPS, "d03-extension-settings", "d14-extension-first-run"]],
+  ["Your choices start working once it’s allowed.", "shortened refused line (P3-5)", [...POPUPS, "d03-extension-settings"]],
+  ["Your choices are saved and start working once it’s allowed.", "curly apostrophe", ["d14-extension-first-run"]],
+  ["If Still isn’t in your toolbar", "curly apostrophe", ["d14-extension-first-run"]],
+  ["Your shared data hasn’t been deleted yet.", "curly apostrophe", ["d03-extension-settings", "system-gallery"]],
+  ["We couldn’t send your deletion request.", "curly apostrophe", ["d03-extension-settings", "system-gallery"]],
+  ["Sync didn’t finish.", "curly apostrophe", [...POPUPS, ...SETTINGS, "system-gallery"]],
+  ["We couldn’t delete your account.", "error line starts \"We couldn’t\"", [...SETTINGS, "system-gallery"]],
+  ["We couldn’t send the code.", "error line starts \"We couldn’t\"", ["d18-d20-d24-d25-purchase-and-restore", "system-gallery"]],
+  ["It doesn’t work inside", "curly apostrophe", ["d12-apple-onboarding"]],
+  ["I’ve turned it on", "curly apostrophe", ["d12-apple-onboarding"]],
+  ["You’re set", "curly apostrophe", ["d12-apple-onboarding"]],
+  ["We couldn’t save your choice.", "curly apostrophe", ["d12-apple-onboarding"]],
+  ["We couldn’t finish setup.", "curly apostrophe", ["d12-apple-onboarding"]],
+];
+
+/** Cards that gained the free-controls line while checking (P3-10), by selector, because the same
+ * line already sat in the Still Pro card's checking state before this change. */
+const AUDIT_REGIONS: [string, string, AuditScreen[]][] = [
+  [
+    '.restore-focus + .status-line[data-tone="pending"]',
+    "restore checking line gains the free-controls line",
+    [...SETTINGS, "system-gallery"],
+  ],
+  [
+    ".status-line:has(#popup-pro-checking)",
+    "popup Still Pro checking card gains the free-controls line",
+    [...POPUPS, "d03-extension-settings", "system-gallery"],
+  ],
+];
+
+/** The copy-audit notes that apply to one screen's frames. */
+export function copyAuditFor(screen: string): Deviation[] {
+  const on = (screens: AuditScreen[]) => (screens as string[]).includes(screen);
+  return [
+    ...AUDIT_LINES.filter(([, , screens]) => on(screens)).map(([text, what]) => ({
+      reason: `22 Oct copy audit: ${what}`,
+      text,
+    })),
+    ...AUDIT_REGIONS.filter(([, , screens]) => on(screens)).map(([selector, what]) => ({
+      reason: `22 Oct copy audit: ${what}`,
+      selector,
+    })),
+  ];
+}

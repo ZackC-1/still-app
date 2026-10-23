@@ -20,7 +20,7 @@ const LEGACY = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
 const MODERN_SIGN_IN = process.env.STILL_EXPECT_MODERN_SIGN_IN === "1";
 const RESTORED = "Still Pro is restored on this device.";
 const NOTHING = "No Still Pro purchase was found for this account.";
-const FAILED = "We couldn't finish checking. Nothing changed.";
+const FAILED = "We couldn’t finish checking. Nothing changed.";
 const USER_ID = "00000000-0000-4000-8000-0000000000a1";
 const SESSION_ID = "00000000-0000-4000-8000-0000000000b2";
 const EMAIL = "restore-check@still.test";
@@ -122,7 +122,7 @@ async function signIn(page: Page): Promise<void> {
   await consent.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Email address").fill(EMAIL);
   await page.getByRole("button", { name: "Send code" }).click();
-  await page.getByLabel("6-digit code").fill("123456");
+  await page.getByLabel("6\u2011digit code").fill("123456");
   await page.getByRole("button", { name: "Verify code" }).click();
 }
 

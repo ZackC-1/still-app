@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+// A test-only reach into core (as before this test read strings.ts from disk): the page itself
+// keeps its own copy and imports none of core's strings.
+import { STRINGS } from "../../../packages/core/src/ui/strings.js";
 import { APPROVED } from "./copy.js";
 
 describe("owner page copy", () => {
@@ -9,14 +10,21 @@ describe("owner page copy", () => {
     expect(APPROVED.allowances.body).toBe("Off everywhere until you allow it. Nothing changes until Apply.");
     expect(APPROVED.allowances.applied).toBe("Applied and read back. The server matches.");
     expect(APPROVED.allowances.stale).toBe("These changed since you loaded them. Reload to see the current state.");
-    expect(APPROVED.allowances.failed).toBe("Apply didn't finish. Nothing changed.");
+    expect(APPROVED.allowances.failed).toBe("Apply didn’t finish. Nothing changed.");
     expect(APPROVED.allowances.readback).toBe("Reading back the saved allowances…");
     expect(APPROVED.allowances.deferred).toBe("Deferred");
     expect(APPROVED.surfaces.edge_desktop).toBe("Edge desktop");
   });
 
   it("reuses shipped sign-in wording verbatim", () => {
-    const strings = readFileSync(resolve(__dirname, "../../../packages/core/src/ui/strings.ts"), "utf8");
+    // Compared with the shipped values, not the source text: some (the 6‑digit code label) are
+    // built from a shared piece (ISS-0124).
+    const shipped: string[] = [];
+    const collect = (value: unknown): void => {
+      if (typeof value === "string") shipped.push(value);
+      else if (value && typeof value === "object") Object.values(value).forEach(collect);
+    };
+    collect(STRINGS);
     for (const line of [
       APPROVED.signIn.send,
       APPROVED.signIn.codeLabel,
@@ -29,7 +37,9 @@ describe("owner page copy", () => {
       APPROVED.signIn.differentEmail,
       APPROVED.signIn.signOut,
     ]) {
-      expect(strings, line).toContain(JSON.stringify(line));
+      expect(shipped, line).toContain(line);
     }
+    // The prompt is the shipped sync prompt's first sentence, 6‑digit with its non-breaking hyphen.
+    expect(STRINGS.auth.prompt.startsWith(APPROVED.signIn.prompt)).toBe(true);
   });
 });

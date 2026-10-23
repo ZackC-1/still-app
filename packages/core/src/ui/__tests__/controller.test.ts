@@ -469,6 +469,7 @@ describe("UiController", () => {
     expect(persistence.setPendingOtp).toHaveBeenCalledWith({
       email: "a@b.com",
       requestedAt: t,
+      purpose: "sync", // ISS-0123: a sync sign-in says so, so a stored purchase purpose is dropped
     });
     c.dismissSignIn(); // stop the cooldown ticker
   });

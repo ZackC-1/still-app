@@ -29,7 +29,7 @@ import AppleSettings from "./AppleSettings.svelte";
 import SyncCard from "./SyncCard.svelte";
 import { STRINGS } from "../strings.js";
 import ProOfferCard from "./ProOfferCard.svelte";
-// ISS-0071: the accountless holder's invitation (was "Link Still Pro to an account").
+// ISS-0071: the accountless holder's invitation (was "Link Still Pro to your account").
 const INVITE = "You have Still Pro. Sign in to keep Still Pro with your account.";
 const inviteCard = () => screen.getByText(INVITE).closest("section")!;
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
@@ -191,7 +191,7 @@ describe("controlled D04 Apple settings", () => {
       const view = render(AppleSettings, { props });
       const sections = {
         "YouTube Blocker": { desktopOnly: ["End-of-video suggestions", "Live chat"], always: ["Related videos", "Autoplay prevention", "Comments"] },
-        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Facebook Stories", "Video tab"] },
+        "Facebook Blocker": { desktopOnly: ["Desktop sidebar ads"], always: ["Stories", "Video tab"] },
       };
       for (const [section, { desktopOnly, always }] of Object.entries(sections)) {
         const button = screen.getByRole("button", { name: section });
@@ -520,7 +520,7 @@ describe("controlled D04 Apple settings", () => {
     expect(within(card).getByRole("heading", { name: "Settings sync" })).toBeVisible();
     expect(within(card).getByText(INVITE)).toBeVisible();
     expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Sign in", "Not now"]);
-    expect(card.textContent).not.toMatch(/Link Still Pro to an account|So you can restore it|Optional/);
+    expect(card.textContent).not.toMatch(/Link Still Pro to your account|So you can restore it|Optional/);
     await fireEvent.click(within(card).getByRole("button", { name: "Sign in" }));
     expect(onLink).toHaveBeenCalledOnce();
     view.unmount();
@@ -541,7 +541,7 @@ describe("controlled D04 Apple settings", () => {
     const view = render(AppleSettings, {
       props: { ...base, linkInvitation: { eligibleLaterVisit: true, signedIn: true, onLink, onDismiss } },
     });
-    const OFFER = "Link Still Pro to your account.";
+    const OFFER = "Link Still Pro to your account";
     const card = screen.getByRole("region", { name: OFFER });
     expect(within(card).getByRole("heading", { name: OFFER })).toBeVisible();
     expect(within(card).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Link", "Not now"]);
@@ -647,7 +647,7 @@ describe("controlled D04 Apple settings", () => {
       screen.getByRole("button", { name: "Use a different account" }),
     );
     expect(other).toHaveBeenCalledOnce();
-    await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Verify purchase" }));
     expect(verify).toHaveBeenCalledOnce();
     expect(screen.getByText(SUPPORT_EMAIL)).toBeVisible();
     await fireEvent.click(
@@ -976,7 +976,7 @@ describe("D04 destructive and native recovery port lifetimes", () => {
       const recover = vi.fn();
       props.restore = { state, onAction: recover };
       const view = render(AppleSettings, { props });
-      const label = state === "verify" ? "Verify now" : "Try again";
+      const label = state === "verify" ? "Verify purchase" : "Try again";
       const button = screen.getByRole("button", { name: label });
       const retained = retainedClick(button);
       props.pro = { ...props.pro, state: "pending" };
@@ -1025,9 +1025,9 @@ describe("D04 destructive and native recovery port lifetimes", () => {
         within(card).getByRole("button", { name: "Try again" }),
       );
       expect(retry).toHaveBeenCalledOnce();
-      expect(screen.getByText("The purchase wasn't confirmed.")).toBeTruthy();
+      expect(screen.getByText("The purchase wasn’t confirmed.")).toBeTruthy();
       expect(
-        screen.queryByText("Still Pro is ready. New controls start off."),
+        screen.queryByText("Still Pro is ready. New controls start off, so turn on the ones you want."),
       ).toBeNull();
       expect(props.sync.onSignIn).not.toHaveBeenCalled();
       expect(await storage.get()).toEqual(saved);
@@ -1112,7 +1112,7 @@ describe("D04 destructive and native recovery port lifetimes", () => {
     expect(
       screen.queryByRole("button", { name: "Restore purchase" }),
     ).toBeNull();
-    await fireEvent.click(screen.getByRole("button", { name: "Verify now" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Verify purchase" }));
     expect(restore).toHaveBeenCalledTimes(2);
     expect(buy).not.toHaveBeenCalled();
     expect(props.sync.onSignIn).not.toHaveBeenCalled();
@@ -1404,7 +1404,7 @@ describe("D04 current destructive epoch and Restore recovery boundaries", () => 
         flushSync();
         await fireEvent.click(
           screen.getByRole("button", {
-            name: state === "verify" ? "Verify now" : "Try again",
+            name: state === "verify" ? "Verify purchase" : "Try again",
           }),
         );
         expect(currentAction).toHaveBeenCalledTimes(2);
@@ -1508,7 +1508,7 @@ describe("D04 optional paid and combined-consent producers", () => {
         toggle: rowControl("switch", "Comments"),
       }).toEqual(row);
       expect(
-        screen.getByText("We couldn't finish checking. Nothing changed."),
+        screen.getByText("We couldn’t finish checking. Nothing changed."),
       ).toBeVisible();
       await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(recover).toHaveBeenCalledOnce();
@@ -1870,7 +1870,7 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     expect(
-      screen.queryByText("Still Pro can't be bought here yet."),
+      screen.queryByText("Still Pro can’t be bought here yet."),
     ).toBeNull();
     expect(
       screen.queryByText("No account needed. Payment is handled by Apple."),

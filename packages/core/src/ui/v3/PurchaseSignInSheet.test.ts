@@ -105,7 +105,7 @@ describe("controlled purchase sign-in modal", () => {
       render(PurchaseSignInSheet, { props: p });
       await fireEvent.submit(form());
       expect(p.send?.onRequest).not.toHaveBeenCalled();
-      expect(screen.queryByLabelText("6-digit code")).toBeNull();
+      expect(screen.queryByLabelText("6\u2011digit code")).toBeNull();
     });
   }
   it("sends current email without locally claiming code delivery or confirmation", async () => {
@@ -116,7 +116,7 @@ describe("controlled purchase sign-in modal", () => {
       operation,
       value: p.email,
     });
-    expect(screen.queryByLabelText("6-digit code")).toBeNull();
+    expect(screen.queryByLabelText("6\u2011digit code")).toBeNull();
     expect(p.verify?.onRequest).not.toHaveBeenCalled();
   });
   it("uses the current replacement callback and current controlled value", async () => {
@@ -199,7 +199,7 @@ describe("controlled purchase sign-in modal", () => {
       observation: { operation, verified: true, state: "code" },
     });
     render(PurchaseSignInSheet, { props: p });
-    await fireEvent.input(screen.getByLabelText("6-digit code"), {
+    await fireEvent.input(screen.getByLabelText("6\u2011digit code"), {
       target: { value: "a1234567" },
     });
     expect(p.codeInput?.onRequest).toHaveBeenCalledWith({
@@ -207,7 +207,7 @@ describe("controlled purchase sign-in modal", () => {
       value: "123456",
     });
     expect(
-      (screen.getByLabelText("6-digit code") as HTMLInputElement).value,
+      (screen.getByLabelText("6\u2011digit code") as HTMLInputElement).value,
     ).toBe("");
     expect(p.verify?.onRequest).not.toHaveBeenCalled();
   });
@@ -225,7 +225,7 @@ describe("controlled purchase sign-in modal", () => {
     expect(p.send?.onRequest).not.toHaveBeenCalled();
     expect(p.dismiss?.onRequest).not.toHaveBeenCalled();
     expect(dialog()).toBeTruthy();
-    expect(screen.getByLabelText("6-digit code")).toBeTruthy();
+    expect(screen.getByLabelText("6\u2011digit code")).toBeTruthy();
   });
   it("shows supplied failure text and retries only the actual code stage", async () => {
     const p = props({
@@ -377,7 +377,7 @@ describe("reviewed sign-in input and background regressions", () => {
     it(`allows the complete ${raw} input before normalization`, async () => {
       const p = props({ observation: { operation, verified: true, state: "code" } });
       const view = render(PurchaseSignInSheet, { props: p });
-      const input = screen.getByLabelText("6-digit code") as HTMLInputElement;
+      const input = screen.getByLabelText("6\u2011digit code") as HTMLInputElement;
       expect(input.hasAttribute("maxlength")).toBe(false);
       await fireEvent.input(input, { target: { value: raw } });
       expect(p.codeInput?.onRequest).toHaveBeenCalledExactlyOnceWith({ operation, value: "123456" });
@@ -419,7 +419,7 @@ describe("reviewed sign-in input and background regressions", () => {
     expect(p.background.onSignIn).not.toHaveBeenCalled();
     expect(p.background.onBack).not.toHaveBeenCalled();
   });
-  for (const [state, label] of [["failed", "Try again"], ["verify", "Verify now"]] as const) {
+  for (const [state, label] of [["failed", "Try again"], ["verify", "Verify purchase"]] as const) {
     it(`strips the ${label} callback proven reachable for the same verified restore state`, async () => {
       const p = props();
       p.background.account = { id: "fixture-account-a", confirmed: true };

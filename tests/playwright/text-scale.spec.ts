@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
+import { helpHitAreas } from "./_help-hit-areas.js";
 
 // Text size (owner decision 51): the V3 screens follow Chrome's own "Font size" setting. The
 // setting is real: each browser starts with a profile whose saved Preferences carry the default
@@ -217,7 +218,7 @@ async function holdSettingsRead(page: Page, mode: "hold" | "fail"): Promise<void
     new MutationObserver(() => {
       if (seen.stillFirstStatusSize !== undefined) return;
       const line = [...document.querySelectorAll("[role=status]")].find((element) =>
-        /Checking sync…|Settings are unavailable\./.test(element.textContent ?? ""),
+        /Loading your settings…|Settings are unavailable\./.test(element.textContent ?? ""),
       );
       if (line) seen.stillFirstStatusSize = parseFloat(getComputedStyle(line).fontSize);
     }).observe(document, { subtree: true, childList: true, characterData: true });
@@ -256,7 +257,8 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     });
   }
 
-  test("the Help card keeps two columns of 44px links, and one column above 1.5×", async () => {
+  test("the Help card keeps two columns of links with clear hit areas, and one column above 1.5×", async () => {
+    test.setTimeout(240_000);
     // Owner, 21 Oct: Setup guide on the left; Privacy policy, then Contact support with its
     // address, on the right. Signed out in this lane, so Delete account is absent.
     for (const [fontSize, columns] of [
@@ -279,8 +281,6 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
           const setup = await box("Setup guide");
           const privacy = await box("Privacy policy");
           const contact = await box("Contact support");
-          for (const [name, target] of [["Setup guide", setup], ["Privacy policy", privacy], ["Contact support", contact]] as const)
-            expect(target.height, `${name} target, ${where}`).toBeGreaterThanOrEqual(44);
           const address = await help.getByText(/@/).boundingBox();
           expect(address!.y, `address under Contact support, ${where}`).toBeGreaterThanOrEqual(contact.y + contact.height - 1);
           expect(contact.y, `Contact support under Privacy policy, ${where}`).toBeGreaterThanOrEqual(privacy.y + privacy.height - 1);
@@ -292,6 +292,13 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
             expect(Math.abs(setup.x - privacy.x), where).toBeLessThan(1);
             expect(privacy.y, where).toBeGreaterThanOrEqual(setup.y + setup.height - 1);
           }
+          // Each link's invisible hit area is at least 24px tall, and none of them takes a click on
+          // another link's label or on the support address (ISS-0112: the address stays selectable).
+          // Measured last: it scrolls the card into view.
+          const { heights, stolen } = await helpHitAreas(page);
+          for (const name of ["Setup guide", "Privacy policy", "Contact support"])
+            expect(heights[name], `${name} hit area, ${where}`).toBeGreaterThanOrEqual(24);
+          expect(stolen, `labels and address taken by another hit area, ${where}`).toEqual([]);
           await expectNoSidewaysOverflow(page);
           await page.close();
         }
@@ -417,8 +424,9 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
   });
 
   test("the loading and unavailable lines follow the text size too", async () => {
-    // Until the first settings read answers the popup and settings page say "Checking sync…"; a
-    // read that fails says "Settings are unavailable." with Try again. Both follow the text size.
+    // Until the first settings read answers, the popup and settings page say "Loading your
+    // settings…"; a read that fails says "Settings are unavailable." with Try again. Both follow
+    // the text size.
     for (const [fontSize, scale] of [
       [16, 1],
       [32, 2],
@@ -437,7 +445,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
             await page.bringToFront();
             const where = `${path}, ${mode === "hold" ? "checking" : "unavailable"}, ${fontSize}px`;
             const line = page.getByRole("status").filter({
-              hasText: mode === "hold" ? "Checking sync…" : "Settings are unavailable.",
+              hasText: mode === "hold" ? "Loading your settings…" : "Settings are unavailable.",
             });
             await expect(line, where).toBeVisible({ timeout: 10_000 });
             await expect.poll(() => textScale(page), { message: where }).toBe(String(scale));
@@ -493,7 +501,7 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
       await page.goto(`chrome-extension://${browser.id}/popup.html`);
       await page.bringToFront();
       await expect.poll(() => textScale(page)).toBe("2");
-      const card = page.getByRole("region", { name: "Rate Still" });
+      const card = page.getByRole("region", { name: "Enjoying Still?" });
       await expect(card).toBeVisible();
       await expectOnlyTheDocumentScrolls(page, true);
       await expectNoSidewaysOverflow(page);
@@ -614,6 +622,130 @@ test.describe("configured 2.x builds", () => {
       }
     } finally {
       await browser.close();
+    }
+  });
+});
+
+// Review F-1 (22 Oct): with the paid tier compiled on, a locked Still Pro row shows its saved switch
+// beside the Still Pro pill (CH-96). At large text that pair must never squeeze the row's name to a
+// few letters per line: the name keeps at least 120px, and when the switch and pill do not fit
+// beside it they wrap onto their own line. Runs only in the paid-tier-on CI step (STILL_TEST_PAID_TIER),
+// which loads the build from scripts/qa/paid-tier-extension.mjs.
+test.describe("paid tier on: locked rows at large text keep their names readable", () => {
+  test.skip(process.env.STILL_TEST_PAID_TIER !== "true", "Needs the paid-tier-on build");
+  test.skip(configured, V3_ONLY);
+
+  // Review F1 and F4 (22 Oct): the Still Pro pill's invisible hit area is a full 44px at normal text
+  // (as much as the 40px popup rows allow there),
+  // and no control's hit area (the pill's or the saved switch's) covers the row's name, whether the
+  // switch and pill sit beside the name or wrap under it (375px wraps on the Settings page at 1x).
+  test("locked rows: a 44px pill hit area that never covers the row's name", async () => {
+    test.setTimeout(240_000);
+    const browser = await launchWithFontSize(16);
+    try {
+      for (const [path, width] of [["options.html", 375], ["options.html", 432], ["popup.html", 380]] as const) {
+        const page = await openPage(browser, path, width, 900);
+        const where = `${path} ${width}px wide`;
+        const expanders = page.locator(".still-ui button.expander");
+        let measured = 0;
+        for (let index = 0; index < (await expanders.count()); index++) {
+          const expander = expanders.nth(index);
+          await expander.scrollIntoViewIfNeeded();
+          if ((await expander.getAttribute("aria-expanded")) !== "true") await expander.click();
+          await expect(expander).toHaveAttribute("aria-expanded", "true");
+          await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
+          const panel = page.locator(`[id="${await expander.getAttribute("aria-controls")}"]`);
+          const rows = panel.locator('.option-row[data-access="locked"]');
+          for (let r = 0; r < (await rows.count()); r++) {
+            const row = rows.nth(r);
+            await row.scrollIntoViewIfNeeded();
+            const found = await row.evaluate((element) => {
+              const pill = element.querySelector<HTMLElement>(".lock-pro")!;
+              const label = element.querySelector<HTMLElement>(".label")!;
+              const box = pill.getBoundingClientRect();
+              const x = box.left + box.width / 2;
+              let top = Infinity;
+              let bottom = -Infinity;
+              for (let y = box.top - 30; y <= box.bottom + 30; y += 0.25) {
+                const hit = document.elementFromPoint(x, y);
+                if (hit && pill.contains(hit)) {
+                  top = Math.min(top, y);
+                  bottom = Math.max(bottom, y);
+                }
+              }
+              const covered: string[] = [];
+              const range = document.createRange();
+              range.selectNodeContents(label);
+              for (const rect of range.getClientRects())
+                for (let y = rect.top + 0.5; y < rect.bottom; y += 0.5)
+                  for (const px of [rect.left + 1, rect.left + rect.width / 2, rect.right - 1]) {
+                    const hit = document.elementFromPoint(px, y);
+                    const control = hit?.closest("button, [role=switch], a");
+                    if (control && element.contains(control)) covered.push(`(${px.toFixed(0)}, ${y.toFixed(1)})`);
+                  }
+              return { name: label.textContent!.trim(), hit: bottom - top, covered: covered.slice(0, 5) };
+            });
+            // 44px where the rows leave room (the 49px app and Settings rows). The popups' locked rows
+            // are 40px apart, so neighbouring pills' 44px areas meet halfway and each keeps ~40px.
+            expect(found.hit, `${where}: ${found.name} pill hit area`).toBeGreaterThanOrEqual(
+              path === "popup.html" ? 39.5 : 43.5,
+            );
+            expect(found.covered, `${where}: ${found.name} name under a control's hit area`).toEqual([]);
+            measured++;
+          }
+        }
+        expect(measured, where).toBeGreaterThan(0);
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  test("every locked row keeps a 120px name beside or above its saved switch and pill", async () => {
+    test.setTimeout(240_000);
+    for (const fontSize of [24, 32]) {
+      const browser = await launchWithFontSize(fontSize);
+      try {
+        for (const width of [375, 380]) {
+          const page = await openPage(browser, "popup.html", width, 600);
+          await expect.poll(() => textScale(page)).toBe(fontSize === 24 ? "1.5" : "2");
+          const where = `popup ${width}px wide at ${fontSize}px`;
+          const expanders = page.locator(".still-ui button.expander");
+          let locked = 0;
+          for (let index = 0; index < (await expanders.count()); index++) {
+            const expander = expanders.nth(index);
+            await expander.scrollIntoViewIfNeeded();
+            if ((await expander.getAttribute("aria-expanded")) !== "true") await expander.click();
+            await expect(expander).toHaveAttribute("aria-expanded", "true");
+            await page.evaluate(() =>
+              Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+            );
+            const panel = page.locator(`[id="${await expander.getAttribute("aria-controls")}"]`);
+            const rows = await panel.locator('.option-row[data-access="locked"]').evaluateAll((elements) =>
+              elements.map((row) => ({
+                name: row.querySelector(".label")?.textContent?.trim() ?? "",
+                nameWidth: row.querySelector(".row-main")!.getBoundingClientRect().width,
+                savedSwitch: Boolean(row.querySelector('.locked-controls [role="switch"]')),
+                pill: row.querySelector(".lock-pro")?.textContent?.trim() ?? "",
+              })),
+            );
+            for (const row of rows) {
+              expect(row.savedSwitch, `${where}: ${row.name} shows its saved switch`).toBe(true);
+              expect(row.pill, `${where}: ${row.name}`).toBe("Still Pro");
+              expect(row.nameWidth, `${where}: ${row.name} keeps a readable name`).toBeGreaterThanOrEqual(120);
+            }
+            locked += rows.length;
+          }
+          expect(locked, where).toBeGreaterThan(0);
+          await expectNoSidewaysOverflow(page);
+          await page.close();
+        }
+      } finally {
+        await browser.close();
+      }
     }
   });
 });

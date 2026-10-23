@@ -116,11 +116,11 @@ and the shipped sign-in wording. What the page says for the states those don't c
    Sandbox.
 2. Sales section: title "Sales", line "Off until you allow it. Nothing changes until Apply.", switch
    "Sales allowed", and the progress line "Reading back the saved sales setting…".
-3. The server's refusal to turn sales on before the paid cutoff: "The server refused: sales can't
+3. The server's refusal to turn sales on before the paid cutoff: "The server refused: sales can’t
    turn on until the paid cutoff is set up. Nothing changed."
-4. Apply was sent but the readback failed: "Apply was sent but couldn't be read back. Reload to see
+4. Apply was sent but the readback failed: "Apply was sent but couldn’t be read back. Reload to see
    the current state."
-5. Loading failed: "Couldn't load the current state. Try again."
+5. Loading failed: "We couldn’t load the current state. Try again."
 6. Rollback action: "Undo last change".
 7. The page heading is the word "Still" and the browser tab title is "Still".
 8. While no approved builds are listed, each section says: "No approved app builds are listed yet, so

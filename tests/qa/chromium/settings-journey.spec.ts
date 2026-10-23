@@ -186,7 +186,7 @@ test("J4.CH Setup guide in the settings reopens the first-run page", async ({ co
   const reopened = context.waitForEvent("page", { predicate: (p) => FIRST_RUN.test(p.url()), timeout: 10_000 });
   await options.getByRole("button", { name: "Setup guide" }).click();
   const page = await reopened;
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on");
 });
 
 test.fixme("J4.CH Contact support opens a mail to the support address", async () => {

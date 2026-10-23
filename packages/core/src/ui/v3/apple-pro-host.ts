@@ -15,6 +15,7 @@ import type {
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
 import { proPurchased } from "./presentation.js";
+import { STRINGS } from "../strings.js";
 import type { UiAnalytics } from "../controller.svelte.js";
 
 export interface AppleProAccount {
@@ -58,7 +59,8 @@ export interface AppleProHostDeps {
   linkPurchase(
     intent: ApplePurchaseLinkIntent,
   ): Promise<ApplePurchaseLinkResult>;
-  signIn(): void;
+  /** Open the sign-in sheet; `purpose` gives it the words for what asked (ISS-0123). */
+  signIn(purpose?: "purchase" | "link"): void;
   /** Whether this build can sign in. Present and true, a signed-out Get Still Pro asks for
    * sign-in first (ISS-0071, ADR 0005); absent or false, it goes straight to Apple as before. */
   canSignIn?(): boolean;
@@ -77,11 +79,10 @@ export interface AppleProHostDeps {
 }
 /** The two lines the sign-in sheet adds when Get Still Pro opened it (ISS-0071, option B). */
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
-  // Owner (19 Oct, ISS-0085): the purchase-opened sheet says what it is for. The sync-opened
-  // sheet keeps STRINGS.auth.
-  title: "Sign in to purchase Still Pro",
-  prompt: "Enter your email to get a 6-digit code.",
-  note: "Sign in before purchase to associate Still Pro with your account.",
+  // Owner (19 Oct, ISS-0085; wording P2-19, 22 Oct): the purchase-opened sheet says what it is
+  // for, in the same words as the browsers' (STRINGS.purchaseAuth). The sync-opened sheet keeps
+  // STRINGS.auth. Only the Apple apps can buy without an account.
+  ...STRINGS.purchaseAuth,
   skip: "Buy without an account",
 } as const;
 
@@ -628,7 +629,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       purchaseSignInAccount = null;
       continuationRearmed = false;
       changed();
-      deps.signIn();
+      deps.signIn("purchase");
       return;
     }
     void transact("buy");
@@ -699,7 +700,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (!linkSignInAsked) {
           linkSignInAsked = true;
           linkViaSignIn = true;
-          deps.signIn();
+          deps.signIn("link");
         }
         return;
       }
@@ -734,7 +735,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     linkAccount = null;
     changed();
     await deps.chooseOtherAccount();
-    if (!stopped) deps.signIn();
+    if (!stopped) deps.signIn("link");
   }
   async function confirmLink(
     account: AppleProAccount,

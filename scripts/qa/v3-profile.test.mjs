@@ -843,3 +843,270 @@ test("QA build sequence is main's first-parent commit count, only for a clean co
   assert.throws(() => qaBuildSequence("/repo", { revision: rev, dirty: false }, fake({ countStatus: 128 }).run), /could not be derived/);
   assert.throws(() => qaBuildSequence("/repo", { revision: "HEAD", dirty: false }, fake().run), /exact revision/);
 });
+
+// ---- integration packages (STILL_QA_INTEGRATION_BRANCH) ----
+
+/** A 40-hex fake commit id per label, so fake histories never collide. */
+const fakeSha = label => (label + "_").repeat(40).replace(/[^0-9a-f]/g, "0").slice(0, 40).padEnd(40, "0");
+const mainSha = n => n.toString(16).padStart(40, "c");
+/**
+ * Fake git for qaIntegrationBuild: origin/main has `mainCount` first-parent commits (newest first),
+ * and the branch is `heads` (newest first) on top of main's commit number `baseCount`.
+ */
+function fakeIntegrationGit({ mainCount = 440, baseCount = 438, heads = [["b2", "Merge PR #2"], ["b1", "Merge PR #1"]], branchStatus = 0, mainStatus = 0,
+  ancestorStatus = 1, plain = [] } = {}) {
+  const calls = [];
+  const main = Array.from({ length: mainCount }, (_, i) => mainSha(mainCount - i));
+  // Heads are --no-ff merges (two parents) unless listed in `plain`; main commits have one parent.
+  const branch = [...heads.map(([label, subject], i) => `${fakeSha(label)}\t${[heads[i + 1] ? fakeSha(heads[i + 1][0]) : mainSha(baseCount), ...(plain.includes(label) ? [] : [fakeSha(`pr${label}`)])].join(" ")}\t${subject}`),
+    ...Array.from({ length: baseCount }, (_, i) => `${mainSha(baseCount - i)}\t${baseCount - i > 1 ? mainSha(baseCount - i - 1) : ""}\tmain ${baseCount - i}`)];
+  const run = (cmd, args, opts) => {
+    calls.push([cmd, args, opts.cwd]);
+    assert.equal(Object.keys(opts.env ?? {}).some(key => key.startsWith("GIT_")), false, "integration Git calls drop inherited GIT_* overrides");
+    assert.ok(opts.env, "integration Git calls pass the filtered environment");
+    if (args[0] === "log") return { status: branchStatus, stdout: branchStatus ? "" : `${branch.join("\n")}\n` };
+    if (args.at(-1) === "origin/main") return { status: mainStatus, stdout: mainStatus ? "" : `${main.join("\n")}\n` };
+    if (args[0] === "merge-base") return { status: ancestorStatus, stdout: "" };
+    return { status: 1, stdout: "" };
+  };
+  return { run, calls };
+}
+
+test("integration mode is opt-in through STILL_QA_INTEGRATION_BRANCH only; unset or empty runs no git and changes nothing", async () => {
+  const { qaIntegrationBuild, INTEGRATION_BRANCH_INPUT } = await import("./v3-profile.mjs");
+  assert.equal(INTEGRATION_BRANCH_INPUT, "STILL_QA_INTEGRATION_BRANCH");
+  for (const input of [{}, { STILL_QA_INTEGRATION_BRANCH: "" }, { STILL_QA_INTEGRATION_BRANCHES: "qa/x", STILL_QA_INTEGRATION: "qa/x" }]) {
+    const git = fakeIntegrationGit();
+    assert.equal(qaIntegrationBuild("/repo", { revision: fakeSha("b2"), dirty: true }, input, git.run), undefined);
+    assert.deepEqual(git.calls, []);
+  }
+  // The variable never reaches the build tools, like every other STILL_QA_ input.
+  const env = profileEnvironment("paid-sandbox", { ...paidInputs, STILL_QA_INTEGRATION_BRANCH: "qa/integration" });
+  assert.equal(Object.values(env).includes("qa/integration"), false);
+});
+
+test("an integration branch based on main at count 438 gets sequence 1438 and records its base and every merged head in order", async () => {
+  const { qaIntegrationBuild } = await import("./v3-profile.mjs");
+  const git = fakeIntegrationGit();
+  const input = { STILL_QA_INTEGRATION_BRANCH: "qa/integration-20261022" };
+  const built = qaIntegrationBuild("/repo", { revision: fakeSha("b2"), dirty: false }, input, git.run);
+  assert.deepEqual(built, {
+    branch: "qa/integration-20261022",
+    base: { revision: mainSha(438), count: 438 },
+    originMainCount: 440,
+    sequence: 1438,
+    mergedHeads: [{ revision: fakeSha("b1"), subject: "Merge PR #1" }, { revision: fakeSha("b2"), subject: "Merge PR #2" }],
+  });
+  assert.deepEqual(git.calls, [
+    ["git", ["log", "--no-show-signature", "--first-parent", "--format=%H%x09%P%x09%s", "refs/heads/qa/integration-20261022", "--"], "/repo"],
+    ["git", ["rev-list", "--first-parent", "origin/main"], "/repo"],
+    // Main's commit right after the base (count 439) must not be in the package.
+    ["git", ["merge-base", "--is-ancestor", mainSha(439), fakeSha("b2")], "/repo"],
+  ]);
+  // A commit lower on the branch's own line is accepted; only the heads below it are recorded.
+  const lower = qaIntegrationBuild("/repo", { revision: fakeSha("b1"), dirty: false }, input, fakeIntegrationGit().run);
+  assert.deepEqual(lower.mergedHeads, [{ revision: fakeSha("b1"), subject: "Merge PR #1" }]);
+  assert.equal(lower.sequence, 1438);
+  // A subject containing a tab survives intact.
+  const tabbed = qaIntegrationBuild("/repo", { revision: fakeSha("t"), dirty: false }, input, fakeIntegrationGit({ heads: [["t", "Merge\tPR #3"]] }).run);
+  assert.deepEqual(tabbed.mergedHeads, [{ revision: fakeSha("t"), subject: "Merge\tPR #3" }]);
+});
+
+test("integration builds refuse a dirty checkout, a missing branch, a revision off the branch, and a branch with no base on main", async () => {
+  const { qaIntegrationBuild, qaBuildSequence } = await import("./v3-profile.mjs");
+  const input = { STILL_QA_INTEGRATION_BRANCH: "qa/integration" };
+  const build = (snapshot, options, branchInput = input) => qaIntegrationBuild("/repo", snapshot, branchInput, fakeIntegrationGit(options).run);
+  const clean = { revision: fakeSha("b2"), dirty: false };
+  // A dirty checkout is refused with exactly today's words.
+  let today;
+  try { qaBuildSequence("/repo", { revision: fakeSha("b2"), dirty: true }, fakeIntegrationGit().run); } catch (error) { today = error.message; }
+  for (const dirty of [true, undefined]) assert.throws(() => build({ revision: fakeSha("b2"), dirty }), { message: today });
+  assert.throws(() => build({ revision: "HEAD", dirty: false }), /exact revision/);
+  assert.throws(() => build(clean, { branchStatus: 128 }),
+    { message: "Integration QA packages need a local branch named qa/integration (create it from origin/main and merge the approved PR branches into it with git merge --no-ff, or unset STILL_QA_INTEGRATION_BRANCH to build from main)" });
+  for (const name of ["-x", "a..b", "has space", "qa/x;rm"]) {
+    const git = fakeIntegrationGit();
+    assert.throws(() => qaIntegrationBuild("/repo", clean, { STILL_QA_INTEGRATION_BRANCH: name }, git.run),
+      { message: `${name} is not a usable branch name (set STILL_QA_INTEGRATION_BRANCH to the local integration branch, for example qa/integration-20261022)` });
+    assert.deepEqual(git.calls, [], "an unusable branch name never reaches git");
+  }
+  assert.throws(() => build({ revision: fakeSha("elsewhere"), dirty: false }),
+    { message: "Integration QA packages are built only from the head of qa/integration or a commit on its own line (check out qa/integration)" });
+  assert.throws(() => build(clean, { mainStatus: 128 }), { message: "Integration QA packages need origin/main to compare against (fetch origin and try again)" });
+  // The branch's own line never meets main's own line.
+  assert.throws(() => build(clean, { baseCount: 0 }),
+    { message: "Integration QA packages need qa/integration to start from a commit on main's own line (fetch, then recreate qa/integration from current origin/main and merge each PR branch with git merge --no-ff)" });
+  assert.throws(() => build({ revision: mainSha(438), dirty: false }),
+    { message: "Integration branch qa/integration has nothing merged above main, so there is nothing to integrate (merge the approved PR branches into it with git merge --no-ff, or unset STILL_QA_INTEGRATION_BRANCH to build from main)" });
+  assert.throws(() => build(clean, { ancestorStatus: 0 }),
+    { message: "Integration branch qa/integration contains main commits newer than its base, so its number would understate what it contains (a PR branch merged a newer main, or main was merged into qa/integration); recreate qa/integration from current origin/main and merge each PR branch with git merge --no-ff" });
+  assert.throws(() => build(clean, { ancestorStatus: 128 }), { message: "Integration QA packages could not compare the branch with origin/main (fetch origin and try again)" });
+  assert.throws(() => build(clean, { plain: ["b1"] }),
+    { message: `Integration branch qa/integration has a commit above main that is not a merge (${fakeSha("b1").slice(0, 12)} Merge PR #1); recreate qa/integration from current origin/main and merge each PR branch with git merge --no-ff` });
+  // With the base at main's tip there is no newer main commit to look for.
+  const tip = fakeIntegrationGit({ mainCount: 438 });
+  assert.equal(qaIntegrationBuild("/repo", clean, input, tip.run).sequence, 1438);
+  assert.equal(tip.calls.some(([, args]) => args[0] === "merge-base"), false);
+});
+
+test("an integration number must stay more than 500 above main's current count and within 1 to 65535", async () => {
+  const { qaIntegrationBuild } = await import("./v3-profile.mjs");
+  const input = { STILL_QA_INTEGRATION_BRANCH: "qa/integration" };
+  const build = options => qaIntegrationBuild("/repo", { revision: fakeSha("b2"), dirty: false }, input, fakeIntegrationGit(options).run);
+  assert.equal(build({ baseCount: 438, mainCount: 937 }).sequence, 1438);
+  assert.throws(() => build({ baseCount: 438, mainCount: 938 }),
+    { message: "Integration QA package number 1438 is too close to main, which is already at 938; it must be more than 500 ahead of main's count (recreate qa/integration from current origin/main and merge the PR branches again with git merge --no-ff)" });
+  assert.throws(() => build({ baseCount: 438, mainCount: 1500 }), /too close to main/);
+  assert.equal(build({ baseCount: 64535, mainCount: 64535 }).sequence, 65535);
+  assert.throws(() => build({ baseCount: 64536, mainCount: 64536 }),
+    { message: "Integration QA package number 65536 is above 65535, the largest a browser version part allows (bump the store version and change the QA numbering before building more integration packages)" });
+  assert.equal(build({ baseCount: 1, mainCount: 1 }).sequence, 1001);
+});
+
+test("integration mode reads a real Git history: base, count and merged heads come from first-parent lines", async () => {
+  const { qaIntegrationBuild } = await import("./v3-profile.mjs");
+  const repo = await mkdtemp(join(tmpdir(), "still-qa-integration-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args],
+    { cwd: repo, encoding: "utf8", env }).trim();
+  try {
+    git("init", "-q", "-b", "main");
+    for (const n of [1, 2, 3]) git("commit", "-q", "--allow-empty", "-m", `main ${n}`);
+    const base = git("rev-parse", "HEAD");
+    git("switch", "-q", "-c", "pr-one"); git("commit", "-q", "--allow-empty", "-m", "PR one work");
+    git("switch", "-q", "-c", "pr-two", "main"); git("commit", "-q", "--allow-empty", "-m", "PR two work");
+    const prTwo = git("rev-parse", "HEAD");
+    git("switch", "-q", "-c", "qa/integration", "main");
+    git("merge", "-q", "--no-ff", "-m", "Merge PR one", "pr-one"); const first = git("rev-parse", "HEAD");
+    git("merge", "-q", "--no-ff", "-m", "Merge PR two", "pr-two"); const second = git("rev-parse", "HEAD");
+    // Main moves on after the branch was cut; the base stays where the branch started.
+    git("switch", "-q", "main"); git("commit", "-q", "--allow-empty", "-m", "main 4");
+    git("update-ref", "refs/remotes/origin/main", "main");
+    const input = { STILL_QA_INTEGRATION_BRANCH: "qa/integration" };
+    assert.deepEqual(qaIntegrationBuild(repo, { revision: second, dirty: false }, input), {
+      branch: "qa/integration", base: { revision: base, count: 3 }, originMainCount: 4, sequence: 1003,
+      mergedHeads: [{ revision: first, subject: "Merge PR one" }, { revision: second, subject: "Merge PR two" }],
+    });
+    // A merged PR's own commit is on the branch's history but not its first-parent line.
+    assert.throws(() => qaIntegrationBuild(repo, { revision: prTwo, dirty: false }, input), /head of qa\/integration/);
+    assert.throws(() => qaIntegrationBuild(repo, { revision: second, dirty: false }, { STILL_QA_INTEGRATION_BRANCH: "qa/missing" }), /local branch named qa\/missing/);
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});
+
+test("the candidate identity and every manifest carry the integration block only for integration packages", async () => {
+  const { qaIntegrationBuild } = await import("./v3-profile.mjs");
+  const integration = qaIntegrationBuild("/repo", { revision: fakeSha("b2"), dirty: false }, { STILL_QA_INTEGRATION_BRANCH: "qa/integration" }, fakeIntegrationGit().run);
+  const overlay = { mode: "paid-sandbox", environment: "sandbox", backendRouteProfile: "shared-hosted-sandbox", trustSha256: "a".repeat(64),
+    flags: { jsPaid: true, nativePaid: true, modernSettingsSync: true, appleAtomicSettings: true } };
+  const snapshot = { sha256: "b".repeat(64) };
+  const plain = paid.candidateIdentity(snapshot, overlay, ["chrome"]);
+  const integrated = paid.candidateIdentity(snapshot, overlay, ["chrome"], integration);
+  assert.equal(Object.hasOwn(plain, "integration"), false);
+  assert.deepEqual(integrated.integration, integration);
+  // Nothing else in the identity changes (buildId is random per build).
+  const strip = ({ integration: _i, buildId: _b, candidateSha256: _c, ...rest }) => rest;
+  assert.deepEqual(strip(integrated), strip(plain));
+  assert.deepEqual(Object.keys(integrated).filter(key => key !== "integration"), Object.keys(plain));
+  const manifestFor = (paidBuild, extra = {}) => artifactManifest({ profile: "paid-sandbox", surface: "chrome", revision: fakeSha("b2"), dirty: false,
+    sourceSha256: snapshot.sha256, backendRouteProfile: "shared-hosted-sandbox", backendUrl: "https://hosted-fixture.invalid",
+    artifacts: { totalBytes: 0, files: [] }, paidBuild, ...extra });
+  const main = manifestFor(plain), integ = manifestFor(integrated, { integration });
+  assert.equal(Object.hasOwn(main, "integration"), false, "main builds have no integration block, not even null");
+  assert.deepEqual(integ.integration, integration);
+  assert.deepEqual(integ.paidBuild.integration, integration);
+  const { integration: _block, paidBuild: _p, ...integRest } = integ, { paidBuild: _q, ...mainRest } = main;
+  assert.deepEqual(integRest, mainRest, "the integration block is the only difference in the receipt");
+  assert.deepEqual(Object.keys(integ).filter(key => key !== "integration"), Object.keys(main));
+  // The receipt and the candidate identity must describe the same integration.
+  assert.throws(() => manifestFor(plain, { integration }), /identity mismatch/);
+  assert.throws(() => manifestFor(integrated), /identity mismatch/);
+  assert.throws(() => manifestFor(integrated, { integration: { ...integration, branch: "qa/other" } }), /identity mismatch/);
+  for (const broken of [null, { ...integration, sequence: 1439 }, { ...integration, mergedHeads: [] }, { ...integration, originMainCount: 938 },
+    { ...integration, base: { ...integration.base, revision: "HEAD" } }, { ...integration, mergedHeads: [{ revision: "x", subject: "s" }] }])
+    assert.throws(() => manifestFor({ ...plain, integration: broken }, { integration: broken }), /Integration record/);
+  // Local and test profiles never carry one.
+  assert.throws(() => artifactManifest({ profile: "local", surface: "chrome", revision: fakeSha("b2"), dirty: false, sourceSha256: snapshot.sha256,
+    artifacts: { totalBytes: 0, files: [] }, integration }), /Integration record/);
+});
+
+test("the paid sandbox builder reads STILL_QA_INTEGRATION_BRANCH and refuses before installing; without it the main-only rule still applies", async () => {
+  const root = await fixture();
+  try {
+    const sources = {
+      "packages/core/src/entitlement/packaged-access-trust.ts": "source fixture",
+      "packages/core/src/sync/backend-route-profile.ts": "route source fixture",
+      "apps/apple/StillKit/Sources/StillKit/NativeAccessConfiguration.swift": 'let key = "StillBackendRouteProfile"',
+      "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift": `public static let stillProV3 = ApplePurchaseProduct(
+      productID: "still_pro_v3", entitlementID: "still_pro_v3", offeringID: "still_pro_v3", packageID: "$rc_lifetime")
+      public static let historicalStillSync = ApplePurchaseProduct(productID: "still_sync")`,
+      ".gitignore": ".output/\n",
+    };
+    for (const [path, bytes] of Object.entries(sources)) { await mkdir(join(root, path, ".."), { recursive: true }); await writeFile(join(root, path), bytes); }
+    execFileSync("git", ["add", "."], { cwd: root });
+    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "prerequisites"], { cwd: root });
+    const receipt = join(root, ".output/v3-qa/paid-sandbox/chrome/artifact-manifest.json");
+    for (const [input, expected] of [
+      [{ ...paidInputs, STILL_QA_INTEGRATION_BRANCH: "qa/integration" }, /need a local branch named qa\/integration/],
+      [paidInputs, /main's own line/],
+      [{ ...paidInputs, STILL_QA_INTEGRATION_BRANCH: "" }, /main's own line/],
+    ]) {
+      await mkdir(join(receipt, ".."), { recursive: true });
+      await writeFile(receipt, "stale-success");
+      await assert.rejects(paidSandboxMain("chrome", input, root), expected);
+      await assert.rejects(readFile(receipt), /ENOENT/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("integration builds refuse a package that holds newer main than its base or a PR that was fast-forwarded instead of merged", async () => {
+  const { qaIntegrationBuild } = await import("./v3-profile.mjs");
+  const input = { STILL_QA_INTEGRATION_BRANCH: "qa/x" };
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const scenario = async (steps, expected) => {
+    const repo = await mkdtemp(join(tmpdir(), "still-qa-integration-refuse-"));
+    const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args],
+      { cwd: repo, encoding: "utf8", env }).trim();
+    try {
+      git("init", "-q", "-b", "main");
+      for (const n of [1, 2, 3]) git("commit", "-q", "--allow-empty", "-m", `main ${n}`);
+      steps(git);
+      assert.throws(() => qaIntegrationBuild(repo, { revision: git("rev-parse", "HEAD"), dirty: false }, input), expected);
+    } finally { await rm(repo, { recursive: true, force: true }); }
+  };
+  const newer = /contains main commits newer than its base[\s\S]*git merge --no-ff/;
+  // A: the branch was cut from a PR branch and main was merged into it (first parent is the PR).
+  await scenario(git => {
+    git("switch", "-q", "-c", "pr", "main"); git("commit", "-q", "--allow-empty", "-m", "PR work");
+    git("switch", "-q", "main"); for (let n = 4; n <= 10; n++) git("commit", "-q", "--allow-empty", "-m", `main ${n}`);
+    git("update-ref", "refs/remotes/origin/main", "main");
+    git("switch", "-q", "-c", "qa/x", "pr"); git("merge", "-q", "--no-ff", "-m", "Merge origin/main into qa/x", "main");
+  }, newer);
+  // B: the PR branch had already merged origin/main, so a plain merge fast-forwards onto the PR's own line.
+  await scenario(git => {
+    git("switch", "-q", "-c", "pr", "main"); git("commit", "-q", "--allow-empty", "-m", "PR work");
+    git("switch", "-q", "main"); for (let n = 4; n <= 10; n++) git("commit", "-q", "--allow-empty", "-m", `main ${n}`);
+    git("switch", "-q", "pr"); git("merge", "-q", "--no-ff", "-m", "Merge origin/main into pr", "main");
+    git("update-ref", "refs/remotes/origin/main", "main");
+    git("switch", "-q", "-c", "qa/x", "main"); git("merge", "-q", "--ff", "pr");
+  }, newer);
+  // C: an up-to-date PR fast-forwards, so the first-parent line holds the PR's plain commits.
+  await scenario(git => {
+    git("update-ref", "refs/remotes/origin/main", "main");
+    git("switch", "-q", "-c", "pr", "main");
+    git("commit", "-q", "--allow-empty", "-m", "PR work a"); git("commit", "-q", "--allow-empty", "-m", "PR work b");
+    git("switch", "-q", "-c", "qa/x", "main"); git("merge", "-q", "--ff", "pr");
+  }, /is not a merge \([0-9a-f]{12} PR work a\)[\s\S]*git merge --no-ff/);
+  // The same up-to-date PR merged with --no-ff is accepted and recorded as one merged head.
+  const repo = await mkdtemp(join(tmpdir(), "still-qa-integration-noff-"));
+  const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args],
+    { cwd: repo, encoding: "utf8", env }).trim();
+  try {
+    git("init", "-q", "-b", "main");
+    for (const n of [1, 2, 3]) git("commit", "-q", "--allow-empty", "-m", `main ${n}`);
+    git("update-ref", "refs/remotes/origin/main", "main");
+    git("switch", "-q", "-c", "pr", "main"); git("commit", "-q", "--allow-empty", "-m", "PR work a");
+    git("switch", "-q", "-c", "qa/x", "main"); git("merge", "-q", "--no-ff", "-m", "Merge pr", "pr");
+    const built = qaIntegrationBuild(repo, { revision: git("rev-parse", "HEAD"), dirty: false }, input);
+    assert.deepEqual([built.base.count, built.sequence, built.mergedHeads.map(head => head.subject)], [3, 1003, ["Merge pr"]]);
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});

@@ -90,11 +90,17 @@ describe("Safari V3 settings page", () => {
     expect(saved.services.tiktok).toBe(false);
   });
 
-  it("signed out: no Sign in button (this build cannot sign in; the app owns the account)", async () => {
+  it("signed out: the popups' signed-out sync card, whose Sign in opens the Still app (the app owns the account)", async () => {
     await open("atomic");
     await screen.findByRole("switch", { name: "Still on Facebook" });
     await waitFor(() => expect(screen.getByRole("heading", { name: "Settings sync" })).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(screen.getByText("Sync settings across devices and browsers. Free.")).toBeTruthy();
+    const signIn = screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement;
+    expect(signIn.disabled).toBe(false);
+    const described = document.getElementById(signIn.getAttribute("aria-describedby") ?? "");
+    expect(described?.textContent?.trim()).toBe("Opens the Still app");
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete account" })).toBeNull();
   });
 
   it.each([
@@ -359,7 +365,7 @@ describe("Safari V3 settings page: stylesheets and the first read", () => {
     expect(links()).toEqual(["v3-components.css"]);
   });
 
-  it("shows \"Checking sync…\" until the first read answers, never \"Settings are unavailable.\"", async () => {
+  it("shows \"Loading your settings…\" until the first read answers, never \"Settings are unavailable.\"", async () => {
     const f = await installSafari({ saved: "atomic" });
     const record = await f.nativeRecord();
     f.holdReads();
@@ -370,13 +376,13 @@ describe("Safari V3 settings page: stylesheets and the first read", () => {
       load: () => import("../v3-mount.js"),
     });
     expect(mode).toBe("v3");
-    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    expect(screen.getByText("Loading your settings…")).toBeTruthy();
     expect(screen.queryByText("Settings are unavailable.")).toBeNull();
     for (let i = 0; i < 5; i++) await flush();
-    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    expect(screen.getByText("Loading your settings…")).toBeTruthy();
     f.releaseReads();
     await screen.findByRole("switch", { name: "Still on Instagram" });
-    expect(screen.queryByText("Checking sync…")).toBeNull();
+    expect(screen.queryByText("Loading your settings…")).toBeNull();
   });
 });
 

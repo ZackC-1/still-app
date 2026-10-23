@@ -180,7 +180,7 @@ async function capture(
           tab
             .evaluate<string>("document.querySelector('h1')?.textContent ?? ''")
             .catch(() => ""),
-        (t) => t === "TikTok stays closed.",
+        (t) => t === "TikTok stays closed",
       );
       await new Promise((done) => setTimeout(done, 600));
       await chrome.frameTab("tiktok-blocked.html", size);

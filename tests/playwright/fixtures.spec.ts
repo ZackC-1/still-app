@@ -724,7 +724,7 @@ async function expectTikTokBlocked(page: Page): Promise<void> {
     return;
   }
   await page.waitForURL(/^chrome-extension:\/\/[a-p]{32}\/tiktok-blocked\.html\?r=/, { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TikTok stays closed" })).toBeVisible();
   await expect(page.locator("#tiktok-feed")).toHaveCount(0);
 }
 

@@ -48,10 +48,10 @@ test("J1.FD a new install opens the first-run page once and saves the defaults",
   );
   expect(
     await page.evaluate<string>("document.querySelector('h1').textContent"),
-  ).toBe("Still is on.");
+  ).toBe("Still is on");
   // Firefox grants the four sites at install, so the permission step reads as done.
   expect(await text(page)).toContain(
-    "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+    "Allowed on Instagram, Facebook, YouTube and TikTok.",
   );
   await ev.shot("first-run", "first-run-just-installed");
 
@@ -189,12 +189,13 @@ test("J11.FD the built Firefox manifest asks for exactly storage and alarms, on 
   expect(manifest.optional_host_permissions).toBeUndefined();
   // Settings open in their own tab (ISS-0097); the embedded Add-ons Manager panel hid the sheets.
   expect(manifest.options_ui).toEqual({ open_in_tab: true, page: "options.html" });
-  // Firefox's own data-collection declaration: sign-in needs an identity, analytics is optional.
+  // Firefox's own data-collection declaration: sign-in needs an identity; the email address, the
+  // Still Pro purchase status and usage analytics are optional (asked for at sign-in or purchase).
   expect(
     manifest.browser_specific_settings.gecko.data_collection_permissions,
   ).toEqual({
     required: ["authenticationInfo"],
-    optional: ["technicalAndInteraction"],
+    optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"],
   });
   expect(manifest.browser_specific_settings.gecko.strict_min_version).toBe(
     "140.0",
@@ -242,7 +243,7 @@ test("J11.FD site access withdrawn shows the one-step permission-needed state (D
   );
   const body = await text(page);
   expect(body).toContain(
-    "Firefox asks once. Still only runs on these four sites.",
+    "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.",
   );
   expect(
     await page.evaluate<boolean>(
@@ -250,7 +251,7 @@ test("J11.FD site access withdrawn shows the one-step permission-needed state (D
     ),
   ).toBe(true);
   expect(body).not.toContain(
-    "Allowed on Instagram, Facebook, YouTube, and TikTok.",
+    "Allowed on Instagram, Facebook, YouTube and TikTok.",
   );
   await ev.shot("first-run.html", "first-run-permission-needed", {
     width: 420,

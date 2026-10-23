@@ -37,14 +37,20 @@ no email. Ordinary accounts use normal OTP. The deployed secrets and Apple-only
 The September 14 record confirms the later `review-signin` deployment and logging update. Do not
 redeploy, remint or rotate merely to complete an old checkbox. For a newly approved revision:
 
-1. Prepare only the required secrets in a private ignored env file; never inline values in command
-   arguments or public artifacts. Keep reviewer configuration out of extension builds.
-2. Follow [the deployment/dependency procedure](counter-retention.md#edge-dependency-configuration)
-   for the exact reviewed function and target. Preserve the documented CLI compatibility behavior.
+1. The owner sets `REVIEW_SIGNIN_EMAIL` and `REVIEW_SIGNIN_CODE` in the Supabase dashboard (the
+   production project, **Edge Functions**, **Secrets**, by name), pasting each value from the private
+   App Review record. Never put a value in a terminal, a file, a chat or a workflow input. Keep
+   reviewer configuration out of extension builds. The earlier env-file and CLI sequence is
+   historical and no longer used for production.
+2. Redeploy the route only through the protected `review-signin-function` operation
+   ([procedure](purchase-routes-and-secrets.md)). It deploys the reviewed commit's sealed bundle
+   and checks the secrets by name only; it never sets or changes them.
 3. Verify source/configuration parity and the approved reviewer sign-in; wrong-code and unrelated
    address requests must fail closed. Use only approved test identities, with no secret-bearing logs.
 4. Preserve the shared reviewer code while either iOS or macOS submission references it. After all
-   relevant reviews resolve, retire/rotate with the corresponding private portal information updated.
+   relevant reviews resolve, the owner retires or rotates it on the same dashboard page, updates the
+   private App Review information to match, and repeats step 3
+   ([details](purchase-routes-and-secrets.md#review-sign-in-secrets)).
 
 Authentication smoke evidence and the full hosted seed/switch/export/delete/re-create lifecycle
 are separate. The latter remains the issue #153 certification item.
