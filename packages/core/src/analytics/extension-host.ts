@@ -659,10 +659,11 @@ export function createExtensionAnalyticsHost(
     if (stopped) return false;
     switch (request.action) {
       case "track": {
-        const captured = await observation;
-        if (!captured) return false;
         await waitForStart();
-        if (!(await client.observationCurrent(captured))) return false;
+        // A worker this screen woke confirms "signed out" at its start, after the screen's event
+        // was observed; when that let go of nobody the event is kept (client.revive, ISS-0115).
+        const captured = await client.revive(await observation);
+        if (!captured) return false;
         await client.trackUnchecked(request.name, request.props, {
           observation: captured,
         });
@@ -882,10 +883,9 @@ export function createExtensionAnalyticsHost(
     onActivity(observation = client.captureObservation()) {
       if (stopped) return;
       void (async () => {
-        const captured = await observation;
-        if (!captured) return;
         await waitForStart();
-        if (!(await client.observationCurrent(captured))) return;
+        const captured = await client.revive(await observation);
+        if (!captured) return;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
           await client.trackOnce(
@@ -946,7 +946,9 @@ export function createExtensionAnalyticsHost(
         client.permissionChanged();
         void client.clearQueue();
       }
-      void handle(request, observation ?? client.captureObservation())
+      // `observe`, not `captureObservation`: a track observed as a woken worker's start confirms
+      // "signed out" is judged by client.revive (it is never sent as observed when stale).
+      void handle(request, observation ?? client.observe())
         .then(sendResponse, () => sendResponse(null))
         .catch(() => {});
       return true;

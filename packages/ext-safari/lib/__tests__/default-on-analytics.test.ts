@@ -41,7 +41,9 @@ interface Device {
   readonly account: { value: string | null };
 }
 
-function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string | null; device?: Device } = {}) {
+function setup(
+  options: { lane?: boolean; defaultOn?: boolean; account?: string | null; device?: Device; mac?: boolean } = {},
+) {
   const device: Device = options.device ?? {
     appGroup: memory(),
     local: memory(),
@@ -61,8 +63,8 @@ function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string 
           installId: "11111111-1111-4111-8111-111111111111",
           anchorId: "22222222-2222-4222-8222-222222222222",
           consent: true,
-          platform: "ios",
-          device: "phone",
+          platform: options.mac ? "macos" : "ios",
+          device: options.mac ? "desktop" : "phone",
         },
       };
     if (message.kind === "analyticsSubject") return { analyticsSubject: appGroupSubject.value };
@@ -87,7 +89,7 @@ function setup(options: { lane?: boolean; defaultOn?: boolean; account?: string 
     appVersion: "3.0.0",
     envelope: { build_channel: "test" },
     sendNative,
-    platform: async () => "ios",
+    platform: async () => (options.mac ? "mac" : "ios"),
     local,
     isTrustedPage: (s) => s.url?.startsWith("safari-web-extension://ext/") === true,
     fetch: fetch as unknown as typeof globalThis.fetch,
@@ -488,5 +490,248 @@ describe("ISS-0115: the popup opened right after the app turns sharing on", () =
     await t.idle();
     expect(t.sent()).not.toContain("opened");
     expect(t.bodies()).not.toContain(arrivedUnder);
+  });
+});
+
+describe("ISS-0115 (22 Oct): a popup that wakes the background keeps its events", () => {
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const v3 = () => vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+  const MASTER = (enabled: boolean) => ({
+    kind: ANALYTICS_MESSAGE_KIND,
+    action: "track",
+    name: "service_toggled",
+    props: { service: "youtube", enabled, where: "popup" },
+  });
+  const sentAs = (t: ReturnType<typeof setup>) =>
+    t.fetch.mock.calls.flatMap((call) =>
+      (
+        JSON.parse(String((call[1] as RequestInit).body)) as {
+          batch: { event: string; properties: { distinct_id?: unknown; surface?: unknown } }[];
+        }
+      ).batch.map((e) => [e.event, e.properties.distinct_id]),
+    );
+  const anonymousId = (t: ReturnType<typeof setup>) =>
+    readAnalyticsPermission(t.appGroup.data[CONSENT_KEY])!.provider.anonymousId;
+  /** Safari unloaded the background (no stop: its memory is simply gone); the popup's opening wakes
+   * a new one, whose start-up account check runs alongside the popup's `opened`. */
+  const wake = (before: ReturnType<typeof setup>, options: { mac?: boolean } = {}) => {
+    before.fetch.mockImplementation(() => new Promise<Response>(() => {})); // the old one never sends again
+    const t = setup({ device: before.device, ...options });
+    t.bg.onStart();
+    const opened = t.send(OPENED);
+    return { t, opened };
+  };
+
+  for (const mac of [false, true])
+    it(`${mac ? "Mac" : "iPhone"}: after Off then On in the app, every popup session reports opened and its toggles under the new id`, async () => {
+      v3();
+      const first = setup({ mac });
+      await first.app.permission();
+      await first.use();
+      await first.eventually(() => expect(first.sent()).toContain("opened"));
+      const oldId = anonymousId(first);
+      await first.app.commit(false);
+      await first.app.commit(true);
+      const newId = anonymousId(first);
+      expect(newId).not.toBe(oldId);
+      // (a) The first popup session after On: opened, then YouTube off and on.
+      const one = wake(first, { mac });
+      await one.opened;
+      await one.t.send(MASTER(false));
+      await one.t.send(MASTER(true));
+      one.t.bg.flush();
+      await one.t.idle();
+      await one.t.eventually(() =>
+        expect(sentAs(one.t)).toEqual(
+          expect.arrayContaining([["opened", newId], ["master_toggled", newId]]),
+        ),
+      );
+      expect(sentAs(one.t).filter(([e]) => e === "master_toggled")).toHaveLength(2);
+      expect(one.t.bodies()).toContain(mac ? '"surface":"safari-macos"' : '"surface":"safari-ios"');
+      // (c) A later popup session, on another woken background: opened is kept too.
+      const two = wake(one.t, { mac });
+      await two.opened;
+      await two.t.send(MASTER(false));
+      two.t.bg.flush();
+      await two.t.idle();
+      await two.t.eventually(() =>
+        expect(sentAs(two.t)).toEqual(expect.arrayContaining([["opened", newId], ["master_toggled", newId]])),
+      );
+      for (const t of [one.t, two.t]) expect(t.bodies()).not.toContain(oldId);
+    });
+
+  it("a woken background keeps the popup's opened without any Off/On too", async () => {
+    v3();
+    const first = setup();
+    await first.app.permission();
+    await first.use();
+    await first.eventually(() => expect(first.sent()).toContain("opened"));
+    const { t, opened } = wake(first);
+    await opened;
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+  });
+
+  it("two popup events in quick succession are both kept (the second's account check does not drop the first)", async () => {
+    v3();
+    const first = setup();
+    await first.app.permission();
+    await first.use();
+    await first.eventually(() => expect(first.sent()).toContain("opened"));
+    const { t, opened } = wake(first);
+    const toggled = t.send(TOGGLED);
+    await Promise.all([opened, toggled]);
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toEqual(expect.arrayContaining(["opened", "global_toggled"])));
+  });
+
+  it("NEGATIVE CONTROL: while the app's sharing is Off, a woken background sends and queues nothing", async () => {
+    v3();
+    const first = setup();
+    await first.app.permission();
+    await first.use();
+    await first.eventually(() => expect(first.sent()).toContain("opened"));
+    await first.app.commit(false);
+    const { t, opened } = wake(first);
+    await opened;
+    await t.send(MASTER(false));
+    t.bg.flush();
+    await t.idle();
+    expect(t.fetch).not.toHaveBeenCalled();
+    expect(t.queue()).toEqual([]);
+  });
+
+  it("NEGATIVE CONTROL: an event observed as a woken background lets go of a signed-out account is never sent", async () => {
+    v3();
+    const first = setup({ account: ACCOUNT });
+    const permission = (await first.app.permission())!;
+    first.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await first.use();
+    await first.eventually(() => expect(first.bodies()).toContain(SUBJECT));
+    // Signed out in the app while Safari had unloaded the background.
+    first.device.account.value = null;
+    first.appGroupSubject.value = null;
+    const { t, opened } = wake(first); // possibly the departed account's use
+    await opened;
+    t.bg.flush();
+    await t.idle();
+    await t.send(TOGGLED); // after the sign-out is confirmed: anonymous
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("global_toggled"));
+    await t.idle();
+    expect(t.sent()).not.toContain("opened");
+    expect(t.bodies()).not.toContain(SUBJECT);
+  });
+
+  /** Holds the next account read's reply (computed when it is asked) until released. */
+  const holdNextAccountRead = (t: ReturnType<typeof setup>) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let asked!: () => void;
+    const reached = new Promise<void>((resolve) => (asked = resolve));
+    const original = t.sendNative.getMockImplementation()!;
+    let held = false;
+    t.sendNative.mockImplementation(async (message) => {
+      if (message.kind !== "getAccountSyncStatus" || held) return original(message);
+      held = true;
+      const reply = await original(message); // the app's answer when it was asked
+      asked();
+      await gate;
+      return reply;
+    });
+    return { reached, release };
+  };
+
+  it("NEGATIVE CONTROL: an overtaken check that read a signed-in account never sends its event anonymously after a sign-out", async () => {
+    v3();
+    const t = setup();
+    await t.app.permission();
+    await t.use(); // signed out, confirmed
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    t.fetch.mockClear();
+    // Signed in in the app; the toggle's account check reads "signed in" and its reply is slow.
+    t.device.account.value = ACCOUNT;
+    const held = holdNextAccountRead(t);
+    const toggled = t.send(TOGGLED);
+    await held.reached;
+    // Signed out again in the app; a newer event's check reads "signed out" and overtakes it.
+    t.device.account.value = null;
+    await t.send(OPENED);
+    held.release();
+    await toggled;
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    expect(t.sent()).not.toContain("global_toggled");
+  });
+
+  it("NEGATIVE CONTROL: an overtaken check that read signed out, while the device stays signed in, never sends its event", async () => {
+    v3();
+    const t = setup({ account: ACCOUNT });
+    const permission = (await t.app.permission())!;
+    t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await t.use();
+    await t.eventually(() => expect(t.bodies()).toContain(SUBJECT));
+    await t.idle();
+    t.fetch.mockClear();
+    // A momentary "signed out" answer for the toggle, overtaken by a newer "signed in" one.
+    t.device.account.value = null;
+    const held = holdNextAccountRead(t);
+    const toggled = t.send(TOGGLED);
+    await held.reached;
+    t.device.account.value = ACCOUNT;
+    await t.send(OPENED);
+    held.release();
+    await toggled;
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    expect(t.sent()).not.toContain("global_toggled");
+  });
+
+  it("NEGATIVE CONTROL: Off in the app between queueing and sending drops the event", async () => {
+    v3();
+    const first = setup();
+    await first.app.permission();
+    await first.use();
+    await first.eventually(() => expect(first.sent()).toContain("opened"));
+    const { t, opened } = wake(first);
+    await opened;
+    await t.idle();
+    // Queued (its own flush is 1.5 s away); the app's switch goes Off before it is sent.
+    expect(t.queue()).toContain("opened");
+    await t.app.commit(false);
+    t.bg.flush();
+    await new Promise((r) => setTimeout(r, 1_700));
+    await t.idle();
+    expect(t.fetch).not.toHaveBeenCalled();
+  });
+
+  it("NEGATIVE CONTROL: a permission read that fails at send time sends nothing", async () => {
+    v3();
+    const first = setup();
+    await first.app.permission();
+    await first.use();
+    await first.eventually(() => expect(first.sent()).toContain("opened"));
+    const { t, opened } = wake(first);
+    await opened;
+    await t.idle();
+    expect(t.queue()).toContain("opened");
+    const original = t.sendNative.getMockImplementation()!;
+    t.sendNative.mockImplementation(async (message) => {
+      if (message.kind === "analyticsPermission") throw new Error("native host unavailable");
+      return original(message);
+    });
+    t.bg.flush();
+    await new Promise((r) => setTimeout(r, 1_700));
+    await t.idle();
+    expect(t.fetch).not.toHaveBeenCalled();
   });
 });

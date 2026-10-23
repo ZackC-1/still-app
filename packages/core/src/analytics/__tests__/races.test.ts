@@ -1,4 +1,4 @@
-import { TEST_PRIVACY, TEST_SUBJECTS, testSubjectFor } from "./privacy-fixture.js";
+import { TEST_PERMISSION, TEST_PRIVACY, TEST_SUBJECTS, testSubjectFor } from "./privacy-fixture.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   AnalyticsClient,
@@ -1565,5 +1565,100 @@ describe("ISS-0108: the account's own identity arriving while an event it observ
     await accounts.attach(await client.captureObservation());
     expect(issue).toHaveBeenCalledTimes(2);
     expect(client.accountConfirmed).toBe(true);
+  });
+});
+
+describe("ISS-0115: revive keeps only work fenced by sign-outs of nobody", () => {
+  it("an event observed just before a fresh start's sign-out confirmation is kept", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    const observation = await client.captureObservation(); // the popup's opened, as the worker wakes
+    await client.confirm(null, { forget: true, quiet: true }); // the start: nobody signed in
+    expect(await client.observationCurrent(observation)).toBe(false);
+    const revived = await client.revive(observation);
+    expect(revived).not.toBeNull();
+    await client.track("opened", { where: "popup" }, { observation: revived! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).toContain("opened");
+  });
+
+  it("chained sign-outs of nobody are walked; a stale observation from observe() is accepted the same way", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    const observing = client.observe();
+    const confirming = client.confirm(null, { forget: true, quiet: true }); // lands while it is read
+    const observation = await observing;
+    await confirming;
+    await client.confirm(null, { forget: true, quiet: true });
+    expect(await client.revive(observation)).not.toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-out of someone who was signed in still drops it", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    await client.confirm(U1);
+    const observation = await client.captureObservation(); // possibly U1's use
+    await client.confirm(null, { forget: true, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-in asked before the sign-out (not yet installed) still drops it", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    const observation = await client.captureObservation();
+    const signingIn = client.confirm(U1);
+    await client.confirm(null, { forget: true, quiet: true });
+    await signingIn;
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a new permission origin with no fence of its own (changed elsewhere) still drops it", async () => {
+    let permission = TEST_PERMISSION;
+    const { client } = makeClient({ startsUnconfirmed: true, permission: async () => permission });
+    const observation = await client.captureObservation(); // under the first origin
+    // Off then On in the App Group: a new origin and ids, with no permissionChanged on this client.
+    permission = {
+      ...TEST_PERMISSION,
+      origin: "88888888-8888-4888-8888-888888888888",
+      provider: {
+        anonymousId: "33333333-3333-4333-8333-333333333333",
+        deviceId: "44444444-4444-4444-8444-444444444444",
+      },
+    };
+    await client.confirm(null, { forget: true, quiet: true }); // a sign-out of nobody
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-in asked just before the sign-out, whose install failed, still drops it", async () => {
+    const { client, store } = makeClient({ startsUnconfirmed: true });
+    store.failNextRead(STATE_KEY); // the sign-in's install cannot read the state
+    const signingIn = client.confirm(U1);
+    const observing = client.observe(); // observed after the sign-in was asked: possibly U1's use
+    const signingOut = client.confirm(null, { forget: true, quiet: true });
+    await Promise.all([signingIn, signingOut]);
+    expect((store.data[STATE_KEY] as { userId?: unknown } | undefined)?.userId ?? null).toBeNull();
+    expect(await client.revive(await observing)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a deleted account whose events are not yet verifiably dropped still drops it", async () => {
+    const queue = refusable(pausable());
+    const { client, store } = makeClient({ queueStore: queue.store, startsUnconfirmed: true });
+    await client.confirm(U1);
+    await client.track("opened", { where: "popup" }); // U1's use, waiting (offline)
+    queue.refuse("silently"); // the drop is acknowledged but not kept
+    await client.reset({ forgetAccount: true });
+    expect((store.data[STATE_KEY] as { forgotten?: unknown }).forgotten).toEqual([U1]);
+    const observation = await client.captureObservation();
+    await client.confirm(null, { forget: true, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a hold, a sign-in or a sharing change after the sign-out still drops it", async () => {
+    for (const change of ["hold", "signIn", "permission"] as const) {
+      const { client } = makeClient({ startsUnconfirmed: true });
+      const observation = await client.captureObservation();
+      await client.confirm(null, { forget: true, quiet: true });
+      if (change === "hold") await client.holdForAccount(U1);
+      else if (change === "signIn") await client.confirm(U1);
+      else client.permissionChanged();
+      expect(await client.revive(observation)).toBeNull();
+    }
   });
 });

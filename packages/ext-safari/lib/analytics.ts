@@ -7,7 +7,6 @@ import {
   isDeviceClass,
   privacyPolicyReady,
   readAnalyticsPermission,
-  samePermission,
   type AnalyticsDevice,
   type AnalyticsConfig,
   type AnalyticsKeyValue,
@@ -183,8 +182,13 @@ export function createSafariBackgroundAnalytics(
     privacyPolicy: deps.privacyPolicy,
     permission,
     envelope: deps.envelope,
-    consent: async () =>
-      !!(await granted()) && (await proveMetadata()) && !!(await granted()),
+    // One fresh App Group read per check once the surface is proven (it is cached for the life of
+    // the background); the first check reads again after the native context read.
+    consent: async () => {
+      if (!(await granted())) return false;
+      if (metadata) return true;
+      return (await proveMetadata()) && !!(await granted());
+    },
     identity: async () => {
       const current = await granted();
       if (!current) throw new Error("Optional provider identity unavailable");
@@ -211,6 +215,7 @@ export function createSafariBackgroundAnalytics(
     uuid: deps.uuid,
   });
   type Observation = ReturnType<typeof host.client.captureObservation>;
+  type Captured = NonNullable<Awaited<Observation>>;
   const current = async (observation: Observation) => {
     const captured = await observation;
     return !stopped &&
@@ -219,34 +224,57 @@ export function createSafariBackgroundAnalytics(
       ? captured
       : null;
   };
-  type Captured = NonNullable<Awaited<Observation>>;
-  // The observation to carry on with after this host's own sign-out confirmation (ISS-0115). The
-  // background reads the account only under a granted permission, so one that started while the
-  // app's sharing was off confirms nobody until the first page event after sharing is turned on.
-  // That confirmation fences every earlier observation, including the event's own, which was then
-  // lost (the popup's `opened`), while the toggle a moment later was kept. Where the confirmation
-  // lets go of nobody (no one reported as, no hold in memory or saved before a restart, no sign-in
-  // being confirmed; client.lettingGoOfNobody), the event is observed again just after it and kept
-  // only under the very permission it arrived under: a stop since then sends nothing, and a turn-on
-  // is never recorded under an earlier origin's ids. A sign-out of anyone who was reported as or
-  // held for still fences what arrived before it, as before.
-  const reobserve = async (before: Captured): Promise<Captured | null> => {
-    if (await current(Promise.resolve(before))) return before;
-    const after = await current(host.client.captureObservation());
-    return after && samePermission(after.permission, before.permission) ? after : null;
-  };
+  // The observation to carry on with, or null to drop the work (ISS-0115). A popup that wakes the
+  // background races the start's own account check, and whichever confirms "signed out" first
+  // fences what was observed before it, the popup's `opened` included. The client keeps such work
+  // only when every confirmation since it was observed let go of nobody and the permission is the
+  // very one it arrived under (client.revive); a sign-out of anyone, a deletion or a sharing change
+  // still drops it, and a turn-on is never recorded under an earlier origin's ids.
+  const revive = async (observation: Captured | null): Promise<Captured | null> =>
+    !stopped && observation ? host.client.revive(observation) : null;
+  // Account checks (the start's, each page event's, each flush's) read the app's account at once,
+  // and the newest answer wins: an earlier answer never lands after a newer one. Applying an answer
+  // (confirming, then judging the work) runs one check at a time, so a confirmation has always
+  // finished before another check judges its work against it.
   let accountSequence = 0;
+  let latestCheck: Promise<unknown> = Promise.resolve();
+  let applying: Promise<unknown> = Promise.resolve();
   /** Confirms the app's account for `observation`; answers the observation to record under, or
    * null when the work is to be dropped. */
-  const syncAccount = async (observation: Observation): Promise<Captured | null> => {
-    let captured = await current(observation);
-    if (!captured) return null;
+  const syncAccount = (observation: Observation): Promise<Captured | null> => {
+    const check = checkAccount(observation);
+    latestCheck = check.catch(() => undefined);
+    return check;
+  };
+  const checkAccount = async (observation: Observation): Promise<Captured | null> => {
+    // No permission when it was observed: nothing to record, and the account is not read.
+    if (stopped || !(await observation)) return null;
     const sequence = ++accountSequence;
     const reply = await bounded(() =>
       deps.sendNative({ kind: "getAccountSyncStatus" }),
     );
-    if (sequence !== accountSequence || !(await current(observation)))
-      return null;
+    if (stopped) return null;
+    if (sequence !== accountSequence) {
+      // Overtaken by a newer check: this answer is not applied. The work is kept only when this
+      // check's own answer was a readable "signed out" (the app named someone, or could not be
+      // read, for it: dropped), and then only once every newer check has finished, if the device
+      // is still signed out with nothing held and nothing but sign-outs of nobody fenced it
+      // (revive). Otherwise it is dropped, as before.
+      if ((reply as { accountSyncStatus?: unknown } | null)?.accountSyncStatus !== null) return null;
+      for (let tail = latestCheck; ; tail = latestCheck) {
+        await tail;
+        if (tail === latestCheck) break;
+      }
+      if (stopped || !(await host.client.lettingGoOfNobody())) return null;
+      return revive(await observation);
+    }
+    const next = applying.then(() => applyAccount(observation, reply));
+    applying = next.catch(() => undefined);
+    return next;
+  };
+  const applyAccount = async (observation: Observation, reply: unknown): Promise<Captured | null> => {
+    let captured = await revive(await observation);
+    if (!captured) return null;
     const status = (reply as { accountSyncStatus?: unknown } | null)
       ?.accountSyncStatus;
     const userId =
@@ -265,15 +293,14 @@ export function createSafariBackgroundAnalytics(
           import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true"
         ) {
           const reportingAs = await host.client.signedInAs();
-          const nobody = await host.client.lettingGoOfNobody();
           await host.client.confirm(null, { forget: true, quiet: true });
           await host.forgetSubjects?.(reportingAs);
-          if (nobody) captured = await reobserve(captured);
-          if (!captured) return null;
         } else await host.client.confirm(null, { forget: true, quiet: true });
+        captured = await revive(captured);
+        if (!captured) return null;
       }
     } else await host.identify(userId, { quiet: true });
-    if (stopped || sequence !== accountSequence) return null;
+    if (stopped) return null;
     host.onStart(undefined); // settle the maintained startup gate after the actual confirmation
     return captured;
   };
@@ -318,12 +345,11 @@ export function createSafariBackgroundAnalytics(
         (message as { kind?: unknown }).kind !== ANALYTICS_MESSAGE_KIND
       )
         return false;
-      const observation = host.client.captureObservation();
+      // Kept even if the start's sign-out lands while it is read: syncAccount decides (revive).
+      const observation = host.client.observe();
       run(async () => {
-        const confirmed = (await current(observation))
-          ? await syncAccount(observation)
-          : null;
-        if (!confirmed || !(await current(Promise.resolve(confirmed)))) {
+        const confirmed = await revive(await syncAccount(observation));
+        if (!confirmed) {
           sendResponse(undefined);
           return;
         }

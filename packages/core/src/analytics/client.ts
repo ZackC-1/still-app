@@ -333,6 +333,20 @@ interface Confirmation {
   /** What waited under the hold was already dropped (or kept for its owner) and attributed, and only
    * releasing the stored hold is still owed: a retry must not drop again what was recorded since. */
   readonly releaseOwed?: boolean;
+  /** A sign-out's fence: the stamp just before it was asked and just after (see `revive`). */
+  readonly fence?: NobodyFence;
+}
+
+/** A sign-out confirmation that let go of nobody: no one was reported as, no sign-in was held for
+ * or being confirmed. It fenced the work observed before it (`before`) although that work could
+ * belong to no one but this anonymous device. */
+interface NobodyFence {
+  readonly before: AnalyticsStamp;
+  readonly after: AnalyticsStamp;
+}
+
+function sameStamp(a: AnalyticsStamp, b: AnalyticsStamp): boolean {
+  return a.generation === b.generation && a.epoch === b.epoch && (a.holds ?? 0) === (b.holds ?? 0);
 }
 
 export interface ConfirmOptions {
@@ -376,6 +390,8 @@ export class AnalyticsClient {
   /** Set when the held account's own identity continued its hold (`confirm`): stamps asked under
    * that hold stay current for that one generation, and no later one. */
   private continued: { readonly generation: number; readonly holds: number } | null = null;
+  /** The latest sign-out confirmations that let go of nobody, oldest first (`revive`). */
+  private nobodyFences: NobodyFence[] = [];
   /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
    * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
   private asks = 0;
@@ -568,6 +584,13 @@ export class AnalyticsClient {
       this.heldAccount !== options.accountId.toLowerCase()
     )
       return Promise.resolve();
+    const before = this.stamp();
+    // Nobody signed in was asked for or held before this (a sign-in asked but never installed counts).
+    const askedForNobody =
+      account === null &&
+      (this.lastAsked ?? null) === null &&
+      this.heldAccount === null &&
+      (this.pending?.account ?? null) === null;
     this.asks += 1;
     if (options.forget) this.cancel();
     const holds = this.holds;
@@ -593,9 +616,10 @@ export class AnalyticsClient {
       this.lastAsked = account;
     }
     this.confirmed = false;
+    const fence = askedForNobody ? { before, after: this.stamp() } : undefined;
     return this.run(async () => {
       this.confirmed = false;
-      this.pending = { account, options, holds };
+      this.pending = { account, options, holds, ...(fence ? { fence } : {}) };
       this.forgetPending ||= options.forget === true;
       await this.establish();
     });
@@ -604,8 +628,10 @@ export class AnalyticsClient {
   /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
   private async establish(retrying = false): Promise<void> {
     if (!this.pending) return;
-    const { account, options, holds, releaseOwed } = this.pending;
+    const { account, options, holds, releaseOwed, fence } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
+    // Whether this sign-out lets go of nobody, judged before anything is installed (`revive`).
+    let nobody = false;
     // Letting go to nobody after someone was signed in here, with no hold: what waits was recorded
     // with no hold (a restart whose session could not be read yet), possibly that person's use. An
     // unnamed hold is stored first, before anything is installed, so the drop below is owed on this
@@ -614,6 +640,11 @@ export class AnalyticsClient {
     if (account === null) {
       const state = await this.read();
       if (!state) return;
+      nobody =
+        state.userId === null &&
+        this.heldNow(state) === null &&
+        this.heldAccount === null &&
+        state.forgotten.length === 0;
       if (state.userId !== null && this.heldNow(state) === null) {
         await this.write({ ...state, heldFor: HELD_UNKNOWN });
         if ((await this.read())?.heldFor !== HELD_UNKNOWN) return;
@@ -644,6 +675,7 @@ export class AnalyticsClient {
     }
     this.pending = null;
     this.confirmed = true;
+    if (nobody && fence) this.nobodyFences = [...this.nobodyFences, fence].slice(-8);
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
   }
 
@@ -836,10 +868,37 @@ export class AnalyticsClient {
     });
   }
 
+  /**
+   * `observation` if it is still current; otherwise a fresh observation in its place, but only when
+   * nothing fenced it except sign-out confirmations that let go of nobody (no one reported as, no
+   * sign-in held or being confirmed, nothing forgotten) and the permission is the very one it was
+   * observed under. Else null: the work is dropped, as before.
+   *
+   * A background woken by a Still screen confirms "signed out" at its start; that confirmation
+   * fences everything observed before it, including the screen's own `opened`, which then could
+   * never be sent (ISS-0115). Such work can belong to no one but this anonymous device, so it is
+   * kept. Any other change since it was observed (a sign-in, a sign-out of someone, a deletion,
+   * sharing turned off or on) still drops it.
+   */
+  async revive(observation: AnalyticsObservation | null): Promise<AnalyticsObservation | null> {
+    if (!observation) return null;
+    if (await this.observationCurrent(observation)) return observation;
+    let stamp = observation.stamp;
+    for (const fence of this.nobodyFences) if (sameStamp(stamp, fence.before)) stamp = fence.after;
+    if (stamp === observation.stamp || !sameStamp(stamp, this.stamp())) return null;
+    const now = await this.captureObservation();
+    return now &&
+      sameStamp(now.stamp, stamp) &&
+      samePermission(now.permission, observation.permission) &&
+      (await this.observationCurrent(now))
+      ? now
+      : null;
+  }
+
   /** Whether a sign-out confirmed now would let go of nobody: no one is reported as, no hold is in
    * force (in memory or the one saved before a restart) and no sign-in is being confirmed. False
-   * when the state cannot be read. A host may then re-observe the event that asked for the
-   * confirmation (Safari, ISS-0115); anything else stays fenced. */
+   * when the state cannot be read. The Safari host asks it before keeping work whose account
+   * check a newer check overtook (ISS-0115): only signed-out work may be kept then. */
   lettingGoOfNobody(): Promise<boolean> {
     return this.run(async () => {
       const state = await this.read();
@@ -914,6 +973,13 @@ export class AnalyticsClient {
     const stamp = this.stamp();
     const permission = await this.readPermission();
     return permission && this.isCurrent(stamp) ? { stamp, permission } : null;
+  }
+  /** Like `captureObservation`, but kept even when something changed while the permission was read:
+   * only for `revive`, which keeps it solely when that change let go of nobody. */
+  async observe(): Promise<AnalyticsObservation | null> {
+    const stamp = this.stamp();
+    const permission = await this.readPermission();
+    return permission ? { stamp, permission } : null;
   }
   async observationCurrent(
     observation: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>,
