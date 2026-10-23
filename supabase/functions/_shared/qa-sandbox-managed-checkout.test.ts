@@ -463,8 +463,10 @@ Deno.test("canonical full refund readback binds Charge PaymentIntent to unique m
   const { client, calls } = refundFixture();
   assertEquals(await client.readChargeRefund(CHARGE), { status: "full_refund", ...OP, sessionId: ID, paymentIntentId: INTENT, createdAtMs: CREATED * 1000 });
   assertEquals(calls.map(c => c.url), ["https://api.stripe.com/v1/account", `https://api.stripe.com/v1/charges/${CHARGE}`,
-    `https://api.stripe.com/v1/checkout/sessions?payment_intent=${INTENT}&limit=2`, `https://api.stripe.com/v1/checkout/sessions/${ID}`,
-    `https://api.stripe.com/v1/checkout/sessions/${ID}/line_items?limit=2&expand%5B%5D=data.price.product`]);
+    `https://api.stripe.com/v1/checkout/sessions?payment_intent=${INTENT}&limit=2`,
+    // Line items decide ownership first and are reused by the strict Session check, never read twice.
+    `https://api.stripe.com/v1/checkout/sessions/${ID}/line_items?limit=2&expand%5B%5D=data.price.product`,
+    `https://api.stripe.com/v1/checkout/sessions/${ID}`]);
   assertEquals(calls.every(c => !c.init.method || c.init.method === "GET"), true);
 });
 Deno.test("canonical partial and zero refunds never become full refund", async () => {
@@ -473,12 +475,50 @@ Deno.test("canonical partial and zero refunds never become full refund", async (
   }
 });
 Deno.test("refund charge and PaymentIntent inconsistencies fail before any Session binding", async () => {
-  for (const charge of [{ id: "ch_Other" }, { livemode: true }, { object: "refund" }, { paid: false }, { status: "pending" },
-    { currency: "eur" }, { amount: 0 }, { amount: 1.5 }, { amount_refunded: -1 }, { amount_refunded: 1088 },
-    { amount_refunded: 400 }, { refunded: false }, { payment_intent: null }, { payment_intent: "pi_x/evil" }]) {
+  for (const charge of [{ id: "ch_Other" }, { livemode: true }, { object: "refund" }, { payment_intent: "pi_x/evil" }]) {
     const s = refundFixture({ charge }); assertEquals(await s.client.readChargeRefund(CHARGE), UNKNOWN);
     assertEquals(s.calls.some(c => c.url.includes("checkout/sessions")), false);
   }
+  // A Still-owned Charge (its Session carries Still's Price) is checked strictly after ownership.
+  for (const charge of [{ paid: false }, { status: "pending" }, { currency: "eur" }, { amount: 0 }, { amount: 1.5 }, { amount_refunded: -1 },
+    { amount_refunded: 1088 }, { amount_refunded: 400 }, { refunded: false }]) {
+    const s = refundFixture({ charge }); assertEquals(await s.client.readChargeRefund(CHARGE), UNKNOWN, JSON.stringify(charge));
+    assertEquals(s.calls.some(c => c.url.endsWith(`/checkout/sessions/${ID}`)), false);
+  }
+});
+Deno.test("refund for a Charge that cannot be a Still purchase is foreign, decided from GET reads only", async () => {
+  const line = (lines().data as Record<string, unknown>[])[0]!, price = line.price as Record<string, unknown>;
+  const other = { ...lines(), data: [{ ...line, price: { ...price, id: "price_Other", product: { ...(price.product as object), id: "prod_Other" } } }] };
+  for (const patch of [{ charge: { payment_intent: null } }, { list: { data: [] } }, { items: other },
+    { items: { ...lines(), data: [] } }, { items: other, session: { metadata: {}, client_reference_id: null } }, { items: other, charge: { currency: "eur" } }]) {
+    const s = refundFixture(patch);
+    assertEquals(await s.client.readChargeRefund(CHARGE), { status: "foreign" }, JSON.stringify(patch));
+    assertEquals(s.calls.every(c => !c.init.method || c.init.method === "GET"), true);
+    assertEquals(s.calls.some(c => c.url.endsWith(`/checkout/sessions/${ID}`)), false);
+  }
+  // Still's Price or product without Still's operation binding, or unreadable line items, is never foreign.
+  for (const patch of [{ session: { metadata: {} } }, { session: { client_reference_id: null } },
+    { items: { ...lines(), data: [{ ...line, price: { ...price, id: "price_Other" } }] }, session: { metadata: {} } },
+    { replace: (url: string) => url.includes("/line_items?") ? new Response("{}", { status: 503 }) : undefined }]) {
+    assertEquals(await refundFixture(patch).client.readChargeRefund(CHARGE), UNKNOWN);
+  }
+});
+Deno.test("Session ownership reads only line items and treats an unreadable list as unknown", async () => {
+  const line = (lines().data as Record<string, unknown>[])[0]!, price = line.price as Record<string, unknown>;
+  const owner = async (items: Record<string, unknown> | null, id = ID) => {
+    const s = fixture({ paid: true, replace: url => url.includes("/line_items?") ? (items ? Response.json(items) : new Response("{}", { status: 503 })) : undefined });
+    const result = await s.client.readSessionOwnership(id);
+    assertEquals(s.calls.every(c => c.url.includes("/line_items?") && !c.init.method), true);
+    return result;
+  };
+  assertEquals(await owner(lines()), "still");
+  assertEquals(await owner({ ...lines(), data: [{ ...line, price: { ...price, id: "price_Other" } }] }), "still");
+  assertEquals(await owner({ ...lines(), data: [{ ...line, price: { ...price, id: "price_Other", product: "prod_Fixture" } }] }), "still");
+  assertEquals(await owner({ ...lines(), data: [{ ...line, price: { ...price, id: "price_Other", product: { id: "prod_Other" } } }] }), "foreign");
+  assertEquals(await owner({ ...lines(), data: [] }), "foreign");
+  assertEquals(await owner(null), "unknown");
+  assertEquals(await owner({ object: "list", data: "x", has_more: false }), "unknown");
+  assertEquals(await owner(lines(), "cs_live_Other"), "unknown");
 });
 Deno.test("refund invalid charge and wrong account never query arbitrary provider paths", async () => {
   const s = refundFixture();
@@ -488,7 +528,7 @@ Deno.test("refund invalid charge and wrong account never query arbitrary provide
   assertEquals(await wrong.client.readChargeRefund(CHARGE), UNKNOWN); assertEquals(wrong.calls.length, 1);
 });
 Deno.test("refund requires complete unique Session list and canonical same PaymentIntent and total", async () => {
-  for (const list of [{ has_more: true }, { data: [] }, { data: [checkout(true), checkout(true)] }, { url: "/v1/charges" }]) {
+  for (const list of [{ has_more: true }, { data: [checkout(true), checkout(true)] }, { url: "/v1/charges" }]) {
     assertEquals(await refundFixture({ list }).client.readChargeRefund(CHARGE), UNKNOWN);
   }
   for (const session of [{ payment_intent: "pi_Other" }, { created: null }, { created: 0 }, { amount_total: 999 },

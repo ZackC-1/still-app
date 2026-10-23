@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { handleProductionStripeWebhook, readProductionStripeWebhookRuntime } from "./production-stripe-webhook.ts";
 import type { ManagedStripeWebhookDeps } from "./managed-stripe-webhook.ts";
+import { ManagedCheckout } from "./managed-checkout.ts";
 import type { PurchaseOperation, PurchaseOperationStatus } from "./purchase-operation-store.ts";
 
 const HOLDER = "11111111-1111-1111-1111-111111111111", OP = "22222222-2222-2222-2222-222222222222";
@@ -70,7 +71,7 @@ function setup() {
             [{ right: OP,holder: HOLDER,revision: 1,verified_at: Date.now() }] : []),...unrelated],revocations: [],issuer_time: Date.now() }); },
         confirm: () => { throw Error("must not confirm positive"); },
       },
-    } }, refunds: { readChargeRefund: (id) => { assertEquals(id,CHARGE); state.refunds++; return Promise.resolve({
+    } }, ownership: { readSessionOwnership: () => Promise.resolve("still" as const) }, refunds: { readChargeRefund: (id) => { assertEquals(id,CHARGE); state.refunds++; return Promise.resolve({
       status: state.full ? "full_refund" : state.partial ? "partial_refund" : "not_refunded",operationId: OP,holderId: HOLDER,sessionId: SESSION,paymentIntentId: INTENT,createdAtMs: CREATED*1000 }); } } };
   return { state,deps };
 }
@@ -156,4 +157,119 @@ Deno.test("production refund retries while another Pro purchase is still owned, 
   assertEquals((await handleProductionStripeWebhook(await request(event("charge.refunded")),s.deps)).status,502);
   assertEquals(s.state.snapshots,[[{ key:KEY,product:"still_pro_v3",state:"revoked" }]]);
   assertEquals([s.state.row.status,s.state.signs],["refunded",0]);
+});
+
+// The live Stripe account is shared with another product whose own endpoint subscribes to the same
+// event types, so this endpoint also receives that product's events. A signed event that is not
+// provably Still's is acknowledged with 200 and touches nothing: no ledger, RevenueCat or Stripe write.
+const FOREIGN_SESSION = "cs_live_Foreign", FOREIGN_INTENT = "pi_Foreign", FOREIGN_CHARGE = "ch_Foreign";
+const STRANGER_OP = "55555555-5555-5555-5555-555555555555", STRANGER_HOLDER = "66666666-6666-6666-6666-666666666666";
+const STILL_PRICE = "price_Fixture", STILL_PRODUCT = "prod_Fixture";
+type StripeFixture = { metadata?: Record<string, unknown>; reference?: unknown; price?: string; product?: string; intent?: string | null;
+  sessions?: "none" | "one"; currency?: string; lines?: "ok" | "fail"; sessionRead?: "ok" | "fail" };
+function stripe(o: StripeFixture = {}) {
+  const calls: string[] = [];
+  const session = { object: "checkout.session", id: FOREIGN_SESSION, livemode: true, mode: "payment", payment_intent: FOREIGN_INTENT,
+    metadata: o.metadata ?? {}, client_reference_id: o.reference ?? null, currency: o.currency ?? "usd", amount_subtotal: 2500, amount_total: 2500,
+    status: "complete", payment_status: "paid", created: CREATED };
+  const fetcher = ((url: string | URL | Request, init: RequestInit = {}) => {
+    const target = String(url); calls.push(target);
+    if (init.method && init.method !== "GET") throw Error("must not write to Stripe");
+    if (target.includes("revenuecat.com")) throw Error("must not call RevenueCat");
+    if (target.endsWith("/account")) return Promise.resolve(Response.json({ object: "account", id: "acct_Fixture" }));
+    if (target.includes("/charges/")) return Promise.resolve(Response.json({ object: "charge", id: FOREIGN_CHARGE, livemode: true, paid: true,
+      status: "succeeded", currency: o.currency ?? "usd", amount: 2500, amount_refunded: 2500, refunded: true,
+      payment_intent: o.intent === undefined ? FOREIGN_INTENT : o.intent }));
+    if (target.includes("?payment_intent=")) return Promise.resolve(Response.json({ object: "list", url: "/v1/checkout/sessions", has_more: false,
+      data: o.sessions === "none" ? [] : [session] }));
+    if (target.includes("/line_items?")) return Promise.resolve(o.lines === "fail" ? new Response("{}", { status: 503 }) : Response.json({
+      object: "list", has_more: false, data: [{ object: "item", quantity: 1, currency: "usd", amount_subtotal: 2500, amount_total: 2500,
+        price: { object: "price", id: o.price ?? "price_OtherProduct", currency: "usd", unit_amount: 2500, type: "one_time", recurring: null,
+          livemode: true, product: { object: "product", id: o.product ?? "prod_OtherProduct", livemode: true } } }] }));
+    return Promise.resolve(o.sessionRead === "fail" ? new Response("{}", { status: 503 }) : Response.json(session));
+  }) as typeof fetch;
+  const adapter = new ManagedCheckout({ environment: "production", stripeSecretKey: "rk_live_SyntheticSecret123", priceId: STILL_PRICE, productId: STILL_PRODUCT,
+    stripeAccountId: "acct_Fixture", revenueCatStripePublicKey: "syntheticPublic", successUrl: "https://stillapp.fit/success", cancelUrl: "https://stillapp.fit/cancel" }, fetcher);
+  return { adapter, calls };
+}
+function composed(o: StripeFixture = {}) {
+  const s = setup(), provider = stripe(o);
+  const deps = { ...s.deps, ownership: provider.adapter, refunds: provider.adapter };
+  return { state: s.state, deps, calls: provider.calls };
+}
+function foreignEvent(type: string, object: Record<string, unknown> = {}) {
+  return event(type, { id: "evt_Foreign", data: { object: type === "charge.refunded" ? { object: "charge", id: FOREIGN_CHARGE, livemode: true } :
+    { object: "checkout.session", id: FOREIGN_SESSION, livemode: true, payment_status: "paid", ...object } } });
+}
+function untouched(state: ReturnType<typeof setup>["state"], calls: string[]) {
+  assertEquals([state.reads, state.recoveries, state.imports, state.creates, state.begins, state.commits, state.signs, state.refunds],
+    [0, 0, 0, 0, 0, 0, 0, 0]);
+  assertEquals(state.mutations, []);
+  assertEquals(calls.some(call => call.includes("revenuecat.com")), false);
+}
+const CHECKOUT_TYPES = ["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired"];
+Deno.test("production foreign checkout session without Still metadata is acknowledged and touches nothing, for every subscribed checkout type", async () => {
+  for (const type of CHECKOUT_TYPES) {
+    const c = composed();
+    const response = await handleProductionStripeWebhook(await request(foreignEvent(type)), c.deps);
+    assertEquals(response.status, 200, type); assertEquals(await response.json(), { received: true });
+    untouched(c.state, c.calls);
+    // Ownership is decided by one read of the Session's line items, never the ledger.
+    assertEquals(c.calls.every(call => call.includes(`/checkout/sessions/${FOREIGN_SESSION}/line_items?`)), true, type);
+  }
+});
+Deno.test("production foreign session with UUID-looking metadata but another Price is ignored before any ledger read", async () => {
+  for (const shape of [{ reference: STRANGER_HOLDER }, { reference: STRANGER_HOLDER, metadata: { operation_id: STRANGER_OP } },
+    // Even identifiers that would match a real Still operation are not enough without Still's Price.
+    { reference: HOLDER, metadata: { operation_id: OP } }]) {
+    for (const type of CHECKOUT_TYPES) {
+      const c = composed(shape);
+      assertEquals((await handleProductionStripeWebhook(await request(foreignEvent(type, { metadata: shape.metadata ?? {}, client_reference_id: shape.reference })), c.deps)).status, 200, type);
+      untouched(c.state, c.calls);
+    }
+  }
+});
+Deno.test("production foreign charge.refunded is acknowledged without any ledger, RevenueCat or Stripe write", async () => {
+  for (const shape of [{ intent: null }, { sessions: "none" as const }, {}, { reference: STRANGER_HOLDER, metadata: { operation_id: STRANGER_OP } },
+    { reference: HOLDER, metadata: { operation_id: OP } }, { currency: "eur" }]) {
+    const c = composed(shape);
+    const response = await handleProductionStripeWebhook(await request(foreignEvent("charge.refunded")), c.deps);
+    assertEquals(response.status, 200, JSON.stringify(shape)); assertEquals(await response.json(), { received: true });
+    untouched(c.state, c.calls);
+  }
+});
+Deno.test("production Still-priced session without Still metadata is never silently dropped", async () => {
+  for (const type of [...CHECKOUT_TYPES, "charge.refunded"]) {
+    const c = composed({ price: STILL_PRICE, product: STILL_PRODUCT });
+    assertEquals((await handleProductionStripeWebhook(await request(foreignEvent(type)), c.deps)).status, 502, type);
+    untouched(c.state, c.calls);
+  }
+  // Still's product under another Price is Still's too.
+  const product = composed({ product: STILL_PRODUCT });
+  assertEquals((await handleProductionStripeWebhook(await request(foreignEvent("checkout.session.completed")), product.deps)).status, 502);
+});
+Deno.test("production ownership that cannot be read yet retries instead of acknowledging", async () => {
+  for (const type of [...CHECKOUT_TYPES, "charge.refunded"]) {
+    const c = composed({ lines: "fail" });
+    assertEquals((await handleProductionStripeWebhook(await request(foreignEvent(type)), c.deps)).status, 502, type);
+    untouched(c.state, c.calls);
+  }
+});
+Deno.test("production Still-owned refund that cannot complete still retries", async () => {
+  const c = composed({ price: STILL_PRICE, product: STILL_PRODUCT, reference: HOLDER, metadata: { operation_id: OP }, sessionRead: "fail" });
+  assertEquals((await handleProductionStripeWebhook(await request(foreignEvent("charge.refunded")), c.deps)).status, 502);
+  untouched(c.state, c.calls);
+});
+Deno.test("production unsigned or malformed foreign payloads stay 400 with no provider work", async () => {
+  for (const options of [{ header: null }, { secret: "whsec_Other" }]) {
+    const c = composed();
+    assertEquals((await handleProductionStripeWebhook(await request(foreignEvent("checkout.session.completed"), options), c.deps)).status, 400);
+    assertEquals(c.calls, []); untouched(c.state, c.calls);
+  }
+  for (const value of [foreignEvent("checkout.session.completed", { object: "payment_intent" }), foreignEvent("checkout.session.completed", { id: "pi_Foreign" }),
+    event("charge.refunded", { data: { object: { object: "charge", id: "pi_Foreign", livemode: true } } })]) {
+    const c = composed();
+    assertEquals((await handleProductionStripeWebhook(await request(value), c.deps)).status, 400);
+    assertEquals(c.calls, []); untouched(c.state, c.calls);
+  }
 });
