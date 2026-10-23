@@ -1269,11 +1269,12 @@ const IOS_DIRECT = {
   platform: "ios",
   enableLocation: "settingsAppSafariExtensionPage",
 } as const;
-/** The Mac onboarding's steps (StillKit OnboardingCopy.macOSEnableSteps, owner 22 Oct 2026). */
+/** The Mac onboarding's steps (StillKit OnboardingCopy.macOSEnableSteps; owner, ISS-0126 on
+ * Safari 27, 23 Oct 2026). */
 const MAC_STEPS = [
   "Click “Open Safari Settings” below.",
-  "In Extensions, switch on Still.",
-  "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+  "In Extensions, make sure the box next to Still is checked.",
+  "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
   "Quit Safari (⌘Q) and reopen it.",
 ];
 /** The iPhone onboarding's steps for the direct page (StillKit OnboardingCopy.enableSteps). */
