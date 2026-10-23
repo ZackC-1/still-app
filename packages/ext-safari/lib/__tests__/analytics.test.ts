@@ -214,10 +214,12 @@ describe("Safari extension analytics", () => {
     await settle();
     expect(events()).toEqual([]);
     setConsent(true);
-    expect(await open()).toBeUndefined(); // The first confirmed account retires the earlier unknown scope.
-    await open(); // A new observation in the established scope is eligible.
+    // ISS-0115: the first event after sharing is turned on is kept. Its own sign-out confirmation
+    // (the start read nothing while off) lets go of nobody, so it is observed again and recorded.
+    expect(await open()).toBe(true);
+    await open();
     await settle();
-    expect(events().map((e) => e.event)).toEqual(["opened", "active"]);
+    expect(events().map((e) => e.event)).toEqual(["opened", "active", "opened"]);
   });
 
   it("content scripts cannot record anything", async () => {

@@ -677,3 +677,83 @@ describe("canonical web reporting through the actual default-on factory", () => 
     t.bg.stop();
   });
 });
+
+describe("ISS-0115 (22 Oct): a popup that wakes the service worker keeps its opened", () => {
+  const OPENED = { action: "track", name: "opened", props: { where: "popup" } };
+  const TOGGLED = { action: "track", name: "service_toggled", props: { service: "youtube", enabled: false, where: "popup" } };
+  const sentAs = (t: ReturnType<typeof setup>) =>
+    t.fetch.mock.calls.flatMap((call) =>
+      (
+        JSON.parse(String((call[1] as RequestInit).body)) as {
+          batch: { event: string; properties: { distinct_id?: unknown } }[];
+        }
+      ).batch.map((e) => [e.event, e.properties.distinct_id]),
+    );
+  /** The worker was unloaded; the popup's opening wakes a new one. Its start-up account read
+   * (signed out) is in flight when the popup's `opened` arrives, and lands just after. */
+  const wake = async (before: ReturnType<typeof setup>, isFirefox: boolean) => {
+    const t = setup(createDefaultOnBackgroundAnalytics, { local: before.local, isFirefox, granted: before.browser.granted });
+    let answer!: (account: string | null) => void;
+    t.bg.onStart(new Promise<string | null>((resolve) => (answer = resolve)));
+    const opened = t.send(OPENED);
+    answer(null);
+    await opened;
+    return t;
+  };
+
+  for (const isFirefox of [false, true])
+    it(`${isFirefox ? "Firefox" : "Chrome"}: after Off then On, a woken worker reports the popup's opened under the new id`, async () => {
+      const t = setup(createDefaultOnBackgroundAnalytics, { isFirefox, granted: true });
+      await install(t);
+      await expectInstallReported(t);
+      const oldId = t.permission()!.provider.anonymousId;
+      expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+      t.browser.granted = true; // Firefox: the page's permission request was accepted
+      expect(await t.send({ action: "setSharing", enabled: true })).toBe(true);
+      const newId = t.permission()!.provider.anonymousId;
+      expect(newId).not.toBe(oldId);
+      await t.bg.flushWhenReady();
+
+      for (let session = 0; session < 2; session++) {
+        const woken = await wake(t, isFirefox);
+        await woken.send(TOGGLED);
+        await woken.bg.flushWhenReady();
+        expect(sentAs(woken)).toEqual(expect.arrayContaining([["opened", newId], ["master_toggled", newId]]));
+        expect(woken.bodies()).not.toContain(oldId);
+      }
+    });
+
+  it("NEGATIVE CONTROL: Chrome with sharing Off, a woken worker sends and queues nothing", async () => {
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    await install(t);
+    await expectInstallReported(t);
+    expect(await t.send({ action: "setSharing", enabled: false })).toBe(false);
+    const woken = await wake(t, false);
+    await woken.send(TOGGLED);
+    await woken.bg.flushWhenReady();
+    expect(woken.fetch).not.toHaveBeenCalled();
+    expect(woken.queue()).toEqual([]);
+  });
+
+  it("NEGATIVE CONTROL: Chrome, an event observed as a woken worker lets go of a signed-in account is never sent", async () => {
+    const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const t = setup(createDefaultOnBackgroundAnalytics);
+    await install(t);
+    await expectInstallReported(t);
+    t.bg.onStart(ACCOUNT); // signed in (no per-device identity in this build: its use waits)
+    // The hold is saved before the worker is unloaded.
+    await vi.waitFor(() => expect((t.local.data[STATE_KEY] as { heldFor?: unknown } | undefined)?.heldFor).toBeTruthy());
+    t.bg.stop();
+    // Signed out while the worker slept; the popup wakes a new one.
+    const woken = setup(createDefaultOnBackgroundAnalytics, { local: t.local });
+    let answer!: (account: string | null) => void;
+    woken.bg.onStart(new Promise<string | null>((resolve) => (answer = resolve)));
+    const opened = woken.send(OPENED); // possibly the departed account's use
+    answer(null);
+    await opened;
+    await woken.send(TOGGLED); // after the sign-out: anonymous
+    await woken.bg.flushWhenReady();
+    expect(woken.sent()).toContain("master_toggled");
+    expect(woken.sent()).not.toContain("opened");
+  });
+});

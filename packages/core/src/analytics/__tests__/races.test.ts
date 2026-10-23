@@ -1567,3 +1567,57 @@ describe("ISS-0108: the account's own identity arriving while an event it observ
     expect(client.accountConfirmed).toBe(true);
   });
 });
+
+describe("ISS-0115: revive keeps only work fenced by sign-outs of nobody", () => {
+  it("an event observed just before a fresh start's sign-out confirmation is kept", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    const observation = await client.captureObservation(); // the popup's opened, as the worker wakes
+    await client.confirm(null, { forget: true, quiet: true }); // the start: nobody signed in
+    expect(await client.observationCurrent(observation)).toBe(false);
+    const revived = await client.revive(observation);
+    expect(revived).not.toBeNull();
+    await client.track("opened", { where: "popup" }, { observation: revived! });
+    await client.flush();
+    expect(rec.events().map((e) => e.event)).toContain("opened");
+  });
+
+  it("chained sign-outs of nobody are walked; a stale observation from observe() is accepted the same way", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    const observing = client.observe();
+    const confirming = client.confirm(null, { forget: true, quiet: true }); // lands while it is read
+    const observation = await observing;
+    await confirming;
+    await client.confirm(null, { forget: true, quiet: true });
+    expect(await client.revive(observation)).not.toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-out of someone who was signed in still drops it", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    await client.confirm(U1);
+    const observation = await client.captureObservation(); // possibly U1's use
+    await client.confirm(null, { forget: true, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-in asked before the sign-out (not yet installed) still drops it", async () => {
+    const { client } = makeClient({ startsUnconfirmed: true });
+    const observation = await client.captureObservation();
+    const signingIn = client.confirm(U1);
+    await client.confirm(null, { forget: true, quiet: true });
+    await signingIn;
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a hold, a sign-in or a sharing change after the sign-out still drops it", async () => {
+    for (const change of ["hold", "signIn", "permission"] as const) {
+      const { client } = makeClient({ startsUnconfirmed: true });
+      const observation = await client.captureObservation();
+      await client.confirm(null, { forget: true, quiet: true });
+      if (change === "hold") await client.holdForAccount(U1);
+      else if (change === "signIn") await client.confirm(U1);
+      else client.permissionChanged();
+      expect(await client.revive(observation)).toBeNull();
+    }
+  });
+});
