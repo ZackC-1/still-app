@@ -87,7 +87,9 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
    * current session generation, carrying a Still Pro benefit, and not revoked, expired or paused.
    * This covers an Apple purchase linked to the account and one bought on the web. A device-only
    * (`paid_apple_local`) proof, a missing record or any failure is false: absence of device
-   * evidence never counts as the account's. */
+   * evidence never counts as the account's. StillKit's `accountHoldsStillPro` is the Swift twin that
+   * feeds the Safari extension's tag (`accountHoldsPro` on the benefit snapshot); keep the two
+   * identical (shared cases: tests/access-proof/account-holds-pro-vectors.json). */
   async function readAccountHeldPro(accountId: string): Promise<boolean> {
     try {
       if (!isAccessUUID(accountId) || !deps.bridge.observeAccess) return false;

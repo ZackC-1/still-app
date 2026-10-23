@@ -447,7 +447,11 @@ public final class SharedEntitlementStore {
         accountId: record.accountId, sessionId: record.sessionId, sessionKnown: true,
         localRights: Set(verifiedAppleBindings(record).map { $0.1.claims.right }),
         evidenceStatus: recorded.map { Self.recordedOwnershipStatus(record, wall: wall, displayed: $0) } ?? ownership.evidenceStatus)
-      return resolveAccessSnapshot(record, evidence: evidence, context: context)
+      let snapshot = resolveAccessSnapshot(record, evidence: evidence, context: context, wall: wall)
+      // Safari's lane shows the account the app published; account provenance belongs to that
+      // account only, never to a record bound to another one or to no displayed account at all.
+      if let recorded, recorded != .account(record.accountId ?? "") { return snapshot.withoutAccountProvenance() }
+      return snapshot
     }
   }
 
@@ -583,7 +587,7 @@ public final class SharedEntitlementStore {
       let verifiedContext = NativeAccessContext(paidMode: context.paidMode, supported: context.supported,
         accountId: context.accountId, sessionId: context.sessionId, sessionKnown: context.sessionKnown,
         localRights: localRights, evidenceStatus: context.evidenceStatus)
-      return (record, resolveAccessSnapshot(record, evidence: evidence, context: verifiedContext))
+      return (record, resolveAccessSnapshot(record, evidence: evidence, context: verifiedContext, wall: wall))
     }
   }
 
