@@ -553,6 +553,21 @@ candidate installed (checker present), `supabase/tests/production_sales_summary_
 before and after the CLI applies 0025 (gate, unchanged rows, and wider grants to `anon` or another
 role caught by the gate and the self-check with the checker present and absent), then a re-apply.
 
+### Production purchase operations view for PROD-02 (0030)
+
+`0030_production_purchase_operations_view.sql` adds one view,
+`still_qa_checks.production_purchase_operations_recent`, for the read-only launch check PROD-02
+(`docs/release/qa-readonly-database-checks.md`): for production operations created in the last 30
+days that are bound to a live Checkout Session, the session id, the state and the paid / created /
+updated times. It reads only `private.production_purchase_operations` and exposes no holder,
+operation id, configuration hash or account data. Ownership, `security_barrier`, revokes, the
+checker-only guarded grant, the self-check and the gate follow 0025 exactly; its invariant
+fingerprints the operation ledger, which must not change. Purchase and QA function deploys require
+hosted history to equal main, so apply 0030 before the next function deploy (and merge it only when
+no urgent function deploy is waiting). `rehearse-qa-readonly-checks.sh` checks its gate before the
+CLI apply (not vacuous), after it, after a re-apply and after re-installing the candidate, and
+`qa-checks/run-db.test.ts` runs PROD-02 as the real role against synthetic ledger rows.
+
 The security rehearsal applies each migration through the actual pinned CLI as the ordinary
 `postgres` role, on both upgrade and clean paths. It checks the pre-apply failure, preserves
 nonempty old rows, and rolls back intentional routine body/ACL/search-path/definer, table/column

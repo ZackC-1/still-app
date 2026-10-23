@@ -3,7 +3,8 @@
 // The full report is only ever written ENCRYPTED (run.ts); the public log shows a verdict line.
 // Even so, every value passes a declared type: counts, numbers, booleans, closed states,
 // timestamps, catalog names, settings switch maps, version strings, product policy identifiers
-// (builds, cutoff product and benefit ids), truncated fingerprints, and keyed short references in
+// (builds, cutoff product and benefit ids), live Stripe Checkout Session ids (PROD-02 only),
+// truncated fingerprints, and keyed short references in
 // place of raw ids. Anything else (an email, token, raw id, free text
 // or an unexpected shape) is replaced by "<withheld>" and counted, never printed.
 import { createHmac } from "node:crypto";
@@ -14,6 +15,8 @@ const KEY = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
 const NAME = /^(PUBLIC|[a-z_][a-z0-9_]{0,62})$/;
 /** A product policy identifier: a packaged build, a cutoff product id or a benefit id (0016 grammar). */
 const POLICY_ID = /^[a-z0-9][a-z0-9._-]{0,95}$/;
+/** A live Stripe Checkout Session id (PROD-02 only; the column constraint of migration 0026). */
+const STRIPE_SESSION = /^cs_live_[A-Za-z0-9_]{1,240}$/;
 /** An id or digest hiding in a "name": a UUID fragment or a long hex run is never printed. */
 const IDENTITY_LIKE = /[0-9a-f]{8}-?[0-9a-f]{4}|[0-9a-f]{16,}/i;
 const keyLike = (value) => typeof value === "string" && KEY.test(value) && !IDENTITY_LIKE.test(value);
@@ -81,6 +84,9 @@ export function formatValue(value, type, { refKey } = {}) {
       break;
     case "id":
       out = policyId(value) ? value : undefined;
+      break;
+    case "stripe_session":
+      out = typeof value === "string" && STRIPE_SESSION.test(value) ? value : undefined;
       break;
     case "ids":
       if (!Array.isArray(value) || value.length > 32 || !value.every(policyId)) break;

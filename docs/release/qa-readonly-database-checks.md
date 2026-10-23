@@ -15,6 +15,7 @@ production deployments, payment operations, deletion, or arbitrary SQL.
 | Baseline lookup (DB-31, DB-35) | [`baseline.mjs`](../../scripts/backend/qa-checks/baseline.mjs) |
 | Database role, registry and views (candidate) | [`scripts/backend/sql/qa-readonly-checks-candidate.sql`](../../scripts/backend/sql/qa-readonly-checks-candidate.sql) |
 | Production sales summary view for PROD-01 (numbered migration) | [`supabase/migrations/0025_production_sales_summary_view.sql`](../../supabase/migrations/0025_production_sales_summary_view.sql), gate [`verify/0025_production_sales_summary_view.sql`](../../scripts/backend/deploy/verify/0025_production_sales_summary_view.sql) |
+| Production purchase operations view for PROD-02 (numbered migration) | [`supabase/migrations/0030_production_purchase_operations_view.sql`](../../supabase/migrations/0030_production_purchase_operations_view.sql), gate [`verify/0030_production_purchase_operations_view.sql`](../../scripts/backend/deploy/verify/0030_production_purchase_operations_view.sql) |
 | One-time owner helpers | [`owner-setup.mjs`](../../scripts/backend/qa-checks/owner-setup.mjs) |
 
 ## How one check runs
@@ -249,6 +250,7 @@ and replace the secret. Even a leaked credential can only read the QA-scoped vie
 | DB-37 | `no-browsing-history` | none | Catalog column scan; unknown settings keys and unhashed rate keys as counts. |
 | DB-36 | none | n/a | **Not read-only:** rollback, outage, concurrency, speed, restore and alert cases need fault injection or writes. Record engineering's result. |
 | PROD-01 | `production-sales` | none | Release check, not a programme step. Production sales head (revision, `expected_revision`, salesEnabled, both offers, builds) and the paid cutoff (present, product, benefits). Needs migration 0025; see below. |
+| PROD-02 | `production-purchase-operations` | none | Launch check, not a programme step. Production purchase operations of the last 30 days: counts by state, then each live Checkout Session id (`cs_live_`) with its state and paid/created/updated times, newest 50. `fail` only when an operation is `recovery_required`. Needs migration 0030; see below. |
 
 Differences from the programme's draft SQL: account ids come from the registry instead of an email
 digest typed per run; right ids are compared by keyed reference instead of being passed in; Stripe
@@ -321,6 +323,43 @@ migration sequence as 0022 to 0024 (after 0024), before the next QA function dep
    and whether the cutoff exists with which product id and benefits.
 
 Undo: none is needed for a read; to remove the view, a later reviewed migration drops it.
+
+## PROD-02: production purchase operations by Stripe session
+
+PROD-02 lets launch-week QA confirm that every paid live Stripe Checkout Session reached a good state
+in Still's own ledger without the SQL editor. One run prints, in the encrypted report only:
+
+- **By state:** how many production operations created in the last 30 days (and bound to a live
+  session) are in each state.
+- **By session:** for each of them, newest first (the report shows 50), the live Checkout Session id
+  (`cs_live_...`), the state, and the paid, created and updated times.
+
+Good end states for a paid session are `imported` and `access_observed` (`refunded` after a refund).
+`session_bound` is an open or abandoned checkout, `closed_unpaid` an expired one. Any
+`recovery_required` operation makes the verdict `fail` and is a support item; otherwise the verdict
+is `needs-review`. The Stripe session id is the provider's own object id, printed raw only inside
+the encrypted report; no account, holder, operation id, configuration hash or email is read. The
+public log and summary still show one verdict line.
+
+The view `still_qa_checks.production_purchase_operations_recent` is the numbered migration
+[`0030_production_purchase_operations_view.sql`](../../supabase/migrations/0030_production_purchase_operations_view.sql),
+installed exactly like 0025 (owned by `postgres`, `security_barrier`, reading only
+`private.production_purchase_operations`, SELECT to the checker only, self-checked, gate
+[`verify/0030_production_purchase_operations_view.sql`](../../scripts/backend/deploy/verify/0030_production_purchase_operations_view.sql)
+and a row invariant over the ledger). Until 0030 is applied every other check runs and PROD-02
+answers `fail` with "migration 0030 ... not applied to this database yet ... Nothing was read".
+
+**Deploy order.** The purchase function operations refuse while main holds a migration that hosted
+history lacks. Merge 0030 only when no urgent purchase function deploy is waiting, and apply it
+(operation `migrations`, `migrations` = `0030_production_purchase_operations_view.sql`, plan-only
+then apply, as in the PROD-01 steps above) before the next purchase or QA function deploy.
+
+**Run and read.** Start `Supabase read-only QA check` from `main` with `check` = `PROD-02`,
+`account` = `none`, `account_b` = `none`
+(`gh workflow run supabase-readonly-checks.yml --ref main -f check=PROD-02 -f account=none -f account_b=none`),
+approve it in `supabase-readonly-checks`, then download and decrypt `qa-report-<run id>` as in "How one
+check runs". The launch monitor in the owner's QA folder takes the decrypted report with
+`--ops-report` and matches each paid Stripe session to its state.
 
 ## Evidence and limits
 

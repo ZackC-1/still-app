@@ -11,8 +11,9 @@
 // Production is read in exactly two ways: as one keyed digest (PRODUCTION_QUERIES below, never
 // printed), and by PROD-01, which prints the production sales policy facts the public
 // product-policy route already serves plus the paid cutoff's product configuration, through the
-// one view migration 0025 adds. No production account, right, count of people or anything keyed to
-// a person is ever read in the clear.
+// one view migration 0025 adds. PROD-02 prints recent production purchase operations as live Stripe
+// Checkout Session id, state and times only, through the one view migration 0030 adds. No production
+// account, holder, right, count of people or anything keyed to a person is ever read in the clear.
 
 /** The designated Still QA accounts: workflow label -> programme name. */
 export const LABELS = Object.freeze({
@@ -198,7 +199,7 @@ const BASELINE_QUERIES = [
 ];
 
 /**
- * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | "id" | "ids" | { type: "state", values: string[] }} FieldType
+ * @typedef {"count" | "number" | "bool" | "timestamp" | "ref" | "version" | "fingerprint" | "label" | "key" | "name" | "switches" | "id" | "ids" | "stripe_session" | { type: "state", values: string[] }} FieldType
  * @typedef {{ name: string, sql: string, params?: number[], fields: Record<string, FieldType> }} CheckQuery
  * @typedef {"pass" | "fail" | undefined} Verdict
  * @typedef {{ id: string, programIds: string[], title: string, expected: string, accounts: string[], allowDeletedAccount?: boolean, production?: "record" | "compare", verdict?: (rows: Record<string, unknown>[][], production?: "unchanged" | "changed" | "recorded" | "no-baseline" | "baseline-invalid") => Verdict, notes?: (rows: Record<string, unknown>[][]) => string[], queries: CheckQuery[] }} Check
@@ -923,6 +924,40 @@ export const CHECKS = Object.freeze([
           cutoff_benefits: "ids",
           cutoff_sales_revision: "number",
           cutoff_activated_at: "timestamp",
+        },
+      },
+    ],
+  },
+  {
+    id: "production-purchase-operations",
+    programIds: ["PROD-02"],
+    title: "Recent production purchase operations by live Stripe Checkout Session (no account data)",
+    expected:
+      "For the last 30 days, every production operation bound to a live Checkout Session (cs_live_), newest first, with its state and paid / created / updated times. Compare with Stripe: every paid session should be imported or access_observed (refunded after a refund). session_bound is an open or abandoned checkout; closed_unpaid an expired one. Any recovery_required operation fails the check and is a support item. The report shows the newest 50 rows; the counts cover all of them.",
+    accounts: [],
+    verdict: ([counts]) => (counts.some((r) => r.status === "recovery_required") ? "fail" : undefined),
+    notes: () => [
+      "Stripe Checkout Session ids are printed raw here (provider object ids, inside the encrypted report only); no account, holder or operation id is read.",
+    ],
+    queries: [
+      {
+        name: "production operations in the last 30 days, by state",
+        sql:
+          "select o.status, count(*) as operations from still_qa_checks.production_purchase_operations_recent o " +
+          "group by o.status order by o.status",
+        fields: { status: OP_STATE, operations: "count" },
+      },
+      {
+        name: "production operations by live Checkout Session (newest first)",
+        sql:
+          "select o.stripe_session_id, o.status, o.paid_at, o.created_at, o.updated_at " +
+          "from still_qa_checks.production_purchase_operations_recent o order by o.created_at desc",
+        fields: {
+          stripe_session_id: "stripe_session",
+          status: OP_STATE,
+          paid_at: "timestamp",
+          created_at: "timestamp",
+          updated_at: "timestamp",
         },
       },
     ],
