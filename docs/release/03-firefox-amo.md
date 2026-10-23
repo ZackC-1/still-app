@@ -26,7 +26,7 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `gecko.strict_min_version` | `140.0` |
 | `gecko.data_collection_permissions` | `required: ["authenticationInfo"]`; `optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"]` |
 | `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; QA sandbox packages only until Firefox on Android ships in a later update |
-| Permissions | Storage and the four supported website hosts; no `<all_urls>` |
+| Permissions | Storage, alarms and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
 there is no purchase requirement. Installing asks only for `authenticationInfo` and offers usage
