@@ -2,6 +2,6 @@
   "$comment": "The single source of truth for what version Still ships. Edit here, then run: node scripts/release/version.mjs sync. 'extension' feeds the Chrome and Firefox packages. 'apple' feeds the Apple apps and the Safari extension. 'appleBuild' is the App Store build number: it only ever goes up and is never reset, even when 'apple' changes. 'paidTier' is the paid-tier setting the Chrome and Firefox release line declares: the store packagers refuse to build unless PAID_TIER_ENABLED in packages/shared-types/src/entitlement.ts equals it. Flip both together, deliberately. See docs/release/versioning-and-packages.md.",
   "extension": "3.0.0",
   "apple": "3.0",
-  "appleBuild": 11,
+  "appleBuild": 12,
   "paidTier": true
 }
