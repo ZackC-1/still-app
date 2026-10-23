@@ -21,6 +21,8 @@ import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage, persist
 import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import { createSessionWithCheckoutAvailability } from "../lib/checkout-availability.js";
+import { firefoxDataGranted, type FirefoxDataCollectionApi } from "../lib/data-permission.js";
+import { gateAccountAnalytics, guardFirefoxDataFetch, watchFirefoxAccountEmail, type AccountEmailBrowser } from "../lib/firefox-data-guard.js";
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
@@ -300,6 +302,24 @@ export default defineBackground(() => {
   // the optional data-collection permission), per ADR 0004 (lib/default-on-analytics.ts). The
   // inline build-time check folds this to the 2.x factory in every 2.x build, byte-for-byte.
   let reportPurchaseAnalytics: (() => void) | undefined;
+  // The two account analytics calls. Their server attaches the account's email to the analytics
+  // person and the device's subject, so on Firefox they run only with the email grant
+  // (gateAccountAnalytics, lib/firefox-data-guard.ts).
+  const accountAnalytics = {
+    identifyOnServer: spine
+      ? async () => {
+          const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
+          if (error) throw error;
+        }
+      : undefined,
+    // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
+    // Folds away in 2.x builds.
+    ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
+      ? {
+          issueSubject: supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined),
+        }
+      : {}),
+  };
   const analytics = (
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
       ? createDefaultOnBackgroundAnalytics
@@ -320,19 +340,8 @@ export default defineBackground(() => {
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       requestQuietFlush: () => requestQuietFlush(chrome.alarms),
       reportPurchases: () => reportPurchaseAnalytics?.(),
-      identifyOnServer: spine
-        ? async () => {
-            const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
-            if (error) throw error;
-          }
-        : undefined,
-      // V3 builds: signed-in devices ask for their own analytics identity (owner decision 50).
-      // Folds away in 2.x builds, byte-for-byte.
-      ...(import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" && spine
-        ? {
-            issueSubject: supabaseSubjectIssuer(spine.client, import.meta.env.VITE_POSTHOG_KEY as string | undefined),
-          }
-        : {}),
+      ...(import.meta.env.FIREFOX ? gateAccountAnalytics(accountAnalytics, () =>
+        firefoxDataGranted(() => chrome.permissions as unknown as FirefoxDataCollectionApi, "email")) : accountAnalytics),
     },
     chrome.runtime.id,
     chrome.runtime.getURL(""),
@@ -650,8 +659,16 @@ function createSessionSpine(
   let capturePurchaseAnalytics: () => Promise<PurchaseAnalyticsContext | null> = () => Promise.resolve(null);
   const paymentFetch = PAID_TIER_ENABLED && routeProfile === "production"
     ? withCheckoutAnalytics(fetch, `${config.url.replace(/\/$/, "")}/functions/v1/create-web-checkout`, () => capturePurchaseAnalytics()) : fetch;
+  // Firefox: the email address (as personal data) and purchase data leave only with their optional
+  // data-collection permission, read again for every request (lib/firefox-data-guard.ts). Never on
+  // the blocking path; the Chrome build folds this away.
+  const firefoxPermissions = (): FirefoxDataCollectionApi | undefined =>
+    chrome.permissions as unknown as FirefoxDataCollectionApi;
+  const accountFetch = import.meta.env.FIREFOX
+    ? guardFirefoxDataFetch(paymentFetch, { supabaseUrl: config.url, granted: (kind) => firefoxDataGranted(firefoxPermissions, kind) })
+    : paymentFetch;
   const client = createClient(config.url, config.anonKey, {
-    ...(PAID_TIER_ENABLED ? { global: { fetch: paymentFetch } } : {}),
+    ...(import.meta.env.FIREFOX || PAID_TIER_ENABLED ? { global: { fetch: accountFetch } } : {}),
     auth: {
       persistSession: true,
       autoRefreshToken: false,
@@ -731,7 +748,7 @@ function createSessionSpine(
   // switch off, leaving exactly createExtensionSession.
   // Its answer to a signed-out page needs a conclusive sign-out, the same answer the access
   // context uses (readAccessSession null).
-  const session = (PAID_TIER_ENABLED
+  const created = (PAID_TIER_ENABLED
     ? (deps: Parameters<typeof createExtensionSession>[0]) => createSessionWithCheckoutAvailability(deps, undefined, undefined,
       async () => (await readAccessSession({
         getSession: () => client.auth.getSession(),
@@ -744,6 +761,9 @@ function createSessionSpine(
     records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
+    // Firefox: completing a stored checkout sends its operation id, so it waits for the purchase
+    // grant; the reconcile itself never does (lib/firefox-data-guard.ts).
+    ...(import.meta.env.FIREFOX ? { mayCompleteCheckout: () => firefoxDataGranted(firefoxPermissions, "purchase") } : {}),
     canCreateCheckout: PAID_TIER_ENABLED ? async () => {
       const surface = await checkoutSurface;
       if (!surface) return false;
@@ -768,6 +788,14 @@ function createSessionSpine(
     // it on disk for the next wake to resurrect.
     clearAuthStorage: () => { authBoundary(); return clearExtensionAuthStorage(order); },
   });
+  // Firefox: an account signed in here with the email permission is signed out of sync if that
+  // permission is withdrawn in about:addons (local settings stay); the pages then say why.
+  const session = import.meta.env.FIREFOX
+    ? watchFirefoxAccountEmail(created, auth.currentUserId, {
+        permissions: chrome.permissions as unknown as AccountEmailBrowser["permissions"],
+        storage: chrome.storage.local as unknown as AccountEmailBrowser["storage"],
+      })
+    : created;
   return { session, client,
     setPurchaseAnalytics: capture => { capturePurchaseAnalytics = capture; },
     preparePurchaseAnalytics: async () => {
@@ -775,7 +803,7 @@ function createSessionSpine(
       const { data, error } = await client.auth.getSession();
       const current = data.session;
       if (error || !current) return null;
-      return { account: current.user.id, send: (body, signal) => fetch(`${config.url.replace(/\/$/, "")}/functions/v1/analytics-purchase`, {
+      return { account: current.user.id, send: (body, signal) => accountFetch(`${config.url.replace(/\/$/, "")}/functions/v1/analytics-purchase`, {
         method: "POST", headers: { Authorization: `Bearer ${current.access_token}`, apikey: config.anonKey, "content-type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
       }) };

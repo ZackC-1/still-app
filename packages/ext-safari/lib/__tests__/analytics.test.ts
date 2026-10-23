@@ -154,11 +154,20 @@ function setup(
 
 describe("Safari extension analytics", () => {
   it("reports under the fresh provider scope, with the right surface, never as the signed-in account", async () => {
-    const { bg, settle, events } = setup({ signedIn: true, os: "mac" });
+    const { bg, events } = setup({ signedIn: true, os: "mac" });
     bg.onStart();
-    await settle();
-    bg.onActivity(); // real use: a supported site or the popup nudged the background
-    await settle();
+    // Real use (a supported site or the popup nudged the background). Use observed before the
+    // start has confirmed the account is dropped as stale, and the first test in this file pays
+    // the analytics modules' cold start, which a loaded CI runner stretched past the fixed 5 ms
+    // this used to wait. So the nudge repeats until the start has settled and one is counted; the
+    // setup events and the day's "active" are each recorded once however often it repeats.
+    await vi.waitFor(
+      () => {
+        bg.onActivity();
+        expect(events().map((e) => e.event)).toContain("active");
+      },
+      { timeout: 4_000, interval: 20 },
+    );
     const kinds = events().map((e) => e.event);
     expect(kinds).toEqual(["setup_step", "setup_completed", "active"]);
     expect(events()[0]!.properties).toMatchObject({

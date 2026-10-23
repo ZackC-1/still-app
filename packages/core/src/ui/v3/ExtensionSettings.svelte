@@ -275,6 +275,7 @@
   <SyncCard
     stillPro={stillProTag(access, sync.account)}
     onSignIn={sync.onSignIn}
+    notice={sync.notice}
     appHandoff={sync.appHandoff}
     accountActions={sync.accountActions}
     account={sync.account

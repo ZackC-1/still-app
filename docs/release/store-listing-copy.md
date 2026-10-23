@@ -333,23 +333,24 @@ Privacy: https://stillapp.fit/privacy/
 Mozilla’s rules ([built-in data consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)):
 “data transmission refers to any data collected, used, transferred, shared, or handled outside the
 add-on or the local browser”, and every transmitted type must be listed in
-`browser_specific_settings.gecko.data_collection_permissions`. The relevant types:
+`browser_specific_settings.gecko.data_collection_permissions`. Required types must be accepted to
+install. Optional types are not shown at install (except `technicalAndInteraction`) and are not
+granted until the person allows them; the add-on asks with `permissions.request()` from a click.
+The relevant types:
 
-| Mozilla type | Mozilla’s examples | Still 3.0 in Firefox | Declared in the 3.0 manifest |
+| Mozilla type | Mozilla’s examples | Still 3.0 in Firefox | Declared in the 3.0 manifest (`packages/ext-chromium/wxt.config.ts`) |
 |---|---|---|---|
-| `authenticationInfo` | “passwords, usernames, ... registration information for extensions that offer account-based services” | The emailed sign-in code and session | Required (as in 2.x) |
-| `personallyIdentifyingInfo` | “contact information such as name and address, email, and phone number” | The email address sent to sign in | Required (new in 3.0) |
-| `financialAndPaymentInfo` | “credit card numbers, transactions, credit ratings, financial statements, or payment history” | Starting a Still Pro checkout for the account and reading back its purchase status (card details stay on the payment provider’s page) | Required (new in 3.0) |
+| `authenticationInfo` | “passwords, usernames, ... registration information for extensions that offer account-based services” | The sign-in session token. It embeds the account’s email address and goes, with every signed-in request, only to Still’s own backend | Required (as in 2.x) |
+| `personallyIdentifyingInfo` | “contact information such as name and address, email, and phone number” | The email address sent as personal data: to request a sign-in code, or attached to usage analytics | Optional, asked at sign-in |
+| `financialAndPaymentInfo` | “credit card numbers, transactions, credit ratings, financial statements, or payment history” | Anything that references a purchase or checkout: starting a Still Pro checkout (a transaction) for the account, completing it (its operation id) and purchase analytics; card details stay on the payment provider’s page | Optional, asked at Get Still Pro |
 | `technicalAndInteraction` | “extension usage and settings data” | Usage analytics (ADR 0004) | Optional (Mozilla allows it only as optional) |
 
-**Owner decision (22 October 2026): the Firefox 3.0 manifest declares** the sign-in code and
-session, the email address and the purchase status as required, and usage sharing as optional. This
-matches `packages/ext-chromium/wxt.config.ts` on the 3.0 release branch:
+**What the manifest declares** (owner decision, 22 October 2026):
 
 ```
 data_collection_permissions: {
-  required: ["authenticationInfo", "personallyIdentifyingInfo", "financialAndPaymentInfo"],
-  optional: ["technicalAndInteraction"],
+  required: ["authenticationInfo"],
+  optional: ["personallyIdentifyingInfo", "financialAndPaymentInfo", "technicalAndInteraction"],
 }
 ```
 
@@ -359,30 +360,52 @@ mismatch):
 | AMO entry | Setting |
 |---|---|
 | Authentication information | Required |
-| Personally identifying information | Required |
-| Financial and payment information | Required |
+| Personally identifying information | Optional |
+| Financial and payment information | Optional |
 | Technical and interaction data | Optional |
 
 **What Firefox users see:**
 
-- New installers see the three required types (authentication information, personally identifying
-  information, financial and payment information) in Firefox’s install prompt, and can switch
-  technical and interaction data on or off there.
-- Existing users are asked to accept the two newly added types (personally identifying
-  information, financial and payment information) when the add-on updates to 3.0.
+- **Installing never asks for the email address or payment information.** Installing the free
+  blocker asks only for `authenticationInfo` (as 2.x does) and offers `technicalAndInteraction` as
+  an optional choice.
+- **New and existing users:** an update shows no new install-time prompt for email or payment,
+  because Firefox shows only newly added required types on update. Existing signed-in users stay
+  signed in; their email is not sent as personal data (code requests, analytics) until a sign-in on
+  Firefox grants it. Firefox asks at the next sign-in or purchase.
 
-Why each is declared:
+**What each type covers:**
 
-- **Email address:** Mozilla names “email” under `personallyIdentifyingInfo`. One could argue the
-  sign-in email is a username under `authenticationInfo`, but declaring it removes the doubt
-  (Chrome’s form already lists the email as personally identifiable).
-- **Purchase status:** a Still Pro purchase record is a transaction handled outside the add-on, so
-  `financialAndPaymentInfo` applies now that Still Pro can be bought in Firefox.
-- **Required, not optional:** optional types other than `technicalAndInteraction` are not shown at
-  install and would need a `permissions.request()` call inside the sign-in and Get Still Pro taps.
-  Required matches how `authenticationInfo` has always been declared.
-- The privacy policy (runbook 7.1) must describe the same data, and the manifest row in
-  [03-firefox-amo.md](03-firefox-amo.md) follows the release branch when it merges.
+- **Session token:** while signed in, every request to Still’s backend carries the sign-in session
+  token, declared under the required authentication information. The token embeds the account’s
+  email address and goes only to Still’s own backend.
+- **Email address as personal data:** sent only with the optional grant: to request a sign-in code,
+  or attached to usage analytics (analytics-identify). Firefox asks when the person clicks Send code
+  in the sign-in sheet (settings page, popup or first-run page). Declined, no code is requested and
+  the sheet says “Sign in needs permission to send your email address. Your settings stay on this
+  device.” Firefox’s grant is read again before every later send (Resend, Verify), and usage
+  analytics never attaches the email without it. Still’s own email-consent step stays before it.
+- **Purchase data:** anything that references a purchase or checkout needs the grant: starting a
+  checkout, completing a stored one (it sends the checkout’s operation id) and purchase analytics,
+  including Restore’s events (a “restored” outcome reveals Still Pro ownership). Firefox asks when
+  the person clicks Get Still Pro (or Try again). Declined, no checkout starts and the Still Pro card
+  says “Still Pro needs permission to start your purchase.”
+- **Still Pro status needs no grant:** Restore purchase and Still’s own re-checks only receive the
+  account’s Still Pro status from Still’s server. For them the device sends only the session token
+  and the backend’s public anon key. Mozilla’s types describe data an add-on transmits (“You specify
+  the data types your extension transmits”), so they run without `financialAndPaymentInfo` and
+  Still Pro never locks for want of it. Without the grant, a stored checkout’s completion step is
+  skipped; the status read and the payment provider’s webhook still unlock a paid checkout.
+- **Withdrawn later:** the person can switch either permission off in about:addons. An account that
+  signed in here with the email permission is then signed out of sync on Firefox (local settings
+  stay) and the settings page shows the sign-in line. A request that needs a missing permission is
+  never sent: the background refuses those requests too (`lib/firefox-data-guard.ts`).
+- **Free blocking needs none of this:** blocking, the TikTok block, local settings and the free
+  controls work with no grant; nothing on install, update or start-up asks.
+- The privacy policy (runbook 7.1) and the AMO privacy text (runbook 6.3) must describe the same
+  data: required authentication information; optional personally identifying information,
+  financial and payment information and technical and interaction data. The manifest row in
+  [03-firefox-amo.md](03-firefox-amo.md) says the same.
 
 ### Screenshots: kept for 3.0, with what they no longer match
 
@@ -804,15 +827,20 @@ Android (runbook 6.5); the listing says nothing about Android.
 The store build’s summary is `FIREFOX_2X_DESCRIPTION` in `packages/ext-chromium/wxt.config.ts`
 (the `FIREFOX_V3_DESCRIPTION` text mentions Android and is only used by builds that declare it).
 
-**Data-collection disclosure.** The 3.0 manifest declares `authenticationInfo`,
-`personallyIdentifyingInfo` and `financialAndPaymentInfo` as required and `technicalAndInteraction`
-as optional (see [Firefox manifest declarations](#firefox-manifest-declarations-before-the-amo-upload)).
-Keep every privacy sentence consistent with that: usage data is sent only while the optional
-permission is granted, and sign-in uses the email address and a sign-in code. Before this
-experiment runs, update the description’s last privacy sentence, which still says Firefox lists the
-email as authentication information.
+**Data-collection disclosure.** The 3.0 manifest declares `authenticationInfo` as required and
+`personallyIdentifyingInfo`, `financialAndPaymentInfo` and `technicalAndInteraction` as optional
+(see [Firefox manifest declarations](#firefox-manifest-declarations-before-the-amo-upload)).
+Firefox’s install prompt shows the required one and offers usage data; it asks for the email
+address at sign-in and for purchase data at Get Still Pro. Keep every privacy sentence consistent
+with that: usage data is sent only while its optional permission is granted; the sign-in session
+token (required authentication information) embeds the account’s email and goes only to Still’s
+own backend; the email address is sent as personal data (to request a code, or attached to
+analytics) only with its optional grant; anything that references a purchase or checkout is sent
+only with the purchase-data grant; and receiving the account’s Still Pro status (which sends only
+the session token and the anon key) needs no grant. The description’s privacy paragraph carries
+this wording.
 
-**Description** (3162/15000):
+**Description** (3179/15000):
 
 ```
 Still removes Shorts and Reels from the websites you use, so a quick visit stays a quick visit. Change your settings on any device, and the latest version follows you across your browsers.
@@ -843,7 +871,7 @@ WHERE IT WORKS
 This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad. It doesn’t work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
 
 PRIVATE BY DESIGN
-Blocking runs on your device. Still doesn’t collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Firefox asks whether you allow Still to collect “technical and interaction data”. Still uses it only for usage data that helps improve Still, such as which switches are on. It stays off unless you allow it, you can change it anytime in Still’s settings and it never includes the websites, pages or videos you visit. Signing in uses your email address and a sign-in code, which Firefox lists as authentication information.
+Blocking runs on your device. Still doesn’t collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Firefox asks whether you allow Still to collect “technical and interaction data”. Still uses it only for usage data that helps improve Still, such as which switches are on. It stays off unless you allow it, you can change it anytime in Still’s settings and it never includes the websites, pages or videos you visit. Signing in uses your email address and a sign-in code. Firefox asks your permission before Still sends your email address.
 
 Setup and support: https://stillapp.fit/support/
 Privacy: https://stillapp.fit/privacy/
@@ -857,6 +885,8 @@ No account and no purchase are needed to review Still. Open YouTube, Instagram, 
 Sign-in is optional and only adds free settings sync. Blocking works without an account. Sign-in sends a six-digit code to the email address you enter, so use any address you can read. This extension has no fixed review code.
 
 Still Pro is optional. To see its purchase flow, open Still’s settings (Settings in the popup) and choose Get Still Pro. You sign in first, then the web checkout opens in a new tab on a RevenueCat payment page. You don’t need to buy anything or use a test card to review the free product.
+
+Signed-in requests carry the sign-in session token (declared under the required “authenticationInfo”); it embeds the account’s email address and goes only to Still’s own backend. The email address is sent as personal data (to request a sign-in code, or attached to usage analytics) only with the optional “personallyIdentifyingInfo” permission, which Firefox asks for when you click Send code. Anything that references a purchase or checkout (starting or completing a checkout, purchase analytics) needs the optional “financialAndPaymentInfo” permission, asked when you click Get Still Pro. Receiving an account’s Still Pro status (Restore purchase) sends only the session token and the anon key and needs no grant. Blocking needs neither.
 
 Usage data is the optional “technicalAndInteraction” data-collection permission. Nothing is sent unless it is granted, at install or later from Still’s settings. It records product events only, never page addresses, videos, searches or page content. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release is for desktop Firefox.
 
@@ -922,8 +952,10 @@ there applies: every picture must match the 3.0 build it ships with.
    purchase records (runbook 6.3 “purchase status”). Confirm.
 5. **AMO “Requires payment”.** Recommended unticked, because every free feature works without
    paying and the description explains Still Pro. Confirm.
-6. **Firefox manifest declarations.** Decided (22 October 2026): email address and purchase status
-   are declared as required, usage sharing stays optional; see
+6. **Firefox manifest declarations.** Decided (22 October 2026): `authenticationInfo` is required;
+   the email address (`personallyIdentifyingInfo`), purchase data (`financialAndPaymentInfo`) and
+   usage data (`technicalAndInteraction`) are optional, and Firefox asks for the first two at
+   sign-in or at Get Still Pro; see
    [Firefox manifest declarations](#firefox-manifest-declarations-before-the-amo-upload).
 7. **Price and refund in the browser listings.** Chrome and Firefox copy says “$9.99 (US price)”
    and the seven-day web refund. The Apple copy names no price (Apple shows it). Confirm both.
