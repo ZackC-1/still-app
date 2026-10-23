@@ -47,11 +47,10 @@
         : undefined,
   );
   let visibleNote = $derived(state === "unsupported" ? unsupportedText : note);
-  // CH-96 (owner, 21 Oct, option C): after a refund the saved choice stays visible. A locked row
-  // draws its saved switch, dimmed and in its saved position, beside the lock; it changes nothing
-  // while locked, and the saved position applies again when Still Pro returns. A dormant row (paid
-  // tier off) keeps the lock alone (decision 24).
-  let savedShown = $derived(state === "locked" && !dormant);
+  // ISS-0122 (owner, 22 Oct; supersedes CH-96 option C): while Still Pro is not owned a locked row
+  // shows no switch, only its name and the Still Pro chip, on one line, on every surface, after a
+  // refund too. The saved choice stays in storage untouched (this row never writes) and applies
+  // again when Still Pro returns, when the row is usable and draws its switch again.
 </script>
 
 <div
@@ -59,7 +58,7 @@
   data-access={state === "verification_required" ? "verify" : state}
   data-inactive={inactive ||
     state === "unsupported" ||
-    (state === "locked" && !savedShown) ||
+    dormant ||
     undefined}
 >
   <div class="row-main">
@@ -82,19 +81,8 @@
         .join(" ") || undefined}
     />
   {:else if state === "locked"}
-    {#if savedShown}<span class="sr-only" id={`${key}-locked`}
-        >Included in Still Pro. Your choice is saved.</span
-      >{/if}
-    <!-- Owner canvas (P-Sites, 22 Oct): the dimmed saved switch first, then the bordered Still Pro
-      chip at the row's end. The label keeps its normal ink; only the switch is dimmed. -->
-    <span class="locked-controls">
-    {#if savedShown}<Toggle
-        small
-        {checked}
-        disabled
-        labelledBy={`${key}-l`}
-        describedBy={`${key}-locked`}
-      />{/if}
+    <!-- The bordered Still Pro chip at the row's end (owner canvas, P-Sites). A dormant row (paid
+      tier off, decision 24) gets the same chip, inert. -->
     <button
       type="button"
       class="lock-pro"
@@ -108,24 +96,6 @@
         : undefined}
       ><Glyph name="lock" size={14} /><span>Still Pro</span></button
     >
-    </span>
   {/if}
 </div>
 
-<style>
-  .locked-controls {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-3, 12px);
-    /* Right-aligned when it wraps under the name, with a little space below it there. 3px above
-       and below keeps the 32px pill inside the 40px compact row (39px inside its top border) when
-       it does not wrap. */
-    margin-inline-start: auto;
-    margin-block: 3px;
-  }
-  /* The saved switch behind the lock is drawn at 45% (owner canvas, CH-96 option C). */
-  .locked-controls :global(.toggle[aria-disabled="true"]) {
-    opacity: 0.45;
-  }
-</style>

@@ -293,11 +293,10 @@ describe("controlled D01 presentation", () => {
           });
           expect(locked).toHaveAttribute("aria-disabled", "true");
           await fireEvent.click(locked);
-          // CH-96: the saved switch shows beside the lock, dimmed and in its saved position.
-          const saved = within(row).getByRole("switch", { name: "Comments" });
-          expect(saved).toHaveAttribute("aria-checked", "true");
-          expect(saved).toHaveAttribute("aria-disabled", "true");
-          await fireEvent.click(saved);
+          // ISS-0122 (supersedes CH-96): no switch on a locked row; the saved choice is kept in
+          // storage (checked below) and shows again when Still Pro returns.
+          expect(within(row).queryByRole("switch")).toBeNull();
+          await fireEvent.click(within(row).getByText("Comments"));
         }
       } else {
         const comments = within(row).getByRole("switch", { name: "Comments" });

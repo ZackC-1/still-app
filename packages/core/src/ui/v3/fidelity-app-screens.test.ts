@@ -177,16 +177,17 @@ describe("P-Sites: an open site's option rows", () => {
   });
 });
 
-describe("P-Sites: a locked row is 49px on the app and Settings page, 40px in the popups", () => {
-  it("keeps 8px around the switch and pill outside the popups, and the name's own padding", () => {
+describe("P-Sites: a locked row is a free row's height, 46px on the app and Settings page, 40px in the popups (ISS-0122)", () => {
+  it("keeps 6px around the Still Pro chip outside the popups and 3px in them, and the name's own padding", () => {
     const css = components();
-    expect(lastRule(css, '.option-row[data-access="locked"] .locked-controls')).toContain(
-      "margin-block: var(--space-2);",
-    );
+    // 32px chip + 6px above and below + the 1px divider fits inside the 46px free-row height.
+    expect(lastRule(css, '.option-row[data-access="locked"] .lock-pro')).toContain("margin-block: 6px;");
     expect(
-      rule(css, '.app[data-density="compact"] .option-row[data-access="locked"] .locked-controls'),
+      rule(css, '.app[data-density="compact"] .option-row[data-access="locked"] .lock-pro'),
     ).toContain("margin-block: 3px;");
-    // The name keeps its 8px (the base row-main rule), so wrapped controls never cover it.
+    // No rule left for the removed switch-plus-pill group.
+    expect(css).not.toMatch(/locked-controls/);
+    // The name keeps its 8px (the base row-main rule), so a wrapped chip never covers it.
     expect(rule(css, '.option-row[data-access="locked"] .row-main')).not.toContain("padding-block");
   });
 });
