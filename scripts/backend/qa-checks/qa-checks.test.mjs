@@ -35,8 +35,11 @@ const read = (path) => readFile(new URL(path, ROOT), "utf8");
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const PROGRAMME_IDS = Array.from({ length: 38 }, (_, i) => `DB-${String(i + 1).padStart(2, "0")}`);
 /** Release checks outside the QA programme's DB steps. */
-const RELEASE_IDS = ["PROD-01"];
+const RELEASE_IDS = ["PROD-01", "PROD-02"];
 const MIGRATION_0025 = "supabase/migrations/0025_production_sales_summary_view.sql";
+const MIGRATION_0030 = "supabase/migrations/0030_production_purchase_operations_view.sql";
+/** Each migration view and the one catalogue check allowed to print it. */
+const PRODUCTION_VIEW_READERS = { production_sales_summary: "production-sales", production_purchase_operations_recent: "production-purchase-operations" };
 const CANDIDATE_VIEW_COUNT = CHECK_VIEWS.length - Object.keys(MIGRATION_VIEWS).length;
 
 test("every catalogue query is one allow-listed SELECT with contiguous declared parameters", () => {
@@ -59,9 +62,10 @@ test("production queries are allow-listed SELECTs and never part of a printed re
   for (const check of CHECKS)
     for (const query of check.queries) {
       assert.doesNotMatch(query.sql, /production_rights_fingerprint|environment = 'production'/, `${check.id}: ${query.name}`);
-      // Only PROD-01 prints production, and only through the one public-facts view.
+      // Only PROD-01 and PROD-02 print production, each only through its own migration view.
       const views = assertSingleSelect(query.sql, 2);
-      if (views.has("production_sales_summary")) assert.deepEqual([check.id, [...views]], ["production-sales", ["production_sales_summary"]]);
+      for (const [view, reader] of Object.entries(PRODUCTION_VIEW_READERS))
+        if (views.has(view)) assert.deepEqual([check.id, [...views]], [reader, [view]]);
     }
   assert.deepEqual(
     CHECKS.filter((c) => c.production).map((c) => [c.programIds[0], c.production]),
@@ -118,12 +122,12 @@ test("the guard refuses writes, second statements, hidden text, base tables and 
   assertSingleSelect("select $1::uuid", 1);
 });
 
-test("the views the catalogue reads are exactly the views the candidate SQL and migration 0025 create and grant", async () => {
+test("the views the catalogue reads are exactly the views the candidate SQL and migrations 0025 and 0030 create and grant", async () => {
   const sql = await read("scripts/backend/sql/qa-readonly-checks-candidate.sql");
-  const migration = await read(MIGRATION_0025);
+  const migration = (await read(MIGRATION_0025)) + (await read(MIGRATION_0030));
   const fromCandidate = CHECK_VIEWS.filter((v) => !Object.hasOwn(MIGRATION_VIEWS, v));
   assert.equal(fromCandidate.length, CANDIDATE_VIEW_COUNT);
-  assert.deepEqual(MIGRATION_VIEWS, { production_sales_summary: "0025" });
+  assert.deepEqual(MIGRATION_VIEWS, { production_sales_summary: "0025", production_purchase_operations_recent: "0030" });
   const created = [...sql.matchAll(/create or replace view still_qa_checks\.(\w+)/g)].map((m) => m[1]);
   assert.deepEqual([...created].sort(), [...fromCandidate, "qa_rights_scope", "qa_scope"].sort());
   const fromMigration = [...migration.matchAll(/create or replace view still_qa_checks\.(\w+)/g)].map((m) => m[1]);
@@ -223,9 +227,14 @@ test("inputs are a closed check id and QA labels only", () => {
   assert.deepEqual(resolveRequest({ check: "DB-31" }).labels, []);
   assert.equal(resolveRequest({ check: "PROD-01" }).check.id, "production-sales");
   assert.deepEqual(resolveRequest({ check: "PROD-01" }).labels, []);
+  assert.equal(resolveRequest({ check: "PROD-02" }).check.id, "production-purchase-operations");
+  assert.deepEqual(resolveRequest({ check: "PROD-02" }).labels, []);
   const refused = [
     { check: "PROD-01", account: "qa-a" },
-    { check: "PROD-02" },
+    { check: "PROD-02", account: "qa-a" },
+    { check: "PROD-03" },
+    { check: "production-purchase-operations" },
+    { check: "PROD-02", account: "cs_live_a1" },
     { check: "production-sales" },
     { check: "DB-36" },
     { check: "DB-99" },
@@ -383,6 +392,84 @@ test("machine verdicts are only pass or fail where the expectation is exact; oth
   assert.equal(check("PROD-01").verdict([[{}], [], [{}]]), undefined);
   assert.equal(check("PROD-01").verdict([[], [], []]), "fail");
   assert.equal(check("PROD-01").verdict([[{}, {}], [], [{}]]), "fail");
+  // PROD-02 lists operations for the operator; only a stuck (recovery_required) operation fails.
+  assert.equal(check("PROD-02").verdict([[], []]), undefined);
+  assert.equal(check("PROD-02").verdict([[{ status: "imported", operations: 2 }, { status: "refunded", operations: 1 }], []]), undefined);
+  assert.equal(check("PROD-02").verdict([[{ status: "recovery_required", operations: 1 }], []]), "fail");
+});
+
+test("PROD-02 lists recent production operations by live Stripe session and withholds anything else", () => {
+  const request = resolveRequest({ check: "PROD-02" });
+  assert.equal(request.check.production, undefined, "PROD-02 is not part of the keyed baseline");
+  const [counts, rows] = request.check.queries;
+  assert.deepEqual(Object.keys(counts.fields), ["status", "operations"]);
+  assert.deepEqual(Object.keys(rows.fields), ["stripe_session_id", "status", "paid_at", "created_at", "updated_at"]);
+  assert.equal(rows.fields.stripe_session_id, "stripe_session");
+  // No account, operation, holder or configuration column is ever selected.
+  for (const query of request.check.queries)
+    assert.doesNotMatch(query.sql, /holder|operation_id|configuration_hash|email|creation_started_at/);
+  const at = new Date("2026-10-23T12:00:00Z");
+  const render = (rowsByQuery) =>
+    renderReport({ ...request, holders: [], refKey: "7e".repeat(32), verdict: "needs-review",
+      results: request.check.queries.map((query, i) => ({ query, rows: rowsByQuery[i] })) });
+  const text = render([
+    [{ status: "access_observed", operations: "1" }, { status: "refunded", operations: 1 }],
+    [
+      { stripe_session_id: "cs_live_a1B2c3", status: "access_observed", paid_at: at, created_at: at, updated_at: at },
+      { stripe_session_id: "cs_live_Z9_y8", status: "refunded", paid_at: at, created_at: at, updated_at: at },
+    ],
+  ]);
+  assert.match(text, /\| access_observed \| 1 \|/);
+  assert.match(text, /\| cs_live_a1B2c3 \| access_observed \| 2026-10-23T12:00:00Z \| 2026-10-23T12:00:00Z \| 2026-10-23T12:00:00Z \|/);
+  assert.match(text, /\| cs_live_Z9_y8 \| refunded \|/);
+  assert.doesNotMatch(text, /withheld/);
+  // Only a live Checkout Session id prints: a UUID, a test session, an email or any other text is withheld.
+  const holder = "c0c0c0c0-0000-4000-8000-000000000003";
+  for (const hostile of [holder, "cs_test_a1", "a@b.c", "pi_live_1", "cs_live_", "cs_live_a b", `cs_live_${"x".repeat(241)}`, 7])
+    assert.equal(formatValue(hostile, "stripe_session"), WITHHELD, String(hostile));
+  assert.equal(formatValue("cs_live_a1", "stripe_session"), "cs_live_a1");
+  const withheld = render([[{ status: "imported", operations: 1 }], [{ stripe_session_id: holder, status: "nope", paid_at: "x", created_at: at, updated_at: at }]]);
+  assert.doesNotMatch(withheld, UUID);
+  assert.match(withheld, /3 value\(s\) withheld/);
+});
+
+test("migration 0030 adds one owner-run view of live session ids and operation states, readable only by the checker", async () => {
+  const sql = await read(MIGRATION_0030);
+  const code = sql.replace(/--[^\n]*/g, "");
+  assert.match(code, /^\s*begin;/);
+  assert.match(code, /commit;\s*$/);
+  assert.match(code, /current_user <> 'postgres' or session_user <> 'postgres'/);
+  assert.doesNotMatch(code, /\b(drop|delete|update|insert|truncate|alter)\b/i, "no destructive or data-changing statement");
+  assert.doesNotMatch(code, /security definer|security_invoker/i);
+  assert.match(code, /create or replace view still_qa_checks\.production_purchase_operations_recent with \(security_barrier = true\) as/);
+  // It reads only the production operation ledger, only rows bound to a live session, only 30 days.
+  const relations = [...code.matchAll(/\b(?:from|join)\s+([a-z_]+\.[a-z_]+)/g)].map((m) => m[1])
+    .filter((r) => !r.startsWith("pg_catalog."));
+  assert.deepEqual([...new Set(relations)], ["private.production_purchase_operations"]);
+  assert.match(code, /where o\.stripe_session_id is not null and o\.created_at > pg_catalog\.now\(\) - interval '30 days'/);
+  const view = /create or replace view[\s\S]*?;/.exec(code)[0];
+  for (const forbidden of ["holder", "operation_id", "configuration_hash", "creation_started_at", "auth.users", "email"])
+    assert.ok(!view.includes(forbidden), `the view must not expose ${forbidden}`);
+  assert.match(code, /revoke all on still_qa_checks\.production_purchase_operations_recent from public, anon, authenticated, service_role;/);
+  const grants = [...code.matchAll(/grant ([a-z ]+?) on ([\w. ]+?) to (\w+)/g)].map((m) => m.slice(1).join(" | "));
+  assert.deepEqual(grants, ["select | still_qa_checks.production_purchase_operations_recent | still_qa_readonly_checker"]);
+  assert.match(code, /if exists \(select 1 from pg_catalog\.pg_roles where rolname = 'still_qa_readonly_checker'\) then\s+execute 'grant select/);
+  assert.match(code, /and not coalesce\(a\.grantee = checker and a\.privilege_type = 'SELECT' and not a\.is_grantable, false\)\)/);
+  const gate = await read("scripts/backend/deploy/verify/0030_production_purchase_operations_view.sql");
+  const invariant = await read("scripts/backend/deploy/verify/0030_production_purchase_operations_view.invariant.sql");
+  assert.equal(lintVerificationSql(gate), true);
+  assert.equal(lintVerificationSql(invariant), true);
+  for (const issue of ["migration_version", "view_missing", "view_reads", "view_columns", "view_grant", "client_reach", "checker_select_missing", "schema_grant"])
+    assert.ok(gate.includes(`'${issue}'`), issue);
+  assert.ok(gate.includes("array['private.production_purchase_operations']"));
+  assert.equal(gate.split("and not coalesce(acl.grantee=roles.checker and").length - 1, 2);
+  // The gate pins exactly the columns the catalogue reads.
+  const pinned = /is distinct from '([^']*)'/.exec(gate)[1].split(",").map((c) => c.split(":")[0]);
+  const readCols = CHECKS.find((c) => c.id === "production-purchase-operations").queries[1].fields;
+  assert.deepEqual(pinned, Object.keys(readCols));
+  // The candidate re-grants it and counts it, like 0025's view.
+  const candidate = await read("scripts/backend/sql/qa-readonly-checks-candidate.sql");
+  assert.match(candidate, /when pg_catalog\.to_regclass\('still_qa_checks\.production_purchase_operations_recent'\) is null then 0 else 1 end/);
 });
 
 const WORKFLOW = ".github/workflows/supabase-readonly-checks.yml";
