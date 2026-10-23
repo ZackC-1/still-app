@@ -1166,6 +1166,26 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     expect(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel })).toBeVisible();
     expect(f.purchase).not.toHaveBeenCalled();
   });
+  it("the purchase sign-in keeps its heading when the app is relaunched at the code step (ISS-0123)", async () => {
+    const f = await openBuy();
+    const sheet = await screen.findByRole("dialog");
+    await fireEvent.input(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel }), {
+      target: { value: "account@still.test" },
+    });
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.codeAuth.send }));
+    await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    const saved = f.persistence.setPendingOtp.mock.lastCall?.[0];
+    expect(saved).toMatchObject({ email: "account@still.test", purpose: "purchase" });
+    // Relaunch: a fresh app reads the saved JSON back, as main.ts does. The host no longer knows
+    // Get Still Pro asked, so only the saved purpose can bring the heading back.
+    cleanup();
+    const again = await compose({ codeAuth: true });
+    again.controller.rehydrateCodeEntry(restoredCodeEntry(JSON.stringify(saved), false)!);
+    const restored = await screen.findByRole("dialog", { name: "Sign in to get Still Pro" });
+    expect(within(restored).getByRole("textbox", { name: STRINGS.codeAuth.codeLabel })).toBeVisible();
+    expect(within(restored).queryByText(STRINGS.auth.title)).toBeNull();
+    expect(within(restored).queryByText(/Sign-in is optional/)).toBeNull();
+  });
   it("cancelling sign-in opens no Apple sheet, and a later sign-in buys nothing", async () => {
     const f = await openBuy();
     const sheet = await screen.findByRole("dialog");
