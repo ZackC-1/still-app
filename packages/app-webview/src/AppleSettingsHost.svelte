@@ -115,7 +115,7 @@
                   confirmed: c.accountConfirmed,
                 }
               : null,
-          signIn: () => c.openSignIn(),
+          signIn: (purpose) => c.openSignIn(purpose),
           canSignIn: () => c.canSignIn,
           signedIn: () => c.userId !== null,
           chooseOtherAccount: async () => {

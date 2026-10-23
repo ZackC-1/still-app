@@ -11,6 +11,7 @@
   import SignInSheet from "./components/SignInSheet.svelte";
   import Logo from "./components/Logo.svelte";
   import { STRINGS } from "./strings.js";
+  import { DATA_PERMISSION_COPY } from "./data-permission.js";
   import { USAGE_ON_BY_DEFAULT_BUILD } from "../analytics/build-basis.js";
   import { USAGE_SWITCH_COPY } from "./v3/usage-copy.js";
   import {
@@ -349,7 +350,13 @@
     const controller = c;
     const operations = optionsOperations;
     const identity = controller.userId;
-    if (!identity) return { onSignIn: operations.onSignIn };
+    if (!identity)
+      return {
+        onSignIn: operations.onSignIn,
+        // Firefox: the email permission was withdrawn and the account signed out (data-permission.ts).
+        // A plain decline at Send code stays in the sign-in sheet.
+        ...(controller.emailPermissionWithdrawn ? { notice: DATA_PERMISSION_COPY.email } : {}),
+      };
     return {
       account: {
         address: controller.accountEmail ?? undefined,

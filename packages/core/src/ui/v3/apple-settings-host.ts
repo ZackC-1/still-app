@@ -187,12 +187,13 @@ export const IOS_EXTENSION_PAGE_ENABLE_STEPS: readonly string[] = [
 
 /**
  * The Mac onboarding's owner-approved steps: StillKit `OnboardingCopy.macOSEnableSteps` (owner,
- * 22 Oct 2026). A test pins them to Onboarding.swift, as it does the iPhone steps.
+ * 22 Oct 2026; Safari 27 wording, ISS-0126, 23 Oct). A test pins them to Onboarding.swift, as it
+ * does the iPhone steps.
  */
 export const MAC_ENABLE_STEPS: readonly string[] = [
   "Click “Open Safari Settings” below.",
-  "In Extensions, switch on Still.",
-  "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+  "In Extensions, make sure the box next to Still is checked.",
+  "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
   "Quit Safari (⌘Q) and reopen it.",
 ];
 

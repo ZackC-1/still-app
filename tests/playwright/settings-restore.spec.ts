@@ -118,7 +118,7 @@ async function signIn(page: Page): Promise<void> {
   await consent.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Email address").fill(EMAIL);
   await page.getByRole("button", { name: "Send code" }).click();
-  await page.getByLabel("6-digit code").fill("123456");
+  await page.getByLabel("6\u2011digit code").fill("123456");
   await page.getByRole("button", { name: "Verify code" }).click();
 }
 

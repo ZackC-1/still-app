@@ -33,6 +33,9 @@ export interface SyncCardProps {
     sharedData?: SharedDataProps;
   };
   onSignIn?: () => void;
+  /** Signed out: one line in place of the sync pitch. Firefox sets it after the person withdrew the
+   * permission to send their email address and the account was signed out (data-permission.ts). */
+  notice?: string;
   /** Safari: Sign in opens the Still app (lib/app-handoff), and the signed-out card says so under
    * the button ("Opens the Still app"), as the Safari popups do. */
   appHandoff?: boolean;
@@ -110,8 +113,9 @@ export interface ProOfferCardProps {
 }
 
 export interface RestoreStatusCardProps {
-  /** "nothing" requires a conclusive caller result. Uncertainty is checking/failed. */
-  state: "checking" | "restored" | "nothing" | "failed" | "verify";
+  /** "nothing" requires a conclusive caller result. Uncertainty is checking/failed. "permission":
+   * Firefox, the person declined the purchase-data permission at Get Still Pro, so no checkout started. */
+  state: "checking" | "restored" | "nothing" | "failed" | "verify" | "permission";
   onAction?: () => void;
   /**
    * Replaces the "nothing" wording for a host whose check is against something other than a Still

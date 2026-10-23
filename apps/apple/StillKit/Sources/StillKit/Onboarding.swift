@@ -165,11 +165,13 @@ public enum OnboardingCopy {
   }
 
   /// The macOS enable steps: one static list, because Safari's extension settings have one path on
-  /// macOS. There is no walk to Safari here, because the button already made it.
+  /// macOS. There is no walk to Safari here, because the button already made it. Safari 27's
+  /// Extensions pane has a checkbox, and the per-site allowance is in its Permissions section
+  /// (owner, ISS-0126).
   public static let macOSEnableSteps: [String] = [
     "Click “\(openButtonTitle(for: .safariExtensionSettings))” below.",
-    "In Extensions, switch on Still.",
-    "Allow Still on Instagram, Facebook, YouTube and TikTok.",
+    "In Extensions, make sure the box next to Still is checked.",
+    "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
     "Quit Safari (⌘Q) and reopen it.",
   ]
 }

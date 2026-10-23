@@ -3,12 +3,14 @@
   import { isValidEmail } from "../email.js";
   import { trapFocus } from "../focus-trap.js";
   import { STRINGS } from "../strings.js";
+  import { DATA_PERMISSION_COPY } from "../data-permission.js";
 
   interface Props {
     controller: UiController;
     onDismiss: () => void;
     /** The email step's heading and prompt, when the host that opened the sheet has its own
-     * (the Apple purchase sheet, ISS-0085). The consent and code steps keep their own words. */
+     * (the Apple purchase sheet, ISS-0085). Without them the sheet uses the words for what opened
+     * it (the controller's signInPurpose, ISS-0123). The consent and code steps keep their own. */
     title?: string;
     prompt?: string;
     /** One added line under the prompt, supplied by the host that opened the sheet. */
@@ -63,11 +65,33 @@
         c.authFlow === "verifying" ||
         c.authFlow === "code-error"),
   );
+  // Get Still Pro, a signed-out Restore purchase or the Apple app's link opened the sheet
+  // (ISS-0123): that sign-in's words (owner rulings P2-19 and C, lead ruling on linking), never
+  // "Sign-in is optional", because each of them needs the account. Only the Apple apps link, and
+  // they have no consent step; a browser link would get the Still Pro consent body.
+  const stillPro = $derived(
+    c.signInPurpose === "purchase"
+      ? STRINGS.purchaseAuth
+      : c.signInPurpose === "restore"
+        ? STRINGS.restoreAuth
+        : c.signInPurpose === "link"
+          ? STRINGS.linkAuth
+          : undefined,
+  );
+  const heading = $derived(title ?? stillPro?.title ?? STRINGS.auth.title);
+  const emailPrompt = $derived(
+    prompt ?? stillPro?.prompt ?? STRINGS.auth.prompt,
+  );
+  const addedNote = $derived(note ?? stillPro?.note);
   /** The consent step's own title, which differs in voice: Chrome states a fact, Firefox asks. */
   const consentTitle = $derived(
-    c.emailConsent === "opt-in"
-      ? STRINGS.emailConsent.optInTitle
-      : STRINGS.emailConsent.disclosureTitle,
+    c.emailConsent !== "opt-in"
+      ? STRINGS.emailConsent.disclosureTitle
+      : c.signInPurpose === "purchase"
+        ? STRINGS.emailConsent.purchaseOptInTitle
+        : c.signInPurpose === "restore"
+          ? STRINGS.emailConsent.restoreOptInTitle
+          : STRINGS.emailConsent.optInTitle,
   );
 
   const codeErrorLine = $derived.by(() => {
@@ -164,20 +188,22 @@
          changes on the consent step. A screen reader must not announce "sign in" on the one screen
          that is asking a question about an email address. -->
     <h2 id="still-signin-title">
-      {c.needsEmailConsent ? consentTitle : (title ?? STRINGS.auth.title)}
+      {c.needsEmailConsent ? consentTitle : heading}
     </h2>
     <p class="body">
       {#if c.needsEmailConsent}
-        {STRINGS.emailConsent.body}
+        {stillPro
+          ? STRINGS.emailConsent.purchaseBody
+          : STRINGS.emailConsent.body}
       {:else}
-        {inCodeEntry
-          ? STRINGS.codeAuth.prompt
-          : (prompt ?? STRINGS.auth.prompt)}
+        {inCodeEntry ? STRINGS.codeAuth.prompt : emailPrompt}
       {/if}
     </p>
     <!-- The purchase note and its skip belong to the email step; the code step shows the code
          field only (owner ruling D5, 22 Oct 2026). Cancel stays on every step. -->
-    {#if note && !inCodeEntry}<p class="body">{note}</p>{/if}
+    {#if addedNote && !inCodeEntry && !c.needsEmailConsent}<p class="body">
+        {addedNote}
+      </p>{/if}
 
     {#if c.needsEmailConsent}
       <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
@@ -185,7 +211,11 @@
       {#if c.emailConsent === "opt-in"}
         <label class="agree">
           <input type="checkbox" bind:checked={agreedToShareEmail} />
-          <span>{STRINGS.emailConsent.agree}</span>
+          <span
+            >{stillPro
+              ? STRINGS.emailConsent.purchaseAgree
+              : STRINGS.emailConsent.agree}</span
+          >
         </label>
       {/if}
       <button
@@ -306,6 +336,12 @@
           </p>
         {/if}
       </form>
+    {/if}
+
+    {#if c.dataPermissionNotice === "email" && !c.needsEmailConsent}
+      <!-- Firefox: the person declined (or withdrew) the permission to send their email address,
+           so nothing was sent. One line, where they clicked. -->
+      <p class="hint" role="status">{DATA_PERMISSION_COPY.email}</p>
     {/if}
 
     {#if skip && !inCodeEntry}

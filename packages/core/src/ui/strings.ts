@@ -3,6 +3,11 @@ import type { ServiceId } from "@still/shared-types";
 // Outcome-phrased copy (spec §3.2): point at the result, never the mechanism. Sentence case.
 // A settings row describes a steady state of the world, not an action.
 
+/** "6‑digit" with a non-breaking hyphen (U+2011), so a line never ends at "6-" with "digit" on the
+ * next (ISS-0124). Every bundled Inter, web and Apple, has the glyph. The copy-audit test fails on
+ * a plain "6-digit" in user-visible copy. */
+export const SIX_DIGIT = "6\u2011digit";
+
 export const STRINGS = {
   appName: "Still",
 
@@ -167,7 +172,7 @@ export const STRINGS = {
     // Says what an account is for and, in the same breath, that it is not required. Someone who
     // opened this sheet by accident should be able to close it without wondering what they lost.
     prompt:
-      "Enter your email to get a 6-digit sign-in code. Sign-in is optional. Blocking works without an account.",
+      `Enter your email to get a ${SIX_DIGIT} sign-in code. Sign-in is optional. Blocking works without an account.`,
     cancel: "Cancel",
     emailLabel: "Email address",
     emailPlaceholder: "you@example.com",
@@ -183,6 +188,31 @@ export const STRINGS = {
     signInCta: "Sign in to sync",
   },
 
+  // The sign-in sheet when Get Still Pro opened it (owner copy ruling P2-19, 22 Oct 2026): it says
+  // what it is for. It never says sign-in is optional: a browser has no way to buy without an
+  // account. The Apple apps add "Buy without an account" under it (apple-pro-host.ts).
+  purchaseAuth: {
+    title: "Sign in to get Still Pro",
+    prompt: `Enter your email to get a ${SIX_DIGIT} sign-in code.`,
+    note: "Sign in first to keep Still Pro with your account.",
+  },
+
+  // The sign-in sheet when Restore purchase opened it signed out (owner ruling C, 22 Oct 2026). As
+  // with the purchase sign-in, it never says sign-in is optional: restoring needs the account.
+  restoreAuth: {
+    title: "Sign in to restore Still Pro",
+    prompt: `Enter your email to get a ${SIX_DIGIT} sign-in code.`,
+    note: "Sign in with the account you bought Still Pro with.",
+  },
+
+  // The sign-in sheet when the Apple app's "Link Still Pro to your account" opened it (lead ruling,
+  // 22 Oct 2026): it says what it is for and never says sign-in is optional.
+  linkAuth: {
+    title: "Link Still Pro to your account",
+    prompt: `Enter your email to get a ${SIX_DIGIT} sign-in code.`,
+    note: "Sign in to keep Still Pro with your account.",
+  },
+
   // What a browser add-on store requires an extension to say, in its own interface, before it
   // collects an email address. Chrome's program policies want the disclosure at the point of
   // collection rather than only behind a privacy-policy link; Firefox wants an explicit opt-in
@@ -192,8 +222,15 @@ export const STRINGS = {
   emailConsent: {
     disclosureTitle: "Your email is only for sign-in",
     optInTitle: "Share your email for settings sync?",
-    body: "Still uses your email address to send a 6-digit sign-in code and sync your settings across devices. Still does not collect your browsing history.",
+    body: `Still uses your email address to send a ${SIX_DIGIT} sign-in code and sync your settings across devices. Still does not collect your browsing history.`,
     agree: "I agree to share my email for sign-in and settings sync.",
+    // The same step when Get Still Pro or Restore purchase opened the sheet (ISS-0123, owner
+    // rulings A and B): the email also keeps Still Pro with the account, so the step says so.
+    // Signing in still syncs settings, so that stays too. The disclosure title fits every purpose.
+    purchaseOptInTitle: "Share your email to get Still Pro?",
+    restoreOptInTitle: "Share your email to restore Still Pro?",
+    purchaseBody: `Still uses your email address to send a ${SIX_DIGIT} sign-in code, keep Still Pro with your account and sync your settings across devices. Still does not collect your browsing history.`,
+    purchaseAgree: "I agree to share my email for sign-in, Still Pro and settings sync.",
     proceed: "Continue",
     notNow: "Not now",
   },
@@ -205,9 +242,9 @@ export const STRINGS = {
   // strings stay only for the currently-unwired signIn() path.
   codeAuth: {
     send: "Send code",
-    prompt: "Check your email for a 6-digit sign-in code.",
+    prompt: `Check your email for a ${SIX_DIGIT} sign-in code.`,
     sentTo: "Sent to",
-    codeLabel: "6-digit code",
+    codeLabel: `${SIX_DIGIT} code`,
     verify: "Verify code",
     verifying: "Checking…",
     wrongCode: "That code didn’t work. Check it and try again.",

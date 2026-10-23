@@ -151,6 +151,17 @@ final class OnboardingTests: XCTestCase {
     XCTAssertEqual(OnboardingCopy.enableSteps(for: .safariExtensionSettings), OnboardingCopy.macOSEnableSteps)
   }
 
+  // ISS-0126 (owner, Mac retest on Safari 27): Safari's Extensions pane has a checkbox, and the
+  // per-site allowance lives in its Permissions section.
+  func testMacOSEnableStepsAreTheOwnerWording() {
+    XCTAssertEqual(OnboardingCopy.macOSEnableSteps, [
+      "Click “Open Safari Settings” below.",
+      "In Extensions, make sure the box next to Still is checked.",
+      "In the Permissions section, allow Still on Instagram, Facebook, YouTube and TikTok.",
+      "Quit Safari (⌘Q) and reopen it.",
+    ])
+  }
+
   func testSiteListsFollowTheOwnerOrderInstagramFacebookYouTubeTikTok() {
     let order = ["Instagram", "Facebook", "YouTube", "TikTok"]
     let lists = walkThroughs.map { $0[2] } + [directPage[1], OnboardingCopy.macOSEnableSteps[2]]
