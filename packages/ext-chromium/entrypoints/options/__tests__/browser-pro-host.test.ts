@@ -501,7 +501,17 @@ describe("paid-tier browser Still Pro card", () => {
     expect(within(card).queryByText("Still Pro can’t be bought here yet.")).toBeNull();
     expect(within(card).getByRole("button", { name: "Restore purchase" })).toBeTruthy();
     await fireEvent.click(buy);
-    await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
+    const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
+    // ISS-0123: the consent step and the sign-in it leads to are the purchase sign-in (owner
+    // ruling P2-19), never the settings-sync sheet that says sign-in is optional.
+    expect(within(consent).getByText(/keep Still Pro with your account and sync your settings/)).toBeTruthy();
+    await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    const sheet = await screen.findByRole("dialog", { name: "Sign in to get Still Pro" });
+    expect(within(sheet).getByText("Sign in first to keep Still Pro with your account.")).toBeTruthy();
+    expect(within(sheet).getByText("Enter your email to get a 6\u2011digit sign-in code.")).toBeTruthy();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
+    expect(within(sheet).queryByText("Sign in for settings sync")).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: "Buy without an account" })).toBeNull();
     // The background is asked whether this build sells at all; nothing is bought before sign-in.
     expect(f.actions()).toContain("checkoutAvailable");
     expect(f.actions()).not.toContain("createCheckout");

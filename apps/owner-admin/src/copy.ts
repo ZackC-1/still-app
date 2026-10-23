@@ -36,14 +36,14 @@ export const APPROVED = Object.freeze({
   },
   // Shipped sign-in copy (strings.ts codeAuth / auth / emailConsent wording reused verbatim).
   signIn: {
-    prompt: "Enter your email to get a 6-digit sign-in code.",
+    prompt: "Enter your email to get a 6\u2011digit sign-in code.",
     emailLabel: "Email address",
     emailPlaceholder: "you@example.com",
     invalidEmail: "Enter a valid email address to continue.",
     send: "Send code",
     sending: "Sending…",
     sentTo: "Sent to",
-    codeLabel: "6-digit code",
+    codeLabel: "6\u2011digit code",
     verify: "Verify code",
     verifying: "Checking…",
     wrongCode: "That code didn’t work. Check it and try again.",

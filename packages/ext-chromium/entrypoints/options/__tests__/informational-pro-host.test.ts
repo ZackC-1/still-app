@@ -126,9 +126,12 @@ describe("actual paid-V3 informational options destination", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    // ISS-0123: Sign in on the settings card is the settings-sync sign-in, not the purchase one.
+    const sheet = await screen.findByRole("dialog", { name: "Sign in for settings sync" });
+    expect(within(sheet).queryByText("Sign in first to keep Still Pro with your account.")).toBeNull();
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "fixture@still.test" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await fireEvent.input(await screen.findByLabelText("6-digit code"), { target: { value: "123456" } });
+    await fireEvent.input(await screen.findByLabelText("6\u2011digit code"), { target: { value: "123456" } });
     await fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
     await waitFor(() => expect(screen.getByText("fixture@still.test")).toBeTruthy());
     expect(f.messages.some(message => message.action === "verifyCode")).toBe(true);

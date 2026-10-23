@@ -183,7 +183,7 @@ describe("V3 new-sync settings page: Restore purchase", () => {
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "person@still.test" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    const code = await screen.findByLabelText("6-digit code");
+    const code = await screen.findByLabelText("6\u2011digit code");
     expect(f.restores()).toEqual([]);
     await fireEvent.input(code, { target: { value: "123456" } });
     await fireEvent.click(screen.getByRole("button", { name: "Verify code" }));

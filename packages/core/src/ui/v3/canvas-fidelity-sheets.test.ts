@@ -112,13 +112,13 @@ describe("sign-in sheet (Sheet-ApplePurchase, -AppleCode, -AppleSync, -AppleSync
     render(SignInSheet, { controller: controller("code"), onDismiss: vi.fn(), host: "apple", note, skip });
     expect(screen.queryByText(note)).toBeNull();
     expect(screen.queryByRole("button", { name: "Buy without an account" })).toBeNull();
-    expect(screen.getByLabelText("6-digit code")).toBeInTheDocument();
+    expect(screen.getByLabelText("6\u2011digit code")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   it("asks for the 6-digit sign-in code on the code step (ruling D6, P3-9)", () => {
     render(SignInSheet, { controller: controller("code"), onDismiss: vi.fn() });
-    expect(screen.getByText("Check your email for a 6-digit sign-in code.")).toBeInTheDocument();
+    expect(screen.getByText("Check your email for a 6\u2011digit sign-in code.")).toBeInTheDocument();
   });
 
   it("gives Firefox's agreement a 20px box and 15px words, and a disabled Continue at half strength", () => {

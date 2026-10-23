@@ -74,6 +74,9 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
+/** What opened the sign-in sheet (ISS-0123): Get Still Pro, or anything else (settings sync). */
+export type SignInPurpose = "sync" | "purchase";
+
 /** How long the quieter-web success payoff stays before auto-dismissing the paywall
  * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
  * on behind the sheet — is the star. */
@@ -354,6 +357,10 @@ export class UiController {
   purchaseIntent = $state(false);
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
+  /** Why the sheet is open (ISS-0123): Get Still Pro opens the purchase sign-in, with its own
+   * words (owner ruling P2-19); every other way in is the settings-sync sign-in. Set on each open,
+   * so a closed purchase sheet never colours a later sync sign-in. */
+  signInPurpose = $state<SignInPurpose>("sync");
   /** Set once this run of the sign-in flow has satisfied the surface's email-consent rule. Held in
    * memory rather than persisted: leaving the flow starts it again from the disclosure, which is
    * the conservative reading of "before the email is collected", and it costs one tap. */
@@ -778,7 +785,7 @@ export class UiController {
     if (this.entitled || this.purchaseBusy) return;
     if (this.canWebCheckout && this.canSignIn && !this.userId) {
       this.setPurchaseIntent(true);
-      this.openSignIn();
+      this.openSignIn("purchase");
       return;
     }
     this.openPaywall();
@@ -789,8 +796,11 @@ export class UiController {
     this.startUpgrade();
   }
 
-  openSignIn(): void {
+  /** Open the sign-in sheet. `purpose` is what opened it: "purchase" from Get Still Pro and its
+   * continuations, otherwise the settings-sync sign-in. */
+  openSignIn(purpose: SignInPurpose = "sync"): void {
     if (!this.signInOpen) this.track("sign_in_opened", {});
+    this.signInPurpose = purpose;
     this.signInOpen = true;
   }
 
@@ -1036,7 +1046,7 @@ export class UiController {
     this.stopPollTimer(); // polls would keep hitting 401; sign-in restarts the window
     this.paywallOpen = false;
     this.setPurchaseIntent(true);
-    this.openSignIn();
+    this.openSignIn("purchase");
   }
 
   /** Shared presentation for a (normalized) pending record: stale → find-my-purchase; fresh →
@@ -1317,6 +1327,7 @@ export class UiController {
     // Asking again here would be theatre, and it would sit in front of the code the person is
     // holding in their other hand.
     this.emailConsentGiven = true;
+    this.signInPurpose = this.purchaseIntent ? "purchase" : "sync";
     this.signInOpen = true;
   }
 

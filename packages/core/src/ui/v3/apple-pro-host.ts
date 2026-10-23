@@ -15,6 +15,7 @@ import type {
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
 import { proPurchased } from "./presentation.js";
+import { STRINGS } from "../strings.js";
 import type { UiAnalytics } from "../controller.svelte.js";
 
 export interface AppleProAccount {
@@ -77,11 +78,10 @@ export interface AppleProHostDeps {
 }
 /** The two lines the sign-in sheet adds when Get Still Pro opened it (ISS-0071, option B). */
 export const APPLE_PURCHASE_SIGN_IN_COPY = {
-  // Owner (19 Oct, ISS-0085): the purchase-opened sheet says what it is for. The sync-opened
-  // sheet keeps STRINGS.auth.
-  title: "Sign in to get Still Pro",
-  prompt: "Enter your email to get a 6-digit sign-in code.",
-  note: "Sign in first to keep Still Pro with your account.",
+  // Owner (19 Oct, ISS-0085; wording P2-19, 22 Oct): the purchase-opened sheet says what it is
+  // for, in the same words as the browsers' (STRINGS.purchaseAuth). The sync-opened sheet keeps
+  // STRINGS.auth. Only the Apple apps can buy without an account.
+  ...STRINGS.purchaseAuth,
   skip: "Buy without an account",
 } as const;
 

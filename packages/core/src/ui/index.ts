@@ -22,6 +22,7 @@ export type {
   AccessRecheck,
   UiAnalytics,
   UsageSharingState,
+  SignInPurpose,
 } from "./controller.svelte.js";
 export {
   RESEND_COOLDOWN_MS,

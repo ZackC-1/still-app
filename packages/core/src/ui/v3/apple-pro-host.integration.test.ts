@@ -1155,7 +1155,7 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     const sheet = await screen.findByRole("dialog");
     // ISS-0085 (owner, 19 Oct): the purchase-opened sheet has its own heading and prompt.
     expect(within(sheet).getByRole("heading", { name: "Sign in to get Still Pro" })).toBeVisible();
-    expect(within(sheet).getByText("Enter your email to get a 6-digit sign-in code.")).toBeVisible();
+    expect(within(sheet).getByText("Enter your email to get a 6\u2011digit sign-in code.")).toBeVisible();
     expect(within(sheet).queryByText(STRINGS.auth.prompt)).toBeNull();
     expect(within(sheet).getByText(NOTE)).toBeVisible();
     expect(within(sheet).getByRole("button", { name: SKIP })).toBeVisible();

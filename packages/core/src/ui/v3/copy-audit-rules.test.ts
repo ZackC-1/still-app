@@ -14,6 +14,7 @@ import { SITE_ACCESS_COPY, siteAccessBody, siteAccessTitle } from "./site-access
 import { SHARED_DATA_COPY } from "./withdrawal-copy.js";
 import { USAGE_SWITCH_COPY } from "./usage-copy.js";
 import { STRINGS } from "../strings.js";
+import { APPLE_PURCHASE_SIGN_IN_COPY } from "./apple-pro-host.js";
 
 // The 22 Oct 2026 copy audit and the owner's rulings on it. The house rules: curly marks, no full
 // stop on headings, titles and buttons, no serial comma, error lines start "We couldn’t …", and
@@ -71,6 +72,34 @@ function admitted(
 const here = dirname(fileURLToPath(import.meta.url));
 const source = (file: string) => readFileSync(join(here, file), "utf8");
 
+const packages = join(here, "../../../..");
+const walk = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory())
+      return entry.name === "__tests__" || entry.name === "node_modules" ? [] : walk(path);
+    return /\.(svelte|ts)$/.test(entry.name) ? [path] : [];
+  });
+/** Every source file that holds user-visible copy for a shipped screen. */
+const files = [
+  join(packages, "core/src/ui/strings.ts"),
+  ...readdirSync(join(packages, "core/src/ui"))
+    .filter((name) => name.endsWith(".svelte"))
+    .map((name) => join(packages, "core/src/ui", name)),
+  ...walk(join(packages, "core/src/ui/components")),
+  ...walk(here),
+  ...walk(join(packages, "ext-safari/entrypoints")),
+  ...walk(join(packages, "ext-chromium/entrypoints")),
+  ...walk(join(packages, "app-webview/src")),
+]
+  .filter(
+    (path) =>
+      !/\.test\.ts$|test-fixtures|fixtures\.ts$/.test(path) &&
+      // Not drawn by any shipped host; its wording waits for the owner.
+      !path.endsWith("SharingCard.svelte"),
+  )
+  .map((path) => path.slice(packages.length + 1));
+
 describe("house rule: curly apostrophes in user-visible copy", () => {
   // A contraction or a possessive with a straight apostrophe, on a line that is not a comment.
   const CONTRACTION =
@@ -88,32 +117,6 @@ describe("house rule: curly apostrophes in user-visible copy", () => {
     "You've been signed out. Sign in again to check your purchase.",
     "You're Pro",
   ];
-  const packages = join(here, "../../../..");
-  const walk = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory())
-        return entry.name === "__tests__" || entry.name === "node_modules" ? [] : walk(path);
-      return /\.(svelte|ts)$/.test(entry.name) ? [path] : [];
-    });
-  const files = [
-    join(packages, "core/src/ui/strings.ts"),
-    ...readdirSync(join(packages, "core/src/ui"))
-      .filter((name) => name.endsWith(".svelte"))
-      .map((name) => join(packages, "core/src/ui", name)),
-    ...walk(join(packages, "core/src/ui/components")),
-    ...walk(here),
-    ...walk(join(packages, "ext-safari/entrypoints")),
-    ...walk(join(packages, "ext-chromium/entrypoints")),
-    ...walk(join(packages, "app-webview/src")),
-  ]
-    .filter(
-      (path) =>
-        !/\.test\.ts$|test-fixtures|fixtures\.ts$/.test(path) &&
-        // Not drawn by any shipped host; its wording waits for the owner.
-        !path.endsWith("SharingCard.svelte"),
-    )
-    .map((path) => path.slice(packages.length + 1));
 
   it.each(files)("%s", (file) => {
     const offending = readFileSync(join(packages, file), "utf8")
@@ -131,6 +134,76 @@ describe("house rule: curly apostrophes in user-visible copy", () => {
     expect(CONTRACTION.test(`error: "We couldn't sign you in. Try again.",`)).toBe(true);
     expect(STRINGS.auth.error).toBe("We couldn’t sign you in. Try again.");
     expect(POSSESSIVE.test(`"Back in Safari, click Still's toolbar button."`)).toBe(true);
+  });
+});
+
+describe("“6‑digit” stays on one line (ISS-0124)", () => {
+  // With an ordinary hyphen the browser may wrap "6-" and "digit" onto two lines (owner QA on
+  // 2.1.1.1444). The non-breaking hyphen U+2011 keeps them together; every bundled Inter (the web
+  // font, the design-system font and the Apple app's font) has its glyph.
+  const PLAIN = /6-digit/i;
+  const commentLine = /^\s*(?:\/\/|\*|\/\*|<!--)/;
+  const repo = join(packages, "..");
+  const notTest = (path: string) => !/\.test\.ts$|test-fixtures|fixtures\.ts$|test-support/.test(path);
+  const sources = [
+    ...files.map((file) => join(packages, file)),
+    ...walk(join(packages, "ext-chromium/lib")).filter(notTest),
+    // The owner page mirrors the shipped sign-in copy.
+    ...walk(join(repo, "apps/owner-admin/src")).filter(notTest),
+  ].map((path) => path.slice(repo.length + 1));
+
+  it.each(sources)("%s", (file) => {
+    const offending = readFileSync(join(repo, file), "utf8")
+      .split("\n")
+      .filter((line) => !commentLine.test(line))
+      .map((line) => line.replace(/(?<![:"'])\/\/.*$/, "").replace(/<!--.*?-->/g, ""))
+      .filter((line) => PLAIN.test(line));
+    expect(offending).toEqual([]);
+  });
+
+  it("catches a plain hyphen and lets the non-breaking one through", () => {
+    expect(PLAIN.test(`codeLabel: "6-digit code",`)).toBe(true);
+    expect(PLAIN.test(`codeLabel: "6\u2011digit code",`)).toBe(false);
+  });
+
+  it("every shared string that names the code uses the non-breaking hyphen", () => {
+    const all: string[] = [];
+    const collect = (value: unknown): void => {
+      if (typeof value === "string") all.push(value);
+      else if (value && typeof value === "object") Object.values(value).forEach(collect);
+    };
+    collect(STRINGS);
+    expect(all.filter((line) => PLAIN.test(line))).toEqual([]);
+    const named = all.filter((line) => /6.digit/.test(line));
+    expect(named.length).toBeGreaterThanOrEqual(5);
+    for (const line of named) expect(line).toContain("6\u2011digit");
+    expect(STRINGS.codeAuth.codeLabel).toBe("6\u2011digit code");
+    expect(STRINGS.codeAuth.prompt).toBe("Check your email for a 6\u2011digit sign-in code.");
+    expect(APPLE_PURCHASE_SIGN_IN_COPY.prompt).toBe("Enter your email to get a 6\u2011digit sign-in code.");
+  });
+});
+
+describe("the sign-in sheet says what opened it (ISS-0123, owner ruling P2-19)", () => {
+  it("the purchase sign-in: title and line, and no claim that sign-in is optional", () => {
+    expect(STRINGS.purchaseAuth.title).toBe("Sign in to get Still Pro");
+    expect(STRINGS.purchaseAuth.note).toBe("Sign in first to keep Still Pro with your account.");
+    expect(Object.values(STRINGS.purchaseAuth).join(" ")).not.toMatch(/optional/i);
+  });
+
+  it("the Apple purchase sheet keeps the same words and its Buy without an account", () => {
+    expect(APPLE_PURCHASE_SIGN_IN_COPY).toEqual({
+      title: "Sign in to get Still Pro",
+      prompt: "Enter your email to get a 6\u2011digit sign-in code.",
+      note: "Sign in first to keep Still Pro with your account.",
+      skip: "Buy without an account",
+    });
+  });
+
+  it("the settings-sync sign-in keeps its own words", () => {
+    expect(STRINGS.auth.title).toBe("Sign in for settings sync");
+    expect(STRINGS.auth.prompt).toBe(
+      "Enter your email to get a 6\u2011digit sign-in code. Sign-in is optional. Blocking works without an account.",
+    );
   });
 });
 
