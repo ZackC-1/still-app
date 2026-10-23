@@ -74,9 +74,9 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
-/** What opened the sign-in sheet (ISS-0123): Get Still Pro, Restore purchase signed out, or
- * anything else (settings sync). */
-export type SignInPurpose = "sync" | "purchase" | "restore";
+/** What opened the sign-in sheet (ISS-0123): Get Still Pro, Restore purchase signed out, the Apple
+ * app's "Link Still Pro to your account", or anything else (settings sync). */
+export type SignInPurpose = "sync" | "purchase" | "restore" | "link";
 
 /** How long the quieter-web success payoff stays before auto-dismissing the paywall
  * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
@@ -802,7 +802,8 @@ export class UiController {
   }
 
   /** Open the sign-in sheet. `purpose` is what opened it: "purchase" from Get Still Pro and its
-   * continuations, "restore" from a signed-out Restore purchase, otherwise settings sync. */
+   * continuations, "restore" from a signed-out Restore purchase, "link" from the Apple app's
+   * "Link Still Pro to your account", otherwise settings sync. */
   openSignIn(purpose: SignInPurpose = "sync"): void {
     if (!this.signInOpen) this.track("sign_in_opened", {});
     this.signInPurpose = purpose;
@@ -1042,7 +1043,7 @@ export class UiController {
    * WITHOUT teardown semantics: no entitlement write (the cache rides out its TTL), no pending
    * clear (the purchase may have happened). Purchase intent makes the paywall reopen after the
    * sign-in completes, and verifyCode resumes the pending presentation (one continuous flow). */
-  reSignInFromCheckout(): void {
+  reSignInFromCheckout(purpose: "purchase" | "restore" = "purchase"): void {
     this.accountRevision++;
     this.accountEmail = null;
     this.lastSyncedAt = null;
@@ -1051,7 +1052,8 @@ export class UiController {
     this.stopPollTimer(); // polls would keep hitting 401; sign-in restarts the window
     this.paywallOpen = false;
     this.setPurchaseIntent(true);
-    this.openSignIn("purchase");
+    // The legacy paywall's Restore reaches here too; its sheet is the restore sign-in (ISS-0123).
+    this.openSignIn(purpose);
   }
 
   /** Shared presentation for a (normalized) pending record: stale → find-my-purchase; fresh →
@@ -1337,7 +1339,7 @@ export class UiController {
     // holding in their other hand.
     this.emailConsentGiven = true;
     this.signInPurpose =
-      pending.purpose === "purchase" || pending.purpose === "restore"
+      pending.purpose === "purchase" || pending.purpose === "restore" || pending.purpose === "link"
         ? pending.purpose
         : this.purchaseIntent
           ? "purchase"

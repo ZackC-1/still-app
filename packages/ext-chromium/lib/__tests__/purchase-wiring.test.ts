@@ -114,6 +114,8 @@ describe("purchase wiring protocol translations", () => {
     restoreHandler(signedOut, senderFor("signed-out"))();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(signedOut.reSignInFromCheckout).toHaveBeenCalledOnce();
+    // The paywall's Restore opens the restore sign-in, not "Sign in to get Still Pro" (ISS-0123).
+    expect(signedOut.reSignInFromCheckout).toHaveBeenCalledWith("restore");
 
     const unavailable = controllerStub();
     restoreHandler(unavailable, senderFor("unknown"))();

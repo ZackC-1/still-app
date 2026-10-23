@@ -31,6 +31,7 @@ export {
 } from "./controller.svelte.js";
 export type { EmailConsent } from "./email-consent.js";
 export { STRINGS } from "./strings.js";
+export { restoredCodeEntry, type RestoredCodeEntry } from "./pending-code-entry.js";
 export { PRIVACY_POLICY_URL } from "./config.js";
 export {
   CHROMIUM_SURFACE_GUIDANCE,

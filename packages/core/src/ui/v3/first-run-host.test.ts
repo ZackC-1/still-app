@@ -45,12 +45,11 @@ describe("first-run install rule", () => {
 
 describe("first-run host mapping", () => {
   it("uses the approved reference wording verbatim", () => {
-    expect(firstRunPermissionGuidance("firefox")).toBe(
-      "Firefox asks once. Still only runs on these four sites.",
-    );
-    expect(firstRunPermissionGuidance("chrome")).toBe(
-      "Chrome asks once. Still only runs on these four sites.",
-    );
+    // The owner's canvas comment (23 Oct 2026): one line for both browsers, naming the four sites.
+    for (const browser of ["firefox", "chrome"] as const)
+      expect(firstRunPermissionGuidance(browser)).toBe(
+        "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.",
+      );
     expect(FIRST_RUN_SETUP_DESCRIPTION).toBe(
       "Allow Still on the sites it works on, and it starts right away.",
     );

@@ -64,15 +64,18 @@
         c.authFlow === "verifying" ||
         c.authFlow === "code-error"),
   );
-  // Get Still Pro or a signed-out Restore purchase opened the sheet (ISS-0123): that sign-in's
-  // words (owner rulings P2-19 and C), never "Sign-in is optional", because a browser can neither
-  // buy nor restore without an account.
+  // Get Still Pro, a signed-out Restore purchase or the Apple app's link opened the sheet
+  // (ISS-0123): that sign-in's words (owner rulings P2-19 and C, lead ruling on linking), never
+  // "Sign-in is optional", because each of them needs the account. Only the Apple apps link, and
+  // they have no consent step; a browser link would get the Still Pro consent body.
   const stillPro = $derived(
     c.signInPurpose === "purchase"
       ? STRINGS.purchaseAuth
       : c.signInPurpose === "restore"
         ? STRINGS.restoreAuth
-        : undefined,
+        : c.signInPurpose === "link"
+          ? STRINGS.linkAuth
+          : undefined,
   );
   const heading = $derived(title ?? stillPro?.title ?? STRINGS.auth.title);
   const emailPrompt = $derived(

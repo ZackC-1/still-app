@@ -100,11 +100,11 @@ export interface PendingOtpRecord {
   /** Present only when Get Still Pro or Restore purchase opened the sign-in (ISS-0123): a restored
    * code entry keeps that sheet's words. Separate from purchaseIntent, which reopens the legacy
    * paywall. */
-  readonly purpose?: "purchase" | "restore";
+  readonly purpose?: "purchase" | "restore" | "link";
 }
 
 /** What the page says opened the sign-in; absent on the background's own requestCode write. */
-export type PendingOtpPurpose = "sync" | "purchase" | "restore";
+export type PendingOtpPurpose = "sync" | "purchase" | "restore" | "link";
 
 /** The persisted checkout-pending record (U4/R3), written by the popup controller BEFORE it opens
  * the checkout tab. `startedAt` is optional only on the read side: a garbage timestamp is dropped
@@ -335,7 +335,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         email,
         requestedAt,
         ...(intent ? { purchaseIntent: true } : {}),
-        ...(kept === "purchase" || kept === "restore" ? { purpose: kept } : {}),
+        ...(kept === "purchase" || kept === "restore" || kept === "link" ? { purpose: kept } : {}),
       }),
     );
   };
@@ -758,7 +758,9 @@ function parsePendingOtp(value: unknown): PendingOtpRecord | null {
     // the resend-cooldown restoration is lost.
     ...(isFiniteNumber(v.requestedAt) ? { requestedAt: v.requestedAt } : {}),
     ...(v.purchaseIntent === true ? { purchaseIntent: true } : {}),
-    ...(v.purpose === "purchase" || v.purpose === "restore" ? { purpose: v.purpose } : {}),
+    ...(v.purpose === "purchase" || v.purpose === "restore" || v.purpose === "link"
+      ? { purpose: v.purpose }
+      : {}),
   };
 }
 

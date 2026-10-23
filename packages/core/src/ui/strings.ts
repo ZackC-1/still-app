@@ -205,6 +205,14 @@ export const STRINGS = {
     note: "Sign in with the account you bought Still Pro with.",
   },
 
+  // The sign-in sheet when the Apple app's "Link Still Pro to your account" opened it (lead ruling,
+  // 22 Oct 2026): it says what it is for and never says sign-in is optional.
+  linkAuth: {
+    title: "Link Still Pro to your account",
+    prompt: `Enter your email to get a ${SIX_DIGIT} sign-in code.`,
+    note: "Sign in to keep Still Pro with your account.",
+  },
+
   // What a browser add-on store requires an extension to say, in its own interface, before it
   // collects an email address. Chrome's program policies want the disclosure at the point of
   // collection rather than only behind a privacy-policy link; Firefox wants an explicit opt-in

@@ -242,7 +242,7 @@ test("J11.FD site access withdrawn shows the one-step permission-needed state (D
   );
   const body = await text(page);
   expect(body).toContain(
-    "Firefox asks once. Still only runs on these four sites.",
+    "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.",
   );
   expect(
     await page.evaluate<boolean>(

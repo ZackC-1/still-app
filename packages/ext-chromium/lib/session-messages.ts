@@ -95,7 +95,7 @@ export const SESSION_PROTOCOL = {
         readonly pending: {
           readonly email: string;
           readonly requestedAt: number;
-          readonly purpose?: "sync" | "purchase" | "restore";
+          readonly purpose?: "sync" | "purchase" | "restore" | "link";
         } | null;
       },
     ) => {
@@ -154,13 +154,14 @@ function isPendingOtp(
 ): value is {
   readonly email: string;
   readonly requestedAt: number;
-  readonly purpose?: "sync" | "purchase" | "restore";
+  readonly purpose?: "sync" | "purchase" | "restore" | "link";
 } {
   const purpose = (value as { purpose?: unknown } | null)?.purpose;
   return typeof value === "object" && value !== null &&
     typeof (value as { email?: unknown }).email === "string" &&
     typeof (value as { requestedAt?: unknown }).requestedAt === "number" &&
-    (purpose === undefined || purpose === "sync" || purpose === "purchase" || purpose === "restore");
+    (purpose === undefined || purpose === "sync" || purpose === "purchase" || purpose === "restore" ||
+      purpose === "link");
 }
 
 function isCheckoutPending(value: unknown): value is CheckoutPendingRecord {

@@ -152,7 +152,8 @@ export function restoreHandler(controller: UiController, sendMessage: SessionSen
       if (outcome === "not-entitled") {
         controller.setRestoreOutcome(false); // honest: nothing to restore on this account
       } else if (outcome === "auth-required" || outcome === "signed-out") {
-        controller.reSignInFromCheckout(); // session died: re-sign-in, never teardown (KTD)
+        // Session died: re-sign-in, never teardown (KTD), with the restore sign-in's words.
+        controller.reSignInFromCheckout("restore");
       } else {
         // unknown (offline / spine absent): one calm retry line, CTA re-enabled.
         controller.setPurchaseOutcome({ outcome: "unavailable", entitled: false });

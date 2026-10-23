@@ -33,17 +33,22 @@ An ordinary hyphen-minus is a line-break opportunity, so "6-digit" may split at 
 - `UiController.openSignIn(purpose = "sync")` records `signInPurpose` on every open. Get Still Pro
   (`InformationalProSettings.svelte`), `startUpgrade` and `reSignInFromCheckout` pass `"purchase"`.
   A signed-out Restore purchase (`browser-pro.ts` on the paid card, `RestoreSettings.svelte` on the
-  free-period link) passes `"restore"` (owner ruling C: "Sign in to restore Still Pro"). Every other
-  entry (sync card, popup Sign in, invitation, first-run) stays `"sync"`. The Apple apps' Restore is
-  the native App Store restore and never opens a sign-in.
+  free-period link) passes `"restore"` (owner ruling C: "Sign in to restore Still Pro"), and so does
+  the legacy paywall's Restore through `reSignInFromCheckout("restore")`. The Apple app's link
+  requests (the link card, the sync card's invitation, "Use a different account") pass `"link"`
+  through `AppleProHostDeps.signIn` ("Link Still Pro to your account"). Every other entry (sync
+  card, popup Sign in, sync invitation, first-run) stays `"sync"`. The Apple apps' Restore is the
+  native App Store restore and never opens a sign-in; no browser surface links.
 - The purpose is persisted with the pending code entry (`PendingOtp.purpose`, stored by the
-  extension background as `purpose: "purchase"` or `"restore"`), so a Settings page reloaded at the
-  code step, or
+  extension background as `purpose: "purchase"`, `"restore"` or `"link"`; the Apple app saves it in
+  its JSON record and reads it back with `restoredCodeEntry`), so a Settings page reloaded at the
+  code step, an app relaunched there, or
   the popup opened meanwhile, restores that heading. It is deliberately not the
   `purchaseIntent` flag: the V3 Settings card never sets that, because it reopens the legacy
   paywall after sign-in. The background's own `requestCode` write keeps a purpose already stored
   for the same address; the page's write states it outright.
-- The sheet uses `STRINGS.purchaseAuth` (owner ruling P2-19) or `STRINGS.restoreAuth` (ruling C),
+- The sheet uses `STRINGS.purchaseAuth` (owner ruling P2-19), `STRINGS.restoreAuth` (ruling C) or
+  `STRINGS.linkAuth` (lead ruling),
   with the email consent step's Still Pro variants, and never the "Sign-in is optional" prompt. Host props still
   override, so the Apple sheet keeps its "Buy without an account"; its copy now spreads
   `STRINGS.purchaseAuth`, so both platforms share one wording.
