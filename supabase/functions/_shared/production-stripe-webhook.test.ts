@@ -5,7 +5,7 @@ import type { PurchaseOperation, PurchaseOperationStatus } from "./purchase-oper
 
 const HOLDER = "11111111-1111-1111-1111-111111111111", OP = "22222222-2222-2222-2222-222222222222";
 const HASH = "a".repeat(64), SESSION = "cs_live_Fixture", INTENT = "pi_Fixture", CHARGE = "ch_Fixture", SECRET = "whsec_SyntheticOnly";
-const KEY = "b".repeat(64), NOW = new Date().toISOString();
+const KEY = "b".repeat(64), LEGACY_KEY = "c".repeat(64), UNRELATED = "33333333-3333-3333-3333-333333333333", NOW = new Date().toISOString();
 const CREATED = Math.floor(Date.parse(NOW)/1000);
 function event(type = "checkout.session.completed", patch: Record<string, unknown> = {}) {
   return { object: "event", id: "evt_Fixture", type, livemode: true, data: { object: type === "charge.refunded" ?
@@ -28,7 +28,7 @@ function setup() {
     status: "session_bound", creation_started_at: NOW, paid_at: null, created_at: NOW, updated_at: NOW } as PurchaseOperation<"production">,
     reads: 0, creates: 0, imports: 0, recoveries: 0, begins: 0, commits: 0, signs: 0, refunds: 0, enabled: false, confirmed: false,
     paid: true, pending: false, expired: false, unknown: false, importFails: false, rcUnavailable: false, customerMissing: false, active: false,
-    negative: true, complete: true, known: true, stale: false, full: true, partial: false, deleted: false, readFails: false, mutations: [] as string[], snapshots: [] as unknown[] };
+    negative: true, complete: true, known: true, stale: false, legacy: false, unrelated: false, conflict: false, full: true, partial: false, deleted: false, readFails: false, mutations: [] as string[], snapshots: [] as unknown[] };
   const deps: ManagedStripeWebhookDeps = { secret: SECRET, checkout: { configurationHash: HASH, environment: "production",
     operations: {
       prepare: () => { throw Error("must not prepare"); }, claimCreation: () => { throw Error("must not claim"); },
@@ -55,13 +55,17 @@ function setup() {
     }, access: {
       signer: { environment: "production",sign: () => { state.signs++; throw Error("must never sign"); } },
       provider: { getRights: (_holder,environment) => { assertEquals(environment,"production"); return Promise.resolve(state.rcUnavailable ? { status: "unavailable" } : state.customerMissing ? { status: "verified",complete: true,rights: [],customerMissing: true } : { status: "verified",complete: state.complete,
-        rights: state.active ? [{ key: KEY,product: "still_pro_v3" }] : state.negative ? [{ key: KEY,product: "still_pro_v3",state: "revoked" }] : [] }); } },
+        rights: [...(state.legacy ? [{ key: LEGACY_KEY,product: "still_sync" as const }] : []),
+          ...(state.active ? [{ key: KEY,product: "still_pro_v3" as const }] : state.negative ? [{ key: KEY,product: "still_pro_v3" as const,state: "revoked" as const }] : [])] }); } },
       rights: {
         begin: (_holder,environment) => { assertEquals(environment,"production"); state.begins++; return Promise.resolve(OP); },
         commit: (_holder,environment,_token,rights) => { assertEquals(environment,"production"); state.commits++; state.snapshots.push(rights);
           if (!state.known && rights.length) throw Error("unknown negative key");
-          return Promise.resolve(state.stale ? { status: "stale" } : { status: "committed",rights: state.active || (state.known && !rights.length) ?
-            [{ right: OP,holder: HOLDER,revision: 1,verified_at: Date.now() }] : [],revocations: [],issuer_time: Date.now() }); },
+          // A conflicting refunded key stays active. An unrelated right (legacy still_sync or a linked
+          // Apple purchase) stays active in the ledger too.
+          const unrelated = state.unrelated ? [{ right: UNRELATED,holder: HOLDER,revision: 1,verified_at: Date.now() }] : [];
+          return Promise.resolve(state.stale ? { status: "stale" } : { status: state.conflict ? "conflict" : "committed",rights: [...(state.active || state.conflict || (state.known && !rights.length) ?
+            [{ right: OP,holder: HOLDER,revision: 1,verified_at: Date.now() }] : []),...unrelated],revocations: [],issuer_time: Date.now() }); },
         confirm: () => { throw Error("must not confirm positive"); },
       },
     } }, refunds: { readChargeRefund: (id) => { assertEquals(id,CHARGE); state.refunds++; return Promise.resolve({
@@ -118,4 +122,28 @@ Deno.test("production refund after account deletion retains the payment and neve
   assertEquals((await handleProductionStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200);
   assertEquals(s.state.mutations,["deleted-account-refunded"]);
   assertEquals([s.state.begins,s.state.commits,s.state.imports,s.state.signs],[0,0,0,0]);
+});
+Deno.test("production refund acknowledges once its own purchase is revoked, whatever unrelated rights remain", async () => {
+  for (const patch of [{ legacy: true },{ unrelated: true },{ legacy: true,unrelated: true }]) {
+    const s=setup(); Object.assign(s.state,patch);
+    assertEquals((await handleProductionStripeWebhook(await request(event("charge.refunded")),s.deps)).status,200,JSON.stringify(patch));
+    assertEquals(s.state.row.status,"refunded");
+    assertEquals(s.state.snapshots,[[{ key:KEY,product:"still_pro_v3",state:"revoked" }]]);
+    assertEquals([s.state.imports,s.state.creates,s.state.signs],[0,0,0]);
+  }
+});
+Deno.test("production refund keeps retrying while a right tied to the refunded purchase may still be active", async () => {
+  for (const patch of [
+    // RevenueCat still lists the Stripe Pro purchase as owned, next to an unrelated legacy right.
+    { active: true,legacy: true },{ active: true,unrelated: true },
+    // The ledger refused to revoke the refunded key.
+    { conflict: true },{ conflict: true,unrelated: true },
+    // RevenueCat shows no refund for any Pro purchase, so an active ledger right cannot be excluded.
+    { negative: false },{ negative: false,legacy: true,unrelated: true },
+    { stale: true,legacy: true },{ complete: false,legacy: true },
+  ]) {
+    const s=setup(); Object.assign(s.state,patch);
+    assertEquals((await handleProductionStripeWebhook(await request(event("charge.refunded")),s.deps)).status,502,JSON.stringify(patch));
+    assertEquals(s.state.row.status,"refunded"); assertEquals(s.state.signs,0);
+  }
 });

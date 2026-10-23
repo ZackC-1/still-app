@@ -111,8 +111,15 @@ async function refund(chargeId: string, deps: ManagedStripeWebhookDeps): Promise
   // Never invent a Session/RC purchase relation, revoke by absence or create an unknown right.
   // SQL accepts known negative keys only, including a disabled/banned former provider holder.
   const committed = await access.rights.commit(operation.holder, checkout.environment, token, negatives);
-  if (committed.status === "stale" || observation.complete === false ||
-    observation.rights.some(right => right.state !== "revoked") || committed.rights.length) return reply(502);
+  // Retry only while a right that could be THIS purchase may still be active. A web purchase grants
+  // still_pro_v3 (Apple Pro is not listed here), so an owned still_pro_v3 purchase or a ledger
+  // conflict holds the retry. Legacy still_sync and linked Apple rights are independent and must not:
+  // once RevenueCat shows a refunded Pro purchase and the ledger committed it, other active ledger
+  // rows are unrelated. Without that refund on record, any active ledger row may still be this one.
+  const pro = observation.rights.filter(right => right.product === "still_pro_v3");
+  const refundObserved = pro.some(right => right.state === "revoked");
+  if (committed.status !== "committed" || observation.complete === false ||
+    pro.some(right => right.state !== "revoked") || (!refundObserved && committed.rights.length)) return reply(502);
   return reply(200);
 }
 
