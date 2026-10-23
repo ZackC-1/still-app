@@ -627,6 +627,75 @@ describe("ISS-0115 (22 Oct): a popup that wakes the background keeps its events"
     expect(t.bodies()).not.toContain(SUBJECT);
   });
 
+  /** Holds the next account read's reply (computed when it is asked) until released. */
+  const holdNextAccountRead = (t: ReturnType<typeof setup>) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let asked!: () => void;
+    const reached = new Promise<void>((resolve) => (asked = resolve));
+    const original = t.sendNative.getMockImplementation()!;
+    let held = false;
+    t.sendNative.mockImplementation(async (message) => {
+      if (message.kind !== "getAccountSyncStatus" || held) return original(message);
+      held = true;
+      const reply = await original(message); // the app's answer when it was asked
+      asked();
+      await gate;
+      return reply;
+    });
+    return { reached, release };
+  };
+
+  it("NEGATIVE CONTROL: an overtaken check that read a signed-in account never sends its event anonymously after a sign-out", async () => {
+    v3();
+    const t = setup();
+    await t.app.permission();
+    await t.use(); // signed out, confirmed
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    t.fetch.mockClear();
+    // Signed in in the app; the toggle's account check reads "signed in" and its reply is slow.
+    t.device.account.value = ACCOUNT;
+    const held = holdNextAccountRead(t);
+    const toggled = t.send(TOGGLED);
+    await held.reached;
+    // Signed out again in the app; a newer event's check reads "signed out" and overtakes it.
+    t.device.account.value = null;
+    await t.send(OPENED);
+    held.release();
+    await toggled;
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    expect(t.sent()).not.toContain("global_toggled");
+  });
+
+  it("NEGATIVE CONTROL: an overtaken check that read signed out, while the device stays signed in, never sends its event", async () => {
+    v3();
+    const t = setup({ account: ACCOUNT });
+    const permission = (await t.app.permission())!;
+    t.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await t.use();
+    await t.eventually(() => expect(t.bodies()).toContain(SUBJECT));
+    await t.idle();
+    t.fetch.mockClear();
+    // A momentary "signed out" answer for the toggle, overtaken by a newer "signed in" one.
+    t.device.account.value = null;
+    const held = holdNextAccountRead(t);
+    const toggled = t.send(TOGGLED);
+    await held.reached;
+    t.device.account.value = ACCOUNT;
+    await t.send(OPENED);
+    held.release();
+    await toggled;
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("opened"));
+    await t.idle();
+    expect(t.sent()).not.toContain("global_toggled");
+  });
+
   it("NEGATIVE CONTROL: Off in the app between queueing and sending drops the event", async () => {
     v3();
     const first = setup();

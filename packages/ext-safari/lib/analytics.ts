@@ -255,9 +255,12 @@ export function createSafariBackgroundAnalytics(
     );
     if (stopped) return null;
     if (sequence !== accountSequence) {
-      // Overtaken by a newer check: this answer is not applied. Once every newer check has
-      // finished, the work is kept only as signed-out use that nothing but sign-outs of nobody
-      // fenced (revive). Signed in or held, an overtaken answer may be stale, so it is dropped.
+      // Overtaken by a newer check: this answer is not applied. The work is kept only when this
+      // check's own answer was a readable "signed out" (the app named someone, or could not be
+      // read, for it: dropped), and then only once every newer check has finished, if the device
+      // is still signed out with nothing held and nothing but sign-outs of nobody fenced it
+      // (revive). Otherwise it is dropped, as before.
+      if ((reply as { accountSyncStatus?: unknown } | null)?.accountSyncStatus !== null) return null;
       for (let tail = latestCheck; ; tail = latestCheck) {
         await tail;
         if (tail === latestCheck) break;
