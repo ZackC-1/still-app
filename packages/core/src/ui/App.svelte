@@ -525,7 +525,7 @@
           <p>
             <!-- One line for everyone, paid tier on or off: the four protections and settings sync are
              free, so the hero never says what they cost. "On enabled sites" already hedges
-             per-service state. Still Pro's extras are offered only on the V3 screens. -->
+             per-service state. The Still Pro extras are offered only on the V3 screens. -->
             {choices.globalOn ? STRINGS.global.onSecondary : STRINGS.global.offSecondary}
           </p>
         </div>
