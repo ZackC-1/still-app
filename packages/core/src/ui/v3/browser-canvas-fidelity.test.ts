@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen } from "@testing-library/svelte";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ExtensionSettings from "./ExtensionSettings.svelte";
+import SiteAccessCard from "./SiteAccessCard.svelte";
+import { fixture as settingsFixture } from "./ExtensionSettings.test-fixtures.js";
 
 // The owner's screens canvas, Chrome and Firefox popup boards (fidelity check of 22 Oct 2026). jsdom
 // does not lay out, so these pin the style rules that put the popup on the canvas's measurements.
@@ -72,5 +77,72 @@ describe("Help card and site expanders, canvas measurements (owner rulings B1 an
     const chevron = line(".service-row .chevron");
     expect(chevron).toContain("inline-size: 14px;");
     expect(chevron).toContain("block-size: 14px;");
+  });
+});
+
+/** A top-level rule's declarations from the shared stylesheet, components.css. */
+const componentsRule = (selector: string) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(`^${escaped} \\{([^}]*)\\}`, "m").exec(source("design/tokens/components.css"))?.[1] ?? ""
+  );
+};
+
+describe("Chrome and Firefox Settings page, Still Pro and restore status lines (canvas P-AppPro, P-Restore; b12 RD-2)", () => {
+  afterEach(cleanup);
+  const OFFER = { price: "$9.99", priceNote: "One-time purchase. Lifetime access." };
+
+  it("puts the Settings page's Still Pro card in the shared .pro-slot hook, as the Apple app does", async () => {
+    const { props } = await settingsFixture("locked");
+    const view = render(ExtensionSettings, {
+      props: { ...props, pro: { ownership: "failed", channel: "ready", offer: OFFER, onRestore: vi.fn() } },
+    });
+    const lines = [...view.container.querySelectorAll(".status-line")];
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((node) => node.closest(".pro-slot"))).toBe(true);
+  });
+
+  it("puts the restore card's status line under section.restore-card", async () => {
+    const { props } = await settingsFixture("locked");
+    render(ExtensionSettings, { props: { ...props, onRestore: vi.fn(), restore: { state: "checking" } } });
+    expect(
+      screen.getByText("Checking for Still Pro purchases…").closest("section.restore-card .status-line"),
+    ).not.toBeNull();
+  });
+
+  it("draws both cards' status lines at 14px with the glyph 2px down, in the shared stylesheet for every host", () => {
+    const text = componentsRule(":is(.pro-slot, .restore-card) .status-line");
+    expect(text).toContain("font-size: calc(14px * var(--text-scale, 1));");
+    expect(componentsRule(":is(.pro-slot, .restore-card) .status-line .glyph")).toContain("margin-block-start: 2px;");
+    // Every other status line stays 13px (the popups, sync card and site-access card).
+    expect(componentsRule(".status-line")).toContain("font-size: calc(13px * var(--text-scale, 1));");
+    // One rule for both hosts: the Apple app no longer carries its own copy.
+    expect(source("AppleSettings.svelte")).not.toMatch(/restore-card \.status-line/);
+  });
+});
+
+describe("Website-access card, heading to explanation (canvas P-SiteAccess; b12 RD-3)", () => {
+  afterEach(cleanup);
+
+  it("puts 4px between the heading and the explanation; other status lines keep 2px", () => {
+    expect(componentsRule("[data-site-access] .status-line .status-body")).toContain("gap: 4px;");
+    expect(componentsRule(".status-line .status-body")).toContain("gap: 2px;");
+  });
+
+  it("keeps the empty live region from adding a second gap, so Allow stays in its canvas place", async () => {
+    expect(componentsRule('[data-site-access] .status-body > [role="status"][data-empty]')).toContain(
+      "margin-block-start: -4px;",
+    );
+    const view = render(SiteAccessCard, {
+      props: { state: "needed", browser: "Chrome", onAllow: vi.fn() },
+    });
+    // Still in the page, so a later change is announced, but marked empty while it has no words.
+    const live = screen.getByRole("status");
+    expect(live.textContent).toBe("");
+    expect(live.matches('[data-site-access] .status-body > [role="status"][data-empty]')).toBe(true);
+    // Once it has words it takes its normal gap again.
+    await view.rerender({ state: "pending", browser: "Chrome", onAllow: vi.fn() });
+    expect(screen.getByRole("status").textContent).not.toBe("");
+    expect(screen.getByRole("status")).not.toHaveAttribute("data-empty");
   });
 });

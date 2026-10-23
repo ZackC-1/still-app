@@ -349,6 +349,16 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .status-line .status-body { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
 /* "Try again" and the other status actions are plain 13px links (owner canvas, every status line). */
 .status-line .status-action { align-self: flex-start; font-size: calc(13px * var(--text-scale, 1)); }
+/* Owner canvas (P-AppPro, P-Restore, 22 Oct): the Still Pro and restore cards' status lines are
+   body-sized (14px), with the glyph centred on the first line, on the Settings page and in the app.
+   The Still Pro card's host wraps it in .pro-slot; detail lines and actions keep their own sizes. */
+:is(.pro-slot, .restore-card) .status-line { font-size: calc(14px * var(--text-scale, 1)); }
+:is(.pro-slot, .restore-card) .status-line .glyph { margin-block-start: 2px; }
+/* Owner canvas (P-SiteAccess): 4px between the website-access card's heading and its explanation.
+   The card's live region stays in the page so each change is announced; while it is empty
+   (data-empty, set by SiteAccessCard) it takes back its gap, so Allow keeps its canvas place. */
+[data-site-access] .status-line .status-body { gap: 4px; }
+[data-site-access] .status-body > [role="status"][data-empty] { margin-block-start: -4px; }
 .status-line[data-tone="pending"] .glyph { animation: still-spin 900ms linear infinite; }
 @keyframes still-spin { to { transform: rotate(360deg); } }
 
