@@ -64,25 +64,30 @@
         c.authFlow === "verifying" ||
         c.authFlow === "code-error"),
   );
-  // Get Still Pro opened the sheet (ISS-0123): the purchase sign-in's words (owner ruling P2-19),
-  // never "Sign-in is optional", because a browser has no way to buy without an account.
-  const purchase = $derived(c.signInPurpose === "purchase");
-  const heading = $derived(
-    title ?? (purchase ? STRINGS.purchaseAuth.title : STRINGS.auth.title),
+  // Get Still Pro or a signed-out Restore purchase opened the sheet (ISS-0123): that sign-in's
+  // words (owner rulings P2-19 and C), never "Sign-in is optional", because a browser can neither
+  // buy nor restore without an account.
+  const stillPro = $derived(
+    c.signInPurpose === "purchase"
+      ? STRINGS.purchaseAuth
+      : c.signInPurpose === "restore"
+        ? STRINGS.restoreAuth
+        : undefined,
   );
+  const heading = $derived(title ?? stillPro?.title ?? STRINGS.auth.title);
   const emailPrompt = $derived(
-    prompt ?? (purchase ? STRINGS.purchaseAuth.prompt : STRINGS.auth.prompt),
+    prompt ?? stillPro?.prompt ?? STRINGS.auth.prompt,
   );
-  const addedNote = $derived(
-    note ?? (purchase ? STRINGS.purchaseAuth.note : undefined),
-  );
+  const addedNote = $derived(note ?? stillPro?.note);
   /** The consent step's own title, which differs in voice: Chrome states a fact, Firefox asks. */
   const consentTitle = $derived(
-    c.emailConsent === "opt-in"
-      ? purchase
+    c.emailConsent !== "opt-in"
+      ? STRINGS.emailConsent.disclosureTitle
+      : c.signInPurpose === "purchase"
         ? STRINGS.emailConsent.purchaseOptInTitle
-        : STRINGS.emailConsent.optInTitle
-      : STRINGS.emailConsent.disclosureTitle,
+        : c.signInPurpose === "restore"
+          ? STRINGS.emailConsent.restoreOptInTitle
+          : STRINGS.emailConsent.optInTitle,
   );
 
   const codeErrorLine = $derived.by(() => {
@@ -183,7 +188,9 @@
     </h2>
     <p class="body">
       {#if c.needsEmailConsent}
-        {purchase ? STRINGS.emailConsent.purchaseBody : STRINGS.emailConsent.body}
+        {stillPro
+          ? STRINGS.emailConsent.purchaseBody
+          : STRINGS.emailConsent.body}
       {:else}
         {inCodeEntry ? STRINGS.codeAuth.prompt : emailPrompt}
       {/if}
@@ -201,7 +208,7 @@
         <label class="agree">
           <input type="checkbox" bind:checked={agreedToShareEmail} />
           <span
-            >{purchase
+            >{stillPro
               ? STRINGS.emailConsent.purchaseAgree
               : STRINGS.emailConsent.agree}</span
           >

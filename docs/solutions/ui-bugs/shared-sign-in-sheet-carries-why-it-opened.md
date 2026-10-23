@@ -32,15 +32,19 @@ An ordinary hyphen-minus is a line-break opportunity, so "6-digit" may split at 
 
 - `UiController.openSignIn(purpose = "sync")` records `signInPurpose` on every open. Get Still Pro
   (`InformationalProSettings.svelte`), `startUpgrade` and `reSignInFromCheckout` pass `"purchase"`.
-  Every other entry (sync card, popup Sign in, invitation, first-run, Restore) stays `"sync"`.
+  A signed-out Restore purchase (`browser-pro.ts` on the paid card, `RestoreSettings.svelte` on the
+  free-period link) passes `"restore"` (owner ruling C: "Sign in to restore Still Pro"). Every other
+  entry (sync card, popup Sign in, invitation, first-run) stays `"sync"`. The Apple apps' Restore is
+  the native App Store restore and never opens a sign-in.
 - The purpose is persisted with the pending code entry (`PendingOtp.purpose`, stored by the
-  extension background as `purpose: "purchase"`), so a Settings page reloaded at the code step, or
-  the popup opened meanwhile, restores the purchase heading. It is deliberately not the
+  extension background as `purpose: "purchase"` or `"restore"`), so a Settings page reloaded at the
+  code step, or
+  the popup opened meanwhile, restores that heading. It is deliberately not the
   `purchaseIntent` flag: the V3 Settings card never sets that, because it reopens the legacy
   paywall after sign-in. The background's own `requestCode` write keeps a purpose already stored
   for the same address; the page's write states it outright.
-- The sheet uses `STRINGS.purchaseAuth` (owner ruling P2-19) for a purchase, including the email
-  consent step's purchase variants, and never the "Sign-in is optional" prompt. Host props still
+- The sheet uses `STRINGS.purchaseAuth` (owner ruling P2-19) or `STRINGS.restoreAuth` (ruling C),
+  with the email consent step's Still Pro variants, and never the "Sign-in is optional" prompt. Host props still
   override, so the Apple sheet keeps its "Buy without an account"; its copy now spreads
   `STRINGS.purchaseAuth`, so both platforms share one wording.
 - Copy uses `SIX_DIGIT` (`"6‑digit"`, a non-breaking hyphen). Every bundled Inter (the web font,

@@ -190,6 +190,23 @@ describe("the sign-in sheet says what opened it (ISS-0123, owner ruling P2-19)",
     expect(Object.values(STRINGS.purchaseAuth).join(" ")).not.toMatch(/optional/i);
   });
 
+  it("the restore sign-in (owner ruling C, 22 Oct)", () => {
+    expect(STRINGS.restoreAuth.title).toBe("Sign in to restore Still Pro");
+    expect(STRINGS.restoreAuth.note).toBe("Sign in with the account you bought Still Pro with.");
+    expect(Object.values(STRINGS.restoreAuth).join(" ")).not.toMatch(/optional/i);
+  });
+
+  it("the purchase consent wording (owner rulings A and B, 22 Oct)", () => {
+    expect(STRINGS.emailConsent.purchaseBody).toBe(
+      "Still uses your email address to send a 6\u2011digit sign-in code, keep Still Pro with your account and sync your settings across devices. Still does not collect your browsing history.",
+    );
+    expect(STRINGS.emailConsent.purchaseOptInTitle).toBe("Share your email to get Still Pro?");
+    expect(STRINGS.emailConsent.purchaseAgree).toBe(
+      "I agree to share my email for sign-in, Still Pro and settings sync.",
+    );
+    expect(STRINGS.emailConsent.disclosureTitle).toBe("Your email is only for sign-in");
+  });
+
   it("the Apple purchase sheet keeps the same words and its Buy without an account", () => {
     expect(APPLE_PURCHASE_SIGN_IN_COPY).toEqual({
       title: "Sign in to get Still Pro",

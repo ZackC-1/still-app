@@ -461,7 +461,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       return;
     }
     restoreAwaitingSignIn = true;
-    deps.controller.openSignIn();
+    // The restore sign-in (owner ruling C, 22 Oct 2026), not the settings-sync one.
+    deps.controller.openSignIn("restore");
   }
   function observeRestore(previous: BrowserProObservation | null, next: BrowserProObservation): void {
     if (previous && previous.userId !== next.userId && restoreFor !== null && next.userId !== restoreFor) {

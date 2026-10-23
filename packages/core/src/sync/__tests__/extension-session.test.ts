@@ -912,6 +912,14 @@ describe("ExtensionSession — requestCode + purchase-intent continuation", () =
     await h.session.setPendingOtp({ email: "a@still.app", requestedAt: T0, purpose: "purchase" });
     await h.session.requestCode("b@still.app");
     expect(h.pendingOtp.value).toEqual({ email: "b@still.app", requestedAt: T0 });
+    // A restore sign-in rides the record the same way (owner ruling C).
+    await h.session.setPendingOtp({ email: "b@still.app", requestedAt: T0, purpose: "restore" });
+    await h.session.requestCode("b@still.app");
+    expect((await h.session.getState()).pendingOtp).toEqual({
+      email: "b@still.app",
+      requestedAt: T0,
+      purpose: "restore",
+    });
   });
 
   it("setPendingOtp(null) clears the record (deliberate 'Not now' dismiss)", async () => {

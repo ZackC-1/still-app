@@ -197,6 +197,14 @@ export const STRINGS = {
     note: "Sign in first to keep Still Pro with your account.",
   },
 
+  // The sign-in sheet when Restore purchase opened it signed out (owner ruling C, 22 Oct 2026). As
+  // with the purchase sign-in, it never says sign-in is optional: restoring needs the account.
+  restoreAuth: {
+    title: "Sign in to restore Still Pro",
+    prompt: `Enter your email to get a ${SIX_DIGIT} sign-in code.`,
+    note: "Sign in with the account you bought Still Pro with.",
+  },
+
   // What a browser add-on store requires an extension to say, in its own interface, before it
   // collects an email address. Chrome's program policies want the disclosure at the point of
   // collection rather than only behind a privacy-policy link; Firefox wants an explicit opt-in
@@ -208,10 +216,11 @@ export const STRINGS = {
     optInTitle: "Share your email for settings sync?",
     body: `Still uses your email address to send a ${SIX_DIGIT} sign-in code and sync your settings across devices. Still does not collect your browsing history.`,
     agree: "I agree to share my email for sign-in and settings sync.",
-    // The same step when Get Still Pro opened the sheet (ISS-0123): the email also keeps Still Pro
-    // with the account, so the step says so. Signing in still syncs settings, so that stays too.
-    // The disclosure title fits both and is shared.
+    // The same step when Get Still Pro or Restore purchase opened the sheet (ISS-0123, owner
+    // rulings A and B): the email also keeps Still Pro with the account, so the step says so.
+    // Signing in still syncs settings, so that stays too. The disclosure title fits every purpose.
     purchaseOptInTitle: "Share your email to get Still Pro?",
+    restoreOptInTitle: "Share your email to restore Still Pro?",
     purchaseBody: `Still uses your email address to send a ${SIX_DIGIT} sign-in code, keep Still Pro with your account and sync your settings across devices. Still does not collect your browsing history.`,
     purchaseAgree: "I agree to share my email for sign-in, Still Pro and settings sync.",
     proceed: "Continue",

@@ -74,8 +74,9 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
-/** What opened the sign-in sheet (ISS-0123): Get Still Pro, or anything else (settings sync). */
-export type SignInPurpose = "sync" | "purchase";
+/** What opened the sign-in sheet (ISS-0123): Get Still Pro, Restore purchase signed out, or
+ * anything else (settings sync). */
+export type SignInPurpose = "sync" | "purchase" | "restore";
 
 /** How long the quieter-web success payoff stays before auto-dismissing the paywall
  * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
@@ -360,8 +361,9 @@ export class UiController {
   purchaseIntent = $state(false);
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
-  /** Why the sheet is open (ISS-0123): Get Still Pro opens the purchase sign-in, with its own
-   * words (owner ruling P2-19); every other way in is the settings-sync sign-in. Set on each open,
+  /** Why the sheet is open (ISS-0123): Get Still Pro opens the purchase sign-in (owner ruling
+   * P2-19), Restore purchase the restore sign-in (ruling C); every other way in is the
+   * settings-sync sign-in. Set on each open,
    * so a closed purchase sheet never colours a later sync sign-in. */
   signInPurpose = $state<SignInPurpose>("sync");
   /** Set once this run of the sign-in flow has satisfied the surface's email-consent rule. Held in
@@ -800,7 +802,7 @@ export class UiController {
   }
 
   /** Open the sign-in sheet. `purpose` is what opened it: "purchase" from Get Still Pro and its
-   * continuations, otherwise the settings-sync sign-in. */
+   * continuations, "restore" from a signed-out Restore purchase, otherwise settings sync. */
   openSignIn(purpose: SignInPurpose = "sync"): void {
     if (!this.signInOpen) this.track("sign_in_opened", {});
     this.signInPurpose = purpose;
@@ -1335,7 +1337,11 @@ export class UiController {
     // holding in their other hand.
     this.emailConsentGiven = true;
     this.signInPurpose =
-      pending.purpose === "purchase" || this.purchaseIntent ? "purchase" : "sync";
+      pending.purpose === "purchase" || pending.purpose === "restore"
+        ? pending.purpose
+        : this.purchaseIntent
+          ? "purchase"
+          : "sync";
     this.signInOpen = true;
   }
 

@@ -97,13 +97,14 @@ export interface PendingOtpRecord {
   readonly email: string;
   readonly requestedAt?: number;
   readonly purchaseIntent?: boolean;
-  /** Present only when Get Still Pro opened the sign-in (ISS-0123): a restored code entry keeps the
-   * purchase sign-in's words. Separate from purchaseIntent, which reopens the legacy paywall. */
-  readonly purpose?: "purchase";
+  /** Present only when Get Still Pro or Restore purchase opened the sign-in (ISS-0123): a restored
+   * code entry keeps that sheet's words. Separate from purchaseIntent, which reopens the legacy
+   * paywall. */
+  readonly purpose?: "purchase" | "restore";
 }
 
 /** What the page says opened the sign-in; absent on the background's own requestCode write. */
-export type PendingOtpPurpose = "sync" | "purchase";
+export type PendingOtpPurpose = "sync" | "purchase" | "restore";
 
 /** The persisted checkout-pending record (U4/R3), written by the popup controller BEFORE it opens
  * the checkout tab. `startedAt` is optional only on the read side: a garbage timestamp is dropped
@@ -323,18 +324,18 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     purpose?: PendingOtpPurpose,
   ): Promise<void> => {
     // The intent flag rides the record: staged in-instance, or already persisted for this email
-    // (a resend must not drop the continuation). So does a purchase purpose: the page states it on
-    // its own write; the background's requestCode write (no purpose) keeps the one already there.
+    // (a resend must not drop the continuation). So does a Still Pro purpose: the page states it
+    // on its own write; the background's requestCode write (no purpose) keeps the one there.
     const existing = await readPendingOtp();
     const sameEmail = existing?.email === email;
     const intent = stagedIntent || (sameEmail && existing.purchaseIntent === true);
-    const purchase = purpose === undefined ? sameEmail && existing.purpose === "purchase" : purpose === "purchase";
+    const kept = purpose === undefined ? (sameEmail ? existing.purpose : undefined) : purpose;
     await attempt(() =>
       stores.pendingOtp.set({
         email,
         requestedAt,
         ...(intent ? { purchaseIntent: true } : {}),
-        ...(purchase ? { purpose: "purchase" as const } : {}),
+        ...(kept === "purchase" || kept === "restore" ? { purpose: kept } : {}),
       }),
     );
   };
@@ -757,7 +758,7 @@ function parsePendingOtp(value: unknown): PendingOtpRecord | null {
     // the resend-cooldown restoration is lost.
     ...(isFiniteNumber(v.requestedAt) ? { requestedAt: v.requestedAt } : {}),
     ...(v.purchaseIntent === true ? { purchaseIntent: true } : {}),
-    ...(v.purpose === "purchase" ? { purpose: "purchase" as const } : {}),
+    ...(v.purpose === "purchase" || v.purpose === "restore" ? { purpose: v.purpose } : {}),
   };
 }
 
@@ -789,6 +790,6 @@ function stripIntent(record: PendingOtpRecord): PendingOtpRecord {
   return {
     email: record.email,
     ...(record.requestedAt === undefined ? {} : { requestedAt: record.requestedAt }),
-    ...(record.purpose === "purchase" ? { purpose: "purchase" as const } : {}),
+    ...(record.purpose === undefined ? {} : { purpose: record.purpose }),
   };
 }

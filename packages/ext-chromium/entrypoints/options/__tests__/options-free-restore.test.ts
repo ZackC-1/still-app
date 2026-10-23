@@ -181,6 +181,10 @@ describe("V3 new-sync settings page: Restore purchase", () => {
     expect(f.restores()).toEqual([]);
     const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    // Owner ruling C (22 Oct): the restore sign-in, without "Sign-in is optional".
+    const sheet = await screen.findByRole("dialog", { name: "Sign in to restore Still Pro" });
+    expect(within(sheet).getByText("Sign in with the account you bought Still Pro with.")).toBeTruthy();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "person@still.test" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send code" }));
     const code = await screen.findByLabelText("6\u2011digit code");

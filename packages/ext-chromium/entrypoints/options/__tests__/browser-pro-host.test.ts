@@ -489,9 +489,14 @@ describe("paid-tier browser Still Pro card", () => {
     const card = await region();
     await within(card).findByText("Still Pro needs to be verified again.");
     await fireEvent.click(within(card).getByRole("button", { name: "Restore purchase" }));
-    await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
+    const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     expect(f.actions()).not.toContain("reconcile");
     expect(f.actions()).not.toContain("checkoutAvailable");
+    // Owner ruling C (22 Oct): the restore sign-in, never the settings-sync sheet.
+    await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
+    const sheet = await screen.findByRole("dialog", { name: "Sign in to restore Still Pro" });
+    expect(within(sheet).getByText("Sign in with the account you bought Still Pro with.")).toBeTruthy();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
   });
 
   it("signed out and known not to own it, Get Still Pro is offered and starts with sign-in (ISS-0030)", async () => {
@@ -521,11 +526,15 @@ describe("paid-tier browser Still Pro card", () => {
     expect(intent(f.messages)).toEqual([]);
   });
 
-  it("a purchase sign-in reloaded at its code step keeps the purchase heading (ISS-0123)", async () => {
+  it.each([
+    ["Get Still Pro", "purchase", "Sign in to get Still Pro"],
+    ["Restore purchase", "restore", "Sign in to restore Still Pro"],
+  ] as const)("a sign-in from %s reloaded at its code step keeps its heading (ISS-0123)", async (button, purpose, title) => {
     const f = await host({ signedIn: false, before: "locked" });
     render(OptionsApp);
     const card = await region();
-    await fireEvent.click(await within(card).findByRole("button", { name: "Get Still Pro" }));
+    await within(card).findByRole("button", { name: "Get Still Pro" });
+    await fireEvent.click(within(card).getByRole("button", { name: button }));
     const consent = await screen.findByRole("dialog", { name: "Your email is only for sign-in" });
     await fireEvent.click(within(consent).getByRole("button", { name: "Continue" }));
     await fireEvent.input(screen.getByLabelText("Email address"), { target: { value: "fixture@still.test" } });
@@ -534,14 +543,14 @@ describe("paid-tier browser Still Pro card", () => {
     // The purpose is persisted with the code entry, apart from the legacy purchase intent.
     expect(f.messages).toContainEqual(expect.objectContaining({
       action: "setPendingOtp",
-      pending: expect.objectContaining({ email: "fixture@still.test", purpose: "purchase" }),
+      pending: expect.objectContaining({ email: "fixture@still.test", purpose }),
     }));
     expect(intent(f.messages)).toEqual([]);
     // The page is reloaded (or closed and opened again) while the person reads their email.
     for (const instance of mounted.instances.splice(0)) await unmount(instance);
     cleanup();
     render(OptionsApp);
-    const sheet = await screen.findByRole("dialog", { name: "Sign in to get Still Pro" });
+    const sheet = await screen.findByRole("dialog", { name: title });
     expect(within(sheet).getByLabelText("6\u2011digit code")).toBeTruthy();
     expect(within(sheet).queryByText("Sign in for settings sync")).toBeNull();
     expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();

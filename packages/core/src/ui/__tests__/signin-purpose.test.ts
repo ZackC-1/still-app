@@ -32,7 +32,7 @@ function controller(emailConsent: EmailConsent) {
   return new UiController({ cache, host: { canPurchase: false, emailConsent }, auth: auth() });
 }
 
-async function open(c: UiController, purpose?: "purchase" | "sync") {
+async function open(c: UiController, purpose?: "purchase" | "restore" | "sync") {
   render(App, { props: { controller: c } });
   if (purpose) c.openSignIn(purpose);
   else c.openSignIn();
@@ -92,6 +92,42 @@ describe("purchase sign-in copy (owner ruling P2-19)", () => {
     expect(within(sheet).getByRole("heading", { name: STRINGS.purchaseAuth.title })).toBeTruthy();
     expect(within(sheet).queryByText(STRINGS.purchaseAuth.note)).toBeNull();
     expect(within(sheet).queryByText(OPTIONAL)).toBeNull();
+  });
+});
+
+describe("restore sign-in copy (owner ruling C, 22 Oct 2026)", () => {
+  it("states the exact owner wording", () => {
+    expect(STRINGS.restoreAuth).toEqual({
+      title: "Sign in to restore Still Pro",
+      prompt: `Enter your email to get a 6${NBH}digit sign-in code.`,
+      note: "Sign in with the account you bought Still Pro with.",
+    });
+  });
+
+  it.each(["disclosure", "opt-in"] as const)("%s: the consent fits Still Pro, then the restore sign-in", async (consent) => {
+    const c = controller(consent);
+    const sheet = await open(c, "restore");
+    expect(within(sheet).getByText(STRINGS.emailConsent.purchaseBody)).toBeTruthy();
+    if (consent === "opt-in") {
+      expect(within(sheet).getByRole("heading", { name: STRINGS.emailConsent.restoreOptInTitle })).toBeTruthy();
+      expect(within(sheet).getByText(STRINGS.emailConsent.purchaseAgree)).toBeTruthy();
+      await fireEvent.click(within(sheet).getByRole("checkbox"));
+    }
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.emailConsent.proceed }));
+    await tick();
+    expect(within(sheet).getByRole("heading", { name: "Sign in to restore Still Pro" })).toBeTruthy();
+    expect(within(sheet).getByText("Sign in with the account you bought Still Pro with.")).toBeTruthy();
+    expect(within(sheet).getByText(STRINGS.restoreAuth.prompt)).toBeTruthy();
+    expect(within(sheet).queryByText(OPTIONAL)).toBeNull();
+    expect(within(sheet).queryByText(STRINGS.purchaseAuth.title)).toBeNull();
+  });
+
+  it("a restored code entry keeps a restore purpose", async () => {
+    const c = controller("none");
+    render(App, { props: { controller: c } });
+    c.rehydrateCodeEntry({ email: "fixture@still.test", requestedAt: Date.now(), purpose: "restore" });
+    await tick();
+    expect(screen.getByRole("heading", { name: STRINGS.restoreAuth.title })).toBeTruthy();
   });
 });
 
