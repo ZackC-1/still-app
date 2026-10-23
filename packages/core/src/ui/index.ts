@@ -22,6 +22,7 @@ export type {
   AccessRecheck,
   UiAnalytics,
   UsageSharingState,
+  SignInPurpose,
 } from "./controller.svelte.js";
 export {
   RESEND_COOLDOWN_MS,
@@ -31,6 +32,7 @@ export {
 export type { EmailConsent } from "./email-consent.js";
 export type { DataPermission, DataPermissionKind } from "./data-permission.js";
 export { STRINGS } from "./strings.js";
+export { restoredCodeEntry, type RestoredCodeEntry } from "./pending-code-entry.js";
 export { PRIVACY_POLICY_URL } from "./config.js";
 export {
   CHROMIUM_SURFACE_GUIDANCE,

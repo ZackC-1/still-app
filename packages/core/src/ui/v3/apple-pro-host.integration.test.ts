@@ -38,7 +38,8 @@ import {
   ACCESS_BENEFITS,
   initialAccessSnapshot,
 } from "../../entitlement/access-policy.js";
-import { UiController } from "../controller.svelte.js";
+import { UiController, type AuthPersistence } from "../controller.svelte.js";
+import { restoredCodeEntry } from "../pending-code-entry.js";
 import { STRINGS } from "../strings.js";
 import {
   appleSettingsCacheOptions,
@@ -243,7 +244,9 @@ async function compose(
     hydration: cache.whenHydrated(),
   });
   authorities.push(authority);
-  const controller: UiController = new UiController({ cache, host: { canPurchase: true },
+  // What the app's AuthPersistence would save (main.ts), so a test can relaunch from it.
+  const persistence = { setPendingOtp: vi.fn<AuthPersistence["setPendingOtp"]>(), setPurchaseIntent: vi.fn() };
+  const controller: UiController = new UiController({ cache, host: { canPurchase: true }, persistence,
     ...(options.accountOnly ? {auth: {signOut: async () => {}, currentVerifiedAccount: async () => ({id: accountId, email: "account@still.test", emailConfirmed: true})}} : {}),
     ...(options.codeAuth ? {auth: {
       signOut: async () => {},
@@ -320,6 +323,7 @@ async function compose(
     cache,
     authority,
     controller,
+    persistence,
     accountRequests,
     setAccountState: (state: typeof options.accountState) => {options.accountState = state;},
     setNativeAccess: (state: "locked" | "purchased" | "protected") => {rights = snapshot(state);},
@@ -1155,12 +1159,32 @@ describe("mounted Apple Still Pro purchase starts with sign-in (ISS-0071)", () =
     const sheet = await screen.findByRole("dialog");
     // ISS-0085 (owner, 19 Oct): the purchase-opened sheet has its own heading and prompt.
     expect(within(sheet).getByRole("heading", { name: "Sign in to get Still Pro" })).toBeVisible();
-    expect(within(sheet).getByText("Enter your email to get a 6-digit sign-in code.")).toBeVisible();
+    expect(within(sheet).getByText("Enter your email to get a 6\u2011digit sign-in code.")).toBeVisible();
     expect(within(sheet).queryByText(STRINGS.auth.prompt)).toBeNull();
     expect(within(sheet).getByText(NOTE)).toBeVisible();
     expect(within(sheet).getByRole("button", { name: SKIP })).toBeVisible();
     expect(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel })).toBeVisible();
     expect(f.purchase).not.toHaveBeenCalled();
+  });
+  it("the purchase sign-in keeps its heading when the app is relaunched at the code step (ISS-0123)", async () => {
+    const f = await openBuy();
+    const sheet = await screen.findByRole("dialog");
+    await fireEvent.input(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel }), {
+      target: { value: "account@still.test" },
+    });
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.codeAuth.send }));
+    await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    const saved = f.persistence.setPendingOtp.mock.lastCall?.[0];
+    expect(saved).toMatchObject({ email: "account@still.test", purpose: "purchase" });
+    // Relaunch: a fresh app reads the saved JSON back, as main.ts does. The host no longer knows
+    // Get Still Pro asked, so only the saved purpose can bring the heading back.
+    cleanup();
+    const again = await compose({ codeAuth: true });
+    again.controller.rehydrateCodeEntry(restoredCodeEntry(JSON.stringify(saved), false)!);
+    const restored = await screen.findByRole("dialog", { name: "Sign in to get Still Pro" });
+    expect(within(restored).getByRole("textbox", { name: STRINGS.codeAuth.codeLabel })).toBeVisible();
+    expect(within(restored).queryByText(STRINGS.auth.title)).toBeNull();
+    expect(within(restored).queryByText(/Sign-in is optional/)).toBeNull();
   });
   it("cancelling sign-in opens no Apple sheet, and a later sign-in buys nothing", async () => {
     const f = await openBuy();
@@ -1317,6 +1341,53 @@ describe("mounted Apple accountless holder signs in to link Still Pro (ISS-0076)
     expect(within(card).getByRole("button", { name: "Use a different account" })).toBeVisible();
     return card;
   }
+  // Lead ruling (22 Oct): the sign-in the link opens says what it is for, never the sync copy.
+  const LINK_NOTE = "Sign in to keep Still Pro with your account.";
+  async function expectLinkSheet() {
+    const sheet = await screen.findByRole("dialog", { name: OFFER });
+    expect(within(sheet).getByText(LINK_NOTE)).toBeVisible();
+    expect(within(sheet).getByText("Enter your email to get a 6\u2011digit sign-in code.")).toBeVisible();
+    expect(within(sheet).queryByText(/Sign-in is optional/)).toBeNull();
+    expect(within(sheet).queryByText(STRINGS.auth.title)).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: "Buy without an account" })).toBeNull();
+    return sheet;
+  }
+  it("the invitation's Sign in opens the link sign-in, not the sync sign-in", async () => {
+    const f = await holder();
+    await fireEvent.click(within(await inviteCard()).getByRole("button", { name: "Sign in" }));
+    await expectLinkSheet();
+    expect(f.controller.signInPurpose).toBe("link");
+  });
+  it("the link sign-in keeps its words when the app is relaunched at the code step", async () => {
+    const f = await holder();
+    await fireEvent.click(within(await inviteCard()).getByRole("button", { name: "Sign in" }));
+    const sheet = await expectLinkSheet();
+    await fireEvent.input(within(sheet).getByRole("textbox", { name: STRINGS.auth.emailLabel }), {
+      target: { value: ACCOUNT },
+    });
+    await fireEvent.click(within(sheet).getByRole("button", { name: STRINGS.codeAuth.send }));
+    await screen.findByRole("textbox", { name: STRINGS.codeAuth.codeLabel });
+    const saved = f.persistence.setPendingOtp.mock.lastCall?.[0];
+    expect(saved).toMatchObject({ email: ACCOUNT, purpose: "link" });
+    // Relaunch: a fresh app reads the saved JSON back, as main.ts does.
+    cleanup();
+    const again = await holder();
+    const entry = restoredCodeEntry(JSON.stringify(saved), false);
+    again.controller.rehydrateCodeEntry(entry!);
+    const restored = await screen.findByRole("dialog", { name: OFFER });
+    expect(within(restored).getByRole("textbox", { name: STRINGS.codeAuth.codeLabel })).toBeVisible();
+    expect(within(restored).queryByText(/Sign-in is optional/)).toBeNull();
+  });
+  it("“Use a different account” on the confirmation opens the link sign-in again", async () => {
+    const f = await holder();
+    await fireEvent.click(within(await inviteCard()).getByRole("button", { name: "Sign in" }));
+    await expectLinkSheet();
+    await enterCode();
+    await waitFor(() => expect(f.controller.accountConfirmed).toBe(true));
+    const card = await confirmation();
+    await fireEvent.click(within(card).getByRole("button", { name: "Use a different account" }));
+    await expectLinkSheet();
+  });
   it("signing in from the invitation shows the confirmation, even though sign-in re-reads access and eligibility meanwhile", async () => {
     const f = await holder();
     const invite = await inviteCard();

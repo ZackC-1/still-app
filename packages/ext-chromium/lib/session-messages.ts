@@ -89,7 +89,16 @@ export const SESSION_PROTOCOL = {
     { kind: "unavailable" },
   ),
   setPendingOtp: defineSessionCapability(
-    async (session, payload: { readonly pending: { readonly email: string; readonly requestedAt: number } | null }) => {
+    async (
+      session,
+      payload: {
+        readonly pending: {
+          readonly email: string;
+          readonly requestedAt: number;
+          readonly purpose?: "sync" | "purchase" | "restore" | "link";
+        } | null;
+      },
+    ) => {
       await session.setPendingOtp(payload.pending);
       return "ok" as const;
     },
@@ -140,10 +149,19 @@ export function isSessionRequest(message: unknown): message is SessionRequest {
   return SESSION_PROTOCOL[m.action as SessionAction].validates(m);
 }
 
-function isPendingOtp(value: unknown): value is { readonly email: string; readonly requestedAt: number } {
+function isPendingOtp(
+  value: unknown,
+): value is {
+  readonly email: string;
+  readonly requestedAt: number;
+  readonly purpose?: "sync" | "purchase" | "restore" | "link";
+} {
+  const purpose = (value as { purpose?: unknown } | null)?.purpose;
   return typeof value === "object" && value !== null &&
     typeof (value as { email?: unknown }).email === "string" &&
-    typeof (value as { requestedAt?: unknown }).requestedAt === "number";
+    typeof (value as { requestedAt?: unknown }).requestedAt === "number" &&
+    (purpose === undefined || purpose === "sync" || purpose === "purchase" || purpose === "restore" ||
+      purpose === "link");
 }
 
 function isCheckoutPending(value: unknown): value is CheckoutPendingRecord {

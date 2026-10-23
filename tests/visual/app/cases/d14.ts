@@ -37,7 +37,6 @@ function firstRun({
   consent?: "unasked" | "on" | "off" | "none";
   signedIn?: boolean;
 }): () => Rendered {
-  const name = browser === "chrome" ? "Chrome" : "Firefox";
   return () => ({
     component: FirstRun,
     props: {
@@ -49,7 +48,7 @@ function firstRun({
         onRequest: noop,
         guidance: {
           verified: true,
-          text: `${name} asks once. Still only runs on these four sites.`,
+          text: "Still only runs on these websites: Instagram, Facebook, YouTube and TikTok.",
         },
       },
       blocking: {

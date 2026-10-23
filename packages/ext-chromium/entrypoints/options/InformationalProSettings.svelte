@@ -114,7 +114,8 @@
             ? "failed"
             : "idle",
       onBuy: () => flow.buy(),
-      onSignIn: deps?.controller.canSignIn ? () => deps.controller.openSignIn() : undefined,
+      // Get Still Pro, signed out: the purchase sign-in (ISS-0123), not the settings-sync one.
+      onSignIn: deps?.controller.canSignIn ? () => deps.controller.openSignIn("purchase") : undefined,
       onRestore,
       onRetry: () => flow.retry(),
     };

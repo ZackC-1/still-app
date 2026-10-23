@@ -75,6 +75,10 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
+/** What opened the sign-in sheet (ISS-0123): Get Still Pro, Restore purchase signed out, the Apple
+ * app's "Link Still Pro to your account", or anything else (settings sync). */
+export type SignInPurpose = "sync" | "purchase" | "restore" | "link";
+
 /** How long the quieter-web success payoff stays before auto-dismissing the paywall
  * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
  * on behind the sheet — is the star. */
@@ -185,6 +189,9 @@ export interface UiAuth {
 export interface PendingOtp {
   readonly email: string;
   readonly requestedAt: number;
+  /** What opened the sheet (ISS-0123), so a restored code entry keeps the purchase sign-in's
+   * words. Kept apart from the purchase intent, which reopens the legacy paywall. */
+  readonly purpose: SignInPurpose;
 }
 
 /** Host-persistence seam for the code flow's cross-popup-death state (plan U2/R1). The controller
@@ -361,6 +368,11 @@ export class UiController {
   purchaseIntent = $state(false);
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
+  /** Why the sheet is open (ISS-0123): Get Still Pro opens the purchase sign-in (owner ruling
+   * P2-19), Restore purchase the restore sign-in (ruling C); every other way in is the
+   * settings-sync sign-in. Set on each open,
+   * so a closed purchase sheet never colours a later sync sign-in. */
+  signInPurpose = $state<SignInPurpose>("sync");
   /** Set once this run of the sign-in flow has satisfied the surface's email-consent rule. Held in
    * memory rather than persisted: leaving the flow starts it again from the disclosure, which is
    * the conservative reading of "before the email is collected", and it costs one tap. */
@@ -822,7 +834,7 @@ export class UiController {
     if (this.entitled || this.purchaseBusy) return;
     if (this.canWebCheckout && this.canSignIn && !this.userId) {
       this.setPurchaseIntent(true);
-      this.openSignIn();
+      this.openSignIn("purchase");
       return;
     }
     this.openPaywall();
@@ -833,8 +845,12 @@ export class UiController {
     this.startUpgrade();
   }
 
-  openSignIn(): void {
+  /** Open the sign-in sheet. `purpose` is what opened it: "purchase" from Get Still Pro and its
+   * continuations, "restore" from a signed-out Restore purchase, "link" from the Apple app's
+   * "Link Still Pro to your account", otherwise settings sync. */
+  openSignIn(purpose: SignInPurpose = "sync"): void {
     if (!this.signInOpen) this.track("sign_in_opened", {});
+    this.signInPurpose = purpose;
     this.signInOpen = true;
   }
 
@@ -1079,7 +1095,7 @@ export class UiController {
    * WITHOUT teardown semantics: no entitlement write (the cache rides out its TTL), no pending
    * clear (the purchase may have happened). Purchase intent makes the paywall reopen after the
    * sign-in completes, and verifyCode resumes the pending presentation (one continuous flow). */
-  reSignInFromCheckout(): void {
+  reSignInFromCheckout(purpose: "purchase" | "restore" = "purchase"): void {
     this.accountRevision++;
     this.accountEmail = null;
     this.lastSyncedAt = null;
@@ -1088,7 +1104,8 @@ export class UiController {
     this.stopPollTimer(); // polls would keep hitting 401; sign-in restarts the window
     this.paywallOpen = false;
     this.setPurchaseIntent(true);
-    this.openSignIn();
+    // The legacy paywall's Restore reaches here too; its sheet is the restore sign-in (ISS-0123).
+    this.openSignIn(purpose);
   }
 
   /** Shared presentation for a (normalized) pending record: stale → find-my-purchase; fresh →
@@ -1239,6 +1256,7 @@ export class UiController {
       this.persistence?.setPendingOtp({
         email,
         requestedAt: this.codeRequestedAt!,
+        purpose: this.signInPurpose,
       });
     } else {
       this.track("code_failed", {
@@ -1353,6 +1371,7 @@ export class UiController {
         this.persistence?.setPendingOtp({
           email,
           requestedAt: this.codeRequestedAt!,
+          purpose: this.signInPurpose,
         });
       } else if (outcome.kind === "send-rate-limited") {
         // A throttled resend locks the button (R4) — without this it re-enables instantly and two
@@ -1381,11 +1400,13 @@ export class UiController {
 
   /** Host rehydration input (AE2): called on mount with the persisted pendingOtp so reopening the
    * popup within the OTP TTL lands straight on code entry for that email — countdown restored from
-   * the original request time, purchase intent restored from the persisted flag. */
+   * the original request time, purchase intent restored from the persisted flag, and the sheet's
+   * purpose from its own field (ISS-0123; a legacy purchase intent also means a purchase). */
   rehydrateCodeEntry(pending: {
     email: string;
     requestedAt?: number;
     purchaseIntent?: boolean;
+    purpose?: SignInPurpose;
   }): void {
     if (!this.canUseCode || this.userId) return;
     const at = pending.requestedAt;
@@ -1403,6 +1424,12 @@ export class UiController {
     // Asking again here would be theatre, and it would sit in front of the code the person is
     // holding in their other hand.
     this.emailConsentGiven = true;
+    this.signInPurpose =
+      pending.purpose === "purchase" || pending.purpose === "restore" || pending.purpose === "link"
+        ? pending.purpose
+        : this.purchaseIntent
+          ? "purchase"
+          : "sync";
     this.signInOpen = true;
   }
 
