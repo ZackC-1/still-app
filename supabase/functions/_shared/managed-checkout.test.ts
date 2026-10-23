@@ -96,3 +96,48 @@ Deno.test("production refunds require canonical live binding and never import a 
     assertEquals(await wrong.client.readChargeRefund("ch_Fixture"), { status: "unknown" }, kind);
   }
 });
+
+// Adaptive Pricing (https://docs.stripe.com/payments/currencies/localize-prices/adaptive-pricing):
+// Session and PaymentIntent stay in the integration currency (usd, 999 subtotal); the customer's
+// local currency appears only in presentment_details. The Charge's presentment_details likewise
+// describes conversion "from the integration currency" (https://docs.stripe.com/api/charges/object).
+const EUR = { presentment_amount: 899, presentment_currency: "eur" };
+const adaptive = (kind: string, value: Payload): Payload =>
+  ["session", "intent", "charge"].includes(kind) ? { ...value, presentment_details: EUR } : value;
+
+Deno.test("Adaptive Pricing: a usd session presented in EUR still recovers by bound ID and by window search", async () => {
+  const bound = fixture({ paid: true, patch: adaptive });
+  assertEquals(await bound.client.recoverCheckout(OP, ID), { status: "recovered", sessionId: ID, paymentState: "paid" });
+  const open = fixture({ patch: adaptive });
+  assertEquals(await open.client.recoverCheckout(OP, ID), { status: "created", sessionId: ID, checkoutUrl: `https://checkout.stripe.com/c/pay/${ID}` });
+  const unknown = fixture({ paid: true, patch: adaptive });
+  assertEquals(await unknown.client.recoverUnknownCheckout(OP, unknown.started), { status: "recovered", sessionId: ID, paymentState: "paid" });
+  assertEquals(unknown.calls.every(call => !call.init.method || call.init.method === "GET"), true);
+});
+
+Deno.test("Adaptive Pricing: a usd charge presented in EUR is imported once and its refund stays canonical", async () => {
+  const { client, calls } = fixture({ paid: true, patch: adaptive });
+  assertEquals(await client.trackCompletedPurchase(OP, ID), { status: "tracked" });
+  const imported = calls.filter(call => call.url.includes("revenuecat.com"));
+  assertEquals(imported.length, 1);
+  assertEquals(JSON.parse(imported[0]!.init.body as string), { fetch_token: ID, app_user_id: OP.holderId });
+  const refunded = fixture({ paid: true, refund: true, patch: adaptive });
+  assertEquals((await refunded.client.readChargeRefund("ch_Fixture")).status, "full_refund");
+});
+
+Deno.test("Adaptive Pricing control: a session actually settled in a non-usd currency is still refused", async () => {
+  for (const kind of ["session", "intent", "charge"]) {
+    const wrong = fixture({ paid: true, patch: (name, value) => name === kind ? { ...adaptive(name, value), currency: "eur" } : value });
+    assertEquals(await wrong.client.trackCompletedPurchase(OP, ID), { status: "unavailable" }, kind);
+    assertEquals(wrong.calls.some(call => call.url.includes("revenuecat.com")), false, kind);
+  }
+  const subtotal = fixture({ paid: true, patch: (name, value) => name === "session" ? { ...adaptive(name, value), amount_subtotal: 899 } : value });
+  assertEquals(await subtotal.client.recoverCheckout(OP, ID), { status: "unknown", sessionId: ID });
+});
+
+Deno.test("refund readback refuses a charge that did not settle in usd", async () => {
+  for (const currency of ["eur", "USD", undefined]) {
+    const wrong = fixture({ paid: true, refund: true, patch: (name, value) => name === "charge" ? { ...adaptive(name, value), currency } : value });
+    assertEquals(await wrong.client.readChargeRefund("ch_Fixture"), { status: "unknown" }, String(currency));
+  }
+});

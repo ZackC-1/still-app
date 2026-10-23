@@ -50,7 +50,7 @@
     <div class="status-body">
       <h2 class="card-title" tabindex="-1" bind:this={heading}>{title}</h2>
       {#if access !== "allowed"}<p class="card-body">{siteAccessBody(sites)}</p>{/if}
-      <p class="card-body" role="status">{status}</p>
+      <p class="card-body" role="status" data-empty={!status || undefined}>{status}</p>
     </div>
   </div>
   {#if access !== "allowed" && onAllow}<button

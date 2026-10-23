@@ -140,12 +140,12 @@ describe("P-AppPro and P-Restore: the cards' status lines are 14px", () => {
   });
 
   it("both cards draw 14px status text with the glyph centred on the first line", () => {
-    const style = source("AppleSettings.svelte").split("<style>")[1] ?? "";
-    expect(style).toMatch(
-      /\.pro-slot :global\(\.status-line\),\n\s+\.app :global\(\.restore-card \.status-line\) \{\n\s+font-size: calc\(14px \* var\(--text-scale, 1\)\);/,
+    // One shared rule since b12 RD-2, so the Chrome and Firefox Settings page draws the same cards.
+    expect(rule(components(), ":is(.pro-slot, .restore-card) .status-line")).toContain(
+      "font-size: calc(14px * var(--text-scale, 1));",
     );
-    expect(style).toMatch(
-      /\.pro-slot :global\(\.status-line \.glyph\),\n\s+\.app :global\(\.restore-card \.status-line \.glyph\) \{\n\s+margin-block-start: 2px;/,
+    expect(rule(components(), ":is(.pro-slot, .restore-card) .status-line .glyph")).toContain(
+      "margin-block-start: 2px;",
     );
   });
 });
