@@ -8,11 +8,14 @@ import {
   encryptReport,
   EXPECTED_ROLE_CONFIG,
   grantedMigrationViews,
+  PRODUCTION_FAILURES,
   productionDigest,
   requireCheckerSession,
   requireMigrationViews,
   sessionProblems,
+  verdictFor,
 } from "./run.ts";
+import { resolveRequest } from "./catalogue.mjs";
 
 const narrow = {
   user: CHECKER_ROLE,
@@ -99,10 +102,27 @@ Deno.test("production is compared only as a keyed digest", () => {
   assertNotEquals(productionDigest(rows, "22".repeat(32)), digest);
   assertEquals(compareProduction(digest, JSON.stringify({ v: 1, digest })), "unchanged");
   assertEquals(compareProduction(digest, JSON.stringify({ v: 1, digest: "0".repeat(64) })), "changed");
-  for (const bad of [undefined, "", "not json", JSON.stringify({ v: 2, digest }), JSON.stringify({ v: 1, digest: "x" })]) {
-    assertEquals(compareProduction(digest, bad), "no-baseline");
+  assertEquals(compareProduction(digest, undefined), "no-baseline");
+  for (const bad of ["", "not json", "null", "[]", JSON.stringify({ v: 2, digest }), JSON.stringify({ v: 1, digest: "x" }),
+    JSON.stringify({ v: 1 }), JSON.stringify({ v: 1, digest: digest.toUpperCase() }), JSON.stringify({ v: "1", digest })]) {
+    assertEquals(compareProduction(digest, bad), "baseline-invalid", bad);
   }
   assertThrows(() => productionDigest(rows, "short"), CheckError);
+});
+
+Deno.test("a present but malformed baseline fails DB-31 and DB-35 with a named reason", () => {
+  // Rows that would otherwise pass DB-31's isolation counts, so only the baseline decides.
+  const run = (rows: Record<string, unknown>[][]) =>
+    ({ holders: [], results: rows.map((r) => ({ query: {}, rows: r })) }) as unknown as Parameters<typeof verdictFor>[1];
+  const db31 = resolveRequest({ check: "DB-31" });
+  const db35 = resolveRequest({ check: "DB-35" });
+  const clean = run([[], [{ a: 0, b: 0, c: 0 }], []]);
+  assertEquals(verdictFor(db31, clean, "baseline-invalid"), "fail");
+  assertEquals(verdictFor(db35, run([]), "baseline-invalid"), "fail");
+  assertEquals(verdictFor(db31, clean, "no-baseline"), "needs-review", "a missing file stays distinct (the workflow refuses it first)");
+  assertEquals(verdictFor(db31, clean, "unchanged"), "pass");
+  assert(PRODUCTION_FAILURES["baseline-invalid"]!.startsWith("baseline-invalid: "));
+  assertEquals(PRODUCTION_FAILURES["no-baseline"], undefined);
 });
 
 Deno.test("failures are described without driver text, hosts or values", () => {

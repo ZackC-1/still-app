@@ -1,6 +1,7 @@
-// Three owner-approved operations that put Still's production purchase routes and their function
-// secrets on the hosted project through the protected `Supabase production deploy` workflow. Nothing
-// here is done with the Supabase CLI or by hand, and every write waits for the owner's approval.
+// Four owner-approved operations that put Still's production purchase routes, their function
+// secrets, and the App Review sign-in route on the hosted project through the protected `Supabase
+// production deploy` workflow. Nothing here is done with the Supabase CLI or by hand, and every write
+// waits for the owner's approval.
 //
 //   1. purchase-functions                (mode apply)
 //      Deploys exactly the routes in PURCHASE_FUNCTIONS (qa-function-bundles.mjs), in that order:
@@ -17,13 +18,22 @@
 //      Copies GitHub environment secrets named PROD_<NAME> to the function secrets <NAME> that the
 //      routes read, and sets ACCESS_PROOF_ENVIRONMENT to the fixed value "production". apply never
 //      replaces a different existing value; rotate replaces only names that already have a value.
+//   4. review-signin-function            (mode apply)
+//      Deploys review-signin alone (verify_jwt false), the same way as sync-settings: a sealed
+//      single-file bundle from the planned commit, read back byte for byte, left alone if already at
+//      that source. Its own owner approval. It checks that REVIEW_SIGNIN_EMAIL, REVIEW_SIGNIN_CODE and
+//      ENTITLEMENT_WRITER_DB_URL are set by name only. The Management API still sends a digest of
+//      every secret to the runner (over TLS); this operation drops those digests in memory without
+//      recording or comparing them, never sees or writes a value, and its preservation check
+//      compares secret names only.
 //
 // Hard gates, all checked read-only before the first write (any failure stops the run and names
 // fixed codes only):
 //   - functions: every migration in supabase/migrations at the planned commit is recorded in the
-//     hosted history (no pending migration); for sync-settings that includes 0024. The secrets the
-//     routes read must exist, including the configured production purchase credentials and
-//     webhook secrets (names only). Runtime configuration still fails closed if values are invalid.
+//     hosted history (no pending migration); for every route operation that includes 0024. The
+//     secrets the routes read must exist, including the configured production purchase credentials
+//     and webhook secrets (names only). Runtime configuration still fails closed if values are
+//     invalid.
 //   - secrets: the Secrets-only token must be refused by GET /functions; every PROD_* variable is a
 //     known name; values have no stray whitespace; grouped values arrive together; the access-proof
 //     private key matches its public key; the JSON product lists parse.
@@ -60,6 +70,7 @@ import { deployedMatches, secretsTokenProbe } from "./analytics-subjects.mjs";
 import {
   buildFunctionBundles,
   PURCHASE_BUNDLE_SET,
+  REVIEW_SIGNIN_BUNDLE_SET,
   SYNC_SETTINGS_BUNDLE_SET,
   verifyFunctionBundles,
 } from "./qa-function-bundles.mjs";
@@ -77,8 +88,13 @@ export const PURCHASE_KIND = "supabase-purchase-operations";
 export const FUNCTIONS_OP = "purchase-functions";
 export const SYNC_OP = "purchase-functions-sync-settings";
 export const SECRETS_OP = "purchase-secrets";
+export const REVIEW_OP = "review-signin-function";
 
-/** The closed operations; apply purchase secrets before deploying purchase functions. */
+/**
+ * The closed operations; apply purchase secrets before deploying purchase functions.
+ * `secretNamesOnly`: the operation reads only the names in the project's secret listing (its gate
+ * and its preservation check), never the digests the listing also carries.
+ */
 export const PURCHASE_OPERATIONS = Object.freeze({
   [FUNCTIONS_OP]: Object.freeze({
     modes: Object.freeze(["plan-only", "apply"]),
@@ -92,11 +108,16 @@ export const PURCHASE_OPERATIONS = Object.freeze({
     modes: Object.freeze(["plan-only", "apply", "rotate"]),
     set: null,
   }),
+  [REVIEW_OP]: Object.freeze({
+    modes: Object.freeze(["plan-only", "apply"]),
+    set: REVIEW_SIGNIN_BUNDLE_SET,
+    secretNamesOnly: true,
+  }),
 });
 export const isPurchaseOperation = (name) =>
   Object.hasOwn(PURCHASE_OPERATIONS, String(name ?? ""));
 
-/** The released-app settings guard sync-settings needs in the hosted history first. */
+/** The released-app settings guard every route operation needs in the hosted history first. */
 export const SYNC_GUARD_MIGRATION = "0024";
 
 /**
@@ -106,7 +127,13 @@ export const SYNC_GUARD_MIGRATION = "0024";
 export const ROUTE_SECRETS = Object.freeze({
   [FUNCTIONS_OP]: PURCHASE_ROUTE_SECRETS,
   [SYNC_OP]: Object.freeze(["SETTINGS_WRITER_DB_URL"]),
+  [REVIEW_OP]: Object.freeze(["ENTITLEMENT_WRITER_DB_URL", "REVIEW_SIGNIN_CODE", "REVIEW_SIGNIN_EMAIL"]),
 });
+/**
+ * The App Review sign-in values. They are set on the hosted project outside these operations;
+ * review-signin-function only checks that each name exists, and nothing here can write them.
+ */
+export const PRESENCE_ONLY_SECRETS = Object.freeze(["REVIEW_SIGNIN_CODE", "REVIEW_SIGNIN_EMAIL"]);
 
 /** Staged values: GitHub environment secret PROD_<NAME> becomes function secret <NAME>. */
 export const STAGE_PREFIX = "PROD_";
@@ -174,7 +201,10 @@ export const WRITABLE_SECRETS = Object.freeze(
   [...STAGED_SECRETS.map((item) => item.name), ...FIXED_SECRETS.map((item) => item.name)].sort(),
 );
 for (const name of WRITABLE_SECRETS) {
-  if (/^SUPABASE_/i.test(name) || /^STILL_QA_SANDBOX_/.test(name) || SHARED_SECRETS.includes(name)) {
+  if (
+    /^SUPABASE_/i.test(name) || /^STILL_QA_SANDBOX_/.test(name) || SHARED_SECRETS.includes(name) ||
+    PRESENCE_ONLY_SECRETS.includes(name)
+  ) {
     throw new Error(`${name} must not be writable here`);
   }
 }
@@ -544,7 +574,12 @@ function assertPlanShape(plan) {
       ? plan.secrets !== null ||
         !same(plan.requiredSecrets, ROUTE_SECRETS[plan.operation]) ||
         !Array.isArray(plan.migrations) || !plan.migrations.includes(SYNC_GUARD_MIGRATION) ||
-        plan.bundles.kind !== spec.set.kind
+        plan.bundles.kind !== spec.set.kind ||
+        // Exactly the operation's closed routes and verify_jwt: no added, dropped or moved route.
+        !same(
+          plan.bundles.functions?.map?.(({ name, verifyJwt }) => ({ name, verifyJwt })),
+          spec.set.routes.map(({ name, verifyJwt }) => ({ name, verifyJwt })),
+        )
       : !same(plan.secrets, secretsManifest()) || !same(plan.migrations, []) ||
         !same(plan.requiredSecrets, []))
   ) refuse("purchase-plan-invalid");
@@ -657,7 +692,9 @@ async function deployFunctions({
     fetchImpl,
   });
   const listFunctions = async () => inventory(await api("/functions"));
-  const listSecrets = async () => secretInventory(await api("/secrets"));
+  const listSecrets = PURCHASE_OPERATIONS[plan.operation].secretNamesOnly
+    ? async () => secretNames(await api("/secrets"))
+    : async () => secretInventory(await api("/secrets"));
   const bundleBytes = async (upload) => {
     const bytes = await readFile(join(artifactDir, upload.file));
     if (sha256(bytes) !== upload.sha256 || bytes.length !== upload.bytes) {
@@ -694,6 +731,20 @@ async function deployFunctions({
       listSecrets, current });
   }
   if (receipt.steps.every((item) => item.outcome === "unchanged")) receipt.status = "no-change";
+}
+
+/**
+ * The names in a secret listing, sorted, as `{ name }` rows. The Management API also sends a digest
+ * of each value; it is dropped here in memory, without being recorded, validated or compared.
+ */
+export function secretNames(value) {
+  if (!Array.isArray(value)) refuse("purchase-secret-inventory-invalid");
+  const names = value.map((item) => item?.name);
+  if (
+    names.some((name) => typeof name !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(name)) ||
+    new Set(names).size !== names.length
+  ) refuse("purchase-secret-inventory-invalid");
+  return names.sort().map((name) => ({ name }));
 }
 
 /** One upload with the same readback as the QA routes, then a preservation check. */
@@ -793,6 +844,8 @@ const DESCRIPTIONS = {
     "Deploy exactly these routes, in this order, as sealed single-file bundles from this commit, each read back byte for byte. A route already at this source is left alone.",
   [SYNC_OP]:
     "Deploy `sync-settings` alone (it serves the released 2.x apps' free sync) as a sealed single-file bundle from this commit, read back byte for byte. Left alone if already at this source.",
+  [REVIEW_OP]:
+    "Deploy `review-signin` alone (the App Review sign-in) as a sealed single-file bundle from this commit, read back byte for byte. Left alone if already at this source. Its secrets are checked by name only and never set, rotated or changed.",
   [SECRETS_OP]: {
     apply:
       "Copy each staged `PROD_<NAME>` environment secret to the function secret `<NAME>` and set `ACCESS_PROOF_ENVIRONMENT=production`. Installs absent names only; a different existing value refuses (use rotate).",
@@ -814,8 +867,11 @@ export function renderPurchasePlan(plan) {
   if (plan.bundles) {
     lines.push(
       `- Routes, in order: ${plan.bundles.functions.map((f) => `\`${f.name}\` (verify_jwt ${f.verifyJwt}) \`${f.sha256.slice(0, 12)}…\``).join(", ")} (${plan.bundles.sources.length} bound source files).`,
-      `- Refuses before any write unless the hosted migration history holds all ${plan.migrations.length} migrations at this commit (last \`${plan.migrations.at(-1)}\`; sync-settings needs \`${SYNC_GUARD_MIGRATION}\`) and these secrets exist: ${plan.requiredSecrets.map((name) => `\`${name}\``).join(", ")}.`,
+      `- Refuses before any write unless the hosted migration history holds all ${plan.migrations.length} migrations at this commit (last \`${plan.migrations.at(-1)}\`${plan.operation === SYNC_OP ? `; sync-settings needs \`${SYNC_GUARD_MIGRATION}\`` : ""}) and these secrets exist: ${plan.requiredSecrets.map((name) => `\`${name}\``).join(", ")}.`,
     );
+    if (PURCHASE_OPERATIONS[plan.operation]?.secretNamesOnly) {
+      lines.push("- Those secrets are checked by name only. Their values never reach the runner and are never changed; the Management API still sends a digest of each secret over TLS, and the run drops those digests in memory without recording or comparing them. It compares secret names before and after the upload.");
+    }
   } else {
     lines.push(
       `- Staged names (\`${STAGE_PREFIX}<NAME>\` to \`<NAME>\`): ${plan.secrets.staged.map((s) => `\`${s.name}\`${s.required ? "" : " (optional)"}`).join(", ")}.`,
@@ -876,6 +932,7 @@ export function rehearsalApi(projectRef) {
   for (const [slug, version, verifyJwt] of [
     ["reconcile-entitlement", 5, true], ["create-web-checkout", 2, true],
     ["export-user-data", 4, true], ["revenuecat-webhook", 3, false], ["sync-settings", 7, true],
+    ["review-signin", 9, false],
   ]) {
     functions.set(slug, {
       id: `rehearsal-${nextId++}`, slug, name: slug, status: "ACTIVE", version, verify_jwt: verifyJwt,
@@ -1040,6 +1097,7 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
   const bundles = {
     [FUNCTIONS_OP]: await bundlesFor(PURCHASE_BUNDLE_SET),
     [SYNC_OP]: await bundlesFor(SYNC_SETTINGS_BUNDLE_SET),
+    [REVIEW_OP]: await bundlesFor(REVIEW_SIGNIN_BUNDLE_SET),
   };
   const history = parseHistory(
     await runReadOnlySql({ exec, conn, target: "local-replay", cwd, file: join(dir, HISTORY_SQL) }),
@@ -1075,10 +1133,10 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
     ...extra,
   });
   const receipts = [];
-  const operate = async (p, extra) => {
+  const operate = async (p, extra, fetchImpl = api.fetchImpl) => {
     const receipt = await runPurchaseOperation({
       plan: p, env: envFor(p, extra), platform: "linux", cwd, sourceDir: dir, artifactDir,
-      exec: run, fetchImpl: api.fetchImpl, verifyBundles: async () => true,
+      exec: run, fetchImpl, verifyBundles: async () => true,
     });
     receipts.push(receipt);
     return receipt;
@@ -1191,8 +1249,65 @@ export async function runPurchaseReplay({ exec, plan, dir, conn, cwd, log = () =
     issues(synced),
   );
 
+  // review-signin-function: its review values exist only in the stub, never in the workflow.
+  const reviewValues = Object.fromEntries(PRESENCE_ONLY_SECRETS.map((name) =>
+    [name, `rehearsal-${name.toLowerCase()}-${randomBytes(4).toString("hex")}`]));
+  for (const [name, value] of Object.entries(reviewValues)) api.secrets.set(name, value);
+  const reviewPlan = planFor(REVIEW_OP, "apply");
+  const reviewStart = receipts.length;
+  const reviewPending = await operate(planFor(REVIEW_OP, "apply", { migrations: [...history, "9999"] }));
+  const reviewMissing = [];
+  for (const name of ROUTE_SECRETS[REVIEW_OP]) {
+    const kept = api.secrets.get(name);
+    api.secrets.delete(name);
+    reviewMissing.push([name, await operate(reviewPlan)]);
+    api.secrets.set(name, kept);
+  }
+  const extraRoute = { ...reviewPlan.bundles.functions[0], name: "sync-settings", file: "sync-settings.js", verifyJwt: true };
+  const reviewWidened = await operate(planFor(REVIEW_OP, "apply", {
+    bundles: { ...reviewPlan.bundles, functions: [...reviewPlan.bundles.functions, extraRoute] },
+  }));
+  const reviewDeploysBefore = api.calls.deploys;
+  prove(
+    "review-signin-function negative controls: a pending migration, each missing secret (checked by name), and a plan with an extra route are refused before any write",
+    [reviewPending, ...reviewMissing.map(([, r]) => r), reviewWidened]
+      .every((r) => r.status === "stopped-before-write" && !r.writeAttempted) &&
+      reviewPending.issues.includes("history_missing:9999") &&
+      reviewMissing.every(([name, r]) => r.issues.includes(`missing_secret:${name}`)) &&
+      reviewWidened.issues.includes("purchase-plan-invalid") &&
+      api.calls.deploys === order.length + 1,
+    reviewMissing.map(([, r]) => r.issues.at(-1)).join(" "),
+  );
+  const secretsBeforeReview = new Map(api.secrets);
+  const reviewVersion = version("review-signin");
+  // The first run sees the stub's full listing (names and the digests the Management API also
+  // sends); the repeat sees names only, which works only while the operation reads names alone.
+  const namesOnlyListing = async (url, init = {}) => {
+    const response = await api.fetchImpl(url, init);
+    if (!/\/secrets$/.test(url) || (init.method ?? "GET") !== "GET") return response;
+    const names = (await response.json()).map(({ name }) => ({ name }));
+    return new Response(JSON.stringify(names), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const reviewed = await operate(reviewPlan);
+  const reviewedAgain = await operate(reviewPlan, {}, namesOnlyListing);
+  const reviewPrinted = JSON.stringify(receipts.slice(reviewStart)) +
+    receipts.slice(reviewStart).map((r) => renderPurchaseFinal(r)).join("\n") + renderPurchasePlan(reviewPlan);
+  prove(
+    "review-signin-function: only review-signin deploys (verify_jwt false) and reads back; no secret is written or changed; no review value or digest of one appears in any record; a repeat that sees secret names only changes nothing",
+    reviewed.status === "verified" && reviewed.steps.length === 1 && reviewed.steps[0].name === "review-signin" &&
+      version("review-signin") === reviewVersion + 1 && api.functions.get("review-signin").verify_jwt === false &&
+      version("sync-settings") === 8 && api.calls.deploys === reviewDeploysBefore + 1 &&
+      reviewedAgain.status === "no-change" && api.calls.secretPosts === 2 &&
+      canonical([...api.secrets]) === canonical([...secretsBeforeReview]) &&
+      Object.values(reviewValues).every((value) =>
+        !reviewPrinted.includes(value) && !reviewPrinted.includes(sha256(value))),
+    `${issues(reviewed)}; repeat ${issues(reviewedAgain)}`,
+  );
+
   const printed = JSON.stringify(receipts);
-  const values = [...Object.values(stagedValues), ...Object.values(fresh), ...api.secrets.values()]
+  // The review values (and their digests) are covered by the review proof above.
+  const values = [...Object.values(stagedValues), ...Object.values(fresh),
+    ...[...api.secrets].filter(([name]) => !PRESENCE_ONLY_SECRETS.includes(name)).map(([, value]) => value)]
     .filter((value) => value && value !== "production");
   prove(
     "no value or digest of a secret appears in any receipt",
