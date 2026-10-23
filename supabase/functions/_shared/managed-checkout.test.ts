@@ -134,3 +134,10 @@ Deno.test("Adaptive Pricing control: a session actually settled in a non-usd cur
   const subtotal = fixture({ paid: true, patch: (name, value) => name === "session" ? { ...adaptive(name, value), amount_subtotal: 899 } : value });
   assertEquals(await subtotal.client.recoverCheckout(OP, ID), { status: "unknown", sessionId: ID });
 });
+
+Deno.test("refund readback refuses a charge that did not settle in usd", async () => {
+  for (const currency of ["eur", "USD", undefined]) {
+    const wrong = fixture({ paid: true, refund: true, patch: (name, value) => name === "charge" ? { ...adaptive(name, value), currency } : value });
+    assertEquals(await wrong.client.readChargeRefund("ch_Fixture"), { status: "unknown" }, String(currency));
+  }
+});
