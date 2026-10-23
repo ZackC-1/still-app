@@ -127,10 +127,11 @@ describe.each(SURFACES)("$name, paid world", (surface) => {
       const expander = screen.getByRole("button", { name: `${site} Blocker` });
       if (expander.getAttribute("aria-expanded") !== "true") await fireEvent.click(expander);
       const panel = screen.getByRole("group", { name: `${site} Blocker` });
-      // The free row's switch is the only one that works; each locked row shows its saved switch
-      // dimmed beside the lock (CH-96).
+      // The free row's switch is the only switch: a locked row shows its name and the lock chip,
+      // no switch (ISS-0122, superseding CH-96).
       const switches = within(panel).queryAllByRole("switch");
-      expect(switches.filter((s) => s.getAttribute("aria-disabled") !== "true")).toHaveLength(1);
+      expect(switches).toHaveLength(1);
+      expect(switches[0]).not.toHaveAttribute("aria-disabled", "true");
       for (const lock of within(panel).getAllByRole("button", {
         name: new RegExp(
           `Included in Still Pro\\. ${surface.appHandoff ? "Open the Still app" : "See Still Pro"}$`,

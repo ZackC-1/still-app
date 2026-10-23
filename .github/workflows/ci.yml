@@ -237,15 +237,17 @@ jobs:
           tests/playwright/paid-tier-free-outcome.spec.ts tests/playwright/tiktok-blocked.spec.ts
           tests/playwright/fixtures.spec.ts tests/playwright/fixtures-format2.spec.ts
 
-      # Locked Still Pro rows with the paid tier on show the saved switch beside the Still Pro pill
-      # (CH-96); at large text the row's name must stay readable (review F-1, 22 Oct).
-      - name: Run paid-tier-on Playwright locked-row large-text check (gating)
+      # Locked Still Pro rows with the paid tier on show only the name and the Still Pro pill, on one
+      # line at 1x (ISS-0122); at large text the row's name must stay readable (review F-1, 22 Oct).
+      - name: Run paid-tier-on Playwright locked-row checks (gating)
         if: steps.detect.outputs.present == 'true'
         env:
           STILL_TEST_PAID_TIER: "true"
           STILL_CHROMIUM_EXTENSION: .output/test-paid-tier/chrome
           STILL_SAFARI_EXTENSION: .output/test-paid-tier/safari
-        run: pnpm exec playwright test --project=fixtures tests/playwright/text-scale.spec.ts --grep "paid tier on"
+        run: |
+          pnpm exec playwright test --project=fixtures tests/playwright/text-scale.spec.ts --grep "paid tier on"
+          pnpm exec playwright test --project=fixtures tests/playwright/locked-rows-one-line.spec.ts
 
       # The real-site smoke layer is intentionally NOT run here — it is non-gating
       # and lives in a separate, retry-allowed job (KTD10). It must never block merge.

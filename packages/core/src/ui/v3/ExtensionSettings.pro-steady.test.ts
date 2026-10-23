@@ -41,11 +41,11 @@ describe("Chrome/Firefox settings: the Still Pro card through a hold", () => {
     expect(within(screen.getByRole("region", { name: "Still Pro" })).getByRole("button", { name: "Get Still Pro" })).toBeEnabled();
     for (const held of ["verification_required", "checking"] as const) {
       await view.rerender({ ...props, access: withPro(props.access, held) });
-      // The card stays (in its held state) and every Pro row keeps its lock; its saved switch
-      // shows beside it, dimmed, and changes nothing (CH-96).
+      // The card stays (in its held state) and every Pro row keeps its lock, with no switch beside
+      // it (ISS-0122, superseding CH-96).
       expect(screen.getByRole("region", { name: "Still Pro" })).toBeTruthy();
       expect(screen.getByRole("button", { name: /^Comments\. Included in Still Pro\./ })).toBeTruthy();
-      expect(screen.getByRole("switch", { name: "Comments" })).toHaveAttribute("aria-disabled", "true");
+      expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
       // Buying waits for the re-check (nothing asks for money while Still is unsure).
       expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
     }

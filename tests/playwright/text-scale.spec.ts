@@ -626,10 +626,10 @@ test.describe("configured 2.x builds", () => {
   });
 });
 
-// Review F-1 (22 Oct): with the paid tier compiled on, a locked Still Pro row shows its saved switch
-// beside the Still Pro pill (CH-96). At large text that pair must never squeeze the row's name to a
-// few letters per line: the name keeps at least 120px, and when the switch and pill do not fit
-// beside it they wrap onto their own line. Runs only in the paid-tier-on CI step (STILL_TEST_PAID_TIER),
+// Review F-1 (22 Oct): with the paid tier compiled on, a locked Still Pro row shows its name and the
+// Still Pro pill, no switch (ISS-0122, owner, 22 Oct, superseding CH-96's dimmed saved switch). At
+// large text the pill must never squeeze the row's name to a few letters per line: the name keeps
+// at least 120px, and when the pill does not fit beside it, it wraps onto its own line. Runs only in the paid-tier-on CI step (STILL_TEST_PAID_TIER),
 // which loads the build from scripts/qa/paid-tier-extension.mjs.
 test.describe("paid tier on: locked rows at large text keep their names readable", () => {
   test.skip(process.env.STILL_TEST_PAID_TIER !== "true", "Needs the paid-tier-on build");
@@ -637,8 +637,8 @@ test.describe("paid tier on: locked rows at large text keep their names readable
 
   // Review F1 and F4 (22 Oct): the Still Pro pill's invisible hit area is a full 44px at normal text
   // (as much as the 40px popup rows allow there),
-  // and no control's hit area (the pill's or the saved switch's) covers the row's name, whether the
-  // switch and pill sit beside the name or wrap under it (375px wraps on the Settings page at 1x).
+  // and no control's hit area covers the row's name, whether the pill sits beside the name or wraps
+  // under it.
   test("locked rows: a 44px pill hit area that never covers the row's name", async () => {
     test.setTimeout(240_000);
     const browser = await launchWithFontSize(16);
@@ -687,7 +687,7 @@ test.describe("paid tier on: locked rows at large text keep their names readable
                   }
               return { name: label.textContent!.trim(), hit: bottom - top, covered: covered.slice(0, 5) };
             });
-            // 44px where the rows leave room (the 49px app and Settings rows). The popups' locked rows
+            // 44px where the rows leave room (the 46px app and Settings rows). The popups' locked rows
             // are 40px apart, so neighbouring pills' 44px areas meet halfway and each keeps ~40px.
             expect(found.hit, `${where}: ${found.name} pill hit area`).toBeGreaterThanOrEqual(
               path === "popup.html" ? 39.5 : 43.5,
@@ -704,7 +704,7 @@ test.describe("paid tier on: locked rows at large text keep their names readable
     }
   });
 
-  test("every locked row keeps a 120px name beside or above its saved switch and pill", async () => {
+  test("every locked row keeps a 120px name beside or above its Still Pro pill, with no switch", async () => {
     test.setTimeout(240_000);
     for (const fontSize of [24, 32]) {
       const browser = await launchWithFontSize(fontSize);
@@ -728,12 +728,12 @@ test.describe("paid tier on: locked rows at large text keep their names readable
               elements.map((row) => ({
                 name: row.querySelector(".label")?.textContent?.trim() ?? "",
                 nameWidth: row.querySelector(".row-main")!.getBoundingClientRect().width,
-                savedSwitch: Boolean(row.querySelector('.locked-controls [role="switch"]')),
+                switches: row.querySelectorAll('[role="switch"]').length,
                 pill: row.querySelector(".lock-pro")?.textContent?.trim() ?? "",
               })),
             );
             for (const row of rows) {
-              expect(row.savedSwitch, `${where}: ${row.name} shows its saved switch`).toBe(true);
+              expect(row.switches, `${where}: ${row.name} shows no switch (ISS-0122)`).toBe(0);
               expect(row.pill, `${where}: ${row.name}`).toBe("Still Pro");
               expect(row.nameWidth, `${where}: ${row.name} keeps a readable name`).toBeGreaterThanOrEqual(120);
             }

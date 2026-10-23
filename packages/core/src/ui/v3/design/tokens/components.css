@@ -267,18 +267,19 @@ html[data-still-text-scale="large"] .card-stack.help > * { grid-column: auto; gr
 .option-row .row-action { align-self: flex-start; font-size: calc(12.5px * var(--text-scale, 1)); }
 .option-row .lock { flex: none; display: inline-flex; align-items: center; justify-content: center; min-inline-size: var(--tap-target); min-block-size: var(--tap-target); margin-inline-end: -12px; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--ink-secondary); }
 .option-row .lock:hover { color: var(--ink); }
-/* A locked row keeps at least 120px for its name (review F-1, 22 Oct): when the saved switch and
-   the Still Pro pill leave less (a narrow phone, or large text), they wrap onto their own line under
-   the name, right-aligned, instead of squeezing the name to a few letters per line. */
+/* A locked row is its name and the Still Pro chip on one line (ISS-0122, owner, 22 Oct: no switch
+   while Still Pro is not owned). The name keeps at least 120px (review F-1, 22 Oct): when the chip
+   leaves less (large text), the chip wraps onto its own line under the name, right-aligned, instead
+   of squeezing the name to a few letters per line. */
 .option-row[data-access="locked"] { flex-wrap: wrap; row-gap: 0; }
 .option-row[data-access="locked"] .row-main { flex: 1 1 120px; }
-/* On the app and the Settings page the saved switch and pill keep 8px above and below them (owner
-   canvas, P-Sites since 10:22, 22 Oct), so a locked row is 49px as drawn. The name keeps its own 8px
-   too, so when the controls wrap under it (a 375pt iPhone wraps at 1x) the two hit areas reaching
-   past the switch and the pill stay inside that 8px and never cover the name. The popups keep the
-   pill group's 3px and their 40px row (FeatureRow.svelte). */
-.option-row[data-access="locked"] .locked-controls { margin-block: var(--space-2); }
-.app[data-density="compact"] .option-row[data-access="locked"] .locked-controls { margin-block: 3px; }
+/* The chip keeps 6px above and below it on the app and the Settings page, so a locked row is the
+   same 46px as a free row there (32px chip + 12px + the 1px divider fits inside 46px). Its hit
+   area reaches 6px past the chip's border box (7px past its padding box), so it stays inside those
+   6px and never covers the name when the chip wraps under it. The popups keep 3px and their 40px
+   row. */
+.option-row[data-access="locked"] .lock-pro { margin-inline-start: auto; margin-block: 6px; }
+.app[data-density="compact"] .option-row[data-access="locked"] .lock-pro { margin-block: 3px; }
 /* The locked row's Still Pro chip (owner canvas, P-Sites, 22 Oct): a bordered pill, 32px tall, so a
    locked row keeps the 40px compact row height. Its hit area is the shared ::before (Help card,
    above), reaching 7px past its 30px padding box (the box the ::before is laid out in): a 44px

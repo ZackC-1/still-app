@@ -246,35 +246,49 @@ describe("latest reference: the locked row's screen-reader label", () => {
   );
 });
 
-// CH-96 (owner, 21 Oct, option C): after a refund the row keeps showing the saved choice. A locked
-// row draws its saved switch, dimmed and in its saved position, beside the lock; the switch never
-// changes anything while locked, and the saved position applies again once Still Pro returns.
-describe("CH-96: a locked row shows its saved switch beside the lock", () => {
-  it.each([true, false])("saved %s: a dimmed switch in the saved position plus the lock", async (saved) => {
+// ISS-0122 (owner, 22 Oct; supersedes CH-96 option C): while Still Pro is not owned a locked row
+// shows NO switch, only its name and the Still Pro chip, after a refund too. The saved choice stays
+// in storage untouched and applies again once Still Pro returns.
+describe("ISS-0122: a locked row is its name and the Still Pro chip, with no switch", () => {
+  it.each([true, false])("saved %s: no switch, and the saved choice is untouched", async (saved) => {
     const { props, storage } = await fixture("locked");
     props.checked = saved;
     props.onLock = vi.fn();
     const before = await storage.get();
     const view = render(FeatureRow, { props });
-    const control = screen.getByRole("switch", { name: "Comments" });
-    expect(control).toHaveAttribute("aria-checked", String(saved));
-    expect(control).toHaveAttribute("aria-disabled", "true");
-    expect(control).toHaveAccessibleDescription("Included in Still Pro. Your choice is saved.");
-    expect(
-      screen.getByRole("button", { name: /^Comments\. Included in Still Pro\./ }),
-    ).toBeVisible();
-    await fireEvent.click(control);
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(view.container.querySelectorAll('[role="switch"], input')).toHaveLength(0);
+    const chip = screen.getByRole("button", { name: "Comments. Included in Still Pro. See Still Pro" });
+    expect(screen.getAllByRole("button")).toEqual([chip]);
+    // Clicking the name does nothing; the chip only opens its destination.
+    await fireEvent.click(screen.getByText("Comments"));
+    await fireEvent.click(chip);
+    expect(props.onLock).toHaveBeenCalledExactlyOnceWith(chip);
     expect(props.onChange).not.toHaveBeenCalled();
-    expect(props.onLock).not.toHaveBeenCalled();
-    expect(control).toHaveAttribute("aria-checked", String(saved));
     expect(await storage.get()).toEqual(before);
+    view.unmount();
+  });
+
+  it("keeps a meaningful accessible name and no orphaned description", async () => {
+    const { props } = await fixture("locked");
+    const view = render(FeatureRow, { props: { ...props, note: "Search stays." } });
+    const chip = screen.getByRole("button");
+    expect(chip).toHaveAccessibleName("Comments. Included in Still Pro.");
+    expect(chip).toHaveAccessibleDescription("Comments Search stays.");
+    for (const element of view.container.querySelectorAll("[aria-describedby], [aria-labelledby]"))
+      for (const attribute of ["aria-describedby", "aria-labelledby"])
+        for (const id of (element.getAttribute(attribute) ?? "").split(/\s+/).filter(Boolean))
+          expect(document.getElementById(id), id).not.toBeNull();
+    // The saved switch's screen-reader note went with it.
+    expect(view.container.querySelector('[id$="-locked"]')).toBeNull();
+    expect(screen.queryByText(/Your choice is saved/)).toBeNull();
     view.unmount();
   });
 
   it("applies the saved position again when Still Pro returns", async () => {
     const { props } = await fixture("locked");
     const view = render(FeatureRow, { props });
-    expect(screen.getByRole("switch", { name: "Comments" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("switch")).toBeNull();
     await view.rerender({ ...props, state: "purchased" });
     const control = screen.getByRole("switch", { name: "Comments" });
     expect(control).toHaveAttribute("aria-checked", "true");
@@ -285,10 +299,13 @@ describe("CH-96: a locked row shows its saved switch beside the lock", () => {
     view.unmount();
   });
 
-  it("keeps the dormant (paid tier off) row as the lock alone", async () => {
+  it("draws the dormant (paid tier off) row the same way, with an inert chip", async () => {
     const { props } = await fixture("locked");
-    render(FeatureRow, { props: { ...props, dormant: true } });
+    const view = render(FeatureRow, { props: { ...props, dormant: true, onLock: vi.fn() } });
     expect(screen.queryByRole("switch")).toBeNull();
-    expect(screen.getByRole("button", { name: /Included in Still Pro/ })).toBeVisible();
+    const chip = screen.getByRole("button", { name: "Comments. Included in Still Pro." });
+    expect(chip).toBeVisible();
+    expect(chip).toHaveAttribute("aria-disabled", "true");
+    view.unmount();
   });
 });
