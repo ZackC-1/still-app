@@ -36,6 +36,22 @@ export interface EntitlementAuthorityOptions {
  * back to free until the next successful reconcile. Bounds offline replay of a stale (or refunded)
  * Pro grant.
  */
+/**
+ * An auth event (the woken worker's INITIAL_SESSION, a TOKEN_REFRESHED, a sign-in or sign-out)
+ * invalidated the access context while an observation was reading it. The read is discarded:
+ * nothing from the superseded context is ever returned.
+ */
+export class StaleAccessContextError extends Error {
+  constructor() { super("Stale access context"); this.name = "StaleAccessContextError"; }
+}
+
+/**
+ * How many times the background reads the access context for one observation when an auth event
+ * keeps superseding it. Each attempt re-reads the context from scratch, so a retry answers for the
+ * CURRENT context; the bound keeps a context that never settles from looping.
+ */
+export const ACCESS_CONTEXT_ATTEMPTS = 3;
+
 export const ENTITLEMENT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
@@ -234,12 +250,25 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
         refreshAfterMs: this.benefitSnapshot.refreshAfterMs === null ? null : this.benefitDeadline - observedWall,
       }));
     }
-    const epoch = this.contextEpoch;
+    let epoch = this.contextEpoch;
     const snapshotEpoch = this.benefitSnapshotEpoch;
     // Bind freshness before context, queue, native and durable commit delays can consume it.
     const startedWall = this.now();
     let evidenceDeadline = Infinity;
-    const operation = boundedAccessRead(() => this.options.authority ? this.observeOwnedBenefits(deadline => { evidenceDeadline = deadline; }) : this.observeBrokerBenefits(), signal);
+    // An auth event that supersedes the context mid-read discards that read, then the background
+    // reads the CURRENT context again at once instead of failing the page's request. Only the
+    // epoch of the attempt that completed is cached; the whole sequence shares one deadline.
+    const owned = async (): Promise<BenefitAccessSnapshot> => {
+      for (let attempt = 1; ; attempt++) {
+        epoch = this.contextEpoch;
+        try {
+          return await this.observeOwnedBenefits(deadline => { evidenceDeadline = deadline; });
+        } catch (error) {
+          if (!(error instanceof StaleAccessContextError) || attempt >= ACCESS_CONTEXT_ATTEMPTS || signal?.aborted) throw error;
+        }
+      }
+    };
+    const operation = boundedAccessRead(() => this.options.authority ? owned() : this.observeBrokerBenefits(), signal);
     const flight = operation.then(snapshot => {
       // The consuming cache binds broker transport freshness to its own request start.
       if (!this.options.authority) return snapshot;
@@ -282,12 +311,12 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       : (supplied.evidenceDeadline !== undefined ? supplied.evidenceDeadline : this.options.evidenceDeadline?.()) ?? Infinity);
     const context: TrustedAccessContext = { ...supplied, session: supplied.session && { ...supplied.session },
       supported: new Set(supplied.supported), localRights: new Set(supplied.localRights) };
-    if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+    if (epoch !== this.contextEpoch) throw new StaleAccessContextError();
     // Current packaged free operation has no account, native, crypto, storage or network wait.
     if (!context.paidMode) return initialAccessSnapshot(context);
     if (this.options.nativeObservation) {
       const snapshot = parseBenefitAccessSnapshot(await this.options.nativeObservation());
-      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      if (epoch !== this.contextEpoch) throw new StaleAccessContextError();
       return snapshot;
     }
     return this.serialize(async () => {
@@ -298,11 +327,11 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       if (context.session !== undefined) current = (await mutateAccessRecord(current, { kind: "session", session: context.session }, this.options.trust ?? NO_ACCESS_TRUST)).record;
       const next = await mutateAccessRecord(current, { kind: "observe", observation: { wall: this.now() } }, this.options.trust ?? NO_ACCESS_TRUST);
       const complete = { ...stored, access: next.record };
-      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      if (epoch !== this.contextEpoch) throw new StaleAccessContextError();
       if (new TextEncoder().encode(JSON.stringify(complete)).length > 131_072) throw new Error("Access record full");
       await chrome.storage.local.set({ [STORAGE_KEY]: complete });
       this.committedWrite();
-      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      if (epoch !== this.contextEpoch) throw new StaleAccessContextError();
       return resolveAccessSnapshot(next.record, next.evidence, context);
     });
   }
