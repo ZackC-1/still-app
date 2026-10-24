@@ -2841,24 +2841,25 @@ test("production sales pin the four released-free benefits and exclude QA/Androi
   }
 });
 
-test("production sales on is reviewable but cannot apply before final package admission is verified", async (t) => {
+test("production sales on applies only the admitted 3.0 builds once final package admission is verified", async (t) => {
   const { root, head } = await repo(t);
   const on = await plan(root, head, "production-sales-policy", {
     policyMode: "on",
     expectedRevision: "0",
+    mode: "apply",
   });
-  assert.equal(JSON.parse(on.body).environment, "production");
+  const body = JSON.parse(on.body);
+  assert.equal(body.environment, "production");
+  assert.equal(body.salesEnabled, true);
+  assert.deepEqual(body.builds, [
+    { surface: "chrome_desktop", build: "3.0.0" },
+    { surface: "firefox_desktop", build: "3.0.0" },
+    { surface: "apple_mobile_host", build: "3.0" },
+    { surface: "apple_macos_host", build: "3.0" },
+  ]);
   assert.deepEqual(on.cutoff, PRODUCTION_CUTOFF);
-  assert.ok(on.provisional.length);
-  assert.match(renderOperationPlan(on), /Provisional content: plan-only/);
-  await refuses(
-    plan(root, head, "production-sales-policy", {
-      policyMode: "on",
-      expectedRevision: "0",
-      mode: "apply",
-    }),
-    "operation-provisional",
-  );
+  assert.deepEqual(on.provisional, []);
+  assert.doesNotMatch(renderOperationPlan(on), /Provisional content/);
   const off = await plan(root, head, "production-sales-policy", {
     policyMode: "off",
     expectedRevision: "2",

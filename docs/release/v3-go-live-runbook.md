@@ -249,7 +249,7 @@ listed).
 - Undo: `operation=analytics-subjects-switch policy_mode=disable mode=apply`.
 
 **2.6 Paid cutoff and production sales on** · Owner, Owner approval
-- Order: after Phases 3 and 4, final package verification and the cross-system check (V50 to V55), after existing QA purchase tests are finished, and before Apple submission. The operation still refuses production apply until a reviewed release change removes its provisional final-version hold. Check actual packaged strings first. Positive production-bound TestFlight/review purchase proof follows this admission plus the separate review switch while store publication remains held; it cannot be required before admission.
+- Order: after Phases 3 and 4, final package verification and the cross-system check (V50 to V55), after existing QA purchase tests are finished, and before Apple submission. The provisional final-version hold was removed on 24 October 2026 by a reviewed release change, after the packaged strings were checked (Chrome and Firefox 3.0.0, iPhone and Mac 3.0 build 12). Positive production-bound TestFlight/review purchase proof follows this admission plus the separate review switch while store publication remains held; it cannot be required before admission.
 - Where: `operation=production-sales-policy policy_mode=on` with the verified current
   `policy_expected_revision` and reviewed exact build strings; [procedure](production-sales-policy.md). Body: `salesEnabled: true`; channels `apple` and `web`
   enabled with offer `still-pro-v3`; approved builds only the 3.0 builds (plan D9). The first

@@ -245,13 +245,9 @@ const productionSalesPolicy = (mode, files) =>
     run: `production-sales-policy with policy_mode ${mode}`,
     template: PRODUCTION_SALES_TEMPLATES[mode],
     cutoff: mode === "on" ? PRODUCTION_CUTOFF : null,
-    provisional: Object.freeze(
-      mode === "on"
-        ? [
-            "Final packaged release versions must match the pinned production build list",
-          ]
-        : [],
-    ),
+    // The final-version hold was lifted on 24 October 2026 after the packaged strings were checked:
+    // Chrome and Firefox 3.0.0 (RC3, c3b1b7e3) and the iPhone and Mac apps 3.0 (12) (e9aa57e8).
+    provisional: Object.freeze([]),
     effect:
       mode === "on"
         ? "production sales enabled for the pinned builds; approved free-benefit cutoff written once"
