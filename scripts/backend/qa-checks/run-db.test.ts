@@ -1,5 +1,5 @@
 // Disposable-database proof for the read-only QA check route. Needs a throwaway database that
-// has the migrations at head (0025 adds the PROD-01 view) and
+// has the migrations at head (0025 adds the PROD-01 view, 0030 the PROD-02 view) and
 // scripts/backend/sql/qa-readonly-checks-candidate.sql installed
 // (scripts/backend/rehearse-qa-readonly-checks.sh does this on a GitHub-hosted runner). It seeds
 // synthetic owner QA aliases AND synthetic non-QA data, then proves, as the real narrow role:
@@ -278,6 +278,52 @@ Deno.test({
         assert(!text.includes("<withheld>"), text);
         assert(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(text), "PROD-01 printed a raw id");
         assert(!text.includes("@") && !text.includes("0".repeat(64)), "PROD-01 printed an email or a preview hash");
+      });
+
+      await t.step("PROD-02 lists recent live-session operations and their states, and nothing keyed to a person", async () => {
+        // Synthetic production ledger rows (holder-less): two recent live sessions, one recent row with
+        // no session yet, and one live session older than the 30-day window.
+        const hash = "a".repeat(64);
+        const rows = [
+          [701, "cs_live_synthetic_paid", "access_observed", "1 day"],
+          [702, "cs_live_synthetic_stuck", "recovery_required", "2 days"],
+          [703, null, "prepared", "1 hour"],
+          [704, "cs_live_synthetic_old", "imported", "40 days"],
+        ] as const;
+        try {
+          for (const [n, session, status, age] of rows) {
+            await admin.unsafe(
+              `insert into private.production_purchase_operations(operation_id, holder, configuration_hash, stripe_session_id, status, paid_at, created_at, updated_at)
+               values ($1, null, $2, $3, $4, case when $3::text is null then null else clock_timestamp() end,
+                 clock_timestamp() - $5::interval, clock_timestamp() - $5::interval)`,
+              [id(n), hash, session, status, age],
+            );
+          }
+          const request = resolveRequest({ check: "PROD-02" });
+          const { run, text } = await report("PROD-02");
+          assertEquals(run.results[1].rows.map((r) => `${r.stripe_session_id} ${r.status}`),
+            ["cs_live_synthetic_paid access_observed", "cs_live_synthetic_stuck recovery_required"]);
+          assertEquals(run.results[0].rows.map((r) => `${r.status} ${r.operations}`), ["access_observed 1", "recovery_required 1"]);
+          assertEquals(verdictFor(request, run), "fail");
+          assert(text.includes("| cs_live_synthetic_paid | access_observed |"), text);
+          assert(!text.includes("cs_live_synthetic_old"), "PROD-02 printed a row older than 30 days");
+          assert(!text.includes("<withheld>"), text);
+          assert(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(text), "PROD-02 printed a raw account or operation id");
+          assert(!text.includes(hash), "PROD-02 printed the configuration hash");
+        } finally {
+          await admin.unsafe("delete from private.production_purchase_operations where operation_id = any($1::uuid[])", [rows.map(([n]) => id(n))]);
+        }
+      });
+
+      await t.step("before migration 0030's grant, PROD-02 refuses without reading", async () => {
+        await admin.unsafe(`revoke select on still_qa_checks.production_purchase_operations_recent from ${CHECKER_ROLE}`);
+        try {
+          const error = await assertRejects(() => runCheck(checker!, resolveRequest({ check: "PROD-02" })), CheckError);
+          assert(error.message.includes("migration 0030"), error.message);
+        } finally {
+          await admin.unsafe(`grant select on still_qa_checks.production_purchase_operations_recent to ${CHECKER_ROLE}`);
+        }
+        await runCheck(checker!, resolveRequest({ check: "PROD-02" }));
       });
 
       await t.step("before migration 0025's grant, other checks run and PROD-01 refuses without reading", async () => {

@@ -15,7 +15,10 @@
  * SQL; the role holds SELECT on them only once that migration is applied, and the candidate
  * re-grants each one that exists.
  */
-export const MIGRATION_VIEWS = Object.freeze({ production_sales_summary: "0025" });
+export const MIGRATION_VIEWS = Object.freeze({
+  production_sales_summary: "0025",
+  production_purchase_operations_recent: "0030",
+});
 
 /**
  * The only relations a catalogue query may read: the candidate SQL's 25 views, each granted SELECT
