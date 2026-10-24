@@ -109,7 +109,7 @@ jobs:
           ACCESS_PROOF_SERVER_DIGESTS_JSON: ${{ vars.ACCESS_PROOF_SERVER_DIGESTS_JSON }}
         run: node scripts/release/chrome-package.mjs --out "$RUNNER_TEMP/chrome-package"
       - name: Keep the package for the store job and for testing
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chrome-package
           path: ${{ runner.temp }}/chrome-package
@@ -218,7 +218,7 @@ jobs:
         run: node scripts/release/chrome-release.mjs receipt --dir "$RUNNER_TEMP/chrome-release"
       - name: Keep the closing record
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chrome-release-receipt
           path: ${{ runner.temp }}/chrome-release/receipt.json
