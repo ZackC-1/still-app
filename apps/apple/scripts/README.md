@@ -10,6 +10,7 @@ supported websites in Safari, not native social apps.
 | `test.sh` | Runs real StillKit tests and workspace checks. It does not certify physical devices. |
 | `archive.sh` | Rebuilds web resources, archives iOS and exports an App Store IPA with an ASC API key. It permits provisioning updates; `UPLOAD=1` additionally uploads. Both external actions require explicit approval. It applies the pinned production access trust (public keys from `scripts/release/production-access-keys.json`) to the web bundle and, for the archive only, to the four Info.plists, restoring the plists on exit; see [production access trust](../../../docs/release/versioning-and-packages.md#production-access-trust-still-pro-verification-keys). |
 | `release-env-guard.sh`, `release-env-state.mjs`, `modern-sync-shipped` | Sourced by `archive.sh` before any build, and run by the Xcode extension-resources phase on Release builds. Refuses to archive when the web and Safari-extension builds disagree about cloud-sync configuration, the modern settings-sync flag or the Apple atomic flag. The state helper uses the real Vite and WXT env loaders and prints state tokens only, never a value. `modern-sync-shipped` says `not-shipped` today; the owner-approved change that ships the flag sets it to `shipped`, after which every archive must keep the flag. Tested by `release-env-guard.test.mjs` (part of `pnpm test:release`, no Xcode). |
+| `store-trust-plist-check.mjs` | Run by all four targets' run-script phases on Release builds against the built Info.plist. Fails the build unless it carries `StillAccessEnvironment` = `production` and the pinned production keys, so a GUI or raw `xcodebuild archive` without `apple-apply` cannot ship without them. Simulator builds and QA builder builds (`STILL_NON_STORE_BUILD=YES`, passed by `paid-sandbox-qa.mjs`) are exempt; `archive.sh` passes `NO`. Tested by `store-trust-plist-check.test.mjs` (part of `pnpm test:release`). |
 | `ExportOptions.plist` | Existing App Store export configuration. |
 
 Use [current release status](../../../docs/release/history/2026-09-14-release-status.md) for submitted
@@ -48,7 +49,8 @@ configuration, exactly like the script. It checks both packages' production envi
 real Vite and WXT loaders and never prints a value; it covers the extension build the phase runs,
 and the prebuilt web bundle is checked through `packages/app-webview/dist/.env-state`, a token-only stamp (never a value) that `pnpm --filter @still/app-webview build` writes. A missing or differing stamp refuses; rebuild the web bundle. Node must be on PATH.
 
-These raw commands do not apply the pinned production access trust. For a store archive, apply it first
+These raw commands do not apply the pinned production access trust, and a Release build refuses to finish
+without it (`store-trust-plist-check.mjs`). For a store archive, apply it first
 (`node scripts/release/access-trust.mjs apple-apply --backup <empty dir>`, plus `--server-secrets-json <file>`
 once the release is paid; restore with `apple-restore` afterwards) and build the web bundle with the output of `node scripts/release/access-trust.mjs env`, as
 `archive.sh` does.
