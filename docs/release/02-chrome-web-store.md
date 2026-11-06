@@ -40,8 +40,9 @@ Mac/iPhone/iPad. Mobile use is Safari through the Still Apple app; this extensio
 The owner updated the two [functional screenshots](screenshots/store-ready/README.md#chrome-web-store)
 and reviewer instructions before submission. Keep controls first, sync second, along with the
 existing icon and brand promotional tiles. From 3.0 the listing names Still Pro as an optional
-$9.99 one-time purchase, worded exactly as in [V3 Chrome Web Store](store-listing-copy.md#v3-chrome-web-store);
-it never suggests that removing Shorts and Reels, blocking TikTok or sync needs a purchase. Preserve
+one-time purchase, with no price (owner rule, November 5, 2026), worded exactly as in the
+[3.0 Chrome Web Store changes](store-listing-copy.md#30-chrome-web-store-changes); it never
+suggests that removing Shorts and Reels, blocking TikTok or sync needs a purchase. Preserve
 the existing listing and selected distribution regions.
 
 ## Privacy declarations
