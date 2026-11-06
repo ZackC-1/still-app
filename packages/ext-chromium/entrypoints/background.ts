@@ -460,8 +460,8 @@ export default defineBackground(() => {
   // for extension-page senders — same extension id AND an extension-origin URL. The origin check is
   // strictly stronger than a `sender.tab === undefined` test: content scripts carry the page's URL
   // (never the extension origin) so they're still walled off to the nudge, while the options page
-  // (embedded in Chrome's extensions page, its own tab on Firefox since ISS-0097; it carries a
-  // sender.tab either way and a tab check would wrongly reject it) is correctly allowed (F9).
+  // (its own tab on every browser since ISS-0097 and ISS-0130, so it carries a sender.tab and a
+  // tab check would wrongly reject it) is correctly allowed (F9).
   // Anything else falls through unanswered (the
   // sender's closures settle to their structured fail-safe). Async responses use the sendResponse +
   // `return true` shape — the one contract both Chrome MV3 and Firefox's chrome-namespace listeners

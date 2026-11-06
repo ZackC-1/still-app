@@ -203,26 +203,26 @@ export function stillManifest(browser: string, env: ManifestBuildEnv = process.e
 }
 
 /**
- * Where Still's Settings page opens (ISS-0097). With `open_in_tab: false`, desktop Firefox shows the
- * options page inside the Add-ons Manager, in a panel it grows to the page's full height. Anything
- * the page positions against its own viewport (the sign-in sheet, the Delete account and Stop
- * sharing confirmations) then lands at the bottom or the middle of that tall panel, often below the
- * fold, while the dimming scrim covers all of it: a grey page with no sheet. So Firefox opens
- * Settings in its own tab; `runtime.openOptionsPage` (the popup's Settings button, first-run's Open
- * Settings, the Still Pro hand-off) reuses an open one, provided its address still matches exactly,
- * which is why lib/pro-navigation.ts leaves the address plain once the hand-off is over. Chrome keeps
- * its embedded dialog, whose viewport is bounded and scrolls. Firefox for Android installs this same
- * manifest (the sandbox QA package while Android is deferred, or a side-loaded store package), so its
- * Settings open as a browser tab there too (otherwise Fenix shows the page inside its own add-on
- * settings screen); the Android emulator lane covers it.
+ * Where Still's Settings page opens: its own tab, on every browser this config builds. With
+ * `open_in_tab: false`, desktop Firefox shows the options page inside the Add-ons Manager, in a panel
+ * it grows to the page's full height (ISS-0097). Anything the page positions against its own
+ * viewport (the sign-in sheet, the Delete account and Stop sharing confirmations) then lands at the
+ * bottom or the middle of that tall panel, often below the fold, while the dimming scrim covers all
+ * of it: a grey page with no sheet. Chrome's embedded dialog on chrome://extensions failed outright
+ * in Chrome 156 (ISS-0130): first "This site can't be reached … ERR_FAILED", then no dialog at all,
+ * even from Chrome's own Extension options button, so the popup's Get Still Pro and Still settings,
+ * first-run's Open Settings and the TikTok blocked page's settings link all led nowhere, while the
+ * same page opened as a tab worked. `runtime.openOptionsPage` (each of those buttons, and the Still
+ * Pro hand-off) reuses an open Settings tab, provided its address still matches exactly, which is why
+ * lib/pro-navigation.ts leaves the address plain once the hand-off is over. Firefox for Android
+ * installs this same manifest (the sandbox QA package while Android is deferred, or a side-loaded
+ * store package), so its Settings open as a browser tab there too (otherwise Fenix shows the page
+ * inside its own add-on settings screen); the Android emulator lane covers it.
  * WXT writes `options_ui` from the entrypoint after merging `manifest`, so this runs on the
  * generated manifest (the `build:manifestGenerated` hook below).
  */
-export function settingsPageHost<M extends { options_ui?: { open_in_tab?: boolean } }>(
-  browser: string,
-  manifest: M,
-): M {
-  if (browser === "firefox" && manifest.options_ui) manifest.options_ui.open_in_tab = true;
+export function settingsPageHost<M extends { options_ui?: { open_in_tab?: boolean } }>(manifest: M): M {
+  if (manifest.options_ui) manifest.options_ui.open_in_tab = true;
   return manifest;
 }
 
@@ -248,8 +248,8 @@ export default defineConfig({
   manifestVersion: 3,
   manifest: ({ browser }) => stillManifest(browser),
   hooks: {
-    "build:manifestGenerated": (wxt, manifest) => {
-      settingsPageHost(wxt.config.browser, manifest);
+    "build:manifestGenerated": (_wxt, manifest) => {
+      settingsPageHost(manifest);
     },
   },
 });

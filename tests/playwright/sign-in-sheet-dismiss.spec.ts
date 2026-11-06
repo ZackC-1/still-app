@@ -14,7 +14,7 @@ const SIGN_IN_BUILT =
 
 const SURFACES = [
   { name: "Settings page", path: "options.html", viewport: { width: 1280, height: 720 } },
-  // Chrome's embedded Settings dialog can be short, which makes the panel nearly fill the page.
+  // A short browser window makes the panel nearly fill the Settings page.
   { name: "short Settings page", path: "options.html", viewport: { width: 700, height: 420 } },
   { name: "popup", path: "popup.html", viewport: { width: 380, height: 600 } },
   // So short that the panel reaches its height limit and the strip above it is at its 12px minimum.

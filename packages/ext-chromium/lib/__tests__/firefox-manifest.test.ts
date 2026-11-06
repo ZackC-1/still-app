@@ -210,20 +210,12 @@ describe("Firefox manifest compatibility", () => {
       expect(stillManifest("firefox", env).description.length).toBeLessThanOrEqual(250);
   });
 
-  it("opens Settings in its own tab on Firefox only (ISS-0097)", () => {
+  it("opens Settings in its own tab on every browser (ISS-0097, ISS-0130)", () => {
     // What WXT generates from the options entrypoint before the hook runs.
     const generated = () => ({ options_ui: { page: "options.html", open_in_tab: false } });
-    expect(settingsPageHost("firefox", generated()).options_ui).toEqual({
-      page: "options.html",
-      open_in_tab: true,
-    });
-    for (const browser of ["chrome", "chromium", "edge", "safari"])
-      expect(settingsPageHost(browser, generated()).options_ui).toEqual({
-        page: "options.html",
-        open_in_tab: false,
-      });
+    expect(settingsPageHost(generated()).options_ui).toEqual({ page: "options.html", open_in_tab: true });
     // A build without an options entrypoint has nothing to place.
-    expect(settingsPageHost("firefox", {})).toEqual({});
+    expect(settingsPageHost({})).toEqual({});
   });
 
   describe("the manifest the build generates (config.manifest, then build:manifestGenerated)", () => {
@@ -269,10 +261,10 @@ describe("Firefox manifest compatibility", () => {
     const hooks = config.hooks as Record<string, (wxt: unknown, manifest: unknown) => unknown>;
     const hook = hooks["build:manifestGenerated"];
     if (typeof hook !== "function") throw new Error("the build:manifestGenerated hook is not wired");
-    for (const [browser, open] of [["firefox", true], ["chrome", false]] as const) {
+    for (const browser of ["firefox", "chrome"]) {
       const manifest = { options_ui: { page: "options.html", open_in_tab: false } };
       await hook({ config: { browser } }, manifest);
-      expect(manifest.options_ui.open_in_tab).toBe(open);
+      expect(manifest.options_ui.open_in_tab).toBe(true);
     }
   });
 });
