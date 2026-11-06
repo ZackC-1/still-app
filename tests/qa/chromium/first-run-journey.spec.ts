@@ -91,11 +91,10 @@ test("J1.CH Open Still settings leads from first run to the settings page", asyn
   const page = await firstRunPage(context);
   const known = new Set(context.pages());
   await page.getByRole("button", { name: "Open Still settings" }).click();
-  // Chrome opens an extension's embedded settings through its own extensions page, so the new tab
-  // is chrome://extensions/?options=<id> (or the options page itself when Chrome opens it in a tab).
+  // Settings open in their own tab (ISS-0130), never in chrome://extensions' embedded dialog.
   await expect
     .poll(() => context.pages().filter((p) => !known.has(p)).map((p) => p.url()), { timeout: 10_000 })
-    .toContainEqual(expect.stringMatching(new RegExp(`(chrome://extensions/\\?options=${extensionId}|${extensionId}/options\\.html)`)));
+    .toContainEqual(`chrome-extension://${extensionId}/options.html`);
   const opened = context.pages().find((p) => !known.has(p))!;
   await ev.shot(opened, "settings-opened-from-first-run");
 });

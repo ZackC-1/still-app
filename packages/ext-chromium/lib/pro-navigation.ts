@@ -115,9 +115,10 @@ export function bindProOptionsNavigation(root: HTMLElement): () => void {
     if (timer !== null) clearTimeout(timer);
     timer = null;
   }
-  /** Firefox's runtime.openOptionsPage reuses an open Settings tab only when its address matches
-   * exactly, hash included (ISS-0097), so the hand-off hash must not outlive the hand-off: it goes
-   * once the card has been reached, and when the focus window ends. */
+  /** runtime.openOptionsPage reuses an open Settings tab only when its address matches exactly,
+   * hash included (Firefox, ISS-0097; Settings open in a tab on Chrome too since ISS-0130), so the
+   * hand-off hash must not outlive the hand-off: it goes once the card has been reached, and when
+   * the focus window ends. */
   function clearHash() {
     if (window.location.hash === PRO_OPTIONS_HASH)
       window.history.replaceState(null, "", window.location.pathname + window.location.search);

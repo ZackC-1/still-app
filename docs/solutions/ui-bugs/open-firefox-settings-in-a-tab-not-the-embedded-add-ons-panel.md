@@ -7,7 +7,7 @@ module: packages/ext-chromium
 applies_when: An extension page uses position:fixed sheets, dialogs or notices and is shown by Firefox as an embedded options page (options_ui.open_in_tab false), or a Firefox tester reports a grey Settings page with no sheet
 date: 2026-10-20
 status: active
-tags: [firefox, options_ui, add-ons-manager, position-fixed, sheet, wxt, manifest]
+tags: [firefox, chrome, options_ui, add-ons-manager, position-fixed, sheet, wxt, manifest]
 ---
 
 ## Symptom
@@ -32,8 +32,9 @@ the bottom brings the sheet into view (top at 346 px), which is why the owner's 
 page was scrolled further down that time. The centred `.dialog` (Delete account, Stop sharing)
 and any bottom-pinned notice land the same way.
 
-Chrome is not affected: its embedded options dialog in chrome://extensions has a bounded, scrolling
-viewport. Firefox for Android ships the same manifest, so the change reaches it too: Fenix shows an
+Chrome's embedded options dialog in chrome://extensions has a bounded, scrolling viewport, so the
+sheets were never hidden there, but Chrome now opens Settings in a tab as well (ISS-0130, below).
+Firefox for Android ships the same manifest, so the change reaches it too: Fenix shows an
 `open_in_tab: false` page inside its own add-on settings screen and a `true` one as a browser tab.
 
 ## Fix
@@ -49,13 +50,21 @@ Pro card has been reached, and when the focus window ends.
 WXT writes `options_ui` from the entrypoint *after* merging the `manifest` option, so a value in
 `stillManifest` would be overwritten, and the `<meta name="manifest.open_in_tab">` form applies to
 every browser. The change is a `build:manifestGenerated` hook in `wxt.config.ts` that calls the
-exported `settingsPageHost(browser, manifest)`, pinned by `lib/__tests__/firefox-manifest.test.ts`
-(Firefox true; Chrome, Chromium, Edge and Safari untouched).
+exported `settingsPageHost(manifest)`, pinned by `lib/__tests__/firefox-manifest.test.ts`.
+
+ISS-0130 (Chrome 156 on macOS, Still 3.0.0 RC3, 5 Nov 2026): Chrome's embedded options dialog
+failed. It first showed "This site can't be reached … options.html ERR_FAILED", then, after the
+extension was reloaded, no dialog at all, even from Chrome's own Extension options button. Every
+way into Settings (the popup's Get Still Pro and Still settings, first-run's Open Settings, the
+TikTok blocked page's settings link) led nowhere, while `chrome-extension://<id>/options.html` in a
+tab worked. Playwright's Chromium 153 still showed the dialog, so the fixtures could not catch it.
+`settingsPageHost` now sets `open_in_tab: true` for every browser the config builds.
 
 ## How to check
 
 - `pnpm --filter @still/ext-chromium build:firefox` → `dist/firefox-mv3/manifest.json` has
-  `"options_ui": {"open_in_tab": true, "page": "options.html"}`; the Chrome build keeps `false`.
+  `"options_ui": {"open_in_tab": true, "page": "options.html"}`, and so does the Chrome build's
+  `dist/chrome-mv3/manifest.json`.
 - Real Firefox over BiDi (`tests/firefox/_bidi.ts` style): from an extension page call
   `browser.runtime.openOptionsPage()`; `browsingContext.getTree` lists a top-level
   `moz-extension://…/options.html` tab and no about:addons; a second call adds no tab. The embedded
