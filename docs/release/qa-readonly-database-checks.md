@@ -191,6 +191,10 @@ The role has SELECT on precisely these 25 `still_qa_checks` views from the candi
 `isolation_summary`, `retention_summary`, `privacy_summary`, `erasure_jobs_last_hour`; and, from
 migration 0025, `production_sales_summary`.
 
+`entitlements_summary` and `isolation_summary.qa_legacy_entitlements` count only legacy rows with
+`still_sync = true`, because only those mark a real earlier purchase. Re-run the candidate to apply
+this to an installed checker.
+
 Existing approved catalog metadata reads establish role/schema safety. Production baseline checks
 emit only the existing keyed digest. Standing authorization adds no base-table access, membership,
 DDL, SECURITY DEFINER execution or writable transaction. The runner rejects missing encryption

@@ -160,10 +160,11 @@ select a.user_id, a.modern_used
 from private.settings_anchors a
 where a.user_id in (select q.holder from still_qa_checks.qa_scope q);
 
+-- Only still_sync = true marks a real earlier purchase; a false row grants nothing.
 create or replace view still_qa_checks.entitlements_summary with (security_barrier = true) as
 select e.user_id, pg_catalog.count(*) as legacy_rows
 from public.entitlements e
-where e.user_id in (select q.holder from still_qa_checks.qa_scope q)
+where e.user_id in (select q.holder from still_qa_checks.qa_scope q) and e.still_sync
 group by e.user_id;
 
 create or replace view still_qa_checks.access_rights with (security_barrier = true) as
@@ -253,7 +254,7 @@ with qa as (select q.holder from still_qa_checks.qa_scope q)
 select
   (select pg_catalog.count(*) from private.access_rights r where r.holder in (select holder from qa) and r.environment <> 'sandbox') as qa_non_sandbox_rights,
   (select pg_catalog.count(*) from private.qa_sandbox_negative_rights n join private.access_rights r using (right_id) where r.environment <> 'sandbox') as cross_environment_negative_rights,
-  (select pg_catalog.count(*) from public.entitlements e where e.user_id in (select holder from qa)) as qa_legacy_entitlements,
+  (select pg_catalog.count(*) from public.entitlements e where e.user_id in (select holder from qa) and e.still_sync) as qa_legacy_entitlements,
   (select pg_catalog.count(*) from private.access_transfer_operations t where t.environment = 'sandbox') as sandbox_transfer_operations,
   (select pg_catalog.count(*) from public.profiles p where p.id in (select holder from private.qa_sandbox_subjects)) as subject_profiles;
 

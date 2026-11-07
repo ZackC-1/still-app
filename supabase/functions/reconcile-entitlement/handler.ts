@@ -33,14 +33,17 @@ export function handleReconcile(req: Request, deps: ReconcileDeps): Promise<Resp
     let token: string | null = null;
     if (access) {
       try { token = await access.rights.begin(userId, access.signer.environment); }
-      catch { /* Free sync and legacy reconciliation do not depend on scoped storage readiness. */ }
+      catch { /* Free sync does not depend on scoped storage readiness. */ }
     }
     // The subject is the verified token's sub. Any user_id in the request body is ignored.
     const subscriber = await deps.rc.getSubscriber(userId);
     const active = stillProActive(subscriber);
-    await deps.store.setEntitlement(userId, active, "reconcile", subscriber?.original_app_user_id ?? null);
-
-    if (request === "legacy") return jsonResponse(200, { still_sync: active });
+    // Scoped callers never write the legacy projection. The RevenueCat lookup also sees sandbox
+    // purchases, so a test or review sign-in would otherwise create a legacy row.
+    if (request === "legacy") {
+      await deps.store.setEntitlement(userId, active, "reconcile", subscriber?.original_app_user_id ?? null);
+      return jsonResponse(200, { still_sync: active });
+    }
     return reconcileScopedAccess(userId, access, token, { still_sync: active });
   });
 }
