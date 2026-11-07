@@ -6,7 +6,6 @@ import {
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import {
   createAppleProHost,
-  MAX_PURCHASE_JOINS,
   type AppleProHostDeps,
   type AppleProAccount,
 } from "./apple-pro-host.js";
@@ -2277,16 +2276,27 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     await settle();
     expect(host.props([]).purchase).toEqual({ state: "idle" });
   });
-  it("waits that run out end as one cancel, never a failure or a verify state", async () => {
+  it.each([
+    { settles: "cancelled" as const, purchase: { state: "idle" }, verified: 0, events: ["purchase_started", "purchase_cancelled"] },
+    { settles: "purchased" as const, purchase: { state: "success", confirmed: true }, verified: 1, events: ["purchase_started"] },
+  ])("the page keeps waiting for as long as native says the purchase is in flight, then takes the real $settles", async (expected) => {
+    // A sheet left up for a long time: many bounded waits, each joining the same native purchase.
+    // Nothing ends the attempt but StoreKit's own answer, so a late confirmation is verified and
+    // counted and a late cancel is one cancel; no wait ever ends as a cancel or a verify state.
     const { track, names } = events();
     const { host, deps, settle } = await harness({ analytics: { track } });
-    vi.mocked(deps.bridge.purchasePro).mockResolvedValue(noSignal("unsettled"));
+    const waits = 25;
+    const bridge = vi.mocked(deps.bridge.purchasePro);
+    for (let i = 0; i < waits; i++) bridge.mockResolvedValueOnce(noSignal("unsettled"));
+    bridge.mockResolvedValueOnce(expected.settles === "cancelled" ? noSignal("cancelled") : owned);
     host.props([]).native.onBuy?.();
-    for (let i = 0; i < 8; i++) await settle();
-    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(1 + MAX_PURCHASE_JOINS);
-    expect(host.props([]).purchase).toEqual({ state: "idle" });
+    // (The held-join case above shows the screen waiting between joins; resolved mocks settle at once.)
+    for (let i = 0; i < 24; i++) await settle();
+    expect(bridge).toHaveBeenCalledTimes(1 + waits);
+    expect(bridge.mock.calls.slice(1).every(([, options]) => options?.join === true)).toBe(true);
+    expect(host.props([]).purchase).toEqual(expected.purchase);
     expect(host.settings().pro?.verificationRequired).toBeUndefined();
-    expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
-    expect(names()).toEqual(["purchase_started", "purchase_cancelled"]);
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(expected.verified);
+    expect(names()).toEqual(expected.events);
   });
 });

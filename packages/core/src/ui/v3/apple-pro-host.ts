@@ -90,12 +90,6 @@ export const APPLE_PURCHASE_SIGN_IN_COPY = {
   skip: "Buy without an account",
 } as const;
 
-/** ISS-0134: how many more bounded native waits a purchase gets after the first one answered
- * `unsettled` (Apple's sheet still up). Each wait is up to NATIVE_PURCHASE_DEADLINE_MS and joins
- * the same native purchase, never a second charge; together they outlast any sheet someone is
- * still looking at. When they run out the attempt ends as one cancel, never as a failure. */
-export const MAX_PURCHASE_JOINS = 10;
-
 export function appleProOwnership(
   access: BenefitAccessSnapshot,
 ): "none" | "owned" | "checking" | "verify" {
@@ -530,13 +524,11 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           : await deps.bridge.restorePro();
       // ISS-0134: Apple's sheet can stay up longer than one bounded native wait. "unsettled" is not
       // an answer (nothing bought, nothing to verify): wait again for the same purchase, which
-      // native joins rather than starting a second charge, until StoreKit settles or the waits run
-      // out. The Buy stays dispatched meanwhile, so a second tap never reaches native.
-      for (
-        let joins = 0;
-        kind === "buy" && result.outcome === "unsettled" && joins < MAX_PURCHASE_JOINS;
-        joins++
-      ) {
+      // native joins rather than starting a second charge, for as long as native says it is still
+      // in flight. Each wait is itself bounded (NATIVE_PURCHASE_DEADLINE_MS), so this never spins,
+      // and the Buy stays dispatched meanwhile, so a second tap never reaches native. Only a real
+      // outcome ends it: a late confirmation is verified and counted, a late cancel is a cancel.
+      while (kind === "buy" && result.outcome === "unsettled") {
         if (stopped) return;
         result = await deps.bridge.purchasePro(fresh!, { join: true });
       }
@@ -548,7 +540,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (generation !== epoch) {
         // Account replacement cannot discard a dispatched StoreKit completion. Retain
         // only its recovery intent; a current signed read must establish the rights.
-        if ((result.outcome === "cancelled" || result.outcome === "unsettled") && pendingKind === undefined) {
+        if (result.outcome === "cancelled" && pendingKind === undefined) {
           purchase = { state: "idle" };
           restore = undefined;
         } else if (result.outcome === "unavailable" && pendingKind === undefined) {
@@ -570,9 +562,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         changed();
         return;
       }
-      if (result.outcome === "cancelled" || result.outcome === "unsettled") {
-        // A closed sheet is a cancel. So is a wait that ran out with the sheet still up (ISS-0134):
-        // Get Still Pro again, counted once as a cancel and never as a failure.
+      if (result.outcome === "cancelled") {
+        // A closed sheet is a cancel, however long it stayed up (ISS-0134): Get Still Pro again,
+        // counted once as a cancel and never as a failure.
         if (kind === "buy")
           track("purchase_cancelled", { purchase_origin: "unknown", product: "still-pro-v3" });
         purchase = { state: "idle" };
