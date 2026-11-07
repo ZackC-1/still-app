@@ -24,7 +24,8 @@ it.runIf(process.platform === "darwin")("native executor holds unknown/off sales
   const harness = `import Foundation
 struct NativeVerifiedAppleRevocation {}
 struct Package {}
-public enum ReceiptStatus: String, Sendable { case entitled, noSignal }
+public enum ReceiptStatus: String, Sendable { case entitled, verifiedNotEntitled, noSignal }
+public enum FreePeriodRestoreResult { case restored, none, failed }
 // Synthetic StoreKit ports never contact a store. The real catalog/provenance rule is compiled below.
 enum StoreKit {
   struct Transaction {
