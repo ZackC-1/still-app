@@ -42,6 +42,14 @@ ran the local verification that Restore runs from the same `verifyLocalPurchase`
 verification, ran it, found no transaction, and showed the sticky verify copy. The 121 s gap in
 PostHog is that bound.
 
+**A plain cancel was a failure too.** In purchases-ios 5.79.0 the orchestrator forwards
+`purchaseCancelledError` as the completion's error on a user cancel ("to match SK1 behavior",
+`PurchasesOrchestrator.swift:693`) and the async bridge `purchaseAsync(package:)` resumes with
+`Result(customerInfo, error)` (`Misc/Concurrency/Purchases+async.swift:85`), which throws whenever
+the error is non-nil. So the async `purchase(package:)` throws on a plain cancel and
+`result.userCancelled` is never seen on that path; the catch mapped it to `.failed`, which the
+page showed as "wasn't confirmed" with `purchase_failed`.
+
 **ISS-0137.** `main.ts` ran `authority.verifyLocalPurchase()` at launch, which installs the right
 natively and reads benefits directly, while the screen reads the settings authority's
 `EntitlementCache`, which next asks native at its minute refresh. Nothing told the cache a right
@@ -52,18 +60,25 @@ what each minute read resolved or which guard refused it.
 ## Fix
 
 - StoreKit is the authority after an SDK failure. `AppleSDKPurchaseFailure.classify` (StillKit,
-  tested) turns a thrown SDK purchase into `purchased` when the sellable receipt now reads entitled
-  (the pre-flight was not entitled, so that is this charge), `pending` only for the SDK's own
-  Ask-to-Buy error, else `failed`. `ApplePurchaseActionResult` and `parseProResult` both map a
-  `failed` or `staleIdentity` with an entitled `still_pro_v3` receipt to `pending`, so the page
-  verifies locally. The host's own `failed` Buy branch runs `verifyLocalPurchase` once before
-  showing "wasn't confirmed": owned is the purchase, a held install keeps verification recovery,
-  nothing on the device keeps the failed card with Try again, never a verify state.
+  tested) reads a thrown SDK purchase against the sellable receipt again: entitled after a
+  conclusive pre-flight (a real "no transaction" or a refund; `ReceiptRead.conclusive` is false
+  for a timed-out or unverifiable read) is this charge and is reported `purchased` with the same
+  new-purchase evidence (`AppleNewPurchaseProvenance.rescuedEligible`: new against the pre-charge
+  read, production, purchased, unrevoked; no SDK completion id exists on this path); entitled after
+  an inconclusive pre-flight may be an older purchase and goes to the local verification as
+  `pending`, never counted as a sale; without a receipt the SDK's cancel error is `cancelled`, its
+  Ask-to-Buy error `pending`, anything else `failed`. `ApplePurchaseActionResult` and
+  `parseProResult` both map a `failed` or `staleIdentity` with an entitled `still_pro_v3` receipt
+  to `pending`, so the page verifies locally. The host's own `failed` Buy branch runs
+  `verifyLocalPurchase` once before showing "wasn't confirmed": owned is the purchase, a held
+  install keeps verification recovery, nothing on the device keeps the failed card with Try again,
+  never a verify state.
 - A bounded wait is `unsettled`, never `pending`. The host waits again with
-  `purchasePro(offer, { join: true })`, which native answers from the purchase already in flight
-  (or the result that settled meanwhile, `unclaimedPurchaseResult`), never a second charge. Waits
-  that run out end as one `purchase_cancelled`, as a closed sheet does, and never emit
-  `purchase_failed`.
+  `purchasePro(offer, { join: true })` for as long as native says the purchase is in flight; native
+  answers a join from the task already running, or from the result that settled meanwhile
+  (`unclaimedPurchaseResult`), never a second charge. Each wait is itself bounded, so nothing spins,
+  and only StoreKit's real answer ends the attempt: a late confirmation is verified and counted, a
+  closed sheet is one `purchase_cancelled`, and `purchase_failed` is never emitted for a wait.
 - `createAppleSettingsAuthority` takes `pendingLocalVerification`; when it fulfils, the cache is
   read twice (finish any read in flight, then read the committed record). `main.ts` passes the
   launch verification.
@@ -75,20 +90,26 @@ what each minute read resolved or which guard refused it.
 ## Rule
 
 A store SDK's error after Apple's sheet is not the outcome; the device's verified receipt is. Any
-reply that carries an entitled sellable receipt goes to the same local verification Restore uses.
-A bounded wait that ends before the store answers is unknown, not accepted: never label it
-`pending`. When native changes the access record in the background, hand the page's cache a reason
-to read again instead of waiting for its timer.
+reply that carries an entitled sellable receipt goes to the same local verification Restore uses,
+and it counts as a new sale only when the pre-charge read conclusively showed none. Read the SDK's
+cancel from its thrown error: the async purchase API never returns `userCancelled` for a plain
+cancel. A bounded wait that ends before the store answers is unknown, not accepted and not a
+cancel: never label it `pending`, and keep waiting while the store says the purchase is in flight.
+When native changes the access record in the background, hand the page's cache a reason to read
+again instead of waiting for its timer.
 
 ## Verification
 
-- StillKit `swift test`: 554 tests, 0 failures, including `AppleLifetimeOfferingTests`
+- StillKit `swift test`: 556 tests, 0 failures, including `AppleLifetimeOfferingTests`
   (failed+entitled is pending, unsettled passes through), `PurchaseDecisionTests` (the SDK failure
-  rule) and `PurchaseConfirmationWiringTests` (the app wires the rule, the unsettled bound, the
-  join, the evidence retry and the logs).
+  rule: conclusive pre-flight, cancel, Ask-to-Buy), `AppleNewPurchaseProvenanceTests` (the rescued
+  rule) and `PurchaseConfirmationWiringTests` (the app wires the rule, the cancel error, the
+  rescued evidence, the unsettled bound, the join, the evidence retry and the logs).
 - `apple-pro-host.test.ts`, `apple-pro-host.integration.test.ts` and `native-pro.test.ts`: the
   rescue through local verification, the failed card without a verify state, the unsettled join
-  loop ending in one cancel, the stale-identity copy, the bridge mapping.
+  loop that waits through many joins and takes the real cancel or purchase, the stale-identity
+  copy, the bridge mapping. The compiled purchase harness (`native-purchase-sales.test.ts`) still
+  compiles the extracted `purchaseStillPro` and proves its charge ordering.
 - `apple-settings-host.launch-verification.test.ts`: the cache reads again when the launch
   verification installs a right, finishes an in-flight read first, and reads nothing after stop
   or a rejected verification.
