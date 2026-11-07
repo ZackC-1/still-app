@@ -646,7 +646,9 @@ describe("mounted Apple Buy the App Store never started (ISS-0070)", () => {
     expect(within(card).getByRole("button", { name: "Try again" })).toBeEnabled();
   });
   it("an ambiguous native failed Buy keeps the may-have-been-charged copy", async () => {
-    const f = await compose();
+    // A failed reply is checked against the device first (ISS-0136); with nothing there to verify
+    // the ambiguous copy stands and must never claim nothing was charged.
+    const f = await compose({ verificationFails: true });
     f.purchase.mockResolvedValueOnce({ outcome: "failed", receipt: "noSignal" });
     await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
     await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
@@ -1647,5 +1649,57 @@ describe("mounted Apple Still Pro already linked to the signed-in account (ISS-0
     expect(screen.queryByRole("region", { name: OFFER })).toBeNull();
     expect(screen.queryByText(INVITE)).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+describe("mounted Apple purchases the store SDK reports late or wrong (ISS-0134, ISS-0136)", () => {
+  const ambiguous = "The purchase wasn’t confirmed.";
+  const verify = "Your purchase needs to be verified.";
+  it("a store failure with a verified device receipt completes through local verification", async () => {
+    // Native's reply after the SDK threw once Apple had completed the charge: failed, but with the
+    // sellable receipt in hand. The page verifies it as Restore would and shows the purchase.
+    const f = await compose();
+    f.purchase.mockResolvedValueOnce({ outcome: "failed", receipt: "entitled", productId: "still_pro_v3" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText("You have Still Pro.");
+    expect(screen.queryByText(ambiguous)).toBeNull();
+    expect(screen.queryByText(verify)).toBeNull();
+    expect(f.purchase).toHaveBeenCalledOnce();
+    expect(f.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(f.restore).not.toHaveBeenCalled();
+  });
+  it("a store failure with no device receipt says the purchase wasn't confirmed, and Try again is a new Buy", async () => {
+    const f = await compose({ verificationFails: true });
+    f.purchase.mockResolvedValueOnce({ outcome: "failed", receipt: "noSignal" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText(ambiguous);
+    expect(screen.queryByText(verify)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
+    expect(f.verifyLocalPurchase).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const card = await screen.findByRole("region", { name: "Still Pro" });
+    await within(card).findByText(ambiguous);
+    expect(within(card).queryByText(verify)).toBeNull();
+    f.verificationAvailable();
+    await fireEvent.click(within(card).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(f.purchase).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(ambiguous)).toBeNull());
+    expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+  });
+  it("an unsettled wait keeps waiting for Apple, and a sheet closed without buying is Get Still Pro again", async () => {
+    const f = await compose();
+    f.purchase
+      .mockResolvedValueOnce({ outcome: "unsettled", receipt: "noSignal" })
+      .mockResolvedValueOnce({ outcome: "cancelled", receipt: "noSignal" });
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await waitFor(() => expect(f.purchase).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Get Still Pro" })).toBeEnabled();
+    expect(screen.queryByText(verify)).toBeNull();
+    expect(screen.queryByText(ambiguous)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
   });
 });
