@@ -60,7 +60,11 @@ export interface AppleProHostDeps {
     intent: ApplePurchaseLinkIntent,
   ): Promise<ApplePurchaseLinkResult>;
   /** Open the sign-in sheet; `purpose` gives it the words for what asked (ISS-0123). */
-  signIn(purpose?: "purchase" | "link"): void;
+  signIn(purpose?: "purchase" | "link" | "restore"): void;
+  /** ISS-0132: whether this device holds a historical still_sync purchase (native, display only).
+   * Signed out, such a holder is asked to sign in instead of being offered Get Still Pro: that
+   * purchase is restored only through the account. Absent, or anything but true, reads as no. */
+  readHistoricalPurchase?(): Promise<boolean>;
   /** Whether this build can sign in. Present and true, a signed-out Get Still Pro asks for
    * sign-in first (ISS-0071, ADR 0005); absent or false, it goes straight to Apple as before. */
   canSignIn?(): boolean;
@@ -170,6 +174,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   let continuationRearmed = false;
   let preflightGeneration: number | undefined;
   let nativeAcquisitionGeneration: number | undefined;
+  // ISS-0132: the device holds a historical still_sync purchase. Read with the offer, so a Get
+  // Still Pro never shows before the answer.
+  let historical = false;
   const changed = () => {
     if (!stopped) deps.publish();
   };
@@ -195,6 +202,18 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     );
   };
   const owner = () => (access ? appleProOwnership(access) : "checking");
+  const signedOut = () => (deps.signedIn ? !deps.signedIn() : !deps.account());
+  /** ISS-0132: signed out with a historical still_sync purchase and nothing owned. The card and
+   * the purchase screen show only "Bought Still Pro before? Sign in to restore it." with Sign in;
+   * Get Still Pro and Restore purchase lead to the same sign-in, never Apple's sheet or the device
+   * verification, which the server refuses for that product. */
+  const signInToRestore = () =>
+    historical && owner() === "none" && signedOut() && Boolean(deps.canSignIn?.());
+  function openRestoreSignIn() {
+    if (stopped) return;
+    purchaseSignIn = false;
+    deps.signIn("restore");
+  }
   /** ISS-0081: the last settled read says the server's signed account proof already links this
    * purchase to the account signed in here, so there is nothing to offer. The server stays the
    * authority (native reads its proof for the account it verified); the shown account only has to
@@ -378,15 +397,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     if (stopped || busy) return;
     const generation = ++epoch;
     const observed = accessEpoch;
-    const [rights, offering] = await Promise.allSettled([
+    const [rights, offering, held] = await Promise.allSettled([
       pendingKind ? deps.verifyLocalPurchase() :
         deps.account()?.confirmed && deps.refreshAccountAccess ? deps.refreshAccountAccess() : deps.readAccess(),
       deps.bridge.proOffering(),
+      deps.readHistoricalPurchase ? deps.readHistoricalPurchase() : Promise.resolve(false),
     ]);
     if (stopped || generation !== epoch) return;
     if (observed === accessEpoch)
       access = rights.status === "fulfilled" ? rights.value : access;
     offer = offering.status === "fulfilled" ? offering.value : null;
+    historical = held.status === "fulfilled" && held.value === true;
     // Successful signed installation alone cannot publish an older result over newer access.
     // The existing authority returns its accepted snapshot, including its own publication.
     if (
@@ -406,6 +427,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     changed();
   }
   async function transact(kind: "buy" | "restore", fromSignIn = false) {
+    if (!busy && signInToRestore()) {
+      openRestoreSignIn();
+      return;
+    }
     if (
       stopped ||
       busy ||
@@ -623,8 +648,11 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   /** Get Still Pro: signed out on a build that can sign in, ask for sign-in first (ISS-0071). */
   function buy() {
     if (stopped) return;
-    const signedOut = deps.signedIn ? !deps.signedIn() : !deps.account();
-    if (signedOut && deps.canSignIn?.()) {
+    if (signInToRestore()) {
+      openRestoreSignIn();
+      return;
+    }
+    if (signedOut() && deps.canSignIn?.()) {
       purchaseSignIn = true;
       purchaseSignInAccount = null;
       continuationRearmed = false;
@@ -953,6 +981,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         native: {
           verified: deps.bridge.available,
           onBuy: buy,
+          ...(signInToRestore() ? { onSignInToRestore: openRestoreSignIn } : {}),
           onRestore: () => void transact("restore"),
           ...(!busy ? { onVerify: () => void refresh() } : {}),
         },
@@ -977,6 +1006,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           state: purchase.state,
           ...(pendingKind !== undefined ? { verificationRequired: true } : {}),
           ...(purchase.notCharged ? { notCharged: true } : {}),
+          ...(signInToRestore() ? { onSignInToRestore: openRestoreSignIn } : {}),
           onBuy: () => {
             if (stopped) return;
             if (!opening && owner() === "none" && offer && deps.bridge.available) {

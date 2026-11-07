@@ -62,6 +62,7 @@
       | "readLinkEligibility"
       | "readAccountHeldPro"
       | "linkPurchase"
+      | "readHistoricalPurchase"
     >;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
     /** The app's pending fixed routes (still://pro and still://sync), read by one router. */

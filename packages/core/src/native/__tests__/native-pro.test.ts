@@ -206,3 +206,19 @@ describe("native scoped Pro feedback", () => {
     ).toBeNull();
   });
 });
+
+describe("native historical purchase fact (ISS-0132)", () => {
+  it("is true only for the exact closed reply", async () => {
+    const { bridge, post } = host(async () => ({ historicalPurchase: true }));
+    expect(await bridge.appleHistoricalPurchase()).toBe(true);
+    expect(post).toHaveBeenCalledExactlyOnceWith({ kind: "appleHistoricalPurchase" });
+    for (const reply of [
+      { historicalPurchase: false },
+      { historicalPurchase: "true" },
+      { historicalPurchase: true, extra: 1 },
+      {},
+      null,
+    ]) expect(await host(async () => reply).bridge.appleHistoricalPurchase()).toBe(false);
+    expect(await host(async () => { throw new Error("refused"); }).bridge.appleHistoricalPurchase()).toBe(false);
+  });
+});
