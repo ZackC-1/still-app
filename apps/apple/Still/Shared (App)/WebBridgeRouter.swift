@@ -102,6 +102,7 @@
 //      it is an explicit choice; only an answered value may be shown as a saved choice. Concurrent
 //      first-launch analyticsContext reads share one computation (LaunchValue).
 //        { kind:"acknowledgeAnalyticsNotice" } → { ok:true }
+//        { kind:"recordAnalyticsInstall", at } → { ok }  (when `installed` was stamped, in ms)
 //        { kind:"setAnalyticsSubject", subject: {account, originProof, subject} | null } → { ok }
 //      Consent lives in the App Group so the Safari extension follows the app's switch; so does
 //      the per-device identity the server issued for the signed-in account (V3).
@@ -660,6 +661,15 @@ final class WebBridgeRouter {
     case "acknowledgeAnalyticsNotice":
       analytics.acknowledgeNotice()
       reply(Self.json(["ok": true]), nil)
+
+    case "recordAnalyticsInstall":
+      // The Safari extension never stamps setup before this time. Only the trusted bundled frame
+      // writes it; the extension's native lane only reads.
+      guard frame.isTrusted, Set(dict.keys) == ["kind", "at"] else {
+        reply(nil, "still: invalid analytics install time")
+        return
+      }
+      reply(Self.json(analytics.recordInstalledAt(dict["at"])), nil)
 
     case "setAnalyticsSubject":
       // The per-device identity the app's server issued, for the Safari extension to follow. Only
