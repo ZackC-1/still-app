@@ -49,3 +49,16 @@ public enum AppleOwnershipScan {
     return uncertain ? .unknown : history ? .purchaseHistory : .noPurchases
   }
 }
+
+/// ISS-0132: whether a verified historical purchase asks a signed-out person to sign in instead of
+/// offering Get Still Pro. Only a production `still_sync` the person bought themselves, unrevoked:
+/// its paid legacy right is restored through the account. A sandbox or Xcode `still_sync` (an App
+/// Review account reused from the 1.x reviews, a TestFlight tester) keeps the ordinary offer, so
+/// the purchase still reaches Apple and review can always find the in-app purchase.
+public enum HistoricalPurchasePrompt {
+  public static func applies(to purchase: NativeVerifiedApplePurchase?) -> Bool {
+    guard let purchase else { return false }
+    return purchase.productId == ApplePurchaseCatalog.historicalStillSync.productID &&
+      purchase.environment == "production" && purchase.ownership == .purchased && !purchase.isRevoked
+  }
+}

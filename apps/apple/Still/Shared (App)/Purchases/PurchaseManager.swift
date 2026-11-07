@@ -385,12 +385,13 @@ final class PurchaseManager {
     }
   }
 
-  /// ISS-0132: whether this device holds a verified, unrevoked historical `still_sync` purchase the
-  /// person bought themselves. Display only: it picks the signed-out "Sign in to restore it" prompt
-  /// and never grants or proves anything (the account's server-signed legacy right does that).
+  /// ISS-0132: whether this device holds a verified, unrevoked production `still_sync` purchase the
+  /// person bought themselves (`HistoricalPurchasePrompt`). Display only: it picks the signed-out
+  /// "Sign in to restore it" prompt and never grants or proves anything (the account's
+  /// server-signed legacy right does that). Sandbox and Xcode purchases keep the ordinary offer.
   func holdsHistoricalPurchase(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Bool {
-    await verifiedApplePurchaseIdentity(productId: ApplePurchaseCatalog.historicalStillSync.productID,
-      onVerifiedRevocation: onVerifiedRevocation)?.ownership == .purchased
+    HistoricalPurchasePrompt.applies(to: await verifiedApplePurchaseIdentity(
+      productId: ApplePurchaseCatalog.historicalStillSync.productID, onVerifiedRevocation: onVerifiedRevocation))
   }
 
   /// Link eligibility is purchaser-only, including the historical product, with one bounded

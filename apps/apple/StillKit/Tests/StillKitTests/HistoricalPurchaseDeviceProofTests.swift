@@ -73,6 +73,25 @@ final class HistoricalPurchaseDeviceProofTests: XCTestCase {
     XCTAssertEqual(published.count, 1)
   }
 
+  // MARK: The signed-out sign-in prompt (production historical purchases only)
+
+  func testOnlyAProductionHistoricalPurchaseAsksForSignIn() {
+    func purchase(_ environment: String, product: String? = nil,
+                  ownership: NativeVerifiedApplePurchase.Ownership = .purchased, revoked: Bool = false) -> NativeVerifiedApplePurchase {
+      NativeVerifiedApplePurchase(environment: environment, appBundleId: "com.chartash.still",
+        productId: product ?? historical, originalTransactionId: "2000000000000001", ownership: ownership, isRevoked: revoked)
+    }
+    XCTAssertTrue(HistoricalPurchasePrompt.applies(to: purchase("production")))
+    // A sandbox still_sync (App Review accounts from the 1.x reviews, TestFlight testers) keeps
+    // Get Still Pro, so review can always find and buy the in-app purchase.
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: purchase("sandbox")))
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: purchase("xcode")))
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: purchase("production", ownership: .familyShared)))
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: purchase("production", revoked: true)))
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: purchase("production", product: sellable)))
+    XCTAssertFalse(HistoricalPurchasePrompt.applies(to: nil))
+  }
+
   // MARK: The app target's wiring (read from source: StoreKit itself cannot run here)
 
   private var appSource: URL {
@@ -110,6 +129,8 @@ final class HistoricalPurchaseDeviceProofTests: XCTestCase {
     XCTAssertTrue(restore.contains("self.proRestore.run()"))
     XCTAssertFalse(restore.contains("self.freePeriodRestore.run()"), "the Still Pro Restore must not report still_sync")
     XCTAssertTrue(restore.contains("self.purchases.sellableReceiptRead"))
+    let held = try slice(manager, from: "func holdsHistoricalPurchase(", to: "\n  }\n")
+    XCTAssertTrue(held.contains("HistoricalPurchasePrompt.applies(to:"), "only a production still_sync asks for sign-in")
     XCTAssertTrue(router.contains("productIDs: Set(ApplePurchaseCatalog.deviceProofProducts.map(\\.productID))"))
     let historical = try slice(router, from: "case \"appleHistoricalPurchase\":", to: "\n    case \"")
     XCTAssertTrue(historical.contains("guard Set(dict.keys) == [\"kind\"], frame.isTrusted"))
