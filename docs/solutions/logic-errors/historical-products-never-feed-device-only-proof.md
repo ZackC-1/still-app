@@ -42,19 +42,27 @@ counted), and `all` stays for account linking, the RevenueCat attach and the 2.x
 
 A historical-only device now reads exactly like a non-buyer. A separate display-only bridge fact,
 `appleHistoricalPurchase`, lets the page ask a signed-out holder "Bought Still Pro before? Sign in
-to restore it." instead of offering a purchase. Signed in, the server's paid legacy right
+to restore it." instead of offering a purchase. It applies only to a production purchase
+(`HistoricalPurchasePrompt`): a sandbox `still_sync`, such as a reused App Review account, keeps the
+ordinary offer so review can always buy. Signed in, the server's paid legacy right
 (`revenuecat-access.ts`) restores Still Pro; without one the person gets the ordinary offer.
+
+Narrowing Restore to the sellable product exposed a second trap: for a product never bought the
+receipt read is `noSignal`, so a conclusive empty App Store check replied "nothing" with an unknown
+receipt and the page showed "verify again". `ApplePurchaseActionResult.proRestore` reports a
+conclusive empty check as `verifiedNotEntitled`, which the page shows as nothing found.
 
 ## Rule
 
 Device-only proof may count only a product the server accepts as device evidence. When a product
 is restored through some other authority (an account), surface it as a separate, non-granting fact
 and route the person to that authority. Never let it set an ownership state that only the device
-verification could clear.
+verification could clear. A conclusive "no purchase" must reach the page as conclusive, not as
+an absent signal.
 
 ## Verification
 
-StillKit `swift test` (545 tests, including `HistoricalPurchaseDeviceProofTests`: historical-only
+StillKit `swift test` (547 tests, including `HistoricalPurchaseDeviceProofTests`: historical-only
 history reads as no purchases and locks rows in the app and in Safari; refunds still publish;
 source checks pin the wiring). Vitest covers the host, card, purchase screen, bridge reply and the
 compiled purchase executor (a historical-only V3 Buy charges once; a `still_pro_v3` owner and the
