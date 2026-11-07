@@ -22,6 +22,7 @@ it.runIf(process.platform === "darwin")("native executor holds unknown/off sales
   const boundary = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/NativeSalesPurchaseBoundary.swift"), "utf8");
   const catalog = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift"), "utf8");
   const harness = `import Foundation
+import os
 struct NativeVerifiedAppleRevocation {}
 struct Package {}
 public enum ReceiptStatus: String, Sendable { case entitled, verifiedNotEntitled, noSignal }
@@ -95,6 +96,8 @@ ${boundary}
   func freshSalesPolicy() -> ProductPolicyRuntime? { policy }
   static var installEnvironment = AppleInstallEnvironment.unavailable
   static func verifiedInstallEnvironment() async -> AppleInstallEnvironment { installEnvironment }
+  // The app's privacy-safe purchase log (ISS-0136); the harness only needs it to compile.
+  static var purchaseLog: Logger { Logger(subsystem: "still-harness", category: "purchase") }
 ${method}
 }
 @main struct Run {

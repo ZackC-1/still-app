@@ -161,4 +161,20 @@ final class PurchaseDecisionTests: XCTestCase {
       .proceed
     )
   }
+
+  /// ISS-0136: the store SDK threw after Apple had completed the charge. StoreKit decides: a
+  /// verified sellable receipt that the pre-flight did not see is a purchase, whatever the SDK said.
+  func testAnSDKFailureWithAVerifiedReceiptIsAPurchase() {
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .entitled), .purchased)
+    // Even the SDK's own "approval arrives later" error yields to a receipt that is already there.
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .entitled), .purchased)
+  }
+
+  func testAnSDKFailureWithoutAReceiptStaysPendingOrFailed() {
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .noSignal), .pending)
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .verifiedNotEntitled), .pending)
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .noSignal), .failed)
+    // A refunded receipt is not ownership (ISS-0132 and the refund lane): the failure stands.
+    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .verifiedNotEntitled), .failed)
+  }
 }

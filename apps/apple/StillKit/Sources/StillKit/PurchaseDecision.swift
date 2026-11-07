@@ -61,3 +61,17 @@ public enum PurchaseDecision {
     return id
   }
 }
+
+/// ISS-0136: what a V3 purchase the store SDK reported as thrown means once StoreKit itself is read
+/// again. The SDK can throw after Apple completed the charge (its own receipt post failing is one
+/// case); StoreKit is the authority, so a verified, unrevoked receipt for the sellable product that
+/// was not there before the charge is a purchase, whatever the SDK said. Without one, the SDK's own
+/// "approval arrives later" error (Ask to Buy) stays pending and everything else stays failed.
+public enum AppleSDKPurchaseFailure: Equatable, Sendable {
+  case purchased, pending, failed
+
+  public static func classify(sdkReportsPending: Bool, receiptAfterFailure: ReceiptStatus) -> AppleSDKPurchaseFailure {
+    if receiptAfterFailure == .entitled { return .purchased }
+    return sdkReportsPending ? .pending : .failed
+  }
+}
