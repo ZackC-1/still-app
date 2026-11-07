@@ -239,12 +239,13 @@ describe("real Apple Pro host composition", () => {
     expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
     expect(host.settings().pro?.notCharged).toBeUndefined();
   });
-  it.each([
-    { label: "a failed native reply", result: { outcome: "failed", receipt: "noSignal" } },
-    { label: "a stale identity", result: { outcome: "staleIdentity", receipt: "noSignal" } },
-  ] as const)("$label keeps the ambiguous failed state, never nothing charged", async ({ result }) => {
+  it("a failed native reply with nothing on this device keeps the ambiguous failed state, never nothing charged", async () => {
+    // A failed reply may follow a charge (ISS-0136), so the device is checked first; with nothing
+    // there the ambiguous copy stands and points to Restore. (A stale identity is refused before
+    // any charge and says so: see the ISS-0134/ISS-0136 cases below.)
     const { host, deps, settle } = await harness();
-    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(result);
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce({ outcome: "failed", receipt: "noSignal" });
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
     host.props([]).native.onBuy?.();
     await settle();
     expect(host.props([]).purchase).toEqual({ state: "failed" });
@@ -2164,5 +2165,152 @@ describe("conclusive no-purchase Restore", () => {
     h.host.settings().pro!.onRestore?.();
     await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("verify"));
     h.host.stop();
+  });
+});
+
+describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () => {
+  const noSignal = (outcome: NativeProResult["outcome"]): NativeProResult => ({ outcome, receipt: "noSignal" });
+  const events = () => {
+    const track = vi.fn();
+    return { track, names: () => track.mock.calls.map(([name]) => name as string) };
+  };
+  it("a store failure after Apple confirmed is verified on this device and succeeds", async () => {
+    // ISS-0136: the native SDK threw after the sheet was confirmed. The device holds the receipt,
+    // so the same local verification Restore uses completes the purchase; no failure is reported.
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("failed"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(host.settings().pro?.ownership).toBe("owned");
+    expect(names()).toEqual(["purchase_started"]);
+  });
+  it("a store failure with nothing on the device stays not confirmed, without a verify state", async () => {
+    const { track } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("failed"));
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed" });
+    expect(host.settings().pro?.verificationRequired).toBeUndefined();
+    expect(host.settings().pro?.notCharged).toBeUndefined();
+    expect(track.mock.calls.filter(([name]) => name === "purchase_failed")).toEqual([
+      ["purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "store_error" }],
+    ]);
+    // Try again is a new Buy, not a verification of nothing.
+    host.settings().pro?.onRetry?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+  });
+  it("a store failure whose verification installed a held right keeps verification recovery", async () => {
+    const { host, deps, settle } = await harness();
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("failed"));
+    vi.mocked(deps.verifyLocalPurchase).mockResolvedValueOnce(access("verification_required"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "pending", verificationRequired: true });
+    host.props([]).native.onVerify?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+  });
+  it("a stale store identity says nothing was charged", async () => {
+    const { track } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("staleIdentity"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(track).toHaveBeenCalledWith("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "not_allowed" });
+  });
+  it("an unsettled wait joins the same purchase until Apple answers: a closed sheet is one cancel", async () => {
+    // ISS-0134: the sheet outlived the bounded native wait, then closed without a purchase.
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro)
+      .mockResolvedValueOnce(noSignal("unsettled"))
+      .mockResolvedValueOnce(noSignal("unsettled"))
+      .mockResolvedValueOnce(noSignal("cancelled"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(vi.mocked(deps.bridge.purchasePro).mock.calls.map(([, options]) => options)).toEqual([
+      undefined,
+      { join: true },
+      { join: true },
+    ]);
+    expect(host.props([]).purchase).toEqual({ state: "idle" });
+    expect(host.settings().pro?.verificationRequired).toBeUndefined();
+    expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(names()).toEqual(["purchase_started", "purchase_cancelled"]);
+  });
+  it("an unsettled wait that ends in a purchase verifies it like any other", async () => {
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("unsettled"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(names()).toEqual(["purchase_started"]);
+  });
+  it("a refused join after a wait ends in verification, never a cancel and never another join", async () => {
+    // Native had settled and refused the reply (the bridge maps a refusal to pending, ISS-0136).
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro)
+      .mockResolvedValueOnce(noSignal("unsettled"))
+      .mockResolvedValueOnce(noSignal("pending"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(names()).toEqual(["purchase_started"]);
+  });
+  it("while a purchase is still unsettled the screen keeps waiting and a second tap never reaches native", async () => {
+    const { host, deps, settle } = await harness();
+    let answer: (result: NativeProResult) => void = () => {};
+    vi.mocked(deps.bridge.purchasePro)
+      .mockResolvedValueOnce(noSignal("unsettled"))
+      .mockImplementationOnce(() => new Promise<NativeProResult>((resolve) => { answer = resolve; }));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(host.props([]).purchase).toEqual({ state: "pending" });
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    answer(noSignal("cancelled"));
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "idle" });
+  });
+  it.each([
+    { settles: "cancelled" as const, purchase: { state: "idle" }, verified: 0, events: ["purchase_started", "purchase_cancelled"] },
+    { settles: "purchased" as const, purchase: { state: "success", confirmed: true }, verified: 1, events: ["purchase_started"] },
+  ])("the page keeps waiting for as long as native says the purchase is in flight, then takes the real $settles", async (expected) => {
+    // A sheet left up for a long time: many bounded waits, each joining the same native purchase.
+    // Nothing ends the attempt but StoreKit's own answer, so a late confirmation is verified and
+    // counted and a late cancel is one cancel; no wait ever ends as a cancel or a verify state.
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    const waits = 25;
+    const bridge = vi.mocked(deps.bridge.purchasePro);
+    for (let i = 0; i < waits; i++) bridge.mockResolvedValueOnce(noSignal("unsettled"));
+    bridge.mockResolvedValueOnce(expected.settles === "cancelled" ? noSignal("cancelled") : owned);
+    host.props([]).native.onBuy?.();
+    // (The held-join case above shows the screen waiting between joins; resolved mocks settle at once.)
+    for (let i = 0; i < 24; i++) await settle();
+    expect(bridge).toHaveBeenCalledTimes(1 + waits);
+    expect(bridge.mock.calls.slice(1).every(([, options]) => options?.join === true)).toBe(true);
+    expect(host.props([]).purchase).toEqual(expected.purchase);
+    expect(host.settings().pro?.verificationRequired).toBeUndefined();
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(expected.verified);
+    expect(names()).toEqual(expected.events);
   });
 });
