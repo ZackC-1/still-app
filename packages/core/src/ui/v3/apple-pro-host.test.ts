@@ -2115,3 +2115,54 @@ describe("historical still_sync holder (ISS-0132)", () => {
     h.host.stop();
   });
 });
+
+// The exact reply native's Still Pro Restore sends after a conclusive empty App Store check for a
+// product never bought (ApplePurchaseActionResult.proRestore in StillKit, pinned by
+// HistoricalPurchaseDeviceProofTests.testAConclusiveNoneIsAConclusiveNothingFound).
+const nativeConclusiveNone: NativeProResult = { outcome: "nothing", receipt: "verifiedNotEntitled" };
+const bridgeWith = (restorePro: AppleProHostDeps["bridge"]["restorePro"]): AppleProHostDeps["bridge"] => ({
+  available: true,
+  proOffering: vi.fn(async () => offer),
+  purchasePro: vi.fn(async () => owned),
+  restorePro,
+  pendingAppRoute: vi.fn(async () => null),
+  acknowledgeAppRoute: vi.fn(async () => true),
+});
+describe("conclusive no-purchase Restore", () => {
+  it("never bought, signed out: nothing found, never verify, no device verification", async () => {
+    const h = await harness({ bridge: bridgeWith(vi.fn(async () => nativeConclusiveNone)) });
+    h.host.settings().pro!.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("nothing"));
+    expect(h.host.props([]).restore).toMatchObject({ state: "nothing", conclusive: true });
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    h.host.stop();
+  });
+
+  it("signed-in still_sync holder without a paid right: nothing found, and Get Still Pro stays", async () => {
+    const restorePro = vi.fn(async () => nativeConclusiveNone);
+    const h = await harness({
+      bridge: bridgeWith(restorePro),
+      readHistoricalPurchase: vi.fn(async () => true),
+      canSignIn: () => true,
+      refreshAccountAccess: vi.fn(async () => access("locked")),
+    });
+    h.setAccount(user);
+    await h.settle();
+    h.host.settings().pro!.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("nothing"));
+    expect(restorePro).toHaveBeenCalledOnce();
+    expect(h.deps.signIn).not.toHaveBeenCalled();
+    expect(h.host.settings().pro!.ownership).toBe("none");
+    expect(h.host.settings().pro!.onSignInToRestore).toBeUndefined();
+    h.host.stop();
+  });
+
+  it("the old reply (nothing with noSignal) is what showed verify again", async () => {
+    const h = await harness({
+      bridge: bridgeWith(vi.fn(async (): Promise<NativeProResult> => ({ outcome: "nothing", receipt: "noSignal" }))),
+    });
+    h.host.settings().pro!.onRestore?.();
+    await vi.waitFor(() => expect(h.host.settings().restore?.state).toBe("verify"));
+    h.host.stop();
+  });
+});

@@ -148,6 +148,23 @@ public struct ApplePurchaseActionResult: Sendable {
     self.newPurchaseEvidence = self.outcome == .purchased && validSuccess ? newPurchaseEvidence : nil
   }
 
+  /// The Still Pro Restore reply (paid tier on) from the read-only App Store check over the
+  /// device-proof products and the same products' receipt read. A conclusive `.none` (a successful
+  /// App Store sync, then a verified empty list) is reported as `verifiedNotEntitled`: a product
+  /// never bought has no transaction, so its receipt read alone is `noSignal`, which the page must
+  /// treat as unknown and would show "verify again" for someone who simply never bought. A receipt
+  /// that still reads entitled contradicts `.none` and stays as read (the result is then failed).
+  public static func proRestore(_ checked: FreePeriodRestoreResult, receipt: ReceiptStatus,
+    productId: String?) -> ApplePurchaseActionResult {
+    switch checked {
+    case .restored: return ApplePurchaseActionResult(.restored, receipt: receipt, productId: productId)
+    case .none:
+      return ApplePurchaseActionResult(.nothing, receipt: receipt == .entitled ? receipt : .verifiedNotEntitled,
+        productId: productId)
+    case .failed: return ApplePurchaseActionResult(.failed, receipt: receipt, productId: productId)
+    }
+  }
+
   public var payload: [String: Any] {
     var value: [String: Any] = ["outcome": outcome.rawValue, "receipt": receipt.rawValue]
     if let productId { value["productId"] = productId }

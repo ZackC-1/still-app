@@ -534,13 +534,11 @@ final class WebBridgeRouter {
           // The existing bounded StoreKit check, over the sellable product only (ISS-0132), which
           // conclusively reports absence only after an actual successful AppStore.sync. Never RC
           // transfer. The reply's receipt is the same product's, so a historical purchase alone
-          // reads exactly like no purchase.
+          // reads exactly like no purchase, and a conclusive none is a conclusive nothing-found.
           let checked = await self.proRestore.run()
           await self.refreshReceiptStamp()
           let read = await self.purchases.sellableReceiptRead { self.commitVerifiedRevocation($0) }
-          let outcome: ApplePurchaseActionOutcome = checked == .restored ? .restored :
-            (checked == .none ? .nothing : .failed)
-          return ApplePurchaseActionResult(outcome, receipt: read.status, productId: read.productID)
+          return ApplePurchaseActionResult.proRestore(checked, receipt: read.status, productId: read.productID)
         }
         guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
         reply(Self.json(result.payload), nil)

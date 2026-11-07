@@ -92,6 +92,26 @@ final class HistoricalPurchaseDeviceProofTests: XCTestCase {
     XCTAssertFalse(HistoricalPurchasePrompt.applies(to: nil))
   }
 
+  // MARK: The Still Pro Restore reply
+
+  /// The exact payload native sends when the App Store check is conclusively empty and the sellable
+  /// product was never bought (no transaction, so its receipt read is noSignal): a conclusive
+  /// nothing-found, never the unknown answer the page shows as "verify again". The web test
+  /// `apple-pro-host.test.ts` ("conclusive no-purchase Restore") uses this same payload.
+  func testAConclusiveNoneIsAConclusiveNothingFound() throws {
+    let never = ApplePurchaseActionResult.proRestore(.none, receipt: .noSignal, productId: nil).payload
+    XCTAssertEqual(never as NSDictionary, ["outcome": "nothing", "receipt": "verifiedNotEntitled"] as NSDictionary)
+    let refunded = ApplePurchaseActionResult.proRestore(.none, receipt: .verifiedNotEntitled, productId: nil).payload
+    XCTAssertEqual(refunded as NSDictionary, ["outcome": "nothing", "receipt": "verifiedNotEntitled"] as NSDictionary)
+    // A receipt that still reads entitled contradicts the empty list: not conclusive.
+    XCTAssertEqual(ApplePurchaseActionResult.proRestore(.none, receipt: .entitled, productId: sellable).outcome, .failed)
+    // A failed or interrupted check is never reported as nothing-found.
+    let failed = ApplePurchaseActionResult.proRestore(.failed, receipt: .noSignal, productId: nil)
+    XCTAssertEqual(failed.outcome, .failed); XCTAssertEqual(failed.receipt, .noSignal)
+    let restored = ApplePurchaseActionResult.proRestore(.restored, receipt: .entitled, productId: sellable)
+    XCTAssertEqual(restored.outcome, .restored); XCTAssertEqual(restored.productId, sellable)
+  }
+
   // MARK: The app target's wiring (read from source: StoreKit itself cannot run here)
 
   private var appSource: URL {
@@ -129,6 +149,8 @@ final class HistoricalPurchaseDeviceProofTests: XCTestCase {
     XCTAssertTrue(restore.contains("self.proRestore.run()"))
     XCTAssertFalse(restore.contains("self.freePeriodRestore.run()"), "the Still Pro Restore must not report still_sync")
     XCTAssertTrue(restore.contains("self.purchases.sellableReceiptRead"))
+    XCTAssertTrue(restore.contains("ApplePurchaseActionResult.proRestore(checked,"),
+      "the reply must come from the tested rule that reports a conclusive none as nothing-found")
     let held = try slice(manager, from: "func holdsHistoricalPurchase(", to: "\n  }\n")
     XCTAssertTrue(held.contains("HistoricalPurchasePrompt.applies(to:"), "only a production still_sync asks for sign-in")
     XCTAssertTrue(router.contains("productIDs: Set(ApplePurchaseCatalog.deviceProofProducts.map(\\.productID))"))
