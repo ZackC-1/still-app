@@ -37,6 +37,16 @@ line, so both are excluded: native replied `outcome: "failed"` after the sheet. 
 and the web `parseProResult` ignored the receipt for a failed outcome, so the host threw and never
 ran the local verification that Restore runs from the same `verifyLocalPurchase`.
 
+A second path fits the same evidence and cannot be told apart without logs: the router's
+`purchasePro` reply was refused by the revocation fence (`accessRevocations.ready` false after a
+verified revocation, such as a refunded historical `still_sync`, whose durable commit failed once;
+that route never retried the commit before its guard). The bridge turned the refusal into
+`pending`, the host ran `verifyLocalPurchase`, whose evidence read the same closed fence refused
+before any network call, and the catch produced `purchase_failed reason unknown` with both the
+"wasn't confirmed" and the verify lines on the purchase screen. Restore then succeeded because its
+stamp refresh retries pending commits first. Both paths are closed; the new logs name the one that
+ran.
+
 **ISS-0134.** `PurchaseManager.purchasePro` bounded one page wait at 120 s with
 `fallback: .pending`. `pending` means "the store accepted, verify later", so the host set a pending
 verification, ran it, found no transaction, and showed the sticky verify copy. The 121 s gap in
@@ -79,6 +89,13 @@ what each minute read resolved or which guard refused it.
   (`unclaimedPurchaseResult`), never a second charge. Each wait is itself bounded, so nothing spins,
   and only StoreKit's real answer ends the attempt: a late confirmation is verified and counted, a
   closed sheet is one `purchase_cancelled`, and `purchase_failed` is never emitted for a wait.
+- A refused purchase or join reply is `pending`, never `unsettled`: `boundedNativeRead` maps a
+  rejection separately from a timeout, so the host verifies the device instead of joining again
+  into the same refusal (which spun the loop and, once the fence cleared, ended a real charge as a
+  cancel). The router's `purchasePro` and `restorePro` retry pending revocation commits before the
+  fence can refuse their reply, as the other routes do, and a native join reads the settled result
+  without clearing it, so a refused delivery cannot lose it; only the next purchase start replaces
+  it.
 - `createAppleSettingsAuthority` takes `pendingLocalVerification`; when it fulfils, the cache is
   read twice (finish any read in flight, then read the committed record). `main.ts` passes the
   launch verification.
@@ -95,6 +112,8 @@ and it counts as a new sale only when the pre-charge read conclusively showed no
 cancel from its thrown error: the async purchase API never returns `userCancelled` for a plain
 cancel. A bounded wait that ends before the store answers is unknown, not accepted and not a
 cancel: never label it `pending`, and keep waiting while the store says the purchase is in flight.
+A refused reply is not a wait: it comes after the store may have settled, so verify the device
+rather than ask again, and never let a reply guard drop a result the page can no longer fetch.
 When native changes the access record in the background, hand the page's cache a reason to read
 again instead of waiting for its timer.
 
