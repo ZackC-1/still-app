@@ -1662,3 +1662,71 @@ describe("ISS-0115: revive keeps only work fenced by sign-outs of nobody", () =>
     }
   });
 });
+
+describe("ISS-0127: revive keeps work fenced only by a confirmation of the identity already stored", () => {
+  /** The earlier worker reported as U1's identity; a fresh one starts on the same storage. */
+  const woken = async (rec = recordingFetch()) => {
+    const first = makeClient({ fetch: rec.fetch });
+    await first.client.confirm(testSubjectFor(U1), { accountId: U1 });
+    return { rec, ...makeClient({ fetch: rec.fetch, startsUnconfirmed: true, store: first.store }) };
+  };
+
+  it("an event observed just before a fresh start re-confirms the stored identity is kept, under that identity", async () => {
+    const { rec, client } = await woken();
+    const observation = await client.observe(); // the popup's opened, as the worker wakes
+    await client.holdForAccount(U1); // the start's account read: U1, as stored
+    await client.confirm(testSubjectFor(U1), { accountId: U1, quiet: true });
+    expect(await client.observationCurrent(observation)).toBe(false);
+    const revived = await client.revive(observation);
+    expect(revived).not.toBeNull();
+    await client.track("opened", { where: "popup" }, { observation: revived! });
+    await client.flush();
+    expect(rec.events().map((e) => [e.event, e.properties.distinct_id])).toContainEqual(["opened", testSubjectFor(U1)]);
+  });
+
+  it("NEGATIVE CONTROL: another identity for the same account (re-issued) still drops it", async () => {
+    const { client } = await woken();
+    const observation = await client.observe();
+    await client.holdForAccount(U1);
+    await client.confirm("5ab5ec7b-aaaa-4aaa-8aaa-aaaaaaaaaaaa", { accountId: U1, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a sign-out, a sharing change or another account after the confirmation still drops it", async () => {
+    for (const change of ["signOut", "permission", "otherAccount"] as const) {
+      const { client } = await woken();
+      const observation = await client.observe();
+      await client.holdForAccount(U1);
+      await client.confirm(testSubjectFor(U1), { accountId: U1, quiet: true });
+      if (change === "signOut") await client.confirm(null, { forget: true, quiet: true });
+      else if (change === "permission") client.permissionChanged();
+      else await client.holdForAccount(U2);
+      expect(await client.revive(observation)).toBeNull();
+    }
+  });
+
+  it("NEGATIVE CONTROL: a sharing change between the hold and the confirmation still drops it", async () => {
+    const { client } = await woken();
+    const observation = await client.observe();
+    await client.holdForAccount(U1);
+    client.permissionChanged();
+    await client.confirm(testSubjectFor(U1), { accountId: U1, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+
+  it("NEGATIVE CONTROL: a deletion of the stored identity not yet verifiably dropped still drops it", async () => {
+    const queue = refusable(pausable());
+    const rec = recordingFetch();
+    const first = makeClient({ fetch: rec.fetch, queueStore: queue.store });
+    await first.client.confirm(testSubjectFor(U1), { accountId: U1 });
+    await first.client.track("opened", { where: "popup" });
+    queue.refuse("silently");
+    await first.client.reset({ forgetAccount: true });
+    queue.refuse("none");
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true, store: first.store, queueStore: queue.store });
+    const observation = await client.observe();
+    await client.holdForAccount(U1);
+    await client.confirm(testSubjectFor(U1), { accountId: U1, quiet: true });
+    expect(await client.revive(observation)).toBeNull();
+  });
+});
