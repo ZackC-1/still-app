@@ -28,6 +28,8 @@ export interface AppAnalyticsBridge {
   analyticsContext(): Promise<AnalyticsContextReply | null>;
   setAnalyticsConsent(enabled: boolean): Promise<boolean>;
   acknowledgeAnalyticsNotice(): Promise<void>;
+  /** Save when `installed` was stamped (ms) in the App Group, for the Safari extension's setup floor. */
+  recordAnalyticsInstall?(at: number): Promise<void>;
 }
 
 export interface AppAnalyticsDeps {
@@ -415,7 +417,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
           },
           options,
         );
-      else if (context.created)
+      else if (context.created) {
         await client.trackOnce(
           "installed",
           "installed",
@@ -424,6 +426,10 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
           },
           options,
         );
+        // Read after the event is queued, so it is never earlier than the `installed` stamp.
+        if (await client.hasTrackedOnce("installed"))
+          await deps.bridge.recordAnalyticsInstall?.((deps.now ?? Date.now)()).catch(() => {});
+      }
       await client.trackOnce(
         "app_opened",
         "setup_step",

@@ -192,7 +192,9 @@ different surfaces, so label every insight with the definition it uses.
   switch flip, or the content script's nudge when a supported site is opened. A background start by
   itself (a browser restart, the analytics alarm) records nothing. Events recorded from a nudge or a
   background start carry only their day (local midnight) and are sent later, so never read
-  hour-of-day from them. Use weekly active persons as the headline; daily as a
+  hour-of-day from them. One exception: Safari's setup milestones are never stamped before the
+  Apple app's `installed` stamp on the same day, so a same-day setup stays after its install in an
+  ordered funnel. Use weekly active persons as the headline; daily as a
   trend.
 - **Opens.** `opened {where: popup|options}` is an extension screen; `opened {where: app}` is a launch
   of the iPhone/Mac app, which most people rarely reopen once set up.

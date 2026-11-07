@@ -105,6 +105,9 @@ export interface ExtensionAnalyticsHostDeps {
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
+  /** Safari: when the Apple app stamped `installed` (ms), from the App Group, or null. Quiet setup
+   * milestones are never stamped before it, so a same-day setup does not precede its install. */
+  readonly installedAt?: () => Promise<number | null>;
   /** Optional canonical purchase reporting, triggered only by an ordinary trusted Still screen. */
   readonly reportPurchases?: () => void;
   readonly fetch?: typeof fetch;
@@ -888,18 +891,19 @@ export function createExtensionAnalyticsHost(
         if (!captured) return;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
+          const installedAt = await deps.installedAt?.().catch(() => null);
+          const setup: TrackOptions = {
+            ...QUIET,
+            ...(typeof installedAt === "number" ? { notBefore: installedAt } : {}),
+            observation: captured,
+          };
           await client.trackOnce(
             "extension_enabled",
             "setup_step",
             { step: "extension_enabled" },
-            { ...QUIET, observation: captured },
+            setup,
           );
-          await client.trackOnce(
-            "setup_completed",
-            "setup_completed",
-            {},
-            { ...QUIET, observation: captured },
-          );
+          await client.trackOnce("setup_completed", "setup_completed", {}, setup);
         }
         await client.trackDaily(
           "active",

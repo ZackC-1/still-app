@@ -54,6 +54,7 @@ function setup(
     accountWait?: Promise<void>;
     installId?: string;
     anchorId?: string;
+    installedAt?: unknown;
   } = {},
   local = memory(),
   policy: AnalyticsPrivacyPolicy = TEST_PRIVACY_POLICY,
@@ -78,6 +79,7 @@ function setup(
           consent,
           platform: native.platform,
           device: native.device,
+          installedAt: native.installedAt,
         },
       };
     }
@@ -189,6 +191,27 @@ describe("Safari extension analytics", () => {
     expect(JSON.stringify(events())).not.toContain("$anon_distinct_id");
   });
 
+  it.each([
+    ["on the same day", 400_000, true],
+    ["after now", 2_000_000, false],
+    ["unreadable", "400000", false],
+  ])("raises the day-only setup stamps to the app's install stamp when it is %s", async (_, installedAt, floored) => {
+    const { bg, events } = setup({ installedAt });
+    bg.onStart();
+    await vi.waitFor(
+      () => {
+        bg.onActivity();
+        expect(events().map((e) => e.event)).toContain("active");
+      },
+      { timeout: 4_000, interval: 20 },
+    );
+    const at = (name: string) => Date.parse((events().find((e) => e.event === name) as unknown as { timestamp: string }).timestamp);
+    const midnight = at("active");
+    expect(midnight).toBeLessThan(400_000);
+    for (const name of ["setup_step", "setup_completed"])
+      expect(at(name)).toBe(floored ? 400_000 : midnight);
+  });
+
   it("the extension never reports the download itself: that is the app's", async () => {
     const { bg, settle, events } = setup();
     bg.onInstalled({ reason: "install" });
@@ -292,6 +315,7 @@ describe("Safari extension analytics", () => {
       consent: false,
       platform: null,
       device: null, // no field: off
+      installedAt: null,
     });
     expect(
       parseNativeAnalytics({

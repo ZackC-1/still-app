@@ -28,6 +28,7 @@ import { isAccessUUID, isSafeAccessInteger } from "../entitlement/access-proof.j
 //   presentSafariSetup → { ok: true } | rejected (see presentNativeSafariSetup; also standalone)
 //   setAnalyticsConsent → { ok: true, enabled, answered }
 //   analyticsContext   → { …, consent, consentAnswered, … } (see AnalyticsContextReply)
+//   recordAnalyticsInstall → { ok }
 
 export interface AppleCredential {
   readonly identityToken: string;
@@ -356,7 +357,8 @@ export type NativeMessage =
   | { readonly kind: "getBenefitAccess" }
   | { readonly kind: "analyticsContext" }
   | { readonly kind: "setAnalyticsConsent"; readonly enabled: boolean }
-  | { readonly kind: "acknowledgeAnalyticsNotice" };
+  | { readonly kind: "acknowledgeAnalyticsNotice" }
+  | { readonly kind: "recordAnalyticsInstall"; readonly at: number };
 
 /** The app's analytics launch context (AnalyticsIdentity.swift / WebBridgeRouter). */
 export interface AnalyticsContextReply {
@@ -893,6 +895,11 @@ export class NativeBridge {
 
   async acknowledgeAnalyticsNotice(): Promise<void> {
     await this.post({ kind: "acknowledgeAnalyticsNotice" });
+  }
+
+  /** Save when the app stamped `installed`, so the Safari extension never stamps setup before it. */
+  async recordAnalyticsInstall(at: number): Promise<void> {
+    await this.post({ kind: "recordAnalyticsInstall", at });
   }
 
   private async post(message: NativeMessage): Promise<unknown> {
