@@ -333,14 +333,16 @@ interface Confirmation {
   /** What waited under the hold was already dropped (or kept for its owner) and attributed, and only
    * releasing the stored hold is still owed: a retry must not drop again what was recorded since. */
   readonly releaseOwed?: boolean;
-  /** A sign-out's fence: the stamp just before it was asked and just after (see `revive`). */
-  readonly fence?: NobodyFence;
+  /** A sign-out's fence, or a fresh start's identity's: the stamp just before it was asked (for the
+   * identity, before the start's hold) and just after (see `revive`). */
+  readonly fence?: SameOwnerFence;
 }
 
-/** A sign-out confirmation that let go of nobody: no one was reported as, no sign-in was held for
- * or being confirmed. It fenced the work observed before it (`before`) although that work could
- * belong to no one but this anonymous device. */
-interface NobodyFence {
+/** A confirmation that left the owner of earlier work as it was: a sign-out that let go of nobody
+ * (no one was reported as, no sign-in was held for or being confirmed), or a fresh start's
+ * confirmation of the identity already stored for the same account. It fenced the work observed
+ * before it (`before`) although that work could belong to no one but that same device or identity. */
+interface SameOwnerFence {
   readonly before: AnalyticsStamp;
   readonly after: AnalyticsStamp;
 }
@@ -390,8 +392,11 @@ export class AnalyticsClient {
   /** Set when the held account's own identity continued its hold (`confirm`): stamps asked under
    * that hold stay current for that one generation, and no later one. */
   private continued: { readonly generation: number; readonly holds: number } | null = null;
-  /** The latest sign-out confirmations that let go of nobody, oldest first (`revive`). */
-  private nobodyFences: NobodyFence[] = [];
+  /** The latest confirmations that left the owner of earlier work as it was, oldest first (`revive`). */
+  private sameOwnerFences: SameOwnerFence[] = [];
+  /** A fresh start's hold: the stamp just before it and just after, so the identity that continues
+   * it can fence from before the hold (`revive`). */
+  private freshHold: SameOwnerFence | null = null;
   /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
    * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
   private asks = 0;
@@ -599,6 +604,8 @@ export class AnalyticsClient {
     // or an event observed under the hold but recorded just after this lands would be dropped
     // (ISS-0108). Everything else is fenced as for any account change: what was observed before the
     // hold (a fresh start's included, whose hold fences nothing itself), and every later change.
+    // A fresh start's hold with nothing changed since is remembered (`revive`, ISS-0127).
+    let fresh: AnalyticsStamp | null = null;
     if (
       !options.forget &&
       account !== null &&
@@ -606,6 +613,7 @@ export class AnalyticsClient {
       this.heldAccount !== null &&
       this.heldAccount === options.accountId?.toLowerCase()
     ) {
+      if (this.freshHold && sameStamp(this.freshHold.after, this.stamp())) fresh = this.freshHold.before;
       this.generation += 1;
       this.continued = { generation: this.generation, holds: this.holds };
       this.lastAsked = account;
@@ -616,7 +624,11 @@ export class AnalyticsClient {
       this.lastAsked = account;
     }
     this.confirmed = false;
-    const fence = askedForNobody ? { before, after: this.stamp() } : undefined;
+    const fence = askedForNobody
+      ? { before, after: this.stamp() }
+      : fresh
+        ? { before: fresh, after: this.stamp() }
+        : undefined;
     return this.run(async () => {
       this.confirmed = false;
       this.pending = { account, options, holds, ...(fence ? { fence } : {}) };
@@ -630,8 +642,9 @@ export class AnalyticsClient {
     if (!this.pending) return;
     const { account, options, holds, releaseOwed, fence } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
-    // Whether this sign-out lets go of nobody, judged before anything is installed (`revive`).
-    let nobody = false;
+    // Whether this leaves the owner of earlier work as it was, judged before anything is installed
+    // (`revive`): a sign-out that lets go of nobody, or the identity already stored for this account.
+    let sameOwner = false;
     // Letting go to nobody after someone was signed in here, with no hold: what waits was recorded
     // with no hold (a restart whose session could not be read yet), possibly that person's use. An
     // unnamed hold is stored first, before anything is installed, so the drop below is owed on this
@@ -640,7 +653,7 @@ export class AnalyticsClient {
     if (account === null) {
       const state = await this.read();
       if (!state) return;
-      nobody =
+      sameOwner =
         state.userId === null &&
         this.heldNow(state) === null &&
         this.heldAccount === null &&
@@ -649,6 +662,13 @@ export class AnalyticsClient {
         await this.write({ ...state, heldFor: HELD_UNKNOWN });
         if ((await this.read())?.heldFor !== HELD_UNKNOWN) return;
       }
+    } else if (fence) {
+      const state = await this.read();
+      sameOwner =
+        !!state &&
+        state.userId === account &&
+        state.accountRef === (options.accountId?.toLowerCase() ?? null) &&
+        state.forgotten.length === 0;
     }
     if (this.forgetPending) {
       // Persist the old account's drop before installing any newer account. Once recorded, the
@@ -675,7 +695,7 @@ export class AnalyticsClient {
     }
     this.pending = null;
     this.confirmed = true;
-    if (nobody && fence) this.nobodyFences = [...this.nobodyFences, fence].slice(-8);
+    if (sameOwner && fence) this.sameOwnerFences = [...this.sameOwnerFences, fence].slice(-8);
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
   }
 
@@ -704,6 +724,7 @@ export class AnalyticsClient {
     const withdrawn =
       this.confirmed || this.lastAsked !== undefined || (this.heldAccount !== null && this.heldAccount !== key);
     const prior = this.heldAccount !== null ? (this.heldTag ?? HELD_UNKNOWN) : null;
+    const before = this.stamp();
     if (withdrawn) {
       this.cancel();
       this.generation += 1;
@@ -713,6 +734,7 @@ export class AnalyticsClient {
     this.heldAccount = key;
     this.heldTag = null; // until recorded below: an unnamed hold drops everything waiting
     this.holds += 1;
+    this.freshHold = withdrawn ? null : { before, after: this.stamp() };
     return this.run(async () => {
       if (withdrawn) {
         this.confirmed = false;
@@ -870,21 +892,24 @@ export class AnalyticsClient {
 
   /**
    * `observation` if it is still current; otherwise a fresh observation in its place, but only when
-   * nothing fenced it except sign-out confirmations that let go of nobody (no one reported as, no
-   * sign-in held or being confirmed, nothing forgotten) and the permission is the very one it was
-   * observed under. Else null: the work is dropped, as before.
+   * nothing fenced it except confirmations that left its owner as it was, and the permission is the
+   * very one it was observed under. Else null: the work is dropped, as before. Those confirmations
+   * are sign-outs that let go of nobody (no one reported as, no sign-in held or being confirmed,
+   * nothing forgotten), and a fresh start's hold continued by the identity already stored for that
+   * same account (nothing forgotten, nothing changed between the hold and the identity).
    *
-   * A background woken by a Still screen confirms "signed out" at its start; that confirmation
+   * A background woken by a Still screen confirms the account at its start; that confirmation
    * fences everything observed before it, including the screen's own `opened`, which then could
-   * never be sent (ISS-0115). Such work can belong to no one but this anonymous device, so it is
-   * kept. Any other change since it was observed (a sign-in, a sign-out of someone, a deletion,
+   * never be sent (ISS-0115 signed out, ISS-0127 signed in). Such work can belong to no one but this
+   * anonymous device, or the identity this install already reported as, so it is kept. Any other
+   * change since it was observed (a sign-in, a sign-out of someone, another identity, a deletion,
    * sharing turned off or on) still drops it.
    */
   async revive(observation: AnalyticsObservation | null): Promise<AnalyticsObservation | null> {
     if (!observation) return null;
     if (await this.observationCurrent(observation)) return observation;
     let stamp = observation.stamp;
-    for (const fence of this.nobodyFences) if (sameStamp(stamp, fence.before)) stamp = fence.after;
+    for (const fence of this.sameOwnerFences) if (sameStamp(stamp, fence.before)) stamp = fence.after;
     if (stamp === observation.stamp || !sameStamp(stamp, this.stamp())) return null;
     const now = await this.captureObservation();
     return now &&
