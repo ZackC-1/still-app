@@ -142,8 +142,8 @@ describe("browser purchase measurement", () => {
     h.flow.stop();
   });
 
-  const returns = (h: ReturnType<typeof harness>) =>
-    h.analytics.track.mock.calls.filter(([name]) => name === "checkout_returned").length;
+  const count = (h: ReturnType<typeof harness>, event: string) =>
+    h.analytics.track.mock.calls.filter(([name]) => name === event).length;
 
   it("reports one return per checkout even when the page hides again while the return's re-check runs", async () => {
     const h = harness();
@@ -155,7 +155,7 @@ describe("browser purchase measurement", () => {
     expect(h.state.purchase).toBe("waiting"); // the return's re-check has not answered yet
     h.page.show("hidden"); h.page.show("visible"); await settle();
     resolve({ access: access("locked"), outcome: "not-entitled" }); await settle();
-    expect(returns(h)).toBe(1);
+    expect(count(h, "checkout_returned")).toBe(1);
     h.flow.stop();
   });
 
@@ -168,7 +168,7 @@ describe("browser purchase measurement", () => {
     expect(h.state.purchase).toBe("idle");
     h.page.show("hidden"); h.page.show("visible"); await settle();
     h.page.show("hidden"); h.page.show("visible"); await settle();
-    expect(returns(h)).toBe(1);
+    expect(count(h, "checkout_returned")).toBe(1);
     h.flow.stop();
   });
 
@@ -180,8 +180,8 @@ describe("browser purchase measurement", () => {
     h.flow.buy(); await settle(); // the same checkout tab comes forward
     expect(h.state.purchase).toBe("waiting");
     h.page.show("hidden"); h.page.show("visible"); await settle();
-    expect(h.analytics.track.mock.calls.filter(([name]) => name === "purchase_started")).toHaveLength(1);
-    expect(returns(h)).toBe(1);
+    expect(count(h, "purchase_started")).toBe(1);
+    expect(count(h, "checkout_returned")).toBe(1);
     // A checkout tab that another settings page opened: this page recorded no start for it.
     const other = harness({ record: { value: { startedAt: 5, tabId: 3 } }, openTabs: new Set([3]) });
     other.observe("none"); await settle();
