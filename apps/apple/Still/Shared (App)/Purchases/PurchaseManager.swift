@@ -66,11 +66,14 @@ private final class Once: @unchecked Sendable {
 }
 
 /// One receipt read: the tri-state verdict plus whether the entitling transaction was directly
-/// purchased (vs family-shared — load-bearing for attach eligibility, AE14).
+/// purchased (vs family-shared — load-bearing for attach eligibility, AE14). `conclusive` is
+/// false when the read timed out or met an unverifiable transaction: its `noSignal` then says
+/// nothing about ownership, which the purchase rescue must not mistake for "no purchase before".
 struct ReceiptRead: Sendable, Equatable {
   let status: ReceiptStatus
   let ownershipIsPurchased: Bool
   var productID: String? = nil
+  var conclusive = true
 }
 
 @MainActor
@@ -515,8 +518,11 @@ final class PurchaseManager {
         status: transaction.revocationDate == nil ? .entitled : .verifiedNotEntitled,
         ownershipIsPurchased: transaction.ownershipType == .purchased,
         productID: transaction.productID)
-    case .some(.unverified), .none:
+    case .none:
+      // No transaction for this product is a real answer (StoreKit keeps every purchase).
       return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+    case .some(.unverified):
+      return ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false)
     }
   }
 
@@ -535,7 +541,7 @@ final class PurchaseManager {
     if reads.contains(where: { $0.status == .verifiedNotEntitled }) {
       return ReceiptRead(status: .verifiedNotEntitled, ownershipIsPurchased: false)
     }
-    return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+    return ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: reads.allSatisfy(\.conclusive))
   }
 
   /// One bounded receipt read across every restorable product — the sellable one plus the
@@ -556,7 +562,7 @@ final class PurchaseManager {
       Task {
         try? await Task.sleep(nanoseconds: identityTransitionTimeoutNs)
         once.run {
-          continuation.resume(returning: ReceiptRead(status: .noSignal, ownershipIsPurchased: false))
+          continuation.resume(returning: ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false))
         }
       }
     }
@@ -569,7 +575,7 @@ final class PurchaseManager {
   /// purchase and the Still Pro Restore report. It leaves the cached receipt snapshot and the App
   /// Group stamp to `refreshReceiptStatus()`, which still includes the historical product.
   func sellableReceiptRead(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ReceiptRead {
-    await Self.bounded(fallback: ReceiptRead(status: .noSignal, ownershipIsPurchased: false)) {
+    await Self.bounded(fallback: ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false)) {
       var reads: [ReceiptRead] = []
       for product in ApplePurchaseCatalog.deviceProofProducts {
         reads.append(Self.classifyReceipt(await Transaction.latest(for: product.productID),
@@ -624,11 +630,16 @@ final class PurchaseManager {
       ? Self.proEntitlementIsActive(in:) : Self.sellableEntitlementIsActive(in:)
     // Receipt pre-flight (R14): a device that provably owns Pro never re-enters the purchase or
     // restore machinery — under default transfer semantics a RevenueCat receipt-post from a fresh
-    // identity would move the entitlement OFF the account it is attached to.
-    let preflight = historicalCountsAsOwned
-      ? await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
-      : await sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status
-    if preflight == .entitled { return .purchased }
+    // identity would move the entitlement OFF the account it is attached to. The whole read is
+    // kept: whether it was conclusive decides what an entitled receipt after an SDK failure means.
+    let preflightRead: ReceiptRead
+    if historicalCountsAsOwned {
+      _ = await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
+      preflightRead = lastReceiptRead
+    } else {
+      preflightRead = await sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
+    }
+    if preflightRead.status == .entitled { return .purchased }
     // R15 ordering (review finding, 3 independent reviewers): verify the anonymous identity
     // BEFORE trusting CustomerInfo. A failed prior logOut leaves the SDK keyed to a departed
     // account; probing hasStillPro() against it would return a false `.purchased` — success
@@ -669,6 +680,25 @@ final class PurchaseManager {
       guard case .verified(let transaction) = latest else { return (false, nil) }
       return (true, String(transaction.id))
     }
+    // The new-purchase evidence for analytics attribution, from StoreKit's own verified transaction
+    // and the pre-charge read above. `sdkID` is the SDK completion's transaction id; nil for a
+    // purchase StoreKit confirmed after the SDK threw (ISS-0136), which takes the rescued rule.
+    let newPurchaseEvidence: (String?) async -> [String: String]? = { sdkID in
+      guard let latest = await Self.bounded(3_000_000_000, fallback: Optional<StoreKit.VerificationResult<StoreKit.Transaction>>.none, cancelOnTimeout: true, {
+          await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID)
+        }),
+        case .verified(let transaction) = latest,
+        let identity = Self.verifiedNativeIdentity(transaction, jws: latest.jwsRepresentation) else { return nil }
+      let verifiedID = String(transaction.id)
+      let purchased = transaction.ownershipType == .purchased, revoked = transaction.revocationDate != nil
+      let eligible = sdkID.map {
+        AppleNewPurchaseProvenance.eligible(preflightKnown: before.0, preflightID: before.1, sdkID: $0,
+          verifiedID: verifiedID, environment: identity.environment, purchased: purchased, revoked: revoked)
+      } ?? AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: before.0, preflightID: before.1,
+        verifiedID: verifiedID, environment: identity.environment, purchased: purchased, revoked: revoked)
+      guard eligible else { return nil }
+      return ["productId": transaction.productID, "bundleId": identity.appBundleId, "signedTransaction": latest.jwsRepresentation]
+    }
     return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable,
                                                      installEnvironment: { await Self.verifiedInstallEnvironment() }) {
       // The policy await must not allow a departed identity to receive this new charge.
@@ -678,32 +708,32 @@ final class PurchaseManager {
         if result.userCancelled { return .cancelled }
         if let onNewPurchase, entitlementActive(result.customerInfo),
           let sdkID = result.transaction?.transactionIdentifier,
-          let latest = await Self.bounded(3_000_000_000, fallback: Optional<StoreKit.VerificationResult<StoreKit.Transaction>>.none, cancelOnTimeout: true, {
-            await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID)
-          }),
-          case .verified(let transaction) = latest,
-          let identity = Self.verifiedNativeIdentity(transaction, jws: latest.jwsRepresentation),
-          AppleNewPurchaseProvenance.eligible(preflightKnown: before.0, preflightID: before.1,
-            sdkID: sdkID, verifiedID: String(transaction.id), environment: identity.environment,
-            purchased: transaction.ownershipType == .purchased, revoked: transaction.revocationDate != nil) {
-          onNewPurchase(["productId": transaction.productID, "bundleId": identity.appBundleId,
-            "signedTransaction": latest.jwsRepresentation])
+          let evidence = await newPurchaseEvidence(sdkID) {
+          onNewPurchase(evidence)
         }
         return entitlementActive(result.customerInfo) ? .purchased : .pending
       } catch {
-        let sdkPending = (error as? RevenueCat.ErrorCode) == .paymentPendingError
-        // ISS-0136: the SDK can throw after Apple completed the charge (its own receipt post
+        // The async SDK throws its cancel error on a plain cancel (purchases-ios forwards
+        // purchaseCancelledError to the completion and the async bridge throws any error), so
+        // `userCancelled` above is never seen on that path: a cancel must be read from the error.
+        let code = error as? RevenueCat.ErrorCode
+        let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError
+        // ISS-0136: the SDK can also throw after Apple completed the charge (its own receipt post
         // failing is one case). StoreKit is the authority: read the sellable receipt again and let
-        // the tested rule decide. The pre-flight above was not entitled, so entitled now is this
-        // charge. Such a purchase carries no SDK completion, so it reports no new-purchase evidence
-        // (analytics attribution only); the page verifies and installs the right as for any other.
+        // the tested rule decide. Entitled now after a conclusive pre-flight is this charge and
+        // carries the same new-purchase evidence; after an inconclusive pre-flight it may be an
+        // older purchase, so it goes to the local verification and is never reported as a sale.
         let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status
-        let resolved = AppleSDKPurchaseFailure.classify(sdkReportsPending: sdkPending, receiptAfterFailure: after)
+        let resolved = AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,
+          preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)
         let failure = error as NSError
-        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.rawValue, privacy: .public), resolved \(String(describing: resolved), privacy: .public)")
+        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.rawValue, privacy: .public), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
         switch resolved {
-        case .purchased: return .purchased
-        case .pending: return .pending // Ask-to-Buy: guardian approval arrives out-of-band
+        case .purchased:
+          if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }
+          return .purchased
+        case .pending: return .pending // Ask-to-Buy, or ownership the local verification must prove
+        case .cancelled: return .cancelled
         case .failed: return .failed(error.localizedDescription)
         }
       }

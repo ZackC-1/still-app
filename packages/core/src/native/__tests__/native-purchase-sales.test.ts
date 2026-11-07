@@ -49,7 +49,7 @@ func fixtureOffer() -> AppleLifetimeOffering {
   ApplePurchaseCatalog.lifetimeOffering(offeringID: "still_pro_v3", packageID: "$rc_lifetime",
     productID: "still_pro_v3", isLifetime: true, isNonConsumable: true, price: "$9.99", currencyCode: "USD")!
 }
-enum RevenueCat { enum ErrorCode: Error { case paymentPendingError } }
+enum RevenueCat { enum ErrorCode: Error { case paymentPendingError, purchaseCancelledError } }
 public final class ProductPolicyRuntime {
   enum Namespace { case sales }
   struct Verdict { let allowed: Bool }
@@ -81,8 +81,12 @@ ${boundary}
   /// ISS-0132: the device holds only the historical still_sync purchase.
   var historicalOwned = false
   var policy: ProductPolicyRuntime?
-  struct ReceiptRead { let status: ReceiptStatus }
-  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus { receiptOwned || historicalOwned ? .entitled : .noSignal }
+  struct ReceiptRead { let status: ReceiptStatus; var conclusive = true }
+  var lastReceiptRead = ReceiptRead(status: .noSignal)
+  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus {
+    lastReceiptRead = ReceiptRead(status: receiptOwned || historicalOwned ? .entitled : .noSignal)
+    return lastReceiptRead.status
+  }
   func sellableReceiptRead(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptRead { ReceiptRead(status: receiptOwned ? .entitled : .noSignal) }
   func ensureAnonymousIdentity() async -> Bool { true }
   func hasStillPro() async -> Bool { false }

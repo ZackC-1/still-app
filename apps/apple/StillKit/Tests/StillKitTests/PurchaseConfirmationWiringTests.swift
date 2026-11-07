@@ -20,15 +20,26 @@ final class PurchaseConfirmationWiringTests: XCTestCase {
   }
 
   /// ISS-0136: when the store SDK throws after the sheet, StoreKit is read again and the tested
-  /// rule decides; the SDK's message alone never ends a confirmed purchase as "not confirmed".
+  /// rule decides; the SDK's message alone never ends a confirmed purchase as "not confirmed". The
+  /// rule gets the pre-flight's conclusiveness, the SDK's cancel error (the async SDK throws it on a
+  /// plain cancel) and its Ask-to-Buy error; a rescued new purchase hands over the same evidence.
   func testAStoreSDKFailureIsResolvedByStoreKitNotBySDKMessage() throws {
     let manager = try source("Purchases/PurchaseManager.swift")
     let purchase = try slice(manager, from: "func purchaseStillPro(", to: "\n  }\n")
-    XCTAssertTrue(purchase.contains("AppleSDKPurchaseFailure.classify(sdkReportsPending: sdkPending, receiptAfterFailure: after)"))
+    XCTAssertTrue(purchase.contains("AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,"))
+    XCTAssertTrue(purchase.contains("preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)"))
     XCTAssertTrue(purchase.contains("let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status"),
       "the sellable receipt is read again after the SDK throws")
-    XCTAssertTrue(purchase.contains("case .purchased: return .purchased"))
+    XCTAssertTrue(purchase.contains("let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError"))
+    XCTAssertTrue(purchase.contains("case .cancelled: return .cancelled"))
     XCTAssertTrue(purchase.contains("case .failed: return .failed(error.localizedDescription)"))
+    XCTAssertTrue(purchase.contains("if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }"),
+      "a rescued new purchase is counted like an SDK-completed one")
+    XCTAssertTrue(purchase.contains("AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: before.0, preflightID: before.1,"))
+    // The pre-flight keeps the whole read, so a timed-out read cannot pass as "no purchase before".
+    XCTAssertTrue(purchase.contains("if preflightRead.status == .entitled { return .purchased }"))
+    let read = try slice(manager, from: "func sellableReceiptRead(", to: "\n  }\n")
+    XCTAssertTrue(read.contains("conclusive: false"), "a timed-out sellable read is not conclusive")
   }
 
   /// ISS-0134: a page wait that ends before StoreKit settles answers `unsettled`, never `pending`

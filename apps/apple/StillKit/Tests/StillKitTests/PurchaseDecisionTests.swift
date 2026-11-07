@@ -162,19 +162,40 @@ final class PurchaseDecisionTests: XCTestCase {
     )
   }
 
-  /// ISS-0136: the store SDK threw after Apple had completed the charge. StoreKit decides: a
-  /// verified sellable receipt that the pre-flight did not see is a purchase, whatever the SDK said.
-  func testAnSDKFailureWithAVerifiedReceiptIsAPurchase() {
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .entitled), .purchased)
-    // Even the SDK's own "approval arrives later" error yields to a receipt that is already there.
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .entitled), .purchased)
+  private func classify(cancel: Bool = false, pending: Bool = false, conclusive: Bool = true,
+    after: ReceiptStatus) -> AppleSDKPurchaseFailure {
+    AppleSDKPurchaseFailure.classify(sdkReportsCancel: cancel, sdkReportsPending: pending,
+      preflightConclusive: conclusive, receiptAfterFailure: after)
   }
 
-  func testAnSDKFailureWithoutAReceiptStaysPendingOrFailed() {
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .noSignal), .pending)
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: true, receiptAfterFailure: .verifiedNotEntitled), .pending)
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .noSignal), .failed)
-    // A refunded receipt is not ownership (ISS-0132 and the refund lane): the failure stands.
-    XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsPending: false, receiptAfterFailure: .verifiedNotEntitled), .failed)
+  /// ISS-0136: the store SDK threw after Apple had completed the charge. StoreKit decides: a
+  /// verified sellable receipt that a conclusive pre-flight did not see is this purchase, whatever
+  /// the SDK said, even its own cancel or "approval arrives later" error.
+  func testAnSDKFailureWithAVerifiedReceiptAfterAConclusivePreflightIsThisPurchase() {
+    XCTAssertEqual(classify(after: .entitled), .purchased)
+    XCTAssertEqual(classify(pending: true, after: .entitled), .purchased)
+    XCTAssertEqual(classify(cancel: true, after: .entitled), .purchased)
+  }
+
+  /// The pre-flight timed out or met an unverifiable transaction, so the entitled receipt may be an
+  /// older purchase: it is verified through the local verification, never reported as a new sale.
+  func testAnEntitledReceiptAfterAnInconclusivePreflightIsVerifiedNotSold() {
+    XCTAssertEqual(classify(conclusive: false, after: .entitled), .pending)
+    XCTAssertEqual(classify(cancel: true, conclusive: false, after: .entitled), .pending)
+    XCTAssertEqual(classify(pending: true, conclusive: false, after: .entitled), .pending)
+  }
+
+  /// Without a receipt the SDK's own words decide. The async SDK throws its cancel error on a plain
+  /// cancel, so that error is a cancel, never a failure.
+  func testAnSDKFailureWithoutAReceiptIsCancelledPendingOrFailed() {
+    for conclusive in [true, false] {
+      XCTAssertEqual(classify(cancel: true, conclusive: conclusive, after: .noSignal), .cancelled)
+      XCTAssertEqual(classify(cancel: true, pending: true, conclusive: conclusive, after: .noSignal), .cancelled)
+      XCTAssertEqual(classify(pending: true, conclusive: conclusive, after: .noSignal), .pending)
+      XCTAssertEqual(classify(pending: true, conclusive: conclusive, after: .verifiedNotEntitled), .pending)
+      XCTAssertEqual(classify(conclusive: conclusive, after: .noSignal), .failed)
+      // A refunded receipt is not ownership (ISS-0132 and the refund lane): the failure stands.
+      XCTAssertEqual(classify(conclusive: conclusive, after: .verifiedNotEntitled), .failed)
+    }
   }
 }

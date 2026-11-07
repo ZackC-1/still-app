@@ -64,14 +64,23 @@ public enum PurchaseDecision {
 
 /// ISS-0136: what a V3 purchase the store SDK reported as thrown means once StoreKit itself is read
 /// again. The SDK can throw after Apple completed the charge (its own receipt post failing is one
-/// case); StoreKit is the authority, so a verified, unrevoked receipt for the sellable product that
-/// was not there before the charge is a purchase, whatever the SDK said. Without one, the SDK's own
-/// "approval arrives later" error (Ask to Buy) stays pending and everything else stays failed.
+/// case); StoreKit is the authority, so a verified, unrevoked receipt for the sellable product is
+/// what counts, whatever the SDK said:
+///
+/// - entitled after a pre-charge read that was conclusive (a real "no transaction" or a refund) is
+///   this charge: `purchased`;
+/// - entitled after a pre-charge read that timed out or was unverifiable may be an older purchase,
+///   so it goes through the local verification (`pending`) and is never reported as a new sale;
+/// - otherwise the SDK's own words decide: its cancel error (the async SDK throws on a plain
+///   cancel instead of returning `userCancelled`) is `cancelled`, its "approval arrives later"
+///   error (Ask to Buy) is `pending`, and everything else is `failed`.
 public enum AppleSDKPurchaseFailure: Equatable, Sendable {
-  case purchased, pending, failed
+  case purchased, pending, cancelled, failed
 
-  public static func classify(sdkReportsPending: Bool, receiptAfterFailure: ReceiptStatus) -> AppleSDKPurchaseFailure {
-    if receiptAfterFailure == .entitled { return .purchased }
+  public static func classify(sdkReportsCancel: Bool, sdkReportsPending: Bool, preflightConclusive: Bool,
+    receiptAfterFailure: ReceiptStatus) -> AppleSDKPurchaseFailure {
+    if receiptAfterFailure == .entitled { return preflightConclusive ? .purchased : .pending }
+    if sdkReportsCancel { return .cancelled }
     return sdkReportsPending ? .pending : .failed
   }
 }

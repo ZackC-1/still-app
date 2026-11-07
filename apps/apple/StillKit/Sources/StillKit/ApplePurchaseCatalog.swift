@@ -191,4 +191,13 @@ public enum AppleNewPurchaseProvenance {
     preflightKnown && !sdkID.isEmpty && sdkID == verifiedID && preflightID != verifiedID &&
       environment == "production" && purchased && !revoked
   }
+
+  /// ISS-0136: the same facts for a purchase StoreKit confirmed after the SDK threw, where no SDK
+  /// completion id exists. The verified transaction must be new against the pre-charge read, which
+  /// must itself have succeeded; the production, purchased and unrevoked rules are unchanged.
+  public static func rescuedEligible(preflightKnown: Bool, preflightID: String?, verifiedID: String,
+    environment: String, purchased: Bool, revoked: Bool) -> Bool {
+    preflightKnown && !verifiedID.isEmpty && preflightID != verifiedID &&
+      environment == "production" && purchased && !revoked
+  }
 }
