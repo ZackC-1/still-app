@@ -62,6 +62,15 @@ public enum ApplePurchaseCatalog {
 
   public static let all: [ApplePurchaseProduct] = [stillProV3, historicalStillSync]
 
+  /// The products a purchase on this device can prove Still Pro from with no account: the
+  /// device-only ownership read, the local purchase evidence, the check before a purchase and the
+  /// Still Pro Restore. The historical product is never one of them (ISS-0132): the server accepts
+  /// only `still_pro_v3` as device evidence, so a `still_sync` purchase read here would leave Still
+  /// Pro stuck at "verify again" with no way to buy. Its rights come only through a signed-in
+  /// account, where the server keeps a paid legacy right. Account linking, the RevenueCat attach
+  /// and revocation reads still use `all`.
+  public static let deviceProofProducts: [ApplePurchaseProduct] = [stillProV3]
+
   /// Exact, case-sensitive lookup; an unknown identifier resolves to nothing rather than a guess.
   public static func product(forProductID productID: String) -> ApplePurchaseProduct? {
     all.first { $0.productID == productID }
