@@ -891,10 +891,9 @@ export function createExtensionAnalyticsHost(
         if (!captured) return;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
-          const installedAt = await deps.installedAt?.().catch(() => null);
           const setup: TrackOptions = {
             ...QUIET,
-            ...(typeof installedAt === "number" ? { notBefore: installedAt } : {}),
+            notBefore: (await deps.installedAt?.().catch(() => null)) ?? undefined,
             observation: captured,
           };
           await client.trackOnce(
