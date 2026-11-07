@@ -38,8 +38,9 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
   }
 
   // Review/TestFlight purchases never update production account rights, including the legacy
-  // projection. They are fulfilled through the independently gated device-only review route.
-  const uuids = deps.productionAccess !== undefined && event.environment === "SANDBOX" ? [] : affectedUuids(event);
+  // projection, in any deployment. They are fulfilled through the independently gated device-only
+  // review route.
+  const uuids = event.environment === "SANDBOX" ? [] : affectedUuids(event);
 
   // Claim the event BEFORE side effects so a replayed delivery cannot re-run the RevenueCat
   // lookups and entitlement writes (workload idempotency). A failed reconcile RELEASES the claim,

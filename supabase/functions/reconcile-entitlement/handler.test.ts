@@ -237,7 +237,16 @@ Deno.test("missing signer/storage configuration leaves free/legacy reconciliatio
   const { store, writes } = mockStore(); const jwt = await mintHs256({ sub: A }, SECRET);
   const res = await handleReconcile(req(jwt, { access_schema: 1 }), { jwtSecret: SECRET, expected: EXPECTED, store, rc: mockRc({ [A]: activeSub }), limiter: allowAll });
   assertEquals(await res.json(), { still_sync: true, access: { status: "unavailable" } });
-  assertEquals(writes.length, 1);
+  assertEquals(writes, []);
+});
+
+Deno.test("scoped reconcile never writes the legacy projection, even for an active RevenueCat subscriber", async () => {
+  const { store, writes } = mockStore(); const { access } = scopedAccess();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleReconcile(req(jwt, { access_schema: 1 }), { jwtSecret: SECRET, expected: EXPECTED,
+    store, rc: mockRc({ [A]: activeSub }), limiter: allowAll, access });
+  assertEquals((await res.json()).still_sync, true);
+  assertEquals(writes, []);
 });
 
 Deno.test("provider uncertainty, stale observation, wrong holder and transfer/refund while signing cannot issue reply", async () => {
@@ -287,7 +296,7 @@ Deno.test("unavailable Apple ownership does not block independently current veri
     access: { ...access, apple: { refresh: () => Promise.resolve(false) } } });
   assertEquals((await response.json()).access.status, "verified");
   assertEquals(calls.some(call => call.startsWith("commit:")), true); assertEquals(calls.includes("sign"), true);
-  assertEquals(writes.length, 1);
+  assertEquals(writes, []);
 });
 
 Deno.test("partial provider ambiguity can deliver confirmed removals without manufacturing verified-none", async () => {
