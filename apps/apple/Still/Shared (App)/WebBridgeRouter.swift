@@ -574,6 +574,10 @@ final class WebBridgeRouter {
           if result.outcome != .unsettled { await self.refreshReceiptStamp() }
           return result
         }
+        // A commit that failed earlier is retried before this reply can be refused for it, as the
+        // other modern routes do: a refusal here reaches the page after the purchase may already
+        // have completed, and the page then verifies the device instead of waiting again.
+        self.retryVerifiedRevocations()
         guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
         Self.bridgeLog.notice("bridge: purchasePro\(join ? " join" : "", privacy: .public) replied \(result.outcome.rawValue, privacy: .public), receipt \(result.receipt.rawValue, privacy: .public)")
         reply(Self.json(result.payload), nil)
@@ -607,6 +611,8 @@ final class WebBridgeRouter {
           let read = await self.purchases.sellableReceiptRead { self.commitVerifiedRevocation($0) }
           return ApplePurchaseActionResult.proRestore(checked, receipt: read.status, productId: read.productID)
         }
+        // As for purchasePro: retry a failed commit before the fence can refuse this reply.
+        self.retryVerifiedRevocations()
         guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
         Self.bridgeLog.notice("bridge: restorePro replied \(result.outcome.rawValue, privacy: .public), receipt \(result.receipt.rawValue, privacy: .public)")
         reply(Self.json(result.payload), nil)

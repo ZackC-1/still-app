@@ -116,7 +116,8 @@ final class PurchaseManager {
   /// Held until StoreKit itself settles, even if the web reply reaches its deadline first.
   private var modernPurchaseInFlight: Task<ApplePurchaseActionResult, Never>?
   /// A V3 purchase that settled after the page's bounded wait had ended (ISS-0134), kept for that
-  /// page's next `join`. A new purchase replaces it; a join claims it once.
+  /// page's next `join`. Only the next purchase start replaces it: a join reads it without clearing
+  /// it, so a reply the bridge refuses after the claim cannot lose a settled purchase.
   private var unclaimedPurchaseResult: ApplePurchaseActionResult?
   /// How long one page wait for a V3 purchase may hold the bridge before it answers `unsettled` and
   /// the page waits again (ISS-0134). Apple's sheet can stay up far longer than this; the purchase
@@ -448,7 +449,10 @@ final class PurchaseManager {
       }
     }
     if join {
-      defer { unclaimedPurchaseResult = nil }
+      // Nothing in flight: the purchase settled between the page's last answer and this join, or
+      // nothing was started this launch. The settled result stays until the next purchase starts:
+      // a delivery the bridge then refuses (the revocation fence) must not drop it, and a page that
+      // asks again after such a refusal must find it. With none, the join bought nothing.
       let settled = unclaimedPurchaseResult ?? ApplePurchaseActionResult(.cancelled)
       Self.purchaseLog.notice("purchase: join found nothing in flight, answering \(settled.outcome.rawValue, privacy: .public)")
       return settled

@@ -2259,6 +2259,20 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
     expect(names()).toEqual(["purchase_started"]);
   });
+  it("a refused join after a wait ends in verification, never a cancel and never another join", async () => {
+    // Native had settled and refused the reply (the bridge maps a refusal to pending, ISS-0136).
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro)
+      .mockResolvedValueOnce(noSignal("unsettled"))
+      .mockResolvedValueOnce(noSignal("pending"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(names()).toEqual(["purchase_started"]);
+  });
   it("while a purchase is still unsettled the screen keeps waiting and a second tap never reaches native", async () => {
     const { host, deps, settle } = await harness();
     let answer: (result: NativeProResult) => void = () => {};

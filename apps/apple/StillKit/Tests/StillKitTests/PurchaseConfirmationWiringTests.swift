@@ -54,6 +54,12 @@ final class PurchaseConfirmationWiringTests: XCTestCase {
     XCTAssertTrue(purchase.contains("if join {"))
     XCTAssertTrue(purchase.contains("unclaimedPurchaseResult ?? ApplePurchaseActionResult(.cancelled)"),
       "a join with nothing in flight hands over the settled result or bought nothing")
+    // A join reads the settled result without clearing it: a reply the fence refuses after the
+    // claim must not lose a settled purchase. Only the next purchase start replaces it.
+    XCTAssertFalse(purchase.contains("defer { unclaimedPurchaseResult = nil }"))
+    XCTAssertEqual(purchase.components(separatedBy: "unclaimedPurchaseResult = nil").count - 1, 1)
+    XCTAssertLessThan(try XCTUnwrap(purchase.range(of: "unclaimedPurchaseResult = nil")).lowerBound,
+      try XCTUnwrap(purchase.range(of: "let task = Task")).lowerBound, "cleared only when a new purchase starts")
     let router = try source("WebBridgeRouter.swift")
     let handler = try slice(router, from: "case \"purchasePro\":", to: "\n    case \"")
     XCTAssertTrue(handler.contains("let join = dict[\"join\"] as? Bool == true"))
@@ -68,11 +74,14 @@ final class PurchaseConfirmationWiringTests: XCTestCase {
   /// refuse them, and every refusal on the purchase, Restore, evidence and benefit paths is logged.
   func testEvidenceReadsRetryRevocationCommitsBeforeRefusingAndRefusalsAreLogged() throws {
     let router = try source("WebBridgeRouter.swift")
-    for kind in ["applePurchaseEvidence", "appleLocalPurchaseEvidence", "getBenefitAccess"] {
+    for kind in ["applePurchaseEvidence", "appleLocalPurchaseEvidence", "getBenefitAccess", "purchasePro", "restorePro"] {
       let handler = try slice(router, from: "case \"\(kind)\":", to: "\n    case \"")
-      let retry = try XCTUnwrap(handler.range(of: "self.retryVerifiedRevocations()"), "\(kind) retries the commit")
       let fence = try XCTUnwrap(handler.range(of: "guard self.accessRevocations.ready"), "\(kind) keeps the fence")
-      XCTAssertLessThan(retry.lowerBound, fence.lowerBound, "\(kind) retries before the fence can refuse")
+      // The retry nearest before the fence, so a purchase or Restore that settled is retried after
+      // its own StoreKit work, right before the reply could be refused.
+      let retry = try XCTUnwrap(handler.range(of: "self.retryVerifiedRevocations()", options: .backwards,
+        range: handler.startIndex..<fence.lowerBound), "\(kind) retries the commit before the fence can refuse")
+      XCTAssertLessThan(retry.lowerBound, fence.lowerBound)
       XCTAssertTrue(handler.contains("self.refuse(kind, \"Apple revocation commit requires verification\", reply)"), kind)
     }
     for kind in ["purchasePro", "restorePro", "installAppleAccess"] {

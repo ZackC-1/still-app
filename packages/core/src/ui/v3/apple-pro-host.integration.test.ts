@@ -1703,3 +1703,45 @@ describe("mounted Apple purchases the store SDK reports late or wrong (ISS-0134,
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
   });
 });
+
+describe("mounted Apple purchases whose native reply is refused (ISS-0136, review of PR #592)", () => {
+  const refusal = () => new Error("still: Apple revocation commit requires verification");
+  it("a refused purchase reply verifies the device at once: no wait, no cancel, no second join", async () => {
+    // The bridge rejects (the revocation fence refused the reply after the purchase settled). The
+    // page must not read that as a wait and join again; it verifies the device like Restore does.
+    const f = await compose();
+    f.purchase.mockRejectedValueOnce(refusal());
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText("You have Still Pro.");
+    expect(f.purchase).toHaveBeenCalledOnce();
+    expect(f.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(screen.queryByText("The purchase wasn’t confirmed.")).toBeNull();
+    expect(screen.queryByText("Your purchase needs to be verified.")).toBeNull();
+  });
+  it("a refused join after a wait verifies the device: exactly one join, no cancel", async () => {
+    const f = await compose();
+    f.purchase
+      .mockResolvedValueOnce({ outcome: "unsettled", receipt: "noSignal" })
+      .mockRejectedValueOnce(refusal());
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText("You have Still Pro.");
+    expect(f.purchase).toHaveBeenCalledTimes(2);
+    expect(f.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+  });
+  it("a refused reply with nothing on the device keeps verification recovery, not a cancel", async () => {
+    const f = await compose({ verificationFails: true });
+    f.purchase.mockRejectedValueOnce(refusal());
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Get Still Pro" }));
+    await screen.findByText("Your purchase needs to be verified.");
+    expect(f.purchase).toHaveBeenCalledOnce();
+    expect(f.verifyLocalPurchase).toHaveBeenCalledOnce();
+    f.verificationAvailable();
+    await fireEvent.click(await screen.findByRole("button", { name: "Verify purchase" }));
+    await screen.findByText("You have Still Pro.");
+    expect(f.purchase).toHaveBeenCalledOnce();
+  });
+});

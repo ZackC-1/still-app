@@ -159,6 +159,17 @@ describe("native scoped Pro feedback", () => {
     expect(post).toHaveBeenLastCalledWith({ kind: "purchasePro", offer });
   });
 
+  it("a refused purchase or join reply is pending, never a wait to repeat", async () => {
+    // Native refused the reply (the revocation fence) after the purchase may have completed. The
+    // host must verify the device, not join again: a join would meet the same refusal at once.
+    const refused = host(async () => { throw new Error("still: Apple revocation commit requires verification"); });
+    expect(await refused.bridge.purchasePro(offer)).toEqual({ outcome: "pending", receipt: "noSignal" });
+    expect(await refused.bridge.purchasePro(offer, { join: true })).toEqual({ outcome: "pending", receipt: "noSignal" });
+    expect(refused.post).toHaveBeenCalledTimes(2);
+    // A refused Restore keeps its own failed answer.
+    expect(await refused.bridge.restorePro()).toEqual({ outcome: "failed", receipt: "noSignal" });
+  });
+
   it("a failed store action with a verified sellable receipt awaits local verification (ISS-0136)", async () => {
     for (const outcome of ["failed", "staleIdentity"]) {
       const rescued = host(async () => ({ outcome, receipt: "entitled", productId: "still_pro_v3" }));
