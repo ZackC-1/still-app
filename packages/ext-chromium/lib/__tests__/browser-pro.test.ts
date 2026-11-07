@@ -142,6 +142,56 @@ describe("browser purchase measurement", () => {
     h.flow.stop();
   });
 
+  const returns = (h: ReturnType<typeof harness>) =>
+    h.analytics.track.mock.calls.filter(([name]) => name === "checkout_returned").length;
+
+  it("reports one return per checkout even when the page hides again while the return's re-check runs", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    let resolve!: (value: AccessRecheck) => void;
+    h.controller.recheckAccess.mockImplementation(() => new Promise(r => { resolve = r; }));
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.state.purchase).toBe("waiting"); // the return's re-check has not answered yet
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    resolve({ access: access("locked"), outcome: "not-entitled" }); await settle();
+    expect(returns(h)).toBe(1);
+    h.flow.stop();
+  });
+
+  it("a return whose re-check fails ends the wait and is reported once", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.controller.recheckAccess.mockRejectedValue(new Error("worker gone"));
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.state.purchase).toBe("idle");
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(returns(h)).toBe(1);
+    h.flow.stop();
+  });
+
+  it("bringing an existing checkout tab forward again reports no new start or return", async () => {
+    const h = harness();
+    h.observe("none"); await settle();
+    h.flow.buy(); await settle();
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    h.flow.buy(); await settle(); // the same checkout tab comes forward
+    expect(h.state.purchase).toBe("waiting");
+    h.page.show("hidden"); h.page.show("visible"); await settle();
+    expect(h.analytics.track.mock.calls.filter(([name]) => name === "purchase_started")).toHaveLength(1);
+    expect(returns(h)).toBe(1);
+    // A checkout tab that another settings page opened: this page recorded no start for it.
+    const other = harness({ record: { value: { startedAt: 5, tabId: 3 } }, openTabs: new Set([3]) });
+    other.observe("none"); await settle();
+    other.flow.buy(); await settle();
+    expect(other.tabs.focus).toHaveBeenCalledWith({ startedAt: 5, tabId: 3 });
+    other.page.show("hidden"); other.page.show("visible"); await settle();
+    expect(other.analytics.track).not.toHaveBeenCalled();
+    h.flow.stop(); other.flow.stop();
+  });
+
   it("counts a new checkout attempt once; focusing its existing tab is not another start or sale", async () => {
     const h = harness();
     h.observe("none"); await settle();

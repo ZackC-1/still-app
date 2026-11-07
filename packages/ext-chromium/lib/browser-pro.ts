@@ -303,6 +303,8 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   let onlineAt = -Infinity;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectTries = 0;
+  // A checkout tab this page opened, whose return is not yet recorded: one return per start.
+  let returnOwed = false;
   let leftForCheckout = false;
   /** Offline, or back online only moments ago: a failure now says nothing about the answer. */
   const unsettled = () => !online() || now() - onlineAt < RECONNECT_GRACE_MS;
@@ -404,6 +406,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     keepAliveCount = 0;
     if (leftForCheckout) {
       leftForCheckout = false;
+      returnOwed = false;
       // Returning to Settings proves no payment outcome. Only canonical verification can do so.
       track("checkout_returned", { outcome: "unknown" });
     }
@@ -420,16 +423,18 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     lastRecheckAt = now();
     const ticket = generation;
     const returning = state.purchase === "waiting";
-    let result: AccessRecheck;
+    let result: AccessRecheck | null;
     try {
       result = await run();
     } catch {
-      return null;
+      result = null;
     }
     if (stopped || ticket !== generation) return null;
     // Back from the checkout tab: the purchase either shows through the access observation or
-    // Buy is offered again (a second create resumes the same server-held checkout).
+    // Buy is offered again (a second create resumes the same server-held checkout). A failed
+    // check ends the wait too, so the card is not left pending.
     if (returning && state.purchase === "waiting") set({ purchase: "idle" });
+    if (result === null) return null;
     if (proOwnership(result.access) === "none") {
       if (state.channel === "unknown" || state.channel === "offline" || refreshChannel) void askChannel(true);
       armKeepAlive();
@@ -517,7 +522,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     if (typeof existing?.startedAt === "number" && typeof existing.tabId === "number" &&
         await tabs.focus({ startedAt: existing.startedAt, tabId: existing.tabId })) {
       if (live()) {
-        leftForCheckout = !visible();
+        leftForCheckout = returnOwed && !visible();
         set({ purchase: "waiting" });
       }
       return;
@@ -533,6 +538,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
     }
     if (!live()) return;
     if (outcome.kind === "checkout-url") {
+      returnOwed = true;
       set({ purchase: "waiting" });
       // Recorded BEFORE the tab opens, then with its id: sign-out or another account signing in
       // closes that tab (it carries this account), and supported-site visits reconcile while it
@@ -546,6 +552,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // No tab opened: say so rather than wait for a return that cannot come, and end only the
         // record this Buy wrote. (set() replaced `state` meanwhile, so read it afresh.)
         if (ours) await pendingStore.write(null);
+        if (live()) { returnOwed = false; leftForCheckout = false; }
         if (live() && current().purchase === "waiting") {
           track("purchase_failed", { purchase_origin: "web", product: "still-pro-v3", reason: "unknown" });
           set({ purchase: "failed" });
@@ -556,6 +563,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
         // While the tab opened, a sign-out or account switch purged the record, or another
         // settings page replaced it: this tab must not outlive its account or go unrecorded.
         await tabs.close(tab);
+        if (live()) { returnOwed = false; leftForCheckout = false; }
         if (live() && current().purchase === "waiting") set({ purchase: "idle" });
         return;
       }
@@ -592,7 +600,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
   function onVisibility(): void {
     if (stopped) return;
     if (!visible()) {
-      if (state.purchase === "waiting") leftForCheckout = true;
+      if (state.purchase === "waiting" && returnOwed) leftForCheckout = true;
       clearKeepAlive();
       return;
     }
@@ -637,6 +645,7 @@ export function createBrowserPro(deps: BrowserProDeps, publish: (state: BrowserP
       if (switched) {
         // Before anything runs for the new account, so its own checks are not fenced off.
         generation += 1;
+        returnOwed = false;
         leftForCheckout = false;
         channelFlight = false;
         channelAgain = false;
