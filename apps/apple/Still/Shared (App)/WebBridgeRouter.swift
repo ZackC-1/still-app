@@ -69,6 +69,10 @@
 //        { kind:"receiptStatus" }             → { receipt: "entitled"|"verifiedNotEntitled"|"noSignal" }
 //        { kind:"attachPurchases" }           → { entitled }   (R7 — attach the receipt to the account)
 //        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
+//        { kind:"appleHistoricalPurchase" }   → { historicalPurchase: Bool }
+//      ISS-0132: whether this device holds a verified historical still_sync purchase the person
+//      bought. Display only (the signed-out "Sign in to restore it" prompt); false while the paid
+//      tier is off. It never grants: that purchase's rights come through the signed-in account.
 //        { kind:"signOut" }                   → { ok:true }   (reset RC identity on sign-out)
 //
 //    • Rating hold (U13-P3; RatingHold in StillKit is the contract):
@@ -173,6 +177,11 @@ final class WebBridgeRouter {
   /// The Restore tap while the paid tier is off. One check at a time, so one tap raises at most
   /// one App Store sign-in sheet.
   private let freePeriodRestore = FreePeriodRestoreCheck(store: AppStoreRestoreCheck())
+  /// The Still Pro Restore (paid tier on). The same read-only check, over the device-proof products
+  /// only (ISS-0132): a historical still_sync purchase is restored through the signed-in account,
+  /// never reported here as a device restore the server would then refuse.
+  private let proRestore = FreePeriodRestoreCheck(store: AppStoreRestoreCheck(),
+    productIDs: Set(ApplePurchaseCatalog.deviceProofProducts.map(\.productID)))
 
   /// At most one ask for Apple's purchase history per launch. `refreshReceiptStamp` runs at launch
   /// AND every time the app becomes active, and on a cold launch both of those happen before
@@ -503,6 +512,16 @@ final class WebBridgeRouter {
         reply(Self.json(result.payload), nil)
       }
 
+    case "appleHistoricalPurchase":
+      guard Set(dict.keys) == ["kind"], frame.isTrusted else {
+        reply(nil, "still: invalid historical purchase request"); return
+      }
+      guard MonetizationConfig.paidTierEnabled else { reply(Self.json(["historicalPurchase": false]), nil); return }
+      Task {
+        let held = await self.purchases.holdsHistoricalPurchase { self.commitVerifiedRevocation($0) }
+        reply(Self.json(["historicalPurchase": held]), nil)
+      }
+
     case "restorePro":
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {
         reply(nil, "still: invalid restore request"); return
@@ -512,14 +531,14 @@ final class WebBridgeRouter {
       }
       Task {
         let result = await RatingHold.app.during(.restore) {
-          // The existing bounded StoreKit check includes historical purchases and conclusively
-          // reports absence only after an actual successful AppStore.sync. Never RC transfer.
-          let checked = await self.freePeriodRestore.run()
+          // The existing bounded StoreKit check, over the sellable product only (ISS-0132), which
+          // conclusively reports absence only after an actual successful AppStore.sync. Never RC
+          // transfer. The reply's receipt is the same product's, so a historical purchase alone
+          // reads exactly like no purchase, and a conclusive none is a conclusive nothing-found.
+          let checked = await self.proRestore.run()
           await self.refreshReceiptStamp()
-          let read = self.purchases.lastReceiptRead
-          let outcome: ApplePurchaseActionOutcome = checked == .restored ? .restored :
-            (checked == .none ? .nothing : .failed)
-          return ApplePurchaseActionResult(outcome, receipt: read.status, productId: read.productID)
+          let read = await self.purchases.sellableReceiptRead { self.commitVerifiedRevocation($0) }
+          return ApplePurchaseActionResult.proRestore(checked, receipt: read.status, productId: read.productID)
         }
         guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
         reply(Self.json(result.payload), nil)

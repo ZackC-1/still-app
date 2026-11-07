@@ -62,6 +62,15 @@ public enum ApplePurchaseCatalog {
 
   public static let all: [ApplePurchaseProduct] = [stillProV3, historicalStillSync]
 
+  /// The products a purchase on this device can prove Still Pro from with no account: the
+  /// device-only ownership read, the local purchase evidence, the check before a purchase and the
+  /// Still Pro Restore. The historical product is never one of them (ISS-0132): the server accepts
+  /// only `still_pro_v3` as device evidence, so a `still_sync` purchase read here would leave Still
+  /// Pro stuck at "verify again" with no way to buy. Its rights come only through a signed-in
+  /// account, where the server keeps a paid legacy right. Account linking, the RevenueCat attach
+  /// and revocation reads still use `all`.
+  public static let deviceProofProducts: [ApplePurchaseProduct] = [stillProV3]
+
   /// Exact, case-sensitive lookup; an unknown identifier resolves to nothing rather than a guess.
   public static func product(forProductID productID: String) -> ApplePurchaseProduct? {
     all.first { $0.productID == productID }
@@ -137,6 +146,23 @@ public struct ApplePurchaseActionResult: Sendable {
     self.receipt = receipt
     self.productId = known ? productId : nil
     self.newPurchaseEvidence = self.outcome == .purchased && validSuccess ? newPurchaseEvidence : nil
+  }
+
+  /// The Still Pro Restore reply (paid tier on) from the read-only App Store check over the
+  /// device-proof products and the same products' receipt read. A conclusive `.none` (a successful
+  /// App Store sync, then a verified empty list) is reported as `verifiedNotEntitled`: a product
+  /// never bought has no transaction, so its receipt read alone is `noSignal`, which the page must
+  /// treat as unknown and would show "verify again" for someone who simply never bought. A receipt
+  /// that still reads entitled contradicts `.none` and stays as read (the result is then failed).
+  public static func proRestore(_ checked: FreePeriodRestoreResult, receipt: ReceiptStatus,
+    productId: String?) -> ApplePurchaseActionResult {
+    switch checked {
+    case .restored: return ApplePurchaseActionResult(.restored, receipt: receipt, productId: productId)
+    case .none:
+      return ApplePurchaseActionResult(.nothing, receipt: receipt == .entitled ? receipt : .verifiedNotEntitled,
+        productId: productId)
+    case .failed: return ApplePurchaseActionResult(.failed, receipt: receipt, productId: productId)
+    }
   }
 
   public var payload: [String: Any] {

@@ -15,8 +15,20 @@
     onBuy,
     onRestore,
     onRetry,
+    onSignInToRestore,
   }: NativeProOfferCardProps = $props();
   let held = $derived(accessHeld || accessChecking || accessVerify);
+  // ISS-0132: signed out with a historical purchase and nothing owned. Only the sign-in prompt:
+  // that purchase is restored through the account, so no Get Still Pro and no Restore purchase.
+  let signInToRestore = $derived(
+    ownership === "none" &&
+      !held &&
+      !restoreHeld &&
+      !verificationRequired &&
+      Boolean(onSignInToRestore) &&
+      state !== "pending" &&
+      state !== "success",
+  );
   let ready = $derived(
     ownership === "none" &&
       !held &&
@@ -76,7 +88,17 @@
     </div>
   {:else}
     <div class="offer-head"><h2 class="card-title">Still Pro</h2></div>
-    {#if ready}
+    {#if signInToRestore}
+      <!-- ISS-0132 (owner, 6 Nov 2026): the line, then Sign in, and nothing else. -->
+      <p class="card-body">Bought Still Pro before? Sign in to restore it.</p>
+      <button
+        type="button"
+        class="primary block"
+        onclick={() => {
+          if (signInToRestore) onSignInToRestore?.();
+        }}>Sign in</button
+      >
+    {:else if ready}
       <button
         type="button"
         class="primary block"
@@ -155,7 +177,7 @@
       </div>
     {/if}
   {/if}
-  {#if ownership !== "owned"}<button
+  {#if ownership !== "owned" && !signInToRestore}<button
       type="button"
       class="link"
       disabled={!restoreReady}

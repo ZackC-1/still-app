@@ -18,6 +18,10 @@ export interface NativeProOfferCardProps extends Omit<
   verificationRequired?: boolean;
   /** With a failed state: the App Store never started this purchase, so nothing was charged. */
   notCharged?: boolean;
+  /** ISS-0132: signed out with a historical purchase. The card shows only "Bought Still Pro
+   * before? Sign in to restore it." and a Sign in button that calls this; no Get Still Pro, no
+   * Restore purchase. */
+  onSignInToRestore?: () => void;
 }
 
 type AppleSettingsAccount = Omit<

@@ -124,6 +124,8 @@ async function compose(
       ? { outcome: "pending", receipt: "noSignal" }
       : purchased,
   );
+  // Exactly what native's Still Pro Restore sends for an Apple Account that never bought Still Pro
+  // (ApplePurchaseActionResult.proRestore, pinned in StillKit's HistoricalPurchaseDeviceProofTests).
   const restore = vi.fn(async (): Promise<NativeProResult> => ({
     outcome: "nothing",
     receipt: "verifiedNotEntitled",
@@ -487,6 +489,18 @@ describe("Apple settings to real native Pro screen integration", () => {
         "No Still Pro purchase was found for this Apple Account.",
       ),
     ).toBeInTheDocument();
+    expect(f.restore).toHaveBeenCalledOnce();
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+  });
+});
+
+describe("a conclusive no-purchase Restore (App Review's fresh account)", () => {
+  it("the Settings card's Restore says no purchase was found, never verify again", async () => {
+    const f = await compose();
+    await fireEvent.click(await screen.findByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText("No Still Pro purchase was found for this Apple Account.")).toBeInTheDocument();
+    expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
     expect(f.restore).toHaveBeenCalledOnce();
     expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
   });

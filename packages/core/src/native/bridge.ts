@@ -335,6 +335,7 @@ export type NativeMessage =
   | { readonly kind: "proOffering" }
   | { readonly kind: "purchasePro"; readonly offer: NativeLifetimeOffering }
   | { readonly kind: "restorePro" }
+  | { readonly kind: "appleHistoricalPurchase" }
   | { readonly kind: "applePurchaseEvidence" }
   | { readonly kind: "appleLocalPurchaseEvidence" }
   | ({ readonly kind: "installAppleAccess" } & NativeAppleAccessInstall)
@@ -669,6 +670,16 @@ export class NativeBridge {
       () => this.post({ kind: "restorePro" }),
       { outcome: "failed", receipt: "noSignal" }, NATIVE_PURCHASE_DEADLINE_MS,
     ));
+  }
+
+  /** ISS-0132: whether this device holds a verified historical `still_sync` purchase its person
+   * bought. Display only: it picks the signed-out "Sign in to restore it" prompt and never grants
+   * anything. Any other reply (exactly one boolean member) is false: the ordinary offer shows. */
+  async appleHistoricalPurchase(): Promise<boolean> {
+    if (!this.available) return false;
+    const reply = asObject(await boundedNativeRead(() => this.post({ kind: "appleHistoricalPurchase" }), null, 10_000));
+    return reply !== null && Object.keys(reply).join(",") === "historicalPurchase" &&
+      reply.historicalPurchase === true;
   }
 
   async applePurchaseEvidence(): Promise<NativeApplePurchaseEvidence | null> {

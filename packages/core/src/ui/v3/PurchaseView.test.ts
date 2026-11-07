@@ -474,3 +474,25 @@ describe("Apple purchase surfaces never say No account needed (ISS-0071)", () =>
     expect(source).not.toMatch(/No account needed/i);
   });
 });
+
+// ISS-0132: the purchase screen (also opened from Safari's Get Still Pro) asks a signed-out
+// historical holder to sign in, with no Get Still Pro and no Restore purchase.
+describe("Apple purchase screen sign-in to restore", () => {
+  it("shows only the line and Sign in", async () => {
+    const onSignInToRestore = vi.fn();
+    const props = apple({ native: { verified: true, onBuy: vi.fn(), onRestore: vi.fn(), onSignInToRestore } });
+    render(PurchaseView, { props });
+    expect(screen.getByText("Bought Still Pro before? Sign in to restore it.")).toBeInTheDocument();
+    expect(buy()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    expect(screen.queryByText("Payment is handled by Apple.")).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(onSignInToRestore).toHaveBeenCalledOnce();
+    expect(props.native.onBuy).not.toHaveBeenCalled();
+  });
+  it("is unchanged without the prompt", () => {
+    render(PurchaseView, { props: apple() });
+    expect(buy()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+});
