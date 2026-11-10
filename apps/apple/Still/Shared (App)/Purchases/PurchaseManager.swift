@@ -483,7 +483,9 @@ final class PurchaseManager {
       case .purchased: mapped = .purchased
       case .cancelled: mapped = .cancelled
       case .pending: mapped = .pending
-      case .unavailable: mapped = .unavailable
+      // A refusal before any payment is what the page already knows as "unavailable": refused
+      // before any charge, so nothing was charged and Get Still Pro comes back (ISS-0138).
+      case .unavailable, .refused: mapped = .unavailable
       case .staleIdentity: mapped = .staleIdentity
       case .failed: mapped = .failed
       }
@@ -616,8 +618,19 @@ final class PurchaseManager {
     case pending // store accepted but entitlement not yet active (e.g. ask-to-buy)
     case unavailable // no offering / product not available right now
     case staleIdentity // signed out but the SDK identity is not verifiably anonymous (R15)
+    /// The store refused before any payment (ISS-0138): purchases not allowed on this device or
+    /// account, an invalid payment, a product not available, an ineligible person. Nothing was
+    /// charged, so the page shows the same "nothing was charged" answer as `unavailable`.
+    case refused
     case failed(String)
   }
+
+  /// The store SDK errors that StoreKit raises before a payment exists (ISS-0138). Any of these
+  /// without a verified receipt is a refusal that charged nothing, never a purchase to verify.
+  /// A store problem, a network error or an unknown error is not here: the receipt decides those.
+  private nonisolated static let sdkRefusalCodes: [RevenueCat.ErrorCode] = [
+    .purchaseNotAllowedError, .purchaseInvalidError, .productNotAvailableForPurchaseError, .ineligibleError,
+  ]
 
   /// Buy Still Pro — signed in OR signed out (purchase-first, R1). The returned `.purchased`
   /// acknowledges local StoreKit/RevenueCat success; the caller (router) refreshes the receipt and
@@ -722,22 +735,27 @@ final class PurchaseManager {
         // `userCancelled` above is never seen on that path: a cancel must be read from the error.
         let code = error as? RevenueCat.ErrorCode
         let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError
+        // ISS-0138: a refusal the store made before any payment (not allowed, invalid, not
+        // available, ineligible) charged nothing; the page says so instead of asking to verify.
+        let sdkRefusal = code.map { Self.sdkRefusalCodes.contains($0) } ?? false
         // ISS-0136: the SDK can also throw after Apple completed the charge (its own receipt post
         // failing is one case). StoreKit is the authority: read the sellable receipt again and let
         // the tested rule decide. Entitled now after a conclusive pre-flight is this charge and
         // carries the same new-purchase evidence; after an inconclusive pre-flight it may be an
         // older purchase, so it goes to the local verification and is never reported as a sale.
-        let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status
+        let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
         let resolved = AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,
-          preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)
+          sdkReportsRefusal: sdkRefusal, preflightConclusive: preflightRead.conclusive,
+          receiptAfterFailure: after.status, afterConclusive: after.conclusive)
         let failure = error as NSError
-        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.rawValue, privacy: .public), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
+        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.status.rawValue, privacy: .public) (conclusive \(after.conclusive)), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
         switch resolved {
         case .purchased:
           if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }
           return .purchased
         case .pending: return .pending // Ask-to-Buy, or ownership the local verification must prove
         case .cancelled: return .cancelled
+        case .refused: return .refused // nothing was charged (ISS-0138)
         case .failed: return .failed(error.localizedDescription)
         }
       }

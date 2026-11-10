@@ -74,6 +74,21 @@
         <span>Your purchase needs to be verified.</span>
       </div>
     </div>
+    {#if state === "failed"}
+      <!-- The verification could not run (ISS-0138: nothing on this device yet, offline, or
+        refused): the same answer the purchase screen gives, so a tap on Verify purchase is never
+        silent, with Restore purchase still the way back below. -->
+      <div class="status-line" data-tone="failed" role="alert">
+        <span class="glyph"><Glyph name="alert" size={16} /></span>
+        <div class="status-body">
+          <span>The purchase wasn’t confirmed.</span><span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >If you were charged, Restore purchase will find it.</span
+          >
+        </div>
+      </div>
+    {/if}
   {:else if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">

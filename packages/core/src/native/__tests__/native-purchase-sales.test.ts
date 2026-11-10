@@ -49,7 +49,11 @@ func fixtureOffer() -> AppleLifetimeOffering {
   ApplePurchaseCatalog.lifetimeOffering(offeringID: "still_pro_v3", packageID: "$rc_lifetime",
     productID: "still_pro_v3", isLifetime: true, isNonConsumable: true, price: "$9.99", currencyCode: "USD")!
 }
-enum RevenueCat { enum ErrorCode: Error { case paymentPendingError, purchaseCancelledError } }
+enum RevenueCat { enum ErrorCode: Error {
+  case paymentPendingError, purchaseCancelledError
+  // The pre-payment refusals the app reads (ISS-0138); the harness only needs them to compile.
+  case purchaseNotAllowedError, purchaseInvalidError, productNotAvailableForPurchaseError, ineligibleError
+} }
 public final class ProductPolicyRuntime {
   enum Namespace { case sales }
   struct Verdict { let allowed: Bool }
@@ -74,7 +78,10 @@ typealias CustomerInfo = Bool
 ${decision}
 ${boundary}
 @MainActor final class Executor {
-  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, failed(String) }
+  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, refused, failed(String) }
+  static let sdkRefusalCodes: [RevenueCat.ErrorCode] = [
+    .purchaseNotAllowedError, .purchaseInvalidError, .productNotAvailableForPurchaseError, .ineligibleError,
+  ]
   var currentAppUserID: String?
   let isConfigured = true
   var receiptOwned = false

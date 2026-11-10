@@ -27,12 +27,30 @@ final class PurchaseConfirmationWiringTests: XCTestCase {
     let manager = try source("Purchases/PurchaseManager.swift")
     let purchase = try slice(manager, from: "func purchaseStillPro(", to: "\n  }\n")
     XCTAssertTrue(purchase.contains("AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,"))
-    XCTAssertTrue(purchase.contains("preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)"))
-    XCTAssertTrue(purchase.contains("let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status"),
+    XCTAssertTrue(purchase.contains("preflightConclusive: preflightRead.conclusive,"))
+    XCTAssertTrue(purchase.contains("receiptAfterFailure: after.status, afterConclusive: after.conclusive)"),
+      "a refusal needs a conclusive receipt read after the failure (ISS-0138)")
+    XCTAssertTrue(purchase.contains("let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)"),
       "the sellable receipt is read again after the SDK throws")
     XCTAssertTrue(purchase.contains("let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError"))
     XCTAssertTrue(purchase.contains("case .cancelled: return .cancelled"))
     XCTAssertTrue(purchase.contains("case .failed: return .failed(error.localizedDescription)"))
+    // ISS-0138: the store's pre-payment refusals reach the rule as such, and a refusal charged
+    // nothing: it answers the page's "unavailable" (refused before any charge), never a verify.
+    XCTAssertTrue(purchase.contains("let sdkRefusal = code.map { Self.sdkRefusalCodes.contains($0) } ?? false"))
+    XCTAssertTrue(purchase.contains("sdkReportsRefusal: sdkRefusal,"))
+    XCTAssertTrue(purchase.contains("case .refused: return .refused"))
+    let refusals = try slice(manager, from: "private nonisolated static let sdkRefusalCodes", to: "\n  ]")
+    for code in [".purchaseNotAllowedError", ".purchaseInvalidError", ".productNotAvailableForPurchaseError", ".ineligibleError"] {
+      XCTAssertTrue(refusals.contains(code), "\(code) is a refusal before any payment")
+    }
+    for code in [".storeProblemError", ".networkError", ".unknownError", ".purchaseCancelledError", ".paymentPendingError"] {
+      XCTAssertFalse(refusals.contains(code), "\(code) keeps the receipt rule")
+    }
+    let modern = try slice(manager, from: "func purchasePro(offer:", to: "\n  }\n")
+    XCTAssertTrue(modern.contains("case .unavailable, .refused: mapped = .unavailable"))
+    let router = try source("WebBridgeRouter.swift")
+    XCTAssertTrue(router.contains("case .unavailable, .refused: return [\"outcome\": \"unavailable\", \"entitled\": false]"))
     XCTAssertTrue(purchase.contains("if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }"),
       "a rescued new purchase is counted like an SDK-completed one")
     XCTAssertTrue(purchase.contains("AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: before.0, preflightID: before.1,"))

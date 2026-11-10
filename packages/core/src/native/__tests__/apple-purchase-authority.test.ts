@@ -197,7 +197,7 @@ describe("native purchaser-only local link eligibility", () => {
     expect(await h.authority.readLinkEligibility()).toBeNull();
     expect(h.deps.fulfillLink).not.toHaveBeenCalled();
   });
-  it("a delayed older purchaser observation cannot reopen eligibility after a newer held observation", async () => {
+  it("a delayed older purchaser observation cannot reopen eligibility after a newer held observation, and is no answer (ISS-0139)", async () => {
     const h = await setup();
     let finish!: (
       value: Awaited<ReturnType<typeof h.bridge.observeAppleLinkAccess>>,
@@ -220,7 +220,9 @@ describe("native purchaser-only local link eligibility", () => {
       generation: 2,
       rights: [{ ...h.ack, status: "purchased", linkedAccount: null }],
     });
-    expect(await old).toBeNull();
+    // Overtaken: not "nothing to link" (which would withdraw a link the page could still make),
+    // but no answer at all.
+    await expect(old).rejects.toThrow("Apple purchase requires verification");
   });
   it("an acknowledged new proof fences a delayed old purchaser read", async () => {
     const h = await setup();
@@ -240,7 +242,7 @@ describe("native purchaser-only local link eligibility", () => {
       generation: 2,
       rights: [{ ...h.ack, status: "purchased", linkedAccount: null }],
     });
-    expect(await old).toBeNull();
+    await expect(old).rejects.toThrow("Apple purchase requires verification");
   });
 });
 

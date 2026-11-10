@@ -562,7 +562,8 @@ describe("still://sync, the Safari popup's Sign in hand-off", () => {
 
 describe("mounted Apple host accepted access, provenance and verification recovery", () => {
   it("an accepted cache revocation updates an already open purchase view and removes linking", async () => {
-    const f = await compose({ initial: "purchased" });
+    // The revoked right cannot be verified again (the server refuses a refund), so the hold stands.
+    const f = await compose({ initial: "purchased", verificationFails: true });
     f.setRoute(11);
     window.dispatchEvent(new Event("still:route"));
     await screen.findByText("You have Still Pro.");
@@ -574,7 +575,10 @@ describe("mounted Apple host accepted access, provenance and verification recove
       screen.queryByRole("button", { name: "Link Still Pro to your account" }),
     ).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
-    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    // ISS-0137: a screen that reads "verify again" verifies the device once; nothing renews from
+    // the page's own older read.
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("You have Still Pro.")).toBeNull();
   });
   it.each(["protected", "family", "account-only"] as const)(
     "%s benefits remain available without a purchaser-local link or sign-in prompt",
@@ -616,6 +620,41 @@ describe("mounted Apple host accepted access, provenance and verification recove
     expect(f.purchase).toHaveBeenCalledOnce();
     expect(f.restore).not.toHaveBeenCalled();
     expect(f.linkPurchase).not.toHaveBeenCalled();
+  });
+});
+
+describe("mounted settings that read verify again verify the device themselves (ISS-0137)", () => {
+  it("a return to the foreground verifies the held right and shows Still Pro without a relaunch", async () => {
+    // iPhone, build 14: the launch verification was lost during onboarding and the card kept
+    // "Still Pro needs to be verified again" until a force quit. The screen's own read now
+    // verifies the device, and the committed right reaches the card.
+    const f = await compose();
+    await f.setAccess("verification_required");
+    await screen.findByText("Still Pro needs to be verified again.");
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledOnce());
+    // Owned: the settings screen shows no Pro card at all, only the rows.
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull(),
+    );
+    expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+    expect(
+      f.authority.entitlement.currentAccessSnapshot().states["instagram.explore"],
+    ).toBe("purchased");
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.restore).not.toHaveBeenCalled();
+  });
+  it("nothing to verify on this device keeps the card, with Restore purchase as the way back", async () => {
+    const f = await compose({ verificationFails: true });
+    await f.setAccess("verification_required");
+    await screen.findByText("Still Pro needs to be verified again.");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledOnce());
+    for (let i = 0; i < 24; i++) await Promise.resolve();
+    expect(screen.getByText("Still Pro needs to be verified again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeEnabled();
+    expect(f.purchase).not.toHaveBeenCalled();
   });
 });
 
