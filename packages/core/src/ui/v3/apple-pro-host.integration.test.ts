@@ -623,6 +623,41 @@ describe("mounted Apple host accepted access, provenance and verification recove
   });
 });
 
+describe("mounted settings that read verify again verify the device themselves (ISS-0137)", () => {
+  it("a return to the foreground verifies the held right and shows Still Pro without a relaunch", async () => {
+    // iPhone, build 14: the launch verification was lost during onboarding and the card kept
+    // "Still Pro needs to be verified again" until a force quit. The screen's own read now
+    // verifies the device, and the committed right reaches the card.
+    const f = await compose();
+    await f.setAccess("verification_required");
+    await screen.findByText("Still Pro needs to be verified again.");
+    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledOnce());
+    // Owned: the settings screen shows no Pro card at all, only the rows.
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull(),
+    );
+    expect(screen.queryByText("Still Pro needs to be verified again.")).toBeNull();
+    expect(
+      f.authority.entitlement.currentAccessSnapshot().states["instagram.explore"],
+    ).toBe("purchased");
+    expect(f.purchase).not.toHaveBeenCalled();
+    expect(f.restore).not.toHaveBeenCalled();
+  });
+  it("nothing to verify on this device keeps the card, with Restore purchase as the way back", async () => {
+    const f = await compose({ verificationFails: true });
+    await f.setAccess("verification_required");
+    await screen.findByText("Still Pro needs to be verified again.");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledOnce());
+    for (let i = 0; i < 24; i++) await Promise.resolve();
+    expect(screen.getByText("Still Pro needs to be verified again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeEnabled();
+    expect(f.purchase).not.toHaveBeenCalled();
+  });
+});
+
 describe("mounted Apple Buy the App Store never started (ISS-0070)", () => {
   const notStarted = "Still Pro couldn’t be bought right now.";
   const notStartedDetail =
