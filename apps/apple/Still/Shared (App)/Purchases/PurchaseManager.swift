@@ -743,11 +743,12 @@ final class PurchaseManager {
         // the tested rule decide. Entitled now after a conclusive pre-flight is this charge and
         // carries the same new-purchase evidence; after an inconclusive pre-flight it may be an
         // older purchase, so it goes to the local verification and is never reported as a sale.
-        let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status
+        let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
         let resolved = AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,
-          sdkReportsRefusal: sdkRefusal, preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)
+          sdkReportsRefusal: sdkRefusal, preflightConclusive: preflightRead.conclusive,
+          receiptAfterFailure: after.status, afterConclusive: after.conclusive)
         let failure = error as NSError
-        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.rawValue, privacy: .public), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
+        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.status.rawValue, privacy: .public) (conclusive \(after.conclusive)), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
         switch resolved {
         case .purchased:
           if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }

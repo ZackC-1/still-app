@@ -60,10 +60,11 @@ export function createApplePurchaseAuthority(deps: ApplePurchaseAuthorityDeps) {
    * to (native's verified, bound account only); it only hides the offer (ISS-0081).
    *
    * Null is native's settled answer: no linkable purchaser right on this device (none installed,
-   * family-shared, account-only, expired, more than one, or a sandbox review right, which native
-   * never offers for linking). A read overtaken by a newer one, or by a new local proof, is no
-   * answer and rejects (ISS-0139): the page keeps its last settled answer or asks again, instead of
-   * withdrawing a link it could still make. */
+   * family-shared, account-only, expired, or a sandbox review right, which native never offers for
+   * linking; native refuses the read outright when more than one current right matches). A read
+   * overtaken by a newer one, or by a new local proof, is no answer and rejects (ISS-0139): the
+   * page keeps its last settled answer or asks again, instead of withdrawing a link it could still
+   * make. */
   async function readLinkEligibility(): Promise<{
     readonly ownershipRevision: number;
     readonly linkedAccount: string | null;

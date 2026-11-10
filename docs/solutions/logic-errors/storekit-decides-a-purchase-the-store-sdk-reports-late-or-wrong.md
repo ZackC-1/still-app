@@ -195,24 +195,33 @@ relaunch, and the screen's own `refresh()` only re-read the cache. The Console l
 
 ### Fix
 
-- Native: `AppleSDKPurchaseFailure.classify` takes `sdkReportsRefusal`; the store SDK's
-  pre-payment codes (`purchaseNotAllowedError`, `purchaseInvalidError`,
-  `productNotAvailableForPurchaseError`, `ineligibleError`) without a verified receipt are
-  `refused`, mapped to the page's `unavailable` ("refused before any charge": the existing
-  "Still Pro couldn't be bought right now. Nothing was charged." copy and one
-  `purchase_failed reason not_allowed`). A store problem, a network error or an unknown error
-  keeps the receipt rule and the "if you were charged, Restore purchase will find it" answer.
+- Native: `AppleSDKPurchaseFailure.classify` takes `sdkReportsRefusal` and `afterConclusive`; the
+  store SDK's pre-payment codes (`purchaseNotAllowedError`, `purchaseInvalidError`,
+  `productNotAvailableForPurchaseError`, `ineligibleError`) with a conclusive not-entitled receipt
+  read after the failure (a real "no transaction" or a refund) are `refused`, mapped to the page's
+  `unavailable` ("refused before any charge": the existing "Still Pro couldn't be bought right now.
+  Nothing was charged." copy and one `purchase_failed reason not_allowed`). The SDK raises the same
+  codes from its own receipt post after Apple has charged, so a timed-out or unverifiable read
+  keeps such a refusal a `failed`, as do a store problem, a network error and an unknown error: the
+  receipt rule and the "if you were charged, Restore purchase will find it" answer stand.
 - Host: `accountChanged` cancels in-flight work only when the account's id, revision or address
-  changed; a re-confirmation of the same account changes nothing. A `failed` reply after a real
-  replacement is verified on the device like any other. Every Buy that reached the store reports
-  exactly one outcome event (`purchase_completed`, `purchase_cancelled`, `purchase_pending` or
-  `purchase_failed`) from a single place at the end of the attempt. An explicit Verify purchase that
-  cannot verify shows the existing check failure line ("We couldn't finish checking. Nothing
-  changed.", Try again verifies again) and keeps the hold.
+  changed; a re-confirmation of the same account changes nothing. Any store answer after a real
+  replacement (purchased, already owned, pending, failed) is verified on the device like any other
+  and linked to no one. Every Buy that reached the store reports exactly one outcome event
+  (`purchase_completed`, `purchase_cancelled`, `purchase_pending` or `purchase_failed`) from a
+  single place at the end of the attempt, with one exception: a Buy the store answers as already
+  owned (its pre-flight found the receipt; no sheet, nothing charged) reports no outcome, because a
+  generic accepted right is never a sale (ADR 0004, plan 2026-10-21-002). An explicit Verify
+  purchase that cannot verify shows the existing "The purchase wasn't confirmed. If you were
+  charged, Restore purchase will find it." line on both screens (the settings card gains it under
+  the verify line) and keeps the hold, Verify purchase and Restore purchase; it never occupies the
+  restore slot, which would hide Restore purchase.
 - Host: when a `refresh()` (mount, foreground, Verify purchase) reads "verify again", the screen
-  verifies the device itself, after the launch's own attempt has settled (`launchVerification`,
-  from the settings authority's `localVerification`), at most once at a time. Nothing to verify,
-  offline or refused keeps the card with its own way back.
+  verifies the device itself: after the launch's own attempt has settled (`launchVerification`,
+  from the settings authority's `localVerification`), after one more cache read (that attempt's
+  re-read may still be filling it, so a right it installed is read, never verified twice), at most
+  once at a time and at most once a minute (`HELD_VERIFICATION_INTERVAL_MS`), whatever refresh
+  started the wait. Nothing to verify, offline or refused keeps the card with its own way back.
 - Link: the authority's `readLinkEligibility` rejects an overtaken read (no answer) and returns
   null only for native's settled answer. `confirmLink` treats a settled null as "nothing to link"
   (the card and the affordance leave, no server call, no Try again) and a thrown read as a failure

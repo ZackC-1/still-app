@@ -27,8 +27,10 @@ final class PurchaseConfirmationWiringTests: XCTestCase {
     let manager = try source("Purchases/PurchaseManager.swift")
     let purchase = try slice(manager, from: "func purchaseStillPro(", to: "\n  }\n")
     XCTAssertTrue(purchase.contains("AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,"))
-    XCTAssertTrue(purchase.contains("preflightConclusive: preflightRead.conclusive, receiptAfterFailure: after)"))
-    XCTAssertTrue(purchase.contains("let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation).status"),
+    XCTAssertTrue(purchase.contains("preflightConclusive: preflightRead.conclusive,"))
+    XCTAssertTrue(purchase.contains("receiptAfterFailure: after.status, afterConclusive: after.conclusive)"),
+      "a refusal needs a conclusive receipt read after the failure (ISS-0138)")
+    XCTAssertTrue(purchase.contains("let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)"),
       "the sellable receipt is read again after the SDK throws")
     XCTAssertTrue(purchase.contains("let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError"))
     XCTAssertTrue(purchase.contains("case .cancelled: return .cancelled"))

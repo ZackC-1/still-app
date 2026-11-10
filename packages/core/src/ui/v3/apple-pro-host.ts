@@ -116,6 +116,9 @@ type BuyOutcome =
   | "pending"
   | { readonly failed: "not_allowed" | "store_error" | "unknown" };
 
+/** ISS-0137: the least time between two automatic device verifications of a held right. */
+export const HELD_VERIFICATION_INTERVAL_MS = 60_000;
+
 /** Thin host state for the shared D18/D24/D25 screens. Store feedback never establishes rights. */
 /** ISS-0104: the remembered "owned_elsewhere" answers, account id to purchaser revision. Anything
  * unreadable (a thrown read, non-JSON, a non-object, a non-number) is treated as empty. */
@@ -420,8 +423,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     void refreshLinkEligibility();
     changed();
   }
-  // ISS-0137: at most one automatic device verification at a time.
+  // ISS-0137: at most one automatic device verification at a time, and at most one a minute: a
+  // server that keeps refusing the device's transaction must not be asked at every foreground.
   let verifyingHeld = false;
+  let lastHeldVerification = -Infinity;
   /** `explicitVerify`: Verify purchase was tapped for a purchase awaiting verification. */
   async function refresh(explicitVerify = false) {
     if (stopped || busy) return;
@@ -454,15 +459,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       pendingKind = undefined;
     } else if (explicitVerify && pendingKind && rights.status === "rejected") {
       // ISS-0138: Verify purchase could not verify (no transaction on this device yet, offline, or
-      // the verification was refused). Saying nothing left a dead button: the existing check
-      // failure line says so ("We couldn't finish checking. Nothing changed.", Try again verifies
-      // again), while the verification hold and its recovery stay. The attempt's outcome was
-      // already reported; this changes only what the page shows.
-      restore = { state: "failed", onAction: () => void refresh(true) };
-    } else if (!pendingKind && owner() === "verify" && !verifyingHeld) {
+      // the verification was refused). Saying nothing left a dead button: the existing answer
+      // for a purchase the device cannot confirm says so ("The purchase wasn't confirmed. If you
+      // were charged, Restore purchase will find it."), while the verification hold, Verify
+      // purchase and Restore purchase all stay. The attempt's outcome was already reported; this
+      // changes only what the page shows.
+      purchase = { state: "failed" };
+    } else if (
+      !pendingKind &&
+      owner() === "verify" &&
+      !verifyingHeld &&
+      Date.now() - lastHeldVerification >= HELD_VERIFICATION_INTERVAL_MS
+    ) {
       // Detached: the screen settles its read now and shows the verification's answer when it
       // lands (the launch's own attempt may still be running).
-      void verifyHeldRight(generation);
+      void verifyHeldRight();
     }
     await refreshLinkEligibility();
     changed();
@@ -472,17 +483,29 @@ export function createAppleProHost(deps: AppleProHostDeps) {
    * verification that never landed). The launch's own verification is the only thing that
    * installs that right, so if it failed or was lost the card stayed on "verify again" until a
    * relaunch. The screen verifies the device itself whenever it reads that state (mount, each
-   * return to the foreground, Verify purchase), after the launch's attempt has settled so the two
-   * never ask the server for the same right at once. Nothing to verify, offline or refused keeps
-   * the card with Verify purchase and Restore purchase. */
-  async function verifyHeldRight(generation: number) {
+   * return to the foreground, Verify purchase), after the launch's attempt has settled and after
+   * one more read of the cache (which that attempt's own re-read may still be filling), so the
+   * two never ask the server for the same right. What matters is the state when the launch
+   * attempt is over, not which refresh started the wait: a refresh that ran meanwhile changes
+   * nothing. Nothing to verify, offline or refused keeps the card with Verify purchase and
+   * Restore purchase. */
+  async function verifyHeldRight() {
     verifyingHeld = true;
     try {
       await deps.launchVerification?.().catch(() => {});
-      if (stopped || generation !== epoch || busy || owner() !== "verify") return;
+      if (stopped) return;
+      const observed = accessEpoch;
+      const latest = await deps.readAccess().catch(() => null);
+      if (stopped) return;
+      if (latest && observed === accessEpoch && latest !== access) {
+        access = latest;
+        changed();
+      }
+      if (busy || pendingKind !== undefined || owner() !== "verify") return;
+      lastHeldVerification = Date.now();
       const verifying = accessEpoch;
       const verified = await deps.verifyLocalPurchase();
-      if (stopped || generation !== epoch) return;
+      if (stopped) return;
       if (verifying === accessEpoch) access = verified;
       await refreshLinkEligibility();
       changed();
@@ -640,6 +663,39 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         purchase = { state: "failed" };
         restore = undefined;
       };
+      // The store says this device now holds, or may hold, Still Pro (purchased, already owned,
+      // or accepted for later): verify this device's receipt, exactly as Restore does, and let the
+      // installed signed right decide what the page shows. A Buy the store answered as already
+      // owned sold nothing and showed no sheet, so it reports no purchase outcome (ADR 0004: a
+      // generic accepted right is never a sale); a rejected verification propagates and keeps the
+      // recovery intent.
+      const verifyStoreAnswer = async () => {
+        pendingKind = kind;
+        verifyingLocal = true;
+        const sale = result.outcome !== "restored";
+        const verifying = accessEpoch;
+        const verified = await deps.verifyLocalPurchase();
+        if (stopped) return;
+        if (verifying === accessEpoch) access = verified;
+        if (access === verified && appleProOwnership(verified) === "owned") {
+          // This also accepts isolated App Review rights, so it is the attempt's outcome as the
+          // page shows it, never the sale: canonical production purchase attribution
+          // (purchase_recorded) is the server's own event over the native new-purchase evidence.
+          pendingKind = undefined;
+          if (sale) outcome = "completed";
+          // A replaced account (a sign-out or another account meanwhile) links nothing.
+          linkTo = generation === epoch ? buyer : null;
+          purchase =
+            kind === "buy"
+              ? { state: "success", confirmed: true }
+              : { state: "idle" };
+          restore = kind === "restore" ? { state: "restored" } : undefined;
+        } else {
+          if (sale) outcome = "pending";
+          purchase = { state: "pending" };
+          restore = undefined;
+        }
+      };
       if (generation !== epoch) {
         // The account was replaced while the store was answering (a sign-out or another account;
         // the same account re-confirming never comes here, ISS-0138). The purchase is the device's
@@ -667,6 +723,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           restore = { state: "verify", onAction: () => void transact("restore") };
         } else if (result.outcome === "failed" && kind === "buy" && pendingKind === undefined) {
           await settleFailedBuy();
+          linkTo = null;
+        } else if (
+          (result.outcome === "purchased" || result.outcome === "restored" || result.outcome === "pending") &&
+          pendingKind === undefined
+        ) {
+          await verifyStoreAnswer();
           linkTo = null;
         } else {
           pendingKind ??= kind;
@@ -714,31 +776,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         result.outcome === "restored" ||
         result.outcome === "pending"
       ) {
-        pendingKind = kind;
-        verifyingLocal = true;
-        const verifying = accessEpoch;
-        const verified = await deps.verifyLocalPurchase();
-        if (stopped) return;
-        if (verifying === accessEpoch) access = verified;
-        if (access === verified && appleProOwnership(verified) === "owned") {
-          // This also accepts isolated App Review rights, so it is the attempt's outcome as the
-          // page shows it, never the sale: canonical production purchase attribution
-          // (purchase_recorded) is the server's own event over the native new-purchase evidence.
-          pendingKind = undefined;
-          outcome = "completed";
-          // A replaced account (a sign-out or another account meanwhile) links nothing.
-          linkTo = generation === epoch ? buyer : null;
-          purchase =
-            kind === "buy"
-              ? { state: "success", confirmed: true }
-              : { state: "idle" };
-          restore = kind === "restore" ? { state: "restored" } : undefined;
-        } else {
-          outcome = "pending";
-          purchase = { state: "pending" };
-          restore = undefined;
-        }
-        if (generation !== epoch) changed();
+        await verifyStoreAnswer();
+        if (!stopped && generation !== epoch) changed();
         return;
       }
       if (result.outcome === "nothing") {
@@ -764,17 +803,20 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           // An interrupted native response is an unknown acquisition, never a reason
           // to charge again. Current local verification supplies the recovery path.
           pendingKind ??= kind;
-          outcome = "pending";
           purchase = { state: "pending" };
           restore = undefined;
-          changed();
         }
       }
-      if (stopped || generation !== epoch) return;
+      if (stopped) return;
       // A verification that threw after the store answered leaves the purchase to verify (the
-      // recovery intent stands); anything else that reached the store ended unknown.
+      // recovery intent stands); anything else that reached the store ended unknown. The outcome
+      // is reported whether or not the account was replaced meanwhile.
       if (kind === "buy" && acquisitionStarted)
         outcome = pendingKind !== undefined ? "pending" : { failed: "unknown" };
+      if (generation !== epoch) {
+        changed();
+        return;
+      }
       purchase = { state: "failed" };
       if (kind === "restore")
         // Keep fresh native Restore failures distinct from this call's signed verifier.

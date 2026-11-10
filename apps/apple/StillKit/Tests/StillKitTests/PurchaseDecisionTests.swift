@@ -163,15 +163,16 @@ final class PurchaseDecisionTests: XCTestCase {
   }
 
   private func classify(cancel: Bool = false, pending: Bool = false, refusal: Bool = false, conclusive: Bool = true,
-    after: ReceiptStatus) -> AppleSDKPurchaseFailure {
+    after: ReceiptStatus, afterConclusive: Bool = true) -> AppleSDKPurchaseFailure {
     AppleSDKPurchaseFailure.classify(sdkReportsCancel: cancel, sdkReportsPending: pending, sdkReportsRefusal: refusal,
-      preflightConclusive: conclusive, receiptAfterFailure: after)
+      preflightConclusive: conclusive, receiptAfterFailure: after, afterConclusive: afterConclusive)
   }
 
   /// ISS-0138: the store refused before any payment (the purchase is not allowed, the payment is
-  /// invalid, the product is not available, the person is ineligible). Without a receipt that is a
-  /// refusal that charged nothing, never a failure to verify; with a verified receipt the receipt
-  /// still decides, and the SDK's cancel or Ask-to-Buy words still win over a refusal.
+  /// invalid, the product is not available, the person is ineligible). With a conclusive "no
+  /// transaction" or a refund after it, that is a refusal that charged nothing, never a failure to
+  /// verify; with a verified receipt the receipt still decides, and the SDK's cancel or Ask-to-Buy
+  /// words still win over a refusal.
   func testAStoreRefusalBeforeAnyPaymentChargedNothing() {
     for conclusive in [true, false] {
       XCTAssertEqual(classify(refusal: true, conclusive: conclusive, after: .noSignal), .refused)
@@ -184,6 +185,16 @@ final class PurchaseDecisionTests: XCTestCase {
     // The default keeps every other store error on the receipt rule (ISS-0136).
     XCTAssertEqual(AppleSDKPurchaseFailure.classify(sdkReportsCancel: false, sdkReportsPending: false,
       preflightConclusive: true, receiptAfterFailure: .noSignal), .failed)
+  }
+
+  /// The SDK raises the same refusal codes from its own receipt post, which runs after Apple has
+  /// charged. A receipt read that timed out or met an unverifiable transaction cannot say nothing
+  /// was charged, so such a refusal stays a failure, and the device verification still runs.
+  func testARefusalWithAnInconclusiveReceiptReadStaysAFailure() {
+    XCTAssertEqual(classify(refusal: true, after: .noSignal, afterConclusive: false), .failed)
+    XCTAssertEqual(classify(refusal: true, conclusive: false, after: .noSignal, afterConclusive: false), .failed)
+    XCTAssertEqual(classify(cancel: true, refusal: true, after: .noSignal, afterConclusive: false), .cancelled)
+    XCTAssertEqual(classify(pending: true, refusal: true, after: .noSignal, afterConclusive: false), .pending)
   }
 
   /// ISS-0136: the store SDK threw after Apple had completed the charge. StoreKit decides: a
