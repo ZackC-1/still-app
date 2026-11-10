@@ -958,7 +958,7 @@ final class WebBridgeRouter {
     case .purchased: return ["outcome": "purchased", "entitled": true]
     case .cancelled: return ["outcome": "cancelled", "entitled": false]
     case .pending: return ["outcome": "pending", "entitled": false]
-    case .unavailable: return ["outcome": "unavailable", "entitled": false]
+    case .unavailable, .refused: return ["outcome": "unavailable", "entitled": false]
     case .staleIdentity: return ["outcome": "staleIdentity", "entitled": false]
     case .failed(let message): return ["outcome": "failed", "error": message, "entitled": false]
     }

@@ -73,14 +73,21 @@ public enum PurchaseDecision {
 ///   so it goes through the local verification (`pending`) and is never reported as a new sale;
 /// - otherwise the SDK's own words decide: its cancel error (the async SDK throws on a plain
 ///   cancel instead of returning `userCancelled`) is `cancelled`, its "approval arrives later"
-///   error (Ask to Buy) is `pending`, and everything else is `failed`.
+///   error (Ask to Buy) is `pending`, a refusal the store made before any payment (ISS-0138: the
+///   purchase is not allowed on this device or account, the payment is invalid, the product is not
+///   available, the person is ineligible) is `refused`, and everything else is `failed`.
+///
+/// `refused` is the only failure that may say nothing was charged: StoreKit itself reports those
+/// codes before a payment exists. A store problem or a network error after the sheet keeps the
+/// receipt rule and the "if you were charged, Restore will find it" answer.
 public enum AppleSDKPurchaseFailure: Equatable, Sendable {
-  case purchased, pending, cancelled, failed
+  case purchased, pending, cancelled, refused, failed
 
-  public static func classify(sdkReportsCancel: Bool, sdkReportsPending: Bool, preflightConclusive: Bool,
-    receiptAfterFailure: ReceiptStatus) -> AppleSDKPurchaseFailure {
+  public static func classify(sdkReportsCancel: Bool, sdkReportsPending: Bool, sdkReportsRefusal: Bool = false,
+    preflightConclusive: Bool, receiptAfterFailure: ReceiptStatus) -> AppleSDKPurchaseFailure {
     if receiptAfterFailure == .entitled { return preflightConclusive ? .purchased : .pending }
     if sdkReportsCancel { return .cancelled }
-    return sdkReportsPending ? .pending : .failed
+    if sdkReportsPending { return .pending }
+    return sdkReportsRefusal ? .refused : .failed
   }
 }
