@@ -112,6 +112,7 @@
 //
 
 import WebKit
+import os
 import StoreKit
 import StillKit
 
@@ -135,6 +136,8 @@ struct AppleAccessRevocationFence {
   // own transaction; repeated historical refunds must not invalidate unrelated current reads.
   private var committed: Set<RevocationKey> = []
   var ready: Bool { pending.isEmpty }
+  /// How many verified revocations still wait for a durable commit (diagnostics only).
+  var pendingCount: Int { pending.count }
   func permitsInstall(_ captured: Int) -> Bool { ready && captured == generation }
   mutating func observe(_ revocation: NativeVerifiedAppleRevocation) {
     let key = RevocationKey(revocation)
@@ -238,7 +241,57 @@ final class WebBridgeRouter {
 
   private func retryVerifiedRevocations() {
     guard MonetizationConfig.paidTierEnabled else { return }
-    accessRevocations.retry { _ = try self.entitlement.revokeAppleAccess($0) }
+    accessRevocations.retry { revocation in
+      do { _ = try self.entitlement.revokeAppleAccess(revocation) }
+      catch {
+        // Until this commits, the fence refuses every modern reply (purchase, Restore, evidence,
+        // benefit reads); say so, with the error case only, so device QA can see the cause.
+        Self.bridgeLog.error("access: a verified revocation could not be committed (\(Self.describe(error), privacy: .public)); modern replies stay refused until it does")
+        throw error
+      }
+    }
+  }
+
+  /// Privacy-safe bridge diagnostics for device QA (ISS-0136, ISS-0137): which guard refused a
+  /// purchase, Restore, evidence or benefit read, and what the benefit read resolved. Reasons are
+  /// the fixed strings the page already receives; nothing from the request, the record or the
+  /// account is logged.
+  private static var bridgeLog: Logger {
+    Logger(subsystem: Bundle.main.bundleIdentifier ?? "still", category: "bridge")
+  }
+
+  /// Refuse a request with the fixed reason the page expects, and log that reason, the fence state
+  /// and, when one caused it, the error case.
+  private func refuse(_ kind: String, _ reason: String, _ reply: (Any?, String?) -> Void, error: Error? = nil) {
+    let detail = error.map { " (\(Self.describe($0)))" } ?? ""
+    Self.bridgeLog.notice("bridge: \(kind, privacy: .public) refused: \(reason, privacy: .public)\(detail, privacy: .public); pending revocation commits \(self.accessRevocations.pendingCount)")
+    reply(nil, "still: \(reason)")
+  }
+
+  /// The error's case for the log: the two record failures by case, anything else by type only.
+  private static func describe(_ error: Error) -> String {
+    switch error {
+    case let failure as AccessProofFailure: return "AccessProofFailure.\(failure)"
+    case let failure as AtomicSettingsBacking.Failure: return "AtomicSettingsBacking.\(failure)"
+    default: return String(describing: type(of: error))
+    }
+  }
+
+  private static func label(_ ownership: NativeAppleOwnershipObservation) -> String {
+    switch ownership {
+    case .noPurchases: return "noPurchases"
+    case .purchaseHistory: return "purchaseHistory"
+    case .unknown: return "unknown"
+    case .verifiedRevocations(let revocations): return "verifiedRevocations(\(revocations.count))"
+    }
+  }
+
+  /// Row states by count plus the refresh interval: enough to tell "purchased" from "verify again".
+  private static func summary(_ snapshot: BenefitAccessSnapshot) -> String {
+    var counts: [String: Int] = [:]
+    for state in snapshot.states.values { counts[state, default: 0] += 1 }
+    let states = counts.keys.sorted().map { "\($0)=\(counts[$0] ?? 0)" }.joined(separator: " ")
+    return "\(states) refreshAfterMs=\(snapshot.refreshAfterMs.map(String.init) ?? "nil")"
   }
 
   private func commitVerifiedRevocation(_ revocation: NativeVerifiedAppleRevocation) {
@@ -354,21 +407,28 @@ final class WebBridgeRouter {
 
     case "applePurchaseEvidence":
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {
-        reply(nil, "still: invalid purchase evidence request"); return
+        refuse(kind, "invalid purchase evidence request", reply); return
       }
       Task {
+        // A commit that failed earlier is retried before this read can be refused for it (ISS-0136).
+        self.retryVerifiedRevocations()
         let evidence = await self.purchases.applePurchaseEvidence { self.commitVerifiedRevocation($0) }
-        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
+        Self.bridgeLog.notice("bridge: applePurchaseEvidence found \(evidence == nil ? "no" : "a", privacy: .public) verified purchaser transaction")
         reply(Self.json(["evidence": evidence as Any? ?? NSNull()]), nil)
       }
 
     case "appleLocalPurchaseEvidence":
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {
-        reply(nil, "still: invalid local purchase evidence request"); return
+        refuse(kind, "invalid local purchase evidence request", reply); return
       }
       Task {
+        // The page's local verification (after a purchase, Restore or at launch) starts here. A
+        // commit that failed earlier is retried before this read can be refused for it (ISS-0136).
+        self.retryVerifiedRevocations()
         let evidence = await self.purchases.appleLocalPurchaseEvidence { self.commitVerifiedRevocation($0) }
-        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
+        Self.bridgeLog.notice("bridge: appleLocalPurchaseEvidence found \(evidence == nil ? "no" : "a", privacy: .public) verified device transaction")
         reply(Self.json(["evidence": evidence as Any? ?? NSNull()]), nil)
       }
 
@@ -419,12 +479,12 @@ final class WebBridgeRouter {
       }
 
     case "installAppleAccess":
-      guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple access unavailable"); return }
+      guard MonetizationConfig.paidTierEnabled else { refuse(kind, "Apple access unavailable", reply); return }
       retryVerifiedRevocations()
       guard accessRevocations.ready, frame.isTrusted, let request = AppleAccessInstallRequest.parse(body),
         let binding = try? VerifiedAppleRightBinding.verify(request.nativeBinding, trust: accessTrust),
         let generation = try? entitlement.prepareAppleAccessInstall()
-      else { reply(nil, "still: Apple access requires verification"); return }
+      else { refuse(kind, "Apple access requires verification", reply); return }
       let lineage = accessAccountLineage
       let revocationLineage = accessRevocations.generation
       let accountAtStart = accountSyncStatus.peek()?.accountId
@@ -434,25 +494,26 @@ final class WebBridgeRouter {
           session = await self.accessSessionVerifier?.verify(accessToken: token)
           guard let session, session.accountId == accountAtStart,
             self.accessAccountLineage == lineage, self.accountSyncStatus.peek()?.accountId == accountAtStart
-          else { reply(nil, "still: Apple account session requires verification"); return }
+          else { self.refuse(kind, "Apple account session requires verification", reply); return }
         } else { session = nil }
         guard let identity = await self.purchases.verifiedApplePurchaseIdentity(productId: binding.claims.productId,
           onVerifiedRevocation: { self.commitVerifiedRevocation($0) }),
           self.accessRevocations.permitsInstall(revocationLineage),
           session == nil || (self.accessAccountLineage == lineage && self.accountSyncStatus.peek()?.accountId == accountAtStart)
-        else { reply(nil, "still: Apple purchase requires verification"); return }
+        else { self.refuse(kind, "Apple purchase requires verification", reply); return }
         do {
           let committed = try self.entitlement.installAppleAccess(request, nativePurchase: identity,
             session: session, expectedGeneration: session == nil ? nil : generation)
+          Self.bridgeLog.notice("bridge: installAppleAccess committed a \(session == nil ? "device" : "device and account", privacy: .public) right")
           reply(String(data: try JSONEncoder().encode(committed), encoding: .utf8), nil)
-        } catch { reply(nil, "still: Apple access commit requires verification") }
+        } catch { self.refuse(kind, "Apple access commit requires verification", reply, error: error) }
       }
 
     case "observeAppleAccess":
       guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple access unavailable"); return }
       retryVerifiedRevocations()
       guard accessRevocations.ready, frame.isTrusted, Set(dict.keys) == ["kind"] else {
-        reply(nil, "still: invalid Apple access observation"); return
+        refuse(kind, "invalid Apple access observation", reply); return
       }
       reply(entitlement.handle(.getAppleAccess), nil)
 
@@ -460,14 +521,14 @@ final class WebBridgeRouter {
       guard MonetizationConfig.paidTierEnabled else { reply(nil, "still: Apple link access unavailable"); return }
       retryVerifiedRevocations()
       guard accessRevocations.ready, frame.isTrusted, Set(dict.keys) == ["kind"] else {
-        reply(nil, "still: invalid Apple link observation"); return
+        refuse(kind, "invalid Apple link observation", reply); return
       }
       let revocationLineage = accessRevocations.generation
       let accountLineage = accessAccountLineage
       Task {
         guard let identities = await self.purchases.verifiedAppleLinkPurchaseIdentities { self.commitVerifiedRevocation($0) },
           self.accessRevocations.permitsInstall(revocationLineage), self.accessAccountLineage == accountLineage
-        else { reply(nil, "still: Apple link purchase requires verification"); return }
+        else { self.refuse(kind, "Apple link purchase requires verification", reply); return }
         do {
           var candidate: AppleAccessObservation?
           for identity in identities {
@@ -495,20 +556,30 @@ final class WebBridgeRouter {
       }
 
     case "purchasePro":
-      guard Set(dict.keys) == ["kind", "offer"], frame.isTrusted,
+      // `join: true` (ISS-0134): the page waits again for the purchase this launch already started
+      // after its earlier bounded wait ended with `unsettled`. Never a new charge
+      // (PurchaseManager.purchasePro). Only exactly `true` is a join; anything else is malformed.
+      let join = dict["join"] as? Bool == true
+      guard Set(dict.keys) == Set(join ? ["kind", "offer", "join"] : ["kind", "offer"]), frame.isTrusted,
             let offer = AppleLifetimeOffering.parse(dict["offer"]) else {
-        reply(nil, "still: invalid purchase offer"); return
+        refuse(kind, "invalid purchase offer", reply); return
       }
       guard MonetizationConfig.paidTierEnabled else {
         reply(Self.json(ApplePurchaseActionResult(.unavailable).payload), nil); return
       }
       Task {
         let result = await RatingHold.app.during(.purchase) {
-          let result = await self.purchases.purchasePro(offer: offer, onVerifiedRevocation: { self.commitVerifiedRevocation($0) })
-          await self.refreshReceiptStamp()
+          let result = await self.purchases.purchasePro(offer: offer, join: join, onVerifiedRevocation: { self.commitVerifiedRevocation($0) })
+          // An unsettled wait changed nothing on the device; the stamp follows the real outcome.
+          if result.outcome != .unsettled { await self.refreshReceiptStamp() }
           return result
         }
-        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        // A commit that failed earlier is retried before this reply can be refused for it, as the
+        // other modern routes do: a refusal here reaches the page after the purchase may already
+        // have completed, and the page then verifies the device instead of waiting again.
+        self.retryVerifiedRevocations()
+        guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
+        Self.bridgeLog.notice("bridge: purchasePro\(join ? " join" : "", privacy: .public) replied \(result.outcome.rawValue, privacy: .public), receipt \(result.receipt.rawValue, privacy: .public)")
         reply(Self.json(result.payload), nil)
       }
 
@@ -524,7 +595,7 @@ final class WebBridgeRouter {
 
     case "restorePro":
       guard Set(dict.keys) == ["kind"], frame.isTrusted else {
-        reply(nil, "still: invalid restore request"); return
+        refuse(kind, "invalid restore request", reply); return
       }
       guard MonetizationConfig.paidTierEnabled else {
         reply(Self.json(ApplePurchaseActionResult(.unavailable).payload), nil); return
@@ -540,7 +611,10 @@ final class WebBridgeRouter {
           let read = await self.purchases.sellableReceiptRead { self.commitVerifiedRevocation($0) }
           return ApplePurchaseActionResult.proRestore(checked, receipt: read.status, productId: read.productID)
         }
-        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        // As for purchasePro: retry a failed commit before the fence can refuse this reply.
+        self.retryVerifiedRevocations()
+        guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
+        Self.bridgeLog.notice("bridge: restorePro replied \(result.outcome.rawValue, privacy: .public), receipt \(result.receipt.rawValue, privacy: .public)")
         reply(Self.json(result.payload), nil)
       }
 
@@ -693,12 +767,14 @@ final class WebBridgeRouter {
       Task {
         self.retryVerifiedRevocations()
         let ownership = await self.purchases.observeAppleOwnership { self.commitVerifiedRevocation($0) }
-        guard self.accessRevocations.ready else { reply(nil, "still: Apple revocation commit requires verification"); return }
+        guard self.accessRevocations.ready else { self.refuse(kind, "Apple revocation commit requires verification", reply); return }
         do {
           let snapshot = try self.entitlement.observeAppleBenefits(ownership)
           let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
+          // ISS-0137: what the page's minute read actually resolved (counts only, no identifiers).
+          Self.bridgeLog.notice("access: benefit read with StoreKit \(Self.label(ownership), privacy: .public): \(Self.summary(snapshot), privacy: .public)")
           reply(Self.json(["ok": true, "snapshot": value]), nil)
-        } catch { reply(nil, "still: benefit access requires verification") }
+        } catch { self.refuse(kind, "benefit access requires verification", reply, error: error) }
       }
 
     case "setEntitlement", "getEntitlement", "getAccess":
@@ -882,7 +958,7 @@ final class WebBridgeRouter {
     case .purchased: return ["outcome": "purchased", "entitled": true]
     case .cancelled: return ["outcome": "cancelled", "entitled": false]
     case .pending: return ["outcome": "pending", "entitled": false]
-    case .unavailable: return ["outcome": "unavailable", "entitled": false]
+    case .unavailable, .refused: return ["outcome": "unavailable", "entitled": false]
     case .staleIdentity: return ["outcome": "staleIdentity", "entitled": false]
     case .failed(let message): return ["outcome": "failed", "error": message, "entitled": false]
     }

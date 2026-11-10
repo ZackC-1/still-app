@@ -65,9 +65,12 @@ export interface NativeLifetimeOffering {
   readonly currencyCode: string;
 }
 
+/** `unsettled` (ISS-0134): one bounded native wait ended while StoreKit had not answered (Apple's
+ * sheet still up). Not an outcome: nothing was bought and nothing is there to verify; the host waits
+ * for the same purchase again (`purchasePro(offer, { join: true })`), which never starts a charge. */
 export type NativeProOutcome =
   | "purchased" | "restored" | "cancelled" | "pending" | "unavailable"
-  | "staleIdentity" | "nothing" | "failed";
+  | "staleIdentity" | "nothing" | "failed" | "unsettled";
 
 /** Local verified store feedback. Scoped account/local proof is a separate authority. */
 export interface NativeProResult {
@@ -201,12 +204,15 @@ export interface AnalyticsPermissionObservation {
 /** Deadline for a native read whose caller must never hang (onboarding, Safari setup). */
 export const NATIVE_READ_DEADLINE_MS = 3_000;
 
-/** Resolve `read()` or `fallback`, whichever comes first: a rejection, a throw or a reply slower
- * than `deadlineMs` all become `fallback`, so a silent native host can never stall the caller. */
+/** Resolve `read()` or `fallback`, whichever comes first: a reply slower than `deadlineMs` becomes
+ * `fallback`, and a rejection or a throw becomes `rejected(error)` (by default `fallback` too), so a
+ * silent or refusing native host can never stall the caller. Callers that must tell "no answer yet"
+ * from "native refused" pass a distinct `rejected` value. */
 export function boundedNativeRead<T>(
   read: () => Promise<T>,
   fallback: T,
   deadlineMs: number = NATIVE_READ_DEADLINE_MS,
+  rejected: (error: unknown) => T = () => fallback,
 ): Promise<T> {
   return new Promise<T>((resolve) => {
     let settled = false;
@@ -219,7 +225,7 @@ export function boundedNativeRead<T>(
     const timer = setTimeout(() => finish(fallback), deadlineMs);
     Promise.resolve()
       .then(read)
-      .then(finish, () => finish(fallback));
+      .then(finish, (error: unknown) => finish(rejected(error)));
   });
 }
 
@@ -333,7 +339,7 @@ export type NativeMessage =
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
   | { readonly kind: "proOffering" }
-  | { readonly kind: "purchasePro"; readonly offer: NativeLifetimeOffering }
+  | { readonly kind: "purchasePro"; readonly offer: NativeLifetimeOffering; readonly join?: true }
   | { readonly kind: "restorePro" }
   | { readonly kind: "appleHistoricalPurchase" }
   | { readonly kind: "applePurchaseEvidence" }
@@ -655,12 +661,18 @@ export class NativeBridge {
     return parseLifetimeOffering(reply?.offer);
   }
 
-  async purchasePro(offer: NativeLifetimeOffering): Promise<NativeProResult> {
+  /** Buy Still Pro, or with `join` wait again for the purchase native already started (ISS-0134).
+   * A reply slower than the deadline is `unsettled`, not `pending`: nothing is known yet, so nothing
+   * is sent to verification; the host joins the same purchase instead. A refused reply is not a
+   * wait: native answered, after the purchase may already have completed, so it is `pending` and
+   * the host verifies the device rather than joining again (which would spin on the same refusal). */
+  async purchasePro(offer: NativeLifetimeOffering, options: { readonly join?: boolean } = {}): Promise<NativeProResult> {
     const validated = parseLifetimeOffering(offer);
     if (!validated || !this.available) return { outcome: "unavailable", receipt: "noSignal" };
     return parseProResult(await boundedNativeRead(
-      () => this.post({ kind: "purchasePro", offer: validated }),
-      { outcome: "pending", receipt: "noSignal" }, NATIVE_PURCHASE_DEADLINE_MS,
+      () => this.post({ kind: "purchasePro", offer: validated, ...(options.join ? { join: true } : {}) }),
+      { outcome: "unsettled", receipt: "noSignal" }, NATIVE_PURCHASE_DEADLINE_MS,
+      () => ({ outcome: "pending", receipt: "noSignal" }),
     ));
   }
 
@@ -938,7 +950,7 @@ function parseProResult(raw: unknown): NativeProResult {
   if (!value || Array.isArray(value) || Object.keys(value).some((key) =>
     !["outcome", "receipt", "productId", "newPurchaseEvidence"].includes(key))) return failed;
   const outcomes: readonly NativeProOutcome[] = ["purchased", "restored", "cancelled", "pending",
-    "unavailable", "staleIdentity", "nothing", "failed"];
+    "unavailable", "staleIdentity", "nothing", "failed", "unsettled"];
   if (!outcomes.includes(value.outcome as NativeProOutcome) ||
     !["entitled", "verifiedNotEntitled", "noSignal"].includes(value.receipt as string)) return failed;
   const receipt = value.receipt as ReceiptStatusValue;
@@ -947,6 +959,10 @@ function parseProResult(raw: unknown): NativeProResult {
   let outcome = value.outcome as NativeProOutcome;
   if ((outcome === "purchased" || outcome === "restored") &&
     (receipt !== "entitled" || !productId || (outcome === "purchased" && productId !== "still_pro_v3"))) outcome = "pending";
+  // ISS-0136: a store action that did not conclude while the device holds a verified, unrevoked
+  // receipt for the sellable product is a purchase awaiting verification, never "not confirmed".
+  // The same rule as native's ApplePurchaseActionResult, kept here too so an older app build gets it.
+  if ((outcome === "failed" || outcome === "staleIdentity") && receipt === "entitled" && productId === "still_pro_v3") outcome = "pending";
   if (outcome === "nothing" && receipt === "entitled") return failed;
   const evidence = asObject(value.newPurchaseEvidence);
   const newPurchaseEvidence = outcome === "purchased" && evidence &&

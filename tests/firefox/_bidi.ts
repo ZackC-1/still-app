@@ -239,6 +239,9 @@ export async function launchFirefox(
     ],
     {
       stdio: ["ignore", "ignore", "pipe"],
+      // System access lets BiDi open moz-extension:// pages and reach the chrome scope. Firefox 159
+      // reads it only from this environment variable and ignores the flag; older releases read the flag.
+      env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" },
     },
   );
   const entry = { child, profile };

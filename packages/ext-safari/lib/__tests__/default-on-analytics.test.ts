@@ -734,4 +734,88 @@ describe("ISS-0115 (22 Oct): a popup that wakes the background keeps its events"
     await t.idle();
     expect(t.fetch).not.toHaveBeenCalled();
   });
+
+  // ISS-0127: the same race while signed in. The start's (or the popup's own) account check
+  // re-confirms the identity the earlier background already reported as.
+  const signedIn = async () => {
+    const first = setup({ account: ACCOUNT });
+    const permission = (await first.app.permission())!;
+    first.appGroupSubject.value = { account: ACCOUNT, originProof: await originProof(permission.origin), subject: SUBJECT };
+    await first.use();
+    await first.eventually(() => expect(first.bodies()).toContain(SUBJECT));
+    return { first, permission };
+  };
+
+  for (const mac of [false, true])
+    it(`${mac ? "Mac" : "iPhone"}, signed in: a woken background keeps the popup's opened, under the identity it already reported as`, async () => {
+      v3();
+      const { first } = await signedIn();
+      const { t, opened } = wake(first, { mac });
+      await opened;
+      t.bg.flush();
+      await t.idle();
+      await t.eventually(() => expect(sentAs(t)).toContainEqual(["opened", SUBJECT]));
+      expect(t.bodies()).not.toContain(ACCOUNT);
+      expect(t.bodies()).not.toContain(anonymousId(t));
+    });
+
+  it("signed in: two popup events in quick succession are both kept (the second's account check does not drop the first)", async () => {
+    v3();
+    const { first } = await signedIn();
+    const { t, opened } = wake(first);
+    const toggled = t.send(TOGGLED);
+    await Promise.all([opened, toggled]);
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() =>
+      expect(sentAs(t)).toEqual(expect.arrayContaining([["opened", SUBJECT], ["global_toggled", SUBJECT]])),
+    );
+    expect(t.bodies()).not.toContain(anonymousId(t));
+  });
+
+  it("NEGATIVE CONTROL: a woken background that finds another account signed in never sends the event observed before it", async () => {
+    v3();
+    const { first, permission } = await signedIn();
+    const OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const OTHER_SUBJECT = "5ab5ec7b-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    // Signed in as another account in the app while Safari had unloaded the background.
+    first.device.account.value = OTHER;
+    first.appGroupSubject.value = { account: OTHER, originProof: await originProof(permission.origin), subject: OTHER_SUBJECT };
+    const { t, opened } = wake(first); // possibly the earlier account's use
+    await opened;
+    t.bg.flush();
+    await t.idle();
+    await t.send(TOGGLED); // after the other account is confirmed: its use
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(sentAs(t)).toContainEqual(["global_toggled", OTHER_SUBJECT]));
+    await t.idle();
+    expect(t.sent()).not.toContain("opened");
+    expect(t.bodies()).not.toContain(`"distinct_id":"${SUBJECT}"`);
+  });
+
+  it("NEGATIVE CONTROL: an overtaken check that read the signed-in account never sends its event after a sign-out", async () => {
+    v3();
+    const { first } = await signedIn();
+    first.fetch.mockClear();
+    const t = first;
+    await t.idle();
+    // The toggle's account check reads "signed in" and its reply is slow.
+    const held = holdNextAccountRead(t);
+    const toggled = t.send(TOGGLED);
+    await held.reached;
+    // Signed out in the app; a newer event's check reads "signed out" and overtakes it.
+    t.device.account.value = null;
+    t.appGroupSubject.value = null;
+    await t.send(OPENED);
+    held.release();
+    await toggled;
+    await t.send(MASTER(false)); // after the sign-out is confirmed: anonymous
+    t.bg.flush();
+    await t.idle();
+    await t.eventually(() => expect(t.sent()).toContain("master_toggled"));
+    await t.idle();
+    expect(t.sent()).not.toContain("global_toggled");
+    expect(t.bodies()).not.toContain(SUBJECT);
+  });
 });

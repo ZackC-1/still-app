@@ -22,6 +22,7 @@ it.runIf(process.platform === "darwin")("native executor holds unknown/off sales
   const boundary = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/NativeSalesPurchaseBoundary.swift"), "utf8");
   const catalog = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift"), "utf8");
   const harness = `import Foundation
+import os
 struct NativeVerifiedAppleRevocation {}
 struct Package {}
 public enum ReceiptStatus: String, Sendable { case entitled, verifiedNotEntitled, noSignal }
@@ -48,7 +49,11 @@ func fixtureOffer() -> AppleLifetimeOffering {
   ApplePurchaseCatalog.lifetimeOffering(offeringID: "still_pro_v3", packageID: "$rc_lifetime",
     productID: "still_pro_v3", isLifetime: true, isNonConsumable: true, price: "$9.99", currencyCode: "USD")!
 }
-enum RevenueCat { enum ErrorCode: Error { case paymentPendingError } }
+enum RevenueCat { enum ErrorCode: Error {
+  case paymentPendingError, purchaseCancelledError
+  // The pre-payment refusals the app reads (ISS-0138); the harness only needs them to compile.
+  case purchaseNotAllowedError, purchaseInvalidError, productNotAvailableForPurchaseError, ineligibleError
+} }
 public final class ProductPolicyRuntime {
   enum Namespace { case sales }
   struct Verdict { let allowed: Bool }
@@ -73,15 +78,22 @@ typealias CustomerInfo = Bool
 ${decision}
 ${boundary}
 @MainActor final class Executor {
-  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, failed(String) }
+  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, refused, failed(String) }
+  static let sdkRefusalCodes: [RevenueCat.ErrorCode] = [
+    .purchaseNotAllowedError, .purchaseInvalidError, .productNotAvailableForPurchaseError, .ineligibleError,
+  ]
   var currentAppUserID: String?
   let isConfigured = true
   var receiptOwned = false
   /// ISS-0132: the device holds only the historical still_sync purchase.
   var historicalOwned = false
   var policy: ProductPolicyRuntime?
-  struct ReceiptRead { let status: ReceiptStatus }
-  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus { receiptOwned || historicalOwned ? .entitled : .noSignal }
+  struct ReceiptRead { let status: ReceiptStatus; var conclusive = true }
+  var lastReceiptRead = ReceiptRead(status: .noSignal)
+  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus {
+    lastReceiptRead = ReceiptRead(status: receiptOwned || historicalOwned ? .entitled : .noSignal)
+    return lastReceiptRead.status
+  }
   func sellableReceiptRead(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptRead { ReceiptRead(status: receiptOwned ? .entitled : .noSignal) }
   func ensureAnonymousIdentity() async -> Bool { true }
   func hasStillPro() async -> Bool { false }
@@ -95,6 +107,8 @@ ${boundary}
   func freshSalesPolicy() -> ProductPolicyRuntime? { policy }
   static var installEnvironment = AppleInstallEnvironment.unavailable
   static func verifiedInstallEnvironment() async -> AppleInstallEnvironment { installEnvironment }
+  // The app's privacy-safe purchase log (ISS-0136); the harness only needs it to compile.
+  static var purchaseLog: Logger { Logger(subsystem: "still-harness", category: "purchase") }
 ${method}
 }
 @main struct Run {
