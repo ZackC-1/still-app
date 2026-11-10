@@ -107,6 +107,9 @@
             await proServices.verifyLocalPurchase();
             return readCommittedAccess();
           },
+          // ISS-0137: a held right is verified by the screen itself once the launch's attempt
+          // has settled (see verifyHeldRight), never twice at once.
+          launchVerification: () => authority.localVerification,
           account: () =>
             c.userId && c.accountEmail
               ? {

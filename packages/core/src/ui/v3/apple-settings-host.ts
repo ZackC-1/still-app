@@ -139,6 +139,12 @@ export function createAppleSettingsAuthority(cache: SettingsCache, deps: AppleSe
     entitlement,
     /** Resolves once the first native read settled, either way. */
     settled,
+    /** The launch's device purchase verification, settled either way (ISS-0137): the Pro host
+     * waits for it before verifying a held right itself. Resolved at once when there is none. */
+    localVerification: (deps.pendingLocalVerification ?? Promise.resolve()).then(
+      () => {},
+      () => {},
+    ),
     recover(): Promise<void> {
       if (stopped) return Promise.resolve();
       recovery ??= retry().finally(() => {

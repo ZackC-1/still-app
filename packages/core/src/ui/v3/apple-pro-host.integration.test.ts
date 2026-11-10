@@ -562,7 +562,8 @@ describe("still://sync, the Safari popup's Sign in hand-off", () => {
 
 describe("mounted Apple host accepted access, provenance and verification recovery", () => {
   it("an accepted cache revocation updates an already open purchase view and removes linking", async () => {
-    const f = await compose({ initial: "purchased" });
+    // The revoked right cannot be verified again (the server refuses a refund), so the hold stands.
+    const f = await compose({ initial: "purchased", verificationFails: true });
     f.setRoute(11);
     window.dispatchEvent(new Event("still:route"));
     await screen.findByText("You have Still Pro.");
@@ -574,7 +575,10 @@ describe("mounted Apple host accepted access, provenance and verification recove
       screen.queryByRole("button", { name: "Link Still Pro to your account" }),
     ).toBeNull();
     expect(f.linkPurchase).not.toHaveBeenCalled();
-    expect(f.verifyLocalPurchase).not.toHaveBeenCalled();
+    // ISS-0137: a screen that reads "verify again" verifies the device once; nothing renews from
+    // the page's own older read.
+    await waitFor(() => expect(f.verifyLocalPurchase).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("You have Still Pro.")).toBeNull();
   });
   it.each(["protected", "family", "account-only"] as const)(
     "%s benefits remain available without a purchaser-local link or sign-in prompt",

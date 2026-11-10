@@ -61,6 +61,11 @@ export interface AppleProHostDeps {
   ): Promise<ApplePurchaseLinkResult>;
   /** Open the sign-in sheet; `purpose` gives it the words for what asked (ISS-0123). */
   signIn(purpose?: "purchase" | "link" | "restore"): void;
+  /** ISS-0137: the launch's own device purchase verification (main.ts starts it before the screen
+   * exists). When access reads "verify again", the host waits for it before verifying the device
+   * itself, so a launch never asks the server twice for the same right. Absent, or rejected, the
+   * host verifies at once. */
+  launchVerification?(): Promise<unknown>;
   /** ISS-0132: whether this device holds a historical still_sync purchase (native, display only).
    * Signed out, such a holder is asked to sign in instead of being offered Get Still Pro: that
    * purchase is restored only through the account. Absent, or anything but true, reads as no. */
@@ -102,6 +107,14 @@ export function appleProOwnership(
     return "owned";
   return states.includes("locked") ? "none" : "verify";
 }
+
+/** ISS-0140: how a Buy that reached the store ended, as the page shows it. One of ADR 0004's
+ * closed purchase outcome events is reported for it, exactly once per attempt. */
+type BuyOutcome =
+  | "completed"
+  | "cancelled"
+  | "pending"
+  | { readonly failed: "not_allowed" | "store_error" | "unknown" };
 
 /** Thin host state for the shared D18/D24/D25 screens. Store feedback never establishes rights. */
 /** ISS-0104: the remembered "owned_elsewhere" answers, account id to purchaser revision. Anything
@@ -183,6 +196,14 @@ export function createAppleProHost(deps: AppleProHostDeps) {
   const track: UiAnalytics["track"] = (name, props) => {
     try { deps.analytics?.track(name, props); } catch { /* Analytics never controls purchase UI. */ }
   };
+  /** The one outcome event of a Buy that reached the store (ISS-0140). */
+  const reportOutcome = (outcome: BuyOutcome) => {
+    const attempt = { purchase_origin: "unknown", product: "still-pro-v3" } as const;
+    if (outcome === "completed") track("purchase_completed", attempt);
+    else if (outcome === "cancelled") track("purchase_cancelled", attempt);
+    else if (outcome === "pending") track("purchase_pending", attempt);
+    else track("purchase_failed", { ...attempt, reason: outcome.failed });
+  };
   function closeOffer() {
     if (measuredOffer) {
       measuredOffer = false;
@@ -192,15 +213,21 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     purchaseSignIn = false;
     changed();
   }
-  const sameAccount = (a: AppleProAccount) => {
+  /** The same signed-in account at the same revision, with nothing else about it changed. The
+   * controller re-reads its confirmation on every foreground and the read starts by clearing it,
+   * so `confirmed` alone flickers for the same account; only id, revision and address say it was
+   * replaced (ISS-0138). */
+  const sameHolder = (a: AppleProAccount) => {
     const current = deps.account();
-    return (
-      current?.id === a.id &&
-      current.revision === a.revision &&
-      current.email === a.email &&
-      current.confirmed
-    );
+    return current?.id === a.id && current.revision === a.revision && current.email === a.email;
   };
+  const sameAccount = (a: AppleProAccount) => sameHolder(a) && deps.account()!.confirmed;
+  const accountKey = (a: AppleProAccount | null) => (a ? `${a.id}\n${a.revision}\n${a.email}` : null);
+  // What `accountChanged` last saw. Anything in flight is cancelled only when this changes: a
+  // re-confirmation of the same account (the controller clears and re-reads its confirmation on
+  // every foreground) must not orphan a purchase Apple's sheet is still showing (ISS-0138) or
+  // drop a link card (ISS-0139).
+  let seenAccount = accountKey(deps.account());
   const owner = () => (access ? appleProOwnership(access) : "checking");
   const signedOut = () => (deps.signedIn ? !deps.signedIn() : !deps.account());
   /** ISS-0132: signed out with a historical still_sync purchase and nothing owned. The card and
@@ -393,7 +420,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     void refreshLinkEligibility();
     changed();
   }
-  async function refresh() {
+  // ISS-0137: at most one automatic device verification at a time.
+  let verifyingHeld = false;
+  /** `explicitVerify`: Verify purchase was tapped for a purchase awaiting verification. */
+  async function refresh(explicitVerify = false) {
     if (stopped || busy) return;
     const generation = ++epoch;
     const observed = accessEpoch;
@@ -422,9 +452,45 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           : { state: "idle" };
       restore = pendingKind === "restore" ? { state: "restored" } : undefined;
       pendingKind = undefined;
+    } else if (explicitVerify && pendingKind && rights.status === "rejected") {
+      // ISS-0138: Verify purchase could not verify (no transaction on this device yet, offline, or
+      // the verification was refused). Saying nothing left a dead button: the existing check
+      // failure line says so ("We couldn't finish checking. Nothing changed.", Try again verifies
+      // again), while the verification hold and its recovery stay. The attempt's outcome was
+      // already reported; this changes only what the page shows.
+      restore = { state: "failed", onAction: () => void refresh(true) };
+    } else if (!pendingKind && owner() === "verify" && !verifyingHeld) {
+      // Detached: the screen settles its read now and shows the verification's answer when it
+      // lands (the launch's own attempt may still be running).
+      void verifyHeldRight(generation);
     }
     await refreshLinkEligibility();
     changed();
+  }
+  /** ISS-0137: access reads "Still Pro needs to be verified again" (a purchase on this device
+   * with no current signed right: a fresh install, a proof past its window, or a launch
+   * verification that never landed). The launch's own verification is the only thing that
+   * installs that right, so if it failed or was lost the card stayed on "verify again" until a
+   * relaunch. The screen verifies the device itself whenever it reads that state (mount, each
+   * return to the foreground, Verify purchase), after the launch's attempt has settled so the two
+   * never ask the server for the same right at once. Nothing to verify, offline or refused keeps
+   * the card with Verify purchase and Restore purchase. */
+  async function verifyHeldRight(generation: number) {
+    verifyingHeld = true;
+    try {
+      await deps.launchVerification?.().catch(() => {});
+      if (stopped || generation !== epoch || busy || owner() !== "verify") return;
+      const verifying = accessEpoch;
+      const verified = await deps.verifyLocalPurchase();
+      if (stopped || generation !== epoch) return;
+      if (verifying === accessEpoch) access = verified;
+      await refreshLinkEligibility();
+      changed();
+    } catch {
+      // No purchase on this device, offline, or refused: the card keeps its own way back.
+    } finally {
+      verifyingHeld = false;
+    }
   }
   async function transact(kind: "buy" | "restore", fromSignIn = false) {
     if (!busy && signInToRestore()) {
@@ -449,6 +515,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     let acquisitionStarted = false;
     // A purchase started signed in links to that account once it is verified (ISS-0071).
     let linkTo: AppleProAccount | null = null;
+    // ISS-0140: how this Buy ended, as the page shows it, reported exactly once per attempt that
+    // reached the store (ADR 0004's closed purchase outcome events). The canonical sale
+    // (purchase_recorded) is the server's own event over the native new-purchase evidence.
+    let outcome: BuyOutcome | undefined;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
     restore = kind === "restore" ? { state: "checking" } : undefined;
     changed();
@@ -537,15 +607,56 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (nativeAcquisitionGeneration === generation)
         nativeAcquisitionGeneration = undefined;
       if (stopped) return;
+      // ISS-0136: native said "failed" with no verified sellable receipt, but the store may have
+      // completed the purchase although its SDK reported an error afterwards (its own receipt post
+      // failing is one case). StoreKit is the authority, so before saying "The purchase wasn't
+      // confirmed" verify this device's receipt exactly as Restore does. Owned is the purchase; a
+      // held install keeps verification recovery; no transaction, or a refused verification, keeps
+      // the failed card (Restore purchase stays the way back) and never becomes a sticky "needs to
+      // be verified" (ISS-0138).
+      const settleFailedBuy = async () => {
+        const verifying = accessEpoch;
+        let verified: BenefitAccessSnapshot | null = null;
+        try { verified = await deps.verifyLocalPurchase(); }
+        catch { /* Nothing to verify, or the verification was refused: the failed card stands. */ }
+        if (stopped) return;
+        if (verified) {
+          if (verifying === accessEpoch) access = verified;
+          if (owner() === "owned") {
+            // The signed right is installed natively: owned now is the purchase.
+            linkTo = buyer;
+            outcome = "completed";
+            purchase = { state: "success", confirmed: true };
+            restore = undefined;
+            return;
+          }
+          pendingKind = kind;
+          outcome = "pending";
+          purchase = { state: "pending" };
+          restore = undefined;
+          return;
+        }
+        outcome = { failed: "store_error" };
+        purchase = { state: "failed" };
+        restore = undefined;
+      };
       if (generation !== epoch) {
-        // Account replacement cannot discard a dispatched StoreKit completion. Retain
-        // only its recovery intent; a current signed read must establish the rights.
+        // The account was replaced while the store was answering (a sign-out or another account;
+        // the same account re-confirming never comes here, ISS-0138). The purchase is the device's
+        // Apple Account's, so the store's answer still settles here, but nothing links it to the
+        // departed account, and a lost or malformed reply keeps only its recovery intent: a
+        // current signed read must establish the rights.
         if (result.outcome === "cancelled" && pendingKind === undefined) {
+          outcome = "cancelled";
           purchase = { state: "idle" };
           restore = undefined;
-        } else if (result.outcome === "unavailable" && pendingKind === undefined) {
-          // The native port refused dispatch; unlike failed/noSignal this is not a
-          // lost or malformed reply from an acquisition that may have completed.
+        } else if (
+          (result.outcome === "unavailable" || result.outcome === "staleIdentity") &&
+          pendingKind === undefined
+        ) {
+          // The native port refused dispatch before any charge; unlike failed/noSignal this is
+          // not a lost or malformed reply from an acquisition that may have completed.
+          outcome = { failed: "not_allowed" };
           purchase = kind === "buy" ? { state: "failed", notCharged: true } : { state: "failed" };
           restore = kind === "restore"
             ? { state: "failed", onAction: () => void transact("restore") } : undefined;
@@ -554,8 +665,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           purchase = { state: "idle" };
           // Local absence cannot conclude ownership for the replacement account.
           restore = { state: "verify", onAction: () => void transact("restore") };
+        } else if (result.outcome === "failed" && kind === "buy" && pendingKind === undefined) {
+          await settleFailedBuy();
+          linkTo = null;
         } else {
           pendingKind ??= kind;
+          outcome = "pending";
           purchase = { state: "pending" };
           restore = undefined;
         }
@@ -565,8 +680,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (result.outcome === "cancelled") {
         // A closed sheet is a cancel, however long it stayed up (ISS-0134): Get Still Pro again,
         // counted once as a cancel and never as a failure.
-        if (kind === "buy")
-          track("purchase_cancelled", { purchase_origin: "unknown", product: "still-pro-v3" });
+        outcome = "cancelled";
         purchase = { state: "idle" };
         restore = undefined;
         return;
@@ -576,11 +690,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         kind === "buy" &&
         pendingKind === undefined
       ) {
-        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "not_allowed" });
+        outcome = { failed: "not_allowed" };
         // Native "unavailable" and "staleIdentity" are refused before any charge (paid tier off,
         // changed offer, sales policy, the unverified sandbox installation check, e.g. no App Store
-        // account, or a store SDK identity that is not verifiably anonymous), so the copy must not
-        // suggest a purchase happened (ISS-0070).
+        // account, a store SDK identity that is not verifiably anonymous, or the store's own
+        // refusal before any payment: not allowed, invalid, not available, ineligible, ISS-0138),
+        // so the copy must not suggest a purchase happened (ISS-0070).
         purchase = { state: "failed", notCharged: true };
         return;
       }
@@ -603,24 +718,27 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         verifyingLocal = true;
         const verifying = accessEpoch;
         const verified = await deps.verifyLocalPurchase();
-        if (stopped || generation !== epoch) return;
+        if (stopped) return;
         if (verifying === accessEpoch) access = verified;
         if (access === verified && appleProOwnership(verified) === "owned") {
-          // This also accepts isolated App Review rights. Do not report a live sale from this
-          // generic ownership answer; canonical production purchase attribution is separate.
+          // This also accepts isolated App Review rights, so it is the attempt's outcome as the
+          // page shows it, never the sale: canonical production purchase attribution
+          // (purchase_recorded) is the server's own event over the native new-purchase evidence.
           pendingKind = undefined;
-          linkTo = buyer;
+          outcome = "completed";
+          // A replaced account (a sign-out or another account meanwhile) links nothing.
+          linkTo = generation === epoch ? buyer : null;
           purchase =
             kind === "buy"
               ? { state: "success", confirmed: true }
               : { state: "idle" };
           restore = kind === "restore" ? { state: "restored" } : undefined;
         } else {
+          outcome = "pending";
           purchase = { state: "pending" };
           restore = undefined;
-          if (kind === "buy")
-            track("purchase_pending", { purchase_origin: "unknown", product: "still-pro-v3" });
         }
+        if (generation !== epoch) changed();
         return;
       }
       if (result.outcome === "nothing") {
@@ -630,43 +748,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         return;
       }
       if (result.outcome === "failed" && kind === "buy") {
-        // ISS-0136: the store may have completed the purchase although the native SDK reported an
-        // error afterwards (its own receipt post failing is one case). StoreKit is the authority,
-        // so before saying "The purchase wasn't confirmed" verify this device's receipt exactly as
-        // Restore does. No transaction, or a refused verification, keeps the failed card (Restore
-        // purchase stays the way back); it never becomes a sticky "needs to be verified".
-        const verifying = accessEpoch;
-        let verified: BenefitAccessSnapshot | null = null;
-        try { verified = await deps.verifyLocalPurchase(); }
-        catch { /* Nothing to verify, or the verification was refused: the failed card stands. */ }
-        if (stopped) return;
+        await settleFailedBuy();
         if (generation !== epoch) {
-          // Account replacement during the check: keep the recovery intent, as for any dispatched
-          // purchase; a current signed read must establish the rights.
-          pendingKind ??= kind;
-          purchase = { state: "pending" };
-          restore = undefined;
+          // The account was replaced during the check: the device's answer stands, nothing links.
+          linkTo = null;
           changed();
-          return;
         }
-        if (verified) {
-          // The signed right is installed natively: owned now is the purchase, and anything else
-          // is a held observation that the ordinary verification recovery resolves.
-          if (verifying === accessEpoch) access = verified;
-          if (owner() === "owned") {
-            linkTo = buyer;
-            purchase = { state: "success", confirmed: true };
-            restore = undefined;
-            return;
-          }
-          pendingKind = kind;
-          purchase = { state: "pending" };
-          restore = undefined;
-          track("purchase_pending", { purchase_origin: "unknown", product: "still-pro-v3" });
-          return;
-        }
-        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "store_error" });
-        purchase = { state: "failed" };
         return;
       }
       throw new Error("Native purchase did not complete");
@@ -677,14 +764,17 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           // An interrupted native response is an unknown acquisition, never a reason
           // to charge again. Current local verification supplies the recovery path.
           pendingKind ??= kind;
+          outcome = "pending";
           purchase = { state: "pending" };
           restore = undefined;
           changed();
         }
       }
       if (stopped || generation !== epoch) return;
+      // A verification that threw after the store answered leaves the purchase to verify (the
+      // recovery intent stands); anything else that reached the store ended unknown.
       if (kind === "buy" && acquisitionStarted)
-        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "unknown" });
+        outcome = pendingKind !== undefined ? "pending" : { failed: "unknown" };
       purchase = { state: "failed" };
       if (kind === "restore")
         // Keep fresh native Restore failures distinct from this call's signed verifier.
@@ -692,6 +782,8 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           ? undefined
           : { state: "failed", onAction: () => void transact("restore") };
     } finally {
+      if (!stopped && kind === "buy" && acquisitionStarted && outcome !== undefined)
+        reportOutcome(outcome);
       if (generation === epoch) {
         preflightGeneration = undefined;
         if (signInContinuation === generation) signInContinuation = undefined;
@@ -728,14 +820,23 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       busy ||
       (link && link.state !== "failed") ||
       owner() !== "owned" ||
-      !sameAccount(account)
+      !sameHolder(account)
     )
       return;
     const generation = ++linkGeneration;
     linkAccount = { ...account };
     // Eligibility is read inside the guarded link (once more if an overlapping refresh changed
-    // access meanwhile); anything it cannot prove ends in the failed card with Try again.
-    await confirmLink(linkAccount, generation, () => void linkPurchased(account), 2);
+    // access meanwhile). A read it could not make ends in the failed card with Try again, which
+    // links the same holder as signed in now (the session may have re-confirmed or advanced its
+    // revision since the purchase, ISS-0139); a settled "nothing to link" ends with no card.
+    await confirmLink(linkAccount, generation, () => {
+      const current = deps.account();
+      void linkPurchased(
+        current?.confirmed && current.id === account.id && current.email === account.email
+          ? { ...current }
+          : account,
+      );
+    }, 2);
   }
   async function requestLink() {
     if (stopped || busy || requestingLink || owner() === "none" || !eligiblePurchase) return;
@@ -828,12 +929,15 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     onRetry: () => void = requestLink,
     attempts = 1,
   ) {
+    // The same holder at the same revision carries the link through: the controller's own
+    // confirmation flickers on every foreground re-read (ISS-0138), and the link authority
+    // re-verifies the confirmed account itself before anything is committed.
     if (
       stopped ||
       busy ||
       generation !== linkGeneration ||
       !linkAccount ||
-      !sameAccount(account)
+      !sameHolder(account)
     )
       return;
     if (owner() !== "owned") {
@@ -848,9 +952,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     changed();
     try {
       let eligible: { readonly ownershipRevision: number } | null | undefined;
-      // Native refuses a read while it is busy (a reconcile or revocation in flight); one such
-      // refusal is asked again rather than failing the link. A verdict (an unproven purchaser or
-      // access that changed meanwhile) keeps the attempt rule below.
+      // Native refuses a read while it is busy (a reconcile or revocation in flight), and a read
+      // overtaken by a newer one is no answer either (ISS-0139); one such refusal is asked again
+      // rather than failing the link. A verdict (an unproven purchaser or access that changed
+      // meanwhile) keeps the attempt rule below.
       let refusals = 0;
       for (let attempt = 1; ; attempt++) {
         const observed = accessEpoch;
@@ -864,7 +969,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (
           stopped ||
           generation !== linkGeneration ||
-          !sameAccount(account) ||
+          !sameHolder(account) ||
           owner() !== "owned"
         )
           return;
@@ -873,6 +978,18 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           Number.isSafeInteger(eligible.ownershipRevision) &&
           eligible.ownershipRevision >= 0;
         if (observed === accessEpoch && proven) break;
+        if (observed === accessEpoch && eligible === null) {
+          // ISS-0139: native's settled answer is that nothing on this device can be linked (no
+          // purchaser right of its own, or a sandbox review right, which native never offers for
+          // linking). That is a fact, not a failure: no server call, no "Linking didn't finish"
+          // and no Try again that could only fail the same way. The card leaves, as the link
+          // affordance does on the same answer.
+          eligiblePurchase = null;
+          eligibilityFresh = true;
+          clearLink();
+          changed();
+          return;
+        }
         if (attempt >= attempts)
           throw new Error(
             observed !== accessEpoch
@@ -885,7 +1002,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         expectedOwnershipRevision: eligible!.ownershipRevision,
         operationId: deps.operationId?.() ?? crypto.randomUUID(),
       });
-      if (stopped || generation !== linkGeneration || !sameAccount(account))
+      if (stopped || generation !== linkGeneration || !sameHolder(account))
         return;
       if (result.status === "owned_elsewhere") {
         // ISS-0104: held by another account at this revision; remembered for this account so the
@@ -902,7 +1019,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       }
       // Link failure does not touch the independent local proof lane.
     } catch {
-      if (!stopped && generation === linkGeneration && sameAccount(account))
+      if (!stopped && generation === linkGeneration && sameHolder(account))
         link = { state: "failed", email: account.email, onRetry };
     } finally {
       if (operation === epoch) {
@@ -923,33 +1040,39 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (!stopped) closeOffer();
     },
     accountChanged() {
-      // Dismissal must not be attributed to a replacement account that never saw this opening.
-      measuredOffer = false;
-      // Cancel only checks that have not reached native purchase/Restore. A dispatched
-      // purchase still needs its independent signed-rights recovery, never another charge.
-      if (preflightGeneration === epoch) {
-        // Re-arm the sign-in continuation once, and only for the account that signed in for it:
-        // a sign-out or another account drops it, so a later sign-in never opens Apple's sheet.
-        if (
-          signInContinuation === preflightGeneration &&
-          !continuationRearmed &&
-          continuationAccount !== null &&
-          deps.account()?.id === continuationAccount
-        ) {
-          purchaseSignIn = true;
-          purchaseSignInAccount = continuationAccount;
-          continuationRearmed = true;
+      // The same account re-confirming (the controller's foreground re-read) changes nothing
+      // about what is in flight; only a replaced account cancels it (ISS-0138, ISS-0139).
+      const replaced = accountKey(deps.account()) !== seenAccount;
+      seenAccount = accountKey(deps.account());
+      if (replaced) {
+        // Dismissal must not be attributed to a replacement account that never saw this opening.
+        measuredOffer = false;
+        // Cancel only checks that have not reached native purchase/Restore. A dispatched
+        // purchase still needs its independent signed-rights recovery, never another charge.
+        if (preflightGeneration === epoch) {
+          // Re-arm the sign-in continuation once, and only for the account that signed in for it:
+          // a sign-out or another account drops it, so a later sign-in never opens Apple's sheet.
+          if (
+            signInContinuation === preflightGeneration &&
+            !continuationRearmed &&
+            continuationAccount !== null &&
+            deps.account()?.id === continuationAccount
+          ) {
+            purchaseSignIn = true;
+            purchaseSignInAccount = continuationAccount;
+            continuationRearmed = true;
+          }
+          signInContinuation = undefined;
+          preflightGeneration = undefined;
+          if (pendingKind === undefined) {
+            purchase = { state: "idle" };
+            restore = undefined;
+          }
         }
-        signInContinuation = undefined;
-        preflightGeneration = undefined;
-        if (pendingKind === undefined) {
-          purchase = { state: "idle" };
-          restore = undefined;
-        }
+        epoch++;
+        busy = false;
       }
-      epoch++;
-      busy = false;
-      if (linkAccount && !sameAccount(linkAccount)) {
+      if (replaced && linkAccount && !sameAccount(linkAccount)) {
         const current = deps.account();
         const sameHolder =
           current !== null && current.id === linkAccount.id && current.email === linkAccount.email;
@@ -1040,7 +1163,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           onBuy: buy,
           ...(signInToRestore() ? { onSignInToRestore: openRestoreSignIn } : {}),
           onRestore: () => void transact("restore"),
-          ...(!busy ? { onVerify: () => void refresh() } : {}),
+          ...(!busy ? { onVerify: () => void refresh(true) } : {}),
         },
         onBack: () => {
           if (!stopped) closeOffer();
@@ -1074,7 +1197,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
             changed();
           },
           onRestore: () => void transact("restore"),
-          onRetry: () => (pendingKind ? void refresh() : void transact("buy")),
+          onRetry: () => (pendingKind ? void refresh(true) : void transact("buy")),
         },
         restore,
         link,

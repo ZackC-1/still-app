@@ -128,10 +128,13 @@ describe("real Apple Pro host composition", () => {
     expect(analytics.track.mock.calls).toEqual([
       ["paywall_viewed", { trigger: "upgrade_button", where: "app" }],
       ["purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" }],
+      // ISS-0140: the attempt's one outcome event. It is the funnel outcome as the page shows it
+      // (a sandbox or App Review right ends here too); the sale itself is the server-authored
+      // purchase_recorded, which the host never invents from a generic accepted local proof.
+      ["purchase_completed", { purchase_origin: "unknown", product: "still-pro-v3" }],
       ["paywall_dismissed", { trigger: "upgrade_button", where: "app" }],
     ]);
-    // A generic accepted local proof could be an Apple sandbox review right, never a live sale.
-    expect(analytics.track.mock.calls.some(([name]) => name === "purchase_completed" || name === "purchase_recorded")).toBe(false);
+    expect(analytics.track.mock.calls.some(([name]) => name === "purchase_recorded")).toBe(false);
   });
 
   it("does not count Verify purchase or Restore as an offer or a new purchase", async () => {
@@ -458,7 +461,7 @@ describe("real Apple Pro host composition", () => {
 });
 
 describe("accepted access and purchaser-only link provenance", () => {
-  it("accepted native access overrides a delayed older host read without renewing it", async () => {
+  it("accepted native access overrides a delayed older host read; the hold is then verified on the device, not renewed from the read", async () => {
     const { host, deps } = await harness();
     let finish!: (value: BenefitAccessSnapshot) => void;
     vi.mocked(deps.readAccess).mockImplementation(
@@ -467,13 +470,15 @@ describe("accepted access and purchaser-only link provenance", () => {
           finish = resolve;
         }),
     );
+    // Nothing to verify on this device: the accepted hold stands (ISS-0137 verifies, never renews).
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
     const reading = host.refresh();
     host.observeAccess(access("verification_required"));
     finish(access("purchased"));
     await reading;
     expect(host.props([]).access.state).toBe("verify");
     expect(host.canLink).toBe(false);
-    expect(deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
   });
   it("a newer accepted hold prevents a charge despite a delayed old locked preflight", async () => {
     const { host, deps, settle } = await harness();
@@ -516,7 +521,7 @@ describe("accepted access and purchaser-only link provenance", () => {
     expect(deps.signIn).not.toHaveBeenCalled();
     expect(host.canLink).toBe(false);
   });
-  it("confirming an account rereads local purchaser eligibility before fulfillment", async () => {
+  it("confirming an account rereads local purchaser eligibility before fulfillment; a settled nothing-to-link withdraws the offer", async () => {
     const { host, deps, settle, setAccount } = await harness();
     host.observeAccess(access("purchased"));
     await settle();
@@ -526,7 +531,23 @@ describe("accepted access and purchaser-only link provenance", () => {
     host.settings().link?.onConfirm?.();
     await settle();
     expect(deps.linkPurchase).not.toHaveBeenCalled();
+    // ISS-0139: native's settled answer is a fact, not a failure with a Try again that could only
+    // fail the same way: the offer leaves, as it does when a refresh reads the same answer.
+    expect(host.settings().link).toBeUndefined();
+    expect(host.canLink).toBe(false);
+  });
+  it("confirming an account whose eligibility read cannot be made reports a failure with Try again", async () => {
+    const { host, deps, settle, setAccount } = await harness();
+    host.observeAccess(access("purchased"));
+    await settle();
+    setAccount(user);
+    await host.requestLink();
+    vi.mocked(deps.readLinkEligibility!).mockRejectedValue(new Error("Apple purchase requires verification"));
+    host.settings().link?.onConfirm?.();
+    await settle();
+    expect(deps.linkPurchase).not.toHaveBeenCalled();
     expect(host.settings().link?.state).toBe("failed");
+    expect(host.settings().link?.onRetry).toBeTypeOf("function");
   });
   it("a newer accepted owned snapshot fences an older purchaser confirmation read", async () => {
     const { host, deps, settle, setAccount } = await harness();
@@ -782,7 +803,10 @@ describe("Apple operation cleanup ownership", () => {
     expect(h.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
     expect(h.deps.linkPurchase).not.toHaveBeenCalled();
   });
-  it("a failed/noSignal native reply after account replacement is unknown and cannot permit another charge", async () => {
+  it("a failed/noSignal native reply after account replacement is verified on the device and cannot permit another charge", async () => {
+    // The purchase is the device's Apple Account's: the replaced Still account changes nothing
+    // about what StoreKit holds, so the same one-time device verification settles it (ISS-0136),
+    // and a second tap never charges again.
     const h = await harness();
     let finish!: (value: NativeProResult) => void;
     vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
@@ -791,11 +815,28 @@ describe("Apple operation cleanup ownership", () => {
     h.setAccount(user);
     finish({outcome:"failed", receipt:"noSignal"});
     await h.settle();
-    expect(h.host.props([]).purchase).toEqual({state:"pending", verificationRequired:true});
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+    // Nothing links it to the account that replaced the buyer.
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    // The committed cache now reads the installed right: a second tap finds it owned.
+    vi.mocked(h.deps.readAccess).mockResolvedValue(access("purchased"));
     h.host.props([]).native.onBuy?.();
     await h.settle();
     expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
-    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+  });
+  it("a failed/noSignal native reply after account replacement with nothing on the device keeps the failed card, never a verify state", async () => {
+    const h = await harness();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    vi.mocked(h.deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    h.setAccount(user);
+    finish({outcome:"failed", receipt:"noSignal"});
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({state:"failed"});
+    expect(h.host.settings().pro?.verificationRequired).toBeUndefined();
   });
   it.each(["buy", "restore"] as const)("a confirmed unavailable native %s after account replacement releases an empty acquisition", async kind => {
     const h = await harness();
@@ -924,7 +965,7 @@ describe("Apple operation cleanup ownership", () => {
     await h.settle();
     expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
   });
-  it("an account change preserves recovery after native purchase has completed", async () => {
+  it("an account change preserves recovery after native purchase has completed, and the device verification in flight settles it", async () => {
     const h = await harness();
     let finish!: (value: BenefitAccessSnapshot) => void;
     vi.mocked(h.deps.verifyLocalPurchase).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
@@ -936,9 +977,13 @@ describe("Apple operation cleanup ownership", () => {
     finish(access("purchased"));
     await h.settle();
     expect(h.deps.bridge.purchasePro).toHaveBeenCalledOnce();
-    await h.host.refresh();
-    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+    // The signed device right the verification installed is the answer; nothing verifies twice.
     expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+    vi.mocked(h.deps.readAccess).mockResolvedValue(access("purchased"));
+    await h.host.refresh();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({state:"success", confirmed:true});
+    expect(h.host.props([]).access.state).toBe("owned");
   });
   it("an earlier account link completion cannot release a replacement account's purchase", async () => {
     const h = await harness();
@@ -1104,24 +1149,67 @@ describe("Apple Still Pro purchase starts with sign-in (ISS-0071)", () => {
     h.setAccount(null);
     verified(access("purchased"));
     await h.settle();
+    // The device's purchase stands (the committed cache now reads it); the departed account is
+    // never linked to it.
+    vi.mocked(h.deps.readAccess).mockResolvedValue(access("purchased"));
     await h.host.refresh();
     await h.settle();
     expect(h.host.props([]).access.state).toBe("owned");
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
     expect(h.deps.linkPurchase).not.toHaveBeenCalled();
   });
-  it("a purchaser the device cannot prove is never linked; the failed card offers Try again", async () => {
+  it("a purchase native says is not linkable ends with Still Pro on this device: no failed card, no server call (ISS-0139)", async () => {
+    // TestFlight: the verified right is a sandbox review right, which native never offers for
+    // linking. The owner saw "Linking didn't finish" with a Try again that could only fail again.
     const h = await signInCapable();
     h.setAccount(user);
     await h.settle();
     vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue(null);
     h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true }));
+    await h.settle();
+    expect(h.host.settings().link).toBeUndefined();
+    expect(h.host.canLink).toBe(false);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+    // A later read that finds a linkable right offers the link as usual, instead of a Try again.
+    vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 0 });
+    h.host.observeAccess(access("purchased"));
+    await h.settle();
+    expect(h.host.canLink).toBe(true);
+    expect(h.deps.linkPurchase).not.toHaveBeenCalled();
+  });
+  it("a purchaser read that cannot be made fails with Try again, which links the same account once it re-confirms (ISS-0139)", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    vi.mocked(h.deps.readLinkEligibility!).mockRejectedValue(new Error("Apple purchase requires verification"));
+    h.host.props([]).native.onBuy?.();
     await vi.waitFor(() => expect(h.host.settings().link?.state).toBe("failed"));
     expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
     expect(h.deps.linkPurchase).not.toHaveBeenCalled();
-    // Try again re-runs the same guarded link once the purchaser can be proved.
+    // The controller re-reads its confirmation (cleared, then confirmed again, ISS-0138): the
+    // same account, so the failed card and its Try again stay instead of vanishing.
+    h.setAccount({ ...user, confirmed: false });
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("failed");
+    h.setAccount(user);
+    await h.settle();
+    expect(h.host.settings().link?.state).toBe("failed");
     vi.mocked(h.deps.readLinkEligibility!).mockResolvedValue({ ownershipRevision: 0 });
     h.host.settings().link?.onRetry?.();
     await vi.waitFor(() => expect(h.host.settings().link?.state).toBe("linked"));
+    expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(h.deps.linkPurchase).toHaveBeenCalledWith(expect.objectContaining({ intendedAccountId: user.id }));
+  });
+  it("a purchaser read overtaken once by a newer read is asked again, and the purchase links (ISS-0139)", async () => {
+    const h = await signInCapable();
+    h.setAccount(user);
+    await h.settle();
+    vi.mocked(h.deps.readLinkEligibility!)
+      .mockRejectedValueOnce(new Error("Apple purchase requires verification"))
+      .mockResolvedValue({ ownershipRevision: 0 });
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(h.host.settings().link).toEqual({ state: "linked", email: user.email }));
     expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
   });
   it("an overlapping access refresh during the automatic link cannot silently drop it", async () => {
@@ -2185,7 +2273,7 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
     expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
     expect(host.settings().pro?.ownership).toBe("owned");
-    expect(names()).toEqual(["purchase_started"]);
+    expect(names()).toEqual(["purchase_started", "purchase_completed"]);
   });
   it("a store failure with nothing on the device stays not confirmed, without a verify state", async () => {
     const { track } = events();
@@ -2257,7 +2345,7 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
     expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
     expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
-    expect(names()).toEqual(["purchase_started"]);
+    expect(names()).toEqual(["purchase_started", "purchase_completed"]);
   });
   it("a refused join after a wait ends in verification, never a cancel and never another join", async () => {
     // Native had settled and refused the reply (the bridge maps a refusal to pending, ISS-0136).
@@ -2271,7 +2359,7 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
     expect(deps.verifyLocalPurchase).toHaveBeenCalledOnce();
     expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
-    expect(names()).toEqual(["purchase_started"]);
+    expect(names()).toEqual(["purchase_started", "purchase_completed"]);
   });
   it("while a purchase is still unsettled the screen keeps waiting and a second tap never reaches native", async () => {
     const { host, deps, settle } = await harness();
@@ -2292,7 +2380,7 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
   });
   it.each([
     { settles: "cancelled" as const, purchase: { state: "idle" }, verified: 0, events: ["purchase_started", "purchase_cancelled"] },
-    { settles: "purchased" as const, purchase: { state: "success", confirmed: true }, verified: 1, events: ["purchase_started"] },
+    { settles: "purchased" as const, purchase: { state: "success", confirmed: true }, verified: 1, events: ["purchase_started", "purchase_completed"] },
   ])("the page keeps waiting for as long as native says the purchase is in flight, then takes the real $settles", async (expected) => {
     // A sheet left up for a long time: many bounded waits, each joining the same native purchase.
     // Nothing ends the attempt but StoreKit's own answer, so a late confirmation is verified and
@@ -2312,5 +2400,241 @@ describe("Apple purchase outcomes after Apple's sheet (ISS-0134, ISS-0136)", () 
     expect(host.settings().pro?.verificationRequired).toBeUndefined();
     expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(expected.verified);
     expect(names()).toEqual(expected.events);
+  });
+});
+
+describe("a store refusal before any charge, and Verify purchase that always answers (ISS-0138)", () => {
+  const noSignal = (outcome: NativeProResult["outcome"]): NativeProResult => ({ outcome, receipt: "noSignal" });
+  const events = () => {
+    const track = vi.fn();
+    return { track, names: () => track.mock.calls.map(([name, props]) => [name, props]) };
+  };
+  /** A signed-in Buy whose native reply is held until `finish`. */
+  async function heldBuy() {
+    const { track, names } = events();
+    const h = await harness({ analytics: { track } });
+    h.setAccount(user);
+    await h.settle();
+    let finish!: (value: NativeProResult) => void;
+    vi.mocked(h.deps.bridge.purchasePro).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    h.host.props([]).native.onBuy?.();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    return { ...h, names, finish: (value: NativeProResult) => finish(value) };
+  }
+  /** The controller re-reads its confirmation on every foreground: cleared, then confirmed. */
+  function reconfirm(h: Awaited<ReturnType<typeof heldBuy>>) {
+    h.setAccount({ ...user, confirmed: false });
+    h.setAccount(user);
+  }
+  it("the same account re-confirming while Apple's sheet is up does not orphan a refused purchase", async () => {
+    // Build 14: the re-confirmation bumped the host's epoch, the refused reply landed in the
+    // "account replaced" branch and became "Your purchase needs to be verified." with a Verify
+    // purchase that did nothing, and no outcome event. Nothing was charged.
+    const h = await heldBuy();
+    reconfirm(h);
+    h.finish(noSignal("unavailable"));
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(h.host.settings().pro?.verificationRequired).toBeUndefined();
+    expect(h.host.settings().pro?.notCharged).toBe(true);
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    expect(h.names()).toEqual([
+      ["purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" }],
+      ["purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "not_allowed" }],
+    ]);
+    // Get Still Pro is back: Try again is a new Buy.
+    h.host.settings().pro?.onRetry?.();
+    await h.settle();
+    expect(h.deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+  });
+  it("the same account re-confirming while Apple's sheet is up keeps a store failure on the device rule", async () => {
+    const h = await heldBuy();
+    vi.mocked(h.deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
+    reconfirm(h);
+    h.finish(noSignal("failed"));
+    await h.settle();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    expect(h.host.props([]).purchase).toEqual({ state: "failed" });
+    expect(h.host.settings().pro?.verificationRequired).toBeUndefined();
+    expect(h.names()).toEqual([
+      ["purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" }],
+      ["purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "store_error" }],
+    ]);
+  });
+  it("the same account re-confirming while Apple's sheet is up still links a confirmed purchase to it", async () => {
+    const h = await heldBuy();
+    reconfirm(h);
+    h.finish(owned);
+    await vi.waitFor(() => expect(h.host.settings().link).toEqual({ state: "linked", email: user.email }));
+    expect(h.host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(h.deps.linkPurchase).toHaveBeenCalledOnce();
+    expect(h.names()).toEqual([
+      ["purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" }],
+      ["purchase_completed", { purchase_origin: "unknown", product: "still-pro-v3" }],
+    ]);
+  });
+  it("a replaced account during Apple's sheet still reports the refusal once and says nothing was charged", async () => {
+    const h = await heldBuy();
+    h.setAccount(null);
+    h.finish(noSignal("unavailable"));
+    await h.settle();
+    expect(h.host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(h.names().map(([name]) => name)).toEqual(["purchase_started", "purchase_failed"]);
+  });
+  it("Verify purchase that cannot verify says so, and its Try again verifies again", async () => {
+    // Ask to Buy, approval not there yet: the hold stands, and the tap must answer (build 14
+    // showed nothing and asked no one).
+    const { track, names } = events();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("pending"));
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValue(new Error("Apple purchase requires verification"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    // The attempt's own verification could not run either: the hold stands with its line.
+    expect(host.props([]).purchase).toEqual({ state: "failed", verificationRequired: true });
+    expect(host.settings().restore).toBeUndefined();
+    host.props([]).native.onVerify?.();
+    await settle();
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+    // The hold and its recovery stay; the check failure is said, with its own Try again.
+    expect(host.props([]).purchase).toEqual({ state: "failed", verificationRequired: true });
+    expect(host.settings().restore?.state).toBe("failed");
+    expect(host.props([]).restore?.state).toBe("failed");
+    // The approval lands: Try again verifies and Still Pro is ready, with the line gone.
+    vi.mocked(deps.verifyLocalPurchase).mockResolvedValue(access("purchased"));
+    host.settings().restore?.onAction?.();
+    await settle();
+    expect(deps.verifyLocalPurchase).toHaveBeenCalledTimes(3);
+    expect(host.props([]).purchase).toEqual({ state: "success", confirmed: true });
+    expect(host.settings().restore).toBeUndefined();
+    // One outcome for the attempt (pending); the later verification adds none.
+    expect(names().map(([name]) => name)).toEqual(["purchase_started", "purchase_pending"]);
+    // The settings card's Try again on a held verification is the same explicit verification.
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(noSignal("pending"));
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
+    vi.mocked(deps.readAccess).mockResolvedValue(access("locked"));
+    host.observeAccess(access("locked"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed", verificationRequired: true });
+    vi.mocked(deps.verifyLocalPurchase).mockRejectedValueOnce(new Error("Apple purchase requires verification"));
+    host.settings().pro?.onRetry?.();
+    await settle();
+    expect(host.settings().restore?.state).toBe("failed");
+    expect(deps.bridge.purchasePro).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("one outcome event per purchase attempt (ISS-0140)", () => {
+  const attempt = { purchase_origin: "unknown", product: "still-pro-v3" } as const;
+  it.each([
+    { reply: owned, verified: access("purchased"), outcome: ["purchase_completed", attempt] },
+    { reply: { outcome: "cancelled", receipt: "noSignal" } as NativeProResult, verified: access("purchased"), outcome: ["purchase_cancelled", attempt] },
+    { reply: { outcome: "pending", receipt: "noSignal" } as NativeProResult, verified: access("verification_required"), outcome: ["purchase_pending", attempt] },
+    { reply: { outcome: "unavailable", receipt: "noSignal" } as NativeProResult, verified: access("purchased"), outcome: ["purchase_failed", { ...attempt, reason: "not_allowed" }] },
+    { reply: { outcome: "staleIdentity", receipt: "noSignal" } as NativeProResult, verified: access("purchased"), outcome: ["purchase_failed", { ...attempt, reason: "not_allowed" }] },
+    { reply: { outcome: "failed", receipt: "noSignal" } as NativeProResult, verified: access("purchased"), outcome: ["purchase_completed", attempt] },
+    { reply: { outcome: "failed", receipt: "noSignal" } as NativeProResult, verified: null, outcome: ["purchase_failed", { ...attempt, reason: "store_error" }] },
+  ])("native $reply.outcome verified as $verified.states.instagram.explore reports $outcome.0 once", async ({ reply, verified, outcome }) => {
+    const track = vi.fn();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.purchasePro).mockResolvedValueOnce(reply);
+    if (verified) vi.mocked(deps.verifyLocalPurchase).mockResolvedValue(verified);
+    else vi.mocked(deps.verifyLocalPurchase).mockRejectedValue(new Error("Apple purchase requires verification"));
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(track.mock.calls).toEqual([["purchase_started", attempt], outcome]);
+    // Verify purchase or a refresh afterwards adds no second outcome for the same attempt.
+    host.props([]).native.onVerify?.();
+    await settle();
+    await host.refresh();
+    expect(track.mock.calls.length).toBe(2);
+  });
+  it("a Buy the host refused before the store (a changed offer) reports nothing: the attempt never started", async () => {
+    const track = vi.fn();
+    const { host, deps, settle } = await harness({ analytics: { track } });
+    vi.mocked(deps.bridge.proOffering).mockResolvedValueOnce({ ...offer, price: "$10.99" });
+    host.props([]).native.onBuy?.();
+    await settle();
+    expect(host.props([]).purchase).toEqual({ state: "failed", notCharged: true });
+    expect(deps.bridge.purchasePro).not.toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalled();
+  });
+});
+
+describe("a held right is verified by the screen itself (ISS-0137)", () => {
+  /** Access reads "verify again": a purchase on this device with no current signed right. */
+  async function held(overrides: Partial<AppleProHostDeps> = {}) {
+    const h = await harness({
+      readAccess: vi.fn(async () => access("verification_required")),
+      ...overrides,
+    });
+    return h;
+  }
+  it("a screen that reads verify again verifies the device once the launch's attempt has settled, and shows Still Pro", async () => {
+    // iPhone fresh install (build 14): the launch verification ran during onboarding and never
+    // reached the settings screen, which kept "Still Pro needs to be verified again" until a
+    // relaunch. The screen now verifies the device itself.
+    let launched!: () => void;
+    const launch = new Promise<void>((resolve) => { launched = resolve; });
+    const h = await held({ launchVerification: () => launch });
+    expect(h.host.settings().pro?.ownership).toBe("verify");
+    expect(h.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    launched();
+    await vi.waitFor(() => expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce());
+    await h.settle();
+    expect(h.host.settings().pro?.ownership).toBe("owned");
+    expect(h.host.props([]).access.state).toBe("owned");
+  });
+  it("a launch verification that failed does not stop the screen's own", async () => {
+    const h = await held({ launchVerification: () => Promise.reject(new Error("offline at launch")) });
+    await vi.waitFor(() => expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce());
+    await h.settle();
+    expect(h.host.settings().pro?.ownership).toBe("owned");
+  });
+  it("without a launch verification the screen verifies at once; nothing to verify keeps the card, and each return to the foreground tries again", async () => {
+    const h = await held();
+    await vi.waitFor(() => expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce());
+    expect(h.host.settings().pro?.ownership).toBe("owned");
+    const again = await held({ verifyLocalPurchase: vi.fn(async () => { throw new Error("Apple purchase requires verification"); }) });
+    await vi.waitFor(() => expect(again.deps.verifyLocalPurchase).toHaveBeenCalledOnce());
+    await again.settle();
+    expect(again.host.settings().pro?.ownership).toBe("verify");
+    expect(again.host.props([]).purchase).toEqual({ state: "idle" });
+    await again.host.refresh();
+    expect(again.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
+    expect(again.host.settings().pro?.ownership).toBe("verify");
+  });
+  it("two refreshes landing on verify again at once verify the device once", async () => {
+    let finish!: (value: BenefitAccessSnapshot) => void;
+    const h = await held({
+      verifyLocalPurchase: vi.fn(() => new Promise<BenefitAccessSnapshot>((resolve) => { finish = resolve; })),
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await h.host.refresh();
+    expect(h.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    finish(access("purchased"));
+    await h.settle();
+  });
+  it("owned, locked, a historical holder's sign-in prompt and a purchase awaiting verification verify nothing extra", async () => {
+    const none = await harness();
+    expect(none.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    const owner = await harness({ readAccess: vi.fn(async () => access("purchased")) });
+    expect(owner.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    // ISS-0132: signed out with a historical still_sync purchase and nothing owned: the screen
+    // asks to sign in and verifies nothing.
+    const historical = await harness({ readHistoricalPurchase: vi.fn(async () => true), canSignIn: () => true });
+    expect(historical.host.settings().pro?.onSignInToRestore).toBeTypeOf("function");
+    await historical.host.refresh();
+    expect(historical.deps.verifyLocalPurchase).not.toHaveBeenCalled();
+    // A purchase awaiting verification already verifies through its own read.
+    const pending = await harness();
+    vi.mocked(pending.deps.bridge.purchasePro).mockResolvedValueOnce({ outcome: "pending", receipt: "noSignal" });
+    vi.mocked(pending.deps.verifyLocalPurchase).mockResolvedValue(access("verification_required"));
+    pending.host.props([]).native.onBuy?.();
+    await pending.settle();
+    expect(pending.deps.verifyLocalPurchase).toHaveBeenCalledOnce();
+    await pending.host.refresh();
+    expect(pending.deps.verifyLocalPurchase).toHaveBeenCalledTimes(2);
   });
 });
