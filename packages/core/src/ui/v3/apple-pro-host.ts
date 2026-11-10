@@ -7,6 +7,7 @@ import type {
   NativeBridge,
   NativeAppRoute,
   NativeLifetimeOffering,
+  NativeProResult,
 } from "../../native/bridge.js";
 import type {
   ApplePurchaseLinkIntent,
@@ -542,6 +543,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
     // reached the store (ADR 0004's closed purchase outcome events). The canonical sale
     // (purchase_recorded) is the server's own event over the native new-purchase evidence.
     let outcome: BuyOutcome | undefined;
+    // The store's own answer to this attempt, once it has one: "already owned" (its pre-flight
+    // found the receipt, no sheet, nothing charged) never became a purchase and reports no
+    // outcome at all, whatever its device check then does.
+    let storeAnswer: NativeProResult["outcome"] | undefined;
     purchase = kind === "buy" ? { state: "pending" } : { state: "idle" };
     restore = kind === "restore" ? { state: "checking" } : undefined;
     changed();
@@ -625,6 +630,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (stopped) return;
         result = await deps.bridge.purchasePro(fresh!, { join: true });
       }
+      storeAnswer = result.outcome;
       try { purchaseObserved?.(result); }
       catch { /* Optional measurement cannot change a completed purchase outcome. */ }
       if (nativeAcquisitionGeneration === generation)
@@ -646,9 +652,12 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         if (verified) {
           if (verifying === accessEpoch) access = verified;
           if (owner() === "owned") {
-            // The signed right is installed natively: owned now is the purchase.
+            // The signed right is installed natively: owned now is the purchase for the page.
+            // The store did not report it as this attempt's purchase (a conclusive rescue is
+            // already `purchased` natively), so for the funnel it is a generic accepted right:
+            // the store's unresolved answer, never a sale (ISS-0140, owner ruling).
             linkTo = buyer;
-            outcome = "completed";
+            outcome = "pending";
             purchase = { state: "success", confirmed: true };
             restore = undefined;
             return;
@@ -665,24 +674,28 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       };
       // The store says this device now holds, or may hold, Still Pro (purchased, already owned,
       // or accepted for later): verify this device's receipt, exactly as Restore does, and let the
-      // installed signed right decide what the page shows. A Buy the store answered as already
-      // owned sold nothing and showed no sheet, so it reports no purchase outcome (ADR 0004: a
-      // generic accepted right is never a sale); a rejected verification propagates and keeps the
-      // recovery intent.
+      // installed signed right decide what the page shows. The outcome event (ISS-0140, owner
+      // ruling): `purchase_completed` only when the store itself reported `purchased` for this
+      // attempt (StoreKit confirmed a transaction) and the device then shows it owned; a Buy
+      // verified as owned through a `pending` answer (an unclear pre-purchase check, possibly an
+      // older purchase) is a generic accepted right, never a sale, and reports the store's own
+      // unresolved answer, `purchase_pending`; "already owned" reports nothing (see
+      // `storeAnswer`). A rejected verification propagates and keeps the recovery intent.
       const verifyStoreAnswer = async () => {
         pendingKind = kind;
         verifyingLocal = true;
-        const sale = result.outcome !== "restored";
+        const answer = result.outcome;
         const verifying = accessEpoch;
         const verified = await deps.verifyLocalPurchase();
         if (stopped) return;
         if (verifying === accessEpoch) access = verified;
         if (access === verified && appleProOwnership(verified) === "owned") {
-          // This also accepts isolated App Review rights, so it is the attempt's outcome as the
-          // page shows it, never the sale: canonical production purchase attribution
-          // (purchase_recorded) is the server's own event over the native new-purchase evidence.
+          // This also accepts isolated App Review rights: canonical production purchase
+          // attribution (purchase_recorded) is the server's own event over the native
+          // new-purchase evidence, never this.
           pendingKind = undefined;
-          if (sale) outcome = "completed";
+          if (answer === "purchased") outcome = "completed";
+          else if (answer === "pending") outcome = "pending";
           // A replaced account (a sign-out or another account meanwhile) links nothing.
           linkTo = generation === epoch ? buyer : null;
           purchase =
@@ -691,7 +704,7 @@ export function createAppleProHost(deps: AppleProHostDeps) {
               : { state: "idle" };
           restore = kind === "restore" ? { state: "restored" } : undefined;
         } else {
-          if (sale) outcome = "pending";
+          if (answer !== "restored") outcome = "pending";
           purchase = { state: "pending" };
           restore = undefined;
         }
@@ -810,8 +823,9 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       if (stopped) return;
       // A verification that threw after the store answered leaves the purchase to verify (the
       // recovery intent stands); anything else that reached the store ended unknown. The outcome
-      // is reported whether or not the account was replaced meanwhile.
-      if (kind === "buy" && acquisitionStarted)
+      // is reported whether or not the account was replaced meanwhile. A Buy the store answered
+      // as already owned reports nothing even here: that attempt never became a purchase.
+      if (kind === "buy" && acquisitionStarted && storeAnswer !== "restored")
         outcome = pendingKind !== undefined ? "pending" : { failed: "unknown" };
       if (generation !== epoch) {
         changed();
@@ -1025,7 +1039,10 @@ export function createAppleProHost(deps: AppleProHostDeps) {
           // purchaser right of its own, or a sandbox review right, which native never offers for
           // linking). That is a fact, not a failure: no server call, no "Linking didn't finish"
           // and no Try again that could only fail the same way. The card leaves, as the link
-          // affordance does on the same answer.
+          // affordance does on the same answer. One fixed, identifier-free line for device QA:
+          // a sandbox review right (TestFlight) and a production binding native could not match
+          // both end here.
+          console.info("still: link: purchase not linkable (review or unmatched binding)");
           eligiblePurchase = null;
           eligibilityFresh = true;
           clearLink();

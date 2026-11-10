@@ -209,9 +209,15 @@ relaunch, and the screen's own `refresh()` only re-read the cache. The Console l
   replacement (purchased, already owned, pending, failed) is verified on the device like any other
   and linked to no one. Every Buy that reached the store reports exactly one outcome event
   (`purchase_completed`, `purchase_cancelled`, `purchase_pending` or `purchase_failed`) from a
-  single place at the end of the attempt, with one exception: a Buy the store answers as already
-  owned (its pre-flight found the receipt; no sheet, nothing charged) reports no outcome, because a
-  generic accepted right is never a sale (ADR 0004, plan 2026-10-21-002). An explicit Verify
+  single place at the end of the attempt. `purchase_completed` fires only when native reported
+  `purchased` for this Buy (StoreKit confirmed a transaction in this attempt) and the device
+  verification then showed it owned (owner ruling, 10 November). A Buy the device verifies as
+  owned through a native `pending` (an unclear pre-purchase check, possibly an older purchase) or
+  through the host's own rescue of a `failed` reply is a generic accepted right, never a sale
+  (plan 2026-10-21-002): it reports `purchase_pending`, the store's own unresolved answer. A Buy
+  the store answers as already owned (its pre-flight found the receipt; no sheet, nothing charged)
+  reports no outcome at all, whether its device check then succeeds or fails: that attempt never
+  became a purchase. `purchase_recorded` stays the revenue signal. An explicit Verify
   purchase that cannot verify shows the existing "The purchase wasn't confirmed. If you were
   charged, Restore purchase will find it." line on both screens (the settings card gains it under
   the verify line) and keeps the hold, Verify purchase and Restore purchase; it never occupies the
