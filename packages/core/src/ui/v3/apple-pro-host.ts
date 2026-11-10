@@ -518,10 +518,20 @@ export function createAppleProHost(deps: AppleProHostDeps) {
       acquisitionStarted = true;
       if (kind === "buy")
         track("purchase_started", { purchase_origin: "unknown", product: "still-pro-v3" });
-      const result =
+      let result =
         kind === "buy"
           ? await deps.bridge.purchasePro(fresh!)
           : await deps.bridge.restorePro();
+      // ISS-0134: Apple's sheet can stay up longer than one bounded native wait. "unsettled" is not
+      // an answer (nothing bought, nothing to verify): wait again for the same purchase, which
+      // native joins rather than starting a second charge, for as long as native says it is still
+      // in flight. Each wait is itself bounded (NATIVE_PURCHASE_DEADLINE_MS), so this never spins,
+      // and the Buy stays dispatched meanwhile, so a second tap never reaches native. Only a real
+      // outcome ends it: a late confirmation is verified and counted, a late cancel is a cancel.
+      while (kind === "buy" && result.outcome === "unsettled") {
+        if (stopped) return;
+        result = await deps.bridge.purchasePro(fresh!, { join: true });
+      }
       try { purchaseObserved?.(result); }
       catch { /* Optional measurement cannot change a completed purchase outcome. */ }
       if (nativeAcquisitionGeneration === generation)
@@ -553,17 +563,24 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         return;
       }
       if (result.outcome === "cancelled") {
+        // A closed sheet is a cancel, however long it stayed up (ISS-0134): Get Still Pro again,
+        // counted once as a cancel and never as a failure.
         if (kind === "buy")
           track("purchase_cancelled", { purchase_origin: "unknown", product: "still-pro-v3" });
         purchase = { state: "idle" };
         restore = undefined;
         return;
       }
-      if (result.outcome === "unavailable" && kind === "buy" && pendingKind === undefined) {
+      if (
+        (result.outcome === "unavailable" || result.outcome === "staleIdentity") &&
+        kind === "buy" &&
+        pendingKind === undefined
+      ) {
         track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "not_allowed" });
-        // Native "unavailable" is refused before any charge (paid tier off, changed offer, sales
-        // policy or the unverified sandbox installation check, e.g. no App Store account), so
-        // the copy must not suggest a purchase happened (ISS-0070).
+        // Native "unavailable" and "staleIdentity" are refused before any charge (paid tier off,
+        // changed offer, sales policy, the unverified sandbox installation check, e.g. no App Store
+        // account, or a store SDK identity that is not verifiably anonymous), so the copy must not
+        // suggest a purchase happened (ISS-0070).
         purchase = { state: "failed", notCharged: true };
         return;
       }
@@ -610,6 +627,46 @@ export function createAppleProHost(deps: AppleProHostDeps) {
         restore = pendingKind
           ? undefined
           : { state: "verify", onAction: () => void transact("restore") };
+        return;
+      }
+      if (result.outcome === "failed" && kind === "buy") {
+        // ISS-0136: the store may have completed the purchase although the native SDK reported an
+        // error afterwards (its own receipt post failing is one case). StoreKit is the authority,
+        // so before saying "The purchase wasn't confirmed" verify this device's receipt exactly as
+        // Restore does. No transaction, or a refused verification, keeps the failed card (Restore
+        // purchase stays the way back); it never becomes a sticky "needs to be verified".
+        const verifying = accessEpoch;
+        let verified: BenefitAccessSnapshot | null = null;
+        try { verified = await deps.verifyLocalPurchase(); }
+        catch { /* Nothing to verify, or the verification was refused: the failed card stands. */ }
+        if (stopped) return;
+        if (generation !== epoch) {
+          // Account replacement during the check: keep the recovery intent, as for any dispatched
+          // purchase; a current signed read must establish the rights.
+          pendingKind ??= kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+          changed();
+          return;
+        }
+        if (verified) {
+          // The signed right is installed natively: owned now is the purchase, and anything else
+          // is a held observation that the ordinary verification recovery resolves.
+          if (verifying === accessEpoch) access = verified;
+          if (owner() === "owned") {
+            linkTo = buyer;
+            purchase = { state: "success", confirmed: true };
+            restore = undefined;
+            return;
+          }
+          pendingKind = kind;
+          purchase = { state: "pending" };
+          restore = undefined;
+          track("purchase_pending", { purchase_origin: "unknown", product: "still-pro-v3" });
+          return;
+        }
+        track("purchase_failed", { purchase_origin: "unknown", product: "still-pro-v3", reason: "store_error" });
+        purchase = { state: "failed" };
         return;
       }
       throw new Error("Native purchase did not complete");
