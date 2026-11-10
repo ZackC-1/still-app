@@ -19,6 +19,26 @@ final class AppleNewPurchaseProvenanceTests: XCTestCase {
         sdkID: sdk, verifiedID: verified, environment: environment, purchased: purchased, revoked: revoked))
     }
   }
+  /// ISS-0136: a purchase StoreKit confirmed after the SDK threw has no SDK completion id. The
+  /// verified transaction must be new against a pre-charge read that succeeded; the production,
+  /// purchased and unrevoked rules are the same as for an SDK-completed purchase.
+  func testARescuedPurchaseIsNewVerifiedProductionAndPurchasedOnly() {
+    XCTAssertTrue(AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: true, preflightID: nil,
+      verifiedID: "123", environment: "production", purchased: true, revoked: false))
+    XCTAssertTrue(AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: true, preflightID: "122",
+      verifiedID: "123", environment: "production", purchased: true, revoked: false))
+    for (known, before, verified, environment, purchased, revoked) in [
+      (false, Optional<String>.none, "123", "production", true, false),
+      (true, "123", "123", "production", true, false),
+      (true, nil, "", "production", true, false),
+      (true, nil, "123", "sandbox", true, false),
+      (true, nil, "123", "production", false, false),
+      (true, nil, "123", "production", true, true)
+    ] {
+      XCTAssertFalse(AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: known, preflightID: before,
+        verifiedID: verified, environment: environment, purchased: purchased, revoked: revoked))
+    }
+  }
   func testRestoresAndUncertainResultsNeverCarryNewPurchaseEvidence() {
     let evidence = ["productId": "still_pro_v3", "bundleId": "com.test.still", "signedTransaction": "a.b.c"]
     for outcome in [ApplePurchaseActionOutcome.restored, .cancelled, .pending, .unavailable, .nothing, .failed] {

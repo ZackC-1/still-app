@@ -128,18 +128,61 @@ describe("native scoped Pro feedback", () => {
     }
   });
 
-  it("bounds a silent purchase as pending and a silent restore as failed, never nothing", async () => {
+  it("bounds a silent purchase as unsettled and a silent restore as failed, never nothing or pending", async () => {
+    // ISS-0134: a purchase reply that never comes means nothing is known, so nothing goes to
+    // verification; the host waits for the same purchase again instead.
     vi.useFakeTimers();
     try {
       const { bridge } = host(() => new Promise(() => {}));
       const buy = bridge.purchasePro(offer),
         restore = bridge.restorePro();
       await vi.advanceTimersByTimeAsync(NATIVE_PURCHASE_DEADLINE_MS);
-      expect(await buy).toEqual({ outcome: "pending", receipt: "noSignal" });
+      expect(await buy).toEqual({ outcome: "unsettled", receipt: "noSignal" });
       expect(await restore).toEqual({ outcome: "failed", receipt: "noSignal" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("a join waits for the purchase native already started and never re-posts a plain buy (ISS-0134)", async () => {
+    const { bridge, post } = host(async (message) =>
+      "join" in message
+        ? { outcome: "cancelled", receipt: "noSignal" }
+        : { outcome: "unsettled", receipt: "noSignal" },
+    );
+    expect(await bridge.purchasePro(offer)).toEqual({ outcome: "unsettled", receipt: "noSignal" });
+    expect(post).toHaveBeenLastCalledWith({ kind: "purchasePro", offer });
+    expect(await bridge.purchasePro(offer, { join: true })).toEqual({ outcome: "cancelled", receipt: "noSignal" });
+    expect(post).toHaveBeenLastCalledWith({ kind: "purchasePro", offer, join: true });
+    // Only an actual join carries the flag; a plain buy posts exactly what it always did.
+    expect(await bridge.purchasePro(offer, { join: false })).toEqual({ outcome: "unsettled", receipt: "noSignal" });
+    expect(post).toHaveBeenLastCalledWith({ kind: "purchasePro", offer });
+  });
+
+  it("a refused purchase or join reply is pending, never a wait to repeat", async () => {
+    // Native refused the reply (the revocation fence) after the purchase may have completed. The
+    // host must verify the device, not join again: a join would meet the same refusal at once.
+    const refused = host(async () => { throw new Error("still: Apple revocation commit requires verification"); });
+    expect(await refused.bridge.purchasePro(offer)).toEqual({ outcome: "pending", receipt: "noSignal" });
+    expect(await refused.bridge.purchasePro(offer, { join: true })).toEqual({ outcome: "pending", receipt: "noSignal" });
+    expect(refused.post).toHaveBeenCalledTimes(2);
+    // A refused Restore keeps its own failed answer.
+    expect(await refused.bridge.restorePro()).toEqual({ outcome: "failed", receipt: "noSignal" });
+  });
+
+  it("a failed store action with a verified sellable receipt awaits local verification (ISS-0136)", async () => {
+    for (const outcome of ["failed", "staleIdentity"]) {
+      const rescued = host(async () => ({ outcome, receipt: "entitled", productId: "still_pro_v3" }));
+      expect(await rescued.bridge.purchasePro(offer)).toEqual({ outcome: "pending", receipt: "entitled", productId: "still_pro_v3" });
+      // The Still Pro Restore takes the same rule: an entitled device receipt is verified, not failed.
+      expect(await rescued.bridge.restorePro()).toEqual({ outcome: "pending", receipt: "entitled", productId: "still_pro_v3" });
+      // Without a sellable receipt the store's answer stands; the historical product rescues nothing.
+      expect((await host(async () => ({ outcome, receipt: "noSignal" })).bridge.purchasePro(offer)).outcome).toBe(outcome);
+      expect((await host(async () => ({ outcome, receipt: "verifiedNotEntitled", productId: "still_pro_v3" })).bridge.purchasePro(offer)).outcome).toBe(outcome);
+      expect((await host(async () => ({ outcome, receipt: "entitled", productId: "still_sync" })).bridge.purchasePro(offer)).outcome).toBe(outcome);
+    }
+    // The waited answer passes through as itself, with nothing to verify.
+    expect(await host(async () => ({ outcome: "unsettled", receipt: "noSignal" })).bridge.purchasePro(offer)).toEqual({ outcome: "unsettled", receipt: "noSignal" });
   });
 
   it("only transports bounded functional JWS evidence without caller identity or access flags", async () => {
