@@ -748,6 +748,62 @@ describe("ISS-0115 (22 Oct): a popup that wakes the service worker keeps its ope
     expect(woken.bodies()).not.toContain(oldId);
   });
 
+  // ISS-0127: the same race while signed in. The start re-confirms the identity already stored.
+  const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const OTHER_SUBJECT = "5ab5ec7b-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  /** Signed in here (after `earlier`, if given), reported under the account's identity, then the
+   * worker is unloaded; a new one starts with its account read in flight. */
+  const signedIn = async (isFirefox = false, earlier?: string) => {
+    const issueSubject = vi.fn(async (_proof: unknown, _signal?: AbortSignal, account?: string) => ({
+      state: "active" as const,
+      subject: account === OTHER ? OTHER_SUBJECT : SUBJECT,
+    }));
+    const t = setup(createDefaultOnBackgroundAnalytics, { issueSubject, isFirefox, granted: true });
+    await install(t);
+    await expectInstallReported(t);
+    for (const account of [earlier, ACCOUNT]) {
+      if (!account) continue;
+      await t.send({ action: "identify", userId: account });
+      await t.send({ action: "track", name: "opened", props: { where: "options" } });
+      await vi.waitFor(async () => {
+        await t.bg.flushWhenReady();
+        expect(t.bodies()).toContain(account === OTHER ? OTHER_SUBJECT : SUBJECT);
+      });
+    }
+    t.bg.stop();
+    const woken = setup(createDefaultOnBackgroundAnalytics, { local: t.local, issueSubject, isFirefox, granted: true });
+    let answer!: (account: string | null) => void;
+    woken.bg.onStart(new Promise<string | null>((resolve) => (answer = resolve)));
+    return { woken, answer, anonymousId: t.permission()!.provider.anonymousId };
+  };
+
+  for (const isFirefox of [false, true])
+    it(`V3 ${isFirefox ? "Firefox" : "Chrome"}, signed in: a woken worker reports the popup's opened under the identity it already reported as`, async () => {
+      const { woken, answer, anonymousId } = await signedIn(isFirefox);
+      const opened = woken.send(OPENED);
+      answer(ACCOUNT); // the start: the same account, still signed in
+      await opened;
+      await woken.send(TOGGLED);
+      await woken.bg.flushWhenReady();
+      expect(sentAs(woken)).toEqual(expect.arrayContaining([["opened", SUBJECT], ["master_toggled", SUBJECT]]));
+      expect(woken.bodies()).not.toContain(ACCOUNT);
+      expect(woken.bodies()).not.toContain(anonymousId);
+    });
+
+  it("NEGATIVE CONTROL: V3 Chrome, a woken worker that confirms another account's identity drops the event observed before it", async () => {
+    const { woken, answer } = await signedIn(false, OTHER);
+    const opened = woken.send(OPENED); // possibly the earlier account's use
+    answer(OTHER); // signed in as the other account (its identity is cached here) while the worker slept
+    await opened;
+    await woken.send(TOGGLED); // after the other account is confirmed: its use
+    await woken.bg.flushWhenReady();
+    expect(sentAs(woken)).toContainEqual(["master_toggled", OTHER_SUBJECT]);
+    expect(woken.sent()).not.toContain("opened");
+    expect(woken.bodies()).not.toContain(SUBJECT);
+  });
+
   it("NEGATIVE CONTROL: V3 Chrome, a woken worker that signs out an account with a stored per-device identity drops the event", async () => {
     const ACCOUNT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const SUBJECT = "5ab5ec7a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

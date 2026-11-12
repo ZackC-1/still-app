@@ -66,9 +66,26 @@
             ? Boolean(props.restorePort.onRequest)
             : Boolean(props.onSignIn)),
   );
-  let restoreAllowed = $derived(
-    !completed && props.purchase.state !== "success" && !restoreHeld,
+  // ISS-0132: signed out with a historical purchase and nothing owned. The screen offers only
+  // the sign-in that restores it, never Get Still Pro or Restore purchase.
+  let signInToRestore = $derived(
+    props.host === "apple" &&
+      Boolean(props.native.onSignInToRestore) &&
+      props.access.verified &&
+      props.access.state === "none" &&
+      !restoreHeld &&
+      !props.purchase.verificationRequired &&
+      (props.purchase.state === "idle" || props.purchase.state === "failed"),
   );
+  let restoreAllowed = $derived(
+    !completed &&
+      props.purchase.state !== "success" &&
+      !restoreHeld &&
+      !signInToRestore,
+  );
+  function signIn() {
+    if (signInToRestore && props.host === "apple") props.native.onSignInToRestore?.();
+  }
   // Owner (22 Oct 2026): the Apple app says "Apple Account" (Apple's name since 2023); the
   // browsers say "account".
   let restoreMessages = $derived({
@@ -238,6 +255,15 @@
             text: "Still Pro is ready.",
             detail: "New controls start off, so turn on the ones you want.",
           })}
+        {:else if signInToRestore}
+          <!-- ISS-0132 (owner, 6 Nov 2026): the line, then Sign in, and nothing else. -->
+          {@render status({
+            tone: "info",
+            text: "Bought Still Pro before? Sign in to restore it.",
+          })}
+          <button type="button" class="primary block" onclick={signIn}
+            >Sign in</button
+          >
         {:else if props.purchase.state !== "success" && props.access.verified && props.access.state !== "unknown"}
           {#if !acquisitionAuthority}
             {@render status({
@@ -282,7 +308,7 @@
           disabled={!restoreAvailable}
           onclick={restore}>Restore purchase</button
         >{/if}
-      {#if acquisitionAuthority && (canAcquire || props.purchase.state === "pending")}<p
+      {#if acquisitionAuthority && !signInToRestore && (canAcquire || props.purchase.state === "pending")}<p
           class="caption"
           style="text-align:center;"
         >

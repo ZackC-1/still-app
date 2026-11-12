@@ -76,6 +76,15 @@ export interface AppleSettingsAuthorityDeps {
   };
   /** The cache's first native read (SettingsCache.whenHydrated()). */
   readonly hydration: Promise<unknown>;
+  /**
+   * ISS-0137: a device-local purchase verification the app started before this authority existed
+   * (the launch's). The right it installs lands in native's record in the background, so once it
+   * settles the cache is read again, twice (finish any read in flight, then read the committed
+   * record), and the screen shows Still Pro now rather than at its next minute refresh or after a
+   * relaunch. A rejected verification (no purchase on this device, offline, refused) installs
+   * nothing and triggers no read.
+   */
+  readonly pendingLocalVerification?: Promise<unknown>;
 }
 
 /**
@@ -98,6 +107,16 @@ export function createAppleSettingsAuthority(cache: SettingsCache, deps: AppleSe
   );
   let stopped = false;
   let recovery: Promise<void> | null = null;
+  void deps.pendingLocalVerification
+    ?.then(
+      async () => {
+        if (stopped) return;
+        await entitlement.refreshAccess();
+        if (!stopped) await entitlement.refreshAccess();
+      },
+      () => {},
+    )
+    .catch(() => {});
   async function retry(): Promise<void> {
     await settled;
     if (stopped) return;
@@ -120,6 +139,12 @@ export function createAppleSettingsAuthority(cache: SettingsCache, deps: AppleSe
     entitlement,
     /** Resolves once the first native read settled, either way. */
     settled,
+    /** The launch's device purchase verification, settled either way (ISS-0137): the Pro host
+     * waits for it before verifying a held right itself. Resolved at once when there is none. */
+    localVerification: (deps.pendingLocalVerification ?? Promise.resolve()).then(
+      () => {},
+      () => {},
+    ),
     recover(): Promise<void> {
       if (stopped) return Promise.resolve();
       recovery ??= retry().finally(() => {

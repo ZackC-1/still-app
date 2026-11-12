@@ -264,3 +264,34 @@ describe("native Still Pro card checking condition", () => {
     view.unmount();
   });
 });
+
+// ISS-0132: signed out with a historical purchase, the card holds only the sign-in prompt.
+describe("native Still Pro card sign-in to restore", () => {
+  const line = "Bought Still Pro before? Sign in to restore it.";
+  it("shows only the line and Sign in: no Get Still Pro, no Restore purchase, no verify", async () => {
+    const onSignInToRestore = vi.fn();
+    const props = native({ onSignInToRestore });
+    render(NativeProOfferCard, { props });
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(buy()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    expect(screen.queryByText(verify)).toBeNull();
+    expect(screen.queryByText(/One-time purchase/)).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(onSignInToRestore).toHaveBeenCalledOnce();
+    expect(props.onBuy).not.toHaveBeenCalled();
+    expect(props.onRestore).not.toHaveBeenCalled();
+  });
+  it("is the ordinary offer without the prompt, and never covers owned or checking", () => {
+    const view = render(NativeProOfferCard, { props: native() });
+    expect(buy()).toBeInTheDocument();
+    expect(screen.queryByText(line)).toBeNull();
+    view.unmount();
+    for (const overrides of [{ ownership: "owned" as const }, { accessChecking: true }]) {
+      const next = render(NativeProOfferCard, { props: native({ ...overrides, onSignInToRestore: vi.fn() }) });
+      expect(screen.queryByText(line)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+      next.unmount();
+    }
+  });
+});

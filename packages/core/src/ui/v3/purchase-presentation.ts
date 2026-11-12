@@ -60,6 +60,9 @@ export type PurchaseViewProps = PurchaseViewCommon &
           onRestore?: () => void;
           /** Retry the existing local signed fulfillment without asking Apple to charge again. */
           onVerify?: () => void;
+          /** ISS-0132: signed out with a historical purchase. With nothing owned the screen shows
+           * only "Bought Still Pro before? Sign in to restore it." and Sign in, which calls this. */
+          onSignInToRestore?: () => void;
         };
       }
   );

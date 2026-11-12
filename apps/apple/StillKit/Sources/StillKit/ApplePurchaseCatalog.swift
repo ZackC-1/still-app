@@ -62,6 +62,15 @@ public enum ApplePurchaseCatalog {
 
   public static let all: [ApplePurchaseProduct] = [stillProV3, historicalStillSync]
 
+  /// The products a purchase on this device can prove Still Pro from with no account: the
+  /// device-only ownership read, the local purchase evidence, the check before a purchase and the
+  /// Still Pro Restore. The historical product is never one of them (ISS-0132): the server accepts
+  /// only `still_pro_v3` as device evidence, so a `still_sync` purchase read here would leave Still
+  /// Pro stuck at "verify again" with no way to buy. Its rights come only through a signed-in
+  /// account, where the server keeps a paid legacy right. Account linking, the RevenueCat attach
+  /// and revocation reads still use `all`.
+  public static let deviceProofProducts: [ApplePurchaseProduct] = [stillProV3]
+
   /// Exact, case-sensitive lookup; an unknown identifier resolves to nothing rather than a guess.
   public static func product(forProductID productID: String) -> ApplePurchaseProduct? {
     all.first { $0.productID == productID }
@@ -116,8 +125,11 @@ public struct AppleLifetimeOffering: Codable, Equatable, Sendable {
   }
 }
 
+/// `unsettled` (ISS-0134): one bounded native wait ended while StoreKit had not answered (Apple's
+/// sheet still up). It is not an outcome: nothing was bought and nothing is there to verify; the
+/// caller waits for the same purchase again (`join`), which never starts a second charge.
 public enum ApplePurchaseActionOutcome: String, Sendable {
-  case purchased, restored, cancelled, pending, unavailable, staleIdentity, nothing, failed
+  case purchased, restored, cancelled, pending, unavailable, staleIdentity, nothing, failed, unsettled
 }
 
 /// Local store feedback only. Account ownership and scoped benefits need separate verified proof.
@@ -132,11 +144,36 @@ public struct ApplePurchaseActionResult: Sendable {
     let known = productId.flatMap { ApplePurchaseCatalog.product(forProductID: $0) } != nil
     let validSuccess = receipt == .entitled && known &&
       (outcome != .purchased || productId == ApplePurchaseCatalog.stillProV3.productID)
-    self.outcome = (outcome == .purchased || outcome == .restored) && !validSuccess ? .pending :
-      (outcome == .nothing && receipt == .entitled ? .failed : outcome)
+    let sellableEntitled = receipt == .entitled && productId == ApplePurchaseCatalog.stillProV3.productID
+    switch outcome {
+    case .purchased, .restored: self.outcome = validSuccess ? outcome : .pending
+    case .nothing: self.outcome = receipt == .entitled ? .failed : .nothing
+    // ISS-0136: a store action that did not conclude while this device holds a verified, unrevoked
+    // receipt for the sellable product is a purchase awaiting verification, never "not confirmed".
+    // The page then runs the same local verification Restore uses instead of blaming the store.
+    case .failed, .staleIdentity: self.outcome = sellableEntitled ? .pending : outcome
+    case .cancelled, .pending, .unavailable, .unsettled: self.outcome = outcome
+    }
     self.receipt = receipt
     self.productId = known ? productId : nil
     self.newPurchaseEvidence = self.outcome == .purchased && validSuccess ? newPurchaseEvidence : nil
+  }
+
+  /// The Still Pro Restore reply (paid tier on) from the read-only App Store check over the
+  /// device-proof products and the same products' receipt read. A conclusive `.none` (a successful
+  /// App Store sync, then a verified empty list) is reported as `verifiedNotEntitled`: a product
+  /// never bought has no transaction, so its receipt read alone is `noSignal`, which the page must
+  /// treat as unknown and would show "verify again" for someone who simply never bought. A receipt
+  /// that still reads entitled contradicts `.none` and stays as read (the result is then failed).
+  public static func proRestore(_ checked: FreePeriodRestoreResult, receipt: ReceiptStatus,
+    productId: String?) -> ApplePurchaseActionResult {
+    switch checked {
+    case .restored: return ApplePurchaseActionResult(.restored, receipt: receipt, productId: productId)
+    case .none:
+      return ApplePurchaseActionResult(.nothing, receipt: receipt == .entitled ? receipt : .verifiedNotEntitled,
+        productId: productId)
+    case .failed: return ApplePurchaseActionResult(.failed, receipt: receipt, productId: productId)
+    }
   }
 
   public var payload: [String: Any] {
@@ -152,6 +189,15 @@ public enum AppleNewPurchaseProvenance {
   public static func eligible(preflightKnown: Bool, preflightID: String?, sdkID: String,
     verifiedID: String, environment: String, purchased: Bool, revoked: Bool) -> Bool {
     preflightKnown && !sdkID.isEmpty && sdkID == verifiedID && preflightID != verifiedID &&
+      environment == "production" && purchased && !revoked
+  }
+
+  /// ISS-0136: the same facts for a purchase StoreKit confirmed after the SDK threw, where no SDK
+  /// completion id exists. The verified transaction must be new against the pre-charge read, which
+  /// must itself have succeeded; the production, purchased and unrevoked rules are unchanged.
+  public static func rescuedEligible(preflightKnown: Bool, preflightID: String?, verifiedID: String,
+    environment: String, purchased: Bool, revoked: Bool) -> Bool {
+    preflightKnown && !verifiedID.isEmpty && preflightID != verifiedID &&
       environment == "production" && purchased && !revoked
   }
 }

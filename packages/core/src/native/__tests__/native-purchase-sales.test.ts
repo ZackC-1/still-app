@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 const root = resolve(import.meta.dirname, "../../../../..");
 /** Compile the maintained native executor body with synthetic SDK/policy ports. Real policy
  * grammar/route/freshness is exercised in StillKit; this checks the actual final-charge ordering. */
-it.runIf(process.platform === "darwin")("native executor holds unknown/off sales, never double-charges an owned receipt, and fences identity during policy", () => {
+it.runIf(process.platform === "darwin")("native executor holds unknown/off sales, never double-charges an owned receipt, and fences identity during policy (ISS-0132: a V3 purchase ignores the historical product)", () => {
   const source = readFileSync(join(root, "apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift"), "utf8");
   const start = source.indexOf("  func purchaseStillPro(");
   expect(start).toBeGreaterThan(-1);
@@ -22,9 +22,11 @@ it.runIf(process.platform === "darwin")("native executor holds unknown/off sales
   const boundary = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/NativeSalesPurchaseBoundary.swift"), "utf8");
   const catalog = readFileSync(join(root, "apps/apple/StillKit/Sources/StillKit/ApplePurchaseCatalog.swift"), "utf8");
   const harness = `import Foundation
+import os
 struct NativeVerifiedAppleRevocation {}
 struct Package {}
-public enum ReceiptStatus: String, Sendable { case entitled, noSignal }
+public enum ReceiptStatus: String, Sendable { case entitled, verifiedNotEntitled, noSignal }
+public enum FreePeriodRestoreResult { case restored, none, failed }
 // Synthetic StoreKit ports never contact a store. The real catalog/provenance rule is compiled below.
 enum StoreKit {
   struct Transaction {
@@ -47,7 +49,11 @@ func fixtureOffer() -> AppleLifetimeOffering {
   ApplePurchaseCatalog.lifetimeOffering(offeringID: "still_pro_v3", packageID: "$rc_lifetime",
     productID: "still_pro_v3", isLifetime: true, isNonConsumable: true, price: "$9.99", currencyCode: "USD")!
 }
-enum RevenueCat { enum ErrorCode: Error { case paymentPendingError } }
+enum RevenueCat { enum ErrorCode: Error {
+  case paymentPendingError, purchaseCancelledError
+  // The pre-payment refusals the app reads (ISS-0138); the harness only needs them to compile.
+  case purchaseNotAllowedError, purchaseInvalidError, productNotAvailableForPurchaseError, ineligibleError
+} }
 public final class ProductPolicyRuntime {
   enum Namespace { case sales }
   struct Verdict { let allowed: Bool }
@@ -66,48 +72,70 @@ final class Purchases {
   struct SDKTransaction { let transactionIdentifier: String }
   struct Reply { let userCancelled = false; let customerInfo = true; let transaction: SDKTransaction? = nil }
   func purchase(package: Package) async throws -> Reply { charges += 1; return Reply() }
+  func customerInfo() async throws -> Bool { false }
 }
+typealias CustomerInfo = Bool
 ${decision}
 ${boundary}
 @MainActor final class Executor {
-  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, failed(String) }
+  enum Outcome: Equatable { case purchased, cancelled, pending, unavailable, staleIdentity, refused, failed(String) }
+  static let sdkRefusalCodes: [RevenueCat.ErrorCode] = [
+    .purchaseNotAllowedError, .purchaseInvalidError, .productNotAvailableForPurchaseError, .ineligibleError,
+  ]
   var currentAppUserID: String?
   let isConfigured = true
   var receiptOwned = false
+  /// ISS-0132: the device holds only the historical still_sync purchase.
+  var historicalOwned = false
   var policy: ProductPolicyRuntime?
-  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus { receiptOwned ? .entitled : .noSignal }
+  struct ReceiptRead { let status: ReceiptStatus; var conclusive = true }
+  var lastReceiptRead = ReceiptRead(status: .noSignal)
+  func refreshReceiptStatus(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptStatus {
+    lastReceiptRead = ReceiptRead(status: receiptOwned || historicalOwned ? .entitled : .noSignal)
+    return lastReceiptRead.status
+  }
+  func sellableReceiptRead(onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> ReceiptRead { ReceiptRead(status: receiptOwned ? .entitled : .noSignal) }
   func ensureAnonymousIdentity() async -> Bool { true }
   func hasStillPro() async -> Bool { false }
   func stillProPackage() async -> Package? { Package() }
   func offering(for package: Package) -> AppleLifetimeOffering? { fixtureOffer() }
-  static func proEntitlementIsActive(in value: Bool) -> Bool { value }
+  static func proEntitlementIsActive(in value: Bool?) -> Bool { value == true }
+  static func sellableEntitlementIsActive(in value: Bool?) -> Bool { value == true }
   static func bounded<T>(_ deadline: UInt64, fallback: T, cancelOnTimeout: Bool,
     _ operation: @escaping @MainActor () async -> T) async -> T { await operation() }
   static func verifiedNativeIdentity(_ transaction: Transaction, jws: String) -> NativeIdentity? { NativeIdentity() }
   func freshSalesPolicy() -> ProductPolicyRuntime? { policy }
   static var installEnvironment = AppleInstallEnvironment.unavailable
   static func verifiedInstallEnvironment() async -> AppleInstallEnvironment { installEnvironment }
+  // The app's privacy-safe purchase log (ISS-0136); the harness only needs it to compile.
+  static var purchaseLog: Logger { Logger(subsystem: "still-harness", category: "purchase") }
 ${method}
 }
 @main struct Run {
   @MainActor static func main() async {
-    for state in ["unknown", "off", "on", "owned", "identity", "sandbox-installed", "sandbox-app-store-install"] {
+    for state in ["unknown", "off", "on", "owned", "identity", "sandbox-installed", "sandbox-app-store-install",
+                  "owned-v3", "historical-v3", "historical-legacy"] {
       let executor = Executor()
       let sandbox = state.hasPrefix("sandbox")
-      if state != "unknown" { executor.policy = ProductPolicyRuntime(state == "on" || state == "identity" || sandbox) }
+      let charges = state == "on" || state == "identity" || sandbox || state.hasSuffix("-v3") || state.hasSuffix("-legacy")
+      if state != "unknown" { executor.policy = ProductPolicyRuntime(charges) }
       // A sandbox build charges only inside Apple's verified sandbox, never as an App Store install.
       executor.policy?.requiresSandboxInstallation = sandbox
       Executor.installEnvironment = state == "sandbox-installed" ? .sandbox : state == "sandbox-app-store-install" ? .production : .unavailable
-      executor.receiptOwned = state == "owned"
+      executor.receiptOwned = state.hasPrefix("owned")
+      executor.historicalOwned = state.hasPrefix("historical")
       if state == "identity" { executor.policy?.onCheck = { executor.currentAppUserID = "replacement" } }
       Purchases.shared.charges = 0
       var newPurchases = 0
-      let result = await executor.purchaseStillPro(expectedOffer: fixtureOffer(), onNewPurchase: { _ in newPurchases += 1 })
+      let result = await executor.purchaseStillPro(expectedOffer: fixtureOffer(), historicalCountsAsOwned: !state.hasSuffix("-v3"),
+        onNewPurchase: { _ in newPurchases += 1 })
       guard newPurchases == 0 else { fatalError("missing verified transaction manufactured analytics: " + state) }
-      let expected = state == "on" || state == "sandbox-installed" ? 1 : 0
+      // A V3 purchase by a historical-only holder reaches Apple (ISS-0132); the 2.x purchase and a
+      // still_pro_v3 owner never charge again.
+      let expected = state == "on" || state == "sandbox-installed" || state == "historical-v3" ? 1 : 0
       guard Purchases.shared.charges == expected else { fatalError("charge escaped sales/receipt/session gate: " + state) }
       if state == "unknown" || state == "off" || state == "sandbox-app-store-install" { guard result == .unavailable else { fatalError("unknown/off/production-install result: " + state) } }
-      if state == "owned" { guard executor.policy?.questions == 0 else { fatalError("owned receipt consulted sales") } }
+      if state.hasPrefix("owned") || state == "historical-legacy" { guard executor.policy?.questions == 0 else { fatalError("owned receipt consulted sales: " + state) } }
     }
     print("native-executor-sales-PASS")
   }

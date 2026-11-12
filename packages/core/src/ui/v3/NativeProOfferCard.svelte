@@ -15,8 +15,20 @@
     onBuy,
     onRestore,
     onRetry,
+    onSignInToRestore,
   }: NativeProOfferCardProps = $props();
   let held = $derived(accessHeld || accessChecking || accessVerify);
+  // ISS-0132: signed out with a historical purchase and nothing owned. Only the sign-in prompt:
+  // that purchase is restored through the account, so no Get Still Pro and no Restore purchase.
+  let signInToRestore = $derived(
+    ownership === "none" &&
+      !held &&
+      !restoreHeld &&
+      !verificationRequired &&
+      Boolean(onSignInToRestore) &&
+      state !== "pending" &&
+      state !== "success",
+  );
   let ready = $derived(
     ownership === "none" &&
       !held &&
@@ -62,6 +74,21 @@
         <span>Your purchase needs to be verified.</span>
       </div>
     </div>
+    {#if state === "failed"}
+      <!-- The verification could not run (ISS-0138: nothing on this device yet, offline, or
+        refused): the same answer the purchase screen gives, so a tap on Verify purchase is never
+        silent, with Restore purchase still the way back below. -->
+      <div class="status-line" data-tone="failed" role="alert">
+        <span class="glyph"><Glyph name="alert" size={16} /></span>
+        <div class="status-body">
+          <span>The purchase wasn’t confirmed.</span><span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >If you were charged, Restore purchase will find it.</span
+          >
+        </div>
+      </div>
+    {/if}
   {:else if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">
@@ -76,7 +103,17 @@
     </div>
   {:else}
     <div class="offer-head"><h2 class="card-title">Still Pro</h2></div>
-    {#if ready}
+    {#if signInToRestore}
+      <!-- ISS-0132 (owner, 6 Nov 2026): the line, then Sign in, and nothing else. -->
+      <p class="card-body">Bought Still Pro before? Sign in to restore it.</p>
+      <button
+        type="button"
+        class="primary block"
+        onclick={() => {
+          if (signInToRestore) onSignInToRestore?.();
+        }}>Sign in</button
+      >
+    {:else if ready}
       <button
         type="button"
         class="primary block"
@@ -155,7 +192,7 @@
       </div>
     {/if}
   {/if}
-  {#if ownership !== "owned"}<button
+  {#if ownership !== "owned" && !signInToRestore}<button
       type="button"
       class="link"
       disabled={!restoreReady}

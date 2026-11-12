@@ -137,9 +137,11 @@ let applePurchaseAuthority: {
 } | undefined;
 let appleProServices: Pick<AppleProHostDeps,
   "analytics" | "bridge" | "refreshAccountAccess" | "verifyLocalPurchase" | "readLinkEligibility" | "readAccountHeldPro" | "ownershipRevision" | "linkPurchase"
-  | "heldElsewhereMemory" | "purchaseAnalytics"> | undefined;
+  | "heldElsewhereMemory" | "purchaseAnalytics" | "readHistoricalPurchase"> | undefined;
 /** ISS-0104: the Apple Pro host's "linked to another account" memory (account id to revision). */
 const HELD_ELSEWHERE_KEY = "still:apple-pro-held-elsewhere";
+/** The launch's device-local purchase verification, for the settings authority to follow (ISS-0137). */
+let launchLocalVerification: Promise<unknown> | undefined;
 
 if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
   const sessionStorage = safeStorage();
@@ -220,8 +222,11 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       if (event !== "INITIAL_SESSION") authority.invalidateAccount();
     });
     void authority.refreshOwnership().catch(() => {});
-    // This refresh issues device-local proofs only; it never links an account on launch.
-    void authority.verifyLocalPurchase().catch(() => {});
+    // This refresh issues device-local proofs only; it never links an account on launch. The
+    // settings authority reads access again once it settles (ISS-0137), so a right it installs
+    // shows without waiting for the next minute refresh or a relaunch.
+    launchLocalVerification = authority.verifyLocalPurchase();
+    launchLocalVerification.catch(() => {});
   }
   // atomic-cloud syncs the committed record per field through the modern sync function; every
   // other configured build keeps exactly the legacy whole-record construction.
@@ -339,6 +344,7 @@ if (supabaseUrl && supabaseAnonKey && backendRouteProfile) {
       readAccountHeldPro: applePurchaseAuthority.readAccountHeldPro,
       ownershipRevision: applePurchaseAuthority.ownershipRevision,
       linkPurchase: intent => session.linkPurchase(intent),
+      readHistoricalPurchase: () => bridge.appleHistoricalPurchase(),
       heldElsewhereMemory: {
         read: () => {
           // SupportedStorage.getItem is async-capable in its type; both real backings are sync.
@@ -462,6 +468,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
     native: bridge,
     initializer: adapter,
     hydration: cache.whenHydrated(),
+    ...(launchLocalVerification ? { pendingLocalVerification: launchLocalVerification } : {}),
   });
   try {
     mount(AppleSettingsHost, {

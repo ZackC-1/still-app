@@ -25,6 +25,7 @@
 //
 
 import Foundation
+import os
 import RevenueCat
 import StoreKit
 import StillKit
@@ -65,43 +66,14 @@ private final class Once: @unchecked Sendable {
 }
 
 /// One receipt read: the tri-state verdict plus whether the entitling transaction was directly
-/// purchased (vs family-shared — load-bearing for attach eligibility, AE14).
+/// purchased (vs family-shared — load-bearing for attach eligibility, AE14). `conclusive` is
+/// false when the read timed out or met an unverifiable transaction: its `noSignal` then says
+/// nothing about ownership, which the purchase rescue must not mistake for "no purchase before".
 struct ReceiptRead: Sendable, Equatable {
   let status: ReceiptStatus
   let ownershipIsPurchased: Bool
   var productID: String? = nil
-}
-
-/// The current-entitlements sequence omits refunds: publish verified history before reading it.
-/// Ports return only observations produced by the native StoreKit verification adapter below.
-@MainActor
-enum AppleOwnershipScan {
-  static func run(products: [String], latest: (String) async -> NativeAppleOwnershipObservation,
-    current: () async -> NativeAppleOwnershipObservation,
-    onVerifiedRevocation: (NativeVerifiedAppleRevocation) -> Void) async -> NativeAppleOwnershipObservation {
-    var history = false, uncertain = false
-    var revocations: [NativeVerifiedAppleRevocation] = []
-    func consume(_ observation: NativeAppleOwnershipObservation) {
-      switch observation {
-      case .unknown: uncertain = true
-      case .purchaseHistory: history = true
-      case .verifiedRevocations(let verified):
-        history = true
-        for revocation in verified { revocations.append(revocation); onVerifiedRevocation(revocation) }
-      case .noPurchases: break
-      }
-    }
-    for product in products {
-      if Task.isCancelled { return revocations.isEmpty ? .unknown : .verifiedRevocations(revocations) }
-      consume(await latest(product))
-    }
-    // Known removal is sufficient. A slow currentEntitlements must never delay its publication.
-    if !revocations.isEmpty { return .verifiedRevocations(revocations) }
-    if Task.isCancelled { return .unknown }
-    consume(await current())
-    if !revocations.isEmpty { return .verifiedRevocations(revocations) }
-    return uncertain ? .unknown : history ? .purchaseHistory : .noPurchases
-  }
+  var conclusive = true
 }
 
 @MainActor
@@ -143,6 +115,20 @@ final class PurchaseManager {
   private(set) var lastReceiptRead = ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
   /// Held until StoreKit itself settles, even if the web reply reaches its deadline first.
   private var modernPurchaseInFlight: Task<ApplePurchaseActionResult, Never>?
+  /// A V3 purchase that settled after the page's bounded wait had ended (ISS-0134), kept for that
+  /// page's next `join`. Only the next purchase start replaces it: a join reads it without clearing
+  /// it, so a reply the bridge refuses after the claim cannot lose a settled purchase.
+  private var unclaimedPurchaseResult: ApplePurchaseActionResult?
+  /// How long one page wait for a V3 purchase may hold the bridge before it answers `unsettled` and
+  /// the page waits again (ISS-0134). Apple's sheet can stay up far longer than this; the purchase
+  /// task itself keeps running until StoreKit settles.
+  private nonisolated static let purchaseWaitNs: UInt64 = 120_000_000_000
+
+  /// Privacy-safe purchase diagnostics for device QA (ISS-0136): outcomes, error domains and codes,
+  /// receipt states. Never a transaction, account, device or customer identifier.
+  private static var purchaseLog: Logger {
+    Logger(subsystem: Bundle.main.bundleIdentifier ?? "still", category: "purchase")
+  }
 
   private init() {}
 
@@ -265,6 +251,13 @@ final class PurchaseManager {
     restorableEntitlementIDs.contains { customerInfo?.entitlements[$0]?.isActive == true }
   }
 
+  /// Whether RevenueCat reports the sellable entitlement alone. A V3 purchase's checks use this:
+  /// the historical entitlement is never device proof of Still Pro (ISS-0132), so it must not stop
+  /// a purchase from reaching Apple or count as one.
+  private static func sellableEntitlementIsActive(in customerInfo: CustomerInfo?) -> Bool {
+    customerInfo?.entitlements[ApplePurchaseCatalog.stillProV3.entitlementID]?.isActive == true
+  }
+
   /// The localized store price for the sellable Still Pro product, or nil if the offering
   /// isn't available. Anonymous offerings are first-class (the signed-out paywall shows this).
   func priceString() async -> String? {
@@ -311,9 +304,11 @@ final class PurchaseManager {
     await appleEvidence(allowFamilyShared: true, onVerifiedRevocation: onVerifiedRevocation)
   }
 
+  /// Device evidence is the sellable product only (ISS-0132): the server refuses `still_sync` as
+  /// device evidence, so offering it would only fail the verification.
   private func appleEvidence(allowFamilyShared: Bool, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void) async -> [String: String]? {
     await Self.bounded(fallback: Optional<[String: String]>.none) {
-      for product in ApplePurchaseCatalog.all {
+      for product in ApplePurchaseCatalog.deviceProofProducts {
         guard let result = await Transaction.latest(for: product.productID), case .verified(let transaction) = result else { continue }
         if let revocation = Self.verifiedNativeRevocation(transaction, jws: result.jwsRepresentation) {
           onVerifiedRevocation(revocation); continue
@@ -331,9 +326,12 @@ final class PurchaseManager {
 
   /// Known verified refunds publish immediately, even if a later StoreKit read times out.
   /// Unknown/unverified results neither manufacture absence nor revoke a cached signed right.
+  /// Only the sellable product counts as device ownership (ISS-0132); the historical product is
+  /// read for its refunds alone, so a historical-only device reads as no purchases.
   func observeAppleOwnership(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> NativeAppleOwnershipObservation {
     await Self.bounded(3_000_000_000, fallback: NativeAppleOwnershipObservation.unknown, cancelOnTimeout: true) {
-      await AppleOwnershipScan.run(products: ApplePurchaseCatalog.all.map { $0.productID }, latest: { productID in
+      await AppleOwnershipScan.run(products: ApplePurchaseCatalog.deviceProofProducts.map { $0.productID },
+        revocationOnly: [ApplePurchaseCatalog.historicalStillSync.productID], latest: { productID in
         guard let result = await Transaction.latest(for: productID) else { return .noPurchases }
         switch result {
         case .unverified: return .unknown
@@ -347,10 +345,12 @@ final class PurchaseManager {
         var history = false, uncertain = false
         for await result in Transaction.currentEntitlements {
           if Task.isCancelled { return .unknown }
+          let counts = { (productID: String) in
+            ApplePurchaseCatalog.deviceProofProducts.contains(where: { $0.productID == productID })
+          }
           switch result {
-          case .unverified: uncertain = true
-          case .verified(let transaction):
-            if ApplePurchaseCatalog.all.contains(where: { $0.productID == transaction.productID }) { history = true }
+          case .unverified(let transaction, _): if counts(transaction.productID) { uncertain = true }
+          case .verified(let transaction): if counts(transaction.productID) { history = true }
           }
         }
         return uncertain ? .unknown : history ? .purchaseHistory : .noPurchases
@@ -403,6 +403,15 @@ final class PurchaseManager {
     }
   }
 
+  /// ISS-0132: whether this device holds a verified, unrevoked production `still_sync` purchase the
+  /// person bought themselves (`HistoricalPurchasePrompt`). Display only: it picks the signed-out
+  /// "Sign in to restore it" prompt and never grants or proves anything (the account's
+  /// server-signed legacy right does that). Sandbox and Xcode purchases keep the ordinary offer.
+  func holdsHistoricalPurchase(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Bool {
+    HistoricalPurchasePrompt.applies(to: await verifiedApplePurchaseIdentity(
+      productId: ApplePurchaseCatalog.historicalStillSync.productID, onVerifiedRevocation: onVerifiedRevocation))
+  }
+
   /// Link eligibility is purchaser-only, including the historical product, with one bounded
   /// deadline across the native reads. Only current StoreKit verification supplies these tuples.
   func verifiedAppleLinkPurchaseIdentities(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> [NativeVerifiedApplePurchase]? {
@@ -426,45 +435,74 @@ final class PurchaseManager {
 
   /// V3 purchases do not associate a Still account. Re-read the displayed offer before charging,
   /// join repeated taps, and require a fresh verified exact-product receipt for purchase feedback.
-  func purchasePro(offer: AppleLifetimeOffering, onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ApplePurchaseActionResult {
+  ///
+  /// One page wait is bounded (`purchaseWaitNs`); when it ends before StoreKit settles the reply is
+  /// `unsettled`, never `pending` (ISS-0134: `pending` sent the page to verify a purchase that did
+  /// not exist). The purchase task keeps running. `join` is the page waiting again for that same
+  /// purchase: it never starts a charge, and with nothing in flight it hands over the result that
+  /// settled meanwhile, or cancelled when there is none.
+  func purchasePro(offer: AppleLifetimeOffering, join: Bool = false,
+    onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ApplePurchaseActionResult {
     if let modernPurchaseInFlight {
-      return await Self.bounded(120_000_000_000, fallback: ApplePurchaseActionResult(.pending)) {
+      return await Self.bounded(Self.purchaseWaitNs, fallback: ApplePurchaseActionResult(.unsettled)) {
         await modernPurchaseInFlight.value
       }
     }
+    if join {
+      // Nothing in flight: the purchase settled between the page's last answer and this join, or
+      // nothing was started this launch. The settled result stays until the next purchase starts:
+      // a delivery the bridge then refuses (the revocation fence) must not drop it, and a page that
+      // asks again after such a refusal must find it. With none, the join bought nothing.
+      let settled = unclaimedPurchaseResult ?? ApplePurchaseActionResult(.cancelled)
+      Self.purchaseLog.notice("purchase: join found nothing in flight, answering \(settled.outcome.rawValue, privacy: .public)")
+      return settled
+    }
+    unclaimedPurchaseResult = nil
     let task = Task { @MainActor in
-      let receipt = await self.refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
-      if receipt == .entitled {
-        return ApplePurchaseActionResult(.restored, receipt: receipt, productId: self.lastReceiptRead.productID)
+      // Only the sellable product means this device already owns Still Pro (ISS-0132): a historical
+      // purchase must not turn Get Still Pro into a Restore that the server then refuses.
+      let owned = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
+      if owned.status == .entitled {
+        return ApplePurchaseActionResult(.restored, receipt: owned.status, productId: owned.productID)
       }
       guard let fresh = await self.lifetimeOffering(), fresh == offer else {
+        Self.purchaseLog.notice("purchase: unavailable, the sellable offer is gone or changed")
         return ApplePurchaseActionResult(.unavailable)
       }
       // Deliberate purchase may repair a stale SDK identity; ordinary V3 sign-in never re-keys it.
       guard self.currentAppUserID == nil, await self.ensureAnonymousIdentity() else {
+        Self.purchaseLog.notice("purchase: refused, the store SDK identity is not verifiably anonymous")
         return ApplePurchaseActionResult(.staleIdentity)
       }
       var newPurchaseEvidence: [String: String]?
-      let outcome = await self.purchaseStillPro(expectedOffer: offer, onNewPurchase: { newPurchaseEvidence = $0 },
-        onVerifiedRevocation: onVerifiedRevocation)
+      let outcome = await self.purchaseStillPro(expectedOffer: offer, historicalCountsAsOwned: false,
+        onNewPurchase: { newPurchaseEvidence = $0 }, onVerifiedRevocation: onVerifiedRevocation)
       let status = await self.refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
       let mapped: ApplePurchaseActionOutcome
       switch outcome {
       case .purchased: mapped = .purchased
       case .cancelled: mapped = .cancelled
       case .pending: mapped = .pending
-      case .unavailable: mapped = .unavailable
+      // A refusal before any payment is what the page already knows as "unavailable": refused
+      // before any charge, so nothing was charged and Get Still Pro comes back (ISS-0138).
+      case .unavailable, .refused: mapped = .unavailable
       case .staleIdentity: mapped = .staleIdentity
       case .failed: mapped = .failed
       }
-      return ApplePurchaseActionResult(mapped, receipt: status, productId: self.lastReceiptRead.productID, newPurchaseEvidence: newPurchaseEvidence)
+      let result = ApplePurchaseActionResult(mapped, receipt: status, productId: self.lastReceiptRead.productID, newPurchaseEvidence: newPurchaseEvidence)
+      Self.purchaseLog.notice("purchase: store outcome \(mapped.rawValue, privacy: .public), receipt \(status.rawValue, privacy: .public), reply \(result.outcome.rawValue, privacy: .public)")
+      return result
     }
     modernPurchaseInFlight = task
     Task { @MainActor in
-      _ = await task.value
-      if self.modernPurchaseInFlight == task { self.modernPurchaseInFlight = nil }
+      let result = await task.value
+      if self.modernPurchaseInFlight == task {
+        self.modernPurchaseInFlight = nil
+        // Kept for a page whose bounded wait ended first (ISS-0134); the next start replaces it.
+        self.unclaimedPurchaseResult = result
+      }
     }
-    return await Self.bounded(120_000_000_000, fallback: ApplePurchaseActionResult(.pending)) {
+    return await Self.bounded(Self.purchaseWaitNs, fallback: ApplePurchaseActionResult(.unsettled)) {
       await task.value
     }
   }
@@ -486,8 +524,11 @@ final class PurchaseManager {
         status: transaction.revocationDate == nil ? .entitled : .verifiedNotEntitled,
         ownershipIsPurchased: transaction.ownershipType == .purchased,
         productID: transaction.productID)
-    case .some(.unverified), .none:
+    case .none:
+      // No transaction for this product is a real answer (StoreKit keeps every purchase).
       return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+    case .some(.unverified):
+      return ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false)
     }
   }
 
@@ -506,7 +547,7 @@ final class PurchaseManager {
     if reads.contains(where: { $0.status == .verifiedNotEntitled }) {
       return ReceiptRead(status: .verifiedNotEntitled, ownershipIsPurchased: false)
     }
-    return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+    return ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: reads.allSatisfy(\.conclusive))
   }
 
   /// One bounded receipt read across every restorable product — the sellable one plus the
@@ -527,7 +568,7 @@ final class PurchaseManager {
       Task {
         try? await Task.sleep(nanoseconds: identityTransitionTimeoutNs)
         once.run {
-          continuation.resume(returning: ReceiptRead(status: .noSignal, ownershipIsPurchased: false))
+          continuation.resume(returning: ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false))
         }
       }
     }
@@ -536,6 +577,20 @@ final class PurchaseManager {
   /// Refresh the cached receipt snapshot (launch, foreground, post-purchase, post-restore, and the
   /// blocked-write re-read are the call sites). Mirrors into `stillReceiptStatusCache` for the
   /// bridge's synchronous policy provider and returns the fresh status.
+  /// The receipt read for the device-proof products alone (the sellable one, ISS-0132): what a V3
+  /// purchase and the Still Pro Restore report. It leaves the cached receipt snapshot and the App
+  /// Group stamp to `refreshReceiptStatus()`, which still includes the historical product.
+  func sellableReceiptRead(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ReceiptRead {
+    await Self.bounded(fallback: ReceiptRead(status: .noSignal, ownershipIsPurchased: false, conclusive: false)) {
+      var reads: [ReceiptRead] = []
+      for product in ApplePurchaseCatalog.deviceProofProducts {
+        reads.append(Self.classifyReceipt(await Transaction.latest(for: product.productID),
+          onVerifiedRevocation: onVerifiedRevocation))
+      }
+      return Self.combinedReceipt(reads)
+    }
+  }
+
   @discardableResult
   func refreshReceiptStatus(onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> ReceiptStatus {
     let read = await Self.boundedReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
@@ -563,19 +618,45 @@ final class PurchaseManager {
     case pending // store accepted but entitlement not yet active (e.g. ask-to-buy)
     case unavailable // no offering / product not available right now
     case staleIdentity // signed out but the SDK identity is not verifiably anonymous (R15)
+    /// The store refused before any payment (ISS-0138): purchases not allowed on this device or
+    /// account, an invalid payment, a product not available, an ineligible person. Nothing was
+    /// charged, so the page shows the same "nothing was charged" answer as `unavailable`.
+    case refused
     case failed(String)
   }
+
+  /// The store SDK errors that StoreKit raises before a payment exists (ISS-0138). Any of these
+  /// without a verified receipt is a refusal that charged nothing, never a purchase to verify.
+  /// A store problem, a network error or an unknown error is not here: the receipt decides those.
+  private nonisolated static let sdkRefusalCodes: [RevenueCat.ErrorCode] = [
+    .purchaseNotAllowedError, .purchaseInvalidError, .productNotAvailableForPurchaseError, .ineligibleError,
+  ]
 
   /// Buy Still Pro — signed in OR signed out (purchase-first, R1). The returned `.purchased`
   /// acknowledges local StoreKit/RevenueCat success; the caller (router) refreshes the receipt and
   /// restamps the App Group so Safari unlocks immediately (R5).
-  func purchaseStillPro(expectedOffer: AppleLifetimeOffering? = nil, onNewPurchase: (([String: String]) -> Void)? = nil,
+  ///
+  /// `historicalCountsAsOwned` is false for the V3 purchase (ISS-0132): only the sellable product
+  /// and entitlement then stop the purchase as already owned or count as bought, so a historical
+  /// `still_sync` holder's Get Still Pro actually reaches Apple. The 2.x purchase keeps both.
+  func purchaseStillPro(expectedOffer: AppleLifetimeOffering? = nil, historicalCountsAsOwned: Bool = true,
+    onNewPurchase: (([String: String]) -> Void)? = nil,
     onVerifiedRevocation: @escaping (NativeVerifiedAppleRevocation) -> Void = { _ in }) async -> Outcome {
     let startingUserID = currentAppUserID
+    let entitlementActive: (CustomerInfo?) -> Bool = historicalCountsAsOwned
+      ? Self.proEntitlementIsActive(in:) : Self.sellableEntitlementIsActive(in:)
     // Receipt pre-flight (R14): a device that provably owns Pro never re-enters the purchase or
     // restore machinery — under default transfer semantics a RevenueCat receipt-post from a fresh
-    // identity would move the entitlement OFF the account it is attached to.
-    if await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation) == .entitled { return .purchased }
+    // identity would move the entitlement OFF the account it is attached to. The whole read is
+    // kept: whether it was conclusive decides what an entitled receipt after an SDK failure means.
+    let preflightRead: ReceiptRead
+    if historicalCountsAsOwned {
+      _ = await refreshReceiptStatus(onVerifiedRevocation: onVerifiedRevocation)
+      preflightRead = lastReceiptRead
+    } else {
+      preflightRead = await sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
+    }
+    if preflightRead.status == .entitled { return .purchased }
     // R15 ordering (review finding, 3 independent reviewers): verify the anonymous identity
     // BEFORE trusting CustomerInfo. A failed prior logOut leaves the SDK keyed to a departed
     // account; probing hasStillPro() against it would return a false `.purchased` — success
@@ -584,7 +665,9 @@ final class PurchaseManager {
     // session or a VERIFIED anonymous identity.
     let verifiedAnonymous = startingUserID == nil ? await ensureAnonymousIdentity() : false
     if startingUserID != nil || verifiedAnonymous {
-      if await hasStillPro() { return .purchased } // already unlocked on this identity; never double-charge
+      // Already unlocked on this identity; never double-charge.
+      let info = isConfigured ? try? await Purchases.shared.customerInfo() : nil
+      if entitlementActive(info) { return .purchased }
     }
     let package = await stillProPackage()
     switch PurchaseDecision.readiness(
@@ -614,6 +697,25 @@ final class PurchaseManager {
       guard case .verified(let transaction) = latest else { return (false, nil) }
       return (true, String(transaction.id))
     }
+    // The new-purchase evidence for analytics attribution, from StoreKit's own verified transaction
+    // and the pre-charge read above. `sdkID` is the SDK completion's transaction id; nil for a
+    // purchase StoreKit confirmed after the SDK threw (ISS-0136), which takes the rescued rule.
+    let newPurchaseEvidence: (String?) async -> [String: String]? = { sdkID in
+      guard let latest = await Self.bounded(3_000_000_000, fallback: Optional<StoreKit.VerificationResult<StoreKit.Transaction>>.none, cancelOnTimeout: true, {
+          await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID)
+        }),
+        case .verified(let transaction) = latest,
+        let identity = Self.verifiedNativeIdentity(transaction, jws: latest.jwsRepresentation) else { return nil }
+      let verifiedID = String(transaction.id)
+      let purchased = transaction.ownershipType == .purchased, revoked = transaction.revocationDate != nil
+      let eligible = sdkID.map {
+        AppleNewPurchaseProvenance.eligible(preflightKnown: before.0, preflightID: before.1, sdkID: $0,
+          verifiedID: verifiedID, environment: identity.environment, purchased: purchased, revoked: revoked)
+      } ?? AppleNewPurchaseProvenance.rescuedEligible(preflightKnown: before.0, preflightID: before.1,
+        verifiedID: verifiedID, environment: identity.environment, purchased: purchased, revoked: revoked)
+      guard eligible else { return nil }
+      return ["productId": transaction.productID, "bundleId": identity.appBundleId, "signedTransaction": latest.jwsRepresentation]
+    }
     return await NativeSalesPurchaseBoundary.perform(policy: freshSalesPolicy(), unavailable: Outcome.unavailable,
                                                      installEnvironment: { await Self.verifiedInstallEnvironment() }) {
       // The policy await must not allow a departed identity to receive this new charge.
@@ -621,25 +723,41 @@ final class PurchaseManager {
       do {
         let result = try await Purchases.shared.purchase(package: package)
         if result.userCancelled { return .cancelled }
-        if let onNewPurchase, Self.proEntitlementIsActive(in: result.customerInfo),
+        if let onNewPurchase, entitlementActive(result.customerInfo),
           let sdkID = result.transaction?.transactionIdentifier,
-          let latest = await Self.bounded(3_000_000_000, fallback: Optional<StoreKit.VerificationResult<StoreKit.Transaction>>.none, cancelOnTimeout: true, {
-            await Transaction.latest(for: ApplePurchaseCatalog.stillProV3.productID)
-          }),
-          case .verified(let transaction) = latest,
-          let identity = Self.verifiedNativeIdentity(transaction, jws: latest.jwsRepresentation),
-          AppleNewPurchaseProvenance.eligible(preflightKnown: before.0, preflightID: before.1,
-            sdkID: sdkID, verifiedID: String(transaction.id), environment: identity.environment,
-            purchased: transaction.ownershipType == .purchased, revoked: transaction.revocationDate != nil) {
-          onNewPurchase(["productId": transaction.productID, "bundleId": identity.appBundleId,
-            "signedTransaction": latest.jwsRepresentation])
+          let evidence = await newPurchaseEvidence(sdkID) {
+          onNewPurchase(evidence)
         }
-        return Self.proEntitlementIsActive(in: result.customerInfo) ? .purchased : .pending
+        return entitlementActive(result.customerInfo) ? .purchased : .pending
       } catch {
-        if let rcError = error as? RevenueCat.ErrorCode, rcError == .paymentPendingError {
-          return .pending // Ask-to-Buy: guardian approval arrives out-of-band
+        // The async SDK throws its cancel error on a plain cancel (purchases-ios forwards
+        // purchaseCancelledError to the completion and the async bridge throws any error), so
+        // `userCancelled` above is never seen on that path: a cancel must be read from the error.
+        let code = error as? RevenueCat.ErrorCode
+        let sdkCancel = code == .purchaseCancelledError, sdkPending = code == .paymentPendingError
+        // ISS-0138: a refusal the store made before any payment (not allowed, invalid, not
+        // available, ineligible) charged nothing; the page says so instead of asking to verify.
+        let sdkRefusal = code.map { Self.sdkRefusalCodes.contains($0) } ?? false
+        // ISS-0136: the SDK can also throw after Apple completed the charge (its own receipt post
+        // failing is one case). StoreKit is the authority: read the sellable receipt again and let
+        // the tested rule decide. Entitled now after a conclusive pre-flight is this charge and
+        // carries the same new-purchase evidence; after an inconclusive pre-flight it may be an
+        // older purchase, so it goes to the local verification and is never reported as a sale.
+        let after = await self.sellableReceiptRead(onVerifiedRevocation: onVerifiedRevocation)
+        let resolved = AppleSDKPurchaseFailure.classify(sdkReportsCancel: sdkCancel, sdkReportsPending: sdkPending,
+          sdkReportsRefusal: sdkRefusal, preflightConclusive: preflightRead.conclusive,
+          receiptAfterFailure: after.status, afterConclusive: after.conclusive)
+        let failure = error as NSError
+        Self.purchaseLog.error("purchase: store SDK threw \(failure.domain, privacy: .public) \(failure.code), receipt now \(after.status.rawValue, privacy: .public) (conclusive \(after.conclusive)), pre-flight conclusive \(preflightRead.conclusive), resolved \(String(describing: resolved), privacy: .public)")
+        switch resolved {
+        case .purchased:
+          if let onNewPurchase, let evidence = await newPurchaseEvidence(nil) { onNewPurchase(evidence) }
+          return .purchased
+        case .pending: return .pending // Ask-to-Buy, or ownership the local verification must prove
+        case .cancelled: return .cancelled
+        case .refused: return .refused // nothing was charged (ISS-0138)
+        case .failed: return .failed(error.localizedDescription)
         }
-        return .failed(error.localizedDescription)
       }
     }
   }

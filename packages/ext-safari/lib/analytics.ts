@@ -81,6 +81,13 @@ export interface SafariBackgroundAnalytics {
   stop(): void;
 }
 
+/** The app's signed-in account in a `getAccountSyncStatus` reply: null when signed out, undefined
+ * when the reply cannot be read. */
+function accountOf(reply: unknown): string | null | undefined {
+  const status = (reply as { accountSyncStatus?: unknown } | null)?.accountSyncStatus;
+  return status === null ? null : parseAccountSyncStatus(status)?.accountId;
+}
+
 export function createSafariBackgroundAnalytics(
   deps: SafariAnalyticsDeps,
 ): SafariBackgroundAnalytics {
@@ -224,12 +231,14 @@ export function createSafariBackgroundAnalytics(
       ? captured
       : null;
   };
-  // The observation to carry on with, or null to drop the work (ISS-0115). A popup that wakes the
-  // background races the start's own account check, and whichever confirms "signed out" first
-  // fences what was observed before it, the popup's `opened` included. The client keeps such work
-  // only when every confirmation since it was observed let go of nobody and the permission is the
-  // very one it arrived under (client.revive); a sign-out of anyone, a deletion or a sharing change
-  // still drops it, and a turn-on is never recorded under an earlier origin's ids.
+  // The observation to carry on with, or null to drop the work (ISS-0115, ISS-0127). A popup that
+  // wakes the background races the start's own account check, and whichever confirms the account
+  // first fences what was observed before it, the popup's `opened` included. The client keeps such
+  // work only when every confirmation since it was observed left its owner as it was (a sign-out of
+  // nobody, or the identity already stored for the same account) and the permission is the very
+  // one it arrived under (client.revive); a sign-out of anyone, another account or identity, a
+  // deletion or a sharing change still drops it, and a turn-on is never recorded under an earlier
+  // origin's ids.
   const revive = async (observation: Captured | null): Promise<Captured | null> =>
     !stopped && observation ? host.client.revive(observation) : null;
   // Account checks (the start's, each page event's, each flush's) read the app's account at once,
@@ -256,16 +265,24 @@ export function createSafariBackgroundAnalytics(
     if (stopped) return null;
     if (sequence !== accountSequence) {
       // Overtaken by a newer check: this answer is not applied. The work is kept only when this
-      // check's own answer was a readable "signed out" (the app named someone, or could not be
-      // read, for it: dropped), and then only once every newer check has finished, if the device
-      // is still signed out with nothing held and nothing but sign-outs of nobody fenced it
-      // (revive). Otherwise it is dropped, as before.
-      if ((reply as { accountSyncStatus?: unknown } | null)?.accountSyncStatus !== null) return null;
+      // check's own answer was readable (an unreadable one is dropped), and then only once every
+      // newer check has finished, if the device is still as that answer said: signed out with
+      // nothing held (ISS-0115), or signed in as the same account (ISS-0127). Even then, only when
+      // nothing but confirmations that left its owner as it was fenced it (revive). Otherwise it
+      // is dropped, as before.
+      const userId = accountOf(reply);
+      if (userId === undefined) return null;
       for (let tail = latestCheck; ; tail = latestCheck) {
         await tail;
         if (tail === latestCheck) break;
       }
-      if (stopped || !(await host.client.lettingGoOfNobody())) return null;
+      if (
+        stopped ||
+        !(userId === null
+          ? await host.client.lettingGoOfNobody()
+          : (await host.client.accountInForce()) === userId.toLowerCase())
+      )
+        return null;
       return revive(await observation);
     }
     const next = applying.then(() => applyAccount(observation, reply));
@@ -275,10 +292,7 @@ export function createSafariBackgroundAnalytics(
   const applyAccount = async (observation: Observation, reply: unknown): Promise<Captured | null> => {
     let captured = await revive(await observation);
     if (!captured) return null;
-    const status = (reply as { accountSyncStatus?: unknown } | null)
-      ?.accountSyncStatus;
-    const userId =
-      status === null ? null : parseAccountSyncStatus(status)?.accountId;
+    const userId = accountOf(reply);
     if (userId === undefined) return null; // unreadable is never confirmed signed-out
     // A repeated confirmed null answer must not retire the observation on every popup.
     if (userId === null) {
@@ -345,7 +359,7 @@ export function createSafariBackgroundAnalytics(
         (message as { kind?: unknown }).kind !== ANALYTICS_MESSAGE_KIND
       )
         return false;
-      // Kept even if the start's sign-out lands while it is read: syncAccount decides (revive).
+      // Kept even if the start's confirmation lands while it is read: syncAccount decides (revive).
       const observation = host.client.observe();
       run(async () => {
         const confirmed = await revive(await syncAccount(observation));
