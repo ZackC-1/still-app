@@ -803,6 +803,14 @@ Privacy: https://stillapp.fit/privacy/
 **Test instructions** (Chrome’s reviewer field; this build never takes the fixed-code review path,
 so it promises no code):
 
+Chrome’s field holds 500 characters, so the 3.0 submission used this shorter version (486):
+
+```
+No account or purchase is needed. Open YouTube, Instagram, Facebook and TikTok in Chrome: Shorts and Reels are removed, other content stays and the TikTok site is blocked. Use the toolbar popup switches to turn sites on or off. Sign-in is optional (free settings sync) and emails a 6-digit code to any address you can read; there is no review account. Still Pro is optional: Settings, then Get Still Pro, sign in, and a RevenueCat checkout tab opens. No purchase or test card is needed.
+```
+
+The longer version, for reference:
+
 ```
 No account and no purchase are needed to review Still. Open YouTube, Instagram, Facebook and TikTok in Chrome: Shorts and Reels are removed, regular videos and posts stay and the TikTok website is blocked. Use the switches in Still’s toolbar popup to turn Still or any site on or off.
 
@@ -901,7 +909,7 @@ Signed-in requests carry the sign-in session token (declared under the required 
 
 Usage data is the optional “technicalAndInteraction” data-collection permission. Nothing is sent unless it is granted, at install or later from Still’s settings. It records product events only, never page addresses, videos, searches or page content. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release is for desktop Firefox.
 
-The complete source archive includes the pnpm workspace, frozen lockfile, public build configuration and AMO-REBUILD.mjs. Follow that file’s prerequisites and run `node AMO-REBUILD.mjs` to reproduce the submitted Firefox payload. Remote rule updates are signed data, not executable code.
+The complete source archive includes the pnpm workspace, frozen lockfile and public build configuration. Follow AMO-BUILD-INSTRUCTIONS.md at the top of the archive (pnpm install --frozen-lockfile, the listed public build values, then pnpm --filter @still/ext-chromium build:firefox) to reproduce the submitted Firefox payload file by file. Remote rule updates are signed data, not executable code.
 ```
 
 **Release notes:** the Chrome text above.
@@ -1310,7 +1318,7 @@ All blocking and optional settings sync are free. No account or purchase is need
 
 New in 2.1: optional usage analytics declared as the optional "technicalAndInteraction" data collection permission. Nothing is sent unless the user grants it (at install or later from Still's settings). It records product events only, never page addresses, videos, searches or page content.
 
-The complete source archive includes the pnpm workspace, frozen lockfile, public build configuration, and AMO-REBUILD.mjs. Follow that file's prerequisites and run `node AMO-REBUILD.mjs` to reproduce the submitted Firefox payload. Remote rule updates are signed data, not executable code.
+The complete source archive includes the pnpm workspace, frozen lockfile and public build configuration. Follow AMO-BUILD-INSTRUCTIONS.md at the top of the archive to reproduce the submitted Firefox payload file by file. Remote rule updates are signed data, not executable code.
 ```
 
 **Screenshots:** the Chrome set, taken in Firefox.
