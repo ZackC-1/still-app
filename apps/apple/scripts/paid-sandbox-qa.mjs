@@ -371,6 +371,10 @@ export async function buildAppleTarget({ clone, output, target, env, config }) {
   if (spec.sdk) args.push("-sdk", spec.sdk);
   if (spec.archive) args.push("-archivePath", archive);
   else args.push("CODE_SIGNING_ALLOWED=NO");
+  // QA packages are never store builds: they carry sandbox trust (or none), and the device exports
+  // are development-signed. This setting exempts them from the Release-only store trust check
+  // (store-trust-plist-check.mjs); archive.sh forces it to NO.
+  args.push("STILL_NON_STORE_BUILD=YES");
   runChecked("xcodebuild", args, { cwd: clone, env });
   const artifact = join(output, "artifact"); await mkdir(artifact, { recursive: true });
   if (spec.developmentExport) {
