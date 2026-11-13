@@ -30,7 +30,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.8.3"
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: "2.119.0"
       - name: Verify pinned tooling
@@ -67,7 +67,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.8.3"
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: "2.119.0"
       - name: Verify pinned tooling and bind exact synthetic source
@@ -107,7 +107,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.8.3"
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: "2.119.0"
       - name: Test immutable plan boundary
