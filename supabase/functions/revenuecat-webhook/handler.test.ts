@@ -217,6 +217,14 @@ Deno.test("webhook audit log stores a minimized payload, not raw billing/custome
   });
 });
 
+Deno.test("legacy deployment ignores sandbox events for the legacy projection", async () => {
+  const { store, writes } = mockStore();
+  const body = { event: { id: "legacy-sandbox", type: "NON_RENEWING_PURCHASE", app_user_id: A, environment: "SANDBOX" } };
+  const res = await handleWebhook(req(body), { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) });
+  assertEquals(await res.json(), { status: "ok", reconciled: 0 });
+  assertEquals(writes, []);
+});
+
 Deno.test("reconcile failure → 5xx, claim released, redelivery of the SAME event succeeds", async () => {
   const { store, writes, released } = mockStore();
   const failingRc: RevenueCatClient = {
