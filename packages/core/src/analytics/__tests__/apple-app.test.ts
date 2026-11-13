@@ -52,6 +52,7 @@ function setup(
   let current = context === null ? null : { ...CONTEXT, ...context };
   const bridge: AppAnalyticsBridge & {
     setAnalyticsConsent: ReturnType<typeof vi.fn>;
+    recordAnalyticsInstall: ReturnType<typeof vi.fn>;
   } = {
     analyticsContext: vi.fn(async () => {
       await over.gate;
@@ -59,6 +60,7 @@ function setup(
     }),
     setAnalyticsConsent: vi.fn(async (enabled: boolean) => enabled),
     acknowledgeAnalyticsNotice: vi.fn(async () => {}),
+    recordAnalyticsInstall: vi.fn(async () => {}),
   };
   const fetch =
     over.fetch ??
@@ -105,6 +107,24 @@ describe("Apple app analytics", () => {
       expect(events().some(event => event.event === "purchase_started")).toBe(false);
     },
   );
+
+  it("saves an install time for the Safari extension that is never earlier than the installed stamp", async () => {
+    const { app, events, bridge } = setup();
+    await app.start();
+    const installed = events().find((e) => e.event === "installed") as unknown as { timestamp: string };
+    expect(bridge.recordAnalyticsInstall).toHaveBeenCalledTimes(1);
+    expect(bridge.recordAnalyticsInstall.mock.calls[0]![0]).toBeGreaterThanOrEqual(Date.parse(installed.timestamp));
+  });
+
+  it.each([
+    ["an update", { created: false, previousVersion: "2.0.0" }],
+    ["a later launch", { created: false }],
+    ["sharing off", { consent: false }],
+  ])("saves no install time on %s", async (_, context) => {
+    const { app, bridge } = setup(context);
+    await app.start();
+    expect(bridge.recordAnalyticsInstall).not.toHaveBeenCalled();
+  });
 
   it("a new Mac install reports installed, the app opening and one active day", async () => {
     const { app, events } = setup();

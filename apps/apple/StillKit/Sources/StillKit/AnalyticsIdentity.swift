@@ -56,6 +56,9 @@ public final class AnalyticsIdentityStore {
   /// decision 50), so the Safari extension on this device reports under the same one. Local only.
   static let subjectKey = "still.analytics.subject"
   static let lastVersionKey = "still.analytics.last-version"
+  /// When the app's web layer stamped `installed` (ms since 1970). The Safari extension raises its
+  /// day-only setup stamps to it, so a same-day setup never comes before the install. Local only.
+  static let installedAtKey = "still.analytics.installed-at"
   /// Set once the app has read the install record. The Safari extension can create the record
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
@@ -281,6 +284,21 @@ public final class AnalyticsIdentityStore {
     group.set(true, forKey: Self.noticeKey)
   }
 
+  // MARK: Install stamp (the app writes it; the extension reads it)
+
+  public var installedAt: Int64? {
+    guard let value = Self.integer(group.object(forKey: Self.installedAtKey)), value > 0 else { return nil }
+    return value
+  }
+
+  /// The `recordAnalyticsInstall` bridge write (trusted app frame only): a positive integer time in
+  /// milliseconds. Anything else is refused and changes nothing.
+  public func recordInstalledAt(_ value: Any?) -> [String: Any] {
+    guard let at = Self.integer(value), at > 0 else { return ["ok": false] }
+    group.set(NSNumber(value: at), forKey: Self.installedAtKey)
+    return ["ok": installedAt == at]
+  }
+
   // MARK: Per-device identity (the app writes it; the extension reads it)
 
   /// The identity the app's server issued for `account` under the permission whose origin proof is
@@ -320,9 +338,11 @@ public final class AnalyticsIdentityStore {
 
   /// The Safari extension's read-only lanes. Unknown kinds return nil.
   ///
-  ///   * `{kind:"analyticsContext"}` → `{analytics:{installId, anchorId, consent, platform, device}}`.
+  ///   * `{kind:"analyticsContext"}` →
+  ///     `{analytics:{installId, anchorId, consent, platform, device, installedAt}}`.
   ///     `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
   ///     handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  ///     `installedAt` is the app's `installed` stamp in milliseconds, or null before the app has one.
   ///   * `{kind:"analyticsPermission"}` → `{analyticsPermission: <record> | false | null}`: the app's
   ///     usage-sharing permission as stored, so a V3 extension reports only under the app's choice.
   ///     It never creates ids, grants, stops or writes anything.
@@ -344,6 +364,7 @@ public final class AnalyticsIdentityStore {
       "consent": consent,
       "platform": platform,
       "device": device,
+      "installedAt": installedAt.map { NSNumber(value: $0) } ?? NSNull(),
     ]]
   }
 

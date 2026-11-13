@@ -81,6 +81,22 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(analytics?["device"] as? String, "phone")
   }
 
+  func testTheExtensionReadsTheAppsInstallStamp() {
+    let group = MemoryKeyValue()
+    let app = AnalyticsIdentityStore(group: group, newId: ids())
+    let read = {
+      (AnalyticsIdentityStore(group: group, newId: self.ids()).extensionReply(
+        rawBody: ["kind": "analyticsContext"], platform: "ios", device: "phone")?["analytics"] as? [String: Any])?["installedAt"]
+    }
+    XCTAssertTrue(read() is NSNull)
+    XCTAssertEqual(app.recordInstalledAt(NSNumber(value: 1_767_000_000_123))["ok"] as? Bool, true)
+    XCTAssertEqual((read() as? NSNumber)?.int64Value, 1_767_000_000_123)
+    for refused: Any? in [nil, "1767000000123", NSNumber(value: true), NSNumber(value: 0), NSNumber(value: 1.5)] {
+      XCTAssertEqual(app.recordInstalledAt(refused)["ok"] as? Bool, false)
+    }
+    XCTAssertEqual(app.installedAt, 1_767_000_000_123)
+  }
+
   func testEarlierInstallEvidence() {
     let suite = "analytics-evidence-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!

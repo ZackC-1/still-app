@@ -33,12 +33,14 @@ interface NativeAnalytics {
   /** Compiled into the native handler, so it cannot confuse an iPad for a Mac. */
   readonly platform: "ios" | "macos" | null;
   readonly device: AnalyticsDevice | null;
+  /** When the Apple app stamped `installed` (ms), or null before the app has. */
+  readonly installedAt: number | null;
 }
 
 export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   const analytics = (reply as { analytics?: unknown } | null)?.analytics;
   if (typeof analytics !== "object" || analytics === null) return null;
-  const { installId, anchorId, consent, platform, device } =
+  const { installId, anchorId, consent, platform, device, installedAt } =
     analytics as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
   return {
@@ -47,6 +49,10 @@ export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
     consent: consent === true, // fails closed if the field is ever missing
     platform: platform === "ios" || platform === "macos" ? platform : null,
     device: isDeviceClass(device) ? device : null,
+    installedAt:
+      typeof installedAt === "number" && Number.isSafeInteger(installedAt) && installedAt > 0
+        ? installedAt
+        : null,
   };
 }
 
@@ -141,6 +147,7 @@ export function createSafariBackgroundAnalytics(
   let metadata: {
     surface: "safari-ios" | "safari-macos";
     device: AnalyticsDevice | undefined;
+    installedAt: number | null;
   } | null = null;
   let metadataFlight: Promise<boolean> | null = null;
   const proveMetadata = (): Promise<boolean> => {
@@ -164,6 +171,7 @@ export function createSafariBackgroundAnalytics(
       metadata = {
         surface: mac ? "safari-macos" : "safari-ios",
         device: native.device ?? (mac ? "desktop" : undefined),
+        installedAt: native.installedAt,
       };
       return true;
     })().catch(() => false);
@@ -207,6 +215,7 @@ export function createSafariBackgroundAnalytics(
         returning: false,
       };
     },
+    installedAt: async () => ((await proveMetadata()) ? (metadata?.installedAt ?? null) : null),
     noticeApplies: false,
     // V3 builds: signed-in use reports under the device's identity the app was issued (owner
     // decision 50; lib/default-on-analytics.ts). The inline build-time check folds this away in

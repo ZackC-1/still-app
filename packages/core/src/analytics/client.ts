@@ -291,6 +291,10 @@ function localDay(ms: number): string {
  */
 export interface TrackOptions {
   readonly quiet?: boolean;
+  /** A quiet event's stamp is raised to this time (ms) when it falls later on the same day and not
+   * after now. Only for a time that was already sent (the Apple app's `installed` stamp), so the
+   * stamp still says nothing about when a site was visited. */
+  readonly notBefore?: number;
   readonly at?: number;
   /** Derived work retains the permission and account that observed the originating action. */
   readonly observation?: AnalyticsObservation;
@@ -1583,7 +1587,10 @@ export class AnalyticsClient {
   private timestamp(options: TrackOptions): string {
     // Earlier install/setup evidence is not an eligible post-consent action.
     const at = this.deps.now();
-    return options.quiet ? localMidnightIso(at) : new Date(at).toISOString();
+    if (!options.quiet) return new Date(at).toISOString();
+    const day = localMidnightIso(at);
+    const floor = options.notBefore;
+    return floor !== undefined && floor > Date.parse(day) && floor <= at ? new Date(floor).toISOString() : day;
   }
 
   /** The anonymous id this install reports under while signed out. */
