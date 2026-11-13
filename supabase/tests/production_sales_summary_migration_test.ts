@@ -78,7 +78,9 @@ Deno.test({
       await t.step("after the apply the gate is clean and the checker holds SELECT on the view", async () => {
         assert(versions.includes("0025"), JSON.stringify(versions));
         assertEquals(await gate(sql), []);
-        assertEquals(await checkerGrants(), 26);
+        // `migration up` applies every later migration too; 0030 adds the PROD-02 view's grant.
+        const later = versions.includes("0030") ? 1 : 0;
+        assertEquals(await checkerGrants(), 26 + later);
         const [{ granted }] = await sql`select pg_catalog.has_table_privilege(${CHECKER}, ${VIEW}, 'SELECT') as granted`;
         assertEquals(granted, true);
         assertEquals((await sql.unsafe(`select * from ${VIEW}`)).length, 1);

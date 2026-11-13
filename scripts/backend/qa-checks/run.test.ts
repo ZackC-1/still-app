@@ -71,15 +71,23 @@ Deno.test("the session proof accepts only the exact narrow read-only checker", (
   assertEquals(sessionProblems({ ...narrow, definer_execute: 3, writable: 2 }), ["writable-relation", "definer-execute"]);
 });
 
-Deno.test("before migration 0025 the role holds the candidate views only; checks still run, PROD-01 refuses", () => {
-  const before = { ...narrow, own_grants: CHECK_VIEWS.length - 1, migration_grants: "" };
+Deno.test("before migrations 0025 and 0030 the role holds the candidate views only; checks still run, PROD-01 and PROD-02 refuse", () => {
+  const migrationViews = Object.keys(MIGRATION_VIEWS).length;
+  const before = { ...narrow, own_grants: CHECK_VIEWS.length - migrationViews, migration_grants: "" };
   requireCheckerSession(before);
   assertEquals(grantedMigrationViews(before), []);
-  assertEquals(grantedMigrationViews(narrow), ["production_sales_summary"]);
+  assertEquals(grantedMigrationViews(narrow), ["production_sales_summary", "production_purchase_operations_recent"]);
+  // Hosted production between the two applies: 0025's view only.
+  const only0025 = { ...narrow, own_grants: CHECK_VIEWS.length - 1, migration_grants: "production_sales_summary" };
+  requireCheckerSession(only0025);
+  requireMigrationViews("PROD-01", ["production_sales_summary"], only0025);
+  const pending = assertThrows(() => requireMigrationViews("PROD-02", ["production_purchase_operations_recent"], only0025), CheckError);
+  assert(pending.message.includes("migration 0030"), pending.message);
   // The count must match the reported migration grants exactly, in both directions.
   for (const session of [
     { ...narrow, own_grants: CHECK_VIEWS.length - 1 },
     { ...before, own_grants: CHECK_VIEWS.length },
+    { ...only0025, own_grants: CHECK_VIEWS.length },
     { ...narrow, migration_grants: "production_sales_summary,production_sales_summary", own_grants: CHECK_VIEWS.length + 1 },
     { ...narrow, migration_grants: "qa_accounts" },
     { ...narrow, migration_grants: undefined as unknown as string },
@@ -87,6 +95,7 @@ Deno.test("before migration 0025 the role holds the candidate views only; checks
     assertEquals(sessionProblems(session), ["grants"], JSON.stringify(session));
   }
   requireMigrationViews("PROD-01", ["production_sales_summary"], narrow);
+  requireMigrationViews("PROD-02", ["production_purchase_operations_recent"], narrow);
   requireMigrationViews("DB-31", ["policy_heads", "isolation_summary"], before);
   const error = assertThrows(() => requireMigrationViews("PROD-01", ["production_sales_summary"], before), CheckError);
   assert(error.message.includes("migration 0025"), error.message);

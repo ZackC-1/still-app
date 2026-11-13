@@ -4,7 +4,8 @@
 -- would block the fixed qa-sandbox-functions operation, and it would move the QA baseline (DB-01).
 -- Views added after this candidate was installed arrive as reviewed numbered migrations through the
 -- protected migration operation instead (0025: still_qa_checks.production_sales_summary for
--- PROD-01). Re-running this file keeps their SELECT grant: it grants each one that exists.
+-- PROD-01; 0030: still_qa_checks.production_purchase_operations_recent for PROD-02). Re-running
+-- this file keeps their SELECT grant: it grants each one that exists.
 --
 -- What it creates (nothing else changes; no existing row, role, grant or policy is altered):
 --   role   still_qa_readonly_checker  NOLOGIN until the owner sets a password; no membership,
@@ -286,11 +287,14 @@ grant select on still_qa_checks.account_status, still_qa_checks.qa_subjects, sti
   still_qa_checks.rights_summary, still_qa_checks.isolation_summary, still_qa_checks.retention_summary,
   still_qa_checks.privacy_summary, still_qa_checks.erasure_jobs_last_hour
   to still_qa_readonly_checker;
--- Views installed by numbered migrations (0025). Not created here; granted only when present.
+-- Views installed by numbered migrations (0025, 0030). Not created here; granted only when present.
 do $$
 begin
   if pg_catalog.to_regclass('still_qa_checks.production_sales_summary') is not null then
     execute 'grant select on still_qa_checks.production_sales_summary to still_qa_readonly_checker';
+  end if;
+  if pg_catalog.to_regclass('still_qa_checks.production_purchase_operations_recent') is not null then
+    execute 'grant select on still_qa_checks.production_purchase_operations_recent to still_qa_readonly_checker';
   end if;
 end;
 $$;
@@ -302,7 +306,8 @@ $$;
 do $$
 declare
   checker oid := (select oid from pg_catalog.pg_roles where rolname = 'still_qa_readonly_checker');
-  migration_views integer := (case when pg_catalog.to_regclass('still_qa_checks.production_sales_summary') is null then 0 else 1 end);
+  migration_views integer := (case when pg_catalog.to_regclass('still_qa_checks.production_sales_summary') is null then 0 else 1 end)
+    + (case when pg_catalog.to_regclass('still_qa_checks.production_purchase_operations_recent') is null then 0 else 1 end);
 begin
   if (select pg_catalog.count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace,
         lateral pg_catalog.aclexplode(c.relacl) a
