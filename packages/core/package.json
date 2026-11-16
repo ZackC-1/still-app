@@ -85,7 +85,7 @@
     "@testing-library/svelte": "^5.4.2",
     "@types/chrome": "^0.2.9",
     "fake-indexeddb": "^6.2.5",
-    "jsdom": "^30.0.1",
+    "jsdom": "^31.0.1",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
